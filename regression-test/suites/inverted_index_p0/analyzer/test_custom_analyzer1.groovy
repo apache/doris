@@ -45,7 +45,7 @@ suite("test_custom_analyzer1", "p0") {
         PROPERTIES
         (
             "type" = "char_replace",
-            "char_filter_pattern" = "_"
+            "pattern" = "_"
         );
     """
 
@@ -54,7 +54,7 @@ suite("test_custom_analyzer1", "p0") {
         PROPERTIES
         (
             "type" = "char_replace",
-            "char_filter_pattern" = "."
+            "pattern" = "."
         );
     """
 

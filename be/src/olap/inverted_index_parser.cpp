@@ -17,8 +17,6 @@
 
 #include "olap/inverted_index_parser.h"
 
-#include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
-#include "olap/rowset/segment_v2/inverted_index/char_filter/char_replace_char_filter_factory.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -104,35 +102,29 @@ CharFilterMap get_parser_char_filter_map_from_properties(
         const std::map<std::string, std::string>& properties) {
     CharFilterMap char_filter_map;
 
-    if (properties.find(segment_v2::inverted_index::CHAR_REPLACE_CHAR_FILTER_TYPE) ==
-        properties.end()) {
+    if (properties.find(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE) == properties.end()) {
         return CharFilterMap();
     }
 
-    std::string type = properties.at(segment_v2::inverted_index::CHAR_REPLACE_CHAR_FILTER_TYPE);
-    if (type == segment_v2::inverted_index::CHAR_REPLACE_TYPE) {
+    std::string type = properties.at(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE);
+    if (type == INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE) {
         // type
-        char_filter_map[segment_v2::inverted_index::CHAR_REPLACE_CHAR_FILTER_TYPE] =
-                segment_v2::inverted_index::CHAR_REPLACE_TYPE;
+        char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE] =
+                INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE;
 
         // pattern
-        if (properties.find(segment_v2::inverted_index::CHAR_REPLACE_CHAR_FILTER_PATTERN) ==
-            properties.end()) {
+        if (properties.find(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN) == properties.end()) {
             return CharFilterMap();
         }
-        std::string pattern =
-                properties.at(segment_v2::inverted_index::CHAR_REPLACE_CHAR_FILTER_PATTERN);
-        char_filter_map[segment_v2::inverted_index::CHAR_REPLACE_CHAR_FILTER_PATTERN] = pattern;
+        std::string pattern = properties.at(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN);
+        char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN] = pattern;
 
         // placement
         std::string replacement = " ";
-        if (properties.find(segment_v2::inverted_index::CHAR_REPLACE_CHAR_FILTER_REPLACEMENT) !=
-            properties.end()) {
-            replacement =
-                    properties.at(segment_v2::inverted_index::CHAR_REPLACE_CHAR_FILTER_REPLACEMENT);
+        if (properties.find(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT) != properties.end()) {
+            replacement = properties.at(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT);
         }
-        char_filter_map[segment_v2::inverted_index::CHAR_REPLACE_CHAR_FILTER_REPLACEMENT] =
-                replacement;
+        char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT] = replacement;
     } else {
         return CharFilterMap();
     }

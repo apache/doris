@@ -22,11 +22,8 @@
 
 namespace doris::segment_v2::inverted_index {
 
-static const std::string CHAR_REPLACE_CHAR_FILTER_TYPE = "char_filter_type";
-static const std::string CHAR_REPLACE_CHAR_FILTER_PATTERN = "char_filter_pattern";
-static const std::string CHAR_REPLACE_CHAR_FILTER_REPLACEMENT = "char_filter_replacement";
-
-static const std::string CHAR_REPLACE_TYPE = "char_replace";
+static const std::string CHAR_REPLACE_PATTERN = "pattern";
+static const std::string CHAR_REPLACE_REPLACEMENT = "replacement";
 
 class CharReplaceCharFilterFactory : public CharFilterFactory {
 public:
@@ -34,12 +31,32 @@ public:
     ~CharReplaceCharFilterFactory() override = default;
 
     void initialize(const Settings& settings) override {
-        _pattern = settings.get_string(CHAR_REPLACE_CHAR_FILTER_PATTERN);
+        _pattern = settings.get_string(CHAR_REPLACE_PATTERN);
         if (_pattern.empty()) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Missing 'char_filter_pattern' for 'char_replace' filter type");
+                            "Missing '${CHAR_REPLACE_PATTERN}' for char_replace filter type");
         }
-        _replacement = settings.get_string(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        for (char ch : _pattern) {
+            unsigned int uc = static_cast<unsigned char>(ch);
+            if (uc > 255) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Invalid '${CHAR_REPLACE_PATTERN}' for char_replace "
+                                "filter type: each char must "
+                                "be in [0,255]");
+            }
+        }
+        _replacement = settings.get_string(CHAR_REPLACE_REPLACEMENT, " ");
+        if (_replacement.size() != 1) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Invalid '${CHAR_REPLACE_REPLACEMENT}' for char_replace "
+                            "filter type: must be exactly 1 byte");
+        }
+        unsigned int rep = static_cast<unsigned char>(_replacement[0]);
+        if (rep > 255) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Invalid '${CHAR_REPLACE_REPLACEMENT}' for char_replace "
+                            "filter type: must be in [0,255]");
+        }
     }
 
     ReaderPtr create(const ReaderPtr& reader) override {

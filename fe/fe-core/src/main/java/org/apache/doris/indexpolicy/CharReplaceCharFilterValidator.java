@@ -26,7 +26,7 @@ import java.util.Set;
 
 public class CharReplaceCharFilterValidator extends BasePolicyValidator {
     private static final Set<String> ALLOWED_PROPS = ImmutableSet.of(
-            "type", "char_filter_pattern", "char_filter_replacement");
+            "type", "pattern", "replacement");
 
     public CharReplaceCharFilterValidator() {
         super(ALLOWED_PROPS);
@@ -39,12 +39,26 @@ public class CharReplaceCharFilterValidator extends BasePolicyValidator {
 
     @Override
     protected void validateSpecific(Map<String, String> props) throws DdlException {
-        if (!props.containsKey("char_filter_pattern")) {
-            throw new DdlException("char_filter_pattern must be configured");
+        if (!props.containsKey("pattern")) {
+            throw new DdlException("pattern must be configured");
         }
-        String pattern = props.get("char_filter_pattern");
+        String pattern = props.get("pattern");
         if (pattern == null || pattern.isEmpty()) {
-            throw new DdlException("char_filter_pattern must not be empty");
+            throw new DdlException("pattern must not be empty");
+        }
+        for (int i = 0; i < pattern.length(); i++) {
+            if (pattern.charAt(i) > 255) {
+                throw new DdlException("pattern must contain only single-byte characters in [0,255]");
+            }
+        }
+        if (props.containsKey("replacement")) {
+            String replacement = props.get("replacement");
+            if (replacement == null || replacement.length() != 1) {
+                throw new DdlException("replacement must be exactly one byte");
+            }
+            if (replacement.charAt(0) > 255) {
+                throw new DdlException("replacement must be in [0,255]");
+            }
         }
     }
 }

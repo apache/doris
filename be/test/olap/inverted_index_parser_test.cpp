@@ -22,8 +22,6 @@
 #include <map>
 #include <string>
 
-#include "olap/rowset/segment_v2/inverted_index/char_filter/char_replace_char_filter_factory.h"
-
 namespace doris {
 
 using namespace doris::segment_v2::inverted_index;
@@ -159,27 +157,27 @@ TEST_F(InvertedIndexParserTest, TestGetParserCharFilterMapFromProperties) {
 
     // Test with valid char_replace filter but missing pattern
     properties.clear();
-    properties[CHAR_REPLACE_CHAR_FILTER_TYPE] = "char_replace";
+    properties[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE] = "char_replace";
     result = get_parser_char_filter_map_from_properties(properties);
     EXPECT_TRUE(result.empty());
 
     // Test with valid char_replace filter and pattern
-    properties[CHAR_REPLACE_CHAR_FILTER_PATTERN] = "._";
+    properties[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN] = "._";
     result = get_parser_char_filter_map_from_properties(properties);
     EXPECT_EQ(result.size(), 3);
-    EXPECT_EQ(result[CHAR_REPLACE_CHAR_FILTER_TYPE], "char_replace");
-    EXPECT_EQ(result[CHAR_REPLACE_CHAR_FILTER_PATTERN], "._");
-    EXPECT_EQ(result[CHAR_REPLACE_CHAR_FILTER_REPLACEMENT], " "); // default replacement
+    EXPECT_EQ(result[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE], "char_replace");
+    EXPECT_EQ(result[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN], "._");
+    EXPECT_EQ(result[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT], " "); // default replacement
 
     // Test with custom replacement
-    properties[CHAR_REPLACE_CHAR_FILTER_REPLACEMENT] = "-";
+    properties[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT] = "-";
     result = get_parser_char_filter_map_from_properties(properties);
     EXPECT_EQ(result.size(), 3);
-    EXPECT_EQ(result[CHAR_REPLACE_CHAR_FILTER_REPLACEMENT], "-");
+    EXPECT_EQ(result[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT], "-");
 
     // Test with invalid filter type
     properties.clear();
-    properties[CHAR_REPLACE_CHAR_FILTER_TYPE] = "invalid_type";
+    properties[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE] = "invalid_type";
     result = get_parser_char_filter_map_from_properties(properties);
     EXPECT_TRUE(result.empty());
 }
@@ -268,14 +266,14 @@ TEST_F(InvertedIndexParserTest, TestInvertedIndexCtxStructure) {
     EXPECT_EQ(ctx.analyzer, nullptr);
 
     // Test char_filter_map
-    ctx.char_filter_map[CHAR_REPLACE_CHAR_FILTER_TYPE] = "char_replace";
-    ctx.char_filter_map[CHAR_REPLACE_CHAR_FILTER_PATTERN] = "._";
-    ctx.char_filter_map[CHAR_REPLACE_CHAR_FILTER_REPLACEMENT] = " ";
+    ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE] = "char_replace";
+    ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN] = "._";
+    ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT] = " ";
 
     EXPECT_EQ(ctx.char_filter_map.size(), 3);
-    EXPECT_EQ(ctx.char_filter_map[CHAR_REPLACE_CHAR_FILTER_TYPE], "char_replace");
-    EXPECT_EQ(ctx.char_filter_map[CHAR_REPLACE_CHAR_FILTER_PATTERN], "._");
-    EXPECT_EQ(ctx.char_filter_map[CHAR_REPLACE_CHAR_FILTER_REPLACEMENT], " ");
+    EXPECT_EQ(ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE], "char_replace");
+    EXPECT_EQ(ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN], "._");
+    EXPECT_EQ(ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT], " ");
 }
 
 // Test constants
@@ -316,9 +314,9 @@ TEST_F(InvertedIndexParserTest, TestConstants) {
     EXPECT_EQ(INVERTED_INDEX_PARSER_IGNORE_ABOVE_VALUE, "256");
 
     // Test char filter constants
-    EXPECT_EQ(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_filter_type");
-    EXPECT_EQ(CHAR_REPLACE_CHAR_FILTER_PATTERN, "char_filter_pattern");
-    EXPECT_EQ(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "char_filter_replacement");
+    EXPECT_EQ(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_filter_type");
+    EXPECT_EQ(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "char_filter_pattern");
+    EXPECT_EQ(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "char_filter_replacement");
 }
 
 } // namespace doris

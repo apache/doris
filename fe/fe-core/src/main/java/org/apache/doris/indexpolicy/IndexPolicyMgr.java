@@ -195,6 +195,13 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 validatePolicyReference(filter, IndexPolicyTypeEnum.TOKEN_FILTER);
             }
         }
+
+        String charFilters = properties.get(IndexPolicy.PROP_CHAR_FILTER);
+        if (charFilters != null && !charFilters.isEmpty()) {
+            for (String filter : charFilters.split(",\\s*")) {
+                validatePolicyReference(filter, IndexPolicyTypeEnum.CHAR_FILTER);
+            }
+        }
     }
 
     private void validatePolicyReference(String name, IndexPolicyTypeEnum expectedType)

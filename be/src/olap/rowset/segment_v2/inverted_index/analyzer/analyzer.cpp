@@ -45,10 +45,11 @@ namespace doris::segment_v2::inverted_index {
 ReaderPtr InvertedIndexAnalyzer::create_reader(CharFilterMap& char_filter_map) {
     ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
     if (!char_filter_map.empty()) {
-        if (char_filter_map[CHAR_REPLACE_CHAR_FILTER_TYPE] == CHAR_REPLACE_TYPE) {
+        if (char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE] ==
+            INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE) {
             reader = std::make_shared<CharReplaceCharFilter>(
-                    reader, char_filter_map[CHAR_REPLACE_CHAR_FILTER_PATTERN],
-                    char_filter_map[CHAR_REPLACE_CHAR_FILTER_REPLACEMENT]);
+                    reader, char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN],
+                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT]);
         }
     }
     return reader;

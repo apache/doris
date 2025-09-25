@@ -17,14 +17,12 @@
 
 #include <gmock/gmock.h>
 
-#include "olap/rowset/segment_v2/inverted_index/char_filter/char_replace_char_filter_factory.h"
 #include "olap/utils.h"
 #include "util/index_compaction_utils.cpp"
 
 namespace doris {
 
 using namespace doris::vectorized;
-using namespace doris::segment_v2::inverted_index;
 
 constexpr static uint32_t MAX_PATH_LEN = 1024;
 constexpr static std::string_view dest_dir = "./ut_dir/inverted_index_test";
@@ -131,9 +129,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10001,
                                                "idx_content_1", 1, "STRING", "content_1",
                                                properties);
@@ -143,9 +141,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_replace");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "._");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10002,
                                                "idx_content_2", 2, "STRING", "content_2",
                                                properties);
@@ -155,9 +153,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10003,
                                                "idx_content_3", 3, "STRING", "content_3",
                                                properties);
@@ -167,9 +165,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_replace");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "._");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10004,
                                                "idx_content_4", 4, "STRING", "content_4",
                                                properties);
@@ -179,9 +177,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10005,
                                                "idx_content_5", 5, "STRING", "content_5",
                                                properties);
@@ -191,9 +189,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_replace");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "._");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10006,
                                                "idx_content_6", 6, "STRING", "content_6",
                                                properties);
@@ -203,9 +201,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10007,
                                                "idx_content_7", 7, "STRING", "content_7",
                                                properties);
@@ -215,9 +213,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_replace");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "._");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10008,
                                                "idx_content_8", 8, "STRING", "content_8",
                                                properties);
@@ -227,9 +225,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10009,
                                                "idx_content_9", 9, "STRING", "content_9",
                                                properties);
@@ -239,9 +237,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_replace");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "._");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10010,
                                                "idx_content_10", 10, "STRING", "content_10",
                                                properties);
@@ -251,9 +249,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10011,
                                                "idx_content_11", 11, "STRING", "content_11",
                                                properties);
@@ -263,9 +261,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_replace");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "._");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10012,
                                                "idx_content_12", 12, "STRING", "content_12",
                                                properties);
@@ -275,9 +273,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10013,
                                                "idx_content_13", 13, "STRING", "content_13",
                                                properties);
@@ -287,9 +285,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_replace");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "._");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10014,
                                                "idx_content_14", 14, "STRING", "content_14",
                                                properties);
@@ -299,9 +297,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10015,
                                                "idx_content_15", 15, "STRING", "content_15",
                                                properties);
@@ -311,9 +309,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_replace");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "._");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10016,
                                                "idx_content_16", 16, "STRING", "content_16",
                                                properties);
@@ -324,9 +322,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10017,
                                                "idx_content_17", 17, "STRING", "content_17",
                                                properties);
@@ -337,9 +335,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_replace");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "._");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10018,
                                                "idx_content_18", 18, "STRING", "content_18",
                                                properties);
@@ -350,9 +348,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10019,
                                                "idx_content_19", 19, "STRING", "content_19",
                                                properties);
@@ -363,9 +361,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_replace");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "._");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10020,
                                                "idx_content_20", 20, "STRING", "content_20",
                                                properties);
@@ -376,9 +374,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10021,
                                                "idx_content_21", 21, "STRING", "content_21",
                                                properties);
@@ -389,9 +387,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_replace");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "._");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10022,
                                                "idx_content_22", 22, "STRING", "content_22",
                                                properties);
@@ -402,9 +400,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10023,
                                                "idx_content_23", 23, "STRING", "content_23",
                                                properties);
@@ -415,9 +413,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_replace");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "._");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10024,
                                                "idx_content_24", 24, "STRING", "content_24",
                                                properties);
@@ -429,9 +427,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10025,
                                                "idx_content_25", 25, "STRING", "content_25",
                                                properties);
@@ -443,9 +441,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_replace");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "._");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10026,
                                                "idx_content_26", 26, "STRING", "content_26",
                                                properties);
@@ -457,9 +455,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10027,
                                                "idx_content_27", 27, "STRING", "content_27",
                                                properties);
@@ -471,9 +469,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_replace");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "._");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10028,
                                                "idx_content_28", 28, "STRING", "content_28",
                                                properties);
@@ -485,9 +483,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10029,
                                                "idx_content_29", 29, "STRING", "content_29",
                                                properties);
@@ -499,9 +497,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_replace");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "._");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10030,
                                                "idx_content_30", 30, "STRING", "content_30",
                                                properties);
@@ -513,9 +511,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, "");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10031,
                                                "idx_content_31", 31, "STRING", "content_31",
                                                properties);
@@ -527,9 +525,9 @@ protected:
         properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
                            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         properties.emplace(INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_FALSE);
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_TYPE, "char_replace");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_PATTERN, "._");
-        properties.emplace(CHAR_REPLACE_CHAR_FILTER_REPLACEMENT, " ");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, "char_replace");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "._");
+        properties.emplace(INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10032,
                                                "idx_content_32", 32, "STRING", "content_32",
                                                properties);
