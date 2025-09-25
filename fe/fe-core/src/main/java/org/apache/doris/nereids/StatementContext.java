@@ -53,7 +53,6 @@ import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.TableId;
-import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand.PredicateAddContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -278,7 +277,7 @@ public class StatementContext implements Closeable {
 
     private boolean isInsert = false;
 
-    private PredicateAddContext predicateAddContext;
+    private Map<TableIf, Set<Expression>> mvRefreshPredicates = new HashMap<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -1004,12 +1003,12 @@ public class StatementContext implements Closeable {
         return isInsert;
     }
 
-    public PredicateAddContext getPredicateAddContext() {
-        return predicateAddContext;
+    public Map<TableIf, Set<Expression>> getMvRefreshPredicates() {
+        return mvRefreshPredicates;
     }
 
-    public void setPredicateAddContext(
-            PredicateAddContext predicateAddContext) {
-        this.predicateAddContext = predicateAddContext;
+    public void setMvRefreshPredicates(
+            Map<TableIf, Set<Expression>> mvRefreshPredicates) {
+        this.mvRefreshPredicates = mvRefreshPredicates;
     }
 }

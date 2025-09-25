@@ -110,7 +110,6 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         NereidsParser parser = new NereidsParser();
         Map<TableIf, Set<Expression>> predicates =
                 constructTableWithPredicates(mv, partitionNames, tableWithPartKey);
-        PredicateAddContext predicateAddContext = new PredicateAddContext(predicates);
         List<String> parts = constructPartsForMv(partitionNames);
         Plan plan = parser.parseSingle(mv.getQuerySql());
         if (plan instanceof Sink) {
@@ -122,7 +121,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             LOG.debug("MTMVTask plan for mvName: {}, partitionNames: {}, plan: {}", mv.getName(), partitionNames,
                     sink.treeString());
         }
-        statementContext.setPredicateAddContext(predicateAddContext);
+        statementContext.setMvRefreshPredicates(predicates);
         return new UpdateMvByPartitionCommand(sink);
     }
 

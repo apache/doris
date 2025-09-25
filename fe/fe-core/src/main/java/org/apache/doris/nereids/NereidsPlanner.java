@@ -62,8 +62,6 @@ import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
-import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand.PredicateAddContext;
-import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand.PredicateAdder;
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
@@ -284,10 +282,6 @@ public class NereidsPlanner extends Planner {
         preMaterializedViewRewrite();
         if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
             rewrittenPlan = cascadesContext.getRewritePlan();
-            PredicateAddContext predicateAddContext = statementContext.getPredicateAddContext();
-            if (predicateAddContext != null) {
-                rewrittenPlan = rewrittenPlan.accept(new PredicateAdder(), predicateAddContext);
-            }
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
                 return rewrittenPlan;
             }
