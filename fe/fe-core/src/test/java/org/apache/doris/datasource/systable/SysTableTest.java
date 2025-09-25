@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.systable;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.trees.plans.commands.info.TableValuedFunctionRefInfo;
+import org.apache.doris.info.TableValuedFunctionRefInfo;
 
 import org.junit.Assert;
 import org.junit.Test;

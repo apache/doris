@@ -18,10 +18,9 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/SlotRef.java
 // and modified by Doris
 
-package org.apache.doris.nereids.trees.plans.commands.info;
+package org.apache.doris.info;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.info.TableRefInfo;
 
 /**
  * BaseTableRefInfo

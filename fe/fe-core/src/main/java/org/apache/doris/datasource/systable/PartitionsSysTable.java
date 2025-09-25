@@ -17,9 +17,9 @@
 
 package org.apache.doris.datasource.systable;
 
+import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
-import org.apache.doris.nereids.trees.plans.commands.info.TableValuedFunctionRefInfo;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;

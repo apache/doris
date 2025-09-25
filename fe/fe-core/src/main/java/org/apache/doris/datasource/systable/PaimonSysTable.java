@@ -17,9 +17,9 @@
 
 package org.apache.doris.datasource.systable;
 
+import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.nereids.trees.expressions.functions.table.PaimonMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
-import org.apache.doris.nereids.trees.plans.commands.info.TableValuedFunctionRefInfo;
 import org.apache.doris.tablefunction.PaimonTableValuedFunction;
 
 import com.google.common.base.Joiner;

@@ -15,11 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands.info;
+package org.apache.doris.info;
 
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import java.util.Map;
