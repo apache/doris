@@ -37,28 +37,6 @@ class IColumn;
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-std::string DataTypeJsonb::to_string(const IColumn& column, size_t row_num) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    const StringRef& s = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
-    return s.size > 0 ? JsonbToJson::jsonb_to_json_string(s.data, s.size) : "";
-}
-
-void DataTypeJsonb::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
-                              class doris::vectorized::BufferWritable& ostr) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    const StringRef& s = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
-    if (s.size > 0) {
-        std::string str = JsonbToJson::jsonb_to_json_string(s.data, s.size);
-        ostr.write(str.c_str(), str.size());
-    }
-}
-
 Field DataTypeJsonb::get_default() const {
     std::string default_json = "null";
     // convert default_json to binary

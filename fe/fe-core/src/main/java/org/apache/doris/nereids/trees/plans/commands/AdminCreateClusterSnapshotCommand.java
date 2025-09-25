@@ -38,23 +38,23 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * ADMIN BACKUP CLUSTER SNAPSHOT PROPERTIES('ttl' = '3600', 'label' = 'test_snapshot');
+ * ADMIN CREATE CLUSTER SNAPSHOT PROPERTIES('ttl' = '3600', 'label' = 'test_snapshot');
  */
-public class AdminBackupClusterSnapshotCommand extends Command implements ForwardWithSync {
+public class AdminCreateClusterSnapshotCommand extends Command implements ForwardWithSync {
 
     public static final String PROP_TTL = "ttl";
     public static final String PROP_LABEL = "label";
-    private static final Logger LOG = LogManager.getLogger(AdminBackupClusterSnapshotCommand.class);
+    private static final Logger LOG = LogManager.getLogger(AdminCreateClusterSnapshotCommand.class);
 
     private Map<String, String> properties;
     private long ttl;
     private String label = null;
 
     /**
-     * AdminBackupClusterSnapshotCommand
+     * AdminCreateClusterSnapshotCommand
      */
-    public AdminBackupClusterSnapshotCommand(Map<String, String> properties) {
-        super(PlanType.ADMIN_BACKUP_CLUSTER_SNAPSHOT_COMMAND);
+    public AdminCreateClusterSnapshotCommand(Map<String, String> properties) {
+        super(PlanType.ADMIN_CREATE_CLUSTER_SNAPSHOT_COMMAND);
         Objects.requireNonNull(properties, "properties is null");
         this.properties = properties;
     }
@@ -100,7 +100,7 @@ public class AdminBackupClusterSnapshotCommand extends Command implements Forwar
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitAdminBackupClusterSnapshotCommand(this, context);
+        return visitor.visitAdminCreateClusterSnapshotCommand(this, context);
     }
 
     @Override

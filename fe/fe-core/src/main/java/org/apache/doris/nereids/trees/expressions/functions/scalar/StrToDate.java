@@ -19,8 +19,6 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
@@ -30,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -44,6 +43,7 @@ import java.util.List;
 public class StrToDate extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullLiteral, PropagateNullable {
 
+    // not final signatures. see computeSignature()
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.MAX).args(VarcharType.SYSTEM_DEFAULT,
                     VarcharType.SYSTEM_DEFAULT),
@@ -92,19 +92,17 @@ public class StrToDate extends ScalarFunction
         DataType returnType;
         if (getArgument(1) instanceof StringLikeLiteral) {
             if (DateLiteral.hasTimePart(((StringLikeLiteral) getArgument(1)).getStringValue())) {
-                returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATETIME));
+                //FIXME: Here will pass different scale to BE with same input types. Need to be fixed.
+                returnType = DateTimeV2Type.SYSTEM_DEFAULT;
                 if (returnType.isDateTimeV2Type()
                         && DateLiteral.hasMicroSecondPart(((StringLikeLiteral) getArgument(1)).getStringValue())) {
-                    returnType = DataType.fromCatalogType(Type.DATETIMEV2_WITH_MAX_SCALAR);
+                    returnType = DateTimeV2Type.MAX;
                 }
             } else {
-                returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATE));
+                returnType = DateV2Type.INSTANCE;
             }
         } else {
-            returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATETIME));
-            if (returnType.isDateTimeV2Type()) {
-                returnType = DataType.fromCatalogType(Type.DATETIMEV2_WITH_MAX_SCALAR);
-            }
+            returnType = DateTimeV2Type.MAX;
         }
         return signature.withReturnType(returnType);
     }

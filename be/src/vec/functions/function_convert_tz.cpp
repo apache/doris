@@ -21,13 +21,13 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <type_traits>
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "udf/udf.h"
 #include "util/binary_cast.hpp"
-#include "util/datetype_cast.hpp"
 #include "util/timezone_utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -64,18 +64,11 @@ struct ConvertTzState {
     cctz::time_zone to_tz;
 };
 
-template <typename ArgDateType>
 class FunctionConvertTZ : public IFunction {
-    using DateValueType = date_cast::TypeToValueTypeV<ArgDateType>;
-    using ColumnType = date_cast::TypeToColumnV<ArgDateType>;
-    using NativeType = date_cast::ValueTypeOfColumnV<ColumnType>;
-    constexpr static bool is_v1 = date_cast::IsV1<ArgDateType>();
-    using ReturnDateType = ArgDateType;
-    using ReturnDateValueType = date_cast::TypeToValueTypeV<ReturnDateType>;
-    using ReturnColumnType = date_cast::TypeToColumnV<ReturnDateType>;
-    using ReturnNativeType = date_cast::ValueTypeOfColumnV<ReturnColumnType>;
-    using ArgDateValueType = DateValueType;
-    using ArgNativeType = NativeType;
+    constexpr static PrimitiveType PType = PrimitiveType::TYPE_DATETIMEV2;
+    using DateValueType = PrimitiveTypeTraits<PType>::CppType;
+    using ColumnType = PrimitiveTypeTraits<PType>::ColumnType;
+    using NativeType = PrimitiveTypeTraits<PType>::CppNativeType;
 
 public:
     static constexpr auto name = "convert_tz";
@@ -87,20 +80,8 @@ public:
     size_t get_number_of_arguments() const override { return 3; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if constexpr (is_v1) {
-            return have_nullable(arguments) ? make_nullable(std::make_shared<DataTypeDateTime>())
-                                            : std::make_shared<DataTypeDateTime>();
-        } else {
-            return have_nullable(arguments) ? make_nullable(std::make_shared<DataTypeDateTimeV2>())
-                                            : std::make_shared<DataTypeDateTimeV2>();
-        }
-    }
-
-    bool is_variadic() const override { return true; }
-
-    DataTypes get_variadic_argument_types_impl() const override {
-        return {std::make_shared<ArgDateType>(), std::make_shared<DataTypeString>(),
-                std::make_shared<DataTypeString>()};
+        return have_nullable(arguments) ? make_nullable(std::make_shared<DataTypeDateTimeV2>())
+                                        : std::make_shared<DataTypeDateTimeV2>();
     }
 
     // default value of timezone is invalid, should skip to avoid wrong exception
@@ -194,20 +175,20 @@ public:
             // ignore argument columns, use cached timezone input in state
             execute_tz_const_with_state(convert_tz_state,
                                         assert_cast<const ColumnType*>(argument_columns[0].get()),
-                                        assert_cast<ReturnColumnType*>(result_column.get()),
+                                        assert_cast<ColumnType*>(result_column.get()),
                                         result_null_map, input_rows_count);
         } else if (col_const[1] && col_const[2]) {
             // arguments are const
             execute_tz_const(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
                              assert_cast<const ColumnString*>(argument_columns[1].get()),
                              assert_cast<const ColumnString*>(argument_columns[2].get()),
-                             assert_cast<ReturnColumnType*>(result_column.get()), result_null_map,
+                             assert_cast<ColumnType*>(result_column.get()), result_null_map,
                              input_rows_count);
         } else {
             _execute(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
                      assert_cast<const ColumnString*>(argument_columns[1].get()),
                      assert_cast<const ColumnString*>(argument_columns[2].get()),
-                     assert_cast<ReturnColumnType*>(result_column.get()), result_null_map,
+                     assert_cast<ColumnType*>(result_column.get()), result_null_map,
                      input_rows_count);
         } //if const
 
@@ -223,7 +204,7 @@ public:
 private:
     static void _execute(FunctionContext* context, const ColumnType* date_column,
                          const ColumnString* from_tz_column, const ColumnString* to_tz_column,
-                         ReturnColumnType* result_column, NullMap& result_null_map,
+                         ColumnType* result_column, NullMap& result_null_map,
                          size_t input_rows_count) {
         for (size_t i = 0; i < input_rows_count; i++) {
             if (result_null_map[i]) {
@@ -238,8 +219,8 @@ private:
 
     static void execute_tz_const_with_state(ConvertTzState* convert_tz_state,
                                             const ColumnType* date_column,
-                                            ReturnColumnType* result_column,
-                                            NullMap& result_null_map, size_t input_rows_count) {
+                                            ColumnType* result_column, NullMap& result_null_map,
+                                            size_t input_rows_count) {
         cctz::time_zone& from_tz = convert_tz_state->from_tz;
         cctz::time_zone& to_tz = convert_tz_state->to_tz;
         auto push_null = [&](size_t row) {
@@ -262,46 +243,27 @@ private:
 
             DateValueType ts_value =
                     binary_cast<NativeType, DateValueType>(date_column->get_element(i));
-            ReturnDateValueType ts_value2;
+            DateValueType ts_value2;
 
-            if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
-                std::pair<int64_t, int64_t> timestamp;
-                if (!ts_value.unix_timestamp(&timestamp, from_tz)) [[unlikely]] {
-                    throw_invalid_string("convert_tz", from_tz.name());
-                }
-                ts_value2.from_unixtime(timestamp, to_tz);
-            } else {
-                int64_t timestamp;
-                if (!ts_value.unix_timestamp(&timestamp, from_tz)) [[unlikely]] {
-                    throw_invalid_string("convert_tz", from_tz.name());
-                }
-                ts_value2.from_unixtime(timestamp, to_tz);
+            std::pair<int64_t, int64_t> timestamp;
+            if (!ts_value.unix_timestamp(&timestamp, from_tz)) [[unlikely]] {
+                throw_invalid_string("convert_tz", from_tz.name());
             }
+            ts_value2.from_unixtime(timestamp, to_tz);
 
             if (!ts_value2.is_valid_date()) [[unlikely]] {
                 throw_out_of_bound_convert_tz<DateValueType>(date_column->get_element(i),
                                                              from_tz.name(), to_tz.name());
             }
 
-            if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
-                result_column->insert(Field::create_field<TYPE_DATETIMEV2>(
-                        binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
-            } else if constexpr (std::is_same_v<ArgDateType, DataTypeDateV2>) {
-                result_column->insert(Field::create_field<TYPE_DATEV2>(
-                        binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
-            } else if constexpr (std::is_same_v<ArgDateType, DataTypeDateTime>) {
-                result_column->insert(Field::create_field<TYPE_DATETIME>(
-                        binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
-            } else {
-                result_column->insert(Field::create_field<TYPE_DATE>(
-                        binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
-            }
+            result_column->insert(Field::create_field<TYPE_DATETIMEV2>(
+                    binary_cast<DateValueType, NativeType>(ts_value2)));
         }
     }
 
     static void execute_tz_const(FunctionContext* context, const ColumnType* date_column,
                                  const ColumnString* from_tz_column,
-                                 const ColumnString* to_tz_column, ReturnColumnType* result_column,
+                                 const ColumnString* to_tz_column, ColumnType* result_column,
                                  NullMap& result_null_map, size_t input_rows_count) {
         auto from_tz = from_tz_column->get_data_at(0).to_string();
         auto to_tz = to_tz_column->get_data_at(0).to_string();
@@ -324,12 +286,12 @@ private:
     }
 
     static void execute_inner_loop(const ColumnType* date_column, const std::string& from_tz_name,
-                                   const std::string& to_tz_name, ReturnColumnType* result_column,
+                                   const std::string& to_tz_name, ColumnType* result_column,
                                    NullMap& result_null_map, const size_t index_now) {
         DateValueType ts_value =
                 binary_cast<NativeType, DateValueType>(date_column->get_element(index_now));
         cctz::time_zone from_tz {}, to_tz {};
-        ReturnDateValueType ts_value2;
+        DateValueType ts_value2;
 
         if (!TimezoneUtils::find_cctz_time_zone(from_tz_name, from_tz)) [[unlikely]] {
             throw Exception(ErrorCode::INVALID_ARGUMENT, "Operation {} invalid timezone: {}", name,
@@ -340,45 +302,24 @@ private:
                             to_tz_name);
         }
 
-        if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
-            std::pair<int64_t, int64_t> timestamp;
-            if (!ts_value.unix_timestamp(&timestamp, from_tz)) {
-                throw_invalid_string("convert_tz", from_tz.name());
-            }
-            ts_value2.from_unixtime(timestamp, to_tz);
-        } else {
-            int64_t timestamp;
-            if (!ts_value.unix_timestamp(&timestamp, from_tz)) {
-                throw_invalid_string("convert_tz", from_tz.name());
-            }
-
-            ts_value2.from_unixtime(timestamp, to_tz);
+        std::pair<int64_t, int64_t> timestamp;
+        if (!ts_value.unix_timestamp(&timestamp, from_tz)) {
+            throw_invalid_string("convert_tz", from_tz.name());
         }
+        ts_value2.from_unixtime(timestamp, to_tz);
 
         if (!ts_value2.is_valid_date()) [[unlikely]] {
             throw_out_of_bound_convert_tz<DateValueType>(date_column->get_element(index_now),
                                                          from_tz.name(), to_tz.name());
         }
 
-        if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
-            result_column->insert(Field::create_field<TYPE_DATETIMEV2>(
-                    binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
-        } else if constexpr (std::is_same_v<ArgDateType, DataTypeDateV2>) {
-            result_column->insert(Field::create_field<TYPE_DATEV2>(
-                    binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
-        } else if constexpr (std::is_same_v<ArgDateType, DataTypeDateTime>) {
-            result_column->insert(Field::create_field<TYPE_DATETIME>(
-                    binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
-        } else {
-            result_column->insert(Field::create_field<TYPE_DATE>(
-                    binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
-        }
+        result_column->insert(Field::create_field<TYPE_DATETIMEV2>(
+                binary_cast<DateValueType, NativeType>(ts_value2)));
     }
 };
 
 void register_function_convert_tz(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionConvertTZ<DataTypeDateTime>>();
-    factory.register_function<FunctionConvertTZ<DataTypeDateTimeV2>>();
+    factory.register_function<FunctionConvertTZ>();
 }
 
 } // namespace doris::vectorized

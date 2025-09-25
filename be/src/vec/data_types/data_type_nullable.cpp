@@ -49,34 +49,6 @@ DataTypeNullable::DataTypeNullable(const DataTypePtr& nested_data_type_)
         throw Exception(ErrorCode::INTERNAL_ERROR, "DataTypeNullable input nested type is nullptr");
     }
 }
-
-std::string DataTypeNullable::to_string(const IColumn& column, size_t row_num) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    const auto& col_null = assert_cast<const ColumnNullable&>(*ptr);
-    if (col_null.is_null_at(row_num)) {
-        return "NULL";
-    } else {
-        return get_nested_type()->to_string(col_null.get_nested_column(), row_num);
-    }
-}
-
-void DataTypeNullable::to_string(const IColumn& column, size_t row_num,
-                                 BufferWritable& ostr) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    const auto& col_null = assert_cast<const ColumnNullable&>(*ptr);
-    if (col_null.is_null_at(row_num)) {
-        ostr.write("NULL", 4);
-    } else {
-        get_nested_type()->to_string(col_null.get_nested_column(), row_num, ostr);
-    }
-}
-
 // binary: const flag | row num | read saved num| <null array> | <values array>
 //  <null array>: is_null1 | is_null2 | ...
 //  <values array>: value1 | value2 | ...>

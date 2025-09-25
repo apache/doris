@@ -86,11 +86,7 @@ public:
     virtual PrimitiveType get_primitive_type() const = 0;
 
     virtual doris::FieldType get_storage_field_type() const = 0;
-
-    virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const;
-    virtual std::string to_string(const IColumn& column, size_t row_num) const;
-
-    virtual void to_string_batch(const IColumn& column, ColumnString& column_to) const;
+    std::string to_string(const IColumn& column, size_t row_num) const;
     // get specific serializer or deserializer
     virtual DataTypeSerDeSPtr get_serde(int nesting_level = 1) const = 0;
 
@@ -211,6 +207,16 @@ public:
                 scalar_type.__set_scale(get_scale());
             }
         }
+    }
+
+    void to_string_batch(const IColumn& column, ColumnString& column_to) const {
+        auto serde = get_serde();
+        serde->to_string_batch(column, column_to);
+    }
+
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
+        auto str = to_string(column, row_num);
+        ostr.write(str.data(), str.size());
     }
 #endif
 

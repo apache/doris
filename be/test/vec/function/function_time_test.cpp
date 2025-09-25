@@ -395,7 +395,7 @@ TEST(VTimestampFunctionsTest, makedate_test) {
             {{2021, 400}, std::string("2022-02-04")},
     };
 
-    static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
+    static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
 }
 
 TEST(VTimestampFunctionsTest, weekday_test) {
@@ -1255,49 +1255,6 @@ TEST(VTimestampFunctionsTest, dayname_test) {
 
 TEST(VTimestampFunctionsTest, datetrunc_test) {
     std::string func_name = "date_trunc";
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIME,
-                                    Consted {PrimitiveType::TYPE_VARCHAR}};
-        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("second")},
-                             std::string("2022-10-08 11:44:23")}};
-        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
-    }
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIME,
-                                    Consted {PrimitiveType::TYPE_VARCHAR}};
-        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("minute")},
-                             std::string("2022-10-08 11:44:00")}};
-        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
-    }
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIME,
-                                    Consted {PrimitiveType::TYPE_VARCHAR}};
-        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("hour")},
-                             std::string("2022-10-08 11:00:00")}};
-        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
-    }
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIME,
-                                    Consted {PrimitiveType::TYPE_VARCHAR}};
-        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("day")},
-                             std::string("2022-10-08 00:00:00")}};
-        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
-    }
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIME,
-                                    Consted {PrimitiveType::TYPE_VARCHAR}};
-        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("month")},
-                             std::string("2022-10-01 00:00:00")}};
-        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
-    }
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIME,
-                                    Consted {PrimitiveType::TYPE_VARCHAR}};
-        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("year")},
-                             std::string("2022-01-01 00:00:00")}};
-        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
-    }
-
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_DATETIMEV2,
                                     Consted {PrimitiveType::TYPE_VARCHAR}};

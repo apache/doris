@@ -231,5 +231,13 @@ Status DataTypeHLLSerDe::from_string(StringRef& str, IColumn& column,
     return deserialize_one_cell_from_json(column, slice, options);
 }
 
+void DataTypeHLLSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const {
+    const auto& data = assert_cast<const ColumnHLL&>(column).get_element(row_num);
+    std::string result(data.max_serialized_size(), '0');
+    size_t actual_size = data.serialize((uint8_t*)result.data());
+    result.resize(actual_size);
+    bw.write(result.c_str(), result.size());
+}
+
 } // namespace vectorized
 } // namespace doris

@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.rules.SupportJavaDateFormatter;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
@@ -40,9 +38,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.util.DateUtils;
@@ -374,18 +370,8 @@ public class DateTimeExtractAndTransform {
      * datetime arithmetic function date-trunc
      */
     @ExecFunction(name = "date_trunc")
-    public static Expression dateTrunc(DateTimeLiteral date, StringLikeLiteral trunc) {
-        return DateTimeLiteral.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
-    }
-
-    @ExecFunction(name = "date_trunc")
     public static Expression dateTrunc(DateTimeV2Literal date, StringLikeLiteral trunc) {
         return DateTimeV2Literal.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
-    }
-
-    @ExecFunction(name = "date_trunc")
-    public static Expression dateTrunc(DateLiteral date, StringLikeLiteral trunc) {
-        return DateLiteral.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
     }
 
     @ExecFunction(name = "date_trunc")
@@ -394,18 +380,8 @@ public class DateTimeExtractAndTransform {
     }
 
     @ExecFunction(name = "date_trunc")
-    public static Expression dateTrunc(StringLikeLiteral trunc, DateTimeLiteral date) {
-        return DateTimeLiteral.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
-    }
-
-    @ExecFunction(name = "date_trunc")
     public static Expression dateTrunc(StringLikeLiteral trunc, DateTimeV2Literal date) {
         return DateTimeV2Literal.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
-    }
-
-    @ExecFunction(name = "date_trunc")
-    public static Expression dateTrunc(StringLikeLiteral trunc, DateLiteral date) {
-        return DateLiteral.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
     }
 
     @ExecFunction(name = "date_trunc")
@@ -464,20 +440,6 @@ public class DateTimeExtractAndTransform {
             res = res.plusDays(-1);
         }
         return DateV2Literal.fromJavaDateType(res);
-    }
-
-    @ExecFunction(name = "last_day")
-    public static Expression lastDay(DateLiteral date) {
-        LocalDateTime nextMonthFirstDay = LocalDateTime.of((int) date.getYear(), (int) date.getMonth(), 1,
-                0, 0, 0).plusMonths(1);
-        return DateLiteral.fromJavaDateType(nextMonthFirstDay.minusDays(1));
-    }
-
-    @ExecFunction(name = "last_day")
-    public static Expression lastDay(DateTimeLiteral date) {
-        LocalDateTime nextMonthFirstDay = LocalDateTime.of((int) date.getYear(), (int) date.getMonth(), 1,
-                0, 0, 0).plusMonths(1);
-        return DateLiteral.fromJavaDateType(nextMonthFirstDay.minusDays(1));
     }
 
     @ExecFunction(name = "last_day")
@@ -705,8 +667,8 @@ public class DateTimeExtractAndTransform {
             throw new AnalysisException("Operation makedate of " + yearValue + ", " + dayValue + " out of range");
         }
         return dayValue > 0
-                ? DateLiteral.fromJavaDateType(LocalDateTime.of(yearValue, 1, 1, 0, 0, 0).plusDays(dayValue - 1))
-                : new NullLiteral(DateType.INSTANCE);
+                ? DateV2Literal.fromJavaDateType(LocalDateTime.of(yearValue, 1, 1, 0, 0, 0).plusDays(dayValue - 1))
+                : new NullLiteral(DateV2Type.INSTANCE);
     }
 
     /**
@@ -716,25 +678,13 @@ public class DateTimeExtractAndTransform {
     public static Expression strToDate(StringLikeLiteral str, StringLikeLiteral format) {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
         if (org.apache.doris.analysis.DateLiteral.hasTimePart(format.getStringValue())) {
-            DataType returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATETIME));
-            if (returnType instanceof DateTimeV2Type) {
-                boolean hasMicroPart = org.apache.doris.analysis.DateLiteral
-                        .hasMicroSecondPart(format.getStringValue());
-                return DateTimeV2Literal.fromJavaDateType(DateUtils.getTime(DateUtils
-                        .dateTimeFormatter(format.getValue()), str.getValue()), hasMicroPart ? 6 : 0);
-            } else {
-                return DateTimeLiteral.fromJavaDateType(DateUtils.getTime(DateUtils
-                        .dateTimeFormatter(format.getValue()), str.getValue()));
-            }
+            boolean hasMicroPart = org.apache.doris.analysis.DateLiteral.hasMicroSecondPart(format.getStringValue());
+            return DateTimeV2Literal.fromJavaDateType(
+                    DateUtils.getTime(DateUtils.dateTimeFormatter(format.getValue()), str.getValue()),
+                    hasMicroPart ? 6 : 0);
         } else {
-            DataType returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATE));
-            if (returnType instanceof DateV2Type) {
-                return DateV2Literal.fromJavaDateType(DateUtils.getTime(DateUtils.dateTimeFormatter(format.getValue()),
-                        str.getValue()));
-            } else {
-                return DateLiteral.fromJavaDateType(DateUtils.getTime(DateUtils.dateTimeFormatter(format.getValue()),
-                        str.getValue()));
-            }
+            return DateV2Literal.fromJavaDateType(
+                    DateUtils.getTime(DateUtils.dateTimeFormatter(format.getValue()), str.getValue()));
         }
     }
 

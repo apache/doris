@@ -21,11 +21,9 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.snapshot.CloudSnapshotHandler;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -33,7 +31,6 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.rpc.RpcException;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -42,26 +39,23 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * ADMIN SET CLUSTER SNAPSHOT PROPERTIES('enabled'='true', 'max_reserved_snapshots'='10',
- * 'snapshot_interval_seconds'='3600');
+ * ADMIN SET AUTO CLUSTER SNAPSHOT PROPERTIES('max_reserved_snapshots'='10', 'snapshot_interval_seconds'='3600');
  */
-public class AdminSetClusterSnapshotCommand extends Command implements ForwardWithSync {
+public class AdminSetAutoClusterSnapshotCommand extends Command implements ForwardWithSync {
 
-    public static final String PROP_ENABLED = "enabled";
     public static final String PROP_MAX_RESERVED_SNAPSHOTS = "max_reserved_snapshots";
     public static final String PROP_SNAPSHOT_INTERVAL_SECONDS = "snapshot_interval_seconds";
-    private static final Logger LOG = LogManager.getLogger(AdminSetClusterSnapshotCommand.class);
+    private static final Logger LOG = LogManager.getLogger(AdminSetAutoClusterSnapshotCommand.class);
 
     private Map<String, String> properties;
-    private boolean enabled;
     private long maxReservedSnapshots;
     private long snapshotIntervalSeconds;
 
     /**
-     * AdminSetClusterSnapshotCommand
+     * AdminSetAutoClusterSnapshotCommand
      */
-    public AdminSetClusterSnapshotCommand(Map<String, String> properties) {
-        super(PlanType.ADMIN_SET_CLUSTER_SNAPSHOT_COMMAND);
+    public AdminSetAutoClusterSnapshotCommand(Map<String, String> properties) {
+        super(PlanType.ADMIN_SET_AUTO_CLUSTER_SNAPSHOT_COMMAND);
         Objects.requireNonNull(properties, "properties is null");
         this.properties = properties;
     }
@@ -76,9 +70,8 @@ public class AdminSetClusterSnapshotCommand extends Command implements ForwardWi
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             builder.putProperties(entry.getKey().toLowerCase(), entry.getValue().toLowerCase());
         }
-        alterInstance(builder.build());
-
         CloudSnapshotHandler cloudSnapshotHandler = ((CloudEnv) ctx.getEnv()).getCloudSnapshotHandler();
+        cloudSnapshotHandler.alterInstance(builder.build());
         cloudSnapshotHandler.refreshAutoSnapshotJob();
     }
 
@@ -99,16 +92,7 @@ public class AdminSetClusterSnapshotCommand extends Command implements ForwardWi
         }
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             try {
-                if (entry.getKey().equalsIgnoreCase(PROP_ENABLED)) {
-                    if (entry.getValue().equalsIgnoreCase("true")) {
-                        enabled = true;
-                    } else if (entry.getValue().equalsIgnoreCase("false")) {
-                        enabled = false;
-                    } else {
-                        throw new AnalysisException(
-                                "Invalid value: " + entry.getValue() + " of property: " + entry.getKey());
-                    }
-                } else if (entry.getKey().equalsIgnoreCase(PROP_MAX_RESERVED_SNAPSHOTS)) {
+                if (entry.getKey().equalsIgnoreCase(PROP_MAX_RESERVED_SNAPSHOTS)) {
                     maxReservedSnapshots = Long.valueOf(entry.getValue());
                     if (maxReservedSnapshots < 0
                             || maxReservedSnapshots > Config.cloud_auto_snapshot_max_reversed_num) {
@@ -132,23 +116,11 @@ public class AdminSetClusterSnapshotCommand extends Command implements ForwardWi
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitAdminSetClusterSnapshotCommand(this, context);
+        return visitor.visitAdminSetAutoClusterSnapshotCommand(this, context);
     }
 
     @Override
     public StmtType stmtType() {
         return StmtType.ADMIN;
-    }
-
-    private void alterInstance(Cloud.AlterInstanceRequest request) throws DdlException {
-        try {
-            Cloud.AlterInstanceResponse response = MetaServiceProxy.getInstance().alterInstance(request);
-            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                LOG.warn("alterInstance response: {} ", response);
-                throw new DdlException(response.getStatus().getMsg());
-            }
-        } catch (RpcException e) {
-            throw new DdlException(e.getMessage());
-        }
     }
 }

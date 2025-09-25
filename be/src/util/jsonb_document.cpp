@@ -66,9 +66,9 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
                         continue;
                     }
 
-                    pval = pval->unpack<ObjectVal>()->find(path.get_leg_from_leg_vector(i)->leg_ptr,
-                                                           path.get_leg_from_leg_vector(i)->leg_len,
-                                                           nullptr);
+                    pval = pval->unpack<ObjectVal>()->find(
+                            path.get_leg_from_leg_vector(i)->leg_ptr,
+                            path.get_leg_from_leg_vector(i)->leg_len);
 
                     if (pval) {
                         results.emplace_back(pval);

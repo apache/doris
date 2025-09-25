@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -92,13 +93,15 @@ public class DateTrunc extends ScalarFunction
 
     @Override
     public FunctionSignature customSignature() {
+        // should never return V1 Type
         if (getArgument(0).getDataType().isDateLikeType()) {
-            return FunctionSignature.ret(getArgument(0).getDataType())
-                    .args(getArgument(0).getDataType(), VarcharType.SYSTEM_DEFAULT);
+            DataType type = DataType.getCurrentType(getArgument(0).getDataType());
+            return FunctionSignature.ret(type).args(type, VarcharType.SYSTEM_DEFAULT);
         } else if (getArgument(1).getDataType().isDateLikeType()) {
-            return FunctionSignature.ret(getArgument(1).getDataType())
-                    .args(VarcharType.SYSTEM_DEFAULT, getArgument(1).getDataType());
+            DataType type = DataType.getCurrentType(getArgument(1).getDataType());
+            return FunctionSignature.ret(type).args(VarcharType.SYSTEM_DEFAULT, type);
         }
+
         boolean firstArgIsStringLiteral =
                 getArgument(0).isConstant() && getArgument(0) instanceof StringLikeLiteral;
         boolean secondArgIsStringLiteral =

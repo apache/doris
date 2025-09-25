@@ -35,12 +35,12 @@ suite("test_paimon_dlf_rest_catalog", "p2,external,paimon,external_remote,extern
         sql """ use ${catalog}.new_dlf_paimon_db"""
 
         sql """set force_jni_scanner=false"""
-        qt_c1 """ select * from users_samples order by user_id """
-        sql """select * from users_samples\$files;"""
+        qt_c1 """ select * from user_samples order by user_id """
+        sql """select * from user_samples\$files;"""
 
         sql """set force_jni_scanner=true"""
-        qt_c1 """ select * from users_samples order by user_id """
-        sql """select * from users_samples\$files;"""
+        qt_c1 """ select * from user_samples order by user_id """
+        sql """select * from user_samples\$files;"""
 
     } finally {
         sql """set force_jni_scanner=false"""

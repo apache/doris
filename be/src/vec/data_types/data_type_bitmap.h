@@ -68,16 +68,6 @@ public:
 
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 
-    std::string to_string(const IColumn& column, size_t row_num) const override {
-        auto result = check_column_const_set_readability(column, row_num);
-        ColumnPtr ptr = result.first;
-        row_num = result.second;
-
-        const auto& data = assert_cast<const ColumnBitmap&>(*ptr).get_element(row_num);
-        return data.to_string();
-    }
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-
     Field get_default() const override {
         return Field::create_field<TYPE_BITMAP>(BitmapValue::empty_bitmap());
     }

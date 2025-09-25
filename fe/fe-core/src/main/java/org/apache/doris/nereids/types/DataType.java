@@ -143,6 +143,20 @@ public abstract class DataType {
     }
 
     /**
+     * Get the active types for the deprecated types. see also {@link ScalarType#getDefaultDateType()}
+     */
+    public static DataType getCurrentType(DataType dataType) {
+        if (dataType instanceof DateType) {
+            return DateV2Type.INSTANCE;
+        } else if (dataType instanceof DateTimeType) {
+            return DateTimeV2Type.SYSTEM_DEFAULT;
+        } else if (dataType instanceof DecimalV2Type) {
+            return DecimalV3Type.SYSTEM_DEFAULT;
+        }
+        return dataType;
+    }
+
+    /**
      * Convert to data type in Nereids.
      * throw exception when cannot convert to Nereids type
      * NOTICE: only used in parser, if u want to convert string to type,

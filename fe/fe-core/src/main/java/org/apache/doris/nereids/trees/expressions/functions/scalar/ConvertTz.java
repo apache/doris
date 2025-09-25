@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -46,16 +45,13 @@ public class ConvertTz extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateTimeType.INSTANCE)
-                    .args(DateTimeType.INSTANCE, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+                    .args(DateTimeV2Type.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
     );
 
     /**
      * constructor with 3 arguments.
      */
     public ConvertTz(Expression arg0, Expression arg1, Expression arg2) {
-        //TODO: maybe remove castDateTime with DateTimeType signature together is ok. it's of no use now.
         super("convert_tz", castDateTime(arg0), arg1, arg2);
     }
 

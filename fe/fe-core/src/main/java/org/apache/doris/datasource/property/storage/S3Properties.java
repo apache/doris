@@ -156,12 +156,12 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             description = "The sts region of S3.")
     protected String s3StsRegion = "";
 
-    @ConnectorProperty(names = {"s3.role_arn", "AWS_ROLE_ARN"},
+    @ConnectorProperty(names = {"s3.role_arn", "AWS_ROLE_ARN", "glue.role_arn"},
             required = false,
             description = "The iam role of S3.")
     protected String s3IAMRole = "";
 
-    @ConnectorProperty(names = {"s3.external_id", "AWS_EXTERNAL_ID"},
+    @ConnectorProperty(names = {"s3.external_id", "AWS_EXTERNAL_ID", "glue.external_id"},
             required = false,
             description = "The external id of S3.")
     protected String s3ExternalId = "";
@@ -345,17 +345,17 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     /**
      * ===========================================
-     *  NOTICE:
-     *  This parameter is still used for Cloud-related features,
-     *  although it is no longer recommended.
-     *
-     *  Reason:
-     *  - Cloud may access S3-compatible object storage via the S3 protocol.
-     *  - The exact behavior has not yet been fully clarified.
-     *
-     *  Therefore:
-     *  - We cannot directly replace it with the new parameter.
-     *  - This redundant parameter is temporarily kept for compatibility.
+     * NOTICE:
+     * This parameter is still used for Cloud-related features,
+     * although it is no longer recommended.
+     * <p>
+     * Reason:
+     * - Cloud may access S3-compatible object storage via the S3 protocol.
+     * - The exact behavior has not yet been fully clarified.
+     * <p>
+     * Therefore:
+     * - We cannot directly replace it with the new parameter.
+     * - This redundant parameter is temporarily kept for compatibility.
      * ===========================================
      */
 

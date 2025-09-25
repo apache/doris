@@ -29,7 +29,7 @@ import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class AdminShowClusterSnapshotPropertiesCommandTest {
+public class AdminSetClusterSnapshotFeatureSwitchCommandTest {
     @Mocked
     private Env env;
     @Mocked
@@ -67,12 +67,17 @@ public class AdminShowClusterSnapshotPropertiesCommandTest {
     public void testValidateNormal() throws Exception {
         runBefore();
         Config.deploy_mode = "";
-        AdminShowClusterSnapshotPropertiesCommand command = new AdminShowClusterSnapshotPropertiesCommand();
+        AdminSetClusterSnapshotFeatureSwitchCommand command = new AdminSetClusterSnapshotFeatureSwitchCommand(true);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
                 "The sql is illegal in disk mode");
 
         Config.deploy_mode = "cloud";
+        // switch on
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+
+        // switch off
+        AdminSetClusterSnapshotFeatureSwitchCommand command1 = new AdminSetClusterSnapshotFeatureSwitchCommand(false);
+        Assertions.assertDoesNotThrow(() -> command1.validate(connectContext));
     }
 
     @Test
@@ -94,7 +99,7 @@ public class AdminShowClusterSnapshotPropertiesCommandTest {
         };
         Config.deploy_mode = "cloud";
 
-        AdminShowClusterSnapshotPropertiesCommand command = new AdminShowClusterSnapshotPropertiesCommand();
+        AdminSetClusterSnapshotFeatureSwitchCommand command = new AdminSetClusterSnapshotFeatureSwitchCommand(true);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
                 "Access denied; you need (at least one of) the (ADMIN) privilege(s) for this operation");
     }
