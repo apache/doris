@@ -213,7 +213,7 @@ public:
     }
 
     RowsetSharedPtr create_rowset(TabletSchemaSPtr tablet_schema, SegmentsOverlapPB overlap,
-                                  const std::vector<vectorized::Block> blocks, int64_t version,
+                                  std::vector<vectorized::Block> blocks, int64_t version,
                                   bool is_vertical) {
         auto writer_context = create_rowset_writer_context(tablet_schema, overlap, UINT32_MAX,
                                                            {version, version});
@@ -222,7 +222,7 @@ public:
         auto rowset_writer = std::move(res).value();
 
         uint32_t num_rows = 0;
-        for (const auto& block : blocks) {
+        for (auto& block : blocks) {
             num_rows += block.rows();
             EXPECT_TRUE(rowset_writer->add_block(&block).ok());
             EXPECT_TRUE(rowset_writer->flush().ok());

@@ -95,7 +95,7 @@ public:
     template <typename RowType>
     Status append_row(const RowType& row);
 
-    Status append_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
+    Status append_block(vectorized::Block* block, size_t row_pos, size_t num_rows);
     Status probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
                              bool have_delete_sign,
                              const std::vector<RowsetSharedPtr>& specified_rowsets,

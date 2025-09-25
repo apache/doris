@@ -115,16 +115,14 @@ Status SegmentFlusher::close() {
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
-                                 const vectorized::Block* block, size_t row_offset,
-                                 size_t row_num) {
+                                 vectorized::Block* block, size_t row_offset, size_t row_num) {
     RETURN_IF_ERROR(segment_writer->append_block(block, row_offset, row_num));
     _num_rows_written += row_num;
     return Status::OK();
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
-                                 const vectorized::Block* block, size_t row_offset,
-                                 size_t row_num) {
+                                 vectorized::Block* block, size_t row_offset, size_t row_num) {
     RETURN_IF_ERROR(segment_writer->batch_block(block, row_offset, row_num));
     RETURN_IF_ERROR(segment_writer->write_batch());
     _num_rows_written += row_num;
@@ -384,7 +382,7 @@ SegmentCreator::SegmentCreator(RowsetWriterContext& context, SegmentFileCollecti
                                InvertedIndexFileCollection& idx_files)
         : _segment_flusher(context, seg_files, idx_files) {}
 
-Status SegmentCreator::add_block(const vectorized::Block* block) {
+Status SegmentCreator::add_block(vectorized::Block* block) {
     if (block->rows() == 0) {
         return Status::OK();
     }

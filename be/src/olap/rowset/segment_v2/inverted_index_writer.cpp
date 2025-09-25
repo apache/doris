@@ -543,7 +543,7 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
             return Status::InternalError("field or index writer is null in inverted index writer");
         }
         for (int i = 0; i < count; ++i) {
-            auto* item_data_ptr = const_cast<CollectionValue*>(values)->mutable_data();
+            const auto* item_data_ptr = values->data();
             std::vector<std::string> strings;
 
             for (size_t j = 0; j < values->length(); ++j) {
@@ -562,7 +562,7 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
         }
     } else if constexpr (field_is_numeric_type(field_type)) {
         for (int i = 0; i < count; ++i) {
-            auto* item_data_ptr = const_cast<CollectionValue*>(values)->mutable_data();
+            const auto* item_data_ptr = values->data();
 
             for (size_t j = 0; j < values->length(); ++j) {
                 const auto* p = reinterpret_cast<const CppType*>(item_data_ptr);

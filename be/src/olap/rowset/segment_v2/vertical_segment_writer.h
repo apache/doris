@@ -71,7 +71,7 @@ struct VerticalSegmentWriterOptions {
 };
 
 struct RowsInBlock {
-    const vectorized::Block* block;
+    vectorized::Block* block;
     size_t row_pos;
     size_t num_rows;
 };
@@ -92,7 +92,7 @@ public:
     // Add one block to batch, memory is owned by the caller.
     // The batched blocks will be flushed in write_batch.
     // Once write_batch is called, no more blocks shoud be added.
-    Status batch_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
+    Status batch_block(vectorized::Block* block, size_t row_pos, size_t num_rows);
     Status write_batch();
 
     [[nodiscard]] std::string data_dir_path() const {

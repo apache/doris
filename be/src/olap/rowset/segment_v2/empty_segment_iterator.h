@@ -32,7 +32,7 @@ class EmptySegmentIterator : public RowwiseIterator {
 public:
     explicit EmptySegmentIterator(const Schema& schema);
     ~EmptySegmentIterator() override {}
-    Status init(const StorageReadOptions& opts) override { return Status::OK(); }
+    Status init(StorageReadOptions& opts) override { return Status::OK(); }
     const Schema& schema() const override { return _schema; }
     Status next_batch(vectorized::Block* block) override;
     bool empty() const override { return true; }

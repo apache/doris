@@ -121,7 +121,7 @@ public:
     public:
         ~Writer();
 
-        Status add_rows(const vectorized::Block* block, size_t row_offset, size_t input_row_num) {
+        Status add_rows(vectorized::Block* block, size_t row_offset, size_t input_row_num) {
             return _flusher->_add_rows(_writer, block, row_offset, input_row_num);
         }
 
@@ -145,9 +145,9 @@ private:
     }
     Status _internal_parse_variant_columns(vectorized::Block& block);
     Status _add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
-                     const vectorized::Block* block, size_t row_offset, size_t row_num);
+                     vectorized::Block* block, size_t row_offset, size_t row_num);
     Status _add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
-                     const vectorized::Block* block, size_t row_offset, size_t row_num);
+                     vectorized::Block* block, size_t row_offset, size_t row_num);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
                                   int32_t segment_id, bool no_compression = false);
     Status _create_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
@@ -179,7 +179,7 @@ public:
 
     void set_segment_start_id(uint32_t start_id) { _next_segment_id = start_id; }
 
-    Status add_block(const vectorized::Block* block);
+    Status add_block(vectorized::Block* block);
 
     Status flush();
 

@@ -47,7 +47,7 @@ template class VerticalBetaRowsetWriter<CloudRowsetWriter>;
 
 template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
-Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
+Status VerticalBetaRowsetWriter<T>::add_columns(vectorized::Block* block,
                                                 const std::vector<uint32_t>& col_ids, bool is_key,
                                                 uint32_t max_rows_per_segment,
                                                 bool has_cluster_key) {
