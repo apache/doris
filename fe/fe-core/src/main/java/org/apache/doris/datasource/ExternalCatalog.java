@@ -774,6 +774,10 @@ public abstract class ExternalCatalog
     public void onClose() {
         removeAccessController();
         if (threadPoolWithPreAuth != null) {
+            LOG.info("Shutting down thread pool with pre-auth for catalog {}."
+                            + " shutdown={}, terminating={}, terminated={}",
+                    name, threadPoolWithPreAuth.isShutdown(), threadPoolWithPreAuth.isTerminating(),
+                    threadPoolWithPreAuth.isTerminated());
             ThreadPoolManager.shutdownExecutorService(threadPoolWithPreAuth);
         }
         if (null != executionAuthenticator) {
@@ -1600,4 +1604,3 @@ public abstract class ExternalCatalog
         }
     }
 }
-
