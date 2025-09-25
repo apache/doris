@@ -117,7 +117,7 @@ c2	text	Yes	false	\N	NONE
 1	2
 
 -- !select --
-1   1
+1	1
 
 -- !select --
 c1	text	Yes	false	\N	NONE
@@ -127,7 +127,7 @@ c2	text	Yes	false	\N	NONE
 1	2
 
 -- !select --
-1   1
+1	1
 
 -- !select --
 c1	text	Yes	false	\N	NONE
@@ -137,7 +137,7 @@ c2	text	Yes	false	\N	NONE
 1	2
 
 -- !select --
-1   1
+1	1
 
 -- !select --
 c1	text	Yes	false	\N	NONE
@@ -147,7 +147,7 @@ c2	text	Yes	false	\N	NONE
 1	2
 
 -- !select --
-1   1
+1	1
 
 -- !select --
 c1	text	Yes	false	\N	NONE
@@ -157,7 +157,7 @@ c2	text	Yes	false	\N	NONE
 1	2
 
 -- !select --
-1   1
+1	1
 
 -- !select --
 c1	text	Yes	false	\N	NONE
@@ -167,7 +167,7 @@ c2	text	Yes	false	\N	NONE
 1	2
 
 -- !select --
-1   1
+1	1
 
 -- !select --
 c1	text	Yes	false	\N	NONE
