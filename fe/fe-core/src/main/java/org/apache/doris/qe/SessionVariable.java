@@ -704,6 +704,7 @@ public class SessionVariable implements Serializable, Writable {
     // NOTE: if you want to add some debug variables, please disable sql cache in `CacheAnalyzer.commonCacheCondition`,
     //       and set affectQueryResult=true
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
+            DRY_RUN_QUERY,
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
             SKIP_DELETE_SIGN,
