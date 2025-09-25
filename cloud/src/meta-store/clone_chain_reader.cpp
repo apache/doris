@@ -18,8 +18,12 @@
 #include "clone_chain_reader.h"
 
 #include "common/logging.h"
+#include "common/util.h"
+#include "meta-store/blob_message.h"
+#include "meta-store/keys.h"
 #include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv_error.h"
+#include "meta-store/versionstamp.h"
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
@@ -685,6 +689,58 @@ TxnErrorCode CloneChainReader::get_tablet_schema(Transaction* txn, int64_t index
     } while (true);
 }
 
+TxnErrorCode CloneChainReader::get_rowset_meta(int64_t tablet_id, int64_t end_version,
+                                               RowsetMetaCloudPB* rowset_meta, bool snapshot) {
+    DCHECK(txn_kv_) << "TxnKv must be set before calling";
+    if (!txn_kv_) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_rowset_meta(txn.get(), tablet_id, end_version, rowset_meta, snapshot);
+}
+
+TxnErrorCode CloneChainReader::get_rowset_meta(Transaction* txn, int64_t tablet_id,
+                                               int64_t end_version, RowsetMetaCloudPB* rowset_meta,
+                                               bool snapshot) {
+    RowsetMetaCloudPB load_rowset_meta, compact_rowset_meta;
+    Versionstamp load_versionstamp, compact_versionstamp;
+
+    TxnErrorCode err = get_load_rowset_meta(txn, tablet_id, end_version, &load_rowset_meta,
+                                            &load_versionstamp, snapshot);
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return err;
+    }
+    bool load_rowset_exists = (err == TxnErrorCode::TXN_OK);
+
+    err = get_compact_rowset_meta(txn, tablet_id, end_version, &compact_rowset_meta,
+                                  &compact_versionstamp, snapshot);
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return err;
+    }
+    bool compact_rowset_exists = (err == TxnErrorCode::TXN_OK);
+
+    if (!load_rowset_exists && !compact_rowset_exists) {
+        return TxnErrorCode::TXN_KEY_NOT_FOUND;
+    }
+
+    if (load_rowset_exists && !compact_rowset_exists) {
+        *rowset_meta = std::move(load_rowset_meta);
+    } else if (!load_rowset_exists && compact_rowset_exists) {
+        *rowset_meta = std::move(compact_rowset_meta);
+    } else if (load_versionstamp < compact_versionstamp) {
+        *rowset_meta = std::move(compact_rowset_meta);
+    } else {
+        *rowset_meta = std::move(load_rowset_meta);
+    }
+
+    return TxnErrorCode::TXN_OK;
+}
+
 TxnErrorCode CloneChainReader::get_rowset_metas(int64_t tablet_id, int64_t start_version,
                                                 int64_t end_version,
                                                 std::vector<RowsetMetaCloudPB>* rowset_metas,
@@ -785,7 +841,8 @@ TxnErrorCode CloneChainReader::get_rowset_metas(Transaction* txn, int64_t tablet
 }
 
 TxnErrorCode CloneChainReader::get_load_rowset_meta(int64_t tablet_id, int64_t version,
-                                                    RowsetMetaCloudPB* rowset_meta, bool snapshot) {
+                                                    RowsetMetaCloudPB* rowset_meta,
+                                                    Versionstamp* versionstamp, bool snapshot) {
     DCHECK(txn_kv_) << "TxnKv must be set before calling";
     if (!txn_kv_) {
         return TxnErrorCode::TXN_INVALID_ARGUMENT;
@@ -796,18 +853,65 @@ TxnErrorCode CloneChainReader::get_load_rowset_meta(int64_t tablet_id, int64_t v
     if (err != TxnErrorCode::TXN_OK) {
         return err;
     }
-    return get_load_rowset_meta(txn.get(), tablet_id, version, rowset_meta, snapshot);
+    return get_load_rowset_meta(txn.get(), tablet_id, version, rowset_meta, versionstamp, snapshot);
 }
 
 TxnErrorCode CloneChainReader::get_load_rowset_meta(Transaction* txn, int64_t tablet_id,
                                                     int64_t version, RowsetMetaCloudPB* rowset_meta,
-                                                    bool snapshot) {
+                                                    Versionstamp* versionstamp, bool snapshot) {
     std::string current_instance_id(instance_id_);
     Versionstamp current_snapshot_version = snapshot_version_;
     do {
         MetaReader reader(current_instance_id, current_snapshot_version);
-        TxnErrorCode err =
-                reader.get_load_rowset_meta(txn, tablet_id, version, rowset_meta, snapshot);
+        TxnErrorCode err = reader.get_load_rowset_meta(txn, tablet_id, version, rowset_meta,
+                                                       versionstamp, snapshot);
+        if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            if (err == TxnErrorCode::TXN_OK) {
+                min_read_versionstamp_ = reader.min_read_versionstamp();
+            }
+            return err;
+        }
+
+        // not found, try to find in previous clone chain
+        std::string prev_instance_id;
+        Versionstamp prev_snapshot_version;
+        if (!get_source_snapshot_info(current_instance_id, &prev_instance_id,
+                                      &prev_snapshot_version)) {
+            // no previous clone chain
+            return TxnErrorCode::TXN_KEY_NOT_FOUND;
+        }
+        current_instance_id = std::move(prev_instance_id);
+        current_snapshot_version = prev_snapshot_version;
+    } while (true);
+}
+
+TxnErrorCode CloneChainReader::get_compact_rowset_meta(int64_t tablet_id, int64_t version,
+                                                       RowsetMetaCloudPB* rowset_meta,
+                                                       Versionstamp* versionstamp, bool snapshot) {
+    DCHECK(txn_kv_) << "TxnKv must be set before calling";
+    if (!txn_kv_) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_compact_rowset_meta(txn.get(), tablet_id, version, rowset_meta, versionstamp,
+                                   snapshot);
+}
+
+TxnErrorCode CloneChainReader::get_compact_rowset_meta(Transaction* txn, int64_t tablet_id,
+                                                       int64_t version,
+                                                       RowsetMetaCloudPB* rowset_meta,
+                                                       Versionstamp* versionstamp, bool snapshot) {
+    std::string current_instance_id(instance_id_);
+    Versionstamp current_snapshot_version = snapshot_version_;
+    do {
+        MetaReader reader(current_instance_id, current_snapshot_version);
+        TxnErrorCode err = reader.get_compact_rowset_meta(txn, tablet_id, version, rowset_meta,
+                                                          versionstamp, snapshot);
         if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
             if (err == TxnErrorCode::TXN_OK) {
                 min_read_versionstamp_ = reader.min_read_versionstamp();
@@ -1092,6 +1196,53 @@ TxnErrorCode CloneChainReader::has_no_indexes(Transaction* txn, int64_t db_id, i
         }
         current_instance_id = std::move(prev_instance_id);
         current_snapshot_version = prev_snapshot_version;
+    } while (true);
+}
+
+TxnErrorCode CloneChainReader::get_delete_bitmap_v2(int64_t tablet_id, const std::string& rowset_id,
+                                                    DeleteBitmapStoragePB* delete_bitmap,
+                                                    bool snapshot) {
+    DCHECK(txn_kv_) << "TxnKv must be set before calling";
+    if (!txn_kv_) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_delete_bitmap_v2(txn.get(), tablet_id, rowset_id, delete_bitmap, snapshot);
+}
+
+TxnErrorCode CloneChainReader::get_delete_bitmap_v2(Transaction* txn, int64_t tablet_id,
+                                                    const std::string& rowset_id,
+                                                    DeleteBitmapStoragePB* delete_bitmap,
+                                                    bool snapshot) {
+    std::string current_instance_id(instance_id_);
+    do {
+        std::string key =
+                versioned::meta_delete_bitmap_key({current_instance_id, tablet_id, rowset_id});
+        ValueBuf val_buf;
+        TxnErrorCode err = cloud::blob_get(txn, key, &val_buf);
+        if (err == TxnErrorCode::TXN_OK) {
+            if (!val_buf.to_pb(delete_bitmap)) {
+                return TxnErrorCode::TXN_INVALID_DATA;
+            }
+            return TxnErrorCode::TXN_OK;
+        } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            return err;
+        }
+
+        // not found, try to find in previous clone chain
+        std::string prev_instance_id;
+        Versionstamp prev_snapshot_version;
+        if (!get_source_snapshot_info(current_instance_id, &prev_instance_id,
+                                      &prev_snapshot_version)) {
+            // no previous clone chain
+            return TxnErrorCode::TXN_KEY_NOT_FOUND;
+        }
+        current_instance_id = std::move(prev_instance_id);
     } while (true);
 }
 
