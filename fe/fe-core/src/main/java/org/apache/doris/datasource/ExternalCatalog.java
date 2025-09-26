@@ -569,12 +569,12 @@ public abstract class ExternalCatalog
      *                     and reloaded during the refresh process.
      */
     public synchronized void resetToUninitialized(boolean invalidCache) {
-        this.objectCreated = false;
-        this.initialized = false;
-        synchronized (this.confLock) {
-            this.cachedConf = null;
-        }
-        onClose();
+        // this.objectCreated = false;
+        // this.initialized = false;
+        // synchronized (this.confLock) {
+        //     this.cachedConf = null;
+        // }
+        // onClose();
 
         refreshOnlyCatalogCache(invalidCache);
     }

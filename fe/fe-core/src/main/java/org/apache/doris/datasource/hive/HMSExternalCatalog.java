@@ -155,9 +155,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
     @Override
     public synchronized void resetToUninitialized(boolean invalidCache) {
         super.resetToUninitialized(invalidCache);
-        if (metadataOps != null) {
-            metadataOps.close();
-        }
+        // if (metadataOps != null) {
+        //     metadataOps.close();
+        // }
     }
 
     @Override
