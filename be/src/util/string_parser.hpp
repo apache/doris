@@ -150,14 +150,14 @@ inline auto skip_one_slash = skip_qualified_char<1, is_slash_ascii>;
 inline auto skip_one_non_alnum = skip_qualified_char<1, is_non_alnum>;
 
 inline bool is_delimiter(char c) {
-    return c == ' ' || c == 'T';
+    return c == ' ' || c == 'T' || c == ':';
 }
 inline auto consume_one_delimiter = skip_qualified_char<1, is_delimiter>;
 
-inline bool is_bar(char c) {
-    return c == '-';
+inline bool is_date_sep(char c) {
+    return c == '-' || c == '/';
 }
-inline auto consume_one_bar = skip_qualified_char<1, is_bar>;
+inline auto consume_one_date_sep = skip_qualified_char<1, is_date_sep>;
 
 inline bool is_colon(char c) {
     return c == ':';

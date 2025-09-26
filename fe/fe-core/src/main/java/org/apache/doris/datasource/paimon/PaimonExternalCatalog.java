@@ -18,14 +18,12 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
-import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -60,12 +58,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
-        try {
-            paimonProperties = (AbstractPaimonProperties) MetastoreProperties.create(catalogProperty.getProperties());
-        } catch (UserException e) {
-            throw new IllegalArgumentException("Failed to create Paimon properties from catalog properties,exception: "
-                    + ExceptionUtils.getRootCauseMessage(e), e);
-        }
+        paimonProperties = (AbstractPaimonProperties) catalogProperty.getMetastoreProperties();
         catalogType = paimonProperties.getPaimonCatalogType();
         catalog = createCatalog();
         initPreExecutionAuthenticator();
@@ -194,14 +187,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
 
     @Override
     public void checkProperties() throws DdlException {
-        if (null != paimonProperties) {
-            try {
-                this.paimonProperties = (AbstractPaimonProperties) MetastoreProperties
-                        .create(catalogProperty.getProperties());
-            } catch (UserException e) {
-                throw new DdlException("Failed to create Paimon properties from catalog properties, exception: "
-                        + ExceptionUtils.getRootCauseMessage(e), e);
-            }
-        }
+        super.checkProperties();
+        catalogProperty.checkMetaStoreAndStorageProperties(AbstractPaimonProperties.class);
     }
 }

@@ -42,21 +42,21 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Setter
     @Getter
     @ConnectorProperty(names = {"oss.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "dlf.endpoint",
-            "dlf.catalog.endpoint"},
+            "dlf.catalog.endpoint", "fs.oss.endpoint"},
             required = false,
             description = "The endpoint of OSS.")
     protected String endpoint = "";
 
     @Getter
     @ConnectorProperty(names = {"oss.access_key", "s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY",
-            "dlf.access_key", "dlf.catalog.accessKeyId"},
+            "dlf.access_key", "dlf.catalog.accessKeyId", "fs.oss.accessKeyId"},
             required = false,
             description = "The access key of OSS.")
     protected String accessKey = "";
 
     @Getter
     @ConnectorProperty(names = {"oss.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY",
-            "dlf.secret_key", "dlf.catalog.secret_key"},
+            "dlf.secret_key", "dlf.catalog.secret_key", "fs.oss.accessKeySecret"},
             required = false,
             description = "The secret key of OSS.")
     protected String secretKey = "";
@@ -74,8 +74,9 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     protected String dlfAccessPublic = "false";
 
     @Getter
-    @ConnectorProperty(names = {"oss.session_token", "s3.session_token", "session_token"},
+    @ConnectorProperty(names = {"oss.session_token", "s3.session_token", "session_token", "fs.oss.securityToken"},
             required = false,
+            sensitive = true,
             description = "The session token of OSS.")
     protected String sessionToken = "";
 
@@ -137,11 +138,14 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
      * use-amazon-s3-sdks-to-access-oss">...</a>
      * - s3.cn-hangzhou.aliyuncs.com              => region = cn-hangzhou
      * <p>
+     * https://help.aliyun.com/zh/dlf/dlf-1-0/developer-reference/api-datalake-2020-07-10-endpoint
+     * - detalake.cn-hangzhou.aliyuncs.com          => region = cn-hangzhou
      */
     public static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(Pattern
                     .compile("^(?:https?://)?(?:s3\\.)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$"),
             Pattern.compile("(?:https?://)?([a-z]{2}-[a-z0-9-]+)\\.oss-dls\\.aliyuncs\\.com"),
-            Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$"));
+            Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$"),
+            Pattern.compile("^(?:https?://)?datalake(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$"));
 
     private static final List<String> URI_KEYWORDS = Arrays.asList("uri", "warehouse");
 
@@ -162,7 +166,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
 
     protected static boolean guessIsMe(Map<String, String> origProps) {
         String value = Stream.of("oss.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
-                        "dlf.endpoint", "dlf.catalog.endpoint")
+                        "dlf.endpoint", "dlf.catalog.endpoint", "fs.oss.endpoint")
                 .map(origProps::get)
                 .filter(Objects::nonNull)
                 .findFirst()

@@ -525,8 +525,6 @@ public class Profile {
                 String queryId = DebugUtil.printId(this.executionProfiles.get(0).getQueryId());
                 publishHboPlanStatistics(queryId, planNodeRuntimeStatsItems);
             }
-            builder.append("\nHBOStatics \n");
-            builder.append(DebugUtil.prettyPrintPlanNodeRuntimeStatsItems(planNodeRuntimeStatsItems));
         }
         if (physicalPlan != null) {
             builder.append("\nPhysicalPlan:\n");

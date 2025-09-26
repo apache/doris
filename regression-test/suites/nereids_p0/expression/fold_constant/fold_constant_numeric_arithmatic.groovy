@@ -321,6 +321,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT MOD(10.5, -3.2) AS fmod_case_3") //fmod(10.5 % -3.2)
     testFoldConst("SELECT MOD(10.5, 0) AS fmod_case_exception") //undefined (returns NULL or error)
     testFoldConst("SELECT fmod(10.5, 3), fmod(-10.5, 3), fmod(10.5, -3)")
+    testFoldConst("SELECT fmod(10.5, 0) AS fmod_case_1") //fmod(10.5 % 0)
     testFoldConst("SELECT MOD(NULL, 3)") // NULL dividend
     testFoldConst("SELECT MOD(10, NULL)") // NULL divisor
     testFoldConst("SELECT MOD(0, 3)") // Zero dividend
@@ -475,6 +476,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT RADIANS(90) AS radians_case_2") //radians(90) = π/2
     testFoldConst("SELECT RADIANS(45) AS radians_case_3") //radians(45)
     testFoldConst("SELECT radians(0), radians(180), radians(360), radians(45)")
+    testFoldConst("SELECT RADIANS(1e308)")
 
 //Round function cases
     testFoldConst("SELECT ROUND(3.4) AS round_case_1")

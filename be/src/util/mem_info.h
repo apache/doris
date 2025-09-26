@@ -54,7 +54,7 @@ public:
 #if !defined(__APPLE__) || !defined(_POSIX_C_SOURCE)
         return getpagesize();
 #else
-        return vm_page_size;
+        return int(vm_page_size);
 #endif
     }
 

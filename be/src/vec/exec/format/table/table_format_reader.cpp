@@ -627,17 +627,16 @@ std::string TableSchemaChangeHelper::debug(const std::shared_ptr<Node>& root, si
         ans += prefix + "ScalarNode\n";
     } else if (auto struct_node = std::dynamic_pointer_cast<StructNode>(root)) {
         ans += prefix + "StructNode\n";
-        for (const auto& [table_col_name, value] : struct_node->get_childrens()) {
-            const auto& [child_node, file_col_name, exist] = value;
+        for (const auto& [table_col_name, value] : struct_node->get_children()) {
             ans += indent(level + 1) + table_col_name;
-            if (exist) {
-                ans += " (file: " + file_col_name + ")";
+            if (value.exists) {
+                ans += " (file: " + value.column_name + ")";
             } else {
                 ans += " (not exists)";
             }
             ans += "\n";
-            if (child_node) {
-                ans += debug(child_node, level + 2);
+            if (value.node) {
+                ans += debug(value.node, level + 2);
             }
         }
     } else if (auto array_node = std::dynamic_pointer_cast<ArrayNode>(root)) {

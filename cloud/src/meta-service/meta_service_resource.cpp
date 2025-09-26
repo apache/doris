@@ -21,6 +21,7 @@
 #include <gen_cpp/cloud.pb.h>
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <chrono>
 #include <numeric>
@@ -46,6 +47,11 @@ using namespace std::chrono;
 
 namespace {
 constexpr char pattern_str[] = "^[a-zA-Z][0-9a-zA-Z_]*$";
+
+constexpr char SNAPSHOT_STATUS_KEY[] = "status";
+constexpr char SNAPSHOT_MAX_RESERVED_KEY[] = "max_reserved_snapshots";
+constexpr char SNAPSHOT_INTERVAL_SECONDS_KEY[] = "snapshot_interval_seconds";
+
 bool is_valid_storage_vault_name(const std::string& str) {
     const std::regex pattern(pattern_str);
     return std::regex_match(str, pattern);
@@ -193,6 +199,25 @@ static int decrypt_and_update_ak_sk(ObjectStoreInfoPB& obj_info, MetaServiceCode
     }
     return 0;
 };
+
+// Asynchronously notify refresh instance in background thread
+static void async_notify_refresh_instance(
+        std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+        std::function<void(const KVStats&)> stats_handler = nullptr) {
+    auto f = new std::function<void()>(
+            [instance_id, txn_kv = std::move(txn_kv), stats_handler = std::move(stats_handler)] {
+                KVStats stats;
+                notify_refresh_instance(txn_kv, instance_id, &stats);
+                if (stats_handler) {
+                    stats_handler(stats);
+                }
+            });
+    bthread_t bid;
+    if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
+        LOG(WARNING) << "notify refresh instance inplace, instance_id=" << instance_id;
+        run_bthread_work(f);
+    }
+}
 
 void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* controller,
                                          const GetObjStoreInfoRequest* request,
@@ -359,6 +384,17 @@ bool normalize_hdfs_fs_name(std::string& fs_name) {
 static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
                                   StorageVaultPB& hdfs_param, MetaServiceCode& code,
                                   std::string& msg) {
+#ifndef ENABLE_HDFS_STORAGE_VAULT
+    code = MetaServiceCode::INVALID_ARGUMENT;
+    msg = fmt::format(
+            "HDFS is disabled (via the ENABLE_HDFS_STORAGE_VAULT build option), "
+            "but HDFS storage vaults were detected: {}",
+            hdfs_param.name());
+    LOG(ERROR) << "HDFS is disabled (via the ENABLE_HDFS_STORAGE_VAULT build option), "
+               << "but HDFS storage vaults were detected: " << hdfs_param.name();
+    return -1;
+#endif
+
     if (!hdfs_param.has_hdfs_info()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = fmt::format("vault_name={} passed invalid argument", hdfs_param.name());
@@ -1770,6 +1806,126 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         msg = fmt::format("failed to commit kv txn, err={}", err);
         LOG(WARNING) << msg;
     }
+
+    async_notify_refresh_instance(
+            txn_kv_, request->instance_id(),
+            [instance_id = request->instance_id()](const KVStats& stats) {
+                if (config::use_detailed_metrics && !instance_id.empty()) {
+                    g_bvar_rpc_kv_create_instance_get_bytes.put({instance_id}, stats.get_bytes);
+                    g_bvar_rpc_kv_create_instance_get_counter.put({instance_id}, stats.get_counter);
+                }
+            });
+}
+
+std::pair<MetaServiceCode, std::string> handle_snapshot_switch(const std::string& instance_id,
+                                                               const std::string& key,
+                                                               const std::string& value,
+                                                               InstanceInfoPB* instance) {
+    // Only allow "ENABLED" and "DISABLED" values (case insensitive)
+    std::string value_upper = value;
+    std::ranges::transform(value_upper, value_upper.begin(), ::toupper);
+
+    if (value_upper != "ENABLED" && value_upper != "DISABLED") {
+        return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                              "Invalid value for enabled property: " + value +
+                                      ", expected 'ENABLED' or 'DISABLED' (case insensitive)" +
+                                      ", instance_id: " + instance_id);
+    }
+
+    // Check if snapshot is not ready (UNSUPPORTED state)
+    if (instance->snapshot_switch_status() == SNAPSHOT_SWITCH_DISABLED) {
+        return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                              "Snapshot not ready, instance_id: " + instance_id);
+    }
+
+    // Determine target status
+    SnapshotSwitchStatus target_status =
+            (value_upper == "ENABLED") ? SNAPSHOT_SWITCH_ON : SNAPSHOT_SWITCH_OFF;
+
+    // Check if the status is already set to the target value
+    if (instance->snapshot_switch_status() == target_status) {
+        std::string status_name = (target_status == SNAPSHOT_SWITCH_ON) ? "ENABLED" : "DISABLED";
+        return std::make_pair(
+                MetaServiceCode::INVALID_ARGUMENT,
+                "Snapshot is already set to " + status_name + ", instance_id: " + instance_id);
+    }
+
+    // Set the new status
+    instance->set_snapshot_switch_status(target_status);
+
+    // Set default values when first enabling snapshot
+    if (target_status == SNAPSHOT_SWITCH_ON) {
+        if (!instance->has_snapshot_interval_seconds() ||
+            instance->snapshot_interval_seconds() == 0) {
+            instance->set_snapshot_interval_seconds(3600);
+            LOG(INFO) << "Set default snapshot_interval_seconds to 3600 for instance "
+                      << instance_id;
+        }
+        if (!instance->has_max_reserved_snapshot() || instance->max_reserved_snapshot() == 0) {
+            instance->set_max_reserved_snapshot(1);
+            LOG(INFO) << "Set default max_reserved_snapshots to 1 for instance " << instance_id;
+        }
+    }
+
+    std::string msg = "Set snapshot enabled to " + value + " for instance " + instance_id;
+    LOG(INFO) << msg;
+
+    return std::make_pair(MetaServiceCode::OK, "");
+}
+
+std::pair<MetaServiceCode, std::string> handle_max_reserved_snapshots(
+        const std::string& instance_id, const std::string& key, const std::string& value,
+        InstanceInfoPB* instance) {
+    int max_snapshots;
+    try {
+        max_snapshots = std::stoi(value);
+        if (max_snapshots < 0) {
+            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                                  "max_reserved_snapshots must be non-negative, got: " + value);
+        }
+        if (max_snapshots > config::snapshot_max_reserved_num) {
+            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                                  "max_reserved_snapshots too large, maximum is " +
+                                          std::to_string(config::snapshot_max_reserved_num) +
+                                          ", got: " + value);
+        }
+    } catch (const std::exception& e) {
+        return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                              "Invalid numeric value for max_reserved_snapshots: " + value);
+    }
+
+    instance->set_max_reserved_snapshot(max_snapshots);
+
+    std::string msg = "Set max_reserved_snapshots to " + value + " for instance " + instance_id;
+    LOG(INFO) << msg;
+
+    return std::make_pair(MetaServiceCode::OK, "");
+}
+
+std::pair<MetaServiceCode, std::string> handle_snapshot_intervals(const std::string& instance_id,
+                                                                  const std::string& key,
+                                                                  const std::string& value,
+                                                                  InstanceInfoPB* instance) {
+    int intervals;
+    try {
+        intervals = std::stoi(value);
+        if (intervals < config::snapshot_min_interval_seconds) {
+            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                                  "snapshot_intervals too small, minimum is " +
+                                          std::to_string(config::snapshot_min_interval_seconds) +
+                                          " seconds, got: " + value);
+        }
+    } catch (const std::exception& e) {
+        return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                              "Invalid numeric value for snapshot_intervals: " + value);
+    }
+
+    instance->set_snapshot_interval_seconds(intervals);
+
+    std::string msg = "Set snapshot_intervals to " + value + " seconds for instance " + instance_id;
+    LOG(INFO) << msg;
+
+    return std::make_pair(MetaServiceCode::OK, "");
 }
 
 void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller,
@@ -1961,6 +2117,73 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
             return std::make_pair(MetaServiceCode::OK, ret);
         });
     } break;
+    /**
+     * Handle SET_SNAPSHOT_PROPERTY operation - configures snapshot-related properties for an instance.
+     * 
+     * Supported property keys and their expected values:
+     * - "status": "UNSUPPORTED" | "ENABLED" | "DISABLED"
+     *   Controls the snapshot functionality status for the instance
+     * 
+     * - "max_reserved_snapshots": numeric string (0-35)
+     *   Sets the maximum number of snapshots to retain for the instance
+     *   
+     * - "snapshot_intervals": numeric string (60-max)
+     *   Sets the snapshot creation interval in seconds (minimum 60s)
+     *   
+     * Each property is validated by its respective handler function which ensures
+     * the provided values conform to the expected format and constraints.
+     */
+    case AlterInstanceRequest::SET_SNAPSHOT_PROPERTY: {
+        ret = alter_instance(request, [&request](InstanceInfoPB* instance) {
+            std::string msg;
+            auto properties = request->properties();
+            if (properties.empty()) {
+                msg = "propertiy is empty, instance_id = " + request->instance_id();
+                LOG(WARNING) << msg;
+                return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
+            }
+            for (const auto& property : properties) {
+                std::string key = property.first;
+                std::string value = property.second;
+
+                std::pair<MetaServiceCode, std::string> result;
+
+                if (key == SNAPSHOT_STATUS_KEY) {
+                    result = handle_snapshot_switch(request->instance_id(), key, value, instance);
+                } else if (key == SNAPSHOT_MAX_RESERVED_KEY) {
+                    result = handle_max_reserved_snapshots(request->instance_id(), key, value,
+                                                           instance);
+                } else if (key == SNAPSHOT_INTERVAL_SECONDS_KEY) {
+                    result =
+                            handle_snapshot_intervals(request->instance_id(), key, value, instance);
+                } else {
+                    msg = "unsupported property: " + key;
+                    LOG(WARNING) << msg;
+                    return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
+                }
+
+                LOG(INFO) << "Property handling result for key=" << key
+                          << ", result_code=" << static_cast<int>(result.first)
+                          << ", result_msg=" << result.second;
+
+                if (result.first != MetaServiceCode::OK) {
+                    msg = result.second;
+                    LOG(WARNING) << msg;
+                    return result;
+                }
+            }
+
+            std::string ret = instance->SerializeAsString();
+            if (ret.empty()) {
+                msg = "failed to serialize";
+                LOG(WARNING) << msg;
+                return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
+            }
+            LOG(INFO) << "put instance_id=" << request->instance_id()
+                      << "set instance snapshot property json=" << proto_to_json(*instance);
+            return std::make_pair(MetaServiceCode::OK, ret);
+        });
+    } break;
     default: {
         ss << "invalid request op, op=" << request->op();
         ret = std::make_pair(MetaServiceCode::INVALID_ARGUMENT, ss.str());
@@ -1971,14 +2194,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
 
     if (request->op() == AlterInstanceRequest::REFRESH) return;
 
-    auto f = new std::function<void()>([instance_id = request->instance_id(), txn_kv = txn_kv_] {
-        notify_refresh_instance(txn_kv, instance_id, nullptr);
-    });
-    bthread_t bid;
-    if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
-        LOG(WARNING) << "notify refresh instance inplace, instance_id=" << request->instance_id();
-        run_bthread_work(f);
-    }
+    async_notify_refresh_instance(txn_kv_, request->instance_id());
 }
 
 void MetaServiceImpl::get_instance(google::protobuf::RpcController* controller,
@@ -2596,20 +2812,14 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
 
     if (code != MetaServiceCode::OK) return;
 
-    auto f = new std::function<void()>([instance_id = request->instance_id(), txn_kv = txn_kv_] {
-        // the func run with a thread, so if use macro proved stats, maybe cause stack-use-after-return error
-        KVStats stats;
-        notify_refresh_instance(txn_kv, instance_id, &stats);
-        if (config::use_detailed_metrics && !instance_id.empty()) {
-            g_bvar_rpc_kv_alter_cluster_get_bytes.put({instance_id}, stats.get_bytes);
-            g_bvar_rpc_kv_alter_cluster_get_counter.put({instance_id}, stats.get_counter);
-        }
-    });
-    bthread_t bid;
-    if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
-        LOG(WARNING) << "notify refresh instance inplace, instance_id=" << request->instance_id();
-        run_bthread_work(f);
-    }
+    async_notify_refresh_instance(
+            txn_kv_, request->instance_id(),
+            [instance_id = request->instance_id()](const KVStats& stats) {
+                if (config::use_detailed_metrics && !instance_id.empty()) {
+                    g_bvar_rpc_kv_alter_cluster_get_bytes.put({instance_id}, stats.get_bytes);
+                    g_bvar_rpc_kv_alter_cluster_get_counter.put({instance_id}, stats.get_counter);
+                }
+            });
 }
 
 void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
@@ -4091,6 +4301,7 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
 void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
                              KVStats* stats) {
     LOG(INFO) << "begin notify_refresh_instance";
+    TEST_SYNC_POINT_RETURN_WITH_VOID("notify_refresh_instance_return");
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {

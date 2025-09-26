@@ -147,6 +147,8 @@ public class ScalarType extends Type {
                 return createDatetimeV2Type(scale);
             case TIMEV2:
                 return createTimeV2Type(scale);
+            case VARBINARY:
+                return createVarbinaryType(len);
             default:
                 return createType(type);
         }
@@ -218,11 +220,13 @@ public class ScalarType extends Type {
                 return IPV4;
             case IPV6:
                 return IPV6;
+            case VARBINARY:
+                return VARBINARY;
             case ALL:
                 return ALL;
             default:
                 LOG.warn("type={}", type);
-                Preconditions.checkState(false);
+                Preconditions.checkState(false, "type.name()=" + type.name());
                 return NULL;
         }
     }
@@ -517,6 +521,13 @@ public class ScalarType extends Type {
         }
     }
 
+    public static ScalarType createVarbinaryType(int len) {
+        // length checked in analysis
+        ScalarType type = new ScalarType(PrimitiveType.VARBINARY);
+        type.len = len;
+        return type;
+    }
+
     public static ScalarType createVarcharType(int len) {
         // length checked in analysis
         ScalarType type = new ScalarType(PrimitiveType.VARCHAR);
@@ -694,6 +705,15 @@ public class ScalarType extends Type {
             case JSONB:
                 stringBuilder.append("json");
                 break;
+            case VARBINARY:
+                if (isWildcardVarbinary()) {
+                    return "varbinary(" + MAX_VARCHAR_LENGTH + ")";
+                } else if (Strings.isNullOrEmpty(lenStr)) {
+                    stringBuilder.append("varbinary").append("(").append(len).append(")");
+                } else {
+                    stringBuilder.append("varbinary").append("(`").append(lenStr).append("`)");
+                }
+                break;
             default:
                 stringBuilder.append("unknown type: ").append(type);
                 break;
@@ -720,6 +740,7 @@ public class ScalarType extends Type {
             case CHAR:
             case HLL:
             case STRING:
+            case VARBINARY:
             case JSONB: {
                 scalarType.setLen(getLength());
                 break;
@@ -836,6 +857,11 @@ public class ScalarType extends Type {
     @Override
     public boolean isWildcardChar() {
         return type == PrimitiveType.CHAR && (len == -1 || len == MAX_CHAR_LENGTH);
+    }
+
+    @Override
+    public boolean isWildcardVarbinary() {
+        return type == PrimitiveType.VARBINARY && (len == -1 || len == MAX_CHAR_LENGTH);
     }
 
     @Override
@@ -1140,7 +1166,8 @@ public class ScalarType extends Type {
         if (result == null) {
             result = compatibilityMatrix[smallerType.ordinal()][largerType.ordinal()];
         }
-        Preconditions.checkNotNull(result);
+        Preconditions.checkNotNull(result,
+                "data type %s and %s is not compatible", t1, t2);
         if (result == PrimitiveType.DECIMALV2) {
             return Type.MAX_DECIMALV2_TYPE;
         }
@@ -1225,5 +1252,14 @@ public class ScalarType extends Type {
             return ((VariantType) this).getEnableTypedPathsToSparse();
         }
         return false; // The old variant type had a default value of false.
+    }
+
+    public int getVariantMaxSparseColumnStatisticsSize() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getVariantMaxSparseColumnStatisticsSize();
+        }
+        return 0; // The old variant type had a default value of 0.
     }
 }

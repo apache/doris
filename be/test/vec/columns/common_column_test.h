@@ -1207,22 +1207,6 @@ public:
         ASSERT_EQ(expect_name, column.get_name());
     }
 
-    // use in ColumnVariant for check_if_sparse_column
-    static void assert_get_ratio_of_default_rows(MutableColumns& load_cols,
-                                                 DataTypeSerDeSPtrs serders) {
-        // just check cols get_ratio_of_default_rows is the same as assert_res
-        std::vector<std::vector<std::string>> res;
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
-            std::vector<std::string> data;
-            data.push_back("in column: " + source_column->get_name() + " ratio of default rows: ");
-            auto actual_str_value = std::to_string(source_column->get_ratio_of_default_rows());
-            data.push_back(actual_str_value);
-            res.push_back(data);
-        }
-        check_res_file("get_ratio_of_default_rows", res);
-    }
-
     // size related we can check from checked file to make sure the size is right
     static void assert_size_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
         std::vector<std::vector<std::string>> res;
@@ -2944,11 +2928,11 @@ auto assert_column_vector_insert_default_callback = [](auto x,
         } else if constexpr (PType == PrimitiveType::TYPE_DATEV2 ||
                              PType == PrimitiveType::TYPE_DATETIMEV2) {
             EXPECT_EQ(col_vec_target->get_element(i),
-                      T(PrimitiveTypeTraits<PType>::CppType::FIRST_DAY.to_date_int_val()));
+                      T(PrimitiveTypeTraits<PType>::CppType::DEFAULT_VALUE.to_date_int_val()));
         } else if constexpr (PType == PrimitiveType::TYPE_DATE ||
                              PType == PrimitiveType::TYPE_DATETIME) {
             EXPECT_EQ(col_vec_target->get_element(i),
-                      T(PrimitiveTypeTraits<PType>::CppType::FIRST_DAY));
+                      T(PrimitiveTypeTraits<PType>::CppType::DEFAULT_VALUE));
         } else {
             EXPECT_EQ(col_vec_target->get_element(i), T {});
         }
@@ -2958,56 +2942,57 @@ auto assert_column_vector_insert_default_callback = [](auto x,
 };
 
 template <PrimitiveType PType>
-auto assert_column_vector_insert_many_defaults_callback = [](auto x, const MutableColumnPtr&
-                                                                             source_column) {
-    using T = decltype(x);
-    using ColumnVecType = std::conditional_t<
-            std::is_same_v<T, ColumnString>, ColumnString,
-            std::conditional_t<std::is_same_v<T, ColumnString64>, ColumnString64,
-                               std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<PType>,
-                                                  ColumnVector<PType>>>>;
-    std::vector<size_t> insert_vals_count = {0, 10, 1000};
-    auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
-    auto src_size = source_column->size();
+auto assert_column_vector_insert_many_defaults_callback =
+        [](auto x, const MutableColumnPtr& source_column) {
+            using T = decltype(x);
+            using ColumnVecType = std::conditional_t<
+                    std::is_same_v<T, ColumnString>, ColumnString,
+                    std::conditional_t<std::is_same_v<T, ColumnString64>, ColumnString64,
+                                       std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<PType>,
+                                                          ColumnVector<PType>>>>;
+            std::vector<size_t> insert_vals_count = {0, 10, 1000};
+            auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+            auto src_size = source_column->size();
 
-    auto test_func = [&](size_t clone_count) {
-        for (auto n : insert_vals_count) {
-            size_t actual_clone_count = std::min(clone_count, src_size);
-            auto target_column = source_column->clone_resized(actual_clone_count);
-            auto* col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
-            col_vec_target->insert_many_defaults(n);
-            auto target_size = col_vec_target->size();
-            EXPECT_EQ(target_size, actual_clone_count + n);
-            size_t i = 0;
-            for (; i < actual_clone_count; ++i) {
-                if constexpr (std::is_same_v<T, ColumnString> ||
-                              std::is_same_v<T, ColumnString64>) {
-                    EXPECT_EQ(col_vec_target->get_data_at(i), col_vec_src->get_data_at(i));
-                } else {
-                    EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
+            auto test_func = [&](size_t clone_count) {
+                for (auto n : insert_vals_count) {
+                    size_t actual_clone_count = std::min(clone_count, src_size);
+                    auto target_column = source_column->clone_resized(actual_clone_count);
+                    auto* col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
+                    col_vec_target->insert_many_defaults(n);
+                    auto target_size = col_vec_target->size();
+                    EXPECT_EQ(target_size, actual_clone_count + n);
+                    size_t i = 0;
+                    for (; i < actual_clone_count; ++i) {
+                        if constexpr (std::is_same_v<T, ColumnString> ||
+                                      std::is_same_v<T, ColumnString64>) {
+                            EXPECT_EQ(col_vec_target->get_data_at(i), col_vec_src->get_data_at(i));
+                        } else {
+                            EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
+                        }
+                    }
+                    for (; i < target_size; ++i) {
+                        if constexpr (std::is_same_v<T, ColumnString> ||
+                                      std::is_same_v<T, ColumnString64>) {
+                            EXPECT_EQ(col_vec_target->get_data_at(i).to_string(), "");
+                        } else if constexpr (PType == PrimitiveType::TYPE_DATEV2 ||
+                                             PType == PrimitiveType::TYPE_DATETIMEV2) {
+                            EXPECT_EQ(col_vec_target->get_element(i),
+                                      T(PrimitiveTypeTraits<PType>::CppType::DEFAULT_VALUE
+                                                .to_date_int_val()));
+                        } else if constexpr (PType == PrimitiveType::TYPE_DATE ||
+                                             PType == PrimitiveType::TYPE_DATETIME) {
+                            EXPECT_EQ(col_vec_target->get_element(i),
+                                      T(PrimitiveTypeTraits<PType>::CppType::DEFAULT_VALUE));
+                        } else {
+                            EXPECT_EQ(col_vec_target->get_element(i), T {});
+                        }
+                    }
                 }
-            }
-            for (; i < target_size; ++i) {
-                if constexpr (std::is_same_v<T, ColumnString> ||
-                              std::is_same_v<T, ColumnString64>) {
-                    EXPECT_EQ(col_vec_target->get_data_at(i).to_string(), "");
-                } else if constexpr (PType == PrimitiveType::TYPE_DATEV2 ||
-                                     PType == PrimitiveType::TYPE_DATETIMEV2) {
-                    EXPECT_EQ(col_vec_target->get_element(i),
-                              T(PrimitiveTypeTraits<PType>::CppType::FIRST_DAY.to_date_int_val()));
-                } else if constexpr (PType == PrimitiveType::TYPE_DATE ||
-                                     PType == PrimitiveType::TYPE_DATETIME) {
-                    EXPECT_EQ(col_vec_target->get_element(i),
-                              T(PrimitiveTypeTraits<PType>::CppType::FIRST_DAY));
-                } else {
-                    EXPECT_EQ(col_vec_target->get_element(i), T {});
-                }
-            }
-        }
-    };
-    test_func(0);
-    test_func(10);
-};
+            };
+            test_func(0);
+            test_func(10);
+        };
 
 template <PrimitiveType PType>
 auto assert_column_vector_get_bool_callback = [](auto x, const MutableColumnPtr& source_column) {

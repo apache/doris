@@ -61,6 +61,7 @@ struct ReportStatusRequest {
     int backend_num;
     RuntimeState* runtime_state;
     std::string load_error_url;
+    std::string first_error_msg;
     std::function<void(const Status&)> cancel_fn;
 };
 
@@ -257,16 +258,16 @@ public:
         DCHECK_EQ(_using_brpc_stubs[network_address].get(), brpc_stub.get());
     }
 
-    void set_llm_resources(std::map<std::string, TLLMResource> llm_resources) {
-        _llm_resources =
-                std::make_unique<std::map<std::string, TLLMResource>>(std::move(llm_resources));
+    void set_ai_resources(std::map<std::string, TAIResource> ai_resources) {
+        _ai_resources =
+                std::make_unique<std::map<std::string, TAIResource>>(std::move(ai_resources));
     }
 
-    const std::map<std::string, TLLMResource>& get_llm_resources() const {
-        if (_llm_resources == nullptr) {
-            throw Status::InternalError("LLM resources not found");
+    const std::map<std::string, TAIResource>& get_ai_resources() const {
+        if (_ai_resources == nullptr) {
+            throw Status::InternalError("AI resources not found");
         }
-        return *_llm_resources;
+        return *_ai_resources;
     }
 
     std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>>
@@ -289,6 +290,8 @@ public:
 
     void set_load_error_url(std::string error_url);
     std::string get_load_error_url();
+    void set_first_error_msg(std::string error_msg);
+    std::string get_first_error_msg();
 
 private:
     friend class QueryTaskController;
@@ -357,7 +360,7 @@ private:
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map;
     std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
 
-    std::unique_ptr<std::map<std::string, TLLMResource>> _llm_resources;
+    std::unique_ptr<std::map<std::string, TAIResource>> _ai_resources;
 
     void _report_query_profile();
 
@@ -366,6 +369,7 @@ private:
 
     std::mutex _error_url_lock;
     std::string _load_error_url;
+    std::string _first_error_msg;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

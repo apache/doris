@@ -28,7 +28,6 @@ import org.apache.iceberg.aws.glue.GlueCatalog;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -74,10 +73,6 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
         return catalog;
     }
 
-    private Map<String, String> prepareBaseCatalogProps() {
-        return new HashMap<>(origProps);
-    }
-
     private void appendS3Props(Map<String, String> props) {
         props.put(S3FileIOProperties.ACCESS_KEY_ID, s3Properties.getAccessKey());
         props.put(S3FileIOProperties.SECRET_ACCESS_KEY, s3Properties.getSecretKey());
@@ -88,11 +83,31 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
 
     private void appendGlueProps(Map<String, String> props) {
         props.put(AwsProperties.GLUE_CATALOG_ENDPOINT, glueProperties.glueEndpoint);
-        props.put("client.credentials-provider",
-                "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x");
-        props.put("client.credentials-provider.glue.access_key", glueProperties.glueAccessKey);
-        props.put("client.credentials-provider.glue.secret_key", glueProperties.glueSecretKey);
-        props.put("aws.catalog.credentials.provider.factory.class",
-                "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProviderFactory");
+
+        if (StringUtils.isNotBlank(glueProperties.glueAccessKey) && StringUtils
+                .isNotBlank(glueProperties.glueSecretKey)) {
+            props.put("client.credentials-provider",
+                    "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x");
+            props.put("client.credentials-provider.glue.access_key", glueProperties.glueAccessKey);
+            props.put("client.credentials-provider.glue.secret_key", glueProperties.glueSecretKey);
+            props.put("aws.catalog.credentials.provider.factory.class",
+                    "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProviderFactory");
+            if (StringUtils.isNotBlank(glueProperties.glueSessionToken)) {
+                props.put("client.credentials-provider.glue.session_token", glueProperties.glueSessionToken);
+            }
+            return;
+        }
+        //IAM Assume Role
+        if (StringUtils.isNotBlank(glueProperties.glueIAMRole)) {
+            props.put(AwsProperties.CLIENT_FACTORY,
+                    "org.apache.iceberg.aws.AssumeRoleAwsClientFactory");
+            props.put("aws.region", glueProperties.glueRegion);
+
+            props.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, glueProperties.glueIAMRole);
+            props.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, glueProperties.glueRegion);
+            if (StringUtils.isNotBlank(glueProperties.glueExternalId)) {
+                props.put(AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, glueProperties.glueExternalId);
+            }
+        }
     }
 }

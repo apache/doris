@@ -9,7 +9,7 @@ PhysicalResultSink
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------hashAgg[LOCAL]
+------------------hashAgg[GLOBAL]
 --------------------PhysicalProject
 ----------------------NestedLoopJoin[INNER_JOIN](cast(d_month_seq as BIGINT) <= d_month_seq+3)
 ------------------------PhysicalProject
@@ -25,7 +25,7 @@ PhysicalResultSink
 --------------------------------------------PhysicalProject
 ----------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF3 RF7
 --------------------------------------------PhysicalProject
-----------------------------------------------hashAgg[LOCAL]
+----------------------------------------------hashAgg[GLOBAL]
 ------------------------------------------------PhysicalProject
 --------------------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_customer_sk = cs_or_ws_sales.customer_sk)) otherCondition=() build RFs:RF2 c_customer_sk->[cs_bill_customer_sk,ws_bill_customer_sk]
 ----------------------------------------------------PhysicalProject

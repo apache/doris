@@ -118,6 +118,9 @@ private:
     std::unique_ptr<VariantStatistics> _statistics;
     // key: subcolumn path, value: subcolumn indexes
     std::unordered_map<std::string, TabletIndexes> _variant_subcolumns_indexes;
+    // variant_sparse_column_statistics_size
+    size_t _variant_sparse_column_statistics_size =
+            BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
 };
 
 class VariantRootColumnIterator : public ColumnIterator {

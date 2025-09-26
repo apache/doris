@@ -437,6 +437,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         case TExprNodeType::TIMEV2_LITERAL:
         case TExprNodeType::STRING_LITERAL:
         case TExprNodeType::JSON_LITERAL:
+        case TExprNodeType::VARBINARY_LITERAL:
         case TExprNodeType::NULL_LITERAL: {
             expr = VLiteral::create_shared(expr_node);
             break;
@@ -635,7 +636,7 @@ Status VExpr::check_expr_output_type(const VExprContextSPtrs& ctxs,
         auto&& [name, expected_type] = name_and_types[i];
         if (!check_type_can_be_converted(real_expr_type, expected_type)) {
             return Status::InternalError(
-                    "output type not match expr type  , col name {} , expected type {} , real type "
+                    "output type not match expr type, col name {} , expected type {} , real type "
                     "{}",
                     name, expected_type->get_name(), real_expr_type->get_name());
         }

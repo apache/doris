@@ -29,8 +29,8 @@
 
 #include "common/config.h"
 #include "common/object_pool.h"
+#include "vec/aggregate_functions/aggregate_function_ai_agg.h"
 #include "vec/aggregate_functions/aggregate_function_java_udaf.h"
-#include "vec/aggregate_functions/aggregate_function_llm_agg.h"
 #include "vec/aggregate_functions/aggregate_function_rpc.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_sort.h"
@@ -238,7 +238,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                                                    _sort_description, state);
     }
 
-    if (_fn.name.function_name == "llm_agg") {
+    if (_fn.name.function_name == "ai_agg") {
         _function->set_query_context(state->get_query_ctx());
     }
 
@@ -408,6 +408,12 @@ Status AggFnEvaluator::check_agg_fn_output(uint32_t key_size,
         }
     }
     return Status::OK();
+}
+
+bool AggFnEvaluator::is_blockable() const {
+    return _function->is_blockable() ||
+           std::any_of(_input_exprs_ctxs.begin(), _input_exprs_ctxs.end(),
+                       [](VExprContextSPtr ctx) { return ctx->root()->is_blockable(); });
 }
 
 #include "common/compile_check_end.h"

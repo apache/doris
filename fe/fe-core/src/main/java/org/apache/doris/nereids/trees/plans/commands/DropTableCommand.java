@@ -37,22 +37,32 @@ import com.google.common.base.Strings;
 public class DropTableCommand extends Command implements ForwardWithSync {
 
     private boolean ifExists;
+    private boolean mustTemporary;
     private final TableNameInfo tableName;
     private final boolean isView;
     private boolean forceDrop;
     private boolean isMaterializedView;
 
-    public DropTableCommand(boolean ifExists, TableNameInfo tableName, boolean forceDrop) {
+    /**
+     * constructor.
+     */
+    public DropTableCommand(boolean ifExists, boolean mustTemporary, TableNameInfo tableName, boolean forceDrop) {
         super(PlanType.DROP_TABLE_COMMAND);
         this.ifExists = ifExists;
+        this.mustTemporary = mustTemporary;
         this.tableName = tableName;
         this.isView = false;
         this.forceDrop = forceDrop;
     }
 
-    public DropTableCommand(boolean ifExists, TableNameInfo tableName, boolean isView, boolean forceDrop) {
+    /**
+     * constructor.
+     */
+    public DropTableCommand(boolean ifExists, boolean mustTemporary,
+            TableNameInfo tableName, boolean isView, boolean forceDrop) {
         super(PlanType.DROP_TABLE_COMMAND);
         this.ifExists = ifExists;
+        this.mustTemporary = mustTemporary;
         this.tableName = tableName;
         this.isView = isView;
         this.forceDrop = forceDrop;
@@ -77,7 +87,7 @@ public class DropTableCommand extends Command implements ForwardWithSync {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
         }
         Env.getCurrentEnv().dropTable(tableName.getCtl(), tableName.getDb(), tableName.getTbl(), isView,
-                isMaterializedView, ifExists, forceDrop);
+                isMaterializedView, ifExists, mustTemporary, forceDrop);
     }
 
     public void setMaterializedView(boolean materializedView) {

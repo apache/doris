@@ -47,19 +47,19 @@ struct MockQueryContext : public QueryContext {
         return ctx;
     }
 
-    void set_mock_llm_resource() {
-        TLLMResource llm_resource;
-        llm_resource.provider_type = "MOCK";
-        llm_resource.model_name = "mock_model";
-        llm_resource.endpoint = "http://localhost";
-        llm_resource.api_key = "xxx";
-        llm_resource.temperature = 0.5;
-        llm_resource.max_tokens = 16;
-        llm_resource.max_retries = 1;
-        llm_resource.retry_delay_second = 1;
-        llm_resource.dimensions = 514;
+    void set_mock_ai_resource() {
+        TAIResource ai_resource;
+        ai_resource.provider_type = "MOCK";
+        ai_resource.model_name = "mock_model";
+        ai_resource.endpoint = "http://localhost";
+        ai_resource.api_key = "xxx";
+        ai_resource.temperature = 0.5;
+        ai_resource.max_tokens = 16;
+        ai_resource.max_retries = 1;
+        ai_resource.retry_delay_second = 1;
+        ai_resource.dimensions = 514;
 
-        set_llm_resources(std::map<std::string, TLLMResource> {{"mock_resource", llm_resource}});
+        set_ai_resources(std::map<std::string, TAIResource> {{"mock_resource", ai_resource}});
     }
 };
 

@@ -952,15 +952,6 @@ public class RuntimeProfile {
         // Add stats for current node
         itemsFromParent.add(profile.toTPlanNodeRuntimeStatsItem());
 
-        if (LOG.isDebugEnabled()) {
-            List<TPlanNodeRuntimeStatsItem> currentItem = new ArrayList<TPlanNodeRuntimeStatsItem>();
-            currentItem.add(profile.toTPlanNodeRuntimeStatsItem());
-            LOG.debug("Current node {}({}) hbo items\n{},\nparent\n{}",
-                    profile.getName(), profile.nodeid,
-                    DebugUtil.prettyPrintPlanNodeRuntimeStatsItems(currentItem),
-                    DebugUtil.prettyPrintPlanNodeRuntimeStatsItems(itemsFromParent));
-        }
-
         return itemsFromParent;
     }
 

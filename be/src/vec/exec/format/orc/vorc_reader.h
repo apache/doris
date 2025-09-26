@@ -165,22 +165,7 @@ public:
                     partition_columns,
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
 
-    Status _fill_partition_columns(
-            Block* block, uint64_t rows,
-            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                    partition_columns);
-    Status _fill_missing_columns(
-            Block* block, uint64_t rows,
-            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
-
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-
-    Status get_next_block_impl(Block* block, size_t* read_rows, bool* eof);
-
-    void _fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
-                         orc::ColumnVectorBatch* batch, int idx);
-
-    void _build_delete_row_filter(const Block* block, size_t rows);
 
     int64_t size() const;
 
@@ -195,7 +180,6 @@ public:
     void set_position_delete_rowids(std::vector<int64_t>* delete_rows) {
         _position_delete_ordered_rowids = delete_rows;
     }
-    void _execute_filter_position_delete_rowids(IColumn::Filter& filter);
 
     void set_delete_rows(const TransactionalHiveReader::AcidRowIDSet* delete_rows) {
         _delete_rows = delete_rows;
@@ -334,6 +318,19 @@ private:
                                 std::unique_ptr<orc::SearchArgumentBuilder>& builder);
     bool _init_search_argument(const VExprSPtrs& exprs);
 
+    void _execute_filter_position_delete_rowids(IColumn::Filter& filter);
+    void _fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
+                         orc::ColumnVectorBatch* batch, int idx);
+
+    void _build_delete_row_filter(const Block* block, size_t rows);
+    Status _get_next_block_impl(Block* block, size_t* read_rows, bool* eof);
+    Status _fill_partition_columns(
+            Block* block, uint64_t rows,
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_columns);
+    Status _fill_missing_columns(
+            Block* block, uint64_t rows,
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
     void _init_bloom_filter(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
     void _init_system_properties();
@@ -571,8 +568,6 @@ private:
                                      const orc::DataBuffer<int64_t>& orc_offsets, size_t num_values,
                                      size_t* element_size);
 
-    void _collect_profile_on_close();
-
     bool _can_filter_by_dict(int slot_id);
 
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
@@ -606,12 +601,12 @@ private:
     Status _fill_row_id_columns(Block* block);
 
     bool _seek_to_read_one_line() {
-        if (_read_line_mode_mode) {
-            if (_read_lines.empty()) {
+        if (_read_by_rows) {
+            if (_row_ids.empty()) {
                 return false;
             }
-            _row_reader->seekToRow(_read_lines.front());
-            _read_lines.pop_front();
+            _row_reader->seekToRow(_row_ids.front());
+            _row_ids.pop_front();
         }
         return true;
     }
@@ -621,7 +616,6 @@ private:
         return Status::OK();
     }
 
-private:
     // This is only for count(*) short circuit read.
     // save the total number of rows in range
     int64_t _remaining_rows = 0;

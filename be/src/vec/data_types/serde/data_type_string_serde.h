@@ -183,6 +183,10 @@ public:
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;
 
+    Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
+                                                const ColumnString& from_column,
+                                                CastParameters& castParms) const override;
+
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
                                  int32_t col_id, int64_t row_num) const override;
 
@@ -228,6 +232,8 @@ public:
         memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(size_t), data_ref.data,
                data_size);
     }
+
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
 
 private:
     template <bool is_binary_format>

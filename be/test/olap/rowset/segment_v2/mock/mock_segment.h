@@ -49,6 +49,9 @@ public:
 
     // Helper methods for test setup
     void add_column_uid_mapping(int32_t col_uid, int32_t footer_ordinal) {
+        _tablet_schema->_cols.push_back(std::make_shared<TabletColumn>());
+        _tablet_schema->_cols.back()->set_unique_id(col_uid);
+        _tablet_schema->_field_uniqueid_to_index[col_uid] = footer_ordinal;
         _column_uid_to_footer_ordinal[col_uid] = footer_ordinal;
     }
 

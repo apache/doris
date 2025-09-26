@@ -189,7 +189,8 @@ public:
 
     // Calculate statistics about variant data paths from the encoded sparse column
     static void calculate_variant_stats(const IColumn& encoded_sparse_column,
-                                        segment_v2::VariantStatisticsPB* stats, size_t row_pos,
+                                        segment_v2::VariantStatisticsPB* stats,
+                                        size_t max_sparse_column_statistics_size, size_t row_pos,
                                         size_t num_rows);
 
     static void get_compaction_subcolumns_from_subpaths(
