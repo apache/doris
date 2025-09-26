@@ -24,8 +24,6 @@
 
 namespace doris {
 
-using namespace doris::segment_v2::inverted_index;
-
 class InvertedIndexParserTest : public testing::Test {
 public:
     void SetUp() override {}
