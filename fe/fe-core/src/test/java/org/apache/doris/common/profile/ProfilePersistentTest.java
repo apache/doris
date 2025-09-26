@@ -105,345 +105,345 @@ public class ProfilePersistentTest {
         return profile;
     }
 
-     @Test
-     public void summaryProfileBasicTest() {
-         SummaryProfile summaryProfile = new SummaryProfile();
-         summaryProfile.fuzzyInit();
+    @Test
+    public void summaryProfileBasicTest() {
+        SummaryProfile summaryProfile = new SummaryProfile();
+        summaryProfile.fuzzyInit();
 
-         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-         DataOutput output = new DataOutputStream(baos);
-         boolean writeFailed = false;
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        DataOutput output = new DataOutputStream(baos);
+        boolean writeFailed = false;
 
-         try {
-             summaryProfile.write(output);
-         } catch (Exception e) {
-             writeFailed = true;
-         }
+        try {
+            summaryProfile.write(output);
+        } catch (Exception e) {
+            writeFailed = true;
+        }
 
-         Assert.assertFalse(writeFailed);
+        Assert.assertFalse(writeFailed);
 
-         byte[] data = baos.toByteArray();
-         ByteArrayInputStream bais = new ByteArrayInputStream(data);
-         DataInput input = new DataInputStream(bais);
+        byte[] data = baos.toByteArray();
+        ByteArrayInputStream bais = new ByteArrayInputStream(data);
+        DataInput input = new DataInputStream(bais);
 
-         boolean readFailed = false;
-         SummaryProfile deserializedSummaryProfile = null;
-         try {
-             deserializedSummaryProfile = SummaryProfile.read(input);
-         } catch (Exception e) {
-             LOG.info("read failed: {}", e.getMessage(), e);
-             readFailed = true;
-         }
-         Assert.assertFalse(readFailed);
+        boolean readFailed = false;
+        SummaryProfile deserializedSummaryProfile = null;
+        try {
+            deserializedSummaryProfile = SummaryProfile.read(input);
+        } catch (Exception e) {
+            LOG.info("read failed: {}", e.getMessage(), e);
+            readFailed = true;
+        }
+        Assert.assertFalse(readFailed);
 
-         SafeStringBuilder builder1 = new SafeStringBuilder();
-         summaryProfile.prettyPrint(builder1);
-         SafeStringBuilder builder2 = new SafeStringBuilder();
-         deserializedSummaryProfile.prettyPrint(builder2);
+        SafeStringBuilder builder1 = new SafeStringBuilder();
+        summaryProfile.prettyPrint(builder1);
+        SafeStringBuilder builder2 = new SafeStringBuilder();
+        deserializedSummaryProfile.prettyPrint(builder2);
 
-         Assert.assertNotEquals("", builder1.toString());
-         Assert.assertEquals(builder1.toString(), builder2.toString());
+        Assert.assertNotEquals("", builder1.toString());
+        Assert.assertEquals(builder1.toString(), builder2.toString());
 
-         for (Entry<String, String> entry : summaryProfile.getAsInfoStings().entrySet()) {
-             String key = entry.getKey();
-             String value = entry.getValue();
-             String deserializedValue = deserializedSummaryProfile.getAsInfoStings().get(key);
-             Assert.assertEquals(value, deserializedValue);
-         }
-     }
+        for (Entry<String, String> entry : summaryProfile.getAsInfoStings().entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
+            String deserializedValue = deserializedSummaryProfile.getAsInfoStings().get(key);
+            Assert.assertEquals(value, deserializedValue);
+        }
+    }
 
-     @Test
-     public void profileBasicTest() throws IOException {
-         final int executionProfileNum = 5;
-         Profile profile = constructRandomProfile(executionProfileNum);
+    @Test
+    public void profileBasicTest() throws IOException {
+        final int executionProfileNum = 5;
+        Profile profile = constructRandomProfile(executionProfileNum);
 
-         Path tempDir = Files.createTempDirectory("profile-persistent-test");
-         try {
-             profile.writeToStorage(tempDir.toString());
+        Path tempDir = Files.createTempDirectory("profile-persistent-test");
+        try {
+            profile.writeToStorage(tempDir.toString());
 
-             // after profile is stored to disk, futher read will be from disk
-             // so we store the original answer to a string
-             String profileContentString = profile.getProfileByLevel();
-             String profileStoragePathTmp = profile.getProfileStoragePath();
-             Assert.assertFalse(Strings.isNullOrEmpty(profileStoragePathTmp));
+            // after profile is stored to disk, futher read will be from disk
+            // so we store the original answer to a string
+            String profileContentString = profile.getProfileByLevel();
+            String profileStoragePathTmp = profile.getProfileStoragePath();
+            Assert.assertFalse(Strings.isNullOrEmpty(profileStoragePathTmp));
 
-             LOG.info("Profile storage path: {}", profileStoragePathTmp);
+            LOG.info("Profile storage path: {}", profileStoragePathTmp);
 
-             Profile deserializedProfile = Profile.read(profileStoragePathTmp);
-             Assert.assertNotNull(deserializedProfile);
-             Assert.assertEquals(profileContentString, profile.getProfileByLevel());
-             Assert.assertEquals(profile.getProfileByLevel(), deserializedProfile.getProfileByLevel());
+            Profile deserializedProfile = Profile.read(profileStoragePathTmp);
+            Assert.assertNotNull(deserializedProfile);
+            Assert.assertEquals(profileContentString, profile.getProfileByLevel());
+            Assert.assertEquals(profile.getProfileByLevel(), deserializedProfile.getProfileByLevel());
 
-             // make sure file is removed
-             profile.deleteFromStorage();
-             File tmpFile = new File(profileStoragePathTmp);
-             Assert.assertFalse(tmpFile.exists());
-         } finally {
-             FileUtils.deleteDirectory(tempDir.toFile());
-         }
-     }
+            // make sure file is removed
+            profile.deleteFromStorage();
+            File tmpFile = new File(profileStoragePathTmp);
+            Assert.assertFalse(tmpFile.exists());
+        } finally {
+            FileUtils.deleteDirectory(tempDir.toFile());
+        }
+    }
 
-     @Test
-     public void testWriteAndReadStorage() throws IOException {
-         final int executionProfileNum = 3;
-         Profile profile = constructRandomProfile(executionProfileNum);
+    @Test
+    public void testWriteAndReadStorage() throws IOException {
+        final int executionProfileNum = 3;
+        Profile profile = constructRandomProfile(executionProfileNum);
 
-         Path tempDir = Files.createTempDirectory("profile-persistent-test");
-         try {
-             // Test writeToStorage
-             profile.writeToStorage(tempDir.toString());
-             Assert.assertFalse(Strings.isNullOrEmpty(profile.getProfileStoragePath()));
-             Assert.assertTrue(new File(profile.getProfileStoragePath()).exists());
+        Path tempDir = Files.createTempDirectory("profile-persistent-test");
+        try {
+            // Test writeToStorage
+            profile.writeToStorage(tempDir.toString());
+            Assert.assertFalse(Strings.isNullOrEmpty(profile.getProfileStoragePath()));
+            Assert.assertTrue(new File(profile.getProfileStoragePath()).exists());
 
-             // Test read
-             Profile readProfile = Profile.read(profile.getProfileStoragePath());
-             Assert.assertNotNull(readProfile);
-             Assert.assertEquals(profile.getId(), readProfile.getId());
-             Assert.assertEquals(profile.getQueryFinishTimestamp(), readProfile.getQueryFinishTimestamp());
+            // Test read
+            Profile readProfile = Profile.read(profile.getProfileStoragePath());
+            Assert.assertNotNull(readProfile);
+            Assert.assertEquals(profile.getId(), readProfile.getId());
+            Assert.assertEquals(profile.getQueryFinishTimestamp(), readProfile.getQueryFinishTimestamp());
 
-             // Verify content is readable
-             SafeStringBuilder builder = new SafeStringBuilder();
-             readProfile.getOnStorageProfile(builder);
-             Assert.assertFalse(Strings.isNullOrEmpty(builder.toString()));
+            // Verify content is readable
+            SafeStringBuilder builder = new SafeStringBuilder();
+            readProfile.getOnStorageProfile(builder);
+            Assert.assertFalse(Strings.isNullOrEmpty(builder.toString()));
 
-             // Clean up
-             profile.deleteFromStorage();
-             Assert.assertFalse(new File(profile.getProfileStoragePath()).exists());
-         } finally {
-             FileUtils.deleteDirectory(tempDir.toFile());
-         }
-     }
+            // Clean up
+            profile.deleteFromStorage();
+            Assert.assertFalse(new File(profile.getProfileStoragePath()).exists());
+        } finally {
+            FileUtils.deleteDirectory(tempDir.toFile());
+        }
+    }
 
-     @Test
-     public void testCreateProfileFileInputStream() throws IOException {
-         final int executionProfileNum = 1;
-         Profile profile = constructRandomProfile(executionProfileNum);
+    @Test
+    public void testCreateProfileFileInputStream() throws IOException {
+        final int executionProfileNum = 1;
+        Profile profile = constructRandomProfile(executionProfileNum);
 
-         Path tempDir = Files.createTempDirectory("profile-persistent-test");
-         try {
-             // Write profile first
-             profile.writeToStorage(tempDir.toString());
-             String path = profile.getProfileStoragePath();
+        Path tempDir = Files.createTempDirectory("profile-persistent-test");
+        try {
+            // Write profile first
+            profile.writeToStorage(tempDir.toString());
+            String path = profile.getProfileStoragePath();
 
-             // Test createPorfileFileInputStream
-             FileInputStream fis = Profile.createPorfileFileInputStream(path);
-             Assert.assertNotNull(fis);
-             fis.close();
+            // Test createPorfileFileInputStream
+            FileInputStream fis = Profile.createPorfileFileInputStream(path);
+            Assert.assertNotNull(fis);
+            fis.close();
 
-             // Test with invalid path
-             Assert.assertNull(Profile.createPorfileFileInputStream("/invalid/path"));
+            // Test with invalid path
+            Assert.assertNull(Profile.createPorfileFileInputStream("/invalid/path"));
 
-             // Test with directory
-             Assert.assertNull(Profile.createPorfileFileInputStream(tempDir.toString()));
+            // Test with directory
+            Assert.assertNull(Profile.createPorfileFileInputStream(tempDir.toString()));
 
-             // Clean up
-             profile.deleteFromStorage();
-         } finally {
-             FileUtils.deleteDirectory(tempDir.toFile());
-         }
-     }
+            // Clean up
+            profile.deleteFromStorage();
+        } finally {
+            FileUtils.deleteDirectory(tempDir.toFile());
+        }
+    }
 
-     @Test
-     public void testGetOnStorageProfile() throws IOException {
-         final int executionProfileNum = 2;
-         Profile profile = constructRandomProfile(executionProfileNum);
+    @Test
+    public void testGetOnStorageProfile() throws IOException {
+        final int executionProfileNum = 2;
+        Profile profile = constructRandomProfile(executionProfileNum);
 
-         Path tempDir = Files.createTempDirectory("profile-persistent-test");
-         try {
-             // First get profile content before storage
-             StringBuilder beforeStorage = new StringBuilder();
-             beforeStorage.append(profile.getProfileByLevel());
-             Assert.assertFalse(Strings.isNullOrEmpty(beforeStorage.toString()));
+        Path tempDir = Files.createTempDirectory("profile-persistent-test");
+        try {
+            // First get profile content before storage
+            StringBuilder beforeStorage = new StringBuilder();
+            beforeStorage.append(profile.getProfileByLevel());
+            Assert.assertFalse(Strings.isNullOrEmpty(beforeStorage.toString()));
 
-             // Write to storage
-             profile.writeToStorage(tempDir.toString());
+            // Write to storage
+            profile.writeToStorage(tempDir.toString());
 
-             // Test getOnStorageProfile
-             StringBuilder afterStorage = new StringBuilder();
-             afterStorage.append(profile.getProfileByLevel());
-             Assert.assertFalse(Strings.isNullOrEmpty(afterStorage.toString()));
+            // Test getOnStorageProfile
+            StringBuilder afterStorage = new StringBuilder();
+            afterStorage.append(profile.getProfileByLevel());
+            Assert.assertFalse(Strings.isNullOrEmpty(afterStorage.toString()));
 
-             // Content should be same
-             Assert.assertEquals(beforeStorage.toString().trim(), afterStorage.toString().trim());
+            // Content should be same
+            Assert.assertEquals(beforeStorage.toString().trim(), afterStorage.toString().trim());
 
-             // Test with corrupted file
-             File profileFile = new File(profile.getProfileStoragePath());
-             FileUtils.writeStringToFile(profileFile, "corrupted content", StandardCharsets.UTF_8);
-             SafeStringBuilder corruptedContent = new SafeStringBuilder();
-             profile.getOnStorageProfile(corruptedContent);
-             Assert.assertTrue(corruptedContent.toString().contains("Failed to read profile"));
+            // Test with corrupted file
+            File profileFile = new File(profile.getProfileStoragePath());
+            FileUtils.writeStringToFile(profileFile, "corrupted content", StandardCharsets.UTF_8);
+            SafeStringBuilder corruptedContent = new SafeStringBuilder();
+            profile.getOnStorageProfile(corruptedContent);
+            Assert.assertTrue(corruptedContent.toString().contains("Failed to read profile"));
 
-             // Clean up
-             profile.deleteFromStorage();
-         } finally {
-             FileUtils.deleteDirectory(tempDir.toFile());
-         }
-     }
+            // Clean up
+            profile.deleteFromStorage();
+        } finally {
+            FileUtils.deleteDirectory(tempDir.toFile());
+        }
+    }
 
-     @Test
-     public void testProfileRead() throws IOException {
-         final int executionProfileNum = 1;
-         Profile profile = constructRandomProfile(executionProfileNum);
+    @Test
+    public void testProfileRead() throws IOException {
+        final int executionProfileNum = 1;
+        Profile profile = constructRandomProfile(executionProfileNum);
 
-         Path tempDir = Files.createTempDirectory("profile-persistent-test");
-         try {
-             // Write profile
-             profile.writeToStorage(tempDir.toString());
+        Path tempDir = Files.createTempDirectory("profile-persistent-test");
+        try {
+            // Write profile
+            profile.writeToStorage(tempDir.toString());
 
-             // Test read with valid path
-             Profile readProfile = Profile.read(profile.getProfileStoragePath());
-             Assert.assertNotNull(readProfile);
-             Assert.assertEquals(profile.getId(), readProfile.getId());
+            // Test read with valid path
+            Profile readProfile = Profile.read(profile.getProfileStoragePath());
+            Assert.assertNotNull(readProfile);
+            Assert.assertEquals(profile.getId(), readProfile.getId());
 
-             // Test read with invalid path
-             Assert.assertNull(Profile.read("/invalid/path"));
+            // Test read with invalid path
+            Assert.assertNull(Profile.read("/invalid/path"));
 
-             // Test read with directory
-             Assert.assertNull(Profile.read(tempDir.toString()));
+            // Test read with directory
+            Assert.assertNull(Profile.read(tempDir.toString()));
 
-             // Test read with corrupted file
-             File profileFile = new File(profile.getProfileStoragePath());
-             FileUtils.writeStringToFile(profileFile, "corrupted", StandardCharsets.UTF_8);
-             Assert.assertNull(Profile.read(profile.getProfileStoragePath()));
+            // Test read with corrupted file
+            File profileFile = new File(profile.getProfileStoragePath());
+            FileUtils.writeStringToFile(profileFile, "corrupted", StandardCharsets.UTF_8);
+            Assert.assertNull(Profile.read(profile.getProfileStoragePath()));
 
-             // Clean up
-             profile.deleteFromStorage();
-         } finally {
-             FileUtils.deleteDirectory(tempDir.toFile());
-         }
-     }
+            // Clean up
+            profile.deleteFromStorage();
+        } finally {
+            FileUtils.deleteDirectory(tempDir.toFile());
+        }
+    }
 
-     @Test
-     public void testwriteToStorage() throws IOException {
-         final int executionProfileNum = 3;
-         Profile profile = constructRandomProfile(executionProfileNum);
+    @Test
+    public void testwriteToStorage() throws IOException {
+        final int executionProfileNum = 3;
+        Profile profile = constructRandomProfile(executionProfileNum);
 
-         Path tempDir = Files.createTempDirectory("profile-persistent-test");
-         try {
-             // Test writeToStorage
-             profile.writeToStorage(tempDir.toString());
-             Assert.assertFalse(Strings.isNullOrEmpty(profile.getProfileStoragePath()));
-             Assert.assertTrue(new File(profile.getProfileStoragePath()).exists());
-             Assert.assertTrue(profile.getProfileStoragePath().endsWith(".zip"));
+        Path tempDir = Files.createTempDirectory("profile-persistent-test");
+        try {
+            // Test writeToStorage
+            profile.writeToStorage(tempDir.toString());
+            Assert.assertFalse(Strings.isNullOrEmpty(profile.getProfileStoragePath()));
+            Assert.assertTrue(new File(profile.getProfileStoragePath()).exists());
+            Assert.assertTrue(profile.getProfileStoragePath().endsWith(".zip"));
 
-             // Test write with empty id
-             Profile emptyProfile = new Profile();
-             emptyProfile.writeToStorage(tempDir.toString());
-             Assert.assertTrue(Strings.isNullOrEmpty(emptyProfile.getProfileStoragePath()));
+            // Test write with empty id
+            Profile emptyProfile = new Profile();
+            emptyProfile.writeToStorage(tempDir.toString());
+            Assert.assertTrue(Strings.isNullOrEmpty(emptyProfile.getProfileStoragePath()));
 
-             // Test write already stored profile
-             profile.writeToStorage(tempDir.toString());
-             Assert.assertTrue(profile.getProfileStoragePath().endsWith(".zip"));
+            // Test write already stored profile
+            profile.writeToStorage(tempDir.toString());
+            Assert.assertTrue(profile.getProfileStoragePath().endsWith(".zip"));
 
-             // Clean up
-             profile.deleteFromStorage();
-         } finally {
-             FileUtils.deleteDirectory(tempDir.toFile());
-         }
-     }
+            // Clean up
+            profile.deleteFromStorage();
+        } finally {
+            FileUtils.deleteDirectory(tempDir.toFile());
+        }
+    }
 
-     @Test
-     public void testCreateProfileFileInputStreamWithCorruptedFiles() throws IOException {
-         final int executionProfileNum = 1;
-         Profile profile = constructRandomProfile(executionProfileNum);
+    @Test
+    public void testCreateProfileFileInputStreamWithCorruptedFiles() throws IOException {
+        final int executionProfileNum = 1;
+        Profile profile = constructRandomProfile(executionProfileNum);
 
-         Path tempDir = Files.createTempDirectory("profile-persistent-test");
-         try {
-             // Write profile first
-             profile.writeToStorage(tempDir.toString());
+        Path tempDir = Files.createTempDirectory("profile-persistent-test");
+        try {
+            // Write profile first
+            profile.writeToStorage(tempDir.toString());
 
-             // Test with empty file
-             File emptyFile = new File(tempDir.toString(), "empty_1234567_abcdef.zip");
-             emptyFile.createNewFile();
-             Assert.assertNull(Profile.createPorfileFileInputStream(emptyFile.getAbsolutePath()));
+            // Test with empty file
+            File emptyFile = new File(tempDir.toString(), "empty_1234567_abcdef.zip");
+            emptyFile.createNewFile();
+            Assert.assertNull(Profile.createPorfileFileInputStream(emptyFile.getAbsolutePath()));
 
-             // Test with invalid filename format
-             File invalidFile = new File(tempDir.toString(), "invalid_name.zip");
-             invalidFile.createNewFile();
-             Assert.assertNull(Profile.createPorfileFileInputStream(invalidFile.getAbsolutePath()));
+            // Test with invalid filename format
+            File invalidFile = new File(tempDir.toString(), "invalid_name.zip");
+            invalidFile.createNewFile();
+            Assert.assertNull(Profile.createPorfileFileInputStream(invalidFile.getAbsolutePath()));
 
-             // Test with non-existing file
-             Assert.assertNull(Profile.createPorfileFileInputStream(tempDir + "/non_existing.zip"));
+            // Test with non-existing file
+            Assert.assertNull(Profile.createPorfileFileInputStream(tempDir + "/non_existing.zip"));
 
-             // Clean up
-             profile.deleteFromStorage();
-             emptyFile.delete();
-             invalidFile.delete();
-         } finally {
-             FileUtils.deleteDirectory(tempDir.toFile());
-         }
-     }
+            // Clean up
+            profile.deleteFromStorage();
+            emptyFile.delete();
+            invalidFile.delete();
+        } finally {
+            FileUtils.deleteDirectory(tempDir.toFile());
+        }
+    }
 
-     @Test
-     public void testGetOnStorageProfileComprehensive() throws IOException {
-         final int executionProfileNum = 2;
-         Profile profile = constructRandomProfile(executionProfileNum);
+    @Test
+    public void testGetOnStorageProfileComprehensive() throws IOException {
+        final int executionProfileNum = 2;
+        Profile profile = constructRandomProfile(executionProfileNum);
 
-         Path tempDir = Files.createTempDirectory("profile-persistent-test");
-         try {
-             // First get profile content before storage
-             SafeStringBuilder beforeStorage = new SafeStringBuilder();
-             profile.getExecutionProfileContent(beforeStorage);
+        Path tempDir = Files.createTempDirectory("profile-persistent-test");
+        try {
+            // First get profile content before storage
+            SafeStringBuilder beforeStorage = new SafeStringBuilder();
+            profile.getExecutionProfileContent(beforeStorage);
 
-             // Write to storage
-             profile.writeToStorage(tempDir.toString());
+            // Write to storage
+            profile.writeToStorage(tempDir.toString());
 
-             // Test with non-stored profile
-             Profile nonStoredProfile = constructRandomProfile(1);
-             SafeStringBuilder nonStoredBuilder = new SafeStringBuilder();
-             nonStoredProfile.getOnStorageProfile(nonStoredBuilder);
-             Assert.assertEquals("", nonStoredBuilder.toString());
+            // Test with non-stored profile
+            Profile nonStoredProfile = constructRandomProfile(1);
+            SafeStringBuilder nonStoredBuilder = new SafeStringBuilder();
+            nonStoredProfile.getOnStorageProfile(nonStoredBuilder);
+            Assert.assertEquals("", nonStoredBuilder.toString());
 
-             // Test with invalid zip entry
-             File profileFile = new File(profile.getProfileStoragePath());
-             FileOutputStream fos = new FileOutputStream(profileFile);
-             ZipOutputStream zos = new ZipOutputStream(fos);
-             zos.putNextEntry(new ZipEntry("wrong_entry_name"));
-             zos.write("test data".getBytes());
-             zos.closeEntry();
-             zos.close();
-             fos.close();
+            // Test with invalid zip entry
+            File profileFile = new File(profile.getProfileStoragePath());
+            FileOutputStream fos = new FileOutputStream(profileFile);
+            ZipOutputStream zos = new ZipOutputStream(fos);
+            zos.putNextEntry(new ZipEntry("wrong_entry_name"));
+            zos.write("test data".getBytes());
+            zos.closeEntry();
+            zos.close();
+            fos.close();
 
-             SafeStringBuilder invalidBuilder = new SafeStringBuilder();
-             profile.getOnStorageProfile(invalidBuilder);
-             Assert.assertTrue(invalidBuilder.toString().contains("Failed to read profile"));
+            SafeStringBuilder invalidBuilder = new SafeStringBuilder();
+            profile.getOnStorageProfile(invalidBuilder);
+            Assert.assertTrue(invalidBuilder.toString().contains("Failed to read profile"));
 
-             // Clean up
-             profile.deleteFromStorage();
-         } finally {
-             FileUtils.deleteDirectory(tempDir.toFile());
-         }
-     }
+            // Clean up
+            profile.deleteFromStorage();
+        } finally {
+            FileUtils.deleteDirectory(tempDir.toFile());
+        }
+    }
 
-     @Test
-     public void testProfileReadComprehensive() throws IOException {
-         final int executionProfileNum = 1;
-         Profile profile = constructRandomProfile(executionProfileNum);
+    @Test
+    public void testProfileReadComprehensive() throws IOException {
+        final int executionProfileNum = 1;
+        Profile profile = constructRandomProfile(executionProfileNum);
 
-         Path tempDir = Files.createTempDirectory("profile-persistent-test");
-         try {
-             // Write profile
-             profile.writeToStorage(tempDir.toString());
+        Path tempDir = Files.createTempDirectory("profile-persistent-test");
+        try {
+            // Write profile
+            profile.writeToStorage(tempDir.toString());
 
-             // Test read with missing entry in zip
-             File profileFile = new File(profile.getProfileStoragePath());
-             FileOutputStream fos = new FileOutputStream(profileFile);
-             ZipOutputStream zos = new ZipOutputStream(fos);
-             zos.close();
-             Assert.assertNull(Profile.read(profileFile.getAbsolutePath()));
+            // Test read with missing entry in zip
+            File profileFile = new File(profile.getProfileStoragePath());
+            FileOutputStream fos = new FileOutputStream(profileFile);
+            ZipOutputStream zos = new ZipOutputStream(fos);
+            zos.close();
+            Assert.assertNull(Profile.read(profileFile.getAbsolutePath()));
 
-             // Test read with corrupted zip
-             FileUtils.writeStringToFile(profileFile, "not a zip file", StandardCharsets.UTF_8);
-             Assert.assertNull(Profile.read(profileFile.getAbsolutePath()));
+            // Test read with corrupted zip
+            FileUtils.writeStringToFile(profileFile, "not a zip file", StandardCharsets.UTF_8);
+            Assert.assertNull(Profile.read(profileFile.getAbsolutePath()));
 
-             // Test read with empty file
-             FileUtils.writeStringToFile(profileFile, "", StandardCharsets.UTF_8);
-             Assert.assertNull(Profile.read(profileFile.getAbsolutePath()));
+            // Test read with empty file
+            FileUtils.writeStringToFile(profileFile, "", StandardCharsets.UTF_8);
+            Assert.assertNull(Profile.read(profileFile.getAbsolutePath()));
 
-             // Clean up
-             profile.deleteFromStorage();
-         } finally {
-             FileUtils.deleteDirectory(tempDir.toFile());
-         }
-     }
+            // Clean up
+            profile.deleteFromStorage();
+        } finally {
+            FileUtils.deleteDirectory(tempDir.toFile());
+        }
+    }
 }
