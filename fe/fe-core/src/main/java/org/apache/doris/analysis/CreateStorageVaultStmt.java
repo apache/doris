@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands;
+package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StorageVault;
