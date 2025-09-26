@@ -431,8 +431,7 @@ public class DdlExecutor {
             Env.getCurrentEnv().getAnalysisManager().dropAnalyzeJob(analyzeJobStmt);
         } else if (ddlStmt instanceof AlterRepositoryStmt) {
             AlterRepositoryStmt alterRepositoryStmt = (AlterRepositoryStmt) ddlStmt;
-            env.getBackupHandler().alterRepository(alterRepositoryStmt.getName(), alterRepositoryStmt.getProperties(),
-                    false);
+            env.getBackupHandler().alterRepository(alterRepositoryStmt.getName(), alterRepositoryStmt.getProperties());
         } else if (ddlStmt instanceof CreateStorageVaultStmt) {
             env.getStorageVaultMgr().createStorageVaultResource((CreateStorageVaultStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateStageStmt) {

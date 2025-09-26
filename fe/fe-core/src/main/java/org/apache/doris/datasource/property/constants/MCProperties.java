@@ -33,7 +33,6 @@ public class MCProperties extends BaseProperties {
     public static final String ODPS_ENDPOINT = "mc.odps_endpoint";
     public static final String TUNNEL_SDK_ENDPOINT = "mc.tunnel_endpoint";
 
-
     public static final String PROJECT = "mc.default.project";
     public static final String SESSION_TOKEN = "mc.session_token";
 

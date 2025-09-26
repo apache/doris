@@ -20,7 +20,7 @@ package org.apache.hadoop.hive.metastore;
 
 import org.apache.doris.datasource.hive.HiveVersionUtil;
 import org.apache.doris.datasource.hive.HiveVersionUtil.HiveVersion;
-import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -354,8 +354,8 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
       this.conf = new Configuration(conf);
     }
 
-    hiveVersion = HiveVersionUtil.getVersion(conf.get(HMSProperties.HIVE_VERSION));
-    LOG.info("Loading Doris HiveMetaStoreClient. Hive version: " + conf.get(HMSProperties.HIVE_VERSION));
+    hiveVersion = HiveVersionUtil.getVersion(conf.get(HMSBaseProperties.HIVE_VERSION));
+    LOG.info("Loading Doris HiveMetaStoreClient. Hive version: " + conf.get(HMSBaseProperties.HIVE_VERSION));
 
     // For hive 2.3.7, there is no ClientCapability.INSERT_ONLY_TABLES
     if (hiveVersion == HiveVersion.V1_0 || hiveVersion == HiveVersion.V2_0 || hiveVersion == HiveVersion.V2_3) {
