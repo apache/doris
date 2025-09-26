@@ -112,34 +112,39 @@ namespace segment_v2 {
 SegmentIterator::~SegmentIterator() = default;
 
 void SegmentIterator::_init_row_bitmap_by_condition_cache() {
-    if (_opts.condition_cache_digest) {
-        auto* condition_cache = ConditionCache::instance();
-        ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
-                                           _opts.condition_cache_digest);
+    // Only dispose need column predicate and expr cal in condition cache
+    if (_is_need_vec_eval || _is_need_short_eval || _is_need_expr_eval) {
+        if (_opts.condition_cache_digest) {
+            auto* condition_cache = ConditionCache::instance();
+            ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
+                                               _opts.condition_cache_digest);
 
-        ConditionCacheHandle handle;
-        _find_condition_cache = condition_cache->lookup(cache_key, &handle);
+            ConditionCacheHandle handle;
+            _find_condition_cache = condition_cache->lookup(cache_key, &handle);
 
-        auto num_rows = _segment->num_rows();
-        if (_find_condition_cache) {
-            const auto& filter_result = *(handle.get_filter_result());
-            int64_t filtered_blocks = 0;
-            for (int i = 0; i < filter_result.size(); i++) {
-                if (!filter_result[i]) {
-                    _row_bitmap.removeRange(i * CONDITION_CACHE_OFFSET,
-                                            i * CONDITION_CACHE_OFFSET + CONDITION_CACHE_OFFSET);
-                    filtered_blocks++;
+            auto num_rows = _segment->num_rows();
+            if (_find_condition_cache) {
+                const auto& filter_result = *(handle.get_filter_result());
+                int64_t filtered_blocks = 0;
+                for (int i = 0; i < filter_result.size(); i++) {
+                    if (!filter_result[i]) {
+                        _row_bitmap.removeRange(i * CONDITION_CACHE_OFFSET,
+                                                i * CONDITION_CACHE_OFFSET + CONDITION_CACHE_OFFSET);
+                        filtered_blocks++;
+                    }
                 }
+                // Record condition_cache hit segment number
+                _opts.stats->condition_cache_hit_seg_nums++;
+                // Record rows filtered by condition cache hit
+                _opts.stats->condition_cache_filtered_rows +=
+                        filtered_blocks * SegmentIterator::CONDITION_CACHE_OFFSET;
+            } else {
+                _condition_cache = std::make_shared<std::vector<bool>>(
+                        num_rows / CONDITION_CACHE_OFFSET + 1, false);
             }
-            // Record condition_cache hit segment number
-            _opts.stats->condition_cache_hit_seg_nums++;
-            // Record rows filtered by condition cache hit
-            _opts.stats->condition_cache_filtered_rows +=
-                    filtered_blocks * SegmentIterator::CONDITION_CACHE_OFFSET;
-        } else {
-            _condition_cache = std::make_shared<std::vector<bool>>(
-                    num_rows / CONDITION_CACHE_OFFSET + 1, false);
         }
+    } else {
+        _opts.condition_cache_digest = 0;
     }
 }
 

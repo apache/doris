@@ -18,8 +18,19 @@
 3	Charlie	22	75.5
 
 -- !condition_cache5 --
+2	Bob	30	90
+4	David	28	92
+5	Eve	26	88
 
 -- !condition_cache6 --
+1	Alice	25	85.5
+3	Charlie	22	75.5
+
+-- !condition_delete1 --
+4	David	28	92
+5	Eve	26	88
+
+-- !condition_delete2 --
 1	Alice	25	85.5
 3	Charlie	22	75.5
 
@@ -42,8 +53,19 @@
 3	Charlie	22	75.5
 
 -- !condition_cache5 --
+2	Bob	30	90
+4	David	28	92
+5	Eve	26	88
 
 -- !condition_cache6 --
+1	Alice	25	85.5
+3	Charlie	22	75.5
+
+-- !condition_delete1 --
+4	David	28	92
+5	Eve	26	88
+
+-- !condition_delete2 --
 1	Alice	25	85.5
 3	Charlie	22	75.5
 
