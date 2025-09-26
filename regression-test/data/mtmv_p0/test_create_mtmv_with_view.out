@@ -14,3 +14,17 @@ NOT_REFRESH
 -- !is_sync_data_change --
 false
 
+-- !trigger_view_need_refresh --
+COMPLETE
+
+-- !after_trigger_view --
+1	1
+2	2
+
+-- !trigger_table_not_need_refresh --
+NOT_REFRESH
+
+-- !after_trigger_table --
+1	1
+2	2
+
