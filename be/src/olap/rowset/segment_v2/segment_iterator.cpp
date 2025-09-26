@@ -128,8 +128,9 @@ void SegmentIterator::_init_row_bitmap_by_condition_cache() {
                 int64_t filtered_blocks = 0;
                 for (int i = 0; i < filter_result.size(); i++) {
                     if (!filter_result[i]) {
-                        _row_bitmap.removeRange(i * CONDITION_CACHE_OFFSET,
-                                                i * CONDITION_CACHE_OFFSET + CONDITION_CACHE_OFFSET);
+                        _row_bitmap.removeRange(
+                                i * CONDITION_CACHE_OFFSET,
+                                i * CONDITION_CACHE_OFFSET + CONDITION_CACHE_OFFSET);
                         filtered_blocks++;
                     }
                 }

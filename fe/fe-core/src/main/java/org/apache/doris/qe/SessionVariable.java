@@ -1274,7 +1274,7 @@ public class SessionVariable implements Serializable, Writable {
     private long queryCacheEntryMaxRows = 500000;
 
     @VariableMgr.VarAttr(name = ENABLE_CONDITION_CACHE)
-    public boolean enableConditionCache = false;
+    public boolean enableConditionCache = true;
 
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = true;
