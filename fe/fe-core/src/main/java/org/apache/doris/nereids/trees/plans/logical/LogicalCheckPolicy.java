@@ -139,7 +139,7 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         }
         Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = cascadesContext.getStatementContext()
                 .getMvRefreshPredicates();
-        if (!mvRefreshPredicates.isPresent()) {
+        if (mvRefreshPredicates.isPresent()) {
             return findPolicyByMvRefresh(mvRefreshPredicates.get(), logicalPlan);
         }
         ConnectContext connectContext = cascadesContext.getConnectContext();
