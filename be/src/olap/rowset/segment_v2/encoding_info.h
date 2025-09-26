@@ -87,5 +87,72 @@ private:
     std::unique_ptr<DataPagePreDecoder> _data_page_pre_decoder;
 };
 
+struct EncodingMapHash {
+    size_t operator()(const FieldType& type) const { return int(type); }
+    size_t operator()(const std::pair<FieldType, EncodingTypePB>& pair) const {
+        return (int(pair.first) << 6) ^ pair.second;
+    }
+};
+
+class EncodingInfoResolver {
+public:
+    EncodingInfoResolver();
+    ~EncodingInfoResolver();
+
+    EncodingTypePB get_default_encoding(FieldType type, bool optimize_value_seek) const {
+        auto& encoding_map =
+                optimize_value_seek ? _value_seek_encoding_map : _default_encoding_type_map;
+        auto it = encoding_map.find(type);
+        if (it != encoding_map.end()) {
+            return it->second;
+        }
+        return UNKNOWN_ENCODING;
+    }
+
+    Status get(FieldType data_type, EncodingTypePB encoding_type, const EncodingInfo** out);
+
+private:
+    // Not thread-safe
+    template <FieldType type, EncodingTypePB encoding_type, bool optimize_value_seek = false>
+    void _add_map();
+
+    std::unordered_map<FieldType, EncodingTypePB, EncodingMapHash> _default_encoding_type_map;
+
+    // default encoding for each type which optimizes value seek
+    std::unordered_map<FieldType, EncodingTypePB, EncodingMapHash> _value_seek_encoding_map;
+
+    std::unordered_map<std::pair<FieldType, EncodingTypePB>, EncodingInfo*, EncodingMapHash>
+            _encoding_map;
+};
+
+template <FieldType type, EncodingTypePB encoding, typename CppType, typename Enabled = void>
+struct TypeEncodingTraits {};
+
+template <FieldType field_type, EncodingTypePB encoding_type>
+struct EncodingTraits : TypeEncodingTraits<field_type, encoding_type,
+                                           typename CppTypeTraits<field_type>::CppType> {
+    static const FieldType type = field_type;
+    static const EncodingTypePB encoding = encoding_type;
+};
+
+template <FieldType type, EncodingTypePB encoding_type, bool optimize_value_seek>
+void EncodingInfoResolver::_add_map() {
+    EncodingTraits<type, encoding_type> traits;
+    std::unique_ptr<EncodingInfo> encoding(new EncodingInfo(traits));
+    if (_default_encoding_type_map.find(type) == std::end(_default_encoding_type_map)) {
+        _default_encoding_type_map[type] = encoding_type;
+    }
+    if (optimize_value_seek &&
+        _value_seek_encoding_map.find(type) == _value_seek_encoding_map.end()) {
+        _value_seek_encoding_map[type] = encoding_type;
+    }
+    auto key = std::make_pair(type, encoding_type);
+    auto it = _encoding_map.find(key);
+    if (it != _encoding_map.end()) {
+        return;
+    }
+    _encoding_map.emplace(key, encoding.release());
+}
+
 } // namespace segment_v2
 } // namespace doris

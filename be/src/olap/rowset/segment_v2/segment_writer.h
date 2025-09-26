@@ -136,6 +136,9 @@ public:
     Slice min_encoded_key();
     Slice max_encoded_key();
 
+    // Get column data page statistics for the current segment
+    std::vector<ColumnDataPageStatsPB> get_column_data_page_stats() const;
+
     bool is_unique_key() { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
 
     void clear();

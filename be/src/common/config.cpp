@@ -1598,6 +1598,10 @@ DEFINE_mBool(print_stack_when_cache_miss, "false");
 
 DEFINE_mBool(read_cluster_cache_opt_verbose_log, "false");
 
+DEFINE_mDouble(compression_min_space_saving, "0.1");
+
+DEFINE_Bool(use_plain_encoding, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

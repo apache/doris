@@ -63,6 +63,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/wal/wal_manager.h"
+#include "olap/rowset/segment_v2/encoding_info.h"
 #include "pipeline/pipeline_tracing.h"
 #include "pipeline/query_cache/query_cache.h"
 #include "pipeline/task_queue.h"
@@ -614,6 +615,9 @@ Status ExecEnv::init_mem_env() {
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
+    // Initialize encoding info resolver
+    _encoding_info_resolver = new segment_v2::EncodingInfoResolver();
+
     // init orc memory pool
     _orc_memory_pool = new doris::vectorized::ORCMemoryPool();
     _arrow_memory_pool = new doris::vectorized::ArrowMemoryPool();
@@ -795,6 +799,7 @@ void ExecEnv::destroy() {
 
     SAFE_DELETE(_inverted_index_query_cache);
     SAFE_DELETE(_inverted_index_searcher_cache);
+    SAFE_DELETE(_encoding_info_resolver);
     SAFE_DELETE(_lookup_connection_cache);
     SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);

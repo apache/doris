@@ -158,6 +158,7 @@ enum TSchemaTableType {
     SCH_SQL_BLOCK_RULE_STATUS = 59;
     SCH_CLUSTER_SNAPSHOTS = 60;
     SCH_CLUSTER_SNAPSHOT_PROPERTIES = 61;
+    SCH_COLUMN_DATA_SIZES = 62;
 }
 
 enum THdfsCompression {
