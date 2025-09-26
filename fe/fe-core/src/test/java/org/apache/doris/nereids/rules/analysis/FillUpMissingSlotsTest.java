@@ -647,8 +647,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                     logicalProject(
                         logicalFilter(
                             logicalWindow(
-                                logicalProject(
-                                    logicalAggregate(logicalEmptyRelation())))
+                                    logicalAggregate(logicalEmptyRelation()))
                         ).when(filter -> filter.toString().contains("predicates=(rank() OVER(ORDER BY year asc null first)#5 > 1)"))
                     )
                 )
@@ -660,11 +659,9 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                     logicalProject(
                         logicalFilter(
                             logicalWindow(
-                                logicalProject(
-                                    logicalFilter(
-                                        logicalAggregate(logicalEmptyRelation())
-                                    ).when(filter -> filter.toString().contains("predicates=(total#5 > 100)"))
-                                )
+                                logicalFilter(
+                                    logicalAggregate(logicalEmptyRelation())
+                                ).when(filter -> filter.toString().contains("predicates=(total#5 > 100)"))
                             )
                         ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY year asc null first)#6 > 1)"))
                     )
@@ -692,7 +689,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                         logicalProject(
                             logicalFilter(
                                 logicalWindow(
-                                    logicalProject(logicalAggregate(logicalEmptyRelation())))
+                                    logicalAggregate(logicalEmptyRelation()))
                             ).when(filter -> filter.toString().contains("predicates=(row_number() OVER(ORDER BY year asc null first)#5 > 1)"))
                         )
                     )

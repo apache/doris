@@ -223,11 +223,6 @@ public:
 
     virtual bool can_do_bloom_filter(bool ngram) const { return false; }
 
-    // Check input type could apply safely.
-    // Note: Currenly ColumnPredicate is not include complex type, so use PrimitiveType
-    // is simple and intuitive
-    virtual bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const = 0;
-
     // used to evaluate pre read column in lazy materialization
     // now only support integer/float
     // a vectorized eval way

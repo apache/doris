@@ -77,6 +77,7 @@ public class SlotDescriptor {
     private Expr virtualColumn = null;
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent) {
+
         this.id = id;
         this.parent = parent;
         this.byteOffset = -1;  // invalid
@@ -363,7 +364,7 @@ public class SlotDescriptor {
                 .append(", nullable=").append(isNullable)
                 .append(", isAutoIncrement=").append(isAutoInc)
                 .append(", subColPath=").append(subColPath)
-                .append(", virtualColumn=").append(virtualColumn)
+                .append(", virtualColumn=").append(virtualColumn == null ? null : virtualColumn.toSql())
                 .append("}")
                 .toString();
     }

@@ -61,7 +61,6 @@
 #include "util/histogram.h"
 #include "util/metrics.h"
 #include "util/path_util.h"
-#include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "util/trace.h"
@@ -800,6 +799,10 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
         uint32_t current_compaction_score = tablet_ptr->calc_compaction_score();
         if (current_compaction_score < 5) {
             tablet_ptr->set_skip_compaction(true, compaction_type, UnixSeconds());
+        }
+
+        if (current_compaction_score <= 0) {
+            return;
         }
 
         // tablet should do single compaction

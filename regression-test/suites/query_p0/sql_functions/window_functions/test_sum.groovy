@@ -21,6 +21,47 @@ suite("test_sum") {
                       (partition by k1 order by k3 range between current row and unbounded following) as w 
                   from test_query_db.test order by k1, w
               """
+    sql "create database if not exists multi_db"
+    sql "use multi_db"
+    sql "DROP TABLE IF EXISTS null_table"
+    sql """
+        CREATE TABLE null_table (
+            id int,
+            v1 int,
+            v2 varchar,
+            v3 varchar
+            ) ENGINE = OLAP
+            DUPLICATE KEY(id) COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(id) BUCKETS 2
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+        """ 
+    sql """
+            INSERT INTO null_table (id, v1, v2, v3) VALUES
+            (0, NULL, 'be', NULL),
+            (12, NULL, 'be', NULL),
+            (6, NULL, 'but', NULL),
+            (11, NULL, 'did', NULL),
+            (14, NULL, 'go', NULL),
+            (15, NULL, 'go', NULL),
+            (7, NULL, 'had', NULL),
+            (13, NULL, 'it', NULL),
+            (19, NULL, 'look', NULL),
+            (9, NULL, 'not', NULL),
+            (10, NULL, 'of', NULL),
+            (16, NULL, 'right', NULL),
+            (17, NULL, 'say', NULL),
+            (3, NULL, 'she', NULL),
+            (8, NULL, 'she', NULL),
+            (4, NULL, 'some', NULL),
+            (5, NULL, 'there', NULL),
+            (18, NULL, 'we', NULL),
+            (2, NULL, 'well', NULL),
+            (1, NULL, 'who', NULL);
+        """ 
+
+    qt_sql_window_null """   select id,v1,v2, max(v1) over(partition by v2 order by id rows between 7 preceding and current row) from null_table order by v2,id; """
 
     sql "create database if not exists multi_db"
     sql "use multi_db"

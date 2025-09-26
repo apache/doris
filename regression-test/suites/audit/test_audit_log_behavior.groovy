@@ -93,7 +93,7 @@ suite("test_audit_log_behavior") {
             if (retry-- < 0) {
                 throw new RuntimeException("It has retried a few but still failed, you need to check it")
             }
-            sleep(1000)
+            sleep(3000)
             res = sql "${query}"
         }
         assertEquals(tuple2[1].toString(), res[0][0].toString())

@@ -39,7 +39,7 @@ suite('test_compaction_clone_missing_rowset_fault_injection', 'docker') {
         assertNotNull(normalBe)
 
         try {
-            def tableName = "test_compaction_clone_missing_rowset"
+            def tableName = "test_compaction_clone_missing_rowset_fault_injection"
             sql """ DROP TABLE IF EXISTS ${tableName} force"""
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName} (

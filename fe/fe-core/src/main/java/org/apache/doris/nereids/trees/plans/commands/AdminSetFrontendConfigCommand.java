@@ -39,7 +39,7 @@ import java.util.Map;
 /**
  * admin set frontend config ("key" = "value");
  */
-public class AdminSetFrontendConfigCommand extends Command implements ForwardWithSync {
+public class AdminSetFrontendConfigCommand extends Command implements Redirect {
     private boolean applyToAll;
     private NodeType type;
     private Map<String, String> configs;
@@ -59,11 +59,13 @@ public class AdminSetFrontendConfigCommand extends Command implements ForwardWit
         }
         this.applyToAll = applyToAll;
 
-        // we have to analyze configs here to determine whether to forward it to master
-        for (String key : this.configs.keySet()) {
-            if (ConfigBase.checkIsMasterOnly(key)) {
-                redirectStatus = RedirectStatus.FORWARD_NO_SYNC;
-                this.applyToAll = false;
+        if (!this.applyToAll) {
+            // we have to analyze configs here to determine whether to forward it to master
+            for (String key : this.configs.keySet()) {
+                if (ConfigBase.checkIsMasterOnly(key)) {
+                    redirectStatus = RedirectStatus.FORWARD_NO_SYNC;
+                    break;
+                }
             }
         }
     }
@@ -72,7 +74,7 @@ public class AdminSetFrontendConfigCommand extends Command implements ForwardWit
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate();
         originStmt = ctx.getStatementContext().getOriginStatement();
-        Env.getCurrentEnv().setConfig(this);
+        Env.getCurrentEnv().setConfig(this, executor.isProxy());
     }
 
     /**
@@ -109,18 +111,19 @@ public class AdminSetFrontendConfigCommand extends Command implements ForwardWit
         return configs;
     }
 
-    public RedirectStatus getRedirectStatus() {
-        return redirectStatus;
-    }
-
     /**
      * getLocalSetStmt
      */
     public OriginStatement getLocalSetStmt() {
         Object[] keyArr = configs.keySet().toArray();
-        String sql = String.format("ADMIN SET FRONTEND CONFIG (\"%s\" = \"%s\");",
+        String sql = String.format("ADMIN SET %s CONFIG (\"%s\" = \"%s\");", applyToAll ? "ALL FRONTENDS" : "FRONTEND",
                 keyArr[0].toString(), configs.get(keyArr[0].toString()));
 
-        return new OriginStatement(sql, originStmt.idx);
+        return new OriginStatement(sql, originStmt == null ? 0 : originStmt.idx);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        return redirectStatus;
     }
 }

@@ -38,7 +38,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -109,7 +108,9 @@ struct AggregateFunctionAvgData {
 /// Calculates arithmetic mean of numbers.
 template <PrimitiveType T, typename Data>
 class AggregateFunctionAvg final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>>,
+          UnaryExpression,
+          NullableAggregateFunction {
 public:
     using ResultType = std::conditional_t<
             T == TYPE_DECIMALV2, Decimal128V2,
@@ -142,8 +143,8 @@ public:
     }
 
     template <bool is_add>
-    void update_value(AggregateDataPtr __restrict place, const IColumn** columns,
-                      ssize_t row_num) const {
+    NO_SANITIZE_UNDEFINED void update_value(AggregateDataPtr __restrict place,
+                                            const IColumn** columns, ssize_t row_num) const {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
@@ -176,8 +177,8 @@ public:
         this->data(place).count = 0;
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena&) const override {
+    NO_SANITIZE_UNDEFINED void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+                                     Arena&) const override {
         if constexpr (is_decimal(T)) {
             this->data(place).sum += this->data(rhs).sum.value;
         } else {
@@ -234,8 +235,9 @@ public:
         }
     }
 
-    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena&) const override {
+    NO_SANITIZE_UNDEFINED void deserialize_and_merge_from_column(AggregateDataPtr __restrict place,
+                                                                 const IColumn& column,
+                                                                 Arena&) const override {
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         const size_t num_rows = column.size();
         DCHECK(col.size() >= num_rows) << "source column's size should greater than num_rows";
@@ -247,9 +249,9 @@ public:
         }
     }
 
-    void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
-                                                 const IColumn& column, size_t begin, size_t end,
-                                                 Arena&) const override {
+    NO_SANITIZE_UNDEFINED void deserialize_and_merge_from_column_range(
+            AggregateDataPtr __restrict place, const IColumn& column, size_t begin, size_t end,
+            Arena&) const override {
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);

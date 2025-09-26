@@ -20,7 +20,6 @@
 
 #pragma once
 
-#include "common/logging.h"
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_nullable.h"
@@ -29,7 +28,6 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/array/function_array_utils.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -55,7 +53,9 @@ struct AggregateFunctionForEachData {
   * TODO Allow variable number of arguments.
   */
 class AggregateFunctionForEach : public IAggregateFunctionDataHelper<AggregateFunctionForEachData,
-                                                                     AggregateFunctionForEach> {
+                                                                     AggregateFunctionForEach>,
+                                 VarargsExpression,
+                                 NullableAggregateFunction {
 protected:
     using Base =
             IAggregateFunctionDataHelper<AggregateFunctionForEachData, AggregateFunctionForEach>;

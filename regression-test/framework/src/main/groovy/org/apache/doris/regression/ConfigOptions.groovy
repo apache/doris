@@ -76,6 +76,7 @@ class ConfigOptions {
     static Option withOutLoadDataOpt
     static Option runNonConcurrentOpt
     static Option caseNamePrefixOpt
+    static Option validateBackupPrefixOpt
     static Option dryRunOpt
     static Option isSmokeTestOpt
     static Option multiClusterBesOpt
@@ -97,6 +98,13 @@ class ConfigOptions {
     static Option clusterDirOpt
     static Option kafkaBrokerListOpt
     static Option cloudVersionOpt
+    static Option tdeAkOpt
+    static Option tdeSkOpt
+    static Option tdeKeyEndpointOpt
+    static Option tdeKeyRegionOpt
+    static Option tdeKeyProviderOpt
+    static Option tdeAlgorithmOpt
+    static Option tdeKeyIdOpt
 
     static CommandLine initCommands(String[] args) {
         helpOption = Option.builder("h")
@@ -489,6 +497,13 @@ class ConfigOptions {
                 .longOpt("caseNamePrefix")
                 .desc("add prefix to each case name")
                 .build()
+        validateBackupPrefixOpt = Option.builder("vbp")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("validateBackupPrefix")
+                .desc("prefix of validate backup path")
+                .build()
         dryRunOpt = Option.builder("dryRun")
                 .required(false)
                 .hasArg(false)
@@ -594,6 +609,41 @@ class ConfigOptions {
                 .hasArg(false)
                 .desc("selectdb cloud version")
                 .build()
+        tdeAkOpt = Option.builder("tdeAk")
+                .required(false)
+                .hasArg(false)
+                .desc("TDE Access Key")
+                .build();
+        tdeSkOpt = Option.builder("tdeSk")
+                .required(false)
+                .hasArg(false)
+                .desc("TDE Secret Key")
+                .build();
+        tdeKeyEndpointOpt = Option.builder("tdeKeyEndpoint")
+                .required(false)
+                .hasArg(false)
+                .desc("TDE Key Endpoint")
+                .build();
+        tdeKeyRegionOpt = Option.builder("tdeKeyRegion")
+                .required(false)
+                .hasArg(false)
+                .desc("TDE Key Region")
+                .build();
+        tdeKeyProviderOpt = Option.builder("tdeKeyProvider")
+                .required(false)
+                .hasArg(false)
+                .desc("TDE Key Provider")
+                .build();
+        tdeAlgorithmOpt = Option.builder("tdeAlgorithm")
+                .required(false)
+                .hasArg(false)
+                .desc("TDE Algorithm")
+                .build();
+        tdeKeyIdOpt = Option.builder("tdeKeyId")
+                .required(false)
+                .hasArg(false)
+                .desc("TDE Key Id")
+                .build();
 
         Options options = new Options()
                 .addOption(helpOption)
@@ -640,6 +690,7 @@ class ConfigOptions {
                 .addOption(withOutLoadDataOpt)
                 .addOption(runNonConcurrentOpt)
                 .addOption(caseNamePrefixOpt)
+                .addOption(validateBackupPrefixOpt)
                 .addOption(dryRunOpt)
                 .addOption(isSmokeTestOpt)
                 .addOption(multiClusterBesOpt)
@@ -661,6 +712,13 @@ class ConfigOptions {
                 .addOption(clusterDirOpt)
                 .addOption(kafkaBrokerListOpt)
                 .addOption(cloudVersionOpt)
+                .addOption(tdeAkOpt)
+                .addOption(tdeSkOpt)
+                .addOption(tdeKeyEndpointOpt)
+                .addOption(tdeKeyRegionOpt)
+                .addOption(tdeKeyProviderOpt)
+                .addOption(tdeAlgorithmOpt)
+                .addOption(tdeKeyIdOpt)
 
         CommandLine cmd = new DefaultParser().parse(options, args, true)
         if (cmd.hasOption(helpOption)) {

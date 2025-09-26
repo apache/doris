@@ -1,3 +1,7 @@
+if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/enterprise/CMakeLists.txt)
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/enterprise)
+endif()
+
 # where to put generated libraries
 set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/test")
 
@@ -7,6 +11,8 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
 set(TEST_LINK_LIBS ResourceManager ${TEST_LINK_LIBS})
 
 #add_executable(sync_point_test sync_point_test.cpp)
+
+add_executable(clone_chain_reader_test clone_chain_reader_test.cpp)
 
 add_executable(codec_test codec_test.cpp)
 
@@ -21,7 +27,8 @@ set_target_properties(txn_kv_test PROPERTIES COMPILE_FLAGS "-fno-access-control"
 
 add_executable(recycler_test
     recycler_test.cpp
-    recycler_operation_log_test.cpp)
+    recycler_operation_log_test.cpp
+    recycle_versioned_keys_test.cpp)
 
 add_executable(mem_txn_kv_test mem_txn_kv_test.cpp)
 
@@ -32,7 +39,9 @@ add_executable(meta_service_test
    meta_service_job_test.cpp
    meta_service_http_test.cpp
    meta_service_operation_log_test.cpp
+   meta_service_snapshot_test.cpp
    meta_service_tablet_stats_test.cpp
+   meta_service_versioned_read_test.cpp
    schema_kv_test.cpp
 )
 
@@ -60,7 +69,11 @@ add_executable(s3_accessor_test s3_accessor_test.cpp)
 
 add_executable(s3_accessor_mock_test s3_accessor_mock_test.cpp)
 
-add_executable(hdfs_accessor_test hdfs_accessor_test.cpp)
+option(ENABLE_HDFS_STORAGE_VAULT "Enable HDFS storage support" ON)
+if (ENABLE_HDFS_STORAGE_VAULT)
+    add_compile_definitions(ENABLE_HDFS_STORAGE_VAULT)
+    add_executable(hdfs_accessor_test hdfs_accessor_test.cpp)
+endif()
 
 add_executable(stopwatch_test stopwatch_test.cpp)
 
@@ -74,8 +87,12 @@ add_executable(versionstamp_test versionstamp_test.cpp)
 
 add_executable(versioned_value_test versioned_value_test.cpp)
 
+add_executable(bvars_test bvars_test.cpp)
+
 message("Meta-service test dependencies: ${TEST_LINK_LIBS}")
 #target_link_libraries(sync_point_test ${TEST_LINK_LIBS})
+
+target_link_libraries(clone_chain_reader_test ${TEST_LINK_LIBS})
 
 target_link_libraries(codec_test ${TEST_LINK_LIBS})
 
@@ -107,7 +124,10 @@ target_link_libraries(s3_accessor_test ${TEST_LINK_LIBS})
 
 target_link_libraries(s3_accessor_mock_test ${TEST_LINK_LIBS})
 
-target_link_libraries(hdfs_accessor_test ${TEST_LINK_LIBS})
+option(ENABLE_HDFS_STORAGE_VAULT "Enable HDFS storage support" ON)
+if (ENABLE_HDFS_STORAGE_VAULT)
+    target_link_libraries(hdfs_accessor_test ${TEST_LINK_LIBS})
+endif()
 
 target_link_libraries(stopwatch_test ${TEST_LINK_LIBS})
 
@@ -152,6 +172,10 @@ target_link_libraries(fdb_injection_test
     ${TEST_LINK_LIBS})
 
 target_link_libraries(versioned_value_test
+    ${FDB_LINKER_FLAGS}
+    ${TEST_LINK_LIBS})
+
+target_link_libraries(bvars_test
     ${FDB_LINKER_FLAGS}
     ${TEST_LINK_LIBS})
 

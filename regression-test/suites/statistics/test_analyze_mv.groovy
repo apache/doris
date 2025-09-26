@@ -164,9 +164,9 @@ suite("test_analyze_mv") {
     assertEquals("0", result_row[0][3])
     assertEquals("-1", result_row[0][4])
 
-    createMV("create materialized view mv1 as select key1 from mvTestDup;")
-    createMV("create materialized view mv2 as select key2 from mvTestDup;")
-    createMV("create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestDup group by key1, key2;")
+    createMV("create materialized view mv1 as select key1 as a1 from mvTestDup;")
+    createMV("create materialized view mv2 as select key2 as a2 from mvTestDup;")
+    createMV("create materialized view mv3 as select key1 as a3, key2 as a4, sum(value1) as a5, max(value2) as a6, min(value3) as a7 from mvTestDup group by key1, key2;")
     sql """insert into mvTestDup values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """analyze table mvTestDup with sync;"""
@@ -223,27 +223,10 @@ suite("test_analyze_mv") {
     verify_column_stats(result_all, result_sample[0])
     verify_column_stats(result_all_cached, result_sample[0])
 
-    result_sample = sql """show column stats mvTestDup(mv_key1)"""
-    assertEquals(2, result_sample.size())
-    assertEquals("mv_key1", result_sample[0][0])
-    assertTrue(result_sample[0][1] == 'mv1' && result_sample[1][1] == 'mv3' || result_sample[0][1] == 'mv3' && result_sample[1][1] == 'mv1')
-    if (result_sample[0][1] == 'mv1') {
-        assertEquals("6.0", result_sample[0][2])
-    } else {
-        assertEquals("4.0", result_sample[0][2])
-    }
-    assertEquals("4.0", result_sample[0][3])
-    assertEquals("1", result_sample[0][7])
-    assertEquals("1001", result_sample[0][8])
-    assertEquals("FULL", result_sample[0][9])
-    verify_column_stats(result_all, result_sample[0])
-    verify_column_stats(result_all_cached, result_sample[0])
-    verify_column_stats(result_all, result_sample[1])
-    verify_column_stats(result_all_cached, result_sample[1])
 
-    result_sample = sql """show column stats mvTestDup(`mva_SUM__CAST(``value1`` AS bigint)`)"""
+    result_sample = sql """show column stats mvTestDup(`a5`)"""
     assertEquals(1, result_sample.size())
-    assertEquals("mva_SUM__CAST(`value1` AS bigint)", result_sample[0][0])
+    assertEquals("a5", result_sample[0][0])
     assertEquals("mv3", result_sample[0][1])
     assertEquals("4.0", result_sample[0][2])
     assertEquals("4.0", result_sample[0][3])
@@ -253,9 +236,9 @@ suite("test_analyze_mv") {
     verify_column_stats(result_all, result_sample[0])
     verify_column_stats(result_all_cached, result_sample[0])
 
-    result_sample = sql """show column stats mvTestDup(`mva_MAX__``value2```)"""
+    result_sample = sql """show column stats mvTestDup(a6)"""
     assertEquals(1, result_sample.size())
-    assertEquals("mva_MAX__`value2`", result_sample[0][0])
+    assertEquals("a6", result_sample[0][0])
     assertEquals("mv3", result_sample[0][1])
     assertEquals("4.0", result_sample[0][2])
     assertEquals("4.0", result_sample[0][3])
@@ -265,9 +248,9 @@ suite("test_analyze_mv") {
     verify_column_stats(result_all, result_sample[0])
     verify_column_stats(result_all_cached, result_sample[0])
 
-    result_sample = sql """show column stats mvTestDup(`mva_MIN__``value3```)"""
+    result_sample = sql """show column stats mvTestDup(a7)"""
     assertEquals(1, result_sample.size())
-    assertEquals("mva_MIN__`value3`", result_sample[0][0])
+    assertEquals("a7", result_sample[0][0])
     assertEquals("mv3", result_sample[0][1])
     assertEquals("4.0", result_sample[0][2])
     assertEquals("4.0", result_sample[0][3])
@@ -293,9 +276,9 @@ suite("test_analyze_mv") {
         );
     """
 
-    createMV("create materialized view mv1 as select key2 from mvTestAgg group by key2;")
-    createMV("create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestAgg group by key1, key2;")
-    createMV("create materialized view mv6 as select key1, sum(value1) from mvTestAgg group by key1;")
+    createMV("create materialized view mv1 as select key2 as b1 from mvTestAgg group by key2;")
+    createMV("create materialized view mv3 as select key1 as b2, key2 as b3, sum(value1) as b4, max(value2) as b5, min(value3) as b6 from mvTestAgg group by key1, key2;")
+    createMV("create materialized view mv6 as select key1 as b7, sum(value1) as b8 from mvTestAgg group by key1;")
     sql """alter table mvTestAgg ADD ROLLUP rollup1(key1, value1)"""
     wait_mv_finish("test_analyze_mv", "mvTestAgg")
     sql """insert into mvTestAgg values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
@@ -384,19 +367,10 @@ suite("test_analyze_mv") {
     assertEquals("4001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
 
-    result_sample = sql """show column stats mvTestAgg(mv_key2)"""
-    assertEquals(2, result_sample.size())
-    assertEquals("mv_key2", result_sample[0][0])
-    assertTrue(result_sample[0][1] == 'mv1' && result_sample[1][1] == 'mv3' || result_sample[0][1] == 'mv3' && result_sample[1][1] == 'mv1')
-    assertEquals("5.0", result_sample[0][2])
-    assertEquals("5.0", result_sample[0][3])
-    assertEquals("2", result_sample[0][7])
-    assertEquals("2001", result_sample[0][8])
-    assertEquals("FULL", result_sample[0][9])
 
-    result_sample = sql """show column stats mvTestAgg(`mva_MAX__``value2```)"""
+    result_sample = sql """show column stats mvTestAgg(b5)"""
     assertEquals(1, result_sample.size())
-    assertEquals("mva_MAX__`value2`", result_sample[0][0])
+    assertEquals("b5", result_sample[0][0])
     assertEquals("mv3", result_sample[0][1])
     assertEquals("5.0", result_sample[0][2])
     assertEquals("5.0", result_sample[0][3])
@@ -404,9 +378,9 @@ suite("test_analyze_mv") {
     assertEquals("4001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
 
-    result_sample = sql """show column stats mvTestAgg(`mva_MIN__``value3```)"""
+    result_sample = sql """show column stats mvTestAgg(b6)"""
     assertEquals(1, result_sample.size())
-    assertEquals("mva_MIN__`value3`", result_sample[0][0])
+    assertEquals("b6", result_sample[0][0])
     assertEquals("mv3", result_sample[0][1])
     assertEquals("5.0", result_sample[0][2])
     assertEquals("5.0", result_sample[0][3])
@@ -456,8 +430,8 @@ suite("test_analyze_mv") {
         );
     """
 
-    createMV("create materialized view mv1 as select key1, key2 from mvTestUni;")
-    createMV("create materialized view mv6 as select key1, key2, value2, value3 from mvTestUni;")
+    createMV("create materialized view mv1 as select key1 as c1, key2 as c2 from mvTestUni;")
+    createMV("create materialized view mv6 as select key1 as c3, key2 as c4, value2 as c5, value3 as c6 from mvTestUni;")
     sql """insert into mvTestUni values (1, 2, 3, 4, 5), (1, 2, 3, 7, 8), (1, 11, 22, 33, 44), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
 
     sql """analyze table mvTestUni with sync;"""
@@ -474,18 +448,10 @@ suite("test_analyze_mv") {
     assertEquals("1001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
 
-    result_sample = sql """show column stats mvTestUni(mv_key1)"""
-    assertEquals(2, result_sample.size())
-    assertEquals("mv_key1", result_sample[0][0])
-    assertEquals("5.0", result_sample[0][2])
-    assertEquals("4.0", result_sample[0][3])
-    assertEquals("1", result_sample[0][7])
-    assertEquals("1001", result_sample[0][8])
-    assertEquals("FULL", result_sample[0][9])
 
-    result_sample = sql """show column stats mvTestUni(mv_value2)"""
+    result_sample = sql """show column stats mvTestUni(c5)"""
     assertEquals(1, result_sample.size())
-    assertEquals("mv_value2", result_sample[0][0])
+    assertEquals("c5", result_sample[0][0])
     assertEquals("mv6", result_sample[0][1])
     assertEquals("5.0", result_sample[0][2])
     assertEquals("5.0", result_sample[0][3])
@@ -499,12 +465,12 @@ suite("test_analyze_mv") {
     assertEquals("mvTestDup", result_row[0][0])
     assertEquals("mvTestDup", result_row[0][1])
     assertEquals("150000000", result_row[0][2])
-    sql """alter table mvTestDup index mv1 modify column `mv_key1` set stats ('row_count'='3443', 'ndv'='3.0', 'num_nulls'='0.0', 'data_size'='1.5E8', 'min_value'='1', 'max_value'='10');"""
+    sql """alter table mvTestDup index mv1 modify column `a1` set stats ('row_count'='3443', 'ndv'='3.0', 'num_nulls'='0.0', 'data_size'='1.5E8', 'min_value'='1', 'max_value'='10');"""
     result_row = sql """show index stats mvTestDup mv1;"""
     assertEquals("mvTestDup", result_row[0][0])
     assertEquals("mv1", result_row[0][1])
     assertEquals("3443", result_row[0][2])
-    sql """alter table mvTestDup index mv3 modify column `mva_MAX__``value2``` set stats ('row_count'='234234', 'ndv'='3.0', 'num_nulls'='0.0', 'data_size'='1.5E8', 'min_value'='1', 'max_value'='10');"""
+    sql """alter table mvTestDup index mv3 modify column a6 set stats ('row_count'='234234', 'ndv'='3.0', 'num_nulls'='0.0', 'data_size'='1.5E8', 'min_value'='1', 'max_value'='10');"""
     result_row = sql """show index stats mvTestDup mv3;"""
     assertEquals("mvTestDup", result_row[0][0])
     assertEquals("mv3", result_row[0][1])
@@ -602,37 +568,16 @@ suite("test_analyze_mv") {
     assertEquals("SAMPLE", result_sample[0][9])
     assertEquals("MANUAL", result_sample[0][11])
 
-    result_sample = sql """show column stats mvTestDup(mv_key1)"""
-    logger.info("result " + result_sample)
-    if ("MANUAL" != result_sample[0][11] || "MANUAL" != result_sample[1][11]) {
-        logger.info("Overwrite by auto analyze, analyze it again.")
-        sql """analyze table mvTestDup with sync with sample rows 4000000"""
-        result_sample = sql """show column stats mvTestDup(mv_key1)"""
-        logger.info("result after reanalyze " + result_sample)
-    }
-    assertEquals(2, result_sample.size())
-    assertEquals("mv_key1", result_sample[0][0])
-    assertTrue(result_sample[0][1] == 'mv1' && result_sample[1][1] == 'mv3' || result_sample[0][1] == 'mv3' && result_sample[1][1] == 'mv1')
-    if (result_sample[0][1] == 'mv1') {
-        assertEquals("6.0", result_sample[0][2])
-    } else {
-        assertEquals("4.0", result_sample[0][2])
-    }
-    assertEquals("4.0", result_sample[0][3])
-    assertEquals("1", result_sample[0][7])
-    assertEquals("1001", result_sample[0][8])
-    assertEquals("SAMPLE", result_sample[0][9])
-    assertEquals("MANUAL", result_sample[0][11])
 
-    result_sample = sql """show column stats mvTestDup(`mva_SUM__CAST(``value1`` AS bigint)`)"""
+    result_sample = sql """show column stats mvTestDup(`a5`)"""
     logger.info("result " + result_sample)
     assertEquals(0, result_sample.size())
 
-    result_sample = sql """show column stats mvTestDup(`mva_MAX__``value2```)"""
+    result_sample = sql """show column stats mvTestDup(a6)"""
     logger.info("result " + result_sample)
     assertEquals(0, result_sample.size())
 
-    result_sample = sql """show column stats mvTestDup(`mva_MIN__``value3```)"""
+    result_sample = sql """show column stats mvTestDup(a7)"""
     logger.info("result " + result_sample)
     assertEquals(0, result_sample.size())
 
@@ -653,10 +598,10 @@ suite("test_analyze_mv") {
     verifyTaskStatus(result_sample, "value1", "mvTestDup")
     verifyTaskStatus(result_sample, "value2", "mvTestDup")
     verifyTaskStatus(result_sample, "value3", "mvTestDup")
-    verifyTaskStatus(result_sample, "mv_key1", "mv1")
-    verifyTaskStatus(result_sample, "mv_key1", "mv3")
-    verifyTaskStatus(result_sample, "mv_key2", "mv2")
-    verifyTaskStatus(result_sample, "mv_key2", "mv3")
+    verifyTaskStatus(result_sample, "a1", "mv1")
+    verifyTaskStatus(result_sample, "a3", "mv3")
+    verifyTaskStatus(result_sample, "a2", "mv2")
+    verifyTaskStatus(result_sample, "a4", "mv3")
 
     // * Test row count report and report for nereids
     sql """truncate table mvTestDup"""
@@ -699,8 +644,10 @@ suite("test_analyze_mv") {
         logger.info("show frontends result master: " + result)
         for (int i = 0; i < 120; i++) {
             result_row = sql """show index stats mvTestDup mv3"""
+            def result_row1 = sql """show index stats mvTestDup mvTestDup"""
             logger.info("mv3 stats: " + result_row)
-            if (result_row[0][4] == "0") {
+            logger.info("mvTestDup stats: " + result_row1)
+            if (result_row[0][4] == "0" && result_row1[0][4] == "0") {
                 break;
             }
             Thread.sleep(5000)
@@ -711,6 +658,12 @@ suite("test_analyze_mv") {
         assertEquals("mv3", result_row[0][1])
         assertEquals("0", result_row[0][3])
         assertEquals("0", result_row[0][4])
+        result_row = sql """show index stats mvTestDup mvTestDup"""
+        assertEquals(1, result_row.size())
+        assertEquals("mvTestDup", result_row[0][0])
+        assertEquals("mvTestDup", result_row[0][1])
+        assertEquals("0", result_row[0][3])
+        assertEquals("0", result_row[0][4])
     }
 
     // ** Embedded test for skip auto analyze when table is empty again
@@ -718,7 +671,6 @@ suite("test_analyze_mv") {
     sql """analyze table mvTestDup properties ("use.auto.analyzer" = "true")"""
     empty_test = sql """show auto analyze mvTestDup"""
     assertEquals(0, empty_test.size())
-    empty_test = sql """show column stats mvTestDup"""
     for (int i = 0; i < 100; i++) {
         empty_test = sql """show column stats mvTestDup"""
         if (empty_test.size() == 0) {
@@ -731,17 +683,24 @@ suite("test_analyze_mv") {
     // ** End of embedded test
 
     sql """insert into mvTestDup values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
-    result_row = sql """show index stats mvTestDup mv3"""
-    assertEquals(1, result_row.size())
-    assertEquals("mvTestDup", result_row[0][0])
-    assertEquals("mv3", result_row[0][1])
-    assertEquals("-1", result_row[0][4])
+    connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
+        sql """use test_analyze_mv"""
+        for (int i = 0; i < 10; i++) {
+            result_row = sql """show index stats mvTestDup mvTestDup"""
+            if (result_row[0][4] == "-1") {
+                break;
+            }
+            logger.info("row count for mvTestDup is not -1: " + result_row)
+            Thread.sleep(1000)
+        }
+        assertEquals("-1", result_row[0][4])
+    }
 
     // Test alter column stats
     sql """drop stats mvTestDup"""
     sql """alter table mvTestDup modify column key1 set stats ('ndv'='1', 'num_nulls'='1', 'min_value'='10', 'max_value'='40', 'row_count'='50');"""
-    sql """alter table mvTestDup index mv3 modify column mv_key1 set stats ('ndv'='5', 'num_nulls'='0', 'min_value'='0', 'max_value'='4', 'row_count'='5');"""
-    sql """alter table mvTestDup index mv3 modify column `mva_SUM__CAST(``value1`` AS bigint)` set stats ('ndv'='10', 'num_nulls'='2', 'min_value'='1', 'max_value'='5', 'row_count'='11');"""
+    sql """alter table mvTestDup index mv3 modify column a1 set stats ('ndv'='5', 'num_nulls'='0', 'min_value'='0', 'max_value'='4', 'row_count'='5');"""
+    sql """alter table mvTestDup index mv3 modify column `a5` set stats ('ndv'='10', 'num_nulls'='2', 'min_value'='1', 'max_value'='5', 'row_count'='11');"""
 
     result = sql """show column cached stats mvTestDup(key1)"""
     assertEquals(1, result.size())
@@ -755,21 +714,9 @@ suite("test_analyze_mv") {
     assertEquals("10", result[0][7])
     assertEquals("40", result[0][8])
 
-    result = sql """show column cached stats mvTestDup(mv_key1)"""
+    result = sql """show column cached stats mvTestDup(a5)"""
     assertEquals(1, result.size())
-    assertEquals("mv_key1", result[0][0])
-    assertEquals("mv3", result[0][1])
-    assertEquals("5.0", result[0][2])
-    assertEquals("5.0", result[0][3])
-    assertEquals("0.0", result[0][4])
-    assertEquals("0.0", result[0][5])
-    assertEquals("0.0", result[0][6])
-    assertEquals("0", result[0][7])
-    assertEquals("4", result[0][8])
-
-    result = sql """show column cached stats mvTestDup(`mva_SUM__CAST(``value1`` AS bigint)`)"""
-    assertEquals(1, result.size())
-    assertEquals("mva_SUM__CAST(`value1` AS bigint)", result[0][0])
+    assertEquals("a5", result[0][0])
     assertEquals("mv3", result[0][1])
     assertEquals("11.0", result[0][2])
     assertEquals("10.0", result[0][3])
@@ -794,9 +741,9 @@ suite("test_analyze_mv") {
         );
     """
 
-    createMV("CREATE MATERIALIZED VIEW aggMv as select key1, SUM(value) from testMvDirectSelect group by key1;")
+    createMV("CREATE MATERIALIZED VIEW aggMv as select key1 as c7, SUM(value) as c8 from testMvDirectSelect group by key1;")
     sql """insert into testMvDirectSelect values (1, 1, 1), (1, 2, 2), (1, 3, 3), (2, 1, 4), (2, 2, 5), (3, 2, 6)"""
-    qt_test_agg """select * from testMvDirectSelect index aggMv order by mv_key1"""
+    qt_test_agg """select * from testMvDirectSelect index aggMv order by c7"""
 
     sql """drop database if exists test_analyze_mv"""
 }

@@ -235,6 +235,9 @@ public class MTMVRelationManager implements MTMVHookService {
     public void refreshComplete(MTMV mtmv, MTMVRelation relation, MTMVTask task) {
         if (task.getStatus() == TaskStatus.SUCCESS) {
             Objects.requireNonNull(relation);
+            if (mtmv.isDropped) {
+                return;
+            }
             refreshMTMVCache(relation, new BaseTableInfo(mtmv));
         }
     }
@@ -284,7 +287,7 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     private void processBaseTableChange(BaseTableInfo baseTableInfo, String msgPrefix) {
-        Set<BaseTableInfo> mtmvsByBaseTable = getMtmvsByBaseTable(baseTableInfo);
+        Set<BaseTableInfo> mtmvsByBaseTable = getMtmvsByBaseTableOneLevel(baseTableInfo);
         if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
             return;
         }

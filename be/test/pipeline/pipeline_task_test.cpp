@@ -53,7 +53,8 @@ public:
         _query_ctx =
                 QueryContext::create(_query_id, ExecEnv::GetInstance(), _query_options, fe_address,
                                      true, fe_address, QuerySource::INTERNAL_FRONTEND);
-        _task_queue = std::make_unique<DummyTaskQueue>(1);
+        _task_scheduler = std::make_unique<MockTaskScheduler>();
+        _query_ctx->_task_scheduler = _task_scheduler.get();
         _build_fragment_context();
     }
     void TearDown() override {
@@ -65,7 +66,8 @@ private:
     void _build_fragment_context() {
         int fragment_id = 0;
         _context = std::make_shared<PipelineFragmentContext>(
-                _query_id, fragment_id, _query_ctx, ExecEnv::GetInstance(), empty_function,
+                _query_id, TPipelineFragmentParams(), _query_ctx, ExecEnv::GetInstance(),
+                empty_function,
                 std::bind<Status>(std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
                                   ExecEnv::GetInstance()->fragment_mgr(), std::placeholders::_1,
                                   std::placeholders::_2));
@@ -83,7 +85,7 @@ private:
     TUniqueId _query_id = TUniqueId();
     std::unique_ptr<ThreadMemTrackerMgr> _thread_mem_tracker_mgr;
     TQueryOptions _query_options;
-    std::unique_ptr<DummyTaskQueue> _task_queue;
+    std::unique_ptr<MockTaskScheduler> _task_scheduler;
     const std::string LOCALHOST = BackendOptions::get_localhost();
     const int DUMMY_PORT = config::brpc_port;
 };
@@ -230,7 +232,6 @@ TEST_F(PipelineTaskTest, TEST_EXTRACT_DEPENDENCIES_ERROR) {
         EXPECT_TRUE(task->_read_dependencies.empty());
         EXPECT_TRUE(task->_write_dependencies.empty());
         EXPECT_TRUE(task->_finish_dependencies.empty());
-        EXPECT_TRUE(task->_spill_dependencies.empty());
     }
 }
 
@@ -272,7 +273,6 @@ TEST_F(PipelineTaskTest, TEST_OPEN) {
         EXPECT_FALSE(task->_read_dependencies.empty());
         EXPECT_FALSE(task->_write_dependencies.empty());
         EXPECT_FALSE(task->_finish_dependencies.empty());
-        EXPECT_FALSE(task->_spill_dependencies.empty());
         EXPECT_TRUE(task->_opened);
     }
 }
@@ -306,7 +306,6 @@ TEST_F(PipelineTaskTest, TEST_EXECUTE) {
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
     task->_exec_time_slice = 10'000'000'000ULL;
-    task->set_task_queue(_task_queue.get());
     {
         // `execute` should be called after `prepare`
         bool done = false;
@@ -353,7 +352,6 @@ TEST_F(PipelineTaskTest, TEST_EXECUTE) {
         EXPECT_TRUE(task->_read_dependencies.empty());
         EXPECT_TRUE(task->_write_dependencies.empty());
         EXPECT_TRUE(task->_finish_dependencies.empty());
-        EXPECT_TRUE(task->_spill_dependencies.empty());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::BLOCKED);
     }
     {
@@ -369,7 +367,6 @@ TEST_F(PipelineTaskTest, TEST_EXECUTE) {
         EXPECT_FALSE(task->_read_dependencies.empty());
         EXPECT_FALSE(task->_write_dependencies.empty());
         EXPECT_FALSE(task->_finish_dependencies.empty());
-        EXPECT_FALSE(task->_spill_dependencies.empty());
         EXPECT_TRUE(task->_opened);
         EXPECT_FALSE(read_dep->ready());
         EXPECT_TRUE(write_dep->ready());
@@ -439,7 +436,6 @@ TEST_F(PipelineTaskTest, TEST_TERMINATE) {
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
     task->_exec_time_slice = 10'000'000'000ULL;
-    task->set_task_queue(_task_queue.get());
     {
         std::vector<TScanRangeParams> scan_range;
         int sender_id = 0;
@@ -504,7 +500,6 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
     task->_exec_time_slice = 10'000'000'000ULL;
-    task->set_task_queue(_task_queue.get());
     {
         std::vector<TScanRangeParams> scan_range;
         int sender_id = 0;
@@ -549,7 +544,6 @@ TEST_F(PipelineTaskTest, TEST_SINK_FINISHED) {
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
     task->_exec_time_slice = 10'000'000'000ULL;
-    task->set_task_queue(_task_queue.get());
     {
         std::vector<TScanRangeParams> scan_range;
         int sender_id = 0;
@@ -630,7 +624,6 @@ TEST_F(PipelineTaskTest, TEST_SINK_EOF) {
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
     task->_exec_time_slice = 10'000'000'000ULL;
-    task->set_task_queue(_task_queue.get());
     {
         std::vector<TScanRangeParams> scan_range;
         int sender_id = 0;
@@ -669,7 +662,8 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY) {
         _query_ctx =
                 QueryContext::create(_query_id, ExecEnv::GetInstance(), _query_options, fe_address,
                                      true, fe_address, QuerySource::INTERNAL_FRONTEND);
-        _task_queue = std::make_unique<DummyTaskQueue>(1);
+        _task_scheduler = std::make_unique<MockTaskScheduler>();
+        _query_ctx->_task_scheduler = _task_scheduler.get();
         _build_fragment_context();
 
         TWorkloadGroupInfo twg_info;
@@ -711,7 +705,6 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY) {
     _runtime_state->resize_op_id_to_local_state(-1);
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
-    task->set_task_queue(_task_queue.get());
     {
         std::vector<TScanRangeParams> scan_range;
         int sender_id = 0;
@@ -738,7 +731,6 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY) {
         EXPECT_FALSE(task->_read_dependencies.empty());
         EXPECT_FALSE(task->_write_dependencies.empty());
         EXPECT_FALSE(task->_finish_dependencies.empty());
-        EXPECT_FALSE(task->_spill_dependencies.empty());
         EXPECT_TRUE(task->_opened);
         EXPECT_FALSE(read_dep->ready());
         EXPECT_TRUE(write_dep->ready());
@@ -802,7 +794,8 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
         _query_ctx =
                 QueryContext::create(_query_id, ExecEnv::GetInstance(), _query_options, fe_address,
                                      true, fe_address, QuerySource::INTERNAL_FRONTEND);
-        _task_queue = std::make_unique<DummyTaskQueue>(1);
+        _task_scheduler = std::make_unique<MockTaskScheduler>();
+        _query_ctx->_task_scheduler = _task_scheduler.get();
         _build_fragment_context();
 
         TWorkloadGroupInfo twg_info;
@@ -847,7 +840,6 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
     _runtime_state->resize_op_id_to_local_state(-1);
     auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
                                                profile.get(), shared_state_map, task_id);
-    task->set_task_queue(_task_queue.get());
     {
         std::vector<TScanRangeParams> scan_range;
         int sender_id = 0;
@@ -874,7 +866,6 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
         EXPECT_FALSE(task->_read_dependencies.empty());
         EXPECT_FALSE(task->_write_dependencies.empty());
         EXPECT_FALSE(task->_finish_dependencies.empty());
-        EXPECT_FALSE(task->_spill_dependencies.empty());
         EXPECT_TRUE(task->_opened);
         EXPECT_FALSE(read_dep->ready());
         EXPECT_TRUE(write_dep->ready());
@@ -954,30 +945,6 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         EXPECT_FALSE(
                 ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused);
-    }
-    {
-        EXPECT_FALSE(task->is_revoking());
-        task->_spill_dependencies.front()->block();
-        EXPECT_TRUE(task->is_revoking());
-        EXPECT_FALSE(task->_spill_dependencies.front()->ready());
-        EXPECT_TRUE(task->_spill_dependencies.front()->_blocked_task.empty());
-        task->_spill_dependencies.front()->set_ready();
-    }
-    {
-        EXPECT_FALSE(task->_is_blocked());
-        task->_spill_dependencies.front()->block();
-        EXPECT_TRUE(task->_is_blocked());
-        EXPECT_FALSE(task->_spill_dependencies.front()->ready());
-        EXPECT_FALSE(task->_spill_dependencies.front()->_blocked_task.empty());
-        task->_spill_dependencies.front()->set_ready();
-    }
-    {
-        EXPECT_FALSE(task->_is_pending_finish());
-        task->_spill_dependencies.front()->block();
-        EXPECT_TRUE(task->_is_pending_finish());
-        EXPECT_FALSE(task->_spill_dependencies.front()->ready());
-        EXPECT_FALSE(task->_spill_dependencies.front()->_blocked_task.empty());
-        task->_spill_dependencies.front()->set_ready();
     }
     delete ExecEnv::GetInstance()->_workload_group_manager;
 }

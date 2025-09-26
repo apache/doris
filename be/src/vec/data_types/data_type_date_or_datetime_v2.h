@@ -42,7 +42,6 @@ class PColumnMeta;
 
 namespace vectorized {
 class BufferWritable;
-class ReadBuffer;
 class IColumn;
 } // namespace vectorized
 } // namespace doris
@@ -79,17 +78,10 @@ public:
         }
     }
     bool equals(const IDataType& rhs) const override;
-    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<PrimitiveType::TYPE_DATEV2>::template to_string_batch_impl<
-                DataTypeDateV2>(column, column_to);
-    }
 
-    size_t number_length() const;
-    void push_number(ColumnString::Chars& chars, const UInt32& num) const;
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    /// TODO: remove this in the future
+    using IDataType::to_string;
     std::string to_string(UInt32 int_val) const;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     MutableColumnPtr create_column() const override;
 
@@ -126,20 +118,17 @@ public:
         return doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
     }
     const std::string get_family_name() const override { return "DateTimeV2"; }
-    std::string do_get_name() const override { return "DateTimeV2"; }
-
-    bool equals(const IDataType& rhs) const override;
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<PrimitiveType::TYPE_DATETIMEV2>::template to_string_batch_impl<
-                DataTypeDateTimeV2>(column, column_to);
+    std::string do_get_name() const override {
+        return "DateTimeV2(" + std::to_string(_scale) + ")";
     }
 
-    size_t number_length() const;
-    void push_number(ColumnString::Chars& chars, const UInt64& num) const;
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    bool equals(const IDataType& rhs) const override;
+    bool equals_ignore_precision(const IDataType& rhs) const override {
+        return rhs.get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2;
+    }
+    /// TODO: remove this in the future
+    using IDataType::to_string;
     std::string to_string(UInt64 int_val) const;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
     using SerDeType = DataTypeDateTimeV2SerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(_scale, nesting_level);
@@ -163,6 +152,9 @@ public:
     UInt32 get_scale() const override { return _scale; }
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
+
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
 
     static void cast_to_date(const UInt64 from, Int64& to);
     static void cast_to_date_time(const UInt64 from, Int64& to);

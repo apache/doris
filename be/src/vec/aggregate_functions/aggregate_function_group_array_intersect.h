@@ -18,23 +18,17 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/AggregateFunctions/AggregateFunctionGroupArrayIntersect.cpp
 // and modified by Doris
 
-#include <cassert>
 #include <memory>
 
 #include "exprs/hybrid_set.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
-#include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column_array.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/io/io_helper.h"
-#include "vec/io/var_int.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -127,7 +121,9 @@ struct AggregateFunctionGroupArrayIntersectData {
 template <PrimitiveType T>
 class AggregateFunctionGroupArrayIntersect
         : public IAggregateFunctionDataHelper<AggregateFunctionGroupArrayIntersectData<T>,
-                                              AggregateFunctionGroupArrayIntersect<T>> {
+                                              AggregateFunctionGroupArrayIntersect<T>>,
+          UnaryExpression,
+          NotNullableAggregateFunction {
 private:
     using State = AggregateFunctionGroupArrayIntersectData<T>;
     DataTypePtr argument_type;
@@ -327,20 +323,17 @@ struct AggregateFunctionGroupArrayIntersectGenericData {
 /** Template parameter with true value should be used for columns that store their elements in memory continuously.
  *  For such columns group_array_intersect() can be implemented more efficiently (especially for small numeric arrays).
  */
-template <bool is_plain_column = false>
 class AggregateFunctionGroupArrayIntersectGeneric
-        : public IAggregateFunctionDataHelper<
-                  AggregateFunctionGroupArrayIntersectGenericData,
-                  AggregateFunctionGroupArrayIntersectGeneric<is_plain_column>> {
+        : public IAggregateFunctionDataHelper<AggregateFunctionGroupArrayIntersectGenericData,
+                                              AggregateFunctionGroupArrayIntersectGeneric> {
 private:
     using State = AggregateFunctionGroupArrayIntersectGenericData;
     DataTypePtr input_data_type;
 
 public:
     AggregateFunctionGroupArrayIntersectGeneric(const DataTypes& input_data_type_)
-            : IAggregateFunctionDataHelper<
-                      AggregateFunctionGroupArrayIntersectGenericData,
-                      AggregateFunctionGroupArrayIntersectGeneric<is_plain_column>>(
+            : IAggregateFunctionDataHelper<AggregateFunctionGroupArrayIntersectGenericData,
+                                           AggregateFunctionGroupArrayIntersectGeneric>(
                       input_data_type_),
               input_data_type(input_data_type_[0]) {}
 
@@ -382,13 +375,7 @@ public:
             const bool is_null_element =
                     is_column_data_nullable && col_null->is_null_at(offset + i);
 
-            StringRef src = StringRef();
-            if constexpr (is_plain_column) {
-                src = nested_column_data->get_data_at(offset + i);
-            } else {
-                const char* begin = nullptr;
-                src = nested_column_data->serialize_value_into_arena(offset + i, arena, begin);
-            }
+            StringRef src = nested_column_data->get_data_at(offset + i);
 
             src.data = is_null_element ? nullptr : arena.insert(src.data, src.size);
             return src;
@@ -486,7 +473,7 @@ public:
 
         StringRef element;
         for (UInt64 i = 0; i < size; ++i) {
-            element = read_binary_into(arena, buf);
+            element = buf.read_binary_into(arena);
             data.value->insert((void*)element.data, element.size);
         }
     }
@@ -510,11 +497,7 @@ public:
         HybridSetBase::IteratorBase* it = set->begin();
         while (it->has_next()) {
             const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
-            if constexpr (is_plain_column) {
-                data_to.insert_data(value->data, value->size);
-            } else {
-                std::ignore = data_to.deserialize_and_insert_from_arena(value->data);
-            }
+            data_to.insert_data(value->data, value->size);
             it->next();
         }
     }

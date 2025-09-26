@@ -42,11 +42,11 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "util/binary_cast.hpp"
-#include "util/container_util.hpp"
 #include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class TRuntimeProfileNode;
 class TRuntimeProfileTree;
 class RuntimeProfileCounterTreeNode;
@@ -606,7 +606,7 @@ public:
     void get_all_children(std::vector<RuntimeProfile*>* children);
 
     // Returns the number of counters in this profile
-    int num_counters() const { return _counter_map.size(); }
+    int num_counters() const { return cast_set<int>(_counter_map.size()); }
 
     // Returns name of this profile
     const std::string& name() const { return _name; }
@@ -822,5 +822,5 @@ private:
     T _sw;
     C* _counter = nullptr;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

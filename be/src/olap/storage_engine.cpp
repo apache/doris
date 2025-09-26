@@ -303,7 +303,13 @@ Status StorageEngine::_open() {
     _memtable_flush_executor->init(_disk_num);
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
-    _calc_delete_bitmap_executor->init();
+    _calc_delete_bitmap_executor->init(config::calc_delete_bitmap_max_thread);
+
+    _calc_delete_bitmap_executor_for_load = std::make_unique<CalcDeleteBitmapExecutor>();
+    _calc_delete_bitmap_executor_for_load->init(
+            config::calc_delete_bitmap_for_load_max_thread > 0
+                    ? config::calc_delete_bitmap_for_load_max_thread
+                    : std::max(1, CpuInfo::num_cores() / 2));
 
     _parse_default_rowset_type();
 
@@ -763,6 +769,7 @@ void StorageEngine::stop() {
 
     _memtable_flush_executor.reset(nullptr);
     _calc_delete_bitmap_executor.reset(nullptr);
+    _calc_delete_bitmap_executor_for_load.reset();
 
     _stopped = true;
     LOG(INFO) << "Storage engine is stopped.";
@@ -1555,7 +1562,11 @@ bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TB
     std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
     if (result.tablet_replica_infos.contains(tablet_id)) {
         std::vector<TReplicaInfo> reps = result.tablet_replica_infos[tablet_id];
-        DCHECK_NE(reps.size(), 0);
+        if (reps.empty()) [[unlikely]] {
+            VLOG_DEBUG << "get_peers_replica_backends reps is empty, maybe this tablet is in "
+                          "schema change. Go to FE to see more info. Tablet id: "
+                       << tablet_id;
+        }
         for (const auto& rep : reps) {
             if (rep.replica_id != tablet->replica_id()) {
                 TBackend backend;

@@ -216,7 +216,8 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     }
 
     LOG(INFO) << "new income streaming load request." << ctx->brief() << ", db=" << ctx->db
-              << ", tbl=" << ctx->table << ", group_commit=" << ctx->group_commit;
+              << ", tbl=" << ctx->table << ", group_commit=" << ctx->group_commit
+              << ", HTTP headers=" << req->get_all_headers();
     ctx->begin_receive_and_read_data_cost_nanos = MonotonicNanos();
 
     if (st.ok()) {
@@ -490,14 +491,16 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     } else {
         request.__set_negative(false);
     }
+    bool strictMode = false;
     if (!http_req->header(HTTP_STRICT_MODE).empty()) {
         if (iequal(http_req->header(HTTP_STRICT_MODE), "false")) {
-            request.__set_strictMode(false);
+            strictMode = false;
         } else if (iequal(http_req->header(HTTP_STRICT_MODE), "true")) {
-            request.__set_strictMode(true);
+            strictMode = true;
         } else {
             return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
         }
+        request.__set_strictMode(strictMode);
     }
     // timezone first. if not, try time_zone
     if (!http_req->header(HTTP_TIMEZONE).empty()) {
@@ -743,6 +746,12 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_cloud_cluster(http_req->header(HTTP_CLOUD_CLUSTER));
     }
 
+    if (!http_req->header(HTTP_EMPTY_FIELD_AS_NULL).empty()) {
+        if (iequal(http_req->header(HTTP_EMPTY_FIELD_AS_NULL), "true")) {
+            request.__set_empty_field_as_null(true);
+        }
+    }
+
 #ifndef BE_TEST
     // plan this load
     TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
@@ -761,6 +770,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;
     }
+    DCHECK(ctx->put_result.__isset.pipeline_params);
+    ctx->put_result.pipeline_params.query_options.__set_enable_strict_cast(false);
+    ctx->put_result.pipeline_params.query_options.__set_enable_insert_strict(strictMode);
     if (config::is_cloud_mode() && ctx->two_phase_commit && ctx->is_mow_table()) {
         return Status::NotSupported("stream load 2pc is unsupported for mow table");
     }
@@ -785,10 +797,11 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                 content_length *= 3;
             }
         }
-        ctx->put_result.params.__set_content_length(content_length);
+        ctx->put_result.pipeline_params.__set_content_length(content_length);
     }
 
-    VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
+    VLOG_NOTICE << "params is "
+                << apache::thrift::ThriftDebugString(ctx->put_result.pipeline_params);
     // if we not use streaming, we must download total content before we begin
     // to process this load
     if (!ctx->use_streaming) {

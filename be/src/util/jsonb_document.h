@@ -132,12 +132,6 @@ concept JsonbPodType = (std::same_as<T, JsonbStringVal> || std::same_as<T, Objec
                         std::same_as<T, JsonbInt128Val> || std::same_as<T, JsonbFloatVal> ||
                         std::same_as<T, JsonbFloatVal> || std::same_as<T, JsonbDoubleVal>);
 
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wzero-length-array"
-#endif
-#pragma pack(push, 1)
-
 #define JSONB_VER 1
 
 using int128_t = __int128;
@@ -257,92 +251,6 @@ constexpr char ESCAPE = '\\';
 constexpr unsigned int MEMBER_CODE = 0;
 constexpr unsigned int ARRAY_CODE = 1;
 
-/*
- * JsonbDocument is the main object that accesses and queries JSONB packed
- * bytes. NOTE: JsonbDocument only allows object container as the top level
- * JSONB value. However, you can use the static method "createValue" to get any
- * JsonbValue object from the packed bytes.
- *
- * JsonbDocument object also dereferences to an object container value
- * (ObjectVal) once JSONB is loaded.
- *
- * ** Load **
- * JsonbDocument is usable after loading packed bytes (memory location) into
- * the object. We only need the header and first few bytes of the payload after
- * header to verify the JSONB.
- *
- * Note: creating an JsonbDocument (through createDocument) does not allocate
- * any memory. The document object is an efficient wrapper on the packed bytes
- * which is accessed directly.
- *
- * ** Query **
- * Query is through dereferencing into ObjectVal.
- */
-class JsonbDocument {
-public:
-    // create an JsonbDocument object from JSONB packed bytes
-    [[nodiscard]] static Status checkAndCreateDocument(const char* pb, size_t size,
-                                                       JsonbDocument** doc);
-
-    // create an JsonbValue from JSONB packed bytes
-    static JsonbValue* createValue(const char* pb, size_t size);
-
-    uint8_t version() const { return header_.ver_; }
-
-    JsonbValue* getValue() { return ((JsonbValue*)payload_); }
-
-    void setValue(const JsonbValue* value);
-
-    unsigned int numPackedBytes() const;
-
-    // ObjectVal* operator->();
-
-    const ObjectVal* operator->() const;
-
-    bool operator==(const JsonbDocument& other) const {
-        assert(false);
-        return false;
-    }
-
-    bool operator!=(const JsonbDocument& other) const {
-        assert(false);
-        return false;
-    }
-
-    bool operator<=(const JsonbDocument& other) const {
-        assert(false);
-        return false;
-    }
-
-    bool operator>=(const JsonbDocument& other) const {
-        assert(false);
-        return false;
-    }
-
-    bool operator<(const JsonbDocument& other) const {
-        assert(false);
-        return false;
-    }
-
-    bool operator>(const JsonbDocument& other) const {
-        assert(false);
-        return false;
-    }
-
-private:
-    /*
-   * JsonbHeader class defines JSONB header (internal to JsonbDocument).
-   *
-   * Currently it only contains version information (1-byte). We may expand the
-   * header to include checksum of the JSONB binary for more security.
-   */
-    struct JsonbHeader {
-        uint8_t ver_;
-    } header_;
-
-    char payload_[0];
-};
-
 /// A simple input stream class for the JSON path parser.
 class Stream {
 public:
@@ -455,7 +363,24 @@ struct leg_info {
     bool to_string(std::string* str) const {
         if (type == MEMBER_CODE) {
             str->push_back(BEGIN_MEMBER);
-            str->append(leg_ptr, leg_len);
+            bool contains_space = false;
+            std::string tmp;
+            for (auto* it = leg_ptr; it != (leg_ptr + leg_len); ++it) {
+                if (std::isspace(*it)) {
+                    contains_space = true;
+                } else if (*it == '"' || *it == ESCAPE || *it == '\r' || *it == '\n' ||
+                           *it == '\b' || *it == '\t') {
+                    tmp.push_back(ESCAPE);
+                }
+                tmp.push_back(*it);
+            }
+            if (contains_space) {
+                str->push_back(DOUBLE_QUOTE);
+            }
+            str->append(tmp);
+            if (contains_space) {
+                str->push_back(DOUBLE_QUOTE);
+            }
             return true;
         } else if (type == ARRAY_CODE) {
             str->push_back(BEGIN_ARRAY);
@@ -501,10 +426,15 @@ public:
 
     leg_info* get_leg_from_leg_vector(size_t i) const { return leg_vector[i].get(); }
 
+    bool is_wildcard() const { return _is_wildcard; }
+    bool is_supper_wildcard() const { return _is_supper_wildcard; }
+
     void clean() { leg_vector.clear(); }
 
 private:
     std::vector<std::unique_ptr<leg_info>> leg_vector;
+    bool _is_wildcard = false;        // whether the path is a wildcard path
+    bool _is_supper_wildcard = false; // supper wildcard likes '$**.a' or '$**[1]'
 };
 
 /*
@@ -561,6 +491,68 @@ using hDictInsert = int (*)(const char*, unsigned int);
 using hDictFind = int (*)(const char*, unsigned int);
 
 using JsonbTypeUnder = std::underlying_type_t<JsonbType>;
+
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wzero-length-array"
+#endif
+#pragma pack(push, 1)
+
+/*
+ * JsonbDocument is the main object that accesses and queries JSONB packed
+ * bytes. NOTE: JsonbDocument only allows object container as the top level
+ * JSONB value. However, you can use the static method "createValue" to get any
+ * JsonbValue object from the packed bytes.
+ *
+ * JsonbDocument object also dereferences to an object container value
+ * (ObjectVal) once JSONB is loaded.
+ *
+ * ** Load **
+ * JsonbDocument is usable after loading packed bytes (memory location) into
+ * the object. We only need the header and first few bytes of the payload after
+ * header to verify the JSONB.
+ *
+ * Note: creating an JsonbDocument (through createDocument) does not allocate
+ * any memory. The document object is an efficient wrapper on the packed bytes
+ * which is accessed directly.
+ *
+ * ** Query **
+ * Query is through dereferencing into ObjectVal.
+ */
+class JsonbDocument {
+public:
+    // create an JsonbDocument object from JSONB packed bytes
+    [[nodiscard]] static Status checkAndCreateDocument(const char* pb, size_t size,
+                                                       JsonbDocument** doc);
+
+    // create an JsonbValue from JSONB packed bytes
+    static JsonbValue* createValue(const char* pb, size_t size);
+
+    uint8_t version() const { return header_.ver_; }
+
+    JsonbValue* getValue() { return ((JsonbValue*)payload_); }
+
+    void setValue(const JsonbValue* value);
+
+    unsigned int numPackedBytes() const;
+
+    // ObjectVal* operator->();
+
+    const ObjectVal* operator->() const;
+
+private:
+    /*
+   * JsonbHeader class defines JSONB header (internal to JsonbDocument).
+   *
+   * Currently it only contains version information (1-byte). We may expand the
+   * header to include checksum of the JSONB binary for more security.
+   */
+    struct JsonbHeader {
+        uint8_t ver_;
+    } header_;
+
+    char payload_[0];
+};
 
 /*
  * JsonbKeyValue class defines JSONB key type, as described below.
@@ -911,52 +903,26 @@ struct ObjectVal : public ContainerVal {
     using iterator = JsonbFwdIteratorT<pointer, ObjectVal>;
     using const_iterator = JsonbFwdIteratorT<const_pointer, ObjectVal>;
 
-    const_iterator search(const char* key, hDictFind handler = nullptr) const {
-        return const_cast<ObjectVal*>(this)->search(key, handler);
+    const_iterator search(const char* key) const {
+        return const_cast<ObjectVal*>(this)->search(key);
     }
 
-    const_iterator search(const char* key, unsigned int klen, hDictFind handler = nullptr) const {
-        return const_cast<ObjectVal*>(this)->search(key, klen, handler);
+    const_iterator search(const char* key, unsigned int klen) const {
+        return const_cast<ObjectVal*>(this)->search(key, klen);
     }
 
-    const_iterator search(int key_id) const { return const_cast<ObjectVal*>(this)->search(key_id); }
-    iterator search(const char* key, hDictFind handler = nullptr) {
+    iterator search(const char* key) {
         if (!key) {
             return end();
         }
-        return search(key, (unsigned int)strlen(key), handler);
+        return search(key, (unsigned int)strlen(key));
     }
 
-    iterator search(const char* key, unsigned int klen, hDictFind handler = nullptr) {
+    iterator search(const char* key, unsigned int klen) {
         if (!key || !klen) {
             return end();
         }
-
-        int key_id = -1;
-        if (handler && (key_id = handler(key, klen)) >= 0) {
-            return search(key_id);
-        }
         return internalSearch(key, klen);
-    }
-
-    iterator search(int key_id) {
-        if (key_id < 0 || key_id > JsonbKeyValue::sMaxKeyId) {
-            return end();
-        }
-
-        const char* pch = payload;
-        const char* fence = payload + size;
-
-        while (pch < fence) {
-            auto* pkey = (JsonbKeyValue*)(pch);
-            if (!pkey->klen() && key_id == pkey->getKeyId()) {
-                return iterator(pkey);
-            }
-            pch += pkey->numPackedBytes();
-        }
-
-        assert(pch == fence);
-        return end();
     }
 
     // Get number of elements in object
@@ -976,54 +942,23 @@ struct ObjectVal : public ContainerVal {
         return num;
     }
 
-    JsonbKeyValue* getJsonbKeyValue(unsigned int i) const {
-        const char* pch = payload;
-        const char* fence = payload + size;
+    JsonbValue* find(const char* key) const { return const_cast<ObjectVal*>(this)->find(key); }
 
-        unsigned int num = 0;
-        while (pch < fence) {
-            auto* pkey = (JsonbKeyValue*)(pch);
-            if (num == i) {
-                return pkey;
-            }
-            ++num;
-            pch += pkey->numPackedBytes();
-        }
-
-        assert(pch == fence);
-
-        return nullptr;
+    JsonbValue* find(const char* key, unsigned int klen) const {
+        return const_cast<ObjectVal*>(this)->find(key, klen);
     }
-
-    JsonbValue* find(const char* key, hDictFind handler = nullptr) const {
-        return const_cast<ObjectVal*>(this)->find(key, handler);
-    }
-
-    JsonbValue* find(const char* key, unsigned int klen, hDictFind handler = nullptr) const {
-        return const_cast<ObjectVal*>(this)->find(key, klen, handler);
-    }
-    JsonbValue* find(int key_id) const { return const_cast<ObjectVal*>(this)->find(key_id); }
 
     // find the JSONB value by a key string (null terminated)
-    JsonbValue* find(const char* key, hDictFind handler = nullptr) {
+    JsonbValue* find(const char* key) {
         if (!key) {
             return nullptr;
         }
-        return find(key, (unsigned int)strlen(key), handler);
+        return find(key, (unsigned int)strlen(key));
     }
 
     // find the JSONB value by a key string (with length)
-    JsonbValue* find(const char* key, unsigned int klen, hDictFind handler = nullptr) {
-        iterator kv = search(key, klen, handler);
-        if (end() == kv) {
-            return nullptr;
-        }
-        return kv->value();
-    }
-
-    // find the JSONB value by a key dictionary ID
-    JsonbValue* find(int key_id) {
-        iterator kv = search(key_id);
+    JsonbValue* find(const char* key, unsigned int klen) {
+        iterator kv = search(key, klen);
         if (end() == kv) {
             return nullptr;
         }
@@ -1318,10 +1253,9 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
         if (rhs->isObject()) {
             const auto* obj_value1 = unpack<ObjectVal>();
             const auto* obj_value2 = rhs->unpack<ObjectVal>();
-            for (int i = 0; i < obj_value2->numElem(); ++i) {
-                JsonbKeyValue* key = obj_value2->getJsonbKeyValue(i);
-                JsonbValue* value = obj_value1->find(key->getKeyStr(), key->klen());
-                if (value == nullptr || !value->contains(key->value())) {
+            for (auto it = obj_value2->begin(); it != obj_value2->end(); ++it) {
+                JsonbValue* value = obj_value1->find(it->getKeyStr(), it->klen());
+                if (value == nullptr || !value->contains(it->value())) {
                     return false;
                 }
             }
@@ -1383,6 +1317,10 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
 }
 
 inline bool JsonbPath::seek(const char* key_path, size_t kp_len) {
+    while (kp_len > 0 && std::isspace(key_path[kp_len - 1])) {
+        --kp_len;
+    }
+
     //path invalid
     if (!key_path || kp_len == 0) {
         return false;
@@ -1429,6 +1367,42 @@ inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
         else {
             return parse_member(stream, path);
         }
+    } else if (stream->peek() == WILDCARD) {
+        stream->skip(1);
+        if (stream->exhausted()) {
+            return false;
+        }
+
+        // $**
+        if (stream->peek() == WILDCARD) {
+            path->_is_supper_wildcard = true;
+        }
+
+        stream->skip(1);
+        if (stream->exhausted()) {
+            return false;
+        }
+
+        if (stream->peek() == BEGIN_ARRAY) {
+            return parse_array(stream, path);
+        } else if (stream->peek() == BEGIN_MEMBER) {
+            // advance past the .
+            stream->skip(1);
+
+            if (stream->exhausted()) {
+                return false;
+            }
+
+            // $.[0]
+            if (stream->peek() == BEGIN_ARRAY) {
+                return parse_array(stream, path);
+            }
+            // $.a
+            else {
+                return parse_member(stream, path);
+            }
+        }
+        return false;
     } else {
         return false; //invalid json path
     }
@@ -1454,6 +1428,7 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
                     new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, ARRAY_CODE));
             path->add_leg_to_leg_vector(std::move(leg));
             stream->skip(1);
+            path->_is_wildcard = true;
             return true;
         } else {
             return false;
@@ -1536,6 +1511,7 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
         std::unique_ptr<leg_info> leg(
                 new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, MEMBER_CODE));
         path->add_leg_to_leg_vector(std::move(leg));
+        path->_is_wildcard = true;
         return true;
     }
 
@@ -1544,8 +1520,11 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
     const char* left_quotation_marks = nullptr;
     const char* right_quotation_marks = nullptr;
 
-    for (; !stream->exhausted(); stream->skip(1)) {
-        if (stream->peek() == ESCAPE) {
+    for (; !stream->exhausted(); stream->advance()) {
+        // Only accept space characters quoted by double quotes.
+        if (std::isspace(stream->peek()) && left_quotation_marks == nullptr) {
+            return false;
+        } else if (stream->peek() == ESCAPE) {
             stream->add_leg_len();
             stream->skip(1);
             stream->add_leg_len();

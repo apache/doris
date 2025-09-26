@@ -301,7 +301,6 @@ TEST_F(AggLinearHistogramTest, test_empty) {
 
     test_agg_linear_histogram<DataTypeDecimal32>(0, 0.5, 0);
     test_agg_linear_histogram<DataTypeDecimal64>(0, 0.5, 0);
-    test_agg_linear_histogram<DataTypeDecimalV2>(0, 0.5, 0);
     test_agg_linear_histogram<DataTypeDecimal128>(0, 0.5, 0);
     test_agg_linear_histogram<DataTypeDecimal256>(0, 0.5, 0);
 }
@@ -318,7 +317,6 @@ TEST_F(AggLinearHistogramTest, test_with_data) {
 
     test_agg_linear_histogram<DataTypeDecimal32>(5, 0.5, 0);
     test_agg_linear_histogram<DataTypeDecimal64>(5, 0.5, 0);
-    test_agg_linear_histogram<DataTypeDecimalV2>(5, 0.5, 0);
     test_agg_linear_histogram<DataTypeDecimal128>(5, 0.5, 0);
     test_agg_linear_histogram<DataTypeDecimal256>(5, 0.5, 0);
 
@@ -333,7 +331,6 @@ TEST_F(AggLinearHistogramTest, test_with_data) {
 
     test_agg_linear_histogram<DataTypeDecimal32>(5, 0.5, 0.25);
     test_agg_linear_histogram<DataTypeDecimal64>(5, 0.5, 0.25);
-    test_agg_linear_histogram<DataTypeDecimalV2>(5, 0.5, 0.25);
     test_agg_linear_histogram<DataTypeDecimal128>(5, 0.5, 0.25);
     test_agg_linear_histogram<DataTypeDecimal256>(5, 0.5, 0.25);
 }

@@ -52,13 +52,18 @@ public class MonthName extends ScalarFunction
         super("monthname", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MonthName(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MonthName withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MonthName(children.get(0));
+        return new MonthName(getFunctionParams(children));
     }
 
     @Override

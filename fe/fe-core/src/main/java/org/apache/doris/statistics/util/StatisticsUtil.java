@@ -18,7 +18,6 @@
 package org.apache.doris.statistics.util;
 
 import org.apache.doris.analysis.BoolLiteral;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -45,7 +44,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.VariantType;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
@@ -195,7 +193,7 @@ public class StatisticsUtil {
         if (CollectionUtils.isEmpty(resultBatches)) {
             return null;
         }
-        return ColumnStatistic.fromResultRow(resultBatches);
+        return ColumnStatistic.fromResultRowList(resultBatches);
     }
 
     public static List<Histogram> deserializeToHistogramStatistics(List<ResultRow> resultBatches) {
@@ -766,7 +764,7 @@ public class StatisticsUtil {
         return type instanceof ArrayType
                 || type instanceof StructType
                 || type instanceof MapType
-                || type instanceof VariantType
+                || type.isVariantType()
                 || type instanceof AggStateType;
     }
 
@@ -1053,8 +1051,7 @@ public class StatisticsUtil {
      */
     public static boolean isMvColumn(TableIf table, String columnName) {
         return table instanceof OlapTable
-            && columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
-            || columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+            && table.getColumn(columnName).isMaterializedViewColumn();
     }
 
     public static boolean isEmptyTable(TableIf table, AnalysisInfo.AnalysisMethod method) {
@@ -1213,7 +1210,7 @@ public class StatisticsUtil {
     }
 
     // This function return true means the column hasn't been analyzed for longer than the configured time.
-    public static boolean isLongTimeColumn(TableIf table, Pair<String, String> column) {
+    public static boolean isLongTimeColumn(TableIf table, Pair<String, String> column, long version) {
         if (column == null) {
             return false;
         }
@@ -1246,15 +1243,20 @@ public class StatisticsUtil {
         }
         // For olap table, if the table visible version and row count doesn't change since last analyze,
         // we don't need to analyze it because its data is not changed.
-        OlapTable olapTable = (OlapTable) table;
-        long version = 0;
-        try {
-            version = ((OlapTable) table).getVisibleVersion();
-        } catch (RpcException e) {
-            LOG.warn("in cloud getVisibleVersion exception", e);
-        }
         return version != columnStats.tableVersion
-                || olapTable.getRowCount() != columnStats.rowCount;
+                || table.getRowCount() != columnStats.rowCount;
+    }
+
+    public static long getOlapTableVersion(OlapTable olapTable) {
+        if (olapTable == null) {
+            return 0;
+        }
+        try {
+            return olapTable.getVisibleVersion();
+        } catch (RpcException e) {
+            LOG.warn("table {}, in cloud getVisibleVersion exception", olapTable.getName(), e);
+            return 0;
+        }
     }
 
     public static boolean canCollect() {
@@ -1267,8 +1269,8 @@ public class StatisticsUtil {
      * value1 :percent1 ;value2 :percent2 ;value3 :percent3
      * @return Map of LiteralExpr -> percentage.
      */
-    public static LinkedHashMap<Literal, Float> getHotValues(String stringValues, Type type) {
-        if (stringValues == null) {
+    public static LinkedHashMap<Literal, Float> getHotValues(String stringValues, Type type, double avgOccurrences) {
+        if (stringValues == null || "null".equalsIgnoreCase(stringValues)) {
             return null;
         }
         try {
@@ -1276,7 +1278,8 @@ public class StatisticsUtil {
             for (String oneRow : stringValues.split(" ;")) {
                 String[] oneRowSplit = oneRow.split(" :");
                 float value = Float.parseFloat(oneRowSplit[1]);
-                if (value > SessionVariable.getHotValueThreshold()) {
+                if (value >= avgOccurrences * SessionVariable.getSkewValueThreshold()
+                        || value >= SessionVariable.getHotValueThreshold()) {
                     org.apache.doris.nereids.trees.expressions.literal.StringLiteral stringLiteral =
                             new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
                                     oneRowSplit[0].replaceAll("\\\\:", ":")

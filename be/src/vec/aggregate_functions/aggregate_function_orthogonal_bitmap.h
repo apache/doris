@@ -36,7 +36,6 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -379,7 +378,9 @@ private:
 
 template <typename Impl>
 class AggFunctionOrthBitmapFunc final
-        : public IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>> {
+        : public IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     String get_name() const override { return Impl::name; }
 

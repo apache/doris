@@ -25,6 +25,7 @@ suite("alter_ttl_1") {
 
     setBeConfigTemporary(custoBeConfig) {
     sql "set global enable_auto_analyze = false"
+    sql "set global enable_audit_plugin = false"
     def clusters = sql " SHOW CLUSTERS; "
     assertTrue(!clusters.isEmpty())
     def validCluster = clusters[0][0]
@@ -110,7 +111,6 @@ suite("alter_ttl_1") {
     sleep(30000)
 
     load_customer_ttl_once("customer_ttl")
-    sql """ select count(*) from customer_ttl """
     sleep(30000)
     long ttl_cache_size = 0
     long normal_cache_size = 0

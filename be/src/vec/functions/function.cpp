@@ -24,6 +24,8 @@
 #include <memory>
 #include <numeric>
 
+#include "common/status.h"
+#include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -202,14 +204,11 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
 
     if (have_null_column(block, args)) {
         bool need_to_default = need_replace_null_data_to_default();
-        if (context) {
-            need_to_default &= context->check_overflow_for_decimal();
-        }
         // extract nested column from nulls
         ColumnNumbers new_args;
         for (auto arg : args) {
             new_args.push_back(block.columns());
-            block.insert(block.get_by_position(arg).get_nested(need_to_default));
+            block.insert(block.get_by_position(arg).unnest_nullable(need_to_default));
             DCHECK(!block.get_by_position(new_args.back()).column->is_nullable());
         }
         RETURN_IF_ERROR(execute_without_low_cardinality_columns(context, block, new_args, result,
@@ -257,9 +256,15 @@ void FunctionBuilderImpl::check_number_of_arguments(size_t number_of_arguments) 
 
     size_t expected_number_of_arguments = get_number_of_arguments();
 
-    CHECK_EQ(number_of_arguments, expected_number_of_arguments) << fmt::format(
+    DCHECK_EQ(number_of_arguments, expected_number_of_arguments) << fmt::format(
             "Number of arguments for function {} doesn't match: passed {} , should be {}",
             get_name(), number_of_arguments, expected_number_of_arguments);
+    if (number_of_arguments != expected_number_of_arguments) {
+        throw Exception(
+                ErrorCode::INVALID_ARGUMENT,
+                "Number of arguments for function {} doesn't match: passed {} , should be {}",
+                get_name(), number_of_arguments, expected_number_of_arguments);
+    }
 }
 
 DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& arguments) const {
@@ -294,7 +299,9 @@ bool FunctionBuilderImpl::is_date_or_datetime_or_decimal(
            (is_date_or_datetime(return_type->get_primitive_type()) &&
             is_date_v2_or_datetime_v2(func_return_type->get_primitive_type())) ||
            (is_decimal(return_type->get_primitive_type()) &&
-            is_decimal(func_return_type->get_primitive_type()));
+            is_decimal(func_return_type->get_primitive_type())) ||
+           (is_time_type(return_type->get_primitive_type()) &&
+            is_time_type(func_return_type->get_primitive_type()));
 }
 
 bool FunctionBuilderImpl::is_array_nested_type_date_or_datetime_or_decimal(

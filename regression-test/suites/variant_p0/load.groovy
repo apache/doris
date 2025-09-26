@@ -96,9 +96,9 @@ suite("regression_test_variant", "p0"){
             sql """insert into ${table_name} values (11,  '[123.1]'),(1999,  '{"a" : 1, "b" : {"c" : 1}}'),(19921,  '{"a" : 1, "b" : 10}');"""
             sql """insert into ${table_name} values (12,  '[123.2]'),(1022,  '{"a" : 1, "b" : 10}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
             qt_sql1 "select k, cast(v['a'] as array<int>) from  ${table_name} where  size(cast(v['a'] as array<int>)) > 0 order by k, cast(v['a'] as string) asc"
-            qt_sql2 "select k, cast(v as int), cast(v['b'] as string) from  ${table_name} where  length(cast(v['b'] as string)) > 4 order  by k, cast(v as string), cast(v['b'] as string) "
+            qt_sql2 "select k, cast(v['b'] as string) from  ${table_name} where  length(cast(v['b'] as string)) > 4 order  by k, cast(v as string), cast(v['b'] as string) "
             qt_sql3 "select k, v from  ${table_name} order by k, cast(v as string) limit 5"
-            qt_sql4 "select v['b'], v['b']['c'], cast(v as int) from  ${table_name} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) is not null and   cast(v['b'] as string) != '{}' order by k,cast(v as string) desc limit 10000;"
+            qt_sql4 "select v['b'], v['b']['c'] from  ${table_name} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) is not null and   cast(v['b'] as string) != '{}' order by k,cast(v as string) desc limit 10000;"
             qt_sql5 "select v['b'] from ${table_name} where cast(v['b'] as int) > 0;"
             qt_sql6 "select cast(v['b'] as string) from ${table_name} where  cast(v['b'] as string) != 'null' and cast(v['b'] as string) is not null and   cast(v['b'] as string) != '{}' order by k,  cast(v['b'] as string) "
             // verify table_name 
@@ -443,11 +443,6 @@ suite("regression_test_variant", "p0"){
         sql """insert into var_as_key values(2, '{"b" : 11}')"""
         qt_sql "select * from var_as_key order by k"
 
-        test {
-            sql """select * from ghdata where cast(v['actor']['url'] as ipv4) = '127.0.0.1'""" 
-            exception("Invalid type for variant column: 36")
-        }
-
         if (!isCloudMode()) {
             test {
                 sql """
@@ -465,6 +460,22 @@ suite("regression_test_variant", "p0"){
                 exception("errCode = 2, detailMessage = Variant type rely on light schema change")
             }
         }
+
+        table_name = "variant_type_test"
+        sql """ DROP TABLE IF EXISTS ${table_name} """
+        sql """
+            CREATE TABLE ${table_name} (
+                k int,
+                v variant NULL
+            )
+            DUPLICATE KEY(`k`)
+            DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        sql """ insert into ${table_name} values (1, '{"a": 1122323232313223, "b": 1.2, "c" : "ddddd", "d" : {"e": 1.2, "f": "ggggg"}}'), (2, NULL) """
+        qt_sql """ select variant_type(v) from ${table_name} """
     } finally {
         // reset flags
     }

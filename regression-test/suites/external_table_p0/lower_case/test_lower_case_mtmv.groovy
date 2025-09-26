@@ -58,17 +58,15 @@ suite("test_lower_case_mtmv", "p0,external,doris,external_docker,external_docker
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
-            "include_database_list" = "EXTERNAL_LOWER_MTMV"
+            "include_database_list" = "EXTERNAL_LOWER_MTMV",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
-
-    sql """CREATE MATERIALIZED VIEW internal.EXTERNAL_LOWER_MTMV.MTMV_TEST
-            REFRESH COMPLETE ON SCHEDULE EVERY 1 minute
-            DISTRIBUTED BY RANDOM BUCKETS 1
-            PROPERTIES (
-                'replication_num' = '1'
-            )
-         AS SELECT * FROM test_lower_case_mtmv.external_lower_mtmv.table_test;"""
+    create_async_mv("EXTERNAL_LOWER_MTMV", "MTMV_TEST",
+    """SELECT * FROM test_lower_case_mtmv.external_lower_mtmv.table_test""")
 
     qt_select """select * from internal.EXTERNAL_LOWER_MTMV.MTMV_TEST"""
 

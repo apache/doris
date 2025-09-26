@@ -441,7 +441,7 @@ public class FunctionCallExpr extends Expr {
             }
         } else if (type.isFloatingPointType() || type.isDecimalV2() || type.isDecimalV3()) {
             return 3;
-        } else if (type.isTime()) {
+        } else if (type.isTimeV2()) {
             return 4;
         } else if (type.isComplexType() || type.isJsonbType()) {
             return 7;

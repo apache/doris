@@ -17,9 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.ShowAnalyzeStmt;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -33,13 +30,13 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.thrift.TQueryColumn;
 
 import com.google.common.collect.ImmutableList;
-import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -133,58 +130,6 @@ public class AnalysisManagerTest {
         Assertions.assertEquals(2, analysisManager.analysisTaskInfoMap.size());
         Assertions.assertTrue(analysisManager.analysisTaskInfoMap.containsKey(2L));
         Assertions.assertTrue(analysisManager.analysisTaskInfoMap.containsKey(3L));
-    }
-
-    @Test
-    public void testShowAutoJobs(@Injectable ShowAnalyzeStmt stmt) {
-        new MockUp<ShowAnalyzeStmt>() {
-            @Mock
-            public String getStateValue() {
-                return null;
-            }
-
-            @Mock
-            public TableName getDbTableName() {
-                return null;
-            }
-
-            @Mock
-            public boolean isAuto() {
-                return true;
-            }
-        };
-        AnalysisManager analysisManager = new AnalysisManager();
-        analysisManager.analysisJobInfoMap.put(
-            1L, new AnalysisInfoBuilder().setJobId(1).setJobType(JobType.MANUAL).build());
-        analysisManager.analysisJobInfoMap.put(
-            2L, new AnalysisInfoBuilder().setJobId(2).setJobType(JobType.SYSTEM).setState(AnalysisState.RUNNING).build());
-        analysisManager.analysisJobInfoMap.put(
-            3L, new AnalysisInfoBuilder().setJobId(3).setJobType(JobType.SYSTEM).setState(AnalysisState.FINISHED).build());
-        analysisManager.analysisJobInfoMap.put(
-            4L, new AnalysisInfoBuilder().setJobId(4).setJobType(JobType.SYSTEM).setState(AnalysisState.FAILED).build());
-        List<AnalysisInfo> analysisInfos = analysisManager.findAnalysisJobs(stmt);
-        Assertions.assertEquals(3, analysisInfos.size());
-        Assertions.assertEquals(AnalysisState.RUNNING, analysisInfos.get(0).getState());
-        Assertions.assertEquals(AnalysisState.FINISHED, analysisInfos.get(1).getState());
-        Assertions.assertEquals(AnalysisState.FAILED, analysisInfos.get(2).getState());
-    }
-
-    @Test
-    public void testShowAutoTasks(@Injectable ShowAnalyzeStmt stmt) {
-        AnalysisManager analysisManager = new AnalysisManager();
-        analysisManager.analysisTaskInfoMap.put(
-            1L, new AnalysisInfoBuilder().setJobId(2).setJobType(JobType.MANUAL).build());
-        analysisManager.analysisTaskInfoMap.put(
-            2L, new AnalysisInfoBuilder().setJobId(1).setJobType(JobType.SYSTEM).setState(AnalysisState.RUNNING).build());
-        analysisManager.analysisTaskInfoMap.put(
-            3L, new AnalysisInfoBuilder().setJobId(1).setJobType(JobType.SYSTEM).setState(AnalysisState.FINISHED).build());
-        analysisManager.analysisTaskInfoMap.put(
-            4L, new AnalysisInfoBuilder().setJobId(1).setJobType(JobType.SYSTEM).setState(AnalysisState.FAILED).build());
-        List<AnalysisInfo> analysisInfos = analysisManager.findTasks(1);
-        Assertions.assertEquals(3, analysisInfos.size());
-        Assertions.assertEquals(AnalysisState.RUNNING, analysisInfos.get(0).getState());
-        Assertions.assertEquals(AnalysisState.FINISHED, analysisInfos.get(1).getState());
-        Assertions.assertEquals(AnalysisState.FAILED, analysisInfos.get(2).getState());
     }
 
     @Test
@@ -342,7 +287,7 @@ public class AnalysisManagerTest {
         new MockUp<AnalysisManager>() {
             @Mock
             public void invalidateLocalStats(long catalogId, long dbId, long tableId, Set<String> columns,
-                                             TableStatsMeta tableStats, PartitionNames partitionNames) {
+                                             TableStatsMeta tableStats, PartitionNamesInfo partitionNames) {
                 try {
                     Thread.sleep(1000);
                     count.incrementAndGet();

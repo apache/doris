@@ -96,4 +96,16 @@ suite("test_encryption_function") {
     qt_sql_empty3 "select hex(aes_encrypt(rpad('', 17, ''), 'securekey456'));"
     qt_sql_empty4 "select hex(sm4_encrypt('', 'securekey456'));"
     qt_sql_empty5 "select sm4_decrypt(unhex('0D56319E329CDA9ABDF5870B9D5ACA57'), 'securekey456');"
+
+    test {
+      sql """set enable_fold_constant_by_be=true """
+      sql """select aes_encrypt('Constant', '0123456789abcdef0123456789abcdef', 'AES_128_ECB', '1234567890abcdef');"""
+      exception """mode 1234567890ABCDEF is not supported"""
+    }
+
+    test {
+      sql """set enable_fold_constant_by_be=true """
+      sql """select aes_decrypt('Constant', '0123456789abcdef0123456789abcdef', 'AES_128_ECB', '1234567890abcdef');"""
+      exception """mode 1234567890ABCDEF is not supported"""
+    }
 }

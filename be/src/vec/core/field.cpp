@@ -20,6 +20,7 @@
 
 #include "vec/core/field.h"
 
+#include "runtime/define_primitive_type.h"
 #include "runtime/jsonb_value.h"
 #include "runtime/primitive_type.h"
 #include "util/bitmap_value.h"
@@ -32,11 +33,6 @@
 namespace doris::vectorized {
 class BufferReadable;
 class BufferWritable;
-
-template <>
-Decimal128V3 DecimalField<Decimal128V3>::get_scale_multiplier() const {
-    return DataTypeDecimal<TYPE_DECIMAL128I>::get_scale_multiplier(scale);
-}
 
 template <PrimitiveType T>
 bool dec_equal(typename PrimitiveTypeTraits<T>::ColumnItemType x,
@@ -72,10 +68,6 @@ bool dec_less_or_equal(typename PrimitiveTypeTraits<T>::ColumnItemType x,
     template <>                                                        \
     bool decimal_less_or_equal(TYPE x, TYPE y, UInt32 xs, UInt32 ys) { \
         return dec_less_or_equal<PTYPE>(x, y, xs, ys);                 \
-    }                                                                  \
-    template <>                                                        \
-    TYPE DecimalField<TYPE>::get_scale_multiplier() const {            \
-        return DataTypeDecimal<PTYPE>::get_scale_multiplier(scale);    \
     }
 
 DECLARE_DECIMAL_COMPARISON(Decimal32, TYPE_DECIMAL32)
@@ -175,8 +167,8 @@ void Field::create(const Field& field) {
                 field.template get<typename PrimitiveTypeTraits<TYPE_CHAR>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_VARCHAR:
-        create_concrete<TYPE_NULL>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::NearestFieldType>());
+        create_concrete<TYPE_VARCHAR>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_VARCHAR>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_JSONB:
         create_concrete<TYPE_JSONB>(
@@ -244,6 +236,11 @@ void Field::create(const Field& field) {
         create_concrete<TYPE_UINT64>(
                 field.template get<typename PrimitiveTypeTraits<TYPE_UINT64>::NearestFieldType>());
         return;
+    case PrimitiveType::TYPE_VARBINARY:
+        create_concrete<TYPE_VARBINARY>(
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_VARBINARY>::NearestFieldType>());
+        return;
     default:
         throw Exception(Status::FatalError("type not supported, type={}", field.get_type_name()));
     }
@@ -283,6 +280,9 @@ void Field::destroy() {
         break;
     case PrimitiveType::TYPE_QUANTILE_STATE:
         destroy<typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::NearestFieldType>();
+        break;
+    case PrimitiveType::TYPE_VARBINARY:
+        destroy<typename PrimitiveTypeTraits<TYPE_VARBINARY>::NearestFieldType>();
         break;
     default:
         break;
@@ -350,8 +350,8 @@ void Field::assign(const Field& field) {
                 field.template get<typename PrimitiveTypeTraits<TYPE_CHAR>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_VARCHAR:
-        assign_concrete<TYPE_NULL>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::NearestFieldType>());
+        assign_concrete<TYPE_VARCHAR>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_VARCHAR>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_JSONB:
         assign_concrete<TYPE_JSONB>(
@@ -418,6 +418,11 @@ void Field::assign(const Field& field) {
     case PrimitiveType::TYPE_UINT64:
         assign_concrete<TYPE_UINT64>(
                 field.template get<typename PrimitiveTypeTraits<TYPE_UINT64>::NearestFieldType>());
+        return;
+    case PrimitiveType::TYPE_VARBINARY:
+        assign_concrete<TYPE_VARBINARY>(
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_VARBINARY>::NearestFieldType>());
         return;
     default:
         throw Exception(Status::FatalError("type not supported, type={}", field.get_type_name()));
@@ -583,6 +588,8 @@ std::string_view Field::as_string_view() const {
             const typename PrimitiveTypeTraits<TYPE_VARCHAR>::NearestFieldType& rhs);        \
     template void Field::FUNC_NAME<TYPE_STRING>(                                             \
             const typename PrimitiveTypeTraits<TYPE_STRING>::NearestFieldType& rhs);         \
+    template void Field::FUNC_NAME<TYPE_VARBINARY>(                                          \
+            const typename PrimitiveTypeTraits<TYPE_VARBINARY>::NearestFieldType& rhs);      \
     template void Field::FUNC_NAME<TYPE_HLL>(                                                \
             const typename PrimitiveTypeTraits<TYPE_HLL>::NearestFieldType& rhs);            \
     template void Field::FUNC_NAME<TYPE_VARIANT>(                                            \

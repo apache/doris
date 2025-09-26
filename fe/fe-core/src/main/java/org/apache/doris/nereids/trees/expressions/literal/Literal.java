@@ -48,6 +48,7 @@ import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.log4j.Logger;
@@ -64,7 +65,7 @@ import java.util.Optional;
 
 /**
  * All data type literal expression in Nereids.
- * TODO: Increase the implementation of sub expression. such as Integer.z
+ * TODO: Increase the implementation of sub expression. such as Integer.
  */
 public abstract class Literal extends Expression implements LeafExpression {
 
@@ -289,9 +290,9 @@ public abstract class Literal extends Expression implements LeafExpression {
             return new DateLiteral(desc);
         } else if (targetType.isDateTimeType()) {
             return new DateTimeLiteral(desc);
-        } else if (targetType.isDecimalV2Type()) {
+        } else if (targetType.isDecimalV2Type() && !desc.isEmpty()) {
             return new DecimalLiteral((DecimalV2Type) targetType, new BigDecimal(desc));
-        } else if (targetType.isDecimalV3Type()) {
+        } else if (targetType.isDecimalV3Type() && !desc.isEmpty()) {
             return new DecimalV3Literal((DecimalV3Type) targetType, new BigDecimal(desc));
         } else if (targetType.isDateV2Type()) {
             return new DateV2Literal(desc);
@@ -313,10 +314,30 @@ public abstract class Literal extends Expression implements LeafExpression {
     }
 
     /**
+     * Fall back to old cast logic when new cast not covered yet.
+     */
+    public Expression checkedCastWithFallback(DataType targetType) {
+        try {
+            return checkedCastTo(targetType);
+        } catch (CastException c) {
+            if (SessionVariable.enableStrictCast()) {
+                throw c;
+            } else {
+                return new NullLiteral(dataType);
+            }
+        } catch (Throwable t) {
+            return deprecatingCheckedCastTo(targetType);
+        }
+    }
+
+    /**
      * literal expr compare.
      */
     @Override
     public Expression checkedCastTo(DataType targetType) throws AnalysisException {
+        if (this instanceof NullLiteral) {
+            return new NullLiteral(targetType);
+        }
         if (getDataType().isNumericType()) {
             String desc = getStringValue();
             if (numericOverflow(desc, targetType)) {
@@ -326,22 +347,11 @@ public abstract class Literal extends Expression implements LeafExpression {
         return uncheckedCastTo(targetType);
     }
 
-    protected boolean isPosInf(String value) {
-        return "infinity".equalsIgnoreCase(value) || "+infinity".equalsIgnoreCase(value)
-                || "inf".equalsIgnoreCase(value) || "+inf".equalsIgnoreCase(value);
-    }
-
-    protected boolean isNegInf(String value) {
-        return "-infinity".equalsIgnoreCase(value) || "-inf".equalsIgnoreCase(value);
-    }
-
-    protected boolean isNaN(String value) {
-        return "nan".equalsIgnoreCase(value) || "-nan".equalsIgnoreCase(value) || "+nan".equalsIgnoreCase(value);
-    }
-
     protected boolean numericOverflow(String desc, DataType targetType) {
         if (this instanceof FloatLiteral || this instanceof DoubleLiteral) {
-            if (isPosInf(desc) || isNegInf(desc) || isNaN(desc)) {
+            if (DoubleLiteral.POS_INF_NAME.contains(desc.toLowerCase())
+                    || DoubleLiteral.NEG_INF_NAME.contains(desc.toLowerCase())
+                    || DoubleLiteral.NAN_NAME.contains(desc.toLowerCase())) {
                 return false;
             }
         }
@@ -375,7 +385,6 @@ public abstract class Literal extends Expression implements LeafExpression {
 
     protected Expression getDecimalLiteral(BigDecimal bigDecimal, DataType targetType) {
         int pReal = bigDecimal.precision();
-
         int sReal = bigDecimal.scale();
         int pTarget = targetType.isDecimalV2Type()
                 ? ((DecimalV2Type) targetType).getPrecision() : ((DecimalV3Type) targetType).getPrecision();

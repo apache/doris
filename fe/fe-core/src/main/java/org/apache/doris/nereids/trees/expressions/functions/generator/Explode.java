@@ -50,13 +50,18 @@ public class Explode extends TableGeneratingFunction implements CustomSignature,
         super("explode", args);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Explode(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Explode withChildren(List<Expression> children) {
         Preconditions.checkArgument(!children.isEmpty());
-        return new Explode(children.toArray(new Expression[0]));
+        return new Explode(getFunctionParams(children));
     }
 
     @Override

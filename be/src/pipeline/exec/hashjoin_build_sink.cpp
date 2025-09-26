@@ -108,7 +108,7 @@ Status HashJoinBuildSinkLocalState::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_runtime_filter_producer_helper->terminate(state));
+    RETURN_IF_ERROR(_runtime_filter_producer_helper->skip_process(state));
     return JoinBuildSinkLocalState::terminate(state);
 }
 
@@ -212,7 +212,12 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         // because it is used to compare with probe side hash key column
 
         if (p._should_keep_hash_key_column && _build_col_ids.size() == 1) {
-            p._should_keep_column_flags[_build_col_ids[0]] = true;
+            // when key column from build side tuple, we should keep it
+            // if key column belong to intermediate tuple, it means _build_col_ids[0] >= _should_keep_column_flags.size(),
+            // key column still kept too.
+            if (_build_col_ids[0] < p._should_keep_column_flags.size()) {
+                p._should_keep_column_flags[_build_col_ids[0]] = true;
+            }
         }
 
         if (_shared_state->build_block) {

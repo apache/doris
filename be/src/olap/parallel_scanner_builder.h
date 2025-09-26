@@ -64,10 +64,17 @@ public:
 
     void set_min_rows_per_scanner(int64_t size) { _min_rows_per_scanner = size; }
 
+    void set_optimize_index_scan_parallelism(bool v) { _optimize_index_scan_parallelism = v; }
+
+    const OlapReaderStatistics* builder_stats() const { return &_builder_stats; }
+
 private:
     Status _load();
 
     Status _build_scanners_by_rowid(std::list<ScannerSPtr>& scanners);
+
+    // Build scanners so that each segment is handled by its own scanner.
+    Status _build_scanners_by_segment(std::list<ScannerSPtr>& scanners);
 
     std::shared_ptr<vectorized::OlapScanner> _build_scanner(
             BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
@@ -87,7 +94,11 @@ private:
 
     std::map<RowsetId, std::vector<size_t>> _all_segments_rows;
 
+    // Force building one scanner per segment when true.
+    bool _optimize_index_scan_parallelism {false};
+
     std::shared_ptr<RuntimeProfile> _scanner_profile;
+    OlapReaderStatistics _builder_stats;
     RuntimeState* _state;
     int64_t _limit;
     bool _is_dup_mow_key;

@@ -85,7 +85,7 @@ public class LoadManagerTest {
         };
 
         loadManager = new LoadManager(new LoadJobScheduler());
-        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "", userInfo);
+        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "", "", userInfo);
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
         File file = serializeToFile(loadManager);
@@ -123,7 +123,7 @@ public class LoadManagerTest {
         };
 
         loadManager = new LoadManager(new LoadJobScheduler());
-        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "", userInfo);
+        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "", "", userInfo);
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
         // make job1 don't serialize
@@ -164,9 +164,9 @@ public class LoadManagerTest {
         };
 
         loadManager = new LoadManager(new LoadJobScheduler());
-        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "", userInfo);
+        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "", "", userInfo);
         Thread.sleep(100);
-        LoadJob job2 = new InsertLoadJob("job2", 1L, 1L, 1L, System.currentTimeMillis(), "", "", userInfo);
+        LoadJob job2 = new InsertLoadJob("job2", 1L, 1L, 1L, System.currentTimeMillis(), "", "", "", userInfo);
         Deencapsulation.invoke(loadManager, "addLoadJob", job2);
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
         Config.label_num_threshold = 1;

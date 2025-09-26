@@ -21,15 +21,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <memory>
 #include <type_traits>
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_avg.h"
 #include "vec/aggregate_functions/aggregate_function_min_max.h"
 #include "vec/aggregate_functions/aggregate_function_product.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_sum.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column.h"
@@ -82,14 +84,14 @@ template <PrimitiveType Element>
 struct ArrayAggregateResultImpl<Element, AggregateOperation::PRODUCT> {
     static constexpr PrimitiveType Result =
             Element == TYPE_DECIMALV2 ? TYPE_DECIMALV2
-                                      : (is_decimal(Element) ? TYPE_DECIMAL128I : TYPE_DOUBLE);
+                                      : (is_decimal(Element) ? TYPE_DECIMAL128I : Element);
 };
 
 template <PrimitiveType Element>
 struct ArrayAggregateResultImpl<Element, AggregateOperation::PRODUCT, true> {
     static constexpr PrimitiveType Result =
             Element == TYPE_DECIMALV2 ? TYPE_DECIMALV2
-                                      : (is_decimal(Element) ? TYPE_DECIMAL256 : TYPE_DOUBLE);
+                                      : (is_decimal(Element) ? TYPE_DECIMAL256 : Element);
 };
 
 template <PrimitiveType Element>
@@ -194,8 +196,13 @@ struct AggregateFunction {
     template <PrimitiveType T>
     using Function = typename Derived::template TypeTraits<T>::Function;
 
-    static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
-        return creator_with_type::create<Function>(DataTypes {make_nullable(data_type_ptr)}, true);
+    static auto create(const DataTypePtr& data_type_ptr, const AggregateFunctionAttr& attr)
+            -> AggregateFunctionPtr {
+        return creator_with_type_list<
+                TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT, TYPE_FLOAT,
+                TYPE_DOUBLE, TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
+                TYPE_DECIMAL256>::create<Function>(DataTypes {make_nullable(data_type_ptr)}, true,
+                                                   attr);
     }
 };
 
@@ -212,7 +219,10 @@ struct ArrayAggregateImpl {
         using Function = AggregateFunction<AggregateFunctionImpl<operation, enable_decimal256>>;
         const DataTypeArray* data_type_array =
                 static_cast<const DataTypeArray*>(remove_nullable(arguments[0]).get());
-        auto function = Function::create(data_type_array->get_nested_type());
+        auto function = Function::create(data_type_array->get_nested_type(),
+                                         {.enable_decimal256 = enable_decimal256,
+                                          .is_window_function = false,
+                                          .column_names = {}});
         if (function) {
             return function->get_return_type();
         } else {
@@ -229,6 +239,16 @@ struct ArrayAggregateImpl {
         const IColumn* data = array.get_data_ptr().get();
 
         const auto& offsets = array.get_offsets();
+        if constexpr (operation == AggregateOperation::MAX ||
+                      operation == AggregateOperation::MIN) {
+            // min/max can only be applied on ip type
+            if (execute_type<TYPE_IPV4>(res, type, data, offsets) ||
+                execute_type<TYPE_IPV6>(res, type, data, offsets)) {
+                block.replace_by_position(result, std::move(res));
+                return Status::OK();
+            }
+        }
+
         if (execute_type<TYPE_BOOLEAN>(res, type, data, offsets) ||
             execute_type<TYPE_TINYINT>(res, type, data, offsets) ||
             execute_type<TYPE_SMALLINT>(res, type, data, offsets) ||
@@ -239,14 +259,11 @@ struct ArrayAggregateImpl {
             execute_type<TYPE_DOUBLE>(res, type, data, offsets) ||
             execute_type<TYPE_DECIMAL32>(res, type, data, offsets) ||
             execute_type<TYPE_DECIMAL64>(res, type, data, offsets) ||
-            execute_type<TYPE_DECIMALV2>(res, type, data, offsets) ||
             execute_type<TYPE_DECIMAL128I>(res, type, data, offsets) ||
             execute_type<TYPE_DECIMAL256>(res, type, data, offsets) ||
-            execute_type<TYPE_DATE>(res, type, data, offsets) ||
-            execute_type<TYPE_DATETIME>(res, type, data, offsets) ||
             execute_type<TYPE_DATEV2>(res, type, data, offsets) ||
             execute_type<TYPE_DATETIMEV2>(res, type, data, offsets) ||
-            execute_type<TYPE_STRING>(res, type, data, offsets)) {
+            execute_type<TYPE_VARCHAR>(res, type, data, offsets)) {
             block.replace_by_position(result, std::move(res));
             return Status::OK();
         } else {
@@ -271,9 +288,11 @@ struct ArrayAggregateImpl {
 
         ColumnPtr res_column = create_column_func(column);
         res_column = make_nullable(res_column);
-        static_cast<ColumnNullable&>(res_column->assume_mutable_ref()).reserve(offsets.size());
+        assert_cast<ColumnNullable&>(res_column->assume_mutable_ref()).reserve(offsets.size());
 
-        auto function = Function::create(type);
+        auto function = Function::create(type, {.enable_decimal256 = enable_decimal256,
+                                                .is_window_function = false,
+                                                .column_names = {}});
         auto guard = AggregateFunctionGuard(function.get());
         Arena arena;
         auto nullable_column = make_nullable(data->get_ptr());
@@ -336,9 +355,10 @@ struct NameArrayMin {
 
 template <>
 struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MIN>> {
-    static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
+    static auto create(const DataTypePtr& data_type_ptr, const AggregateFunctionAttr& attr)
+            -> AggregateFunctionPtr {
         return create_aggregate_function_single_value<AggregateFunctionMinData>(
-                NameArrayMin::name, {make_nullable(data_type_ptr)}, true);
+                NameArrayMin::name, {make_nullable(data_type_ptr)}, true, attr);
     }
 };
 
@@ -348,9 +368,10 @@ struct NameArrayMax {
 
 template <>
 struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MAX>> {
-    static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
+    static auto create(const DataTypePtr& data_type_ptr, const AggregateFunctionAttr& attr)
+            -> AggregateFunctionPtr {
         return create_aggregate_function_single_value<AggregateFunctionMaxData>(
-                NameArrayMax::name, {make_nullable(data_type_ptr)}, true);
+                NameArrayMax::name, {make_nullable(data_type_ptr)}, true, attr);
     }
 };
 

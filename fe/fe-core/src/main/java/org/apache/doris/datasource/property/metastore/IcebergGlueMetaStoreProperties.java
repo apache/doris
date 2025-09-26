@@ -28,7 +28,6 @@ import org.apache.iceberg.aws.glue.GlueCatalog;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -54,33 +53,24 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         glueProperties = AWSGlueMetaStoreBaseProperties.of(origProps);
-        glueProperties.checkAndInit();
         s3Properties = S3Properties.of(origProps);
-        s3Properties.initNormalizeAndCheckProps();
     }
 
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storageProperties) {
-        Map<String, String> props = prepareBaseCatalogProps();
-        appendS3Props(props);
-        appendGlueProps(props);
-
-        props.put("client.region", glueProperties.glueRegion);
-
-
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                               List<StorageProperties> storagePropertiesList) {
+        appendS3Props(catalogProps);
+        appendGlueProps(catalogProps);
+        catalogProps.put("client.region", glueProperties.glueRegion);
         if (StringUtils.isNotBlank(warehouse)) {
-            props.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
+            catalogProps.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         } else {
-            props.put(CatalogProperties.WAREHOUSE_LOCATION, CHECKED_WAREHOUSE);
+            catalogProps.put(CatalogProperties.WAREHOUSE_LOCATION, CHECKED_WAREHOUSE);
         }
 
         GlueCatalog catalog = new GlueCatalog();
-        catalog.initialize(catalogName, props);
+        catalog.initialize(catalogName, catalogProps);
         return catalog;
-    }
-
-    private Map<String, String> prepareBaseCatalogProps() {
-        return new HashMap<>(origProps);
     }
 
     private void appendS3Props(Map<String, String> props) {
@@ -93,11 +83,31 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
 
     private void appendGlueProps(Map<String, String> props) {
         props.put(AwsProperties.GLUE_CATALOG_ENDPOINT, glueProperties.glueEndpoint);
-        props.put("client.credentials-provider",
-                "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x");
-        props.put("client.credentials-provider.glue.access_key", glueProperties.glueAccessKey);
-        props.put("client.credentials-provider.glue.secret_key", glueProperties.glueSecretKey);
-        props.put("aws.catalog.credentials.provider.factory.class",
-                "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProviderFactory");
+
+        if (StringUtils.isNotBlank(glueProperties.glueAccessKey) && StringUtils
+                .isNotBlank(glueProperties.glueSecretKey)) {
+            props.put("client.credentials-provider",
+                    "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x");
+            props.put("client.credentials-provider.glue.access_key", glueProperties.glueAccessKey);
+            props.put("client.credentials-provider.glue.secret_key", glueProperties.glueSecretKey);
+            props.put("aws.catalog.credentials.provider.factory.class",
+                    "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProviderFactory");
+            if (StringUtils.isNotBlank(glueProperties.glueSessionToken)) {
+                props.put("client.credentials-provider.glue.session_token", glueProperties.glueSessionToken);
+            }
+            return;
+        }
+        //IAM Assume Role
+        if (StringUtils.isNotBlank(glueProperties.glueIAMRole)) {
+            props.put(AwsProperties.CLIENT_FACTORY,
+                    "org.apache.iceberg.aws.AssumeRoleAwsClientFactory");
+            props.put("aws.region", glueProperties.glueRegion);
+
+            props.put(AwsProperties.CLIENT_ASSUME_ROLE_ARN, glueProperties.glueIAMRole);
+            props.put(AwsProperties.CLIENT_ASSUME_ROLE_REGION, glueProperties.glueRegion);
+            if (StringUtils.isNotBlank(glueProperties.glueExternalId)) {
+                props.put(AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, glueProperties.glueExternalId);
+            }
+        }
     }
 }

@@ -19,11 +19,11 @@ package org.apache.doris.catalog;
 
 
 import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -55,8 +55,12 @@ public class EnvOperationTest {
         connectContext = UtFrameUtils.createDefaultCtx();
         // create database
         String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
 
         createTable("create table test.renameTest\n"
                 + "(k1 int,k2 int)\n"

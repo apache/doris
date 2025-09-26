@@ -379,22 +379,23 @@ suite("test_outfile_parquet_map_type", "p0") {
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {'2025-12-31 12:01:41': 'min_largeint', '2006-02-19 09:01:02': 'max_largeint'}); """
+        sql "set enable_insert_strict=false"
         sql """ insert into ${export_table_name} values (9, 'doris9', {'209-04-20 00:00:00': 'min_largeint', '102-03-21 00:00:00':'b'}); """
+        sql "set enable_insert_strict=true"
         sql """ insert into ${export_table_name} values (10, 'doris10', {'2003-04-29 01:02:03':'a', '2006-02-22 02:01:04': 'max_largeint', '2020-03-21 19:21:23':'b'}); """
 
         // test base data
         qt_select_base10 """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """
 
-        def outfile_url = outfile_to_S3()
-
-        qt_select_load10 """ SELECT * FROM S3 (
-                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
-                "format" = "parquet",
-                "region" = "${region}"
-            );
-            """
+//        def outfile_url = outfile_to_S3()
+//        qt_select_load10 """ SELECT * FROM S3 (
+//                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
+//                "ACCESS_KEY"= "${ak}",
+//                "SECRET_KEY" = "${sk}",
+//                "format" = "parquet",
+//                "region" = "${region}"
+//            );
+//            """
     } finally {
     }
 

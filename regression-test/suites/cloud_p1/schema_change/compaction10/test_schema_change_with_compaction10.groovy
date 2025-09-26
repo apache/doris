@@ -31,6 +31,7 @@ suite('test_schema_change_with_compaction10', 'docker') {
     docker(options) {
         def getJobState = { tableName ->
             def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+            logger.info("Get job state: " + jobStateResult)
             return jobStateResult[0][9]
         }
 
@@ -59,6 +60,7 @@ suite('test_schema_change_with_compaction10', 'docker') {
             // check load state
             while (true) {
                 def stateResult = sql "show load where Label = '${loadLabel}'"
+                logger.info("stateResult: " + stateResult)
                 def loadState = stateResult[stateResult.size() - 1][2].toString()
                 if ("CANCELLED".equalsIgnoreCase(loadState)) {
                     throw new IllegalStateException("load ${loadLabel} failed.")
@@ -112,19 +114,22 @@ suite('test_schema_change_with_compaction10', 'docker') {
             trigger_and_wait_compaction("date", "base")
             def newTabletId = array[1].TabletId
             logger.info("run compaction:" + newTabletId)
-            (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, newTabletId)
+            def (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, newTabletId)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(out.contains("invalid tablet state."))
 
             // cu compaction
             trigger_and_wait_compaction("date", "cumulative")
+        } catch (Exception e) {
+            logger.info("Exception: " + e)
         } finally {
             if (injectBe != null) {
                 GetDebugPoint().disableDebugPointForAllBEs(injectName)
             }
             int max_try_time = 3000
+            def result = null
             while (max_try_time--){
-                def result = getJobState("date")
+                result = getJobState("date")
                 if (result == "FINISHED" || result == "CANCELLED") {
                     sleep(3000)
                     break
@@ -140,7 +145,7 @@ suite('test_schema_change_with_compaction10', 'docker') {
             assertEquals(count[0][0], 2556);
             // check rowsets
             logger.info("run show:" + originTabletId)
-            (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, originTabletId)
+            def (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, originTabletId)
             logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(out.contains("[0-1]"))
             assertTrue(out.contains("[2-7]"))

@@ -56,6 +56,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         OSS,
         OBS,
         COS,
+        GCS,
         OSS_HDFS,
         MINIO,
         AZURE,
@@ -171,6 +172,8 @@ public abstract class StorageProperties extends ConnectionProperties {
                             || OBSProperties.guessIsMe(props)) ? new OBSProperties(props) : null,
                     props -> (isFsSupport(props, FS_COS_SUPPORT)
                             || COSProperties.guessIsMe(props)) ? new COSProperties(props) : null,
+                    props -> (isFsSupport(props, FS_GCS_SUPPORT)
+                            || GCSProperties.guessIsMe(props)) ? new GCSProperties(props) : null,
                     props -> (isFsSupport(props, FS_AZURE_SUPPORT)
                             || AzureProperties.guessIsMe(props)) ? new AzureProperties(props) : null,
                     props -> (isFsSupport(props, FS_MINIO_SUPPORT)

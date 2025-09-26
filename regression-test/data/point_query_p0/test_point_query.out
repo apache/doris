@@ -158,7 +158,7 @@
 -- !sql --
 
 -- !sql --
-10	20	aabc	
+10	20	aabc	value
 
 -- !sql --
 -10	20	aabc	update val

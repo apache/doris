@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.expressions.functions.generator;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByString;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.VarcharType;
@@ -32,7 +34,8 @@ import java.util.List;
 /**
  * explode_split_outer("a,b,c", ","), generate 3 lines include 'a', 'b' and 'c'.
  */
-public class ExplodeSplitOuter extends TableGeneratingFunction implements BinaryExpression, AlwaysNullable {
+public class ExplodeSplitOuter extends TableGeneratingFunction
+        implements BinaryExpression, AlwaysNullable, RewriteWhenAnalyze {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
@@ -46,13 +49,18 @@ public class ExplodeSplitOuter extends TableGeneratingFunction implements Binary
         super("explode_split_outer", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeSplitOuter(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeSplitOuter withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ExplodeSplitOuter(children.get(0), children.get(1));
+        return new ExplodeSplitOuter(getFunctionParams(children));
     }
 
     @Override
@@ -63,5 +71,11 @@ public class ExplodeSplitOuter extends TableGeneratingFunction implements Binary
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitExplodeSplitOuter(this, context);
+    }
+
+    @Override
+    public Expression rewriteWhenAnalyze() {
+        Expression[] args = {new SplitByString(children.get(0), children.get(1))};
+        return new ExplodeOuter(args);
     }
 }

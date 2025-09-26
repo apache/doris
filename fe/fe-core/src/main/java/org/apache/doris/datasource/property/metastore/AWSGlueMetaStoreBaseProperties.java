@@ -53,6 +53,7 @@ public class AWSGlueMetaStoreBaseProperties {
 
     @ConnectorProperty(names = {"glue.secret_key",
             "aws.glue.secret-key", "client.credentials-provider.glue.secret_key"},
+            sensitive = true,
             description = "The secret key of the AWS Glue.")
     protected String glueSecretKey = "";
 
@@ -61,18 +62,17 @@ public class AWSGlueMetaStoreBaseProperties {
     protected String glueSessionToken = "";
 
     @ConnectorProperty(names = {"glue.role_arn"},
-            description = "The IAM role the AWS Glue.",
-            supported = false)
+            description = "The IAM role the AWS Glue.")
     protected String glueIAMRole = "";
 
     @ConnectorProperty(names = {"glue.external_id"},
-            description = "The external id of the AWS Glue.",
-            supported = false)
+            description = "The external id of the AWS Glue.")
     protected String glueExternalId = "";
 
     public static AWSGlueMetaStoreBaseProperties of(Map<String, String> properties) {
         AWSGlueMetaStoreBaseProperties propertiesObj = new AWSGlueMetaStoreBaseProperties();
         ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        propertiesObj.checkAndInit();
         return propertiesObj;
     }
 
@@ -94,15 +94,15 @@ public class AWSGlueMetaStoreBaseProperties {
 
     private ParamRules buildRules() {
 
-        return new ParamRules()
-                .require(glueAccessKey,
-                        "glue.access_key or aws.glue.access-key or client.credentials-provider.glue.access_key")
-                .require(glueSecretKey,
-                        "glue.secret_key or aws.glue.secret-key or client.credentials-provider.glue.secret_key")
-                .require(glueEndpoint, "glue.endpoint or aws.endpoint or aws.glue.endpoint is required");
+        return new ParamRules().requireTogether(new String[]{glueAccessKey, glueSecretKey},
+                "glue.access_key and glue.secret_key must be set together")
+                .requireAtLeastOne(new String[]{glueAccessKey, glueIAMRole},
+                        "At least one of glue.access_key or glue.role_arn must be set")
+                .requireAtLeastOne(new String[]{glueEndpoint, glueRegion},
+                        "At least one of glue.endpoint or glue.region must be set");
     }
 
-    public void checkAndInit() {
+    private void checkAndInit() {
         buildRules().validate();
 
         Matcher matcher = ENDPOINT_PATTERN.matcher(glueEndpoint.toLowerCase());

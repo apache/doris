@@ -48,6 +48,8 @@ public class ColumnStatistic {
     public static final StatsType NUM_NULLS = StatsType.NUM_NULLS;
     public static final StatsType MIN_VALUE = StatsType.MIN_VALUE;
     public static final StatsType MAX_VALUE = StatsType.MAX_VALUE;
+    // TODO: remove this when hotValues.second becomes ratio
+    public static final float ONE_HUNDRED = 100.0f;
 
     private static final Logger LOG = LogManager.getLogger(ColumnStatistic.class);
 
@@ -56,10 +58,9 @@ public class ColumnStatistic {
             .setIsUnknown(true).setUpdatedTime("")
             .build();
 
-    public static final Set<Type> UNSUPPORTED_TYPE = Sets.newHashSet(
-            Type.HLL, Type.BITMAP, Type.ARRAY, Type.STRUCT, Type.MAP, Type.QUANTILE_STATE, Type.JSONB,
-            Type.VARIANT, Type.TIME, Type.TIMEV2, Type.LAMBDA_FUNCTION
-    );
+    public static final Set<Type> UNSUPPORTED_TYPE = Sets.newHashSet(Type.HLL, Type.BITMAP, Type.ARRAY, Type.STRUCT,
+            Type.MAP, Type.QUANTILE_STATE, Type.JSONB, Type.VARIANT, Type.TIMEV2, Type.LAMBDA_FUNCTION,
+            Type.VARBINARY);
 
     // ATTENTION: Stats deriving WILL NOT use 'count' field any longer.
     // Use 'rowCount' field in Statistics if needed.
@@ -96,6 +97,11 @@ public class ColumnStatistic {
     @SerializedName("updatedTime")
     public final String updatedTime;
 
+    /**
+     * hotValues == null means no hot values.
+     * hotValues.isEmpty() means there are hotValues, but the values are unknown. for example, Column A has hot values,
+     * func(A) has hot values, but the values are unknown.
+     */
     @SerializedName("hotValues")
     public final Map<Literal, Float> hotValues;
 
@@ -118,7 +124,7 @@ public class ColumnStatistic {
         this.hotValues = hotValues;
     }
 
-    public static ColumnStatistic fromResultRow(List<ResultRow> resultRows) {
+    public static ColumnStatistic fromResultRowList(List<ResultRow> resultRows) {
         ColumnStatistic columnStatistic = ColumnStatistic.UNKNOWN;
         for (ResultRow resultRow : resultRows) {
             String partId = resultRow.get(6);
@@ -131,8 +137,12 @@ public class ColumnStatistic {
         return columnStatistic;
     }
 
-    // TODO: use thrift
-    public static ColumnStatistic fromResultRow(ResultRow row) {
+    /**
+     * this function is used by analyze job and cbo job.
+     *
+     *
+     */
+    public static ColumnStatistic fromResultRow(ResultRow row, boolean showAnalyzeResult) {
         double count = Double.parseDouble(row.get(7));
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
         double ndv = Double.parseDouble(row.getWithDefault(8, "0"));
@@ -193,8 +203,20 @@ public class ColumnStatistic {
             columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
         }
         columnStatisticBuilder.setUpdatedTime(row.get(13));
-        columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType()));
+        if (showAnalyzeResult) {
+            columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType(), 0));
+        } else {
+            if (ndv > 0) {
+                columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType(),
+                        1 / ndv));
+            }
+        }
         return columnStatisticBuilder.build();
+    }
+
+    // TODO: use thrift
+    public static ColumnStatistic fromResultRow(ResultRow row) {
+        return fromResultRow(row, false);
     }
 
     public static boolean isAlmostUnique(double ndv, double rowCount) {
@@ -425,6 +447,9 @@ public class ColumnStatistic {
         return sb.toString();
     }
 
+    /**
+     * return null if there is no hot value
+     */
     public Map<Literal, Float> getHotValues() {
         return hotValues;
     }

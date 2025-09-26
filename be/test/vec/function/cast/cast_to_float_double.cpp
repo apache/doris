@@ -771,10 +771,12 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         }
     }
     template <typename FromT, int FromPrecision, int FromScale, PrimitiveType FloatPType>
-    void from_decimalv3_no_overflow_test_func() {
+    void from_decimal_no_overflow_test_func() {
         static_assert(IsDecimalNumber<FromT>, "FromT must be a decimal type");
         using FloatType = typename PrimitiveTypeTraits<FloatPType>::CppType;
-        DataTypeDecimal<FromT::PType> dt_from(FromPrecision, FromScale);
+        DataTypeDecimal<FromT::PType> dt_from =
+                get_decimal_data_type<FromT>(FromPrecision, FromScale);
+
         InputTypeSet input_types = {{dt_from.get_primitive_type(), FromScale, FromPrecision}};
         auto decimal_ctor = get_decimal_ctor<FromT>();
 
@@ -821,22 +823,28 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             integral_part.emplace(large_integral2);
             integral_part.emplace(large_integral3);
         }
-        std::set<typename FromT::NativeType> fractional_part = {0, max_fractional};
-        if (max_fractional > 0) {
-            fractional_part.emplace(1);
-            fractional_part.emplace(9);
-            fractional_part.emplace(max_fractional - 1);
-            fractional_part.emplace(large_fractional1);
-            fractional_part.emplace(large_fractional2);
-            fractional_part.emplace(large_fractional3);
+        typename FromT::NativeType from_fractional_part_multiplier = 1;
+        if constexpr (IsDecimalV2<FromT>) {
+            from_fractional_part_multiplier =
+                    decimal_scale_multiplier<typename FromT::NativeType>(9 - FromScale);
         }
-        DataTypeDecimal<FromT::PType> dt(FromPrecision, FromScale);
+        std::set<typename FromT::NativeType> fractional_part = {0};
+        fractional_part.emplace(max_fractional * from_fractional_part_multiplier);
+        if (max_fractional > 0) {
+            fractional_part.emplace(1 * from_fractional_part_multiplier);
+            fractional_part.emplace(9 * from_fractional_part_multiplier);
+            fractional_part.emplace((max_fractional - 1) * from_fractional_part_multiplier);
+            fractional_part.emplace(large_fractional1 * from_fractional_part_multiplier);
+            fractional_part.emplace(large_fractional2 * from_fractional_part_multiplier);
+            fractional_part.emplace(large_fractional3 * from_fractional_part_multiplier);
+        }
         DataSet data_set;
         std::string dbg_str = fmt::format("test cast to {} from {}({}, {})\n",
                                           std::is_same_v<FloatType, Float32> ? "float" : "double",
                                           type_to_string(FromT::PType), FromPrecision, FromScale);
 
-        auto scale_multiplier = decimal_scale_multiplier<typename FromT::NativeType>(FromScale);
+        auto scale_multiplier = decimal_scale_multiplier<typename FromT::NativeType>(
+                IsDecimalV2<FromT> ? 9 : FromScale);
         constexpr bool expect_inf =
                 (FromPrecision - FromScale >= 39 && std::is_same_v<FromT, Float32>);
         bool have_inf = false;
@@ -844,8 +852,10 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         std::vector<std::pair<std::string, FloatType>> test_data_set;
         Defer defer {[&]() {
             if (FLAGS_gen_regression_case) {
-                std::string from_sql_type_name =
-                        fmt::format("decimalv3({}, {})", FromPrecision, FromScale);
+                std::string from_decimal_sql_type_name =
+                        FromT::PType == TYPE_DECIMALV2 ? "decimalv2" : "decimalv3";
+                std::string from_sql_type_name = fmt::format(
+                        "{}({}, {})", from_decimal_sql_type_name, FromPrecision, FromScale);
                 std::string to_sql_type_name = get_sql_type_name(FloatPType);
                 int table_index = 0;
                 int test_data_index = 0;
@@ -854,7 +864,9 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 std::unique_ptr<std::ofstream> ofs_case_uptr, ofs_expected_result_uptr;
                 std::string regression_case_name = fmt::format(
                         "test_cast_to_{}_from_{}_{}_{}", to_sql_type_name,
-                        to_lower(type_to_string(FromT::PType)), FromPrecision, FromScale);
+                        FromT::PType == TYPE_DECIMALV2 ? "decimalv2"
+                                                       : to_lower(type_to_string(FromT::PType)),
+                        FromPrecision, FromScale);
                 setup_regression_case_output(regression_case_name, ofs_const_case_uptr,
                                              ofs_const_expected_result_uptr, ofs_case_uptr,
                                              ofs_expected_result_uptr, "to_float/from_decimal");
@@ -878,7 +890,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             // e.g. Decimal(9, 0), only int part
             for (const auto& i : integral_part) {
                 auto decimal_num = decimal_ctor(i, 0, FromScale);
-                auto num_str = dt.to_string(decimal_num);
+                auto num_str = dt_from.to_string(decimal_num);
                 // auto float_v = static_cast<FloatType>(i);
                 FloatType float_v;
                 if constexpr (IsDecimal256<FromT>) {
@@ -899,7 +911,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 test_data_set.emplace_back(num_str, float_v);
 
                 decimal_num = decimal_ctor(-i, 0, FromScale);
-                num_str = dt.to_string(decimal_num);
+                num_str = dt_from.to_string(decimal_num);
                 if constexpr (IsDecimal256<FromT>) {
                     float_v = static_cast<long double>(decimal_num.value) /
                               static_cast<long double>(scale_multiplier);
@@ -927,7 +939,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             // e.g. Decimal(9, 9), only fraction part
             for (const auto& f : fractional_part) {
                 auto decimal_num = decimal_ctor(0, f, FromScale);
-                auto num_str = dt.to_string(decimal_num);
+                auto num_str = dt_from.to_string(decimal_num);
                 FloatType float_v;
                 if constexpr (IsDecimal256<FromT>) {
                     float_v = static_cast<long double>(decimal_num.value) /
@@ -941,7 +953,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 test_data_set.emplace_back(num_str, float_v);
 
                 decimal_num = decimal_ctor(0, -f, FromScale);
-                num_str = dt.to_string(decimal_num);
+                num_str = dt_from.to_string(decimal_num);
                 if constexpr (IsDecimal256<FromT>) {
                     float_v = static_cast<long double>(decimal_num.value) /
                               static_cast<long double>(scale_multiplier);
@@ -964,7 +976,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         for (const auto& i : integral_part) {
             for (const auto& f : fractional_part) {
                 auto decimal_num = decimal_ctor(i, f, FromScale);
-                auto num_str = dt.to_string(decimal_num);
+                auto num_str = dt_from.to_string(decimal_num);
                 FloatType float_v;
                 if constexpr (IsDecimal256<FromT>) {
                     float_v = static_cast<long double>(decimal_num.value) /
@@ -984,7 +996,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 test_data_set.emplace_back(num_str, float_v);
 
                 decimal_num = decimal_ctor(-i, -f, FromScale);
-                num_str = dt.to_string(decimal_num);
+                num_str = dt_from.to_string(decimal_num);
                 if constexpr (IsDecimal256<FromT>) {
                     float_v = static_cast<long double>(decimal_num.value) /
                               static_cast<long double>(scale_multiplier);
@@ -1028,28 +1040,35 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                                                          : 1)));
         static_assert(min_decimal_pre == 1 || min_decimal_pre > 9);
 
-        from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, 0, ToPT>();
-        if constexpr (min_decimal_pre != 1) {
-            from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre / 2,
-                                                 ToPT>();
-            from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre - 1,
-                                                 ToPT>();
-        }
-        from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre, ToPT>();
+        if constexpr (std::is_same_v<FromT, Decimal128V2>) {
+            from_decimal_no_overflow_test_func<FromT, 1, 0, ToPT>();
+            from_decimal_no_overflow_test_func<FromT, 1, 1, ToPT>();
+            from_decimal_no_overflow_test_func<FromT, 27, 9, ToPT>();
+            from_decimal_no_overflow_test_func<FromT, 20, 6, ToPT>();
+        } else {
+            from_decimal_no_overflow_test_func<FromT, min_decimal_pre, 0, ToPT>();
+            if constexpr (min_decimal_pre != 1) {
+                from_decimal_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre / 2,
+                                                   ToPT>();
+                from_decimal_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre - 1,
+                                                   ToPT>();
+            }
+            from_decimal_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre, ToPT>();
 
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, 0, ToPT>();
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, 1, ToPT>();
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre / 2, ToPT>();
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre - 1, ToPT>();
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre, ToPT>();
+            from_decimal_no_overflow_test_func<FromT, max_decimal_pre, 0, ToPT>();
+            from_decimal_no_overflow_test_func<FromT, max_decimal_pre, 1, ToPT>();
+            from_decimal_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre / 2, ToPT>();
+            from_decimal_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre - 1, ToPT>();
+            from_decimal_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre, ToPT>();
+        }
     }
 
     template <int FromPrecision, int FromScale>
-    void from_decimalv3_verflow_test_func(const std::string& regression_case_name, int table_index,
-                                          int& test_data_index, std::ofstream* ofs_case,
-                                          std::ofstream* ofs_expected_result,
-                                          std::ofstream* ofs_const_case,
-                                          std::ofstream* ofs_const_expected_result) {
+    void from_decimalv3_overflow_test_func(const std::string& regression_case_name, int table_index,
+                                           int& test_data_index, std::ofstream* ofs_case,
+                                           std::ofstream* ofs_expected_result,
+                                           std::ofstream* ofs_const_case,
+                                           std::ofstream* ofs_const_expected_result) {
         using FromT = Decimal256;
         using FloatType = float;
         DataTypeDecimal<TYPE_DECIMAL256> dt_from(FromPrecision, FromScale);
@@ -1173,33 +1192,33 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             (*ofs_const_case) << "    sql \"set enable_decimal256 = true;\"\n";
             (*ofs_case) << "    sql \"set enable_decimal256 = true;\"\n";
         }
-        from_decimalv3_verflow_test_func<min_decimal_pre, 0>(
+        from_decimalv3_overflow_test_func<min_decimal_pre, 0>(
                 regression_case_name, table_index++, test_data_index, ofs_case, ofs_expected_result,
                 ofs_const_case, ofs_const_expected_result);
-        from_decimalv3_verflow_test_func<min_decimal_pre + 1, 0>(
+        from_decimalv3_overflow_test_func<min_decimal_pre + 1, 0>(
                 regression_case_name, table_index++, test_data_index, ofs_case, ofs_expected_result,
                 ofs_const_case, ofs_const_expected_result);
-        from_decimalv3_verflow_test_func<min_decimal_pre + 1, 1>(
+        from_decimalv3_overflow_test_func<min_decimal_pre + 1, 1>(
                 regression_case_name, table_index++, test_data_index, ofs_case, ofs_expected_result,
                 ofs_const_case, ofs_const_expected_result);
 
-        from_decimalv3_verflow_test_func<60, 0>(regression_case_name, table_index++,
-                                                test_data_index, ofs_case, ofs_expected_result,
-                                                ofs_const_case, ofs_const_expected_result);
-        from_decimalv3_verflow_test_func<60, 20>(regression_case_name, table_index++,
+        from_decimalv3_overflow_test_func<60, 0>(regression_case_name, table_index++,
                                                  test_data_index, ofs_case, ofs_expected_result,
                                                  ofs_const_case, ofs_const_expected_result);
+        from_decimalv3_overflow_test_func<60, 20>(regression_case_name, table_index++,
+                                                  test_data_index, ofs_case, ofs_expected_result,
+                                                  ofs_const_case, ofs_const_expected_result);
 
-        from_decimalv3_verflow_test_func<max_decimal_pre, 0>(
+        from_decimalv3_overflow_test_func<max_decimal_pre, 0>(
                 regression_case_name, table_index++, test_data_index, ofs_case, ofs_expected_result,
                 ofs_const_case, ofs_const_expected_result);
-        from_decimalv3_verflow_test_func<max_decimal_pre, 1>(
+        from_decimalv3_overflow_test_func<max_decimal_pre, 1>(
                 regression_case_name, table_index++, test_data_index, ofs_case, ofs_expected_result,
                 ofs_const_case, ofs_const_expected_result);
-        from_decimalv3_verflow_test_func<max_decimal_pre, 10>(
+        from_decimalv3_overflow_test_func<max_decimal_pre, 10>(
                 regression_case_name, table_index++, test_data_index, ofs_case, ofs_expected_result,
                 ofs_const_case, ofs_const_expected_result);
-        from_decimalv3_verflow_test_func<max_decimal_pre, 37>(
+        from_decimalv3_overflow_test_func<max_decimal_pre, 37>(
                 regression_case_name, table_index++, test_data_index, ofs_case, ofs_expected_result,
                 ofs_const_case, ofs_const_expected_result);
         if (FLAGS_gen_regression_case) {
@@ -1673,10 +1692,14 @@ TEST_F(FunctionCastToFloatTest, test_from_decimal) {
     from_decimal_test_func<Decimal128V3, TYPE_FLOAT>();
     from_decimal_test_func<Decimal256, TYPE_FLOAT>();
 
+    from_decimal_test_func<Decimal128V2, TYPE_FLOAT>();
+
     from_decimal_test_func<Decimal32, TYPE_DOUBLE>();
     from_decimal_test_func<Decimal64, TYPE_DOUBLE>();
     from_decimal_test_func<Decimal128V3, TYPE_DOUBLE>();
     from_decimal_test_func<Decimal256, TYPE_DOUBLE>();
+
+    from_decimal_test_func<Decimal128V2, TYPE_DOUBLE>();
 }
 TEST_F(FunctionCastToFloatTest, test_from_decimal_overflow) {
     from_decimal_overflow_test_func();

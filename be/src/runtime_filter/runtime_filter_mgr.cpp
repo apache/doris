@@ -283,6 +283,15 @@ Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request)
     return Status::OK();
 }
 
+std::string RuntimeFilterMgr::debug_string() {
+    std::string result = "Merger Info:\n";
+    std::lock_guard l(_lock);
+    for (const auto& [filter_id, merger] : _local_merge_map) {
+        result += fmt::format("merger: {}\n", filter_id, merger.merger->debug_string());
+    }
+    return result;
+}
+
 // merge data
 Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> query_ctx,
                                                  const PMergeFilterRequest* request,
@@ -398,4 +407,5 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
     }
     return st;
 }
+
 } // namespace doris

@@ -49,13 +49,18 @@ public class Md5 extends ScalarFunction
         super("md5", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Md5(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Md5 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Md5(children.get(0));
+        return new Md5(getFunctionParams(children));
     }
 
     @Override

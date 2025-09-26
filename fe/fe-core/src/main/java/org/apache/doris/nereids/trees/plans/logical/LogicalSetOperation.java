@@ -41,6 +41,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
@@ -156,7 +157,13 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
         for (int i = 0; i < childOutputSize; ++i) {
             Slot left = child(0).getOutput().get(i);
             Slot right = child(1).getOutput().get(i);
-            DataType compatibleType = getAssignmentCompatibleType(left.getDataType(), right.getDataType());
+            DataType compatibleType;
+            try {
+                compatibleType = getAssignmentCompatibleType(left.getDataType(), right.getDataType());
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        "Can not find compatible type for " + left + " and " + right + ", " + e.getMessage());
+            }
             Expression newLeft = TypeCoercionUtils.castIfNotSameTypeStrict(left, compatibleType);
             Expression newRight = TypeCoercionUtils.castIfNotSameTypeStrict(right, compatibleType);
             if (newLeft instanceof Cast) {
@@ -227,6 +234,19 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
 
     /** getAssignmentCompatibleType */
     public static DataType getAssignmentCompatibleType(DataType left, DataType right) {
+        if (GlobalVariable.enableNewTypeCoercionBehavior) {
+            Optional<DataType> commonType = TypeCoercionUtils.findWiderTypeForTwo(left, right, false, true);
+            if (commonType.isPresent()) {
+                return commonType.get();
+            }
+            throw new AnalysisException("Can not find assignment compatible type between "
+                    + left + " and " + right + "in set operation");
+        } else {
+            return getAssignmentCompatibleTypeLegacy(left, right);
+        }
+    }
+
+    private static DataType getAssignmentCompatibleTypeLegacy(DataType left, DataType right) {
         if (left.isNullType()) {
             return right;
         }

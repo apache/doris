@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.analyzer.Unbound;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 
 /** MultiDistinctCount */
@@ -40,7 +42,6 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE_WITHOUT_INDEX)
     );
-    private final boolean mustUseMultiDistinctAgg;
 
     // MultiDistinctCount is created in AggregateStrategies phase
     // can't change getSignatures to use type coercion rule to add a cast expr
@@ -50,22 +51,29 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
     }
 
     public MultiDistinctCount(boolean distinct, Expression arg0, Expression... varArgs) {
-        this(false, false, ExpressionUtils.mergeArguments(arg0, varArgs));
+        this(false, ExpressionUtils.mergeArguments(arg0, varArgs));
     }
 
-    private MultiDistinctCount(boolean mustUseMultiDistinctAgg, boolean distinct, List<Expression> children) {
-        super("multi_distinct_count", false, children
+    private MultiDistinctCount(boolean distinct, List<Expression> children) {
+        super("multi_distinct_count", false, new LinkedHashSet<>(children)
                 .stream()
                 .map(arg -> !(arg instanceof Unbound) && arg.getDataType() instanceof DateLikeType
                         ? new Cast(arg, BigIntType.INSTANCE) : arg)
                 .collect(ImmutableList.toImmutableList()));
-        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
+        if (super.children().size() > 1) {
+            throw new AnalysisException("MultiDistinctCount's children size must be 1");
+        }
+    }
+
+    /** constructor for withChildren and reuse signature */
+    protected MultiDistinctCount(AggregateFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
     public MultiDistinctCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children.size() > 0);
-        return new MultiDistinctCount(mustUseMultiDistinctAgg, distinct, children);
+        Preconditions.checkArgument(children.size() == 1, "MultiDistinctCount's children size must be 1");
+        return new MultiDistinctCount(getFunctionParams(false, children));
     }
 
     @Override
@@ -76,16 +84,6 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
-    }
-
-    @Override
-    public boolean mustUseMultiDistinctAgg() {
-        return mustUseMultiDistinctAgg;
-    }
-
-    @Override
-    public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
-        return new MultiDistinctCount(mustUseMultiDistinctAgg, false, children);
     }
 
     @Override

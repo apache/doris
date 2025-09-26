@@ -55,13 +55,18 @@ public class HoursDiff extends ScalarFunction implements BinaryExpression, Expli
         super("hours_diff", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private HoursDiff(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public HoursDiff withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new HoursDiff(children.get(0), children.get(1));
+        return new HoursDiff(getFunctionParams(children));
     }
 
     @Override

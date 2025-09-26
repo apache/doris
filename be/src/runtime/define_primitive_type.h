@@ -50,25 +50,26 @@ enum PrimitiveType : PrimitiveNative {
 
     TYPE_TIME [[deprecated]], /*TYPE_TIMEV2*/
 
-    TYPE_BITMAP,             /* 22, bitmap */
-    TYPE_STRING,             /* 23 */
-    TYPE_QUANTILE_STATE,     /* 24 */
-    TYPE_DATEV2,             /* 25 */
-    TYPE_DATETIMEV2,         /* 26 */
-    TYPE_TIMEV2,             /* 27 */
-    TYPE_DECIMAL32,          /* 28 */
-    TYPE_DECIMAL64,          /* 29 */
-    TYPE_DECIMAL128I,        /* 30, v3 128bit */
-    TYPE_JSONB,              /* 31 */
-    TYPE_VARIANT,            /* 32 */
-    TYPE_LAMBDA_FUNCTION,    /* 33 */
-    TYPE_AGG_STATE,          /* 34 */
-    TYPE_DECIMAL256,         /* 35 */
-    TYPE_IPV4,               /* 36 */
-    TYPE_IPV6,               /* 37 */
-    TYPE_UINT32,             /* 38, used as offset */
-    TYPE_UINT64,             /* 39, used as offset */
-    TYPE_FIXED_LENGTH_OBJECT /* 40, represent fixed-length object on BE */
+    TYPE_BITMAP,              /* 22, bitmap */
+    TYPE_STRING,              /* 23 */
+    TYPE_QUANTILE_STATE,      /* 24 */
+    TYPE_DATEV2,              /* 25 */
+    TYPE_DATETIMEV2,          /* 26 */
+    TYPE_TIMEV2,              /* 27 */
+    TYPE_DECIMAL32,           /* 28 */
+    TYPE_DECIMAL64,           /* 29 */
+    TYPE_DECIMAL128I,         /* 30, v3 128bit */
+    TYPE_JSONB,               /* 31 */
+    TYPE_VARIANT,             /* 32 */
+    TYPE_LAMBDA_FUNCTION,     /* 33 */
+    TYPE_AGG_STATE,           /* 34 */
+    TYPE_DECIMAL256,          /* 35 */
+    TYPE_IPV4,                /* 36 */
+    TYPE_IPV6,                /* 37 */
+    TYPE_UINT32,              /* 38, used as offset */
+    TYPE_UINT64,              /* 39, used as offset */
+    TYPE_FIXED_LENGTH_OBJECT, /* 40, represent fixed-length object on BE */
+    TYPE_VARBINARY            /* 41, varbinary */
 };
 
 } // namespace doris

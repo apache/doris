@@ -27,6 +27,7 @@ suite("test_cloud_full_compaction_multi_segments","multi_cluster,docker") {
     options.cloudMode = true
     options.setFeNum(1)
     options.setBeNum(1)
+    options.enableDebugPoints()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
         'calculate_delete_bitmap_task_timeout_seconds=10',
@@ -34,7 +35,6 @@ suite("test_cloud_full_compaction_multi_segments","multi_cluster,docker") {
         'enable_workload_group=false',
     ]
     options.beConfigs += [
-        'enable_debug_points=true',
         'doris_scanner_row_bytes=1' // to cause multi segments
     ]
     docker(options) {

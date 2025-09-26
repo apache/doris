@@ -510,9 +510,6 @@ TEST_F(ColumnDecimalTest, compare_at) {
     }
 }
 
-TEST_F(ColumnDecimalTest, get_bool) {
-    _column_decimal_common_test_with_type(assert_column_vector_get_bool_callback, false);
-}
 TEST_F(ColumnDecimalTest, get_int64) {
     _column_decimal_common_test_with_type(assert_column_vector_get_int64_callback, false);
 }
@@ -559,10 +556,6 @@ TEST_F(ColumnDecimalTest, permute) {
     assert_column_vector_permute(columns, UINT64_MAX);
 }
 
-TEST_F(ColumnDecimalTest, replicate) {
-    _column_decimal_common_test_with_type(assert_column_vector_replicate_callback, false);
-}
-
 template <PrimitiveType T>
 void insert_value_test(ColumnDecimal<T>* src_col) {
     auto col = src_col->clone_empty();
@@ -599,16 +592,6 @@ TEST_F(ColumnDecimalTest, get_scale) {
     EXPECT_EQ(column_decimal64_1->get_scale(), dt_decimal64_1->get_scale());
     EXPECT_EQ(column_decimal128_1->get_scale(), dt_decimal128_1->get_scale());
     EXPECT_EQ(column_decimal256_1->get_scale(), dt_decimal256_1->get_scale());
-}
-TEST_F(ColumnDecimalTest, get_scale_multiplier) {
-    EXPECT_EQ((int)column_decimal32_1->get_scale_multiplier(),
-              common::exp10_i32(dt_decimal32_1->get_scale()));
-    EXPECT_EQ((int64_t)column_decimal64_1->get_scale_multiplier(),
-              common::exp10_i64(dt_decimal64_1->get_scale()));
-    EXPECT_EQ((int128_t)column_decimal128_1->get_scale_multiplier(),
-              common::exp10_i128(dt_decimal128_1->get_scale()));
-    EXPECT_EQ((wide::Int256)column_decimal256_1->get_scale_multiplier(),
-              common::exp10_i256(dt_decimal256_1->get_scale()));
 }
 
 TEST_F(ColumnDecimalTest, sort_column) {

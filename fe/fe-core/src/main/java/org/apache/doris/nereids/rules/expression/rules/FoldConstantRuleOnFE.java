@@ -97,6 +97,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -182,7 +183,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(Version.class, this::visitVersion),
                 matches(SessionUser.class, this::visitSessionUser),
                 matches(LastQueryId.class, this::visitLastQueryId),
-                matches(Nvl.class, this::visitNvl)
+                matches(Nvl.class, this::visitNvl),
+                matches(Match.class, this::visitMatch)
         );
     }
 
@@ -516,13 +518,17 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         //     }
         // }
         try {
+            // TODO: support no throw exception in `checkedCastTo` and return Optional<Expression>
+            if (cast.child().getDataType().isStringLikeType() && dataType.isComplexType()) {
+                return cast;
+            }
             Expression castResult = child.checkedCastTo(dataType);
             if (!Objects.equals(castResult, cast) && !Objects.equals(castResult, child)) {
                 castResult = rewrite(castResult, context);
             }
             return castResult;
         } catch (CastException c) {
-            if (ConnectContext.get().getSessionVariable().enableStrictCast()) {
+            if (SessionVariable.enableStrictCast()) {
                 throw c;
             } else {
                 return new NullLiteral(dataType);
