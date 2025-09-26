@@ -139,6 +139,8 @@ public abstract class RemoteBase {
 
     public abstract void putObject(File file, String key) throws DdlException;
 
+    public abstract void multiPartUploadObject(File file, String key) throws DdlException;
+
     public abstract void getObject(String key, String file) throws DdlException;
 
     public void close() {}

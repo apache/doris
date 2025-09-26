@@ -203,6 +203,12 @@ public class AzureRemote extends RemoteBase {
     }
 
     @Override
+    public void multiPartUploadObject(File file, String key) throws DdlException {
+        // https://docs.azure.cn/zh-cn/storage/blobs/storage-blob-upload-java
+        putObject(file, key);
+    }
+
+    @Override
     public void getObject(String key, String file) throws DdlException {
         initClient();
         try {

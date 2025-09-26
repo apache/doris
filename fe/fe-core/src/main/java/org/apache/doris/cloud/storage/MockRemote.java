@@ -84,6 +84,11 @@ public class MockRemote extends RemoteBase {
     }
 
     @Override
+    public void multiPartUploadObject(File file, String key) throws DdlException {
+        throw new DdlException("Multi part upload object for Mock is unsupported");
+    }
+
+    @Override
     public void getObject(String key, String file) throws DdlException {
         throw new DdlException("Get object for Mock is unsupported");
     }
