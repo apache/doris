@@ -20,6 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser.QsPlan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TSearchClause;
@@ -31,6 +33,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.IntStream;
 
 /**
  * Translation layer predicate that generates TExprNodeType::SEARCH_EXPR
@@ -61,21 +64,15 @@ public class SearchPredicate extends Predicate {
     }
 
     @Override
-    public Expr clone() {
-        return new SearchPredicate(this);
-    }
-
-
-    @Override
     protected String toSqlImpl() {
-        return "search('" + dslString + "')";
+        return buildSqlForExplain();
     }
 
     @Override
     protected String toSqlImpl(boolean disableTableName, boolean needExternalSql,
             org.apache.doris.catalog.TableIf.TableType tableType,
             org.apache.doris.catalog.TableIf table) {
-        return "search('" + dslString + "')";
+        return buildSqlForExplain();
     }
 
     @Override
@@ -115,6 +112,31 @@ public class SearchPredicate extends Predicate {
         }
     }
 
+    @Override
+    public Expr clone() {
+        return new SearchPredicate(this);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (obj == null || getClass() != obj.getClass()) {
+            return false;
+        }
+        if (!super.equals(obj)) {
+            return false;
+        }
+        SearchPredicate that = (SearchPredicate) obj;
+        return dslString.equals(that.dslString);
+    }
+
+    @Override
+    public int hashCode() {
+        return java.util.Objects.hash(super.hashCode(), dslString);
+    }
+
     private TSearchParam buildThriftParam() {
         TSearchParam param = new TSearchParam();
         param.setOriginalDsl(dslString);
@@ -143,6 +165,116 @@ public class SearchPredicate extends Predicate {
         return param;
     }
 
+    private String buildSqlForExplain() {
+        if (!isExplainVerboseContext()) {
+            return "search('" + dslString + "')";
+        }
+
+        StringBuilder sb = new StringBuilder("search('" + dslString + "')");
+
+        List<String> astLines = buildDslAstExplainLines();
+        if (!astLines.isEmpty()) {
+            sb.append("\n|      dsl_ast:");
+            for (String line : astLines) {
+                sb.append("\n|        ").append(line);
+            }
+        }
+
+        List<String> bindings = buildFieldBindingExplainLines();
+        if (!bindings.isEmpty()) {
+            sb.append("\n|      field_bindings:");
+            for (String binding : bindings) {
+                sb.append("\n|        ").append(binding);
+            }
+        }
+
+        return sb.toString();
+    }
+
+    private boolean isExplainVerboseContext() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            return false;
+        }
+        StmtExecutor executor = ctx.getExecutor();
+        if (executor == null || executor.getParsedStmt() == null
+                || executor.getParsedStmt().getExplainOptions() == null) {
+            return false;
+        }
+        return executor.getParsedStmt().getExplainOptions().isVerbose();
+    }
+
+    private List<String> buildDslAstExplainLines() {
+        List<String> lines = new ArrayList<>();
+        if (qsPlan == null || qsPlan.root == null) {
+            return lines;
+        }
+        TSearchClause rootClause = convertQsNodeToThrift(qsPlan.root);
+        appendClauseExplain(rootClause, lines, 0);
+        return lines;
+    }
+
+    private void appendClauseExplain(TSearchClause clause, List<String> lines, int depth) {
+        StringBuilder line = new StringBuilder();
+        line.append(indent(depth)).append("- clause_type=").append(clause.getClauseType());
+        if (clause.isSetFieldName()) {
+            line.append(", field=").append('\"').append(escapeText(clause.getFieldName())).append('\"');
+        }
+        if (clause.isSetValue()) {
+            line.append(", value=").append('\"').append(escapeText(clause.getValue())).append('\"');
+        }
+        lines.add(line.toString());
+
+        if (clause.isSetChildren() && clause.getChildren() != null && !clause.getChildren().isEmpty()) {
+            for (TSearchClause child : clause.getChildren()) {
+                appendClauseExplain(child, lines, depth + 1);
+            }
+        }
+    }
+
+    private List<String> buildFieldBindingExplainLines() {
+        List<String> lines = new ArrayList<>();
+        if (qsPlan == null || qsPlan.fieldBindings == null || qsPlan.fieldBindings.isEmpty()) {
+            return lines;
+        }
+        IntStream.range(0, qsPlan.fieldBindings.size()).forEach(index -> {
+            SearchDslParser.QsFieldBinding binding = qsPlan.fieldBindings.get(index);
+            String slotDesc = "<unbound>";
+            if (index < children.size() && children.get(index) instanceof SlotRef) {
+                SlotRef slotRef = (SlotRef) children.get(index);
+                slotDesc = slotRef.getSlotId() != null
+                        ? "slot=" + slotRef.getSlotId().asInt()
+                        : slotRef.toSqlWithoutTbl();
+            } else if (index < children.size()) {
+                slotDesc = children.get(index).toSqlWithoutTbl();
+            }
+            lines.add(binding.fieldName + " -> " + slotDesc);
+        });
+        return lines;
+    }
+
+    private String indent(int level) {
+        if (level <= 0) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(level * 2);
+        for (int i = 0; i < level; i++) {
+            sb.append("  ");
+        }
+        return sb.toString();
+    }
+
+    private String escapeText(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r");
+    }
+
     private TSearchClause convertQsNodeToThrift(
             org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser.QsNode node) {
         TSearchClause clause = new TSearchClause();
@@ -167,26 +299,6 @@ public class SearchPredicate extends Predicate {
         }
 
         return clause;
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) {
-            return true;
-        }
-        if (obj == null || getClass() != obj.getClass()) {
-            return false;
-        }
-        if (!super.equals(obj)) {
-            return false;
-        }
-        SearchPredicate that = (SearchPredicate) obj;
-        return dslString.equals(that.dslString);
-    }
-
-    @Override
-    public int hashCode() {
-        return java.util.Objects.hash(super.hashCode(), dslString);
     }
 
     // Getters
