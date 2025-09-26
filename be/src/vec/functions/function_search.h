@@ -109,8 +109,9 @@ public:
 
     // We manage nulls explicitly for index pushdown only.
     bool use_default_implementation_for_nulls() const override { return false; }
-
     bool is_use_default_implementation_for_constants() const override { return false; }
+
+    bool use_default_implementation_for_constants() const override { return false; }
 
     DataTypePtr get_return_type_impl(const DataTypes& /*arguments*/) const override {
         return std::make_shared<DataTypeUInt8>();
