@@ -123,6 +123,31 @@ suite("condition_cache") {
         FROM ${tableName}
         WHERE name LIKE 'A%' OR score < 80
     """
+
+        // Test delete operation impact on condition cache
+        // Delete some data
+        sql "DELETE FROM ${tableName} WHERE age = 30"  // Delete Bob's record
+
+        // Run the same queries after delete to see if cache is invalidated
+        order_qt_condition_delete1 """
+        SELECT 
+            id, 
+            name, 
+            age, 
+            score 
+        FROM ${tableName} 
+        WHERE age > 25 AND score > 85
+    """
+
+        order_qt_condition_delete2 """
+        SELECT
+            id,
+            name,
+            age,
+            score
+        FROM ${tableName}
+        WHERE name LIKE 'A%' OR score < 80
+    """
     }
 
     sql "set enable_nereids_distribute_planner=false"
