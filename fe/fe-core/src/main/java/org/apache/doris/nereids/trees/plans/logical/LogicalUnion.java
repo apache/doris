@@ -124,6 +124,15 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(").append(child(0).toDigest()).append(")");
+        sb.append(" UNION ").append(qualifier).append(" ");
+        sb.append("(").append(child(1).toDigest()).append(")");
+        return sb.toString();
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
