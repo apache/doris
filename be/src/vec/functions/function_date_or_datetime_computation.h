@@ -1762,7 +1762,7 @@ public:
             auto tv2 = static_cast<TimeValue::TimeType>(arg2);
             TimeInterval interval(TimeUnit::MICROSECOND, tv2, Impl::is_negative());
             bool out_range = dtv1.template date_add_interval<TimeUnit::MICROSECOND>(interval);
-            if (!out_range) {
+            if (UNLIKELY(!out_range)) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
                                 "datetime value is out of range in function {}", name);
             }
@@ -1770,11 +1770,10 @@ public:
         } else if constexpr (PType == TYPE_TIMEV2) {
             auto tv1 = static_cast<TimeValue::TimeType>(arg1);
             auto tv2 = static_cast<TimeValue::TimeType>(arg2);
-            bool neg = std::string_view(name) == "sub_time";
-            double res = TimeValue::limit_with_bound(neg ? tv1 - tv2 : tv1 + tv2);
+            double res = TimeValue::limit_with_bound(Impl::is_negative() ? tv1 - tv2 : tv1 + tv2);
             return res;
         } else {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "not support type for function {}", name);
+            throw Exception(ErrorCode::FATAL_ERROR, "not support type for function {}", name);
         }
     }
 
