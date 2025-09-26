@@ -1619,6 +1619,8 @@ DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config)
     return config == "v1" || config == "v2";
 });
 
+DEFINE_Bool(use_plain_binary_v2, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

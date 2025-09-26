@@ -96,6 +96,8 @@ private:
             nullptr;
 
     EncodingTypePB _encoding_type;
+    EncodingTypePB _fallback_encoding_type;
+
     struct HashOfSlice {
         size_t operator()(const Slice& slice) const { return crc32_hash(slice.data, slice.size); }
     };

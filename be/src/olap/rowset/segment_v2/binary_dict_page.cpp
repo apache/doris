@@ -24,8 +24,10 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "olap/rowset/segment_v2/binary_plain_page_v2.h"
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "util/coding.h"
 #include "util/slice.h" // for Slice
@@ -42,7 +44,9 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
           _finished(false),
           _data_page_builder(nullptr),
           _dict_builder(nullptr),
-          _encoding_type(DICT_ENCODING) {}
+          _encoding_type(DICT_ENCODING),
+          _fallback_encoding_type(config::use_plain_binary_v2 ? PLAIN_ENCODING_V2
+                                                              : PLAIN_ENCODING) {}
 
 Status BinaryDictPageBuilder::init() {
     // initially use DICT_ENCODING
@@ -138,7 +142,7 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
         *count = num_added;
         return Status::OK();
     } else {
-        DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
+        DCHECK(_encoding_type == PLAIN_ENCODING || _encoding_type == PLAIN_ENCODING_V2);
         RETURN_IF_ERROR(_data_page_builder->add(vals, count));
         // For plain encoding, track raw data size from the input
         const Slice* src = reinterpret_cast<const Slice*>(vals);
@@ -176,10 +180,19 @@ Status BinaryDictPageBuilder::reset() {
 
         if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
             PageBuilder* data_page_builder_ptr = nullptr;
-            RETURN_IF_ERROR(BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>::create(
-                    &data_page_builder_ptr, _options));
+            DCHECK(_fallback_encoding_type == PLAIN_ENCODING ||
+                   _fallback_encoding_type == PLAIN_ENCODING_V2);
+            if (_fallback_encoding_type == PLAIN_ENCODING_V2) {
+                RETURN_IF_ERROR(
+                        BinaryPlainPageV2Builder<FieldType::OLAP_FIELD_TYPE_VARCHAR>::create(
+                                &data_page_builder_ptr, _options));
+                _encoding_type = PLAIN_ENCODING_V2;
+            } else {
+                RETURN_IF_ERROR(BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>::create(
+                        &data_page_builder_ptr, _options));
+                _encoding_type = PLAIN_ENCODING;
+            }
             _data_page_builder.reset(data_page_builder_ptr);
-            _encoding_type = PLAIN_ENCODING;
         } else {
             RETURN_IF_ERROR(_data_page_builder->reset());
         }
@@ -250,9 +263,11 @@ Status BinaryDictPageDecoder::init() {
                 _bit_shuffle_ptr =
                         new BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
-        DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
         _data_page_decoder.reset(
                 new BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_INT>(_data, _options));
+    } else if (_encoding_type == PLAIN_ENCODING_V2) {
+        _data_page_decoder.reset(
+                new BinaryPlainPageV2Decoder<FieldType::OLAP_FIELD_TYPE_INT>(_data, _options));
     } else {
         LOG(WARNING) << "invalid encoding type:" << _encoding_type;
         return Status::Corruption("invalid encoding type:{}", _encoding_type);
@@ -279,7 +294,7 @@ void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRe
 };
 
 Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
-    if (_encoding_type == PLAIN_ENCODING) {
+    if (_encoding_type == PLAIN_ENCODING || _encoding_type == PLAIN_ENCODING_V2) {
         dst = dst->convert_to_predicate_column_if_dictionary();
         return _data_page_decoder->next_batch(n, dst);
     }
@@ -309,7 +324,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
 
 Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal,
                                              size_t* n, vectorized::MutableColumnPtr& dst) {
-    if (_encoding_type == PLAIN_ENCODING) {
+    if (_encoding_type == PLAIN_ENCODING || _encoding_type == PLAIN_ENCODING_V2) {
         dst = dst->convert_to_predicate_column_if_dictionary();
         return _data_page_decoder->read_by_rowids(rowids, page_first_ordinal, n, dst);
     }
