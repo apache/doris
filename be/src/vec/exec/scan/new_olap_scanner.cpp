@@ -696,7 +696,21 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(Parent->_output_index_result_column_timer,                                    \
                    stats.output_index_result_column_timer);                                      \
     COUNTER_UPDATE(Parent->_filtered_segment_counter, stats.filtered_segment_number);            \
-    COUNTER_UPDATE(Parent->_total_segment_counter, stats.total_segment_number);
+    COUNTER_UPDATE(Parent->_total_segment_counter, stats.total_segment_number);                  \
+    COUNTER_UPDATE(Parent->_variant_scan_sparse_column_timer,                                    \
+                   stats.variant_scan_sparse_column_timer_ns);                                   \
+    COUNTER_UPDATE(Parent->_variant_scan_sparse_column_bytes,                                    \
+                   stats.variant_scan_sparse_column_bytes);                                      \
+    COUNTER_UPDATE(Parent->_variant_fill_path_from_sparse_column_timer,                          \
+                   stats.variant_fill_path_from_sparse_column_timer_ns);                         \
+    COUNTER_UPDATE(Parent->_variant_subtree_default_iter_count,                                  \
+                   stats.variant_subtree_default_iter_count);                                    \
+    COUNTER_UPDATE(Parent->_variant_subtree_leaf_iter_count,                                     \
+                   stats.variant_subtree_leaf_iter_count);                                       \
+    COUNTER_UPDATE(Parent->_variant_subtree_hierarchical_iter_count,                             \
+                   stats.variant_subtree_hierarchical_iter_count);                               \
+    COUNTER_UPDATE(Parent->_variant_subtree_sparse_iter_count,                                   \
+                   stats.variant_subtree_sparse_iter_count);
 
     // Update counters for NewOlapScanner
     // Update counters from tablet reader's stats

@@ -44,7 +44,7 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
                                         ColumnReaderCache* column_reader_cache,
                                         OlapReaderStatistics* stats) {
     // None leave node need merge with root
-    auto stream_iter = std::make_unique<HierarchicalDataIterator>(path);
+    std::unique_ptr<HierarchicalDataIterator> stream_iter(new HierarchicalDataIterator(path));
     if (node != nullptr) {
         std::vector<const SubcolumnColumnMetaInfo::Node*> leaves;
         vectorized::PathsInData leaves_paths;
@@ -62,6 +62,7 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
     stream_iter->_root_reader = std::move(root_column_reader);
     // need read from sparse column if not null
     stream_iter->_sparse_column_reader = std::move(sparse_reader);
+    stream_iter->_stats = stats;
     *reader = std::move(stream_iter);
 
     return Status::OK();
@@ -291,8 +292,11 @@ Status HierarchicalDataIterator::_init_container(vectorized::MutableColumnPtr& c
     RETURN_IF_ERROR(_process_sub_columns(container_variant, non_nested_subcolumns));
 
     RETURN_IF_ERROR(_process_nested_columns(container_variant, nested_subcolumns, nrows));
+    {
+        SCOPED_RAW_TIMER(&_stats->variant_fill_path_from_sparse_column_timer_ns);
+        RETURN_IF_ERROR(_process_sparse_column(container_variant, nrows));
+    }
 
-    RETURN_IF_ERROR(_process_sparse_column(container_variant, nrows));
     container_variant.set_num_rows(nrows);
     return Status::OK();
 }

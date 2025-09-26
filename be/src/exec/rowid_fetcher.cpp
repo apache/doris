@@ -324,6 +324,8 @@ struct IteratorItem {
     std::unique_ptr<ColumnIterator> iterator;
     // for holding the reference of segment to avoid use after release
     SegmentSharedPtr segment;
+    // for holding the reference of storage read options to avoid use after release
+    StorageReadOptions storage_read_options;
 };
 
 Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
@@ -440,12 +442,14 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
             if (iterator_item.segment == nullptr) {
                 // hold the reference
                 iterator_map[iterator_key].segment = segment;
+                iterator_item.storage_read_options.stats = &stats;
+                iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
             }
             segment = iterator_item.segment;
             try {
-                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, desc.slots()[x],
-                                                                row_id, column, stats,
-                                                                iterator_item.iterator));
+                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
+                        full_read_schema, desc.slots()[x], row_id, column,
+                        iterator_item.storage_read_options, iterator_item.iterator));
             } catch (const Exception& e) {
                 return Status::Error<false>(e.code(), "Row id fetch failed because {}", e.what());
             }
