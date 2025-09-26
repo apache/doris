@@ -167,9 +167,40 @@ public:
 
     // Get the load rowset meta for the given tablet_id and version.
     TxnErrorCode get_load_rowset_meta(int64_t tablet_id, int64_t version,
-                                      RowsetMetaCloudPB* rowset_meta, bool snapshot = false);
+                                      RowsetMetaCloudPB* rowset_meta, bool snapshot = false) {
+        Versionstamp versionstamp;
+        return get_load_rowset_meta(tablet_id, version, rowset_meta, &versionstamp, snapshot);
+    }
     TxnErrorCode get_load_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
-                                      RowsetMetaCloudPB* rowset_meta, bool snapshot = false);
+                                      RowsetMetaCloudPB* rowset_meta, bool snapshot = false) {
+        Versionstamp versionstamp;
+        return get_load_rowset_meta(txn, tablet_id, version, rowset_meta, &versionstamp, snapshot);
+    }
+    TxnErrorCode get_load_rowset_meta(int64_t tablet_id, int64_t version,
+                                      RowsetMetaCloudPB* rowset_meta, Versionstamp* versionstamp,
+                                      bool snapshot = false);
+    TxnErrorCode get_load_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                      RowsetMetaCloudPB* rowset_meta, Versionstamp* versionstamp,
+                                      bool snapshot = false);
+
+    // Get the compact rowset meta for the given tablet_id and version.
+    TxnErrorCode get_compact_rowset_meta(int64_t tablet_id, int64_t version,
+                                         RowsetMetaCloudPB* rowset_meta, bool snapshot = false) {
+        Versionstamp versionstamp;
+        return get_compact_rowset_meta(tablet_id, version, rowset_meta, &versionstamp, snapshot);
+    }
+    TxnErrorCode get_compact_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                         RowsetMetaCloudPB* rowset_meta, bool snapshot = false) {
+        Versionstamp versionstamp;
+        return get_compact_rowset_meta(txn, tablet_id, version, rowset_meta, &versionstamp,
+                                       snapshot);
+    }
+    TxnErrorCode get_compact_rowset_meta(int64_t tablet_id, int64_t version,
+                                         RowsetMetaCloudPB* rowset_meta, Versionstamp* versionstamp,
+                                         bool snapshot = false);
+    TxnErrorCode get_compact_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                         RowsetMetaCloudPB* rowset_meta, Versionstamp* versionstamp,
+                                         bool snapshot = false);
 
     // Get the load rowset metas for the given tablet_id.
     TxnErrorCode get_load_rowset_metas(

@@ -27,6 +27,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/util.h"
+#include "meta-store/blob_message.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
@@ -1385,6 +1386,304 @@ TEST_F(CloneChainReaderTest, GetLoadRowsetMeta) {
     }
 }
 
+TEST_F(CloneChainReaderTest, GetCompactRowsetMeta) {
+    std::string instance_id = instance_ids_[2]; // C
+    Versionstamp snapshot_version = snapshot_versions_[2];
+    CloneChainReader reader(instance_id, snapshot_version, txn_kv_.get(), resource_mgr_.get());
+
+    int64_t tablet_id = 14001;
+    int64_t version = 5;
+
+    // Case 1: No data exists anywhere - should return NOT_FOUND
+    {
+        doris::RowsetMetaCloudPB rowset_meta;
+        ASSERT_EQ(reader.get_compact_rowset_meta(tablet_id, version, &rowset_meta),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    // Case 2: Insert load rowset meta in instance A
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string rowset_compact_key =
+                versioned::meta_rowset_compact_key({instance_ids_[0], tablet_id, version});
+        doris::RowsetMetaCloudPB rowset_meta;
+        rowset_meta.set_rowset_id(0);
+        rowset_meta.set_rowset_id_v2("compact_rowset_5");
+        rowset_meta.set_start_version(version);
+        rowset_meta.set_end_version(version);
+        rowset_meta.set_num_rows(500);
+        rowset_meta.set_tablet_id(tablet_id);
+        ASSERT_TRUE(versioned::document_put(txn.get(), rowset_compact_key, std::move(rowset_meta)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Case 2: Read from instance C should find data from A through clone chain
+    {
+        doris::RowsetMetaCloudPB rowset_meta;
+        ASSERT_EQ(reader.get_compact_rowset_meta(tablet_id, version, &rowset_meta),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(rowset_meta.rowset_id_v2(), "compact_rowset_5");
+        ASSERT_EQ(rowset_meta.start_version(), version);
+        ASSERT_EQ(rowset_meta.end_version(), version);
+        ASSERT_EQ(rowset_meta.num_rows(), 500);
+        ASSERT_EQ(rowset_meta.tablet_id(), tablet_id);
+    }
+
+    // Case 3: Insert data with version > snapshot_version in instance B (should be ignored)
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string rowset_compact_key =
+                versioned::meta_rowset_compact_key({instance_ids_[1], tablet_id, version});
+        doris::RowsetMetaCloudPB rowset_meta;
+        rowset_meta.set_rowset_id(0);
+        rowset_meta.set_rowset_id_v2("compact_rowset_5_large_version");
+        rowset_meta.set_start_version(version);
+        rowset_meta.set_end_version(version);
+        rowset_meta.set_num_rows(600);
+        rowset_meta.set_tablet_id(tablet_id);
+        std::string key = encode_versioned_key(rowset_compact_key, Versionstamp(2500, 1));
+        txn->put(key, rowset_meta.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Case 3: Should still return data from A, ignoring large version from B
+    {
+        doris::RowsetMetaCloudPB rowset_meta;
+        ASSERT_EQ(reader.get_compact_rowset_meta(tablet_id, version, &rowset_meta),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(rowset_meta.rowset_id_v2(), "compact_rowset_5")
+                << "Should not read data with version > snapshot";
+        ASSERT_EQ(rowset_meta.num_rows(), 500);
+    }
+
+    // Case 4: Insert valid data in instance B (within snapshot version)
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string rowset_compact_key =
+                versioned::meta_rowset_compact_key({instance_ids_[1], tablet_id, version});
+        doris::RowsetMetaCloudPB rowset_meta;
+        rowset_meta.set_rowset_id(0);
+        rowset_meta.set_rowset_id_v2("compact_rowset_5_updated");
+        rowset_meta.set_start_version(version);
+        rowset_meta.set_end_version(version);
+        rowset_meta.set_num_rows(550);
+        rowset_meta.set_tablet_id(tablet_id);
+        ASSERT_TRUE(versioned::document_put(txn.get(), rowset_compact_key, std::move(rowset_meta)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Case 4: Should return the first encountered data (from B)
+    {
+        doris::RowsetMetaCloudPB rowset_meta;
+        ASSERT_EQ(reader.get_compact_rowset_meta(tablet_id, version, &rowset_meta),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_EQ(rowset_meta.rowset_id_v2(), "compact_rowset_5_updated")
+                << "Should return first valid data encountered in chain";
+        ASSERT_EQ(rowset_meta.num_rows(), 550);
+    }
+}
+
+TEST_F(CloneChainReaderTest, GetRowsetMeta) {
+    std::string instance_id = instance_ids_[2]; // C
+    Versionstamp snapshot_version = snapshot_versions_[2];
+    CloneChainReader reader(instance_id, snapshot_version, txn_kv_.get(), resource_mgr_.get());
+
+    int64_t tablet_id = 16001;
+    int64_t version = 5;
+
+    // Case 1: No data exists anywhere - should return NOT_FOUND
+    {
+        doris::RowsetMetaCloudPB rowset_meta;
+        ASSERT_EQ(reader.get_rowset_meta(tablet_id, version, &rowset_meta),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    // Case 2: Insert only load rowset meta in instance A
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string rowset_load_key =
+                versioned::meta_rowset_load_key({instance_ids_[0], tablet_id, version});
+        doris::RowsetMetaCloudPB rowset_meta;
+        rowset_meta.set_rowset_id(0);
+        rowset_meta.set_rowset_id_v2("load_rowset_" + std::to_string(version));
+        rowset_meta.set_start_version(version);
+        rowset_meta.set_end_version(version);
+        rowset_meta.set_num_rows(500);
+        rowset_meta.set_tablet_id(tablet_id);
+        // Use a specific versionstamp
+        ASSERT_TRUE(versioned::document_put(txn.get(), rowset_load_key, Versionstamp(100, 1),
+                                            std::move(rowset_meta)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Case 2: Should return load rowset meta
+    {
+        doris::RowsetMetaCloudPB rowset_meta;
+        ASSERT_EQ(reader.get_rowset_meta(tablet_id, version, &rowset_meta), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(rowset_meta.rowset_id_v2(), "load_rowset_" + std::to_string(version));
+        ASSERT_EQ(rowset_meta.num_rows(), 500);
+    }
+
+    // Case 3: Insert compact rowset meta with earlier versionstamp in instance A
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string rowset_compact_key =
+                versioned::meta_rowset_compact_key({instance_ids_[0], tablet_id, version});
+        doris::RowsetMetaCloudPB rowset_meta;
+        rowset_meta.set_rowset_id(0);
+        rowset_meta.set_rowset_id_v2("compact_rowset_" + std::to_string(version));
+        rowset_meta.set_start_version(version);
+        rowset_meta.set_end_version(version);
+        rowset_meta.set_num_rows(600);
+        rowset_meta.set_tablet_id(tablet_id);
+        // Earlier versionstamp
+        ASSERT_TRUE(versioned::document_put(txn.get(), rowset_compact_key, Versionstamp(50, 1),
+                                            std::move(rowset_meta)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Case 3: Should return load rowset meta (higher versionstamp: 100 > 50)
+    {
+        doris::RowsetMetaCloudPB rowset_meta;
+        ASSERT_EQ(reader.get_rowset_meta(tablet_id, version, &rowset_meta), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(rowset_meta.rowset_id_v2(), "load_rowset_" + std::to_string(version))
+                << "Should return rowset with higher versionstamp (100 > 50)";
+        ASSERT_EQ(rowset_meta.num_rows(), 500);
+    }
+
+    // Case 4: Insert compact rowset meta with later versionstamp in instance B
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string rowset_compact_key =
+                versioned::meta_rowset_compact_key({instance_ids_[1], tablet_id, version});
+        doris::RowsetMetaCloudPB rowset_meta;
+        rowset_meta.set_rowset_id(0);
+        rowset_meta.set_rowset_id_v2("compact_rowset_updated_" + std::to_string(version));
+        rowset_meta.set_start_version(version);
+        rowset_meta.set_end_version(version);
+        rowset_meta.set_num_rows(700);
+        rowset_meta.set_tablet_id(tablet_id);
+        ASSERT_TRUE(versioned::document_put(txn.get(), rowset_compact_key, Versionstamp(1500, 1),
+                                            std::move(rowset_meta)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Case 4: Should return compact rowset meta from B (found first in clone chain)
+    {
+        doris::RowsetMetaCloudPB rowset_meta;
+        ASSERT_EQ(reader.get_rowset_meta(tablet_id, version, &rowset_meta), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(rowset_meta.rowset_id_v2(), "compact_rowset_updated_" + std::to_string(version))
+                << "Should return first valid data encountered in chain";
+        ASSERT_EQ(rowset_meta.num_rows(), 700);
+    }
+
+    // Case 5: Test with version beyond snapshot - should be ignored
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        int64_t another_version = 6;
+        std::string rowset_load_key =
+                versioned::meta_rowset_load_key({instance_ids_[1], tablet_id, another_version});
+        doris::RowsetMetaCloudPB rowset_meta;
+        rowset_meta.set_rowset_id(0);
+        rowset_meta.set_rowset_id_v2("load_rowset_large_version_" +
+                                     std::to_string(another_version));
+        rowset_meta.set_start_version(another_version);
+        rowset_meta.set_end_version(another_version);
+        rowset_meta.set_num_rows(800);
+        rowset_meta.set_tablet_id(tablet_id);
+        // Use version larger than snapshot_versions_[1] (2000)
+        ASSERT_TRUE(versioned::document_put(txn.get(), rowset_load_key, Versionstamp(2500, 1),
+                                            std::move(rowset_meta)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Case 5: Should not find the large version rowset
+    {
+        doris::RowsetMetaCloudPB rowset_meta;
+        ASSERT_EQ(reader.get_rowset_meta(tablet_id, 6, &rowset_meta),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << "Should not read data with version > snapshot";
+    }
+
+    // Case 6: Test only compact rowset meta exists
+    {
+        int64_t another_version = 7;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string rowset_compact_key =
+                versioned::meta_rowset_compact_key({instance_ids_[0], tablet_id, another_version});
+        doris::RowsetMetaCloudPB rowset_meta;
+        rowset_meta.set_rowset_id(0);
+        rowset_meta.set_rowset_id_v2("compact_only_" + std::to_string(another_version));
+        rowset_meta.set_start_version(another_version);
+        rowset_meta.set_end_version(another_version);
+        rowset_meta.set_num_rows(900);
+        rowset_meta.set_tablet_id(tablet_id);
+        ASSERT_TRUE(versioned::document_put(txn.get(), rowset_compact_key, Versionstamp(100, 1),
+                                            std::move(rowset_meta)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Case 6: Should return compact rowset meta when only compact exists
+    {
+        doris::RowsetMetaCloudPB rowset_meta;
+        ASSERT_EQ(reader.get_rowset_meta(tablet_id, 7, &rowset_meta), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(rowset_meta.rowset_id_v2(), "compact_only_7");
+        ASSERT_EQ(rowset_meta.num_rows(), 900);
+    }
+
+    // Case 7: Test versionstamp comparison - compact rowset with higher versionstamp should win
+    {
+        int64_t another_version = 8;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Insert load rowset with lower versionstamp
+        std::string rowset_load_key =
+                versioned::meta_rowset_load_key({instance_ids_[0], tablet_id, another_version});
+        doris::RowsetMetaCloudPB load_rowset_meta;
+        load_rowset_meta.set_rowset_id(0);
+        load_rowset_meta.set_rowset_id_v2("load_rowset_" + std::to_string(another_version));
+        load_rowset_meta.set_start_version(another_version);
+        load_rowset_meta.set_end_version(another_version);
+        load_rowset_meta.set_num_rows(1000);
+        load_rowset_meta.set_tablet_id(tablet_id);
+        ASSERT_TRUE(versioned::document_put(txn.get(), rowset_load_key, Versionstamp(100, 1),
+                                            std::move(load_rowset_meta)));
+
+        // Insert compact rowset with higher versionstamp
+        std::string rowset_compact_key =
+                versioned::meta_rowset_compact_key({instance_ids_[0], tablet_id, another_version});
+        doris::RowsetMetaCloudPB compact_rowset_meta;
+        compact_rowset_meta.set_rowset_id(0);
+        compact_rowset_meta.set_rowset_id_v2("compact_rowset_" + std::to_string(another_version));
+        compact_rowset_meta.set_start_version(another_version);
+        compact_rowset_meta.set_end_version(another_version);
+        compact_rowset_meta.set_num_rows(1100);
+        compact_rowset_meta.set_tablet_id(tablet_id);
+        ASSERT_TRUE(versioned::document_put(txn.get(), rowset_compact_key, Versionstamp(200, 1),
+                                            std::move(compact_rowset_meta)));
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Case 7: Should return compact rowset meta (higher versionstamp)
+    {
+        doris::RowsetMetaCloudPB rowset_meta;
+        ASSERT_EQ(reader.get_rowset_meta(tablet_id, 8, &rowset_meta), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(rowset_meta.rowset_id_v2(), "compact_rowset_8")
+                << "Should return rowset with higher versionstamp";
+        ASSERT_EQ(rowset_meta.num_rows(), 1100);
+    }
+}
+
 TEST_F(CloneChainReaderTest, GetRowsetMetas) {
     std::string instance_id = instance_ids_[2]; // C
     Versionstamp snapshot_version = snapshot_versions_[2];
@@ -1794,5 +2093,41 @@ TEST_F(CloneChainReaderTest, GetPartitionPendingTxnId) {
                   TxnErrorCode::TXN_OK);
         ASSERT_EQ(first_txn_id, 1500) << "Should return first valid data encountered in chain";
         ASSERT_EQ(partition_version, 150);
+    }
+}
+
+TEST_F(CloneChainReaderTest, GetDeleteBitmapV2) {
+    std::string instance_id = instance_ids_[2]; // C
+    Versionstamp snapshot_version = snapshot_versions_[2];
+    CloneChainReader reader(instance_id, snapshot_version, txn_kv_.get(), resource_mgr_.get());
+
+    int64_t tablet_id = 19001;
+    std::string rowset_id = "rowset_1";
+
+    // Case 1: No data exists anywhere - should return NOT_FOUND
+    {
+        DeleteBitmapStoragePB delete_bitmap;
+        ASSERT_EQ(reader.get_delete_bitmap_v2(tablet_id, rowset_id, &delete_bitmap),
+                  TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    // Case 2: Insert delete bitmap in instance A
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string delete_bitmap_key =
+                versioned::meta_delete_bitmap_key({instance_ids_[0], tablet_id, rowset_id});
+        DeleteBitmapStoragePB delete_bitmap;
+        delete_bitmap.set_store_in_fdb(true);
+        blob_put(txn.get(), delete_bitmap_key, delete_bitmap, 0);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Case 2: Read from instance C should find data from A through clone chain
+    {
+        DeleteBitmapStoragePB delete_bitmap;
+        ASSERT_EQ(reader.get_delete_bitmap_v2(tablet_id, rowset_id, &delete_bitmap),
+                  TxnErrorCode::TXN_OK)
+                << dump_range(txn_kv_.get());
     }
 }

@@ -670,7 +670,8 @@ TxnErrorCode MetaReader::get_rowset_metas(Transaction* txn, int64_t tablet_id,
 }
 
 TxnErrorCode MetaReader::get_load_rowset_meta(int64_t tablet_id, int64_t version,
-                                              RowsetMetaCloudPB* rowset_meta, bool snapshot) {
+                                              RowsetMetaCloudPB* rowset_meta,
+                                              Versionstamp* versionstamp, bool snapshot) {
     DCHECK(txn_kv_) << "TxnKv must be set before calling";
     if (!txn_kv_) {
         return TxnErrorCode::TXN_INVALID_ARGUMENT;
@@ -680,18 +681,48 @@ TxnErrorCode MetaReader::get_load_rowset_meta(int64_t tablet_id, int64_t version
     if (err != TxnErrorCode::TXN_OK) {
         return err;
     }
-    return get_load_rowset_meta(txn.get(), tablet_id, version, rowset_meta, snapshot);
+    return get_load_rowset_meta(txn.get(), tablet_id, version, rowset_meta, versionstamp, snapshot);
 }
 
 TxnErrorCode MetaReader::get_load_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
-                                              RowsetMetaCloudPB* rowset_meta, bool snapshot) {
+                                              RowsetMetaCloudPB* rowset_meta,
+                                              Versionstamp* versionstamp, bool snapshot) {
     std::string load_rowset_key =
             versioned::meta_rowset_load_key({instance_id_, tablet_id, version});
-    Versionstamp versionstamp;
     TxnErrorCode err = versioned::document_get(txn, load_rowset_key, snapshot_version_, rowset_meta,
-                                               &versionstamp, snapshot);
+                                               versionstamp, snapshot);
     if (err == TxnErrorCode::TXN_OK) {
-        min_read_versionstamp_ = std::min(min_read_versionstamp_, versionstamp);
+        min_read_versionstamp_ = std::min(min_read_versionstamp_, *versionstamp);
+    }
+    return err;
+}
+
+TxnErrorCode MetaReader::get_compact_rowset_meta(int64_t tablet_id, int64_t version,
+                                                 RowsetMetaCloudPB* rowset_meta,
+                                                 Versionstamp* versionstamp, bool snapshot) {
+    DCHECK(txn_kv_) << "TxnKv must be set before calling";
+    if (!txn_kv_) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return get_compact_rowset_meta(txn.get(), tablet_id, version, rowset_meta, versionstamp,
+                                   snapshot);
+}
+
+TxnErrorCode MetaReader::get_compact_rowset_meta(Transaction* txn, int64_t tablet_id,
+                                                 int64_t version, RowsetMetaCloudPB* rowset_meta,
+                                                 Versionstamp* versionstamp, bool snapshot) {
+    std::string load_rowset_key =
+            versioned::meta_rowset_compact_key({instance_id_, tablet_id, version});
+    TxnErrorCode err = versioned::document_get(txn, load_rowset_key, snapshot_version_, rowset_meta,
+                                               versionstamp, snapshot);
+    if (err == TxnErrorCode::TXN_OK) {
+        min_read_versionstamp_ = std::min(min_read_versionstamp_, *versionstamp);
     }
     return err;
 }

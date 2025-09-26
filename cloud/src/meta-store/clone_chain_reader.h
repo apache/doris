@@ -149,6 +149,17 @@ public:
                                     std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes,
                                     bool snapshot = false);
 
+    // Get the rowset meta for the given tablet_id and end_version.
+    //
+    // It will compare the versionstamp of the load rowset and the compact rowset, and return the one
+    // with the higher versionstamp.
+    //
+    // It returns TXN_KEY_NOT_FOUND if no rowset meta is found for the given tablet_id and end_version.
+    TxnErrorCode get_rowset_meta(int64_t tablet_id, int64_t end_version,
+                                 RowsetMetaCloudPB* rowset_meta, bool snapshot = false);
+    TxnErrorCode get_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t end_version,
+                                 RowsetMetaCloudPB* rowset_meta, bool snapshot = false);
+
     // Get the rowset meta for the given tablet_id and version range [start_version, end_version].
     //
     // The `rowset_metas` will be filled with the RowsetMetaCloudPB for each version in the range,
@@ -162,9 +173,40 @@ public:
 
     // Get the load rowset meta for the given tablet_id and version.
     TxnErrorCode get_load_rowset_meta(int64_t tablet_id, int64_t version,
-                                      RowsetMetaCloudPB* rowset_meta, bool snapshot = false);
+                                      RowsetMetaCloudPB* rowset_meta, bool snapshot = false) {
+        Versionstamp versionstamp;
+        return get_load_rowset_meta(tablet_id, version, rowset_meta, &versionstamp, snapshot);
+    }
     TxnErrorCode get_load_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
-                                      RowsetMetaCloudPB* rowset_meta, bool snapshot = false);
+                                      RowsetMetaCloudPB* rowset_meta, bool snapshot = false) {
+        Versionstamp versionstamp;
+        return get_load_rowset_meta(txn, tablet_id, version, rowset_meta, &versionstamp, snapshot);
+    }
+    TxnErrorCode get_load_rowset_meta(int64_t tablet_id, int64_t version,
+                                      RowsetMetaCloudPB* rowset_meta, Versionstamp* versionstamp,
+                                      bool snapshot = false);
+    TxnErrorCode get_load_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                      RowsetMetaCloudPB* rowset_meta, Versionstamp* versionstamp,
+                                      bool snapshot = false);
+
+    // Get the compact rowset meta for the given tablet_id and version.
+    TxnErrorCode get_compact_rowset_meta(int64_t tablet_id, int64_t version,
+                                         RowsetMetaCloudPB* rowset_meta, bool snapshot = false) {
+        Versionstamp versionstamp;
+        return get_compact_rowset_meta(tablet_id, version, rowset_meta, &versionstamp, snapshot);
+    }
+    TxnErrorCode get_compact_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                         RowsetMetaCloudPB* rowset_meta, bool snapshot = false) {
+        Versionstamp versionstamp;
+        return get_compact_rowset_meta(txn, tablet_id, version, rowset_meta, &versionstamp,
+                                       snapshot);
+    }
+    TxnErrorCode get_compact_rowset_meta(int64_t tablet_id, int64_t version,
+                                         RowsetMetaCloudPB* rowset_meta, Versionstamp* versionstamp,
+                                         bool snapshot = false);
+    TxnErrorCode get_compact_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                         RowsetMetaCloudPB* rowset_meta, Versionstamp* versionstamp,
+                                         bool snapshot = false);
 
     // Get the tablet meta keys.
     TxnErrorCode get_tablet_meta(int64_t tablet_id, TabletMetaCloudPB* tablet_meta,
@@ -226,6 +268,13 @@ public:
                                 bool snapshot = false);
     TxnErrorCode has_no_indexes(Transaction* txn, int64_t db_id, int64_t table_id, bool* no_indexes,
                                 bool snapshot = false);
+
+    // Get the delete bitmap for the given tablet_id and rowset_id.
+    TxnErrorCode get_delete_bitmap_v2(int64_t tablet_id, const std::string& rowset_id,
+                                      DeleteBitmapStoragePB* delete_bitmap, bool snapshot = false);
+    TxnErrorCode get_delete_bitmap_v2(Transaction* txn, int64_t tablet_id,
+                                      const std::string& rowset_id,
+                                      DeleteBitmapStoragePB* delete_bitmap, bool snapshot = false);
 
 private:
     // Get the source snapshot info of the specified `instance_id`.
