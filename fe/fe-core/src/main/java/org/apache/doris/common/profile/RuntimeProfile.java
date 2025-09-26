@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
@@ -81,7 +82,6 @@ public class RuntimeProfile {
     public static String MIN_TIME_PRE = "min ";
     public static String AVG_TIME_PRE = "avg ";
     public static String SUM_TIME_PRE = "sum ";
-    public static int MAX_BUILDER_CAPACITY = Integer.MAX_VALUE - 65536;
     @SerializedName(value = "counterTotalTime")
     private Counter counterTotalTime;
     @SerializedName(value = "localTimePercent")
@@ -401,36 +401,18 @@ public class RuntimeProfile {
         return brief;
     }
 
-    public void prettyPrint(StringBuilder builder, String prefix) {
-        prettyPrint(builder, prefix, new HashSet<>());
-    }
-
     // Print the profile:
     // 1. Profile Name
     // 2. Info Strings
     // 3. Counters
     // 4. Children
-    public void prettyPrint(StringBuilder builder, String prefix, Set<RuntimeProfile> visitedProfiles) {
-        // Cycle Reference Detection
-        if (visitedProfiles.contains(this)) {
-            LOG.warn(prefix, "[Circular Reference Detected] profile prefix:", prefix, " , profile name:", name);
-            return;
-        }
-        visitedProfiles.add(this);
-
+    public void prettyPrint(SafeStringBuilder builder, String prefix) {
         // 1. profile name
-        // Out Of Memory Detection
-        long appendSize = (long) builder.length() + prefix.length() + name.length();
-        if (appendSize >= MAX_BUILDER_CAPACITY) {
-            LOG.warn("[StringBuilder truncated] append size: {}, limit: {}", appendSize, MAX_BUILDER_CAPACITY);
-            return;
-        }
-        builder.append(prefix).append(name).append(":");
-
-        builder.append("\n");
+        builder.append(prefix).append(name).append(":").append("\n");
 
         // plan node info
         printPlanNodeInfo(prefix + "   ", builder);
+        if (builder.isTruncated()) return;
 
         // 2. info String
         infoStringsLock.readLock().lock();
@@ -438,23 +420,9 @@ public class RuntimeProfile {
             for (String key : this.infoStringsDisplayOrder) {
                 builder.append(prefix);
                 if (SummaryProfile.EXECUTION_SUMMARY_KEYS_INDENTATION.containsKey(key)) {
-                    int repeatNum = Math.max(SummaryProfile.EXECUTION_SUMMARY_KEYS_INDENTATION.get(key), 0);
-                    // Out Of Memory Detection
-                    appendSize = (long) builder.length() + repeatNum * 2;
-                    if (appendSize >= MAX_BUILDER_CAPACITY) {
-                        LOG.warn("[StringBuilder truncated] append size: {}, limit: {}", appendSize, MAX_BUILDER_CAPACITY);
-                        return;
-                    }
-                    for (int i = 0; i < repeatNum; i++) {
+                    for (int i = 0; i < SummaryProfile.EXECUTION_SUMMARY_KEYS_INDENTATION.get(key); i++) {
                         builder.append("  ");
                     }
-                }
-                String infoString = this.infoStrings.get(key);
-                // Out Of Memory Detection
-                appendSize = (long) builder.length() + key.length() + infoString.length();
-                if (appendSize >= MAX_BUILDER_CAPACITY) {
-                    LOG.warn("[StringBuilder truncated] append size: {}, limit: {}", appendSize, MAX_BUILDER_CAPACITY);
-                    return;
                 }
                 builder.append("   - ").append(key).append(": ")
                         .append(this.infoStrings.get(key)).append("\n");
@@ -462,6 +430,7 @@ public class RuntimeProfile {
         } finally {
             infoStringsLock.readLock().unlock();
         }
+        if (builder.isTruncated()) return;
 
         // 3. counters
         try {
@@ -469,40 +438,31 @@ public class RuntimeProfile {
         } catch (Exception e) {
             builder.append("print child counters error: ").append(e.getMessage());
         }
+        if (builder.isTruncated()) return;
+
 
         // 4. children
         childLock.readLock().lock();
         try {
             for (int i = 0; i < childList.size(); i++) {
+                if (builder.isTruncated()) return;
                 Pair<RuntimeProfile, Boolean> pair = childList.get(i);
                 boolean indent = pair.second;
                 RuntimeProfile profile = pair.first;
-                profile.prettyPrint(builder, prefix + (indent ? "  " : ""), visitedProfiles);
+                profile.prettyPrint(builder, prefix + (indent ? "  " : ""));
             }
         } finally {
             childLock.readLock().unlock();
         }
     }
 
-    private void printPlanNodeInfo(String prefix, StringBuilder builder) {
+    private void printPlanNodeInfo(String prefix, SafeStringBuilder builder) {
         if (planNodeInfos.isEmpty()) {
-            return;
-        }
-        // Out Of Memory Detection
-        long appendSize = (long) builder.length() + prefix.length();
-        if (appendSize >= MAX_BUILDER_CAPACITY) {
-            LOG.warn("[StringBuilder truncated] append size: {}, limit: {}", appendSize, MAX_BUILDER_CAPACITY);
             return;
         }
         builder.append(prefix).append("- ").append("PlanInfo\n");
 
         for (String info : planNodeInfos) {
-            // Out Of Memory Detection
-            appendSize = (long) builder.length() + prefix.length() + info.length();
-            if (appendSize >= MAX_BUILDER_CAPACITY) {
-                LOG.warn("[StringBuilder truncated] append size: {}, limit: {}", appendSize, MAX_BUILDER_CAPACITY);
-                return;
-            }
             builder.append(prefix).append("   - ").append(info).append("\n");
         }
     }
@@ -523,7 +483,7 @@ public class RuntimeProfile {
     }
 
     public String toString() {
-        StringBuilder builder = new StringBuilder();
+        SafeStringBuilder builder = new SafeStringBuilder();
         prettyPrint(builder, "");
         return builder.toString();
     }
@@ -623,14 +583,14 @@ public class RuntimeProfile {
         }
     }
 
-    private void printChildCounters(String prefix, String counterName, StringBuilder builder) {
+    private void printChildCounters(String prefix, String counterName, SafeStringBuilder builder) {
         printChildCounters(prefix, counterName, builder, new HashSet<>());
     }
 
-    private void printChildCounters(String prefix, String counterName, StringBuilder builder, Set<String> visitedCounters) {
+    private void printChildCounters(String prefix, String counterName, SafeStringBuilder builder, Set<String> visitedCounters) {
         // Cycle Reference Detection
         if (visitedCounters.contains(counterName)) {
-            LOG.warn(prefix, "[Circular Reference Detected] counter prefix:", prefix, " , counter name:", name);
+            LOG.warn("[Circular Reference Detected] prefix: {}, counter name: {}", prefix, counterName);
             return;
         }
         visitedCounters.add(counterName);
@@ -643,18 +603,12 @@ public class RuntimeProfile {
         counterLock.readLock().lock();
         try {
             for (String childCounterName : childCounterSet) {
+                if (builder.isTruncated()) return;
                 Counter counter = this.counterMap.get(childCounterName);
                 if (counter != null) {
-                    // Out Of Memory Detection
-                    long appendSize = (long) builder.length() + prefix.length() + childCounterName.length() +
-                        counter.print().length();
-                    if (appendSize >= MAX_BUILDER_CAPACITY) {
-                        LOG.warn("[StringBuilder truncated] append size: {}, limit: {}", appendSize, MAX_BUILDER_CAPACITY);
-                        return;
-                    }
                     builder.append(prefix).append("   - ").append(childCounterName).append(": ")
-                        .append(counter.print()).append("\n");
-                    this.printChildCounters(prefix + "  ", childCounterName, builder, visitedCounters);
+                            .append(counter.print()).append("\n");
+                    this.printChildCounters(prefix + "  ", childCounterName, builder);
                 } else {
                     throw new RuntimeException("Child counter " + childCounterName + " of " + counterName
                             + " not found in profile");
