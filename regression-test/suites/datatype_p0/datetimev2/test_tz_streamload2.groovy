@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_tz_streamload2") {
+suite("test_tz_streamload2", "nonConcurrent") {
     def table1 = "global_timezone_test"
     
     sql "drop table if exists ${table1}"
