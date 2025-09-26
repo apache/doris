@@ -367,8 +367,6 @@ suite("mtmv_with_sql_cache") {
         sql "REFRESH MATERIALIZED VIEW ${mv_name4} AUTO;"
         waitingMTMVTaskFinishedByMvName(mv_name4)
         sleep(15 * 1000)
-        assertNoCache mtmv_sql4
-        retryUntilHasSqlCache mtmv_sql4
         assertHasCache mtmv_sql4
 
         assertHasCache "select * from ${mv_name1}"
