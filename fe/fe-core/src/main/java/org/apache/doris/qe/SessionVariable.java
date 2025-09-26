@@ -892,6 +892,14 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = "enable_aggregate_cse", needForward = true)
     public boolean enableAggregateCse = true;
 
+    // Experimental: enable pushing down virtual slots (common sub-expressions) into OlapScan.
+    // When false (default), the optimizer rule PushDownVirtualColumnsIntoOlapScan will not apply.
+    @VariableMgr.VarAttr(name = "enable_virtual_slot_for_cse", needForward = true,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"是否启用将公共子表达式作为虚拟列下推到OlapScan（实验特性）",
+                    "Enable pushing common sub-expressions as virtual columns into OlapScan (experimental)"})
+    public boolean experimentalEnableVirtualSlotForCse = false;
+
     @VariableMgr.VarAttr(name = JDBC_CLICKHOUSE_QUERY_FINAL, needForward = true,
             description = {"是否在查询 ClickHouse JDBC 外部表时，对查询 SQL 添加 FINAL 关键字。",
                     "Whether to add the FINAL keyword to the query SQL when querying ClickHouse JDBC external tables."})
