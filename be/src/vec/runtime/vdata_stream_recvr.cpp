@@ -230,7 +230,6 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     if (_is_cancelled) {
         return;
     }
-    COUNTER_UPDATE(_recvr->_rows_produced_counter, rows);
     COUNTER_UPDATE(_recvr->_blocks_produced_counter, 1);
 
     _block_queue.emplace_back(std::move(nblock), block_mem_size);
