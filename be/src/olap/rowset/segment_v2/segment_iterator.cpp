@@ -2705,11 +2705,13 @@ void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_i
             vec_match_pred.resize(block->rows());
             std::fill(vec_match_pred.begin(), vec_match_pred.end(), 0);
 
-            vectorized::ColumnUInt8::MutablePtr null_map_column = nullptr;
             const auto& null_bitmap = result_bitmap.get_null_bitmap();
-            bool has_nulls = null_bitmap != nullptr && !null_bitmap->isEmpty();
+            bool has_null_bitmap = null_bitmap != nullptr && !null_bitmap->isEmpty();
+            bool expr_returns_nullable = expr->data_type()->is_nullable();
+
+            vectorized::ColumnUInt8::MutablePtr null_map_column = nullptr;
             vectorized::ColumnUInt8::Container* null_map_data = nullptr;
-            if (has_nulls) {
+            if (has_null_bitmap && expr_returns_nullable) {
                 null_map_column = vectorized::ColumnUInt8::create();
                 auto& null_map_vec = null_map_column->get_data();
                 null_map_vec.resize(block->rows());
@@ -2723,7 +2725,7 @@ void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_i
                 if (index_result_bitmap) {
                     vec_match_pred[i] = index_result_bitmap->containsBulk(bulk_context, rowid);
                 }
-                if (has_nulls && null_bitmap->contains(rowid)) {
+                if (null_map_data != nullptr && null_bitmap->contains(rowid)) {
                     (*null_map_data)[i] = 1;
                     vec_match_pred[i] = 0;
                 }
@@ -2731,7 +2733,7 @@ void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_i
 
             DCHECK(block->rows() == vec_match_pred.size());
 
-            if (has_nulls) {
+            if (null_map_column) {
                 expr_ctx->get_inverted_index_context()->set_inverted_index_result_column_for_expr(
                         expr, vectorized::ColumnNullable::create(std::move(index_result_column),
                                                                  std::move(null_map_column)));
