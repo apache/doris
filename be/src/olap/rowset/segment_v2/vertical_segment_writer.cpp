@@ -933,6 +933,10 @@ Status VerticalSegmentWriter::write_batch() {
             RETURN_IF_ERROR(column_writer->finish());
             RETURN_IF_ERROR(column_writer->write_data());
         }
+
+        // Collect column data page statistics after column writers finish
+        _collect_column_statistics();
+
         return Status::OK();
     }
     // Row column should be filled here when it's a directly write from memtable
@@ -985,6 +989,9 @@ Status VerticalSegmentWriter::write_batch() {
         RETURN_IF_ERROR(_column_writers[cid]->finish());
         RETURN_IF_ERROR(_column_writers[cid]->write_data());
     }
+
+    // Collect column data page statistics after all column writers finish
+    _collect_column_statistics();
 
     for (auto& data : _batched_blocks) {
         _olap_data_convertor->set_source_content(data.block, data.row_pos, data.num_rows);
@@ -1394,6 +1401,23 @@ inline bool VerticalSegmentWriter::_is_mow() {
 
 inline bool VerticalSegmentWriter::_is_mow_with_cluster_key() {
     return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
+}
+
+void VerticalSegmentWriter::_collect_column_statistics() {
+    _column_data_page_stats.clear();
+    _column_data_page_stats.reserve(_tablet_schema->num_columns());
+
+    for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
+        const auto& column = _tablet_schema->column(cid);
+        if (cid < _column_writers.size() && _column_writers[cid] != nullptr) {
+            ColumnDataPageStatsPB stats;
+            stats.set_column_unique_id(column.unique_id());
+            stats.set_column_name(column.name());
+            stats.set_column_type(fmt::format("{}", column.type()));
+            stats.set_data_page_size(_column_writers[cid]->get_data_page_size());
+            _column_data_page_stats.push_back(std::move(stats));
+        }
+    }
 }
 
 #include "common/compile_check_end.h"

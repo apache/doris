@@ -150,6 +150,8 @@ public class TabletStatMgr extends MasterDaemon {
                 Long tableTotalLocalSegmentSize = 0L;
                 Long tableTotalRemoteIndexSize = 0L;
                 Long tableTotalRemoteSegmentSize = 0L;
+                Long tableLocalCommonIndexSize = 0L;
+                Long tableRemoteCommonIndexSize = 0L;
 
                 Long tableRemoteDataSize = 0L;
 
@@ -217,6 +219,8 @@ public class TabletStatMgr extends MasterDaemon {
                                     tableTotalLocalSegmentSize += replica.getLocalSegmentSize();
                                     tableTotalRemoteIndexSize += replica.getRemoteInvertedIndexSize();
                                     tableTotalRemoteSegmentSize += replica.getRemoteSegmentSize();
+                                    tableLocalCommonIndexSize += replica.getLocalCommonIndexSize();
+                                    tableRemoteCommonIndexSize += replica.getRemoteCommonIndexSize();
                                 }
 
                                 tableDataSize += tabletDataSize;
@@ -263,7 +267,8 @@ public class TabletStatMgr extends MasterDaemon {
                             tableDataSize, tableTotalReplicaDataSize,
                             tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L,
                             tableTotalLocalIndexSize, tableTotalLocalSegmentSize,
-                            tableTotalRemoteIndexSize, tableTotalRemoteSegmentSize));
+                            tableTotalRemoteIndexSize, tableTotalRemoteSegmentSize, tableLocalCommonIndexSize,
+                            tableRemoteCommonIndexSize));
 
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("finished to set row num for table: {} in database: {}",

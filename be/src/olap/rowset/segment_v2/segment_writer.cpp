@@ -1166,6 +1166,25 @@ Slice SegmentWriter::max_encoded_key() {
                                                    : _primary_key_index_builder->max_key();
 }
 
+std::vector<ColumnDataPageStatsPB> SegmentWriter::get_column_data_page_stats() const {
+    std::vector<ColumnDataPageStatsPB> column_stats;
+    column_stats.reserve(_column_writers.size());
+
+    for (uint32_t cid = 0; cid < _column_writers.size(); ++cid) {
+        if (_column_writers[cid] != nullptr) {
+            // flush a column group, the actual column id is in _column_ids
+            const auto& column = _tablet_schema->column(_column_ids[cid]);
+            ColumnDataPageStatsPB stats;
+            stats.set_column_unique_id(column.unique_id());
+            stats.set_column_name(column.name());
+            stats.set_column_type(fmt::format("{}", column.type()));
+            stats.set_data_page_size(_column_writers[cid]->get_data_page_size());
+            column_stats.push_back(std::move(stats));
+        }
+    }
+    return column_stats;
+}
+
 void SegmentWriter::set_min_max_key(const Slice& key) {
     if (UNLIKELY(_is_first_row)) {
         _min_key.append(key.get_data(), key.get_size());
