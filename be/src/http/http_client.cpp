@@ -25,7 +25,6 @@
 #include <ostream>
 
 #include "common/cast_set.h"
-#include "common/compile_check_end.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "http/http_headers.h"
@@ -631,34 +630,5 @@ Status HttpClient::_escape_url(const std::string& url, std::string* escaped_url)
     *escaped_url = url.substr(0, query_pos + 1) + encoded_query + fragment;
     return Status::OK();
 }
-
-Status HttpClient::read_range(const std::string& url, size_t offset, size_t length, char* buffer) {
-    RETURN_IF_ERROR(init(url));
-
-    set_range(offset, length);
-
-    set_method(GET);
-
-    size_t bytes_written = 0;
-    auto write_cb = [&](const void* data, size_t len) -> bool {
-        if (bytes_written + len > length) {
-            return false;
-        }
-        memcpy(buffer + bytes_written, data, len);
-        bytes_written += len;
-        return true;
-    };
-
-    Status st = execute(write_cb);
-    if (st.ok()) {
-        return Status::IOError("HttpClient::read_range failed: {}", st.to_string());
-    }
-
-    if (bytes_written != length) {
-        return Status::InternalError("HttpClient::read_range length mismatch, expected {}, got {}",
-                                     length, bytes_written);
-    }
-
-    return Status::OK();
-}
+#include "common/compile_check_end.h"
 } // namespace doris

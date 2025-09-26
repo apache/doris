@@ -17,8 +17,11 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import com.baidubce.services.cdn.model.OriginPeer;
 import com.uber.m3.util.ImmutableSet;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.parser.Origin;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.http.annotation.Immutable;
 import org.apache.hudi.common.util.MapUtils;
 
@@ -26,12 +29,11 @@ import java.util.Map;
 
 public class HttpProperties extends StorageProperties {
     public static final String PROP_URL = "uri";
-    public static final String PROP_HTTP_SUPPORT = "fs.http.support";
 
     private static final ImmutableSet<String> LOCAL_PROPERTIES =
         new ImmutableSet.Builder<String>()
             .add(PROP_URL)
-            .add(PROP_HTTP_SUPPORT)
+            .add(StorageProperties.FS_HTTP_SUPPORT)
             .build();
 
     public HttpProperties(Map<String, String> origProps) {
@@ -44,7 +46,7 @@ public class HttpProperties extends StorageProperties {
         }
         String uri = props.get(PROP_URL);
         return uri != null && (uri.startsWith("http://") || uri.startsWith("https://"))
-            || props.containsKey(PROP_HTTP_SUPPORT);
+            || props.containsKey(StorageProperties.FS_HTTP_SUPPORT);
     }
 
     @Override
@@ -67,6 +69,10 @@ public class HttpProperties extends StorageProperties {
     }
 
 
+    public String getUri() {
+        return origProps.get(PROP_URL);
+    }
+
     @Override
     public String getStorageName() {
         return origProps.get(PROP_URL);
@@ -74,7 +80,12 @@ public class HttpProperties extends StorageProperties {
 
     @Override
     public void initializeHadoopStorageConfig() {
-        
+        hadoopStorageConfig = new Configuration();
+        hadoopStorageConfig.set("fs.http.impl", org.apache.hadoop.fs.http.HttpFileSystem.class.getName());
+        hadoopStorageConfig.setBoolean(StorageProperties.FS_HTTP_SUPPORT, true);
+        for (Map.Entry<String, String> entry : origProps.entrySet()) {
+            hadoopStorageConfig.set(entry.getKey(), entry.getValue());
+        }
     }
 
 }
