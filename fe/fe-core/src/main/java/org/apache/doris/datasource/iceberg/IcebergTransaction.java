@@ -50,6 +50,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ThreadPoolExecutor;
 
 public class IcebergTransaction implements Transaction {
 
@@ -108,7 +109,7 @@ public class IcebergTransaction implements Transaction {
         }
         try {
             ops.getExecutionAuthenticator().execute(() -> {
-                //create and start the iceberg transaction
+                // create and start the iceberg transaction
                 TUpdateMode updateMode = TUpdateMode.APPEND;
                 if (insertCtx != null) {
                     updateMode = insertCtx.isOverwrite()
@@ -133,7 +134,7 @@ public class IcebergTransaction implements Transaction {
         if (commitDataList.isEmpty()) {
             pendingResults = Collections.emptyList();
         } else {
-            //convert commitDataList to writeResult
+            // convert commitDataList to writeResult
             WriteResult writeResult = IcebergWriterHelper
                     .convertToWriterResult(fileFormat, spec, commitDataList);
             pendingResults = Lists.newArrayList(writeResult);
@@ -154,7 +155,7 @@ public class IcebergTransaction implements Transaction {
 
     @Override
     public void rollback() {
-        //do nothing
+        // do nothing
     }
 
     public long getUpdateCnt() {
@@ -163,7 +164,9 @@ public class IcebergTransaction implements Transaction {
 
     private void commitAppendTxn(List<WriteResult> pendingResults) {
         // commit append files.
-        AppendFiles appendFiles = transaction.newAppend().scanManifestsWith(ops.getThreadPoolWithPreAuth());
+        ThreadPoolExecutor executor = ops.getThreadPoolWithPreAuth();
+        logThreadPoolState("append", executor);
+        AppendFiles appendFiles = transaction.newAppend().scanManifestsWith(executor);
         if (branchName != null) {
             appendFiles = appendFiles.toBranch(branchName);
         }
@@ -186,7 +189,9 @@ public class IcebergTransaction implements Transaction {
                 if (branchName != null) {
                     overwriteFiles = overwriteFiles.toBranch(branchName);
                 }
-                overwriteFiles = overwriteFiles.scanManifestsWith(ops.getThreadPoolWithPreAuth());
+                ThreadPoolExecutor executor = ops.getThreadPoolWithPreAuth();
+                logThreadPoolState("overwrite", executor);
+                overwriteFiles = overwriteFiles.scanManifestsWith(executor);
                 try (CloseableIterable<FileScanTask> fileScanTasks = table.newScan().planFiles()) {
                     OverwriteFiles finalOverwriteFiles = overwriteFiles;
                     fileScanTasks.forEach(f -> finalOverwriteFiles.deleteFile(f.file()));
@@ -203,7 +208,9 @@ public class IcebergTransaction implements Transaction {
         if (branchName != null) {
             appendPartitionOp = appendPartitionOp.toBranch(branchName);
         }
-        appendPartitionOp = appendPartitionOp.scanManifestsWith(ops.getThreadPoolWithPreAuth());
+        ThreadPoolExecutor executor = ops.getThreadPoolWithPreAuth();
+        logThreadPoolState("replace", executor);
+        appendPartitionOp = appendPartitionOp.scanManifestsWith(executor);
         for (WriteResult result : pendingResults) {
             Preconditions.checkState(result.referencedDataFiles().length == 0,
                     "Should have no referenced data files.");
@@ -212,4 +219,18 @@ public class IcebergTransaction implements Transaction {
         appendPartitionOp.commit();
     }
 
+    private void logThreadPoolState(String action, ThreadPoolExecutor executor) {
+        if (executor == null) {
+            LOG.warn("Iceberg executor is null when handling {}", action);
+            return;
+        }
+        if (executor.isShutdown() || executor.isTerminating() || executor.isTerminated()) {
+            LOG.warn("Iceberg executor is not running when handling {}. shutdown={}, terminating={}, terminated={}",
+                    action, executor.isShutdown(), executor.isTerminating(), executor.isTerminated());
+        }
+        LOG.info("Iceberg executor state for {}: poolSize={}, activeCount={}, queueSize={}, isShutdown={}, "
+                        + "isTerminating={}, isTerminated={}",
+                action, executor.getPoolSize(), executor.getActiveCount(), executor.getQueue().size(),
+                executor.isShutdown(), executor.isTerminating(), executor.isTerminated());
+    }
 }
