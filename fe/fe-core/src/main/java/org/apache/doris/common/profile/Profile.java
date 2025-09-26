@@ -339,12 +339,12 @@ public class Profile {
 
     public String getProfileByLevel() {
         SafeStringBuilder builder = new SafeStringBuilder();
-        if (DebugPointUtil.isEnable("RuntimeProfile.profileSizeLimit")) {
+        if (DebugPointUtil.isEnable("Profile.profileSizeLimit")) {
             DebugPointUtil.DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
-                "RuntimeProfile.profileSizeLimit");
+                "Profile.profileSizeLimit");
             int maxProfileSize = debugPoint.param("profileSizeLimit", 0);
             builder = new SafeStringBuilder(maxProfileSize);
-            LOG.info("DebugPoint:RuntimeProfile.profileSizeLimit, MAX_PROFILE_SIZE = {}", maxProfileSize);
+            LOG.info("DebugPoint:Profile.profileSizeLimit, MAX_PROFILE_SIZE = {}", maxProfileSize);
         }
         // add summary to builder
         summaryProfile.prettyPrint(builder);

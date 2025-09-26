@@ -17,23 +17,12 @@
 
 package org.apache.doris.common.profile;
 
-import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TUnit;
 
-
-import org.apache.doris.common.Config;
-import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
-import org.apache.doris.http.DorisHttpTestCase;
-
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
-import org.junit.Assert;
-import org.junit.Test;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -43,11 +32,11 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Set;
 
-
-
-public class RuntimeProfileTest extends DorisHttpTestCase {
+public class RuntimeProfileTest {
     private static final Logger LOG = LogManager.getLogger(RuntimeProfileTest.class);
 
     @Test
@@ -196,183 +185,4 @@ public class RuntimeProfileTest extends DorisHttpTestCase {
 
         LOG.info("testUpdate profile:\n{}", builder.toString());
     }
-
-    private void preorderTraversal(TRuntimeProfileNode[] nodes, int index, TRuntimeProfileTree tprofileTree) {
-        if (index >= nodes.length || nodes[index] == null) {
-            return;
-        }
-
-        tprofileTree.addToNodes(nodes[index]);
-
-        int leftChild = 2 * index + 1;
-        if (leftChild < nodes.length) {
-            preorderTraversal(nodes, leftChild, tprofileTree);
-        }
-
-        int rightChild = 2 * index + 2;
-        if (rightChild < nodes.length) {
-            preorderTraversal(nodes, rightChild, tprofileTree);
-        }
-    }
-
-//    @Test
-//    public void testStringBuilderExceedLimit() throws IOException {
-//        final int MAX_PRINTER_SIZE = 33554432;
-//        RuntimeProfile.MAX_PROFILE_SIZE = RuntimeProfile.MAX_PROFILE_SIZE - 65536;
-//        RuntimeProfile profile = new RuntimeProfile("Node0");
-//        TRuntimeProfileTree tprofileTree = new TRuntimeProfileTree();
-//        int profileDepth = 10;
-//        int counterDepth = 5;
-//
-//        int totalNodes = (1 << profileDepth) - 1;
-//        int totalNonLeafNodes = (1 << (profileDepth - 1)) - 1;
-//        TRuntimeProfileNode[] tnodes = new TRuntimeProfileNode[totalNodes];
-//
-//        for (int i = 0; i < totalNodes; i++) {
-//            tnodes[i] = new TRuntimeProfileNode();
-//            tnodes[i].counters = Lists.newArrayList();
-//            tnodes[i].info_strings = new HashMap<>();
-//            tnodes[i].info_strings_display_order = new ArrayList<>();
-//            tnodes[i].indent = true;
-//            tnodes[i].name = "Node" + i;
-//            tnodes[i].info_strings.put("key" + i, "value");
-//            tnodes[i].info_strings_display_order.add("key" + i);
-//
-//            Queue<String> queue = new LinkedList<>();
-//            tnodes[i].child_counters_map = Maps.newHashMap();
-//            String counterNameA = "Counter" + i + "A";
-//            String counterNameB = "Counter" + i + "B";
-//            String counterNameC = "Counter" + i + "C";
-//            String counterNameD = "Counter" + i + "D";
-//            tnodes[i].counters.add(new TCounter(counterNameA, TUnit.UNIT, 1000000L));
-//            tnodes[i].counters.add(new TCounter(counterNameB, TUnit.UNIT, 1000000L));
-//            tnodes[i].counters.add(new TCounter(counterNameC, TUnit.UNIT, 1000000L));
-//            tnodes[i].counters.add(new TCounter(counterNameD, TUnit.UNIT, 1000000L));
-//            Set<String> set1 = Sets.newHashSet();
-//            set1.add(counterNameA);
-//            set1.add(counterNameB);
-//            set1.add(counterNameC);
-//            set1.add(counterNameD);
-//            tnodes[i].child_counters_map.put("", set1);
-//            queue.add(counterNameA);
-//            queue.add(counterNameB);
-//            queue.add(counterNameC);
-//            queue.add(counterNameD);
-//
-//            for (int j = 1; j < counterDepth; j++) {
-//                Queue<String> newQueue = new LinkedList<>();
-//                while (!queue.isEmpty()) {
-//                    String counterName = queue.poll();
-//                    String counterNameSonA = counterName + "SonA";
-//                    String counterNameSonB = counterName + "SonB";
-//                    String counterNameSonC = counterName + "SonC";
-//                    String counterNameSonD = counterName + "SonD";
-//                    tnodes[i].counters.add(new TCounter(counterNameSonA, TUnit.UNIT, 1000000L));
-//                    tnodes[i].counters.add(new TCounter(counterNameSonB, TUnit.UNIT, 1000000L));
-//                    tnodes[i].counters.add(new TCounter(counterNameSonC, TUnit.UNIT, 1000000L));
-//                    tnodes[i].counters.add(new TCounter(counterNameSonD, TUnit.UNIT, 1000000L));
-//                    Set<String> set2 = Sets.newHashSet();
-//                    set2.add(counterNameSonA);
-//                    set2.add(counterNameSonB);
-//                    set2.add(counterNameSonC);
-//                    set2.add(counterNameSonD);
-//                    tnodes[i].child_counters_map.put(counterName, set2);
-//                    newQueue.add(counterNameSonA);
-//                    newQueue.add(counterNameSonB);
-//                    newQueue.add(counterNameSonC);
-//                    newQueue.add(counterNameSonD);
-//                }
-//                queue = newQueue;
-//            }
-//        }
-//
-//        for (int i = 0; i < totalNonLeafNodes; i++) {
-//            tnodes[i].num_children = 2;
-//        }
-//        for (int i = totalNonLeafNodes; i < totalNodes; i++) {
-//            tnodes[i].num_children = 0;
-//        }
-//
-//        preorderTraversal(tnodes, 0, tprofileTree);
-//
-//        profile.update(tprofileTree);
-//        SafeStringBuilder builder = new SafeStringBuilder();
-//        profile.computeTimeInProfile();
-//        profile.prettyPrint(builder, "");
-//        LOG.info("build.length():{}, MAX_BUILDER_LENGTH:{}", builder.length(), RuntimeProfile.MAX_PROFILE_SIZE);
-//        Assert.assertTrue(builder.length() <= RuntimeProfile.MAX_PROFILE_SIZE);
-//
-//        RuntimeProfile.MAX_PROFILE_SIZE = Integer.MAX_VALUE - 65536;
-//    }
-//
-//    private void sendRequest(String uri) throws Exception {
-//        Request request = new Request.Builder()
-//            .post(RequestBody.create(JSON, "{}"))
-//            .addHeader("Authorization", rootAuth)
-//            .url("http://localhost:" + HTTP_PORT + uri)
-//            .build();
-//
-//        Response response = networkClient.newCall(request).execute();
-//        Assert.assertNotNull(response.body());
-//        Assert.assertEquals(200, response.code());
-//    }
-//
-//    @Test
-//    public void testCounterCycleReference() throws Exception {
-//        Config.enable_debug_points = true;
-//        Assert.assertFalse(DebugPointUtil.isEnable("RuntimeProfile.builderSizeLimit"));
-//        sendRequest("/api/debug_point/add/RuntimeProfile.builderSizeLimit");
-//        Assert.assertTrue(DebugPointUtil.isEnable("RuntimeProfile.builderSizeLimit"));
-//        /*  the profile tree
-//        Node:
-//           - key: value
-//           - CounterA: 1.0M (1000000)
-//             - CounterASonA: 1.0M (1000000)
-//               - CounterA: 1.0M (1000000)
-//           - CounterB: 1.0M (1000000)
-//        */
-//        RuntimeProfile profile = new RuntimeProfile("Node");
-//        TRuntimeProfileTree tprofileTree = new TRuntimeProfileTree();
-//
-//        TRuntimeProfileNode tnode = new TRuntimeProfileNode();
-//
-//        tnode = new TRuntimeProfileNode();
-//        tnode.counters = Lists.newArrayList();
-//        tnode.info_strings = new HashMap<>();
-//        tnode.info_strings_display_order = new ArrayList<>();
-//        tnode.indent = true;
-//        tnode.name = "Node";
-//        tnode.num_children = 0;
-//        tnode.info_strings.put("key", "value");
-//        tnode.info_strings_display_order.add("key");
-//
-//        tnode.child_counters_map = Maps.newHashMap();
-//
-//        String counterNameA = "CounterA";
-//        String counterNameB = "CounterB";
-//        tnode.counters.add(new TCounter(counterNameA, TUnit.UNIT, 1000000L));
-//        tnode.counters.add(new TCounter(counterNameB, TUnit.UNIT, 1000000L));
-//        Set<String> set1 = Sets.newHashSet();
-//        set1.add(counterNameA);
-//        set1.add(counterNameB);
-//        tnode.child_counters_map.put("", set1);
-//
-//        String counterNameASonA = "CounterASonA";
-//        tnode.counters.add(new TCounter(counterNameASonA, TUnit.UNIT, 1000000L));
-//        Set<String> set2 = Sets.newHashSet();
-//        set2.add(counterNameASonA);
-//        tnode.child_counters_map.put(counterNameA, set2);
-//
-//        Set<String> set3 = Sets.newHashSet();
-//        set3.add(counterNameA);
-//        tnode.child_counters_map.put(counterNameASonA, set3);
-//
-//        tprofileTree.addToNodes(tnode);
-//
-//        profile.update(tprofileTree);
-//        StringBuilder builder = new StringBuilder();
-//        profile.computeTimeInProfile();
-//        profile.prettyPrint(builder, "");
-//        System.out.println(builder.toString());
-//    }
 }

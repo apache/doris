@@ -53,7 +53,6 @@ import java.util.TreeSet;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.HashSet;
 
 /**
  * It is accessed by two kinds of thread, one is to create this RuntimeProfile
@@ -584,17 +583,6 @@ public class RuntimeProfile {
     }
 
     private void printChildCounters(String prefix, String counterName, SafeStringBuilder builder) {
-        printChildCounters(prefix, counterName, builder, new HashSet<>());
-    }
-
-    private void printChildCounters(String prefix, String counterName, SafeStringBuilder builder, Set<String> visitedCounters) {
-        // Cycle Reference Detection
-        if (visitedCounters.contains(counterName)) {
-            LOG.warn("[Circular Reference Detected] prefix: {}, counter name: {}", prefix, counterName);
-            return;
-        }
-        visitedCounters.add(counterName);
-
         Set<String> childCounterSet = childCounterMap.get(counterName);
         if (childCounterSet == null) {
             return;
