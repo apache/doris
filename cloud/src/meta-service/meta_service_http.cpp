@@ -678,6 +678,20 @@ static HttpResponse process_set_snapshot_property(MetaServiceImpl* service,
                                                   brpc::Controller* ctrl) {
     AlterInstanceRequest req;
     PARSE_MESSAGE_OR_RETURN(ctrl, req);
+    auto* properties = req.mutable_properties();
+    if (properties->contains("status")) {
+        std::string status = properties->at("status");
+        if (status != "ENABLED" && status != "DISABLED") {
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                   "Invalid value for status property: " + status +
+                                           ", expected 'ENABLED' or 'DISABLED' (case insensitive)");
+        }
+        std::string_view is_enable = (status == "ENABLED") ? "true" : "false";
+        const std::string& property_name =
+                AlterInstanceRequest::SnapshotProperty_Name(AlterInstanceRequest::ENABLE_SNAPSHOT);
+        (*properties)[property_name] = is_enable;
+        properties->erase("status");
+    }
     req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
     AlterInstanceResponse resp;
     service->alter_instance(ctrl, &req, &resp, nullptr);
