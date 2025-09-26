@@ -56,7 +56,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
 
     @Getter
     @ConnectorProperty(names = {"oss.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY",
-            "dlf.secret_key", "dlf.catalog.secret_key","fs.oss.accessKeySecret"},
+            "dlf.secret_key", "dlf.catalog.secret_key", "fs.oss.accessKeySecret"},
             sensitive = true,
             required = false,
             description = "The secret key of OSS.")

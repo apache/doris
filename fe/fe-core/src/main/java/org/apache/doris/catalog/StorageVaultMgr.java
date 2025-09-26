@@ -29,6 +29,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -238,6 +239,11 @@ public class StorageVaultMgr {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());
         }
+    }
+
+    @VisibleForTesting
+    public void setDefaultStorageVault(SetDefaultStorageVaultStmt stmt) throws DdlException {
+        setDefaultStorageVault(stmt.getStorageVaultName());
     }
 
     public void setDefaultStorageVault(String vaultName) throws DdlException {

@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.datasource.property.S3ClientBEProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
@@ -81,7 +81,7 @@ public class BulkStorageDesc implements Writable {
             this.properties = Maps.newHashMap();
         }
         this.storageType = type;
-        this.properties.putAll(S3ClientBEProperties.getBeFSProperties(this.properties));
+        this.properties.putAll(StorageProperties.createPrimary(this.properties).getBackendConfigProperties());
     }
 
     public StorageType getStorageType() {
