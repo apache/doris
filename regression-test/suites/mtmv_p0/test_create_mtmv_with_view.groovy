@@ -76,6 +76,36 @@ suite("test_create_mtmv_with_view","mtmv") {
         """
     order_qt_is_sync_data_change "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
 
+    // test excluded_trigger_tables
+    // view should not useful
+     sql """
+            alter Materialized View ${mvName} set("excluded_trigger_tables"="internal.${dbName}.${viewName}");
+        """
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
+            """
+        waitingMTMVTaskFinishedByMvName(mvName)
+
+    order_qt_trigger_view_need_refresh "select RefreshMode from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1;"
+    order_qt_after_trigger_view "SELECT * FROM ${mvName}"
+
+    // table should useful
+    sql """
+            alter Materialized View ${mvName} set("excluded_trigger_tables"="internal.${dbName}.${tableName}");
+        """
+     sql """
+        insert into ${tableName} values(3,3);
+        """
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
+            """
+        waitingMTMVTaskFinishedByMvName(mvName)
+
+    order_qt_trigger_table_not_need_refresh "select RefreshMode from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1;"
+    order_qt_after_trigger_table "SELECT * FROM ${mvName}"
+
+
     sql """drop view if exists `${viewName}`"""
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
