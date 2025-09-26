@@ -76,16 +76,22 @@ public:
         switch (_type) {
         case OperatorType::OP_AND: {
             auto [include_scorers, exclude_scorers] = collect_and_scorers();
+            ScorerPtr base_scorer;
             if (include_scorers.empty()) {
-                return make_empty();
+                uint32_t max_doc = context.segment_num_rows;
+                if (max_doc == 0) {
+                    return make_empty();
+                }
+                base_scorer = std::make_shared<MatchAllDocsScorer>(max_doc, context.readers);
+            } else {
+                base_scorer = intersection_scorer_build(include_scorers);
             }
 
-            auto intersection = intersection_scorer_build(include_scorers);
             if (exclude_scorers.empty()) {
-                return intersection;
+                return base_scorer;
             }
 
-            return std::make_shared<AndNotScorer>(std::move(intersection),
+            return std::make_shared<AndNotScorer>(std::move(base_scorer),
                                                   std::move(exclude_scorers));
         }
         case OperatorType::OP_NOT: {
