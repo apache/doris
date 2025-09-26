@@ -30,7 +30,7 @@ import java.util.Map;
 public class HttpProperties extends StorageProperties {
     public static final String PROP_URL = "uri";
 
-    private static final ImmutableSet<String> LOCAL_PROPERTIES =
+    private static final ImmutableSet<String> HTTP_PROPERTIES =
         new ImmutableSet.Builder<String>()
             .add(PROP_URL)
             .add(StorageProperties.FS_HTTP_SUPPORT)
@@ -68,6 +68,10 @@ public class HttpProperties extends StorageProperties {
         return validateAndNormalizeUri(url);
     }
 
+    public static boolean guessIsMe(Map<String, String> props) {
+        return !MapUtils.isNullOrEmpty(props)
+            && HTTP_PROPERTIES.stream().anyMatch(props::containsKey);
+    }
 
     public String getUri() {
         return origProps.get(PROP_URL);

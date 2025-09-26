@@ -182,7 +182,9 @@ public abstract class StorageProperties extends ConnectionProperties {
                     props -> (isFsSupport(props, FS_BROKER_SUPPORT)
                             || BrokerProperties.guessIsMe(props)) ? new BrokerProperties(props) : null,
                     props -> (isFsSupport(props, FS_LOCAL_SUPPORT)
-                            || LocalProperties.guessIsMe(props)) ? new LocalProperties(props) : null
+                            || LocalProperties.guessIsMe(props)) ? new LocalProperties(props) : null,
+                    props -> (isFsSupport(props, FS_HTTP_SUPPORT)
+                            || HttpProperties.guessIsMe(props)) ? new HttpProperties(props) : null
             );
 
     protected StorageProperties(Type type, Map<String, String> origProps) {
