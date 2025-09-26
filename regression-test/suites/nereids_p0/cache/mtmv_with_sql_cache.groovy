@@ -28,6 +28,9 @@ the original table has changed, the cache cannot be used. Conversely, if it hasn
  */
 suite("mtmv_with_sql_cache") {
     withGlobalLock("cache_last_version_interval_second") {
+
+
+
         sql """ADMIN SET ALL FRONTENDS CONFIG ('cache_last_version_interval_second' = '0');"""
         sql """ADMIN SET ALL FRONTENDS CONFIG ('sql_cache_manage_num' = '10000')"""
 
@@ -155,14 +158,14 @@ suite("mtmv_with_sql_cache") {
         assertNoCache mtmv_sql4
         assertNoCache nested_mtmv_sql1
 
-        sql "select * from ${mv_name1}"
-        sql "select * from ${mv_name2}"
-        sql "select * from ${mv_name4}"
-        sql "select * from ${nested_mv_name1}"
-        sql mtmv_sql1
-        sql mtmv_sql2
-        sql mtmv_sql4
-        sql nested_mtmv_sql1
+        retryUntilHasSqlCache "select * from ${mv_name1}"
+        retryUntilHasSqlCache "select * from ${mv_name2}"
+        retryUntilHasSqlCache "select * from ${mv_name4}"
+        retryUntilHasSqlCache "select * from ${nested_mv_name1}"
+        retryUntilHasSqlCache mtmv_sql1
+        retryUntilHasSqlCache mtmv_sql2
+        retryUntilHasSqlCache mtmv_sql4
+        retryUntilHasSqlCache nested_mtmv_sql1
 
         assertHasCache "select * from ${mv_name1}"
         assertHasCache "select * from ${mv_name2}"
@@ -186,7 +189,7 @@ suite("mtmv_with_sql_cache") {
         assertHasCache "select * from ${nested_mv_name1}" // nested mtmv don't change
         assertHasCache nested_mtmv_sql1 // Since this SQL query hasn't been executed before, so it's still valid now.
 
-        sql mtmv_sql1
+        retryUntilHasSqlCache mtmv_sql1
         assertHasCache mtmv_sql1
 
         // replace mtmv
@@ -206,12 +209,12 @@ suite("mtmv_with_sql_cache") {
         assertHasCache "select * from ${nested_mv_name1}"
         assertNoCache nested_mtmv_sql1
 
-        sql "select * from ${mv_name1}"
-        sql "select * from ${mv_name2}"
-        sql mtmv_sql1
-        sql mtmv_sql2
-        sql "select * from ${nested_mv_name1}"
-        sql nested_mtmv_sql1
+        retryUntilHasSqlCache "select * from ${mv_name1}"
+        retryUntilHasSqlCache "select * from ${mv_name2}"
+        retryUntilHasSqlCache mtmv_sql1
+        retryUntilHasSqlCache mtmv_sql2
+        retryUntilHasSqlCache "select * from ${nested_mv_name1}"
+        retryUntilHasSqlCache nested_mtmv_sql1
 
         assertHasCache "select * from ${mv_name1}"
         assertHasCache "select * from ${mv_name2}"
@@ -256,9 +259,9 @@ suite("mtmv_with_sql_cache") {
         assertHasCache "select * from ${nested_mv_name1}"
         assertNoCache nested_mtmv_sql1
 
-        sql mtmv_sql1
-        sql "select * from ${mv_name1}"
-        sql nested_mtmv_sql1
+        retryUntilHasSqlCache mtmv_sql1
+        retryUntilHasSqlCache "select * from ${mv_name1}"
+        retryUntilHasSqlCache nested_mtmv_sql1
 
         assertHasCache mtmv_sql1
         assertHasCache "select * from ${mv_name1}"
@@ -272,7 +275,7 @@ suite("mtmv_with_sql_cache") {
         assertHasCache "select * from ${nested_mv_name1}"
         assertHasCache nested_mtmv_sql1
 
-        sql mtmv_sql1
+        retryUntilHasSqlCache mtmv_sql1
         assertHasCache mtmv_sql1
 
         sql "REFRESH MATERIALIZED VIEW ${mv_name1} AUTO;"
@@ -283,12 +286,10 @@ suite("mtmv_with_sql_cache") {
         assertHasCache "select * from ${nested_mv_name1}"
         assertNoCache nested_mtmv_sql1
 
-        sql mtmv_sql1
-        sql "select * from ${mv_name1}"
-        sql nested_mtmv_sql1
+        retryUntilHasSqlCache "select * from ${mv_name1}"
+        retryUntilHasSqlCache nested_mtmv_sql1
 
         assertHasCache "select * from ${mv_name1}"
-        assertHasCache mtmv_sql1
         assertHasCache "select * from ${nested_mv_name1}"
         assertHasCache nested_mtmv_sql1
 
@@ -300,7 +301,7 @@ suite("mtmv_with_sql_cache") {
         assertHasCache "select * from ${nested_mv_name1}"
         assertHasCache nested_mtmv_sql1
 
-        sql mtmv_sql1
+        retryUntilHasSqlCache mtmv_sql1
         assertHasCache mtmv_sql1
 
         // base table insert data
@@ -311,7 +312,7 @@ suite("mtmv_with_sql_cache") {
         assertHasCache "select * from ${nested_mv_name1}"
         assertHasCache nested_mtmv_sql1  // nested mtmv no work -> mtmv cache work -> has cache
 
-        sql mtmv_sql1
+        retryUntilHasSqlCache mtmv_sql1
 
         // recreate mtmv to add column
         cur_create_async_partition_mv(dbName, mv_name1, mtmv_sql3, "(id)")
@@ -323,21 +324,21 @@ suite("mtmv_with_sql_cache") {
         assertHasCache "select * from ${nested_mv_name1}"
         assertNoCache nested_mtmv_sql1
 
-        sql "select * from ${mv_name1}"
+        retryUntilHasSqlCache "select * from ${mv_name1}"
         assertHasCache "select * from ${mv_name1}"
 
         sql "REFRESH MATERIALIZED VIEW ${mv_name2} AUTO;"
         waitingMTMVTaskFinishedByMvName(mv_name2)
         sleep(15 * 1000)
         assertNoCache "select * from ${mv_name2}"
-        sql "select * from ${mv_name2}"
+        retryUntilHasSqlCache "select * from ${mv_name2}"
         assertHasCache "select * from ${mv_name2}"
 
-        sql mtmv_sql1
+        retryUntilHasSqlCache mtmv_sql1
         assertHasCache mtmv_sql1
 
-        sql mtmv_sql4
-        sql nested_mtmv_sql1
+        retryUntilHasSqlCache mtmv_sql4
+        retryUntilHasSqlCache nested_mtmv_sql1
         assertHasCache mtmv_sql4
         assertHasCache nested_mtmv_sql1
 
@@ -349,7 +350,7 @@ suite("mtmv_with_sql_cache") {
         assertHasCache "select * from ${nested_mv_name1}"
         assertHasCache nested_mtmv_sql1
 
-        sql mtmv_sql4
+        retryUntilHasSqlCache mtmv_sql4
         assertHasCache mtmv_sql4
 
         sql "REFRESH MATERIALIZED VIEW ${mv_name1} AUTO;"
@@ -360,14 +361,14 @@ suite("mtmv_with_sql_cache") {
         assertHasCache "select * from ${nested_mv_name1}"
         assertNoCache nested_mtmv_sql1
 
-        sql "select * from ${mv_name1}"
-        sql nested_mtmv_sql1
+        retryUntilHasSqlCache "select * from ${mv_name1}"
+        retryUntilHasSqlCache nested_mtmv_sql1
 
         sql "REFRESH MATERIALIZED VIEW ${mv_name4} AUTO;"
         waitingMTMVTaskFinishedByMvName(mv_name4)
         sleep(15 * 1000)
         assertNoCache mtmv_sql4
-        sql mtmv_sql4
+        retryUntilHasSqlCache mtmv_sql4
         assertHasCache mtmv_sql4
 
         assertHasCache "select * from ${mv_name1}"
@@ -381,7 +382,7 @@ suite("mtmv_with_sql_cache") {
         assertHasCache "select * from ${nested_mv_name1}"
         assertHasCache nested_mtmv_sql1
 
-        sql mtmv_sql4
+        retryUntilHasSqlCache mtmv_sql4
         assertHasCache mtmv_sql4
 
         // insert data
