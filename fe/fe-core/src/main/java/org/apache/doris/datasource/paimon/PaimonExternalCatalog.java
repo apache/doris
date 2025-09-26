@@ -180,6 +180,10 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         }
     }
 
+    public Catalog getOriginCatalog() {
+        return catalog;
+    }
+
     public Map<String, String> getPaimonOptionsMap() {
         makeSureInitialized();
         return paimonProperties.getCatalogOptionsMap();
