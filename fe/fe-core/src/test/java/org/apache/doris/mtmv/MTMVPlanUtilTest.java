@@ -78,7 +78,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                         + ")\n"
         );
 
-        String querySql = "select * from T1";
+        String querySql = "select * from test.T1";
         List<ColumnDefinition> actual = MTMVPlanUtil.generateColumnsBySql(querySql, connectContext, null,
                 Sets.newHashSet(), Lists.newArrayList(),
                 Maps.newHashMap());
@@ -95,14 +95,14 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 new ColumnDefinition(Column.ROW_STORE_COL, StringType.INSTANCE, false));
         checkRes(expect, actual);
 
-        querySql = "select T1.id from T1 inner join T2 on T1.id = T2.id";
+        querySql = "select T1.id from test.T1 inner join test.T2 on T1.id = T2.id";
         actual = MTMVPlanUtil.generateColumnsBySql(querySql, connectContext, null,
                 Sets.newHashSet(), Lists.newArrayList(),
                 Maps.newHashMap());
         expect = Lists.newArrayList(new ColumnDefinition("id", BigIntType.INSTANCE, true));
         checkRes(expect, actual);
 
-        querySql = "select id,sum(score) from T1 group by id";
+        querySql = "select id,sum(score) from test.T1 group by id";
         actual = MTMVPlanUtil.generateColumnsBySql(querySql, connectContext, null,
                 Sets.newHashSet(), Lists.newArrayList(),
                 Maps.newHashMap());
@@ -110,7 +110,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 new ColumnDefinition("__sum_1", BigIntType.INSTANCE, true));
         checkRes(expect, actual);
 
-        querySql = "select id,sum(score) from T1 group by id";
+        querySql = "select id,sum(score) from test.T1 group by id";
         actual = MTMVPlanUtil.generateColumnsBySql(querySql, connectContext, null,
                 Sets.newHashSet(), Lists.newArrayList(new SimpleColumnDefinition("id", null),
                         new SimpleColumnDefinition("sum_score", null)),
@@ -119,7 +119,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 new ColumnDefinition("sum_score", BigIntType.INSTANCE, true));
         checkRes(expect, actual);
 
-        querySql = "select * from MTMVPlanUtilTestT1";
+        querySql = "select * from test.MTMVPlanUtilTestT1";
         actual = MTMVPlanUtil.generateColumnsBySql(querySql, connectContext, null,
                 Sets.newHashSet(), Lists.newArrayList(),
                 Maps.newHashMap());
@@ -127,7 +127,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 new ColumnDefinition("score", StringType.INSTANCE, true));
         checkRes(expect, actual);
 
-        querySql = "select score from MTMVPlanUtilTestT1";
+        querySql = "select score from test.MTMVPlanUtilTestT1";
         actual = MTMVPlanUtil.generateColumnsBySql(querySql, connectContext, null,
                 Sets.newHashSet(), Lists.newArrayList(),
                 Maps.newHashMap());
@@ -411,7 +411,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
 
     @Test
     public void testEnsureMTMVQueryAnalyzeFailed() throws Exception {
-        createTable("CREATE TABLE IF NOT EXISTS t_partition (\n"
+        createTable("CREATE TABLE IF NOT EXISTS analyze_faild_t_partition (\n"
                 + "    id bigint not null,\n"
                 + "    score bigint\n"
                 + ")\n"
@@ -423,7 +423,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 + "PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\"\n"
                 + ")\n");
-        createTable("CREATE TABLE IF NOT EXISTS t_not_partition (\n"
+        createTable("CREATE TABLE IF NOT EXISTS analyze_faild_t_not_partition (\n"
                 + "    id bigint not null,\n"
                 + "    score bigint\n"
                 + ")\n"
@@ -432,17 +432,17 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 + "PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\"\n"
                 + ")\n");
-        createView("create view v1 as select * from test.t_partition");
+        createView("create view analyze_faild_v1 as select * from test.analyze_faild_t_partition");
 
-        createMvByNereids("create materialized view mv1 BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+        createMvByNereids("create materialized view analyze_faild_mv1 BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
                 + "        PARTITION BY (score)\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
-                + "        as select * from test.v1;");
-        dropView("drop view v1");
-        createView("create view v1 as select * from test.t_not_partition");
+                + "        as select * from test.analyze_faild_v1;");
+        dropView("drop view analyze_faild_v1");
+        createView("create view analyze_faild_v1 as select * from test.analyze_faild_t_not_partition");
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
-        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv1");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("analyze_faild_mv1");
         JobException exception = Assertions.assertThrows(
                 org.apache.doris.job.exception.JobException.class, () -> {
                     MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, MTMVPlanUtil.createMTMVContext(mtmv));
@@ -476,17 +476,17 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 + "PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\"\n"
                 + ")\n");
-        createView("create view v1 as select * from test.t_partition1");
+        createView("create view t_partition1_v1 as select * from test.t_partition1");
 
-        createMvByNereids("create materialized view mv1 BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+        createMvByNereids("create materialized view t_partition1_mv1 BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
                 + "        PARTITION BY (score)\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
-                + "        as select * from test.v1;");
-        dropView("drop view v1");
-        createView("create view v1 as select * from test.t_partition2");
+                + "        as select * from test.t_partition1_v1;");
+        dropView("drop view t_partition1_v1");
+        createView("create view t_partition1_v1 as select * from test.t_partition2");
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
-        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv1");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("t_partition1_mv1");
         JobException exception = Assertions.assertThrows(
                 org.apache.doris.job.exception.JobException.class, () -> {
                     MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, MTMVPlanUtil.createMTMVContext(mtmv));

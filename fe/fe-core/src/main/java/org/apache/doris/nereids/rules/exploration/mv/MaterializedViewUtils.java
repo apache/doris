@@ -633,10 +633,10 @@ public class MaterializedViewUtils {
                         table.getName()));
                 return null;
             }
-            Set<String> partitionColumnSet;
+            Set<String> partitionColumnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             try {
-                partitionColumnSet = relatedTable.getPartitionColumnNames(
-                        MvccUtil.getSnapshotFromContext(relatedTable));
+                partitionColumnSet.addAll(relatedTable.getPartitionColumnNames(
+                        MvccUtil.getSnapshotFromContext(relatedTable)));
             } catch (DdlException e) {
                 context.addFailReason(e.getMessage());
                 return null;
