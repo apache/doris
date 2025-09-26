@@ -82,4 +82,6 @@ suite("test_tz_streamload2") {
     }
     sql "sync"
     qt_global_offset "select * from ${table1} order by id"
+
+    sql "UNSET GLOBAL VARIABLE time_zone"
 }
