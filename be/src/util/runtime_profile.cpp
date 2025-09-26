@@ -491,6 +491,8 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
     std::lock_guard<std::mutex> l(_counter_map_lock);
 
     if (_counter_map.find(name) != _counter_map.end()) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Failed to add a counter that is duplicate for {}.", name);
         return _counter_map[name];
     }
 
