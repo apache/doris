@@ -96,6 +96,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -108,6 +110,7 @@ import java.util.stream.Collectors;
  * bind an unbound logicalTableSink represent the target table of an insert command
  */
 public class BindSink implements AnalysisRuleFactory {
+    private static final Logger LOG = LogManager.getLogger(BindSink.class);
     public boolean needTruncateStringWhenInsert;
 
     public BindSink() {
@@ -272,6 +275,7 @@ public class BindSink implements AnalysisRuleFactory {
             );
         }
         LegacyExprTranslator exprTranslator = new LegacyExprTranslator(table, targetTableSlots);
+        LOG.info("table {} targetTableSlots: {}", table.getName(), targetTableSlots);
         return boundSink.withChildAndUpdateOutput(fullOutputProject, exprTranslator.createPartitionExprList(),
                 exprTranslator.createSyncMvWhereClause(), targetTableSlots);
     }

@@ -216,10 +216,12 @@ public class NereidsStreamLoadPlanner {
         }
         // 1. create file group
         NereidsDataDescription dataDescription = new NereidsDataDescription(destTable.getName(), taskInfo);
+        LOG.info("yyq dataDescription: {}", dataDescription);
         dataDescription.analyzeWithoutCheckPriv(db.getFullName());
         NereidsBrokerFileGroup fileGroup = new NereidsBrokerFileGroup(dataDescription);
         fileGroup.setWhereExpr(taskInfo.getWhereExpr());
         fileGroup.parse(db, dataDescription);
+        LOG.info("yyq fileGroup: {}", fileGroup);
         // 2. create dummy file status
         TBrokerFileStatus fileStatus = new TBrokerFileStatus();
         if (taskInfo.getFileType() == TFileType.FILE_LOCAL) {
@@ -242,6 +244,7 @@ public class NereidsStreamLoadPlanner {
         LogicalPlan streamLoadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo, dataDescription.getPartitionNames(),
                 context, uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS,
                 partialUpdateNewRowPolicy);
+        LOG.info("yyq streamLoadPlan: {}", streamLoadPlan);
         NereidsLoadPlanInfoCollector planInfoCollector = new NereidsLoadPlanInfoCollector(destTable, taskInfo, loadId,
                 db.getId(), uniquekeyUpdateMode, partialUpdateNewRowPolicy, partialUpdateInputColumns,
                 context.exprMap);

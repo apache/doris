@@ -61,6 +61,8 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -96,6 +98,7 @@ import java.util.TreeSet;
  * It old way of transform will be removed gradually.
  */
 public class NereidsDataDescription {
+    private static final Logger LOG = LogManager.getLogger(NereidsDataDescription.class);
     // function isn't built-in function, hll_hash is not built-in function in hadoop load.
     private static final List<String> HADOOP_SUPPORT_FUNCTION_NAMES = Arrays.asList(
             "strftime",
@@ -800,10 +803,18 @@ public class NereidsDataDescription {
      *      columns from path as (col4, col5)
      *      set (col2=tmp_col2+1, col3=strftime("%Y-%m-%d %H:%M:%S", tmp_col3))
      *
+     *
      * Result:
      *      parsedExprMap = {"col1": null, "tmp_col2": null, "tmp_col3": null, "col4": null, "col5": null,
      *                       "col2": "tmp_col2+1", "col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
      *      columnToHadoopFunction = {"col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
+     *
+     * For streamload, columns are splitted into columns and columnsMappingList.
+     * Example:
+     *      HttpHeader: columns:tmp_col1, tmp_col2, tmp_col3, col1=tmp_col1, col2=tmp_col2, col3=tmp_col3
+     * Result:
+     *      columns: (tmp_col1, tmp_col2, tmp_col3)
+     *      columnsMappingList: (col1=tmp_col1, col2=tmp_col2, col3=tmp_col3)
      */
     private void analyzeColumns() throws AnalysisException {
         if ((fileFieldNames == null || fileFieldNames.isEmpty())
@@ -879,6 +890,7 @@ public class NereidsDataDescription {
                 analyzeColumnToHadoopFunction(column, (Function) rightChild);
             }
         }
+        LOG.info("yyq parsedColumnExprList: {}", parsedColumnExprList);
     }
 
     private void analyzeMultiLoadColumns() throws AnalysisException {

@@ -237,6 +237,7 @@ public class StreamLoadHandler {
                 buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
             }
 
+            LOG.info("yyq streamLoadTask.columnExprDescs: {}", streamLoadTask.getColumnExprDescs().descs);
             NereidsStreamLoadPlanner planner = null;
             if (Config.isCloudMode()) {
                 planner = new NereidsCloudStreamLoadPlanner(db, table, streamLoadTask, request.getCloudCluster());

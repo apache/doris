@@ -89,6 +89,7 @@ public class NereidsLoadScanProvider {
         context.fileGroup = fileGroupInfo.getFileGroup();
         NereidsLoadTaskInfo.NereidsImportColumnDescs columnDescs = new NereidsLoadTaskInfo.NereidsImportColumnDescs();
         columnDescs.descs = context.fileGroup.getColumnExprList();
+        LOG.info("yyq columnDescs: {}", columnDescs.descs);
         handleDeleteCondition(columnDescs.descs, context.fileGroup);
         handleSequenceColumn(columnDescs.descs, context.fileGroup);
         fillContextExprMap(columnDescs.descs, context);
@@ -144,6 +145,8 @@ public class NereidsLoadScanProvider {
         Table tbl = fileGroupInfo.getTargetTable();
 
         // rewrite column list
+        // TODO: add an example for this rewrite
+        // handle col1, col1 = str_to_bitmap(col1)
         List<NereidsImportColumnDesc> columnDescs = new ArrayList<>(columnDescList.size());
         Map<UnboundSlot, Expression> replaceMap = Maps.newHashMap();
         for (NereidsImportColumnDesc desc : columnDescList) {
@@ -346,6 +349,8 @@ public class NereidsLoadScanProvider {
             }
         }
 
+        LOG.info("yyq context.exprMap: {}", context.exprMap);
+
         // create scan SlotReferences
         boolean hasColumnFromTable = false;
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
@@ -400,6 +405,8 @@ public class NereidsLoadScanProvider {
                 );
             }
         }
+        LOG.info("yyq context.scanSlots: {}", context.scanSlots);
+        LOG.info("yyq context.exprMap: {}", context.exprMap);
         if (!hasColumnFromTable) {
             // we should add at least one column for target table to make bindSink happy
             Column column = null;

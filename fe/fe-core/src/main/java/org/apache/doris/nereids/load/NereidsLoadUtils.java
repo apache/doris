@@ -64,6 +64,8 @@ import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -76,6 +78,8 @@ import java.util.TreeSet;
  * NereidsLoadUtils
  */
 public class NereidsLoadUtils {
+    private static final Logger LOG = LogManager.getLogger(NereidsLoadUtils.class);
+
     /**
      * parse a expression list as 'select expr1, expr2,... exprn' into a nereids Expression List
      */
@@ -134,6 +138,8 @@ public class NereidsLoadUtils {
         LogicalPlan currentRootPlan = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
                 Lists.newArrayList(context.scanSlots));
 
+        LOG.info("yyq currentRootPlan: {}", currentRootPlan);
+
         // add prefilter if it exists
         if (context.fileGroup.getPrecedingFilterExpr() != null) {
             // build phase don't extract AND, because Set(conjunctions) will wrong remove duplicated
@@ -181,8 +187,13 @@ public class NereidsLoadUtils {
             }
         }
 
+        LOG.info("yyq table {} castScanProjects: {}", targetTable.getName(), castScanProjects);
+
         // create a project to case all scan slots to correct data types
         currentRootPlan = new LogicalProject(castScanProjects, currentRootPlan);
+
+        LOG.info("yyq currentRootPlan: {}", currentRootPlan);
+        LOG.info("yyq projects: {}", projects);
 
         // create a load project to do calculate mapping exprs
         if (!projects.isEmpty()) {
@@ -231,12 +242,17 @@ public class NereidsLoadUtils {
                     new MergeProjects(),
                     new ExpressionNormalization())
             )).execute();
+            LOG.info("yyq cascadesContext.getRewritePlan(): {}", cascadesContext.getRewritePlan());
             Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext, ImmutableList.of()).execute();
         } catch (Exception exception) {
             throw new UserException(exception.getMessage());
         } finally {
             ctx.getSessionVariable().setDebugSkipFoldConstant(false);
         }
+
+        LOG.info("yyq cascadesContext.printPlanProcess()");
+        cascadesContext.printPlanProcess();
+        LOG.info("yyq cascadesContext.getRewritePlan(): {}", cascadesContext.getRewritePlan());
 
         return (LogicalPlan) cascadesContext.getRewritePlan();
     }
