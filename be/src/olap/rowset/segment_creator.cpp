@@ -256,6 +256,8 @@ Status SegmentFlusher::_flush_segment_writer(
     segstat.data_size = segment_file_size;
     segstat.index_size = inverted_index_file_size;
     segstat.key_bounds = key_bounds;
+    segstat.common_index_size = common_index_size;
+    segstat.column_data_page_stats = writer->get_column_data_page_stats();
 
     writer.reset();
 
@@ -271,6 +273,7 @@ Status SegmentFlusher::_flush_segment_writer(
               << ", rowset_id:" << _context.rowset_id
               << ", data size:" << PrettyPrinter::print_bytes(segstat.data_size)
               << ", index size:" << PrettyPrinter::print_bytes(segstat.index_size)
+              << ", common index size:" << PrettyPrinter::print_bytes(segstat.common_index_size)
               << ", timing breakdown: total=" << total_timer.elapsed_time_milliseconds() << "ms"
               << ", finalize=" << finalize_timer.elapsed_time_milliseconds() << "ms"
               << ", inverted_index=" << inverted_index_timer.elapsed_time_milliseconds() << "ms"
@@ -330,6 +333,7 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     segstat.row_num = row_num;
     segstat.data_size = segment_file_size;
     segstat.index_size = inverted_index_file_size;
+    segstat.common_index_size = common_index_size;
     segstat.key_bounds = key_bounds;
 
     writer.reset();
@@ -346,6 +350,7 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
               << ", rowset_id:" << _context.rowset_id
               << ", data size:" << PrettyPrinter::print_bytes(segstat.data_size)
               << ", index size:" << PrettyPrinter::print_bytes(segstat.index_size)
+              << ", common index size:" << PrettyPrinter::print_bytes(segstat.common_index_size)
               << ", timing breakdown: total=" << total_timer.elapsed_time_milliseconds() << "ms"
               << ", finalize=" << finalize_timer.elapsed_time_milliseconds() << "ms"
               << ", inverted_index=" << inverted_index_timer.elapsed_time_milliseconds() << "ms"

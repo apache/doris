@@ -107,6 +107,8 @@ public enum SchemaTableType {
             TSchemaTableType.SCH_CLUSTER_SNAPSHOT_PROPERTIES),
     SCH_BLACKHOLE("BLACKHOLE", "BLACKHOLE",
             TSchemaTableType.SCH_BLACKHOLE);
+    SCH_COLUMN_DATA_SIZES("COLUMN_DATA_SIZES", "COLUMN_DATA_SIZES",
+            TSchemaTableType.SCH_COLUMN_DATA_SIZES);
 
     private static final String dbName = "INFORMATION_SCHEMA";
 

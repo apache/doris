@@ -253,6 +253,7 @@ BaseBetaRowsetWriter::BaseBetaRowsetWriter()
           _num_rows_written(0),
           _total_data_size(0),
           _total_index_size(0),
+          _common_index_size(0),
           _segment_creator(_context, _seg_files, _idx_files) {}
 
 BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
@@ -695,6 +696,7 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     }
     _total_data_size += data_size;
     _total_index_size += index_size;
+    _common_index_size += rowset_meta->common_index_size();
     _num_segment += cast_set<int32_t>(rowset->num_segments());
     // append key_bounds to current rowset
     RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
@@ -876,6 +878,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     int64_t num_rows_written = 0;
     int64_t total_data_size = 0;
     int64_t total_index_size = 0;
+    int64_t total_common_index_size = 0;
     std::vector<KeyBoundsPB> segments_encoded_key_bounds;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
@@ -883,7 +886,16 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
             num_rows_written += itr.second.row_num;
             total_data_size += itr.second.data_size;
             total_index_size += itr.second.index_size;
+            total_common_index_size += itr.second.common_index_size;
             segments_encoded_key_bounds.push_back(itr.second.key_bounds);
+        }
+    }
+
+    // Add aggregated column data page statistics to rowset meta
+    {
+        std::lock_guard<std::mutex> lock(_column_data_page_stats_mutex);
+        for (const auto& col_stat : _column_data_page_stats_map) {
+            rowset_meta->add_column_data_page_stats(col_stat.second);
         }
     }
     for (auto& key_bound : _segments_encoded_key_bounds) {
@@ -919,6 +931,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     rowset_meta->set_total_disk_size(total_data_size + _total_data_size + total_index_size +
                                      _total_index_size);
     rowset_meta->set_data_disk_size(total_data_size + _total_data_size);
+    rowset_meta->set_common_index_size(total_common_index_size + _common_index_size);
     rowset_meta->set_index_disk_size(total_index_size + _total_index_size);
     rowset_meta->set_segments_key_bounds(segments_encoded_key_bounds);
     // TODO write zonemap to meta
@@ -1072,6 +1085,23 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
             _segment_num_rows.resize(segment_id + 1);
         }
         _segment_num_rows[segid_offset] = cast_set<uint32_t>(segstat.row_num);
+    }
+
+    // Aggregate column data page statistics
+    {
+        std::lock_guard<std::mutex> lock(_column_data_page_stats_mutex);
+        for (const auto& col_stat : segstat.column_data_page_stats) {
+            int32_t column_id = col_stat.column_unique_id();
+            auto it = _column_data_page_stats_map.find(column_id);
+            if (it == _column_data_page_stats_map.end()) {
+                // First time seeing this column
+                _column_data_page_stats_map[column_id] = col_stat;
+            } else {
+                // Aggregate the data page size
+                int64_t new_size = it->second.data_page_size() + col_stat.data_page_size();
+                it->second.set_data_page_size(new_size);
+            }
+        }
     }
     VLOG_DEBUG << "_segid_statistics_map add new record. segment_id:" << segment_id
                << " row_num:" << segstat.row_num << " data_size:" << segstat.data_size

@@ -129,6 +129,10 @@ message RowsetMetaPB {
     optional string source_rowset_id = 54;
     // indicate that whether the segments key bounds is truncated
     optional bool segments_key_bounds_truncated = 55;
+    // calculated sum(segment.common_index_size)
+    optional int64 common_index_size = 56;
+    // aggregated column data page statistics across all segments
+    repeated ColumnDataPageStatsPB column_data_page_stats = 57;
 
     // For cloud
     // for data recycling
@@ -226,6 +230,10 @@ message RowsetMetaCloudPB {
     optional string source_rowset_id = 54;
     // indicate that whether the segments key bounds is truncated
     optional bool segments_key_bounds_truncated = 55;
+    // calculated sum(segment.common_index_size)
+    optional int64 common_index_size = 56;
+    // aggregated column data page statistics across all segments
+    repeated ColumnDataPageStatsPB column_data_page_stats = 57;
 
     // cloud
     // the field is a vector, rename it
@@ -251,11 +259,21 @@ message RowsetMetaCloudPB {
     optional string reference_instance_id = 110;  // For cluster snapshot
 }
 
+message ColumnDataPageStatsPB {
+    optional int32 column_unique_id = 1;
+    optional string column_name = 2;
+    optional string column_type = 3;
+    optional int64 data_page_size = 4;
+}
+
 message SegmentStatisticsPB {
     optional int64 row_num = 1;
     optional int64 data_size = 2;
     optional int64 index_size = 3;
     optional KeyBoundsPB key_bounds = 4;
+    optional int64 common_index_size = 5;
+    // Column-specific data page sizes for this segment
+    repeated ColumnDataPageStatsPB column_data_page_stats = 6;
 }
 
 // kv value for reclaiming remote rowset

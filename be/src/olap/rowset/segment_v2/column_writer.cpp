@@ -615,6 +615,7 @@ Status ScalarColumnWriter::finish() {
 }
 
 Status ScalarColumnWriter::write_data() {
+    auto offset = _file_writer->bytes_appended();
     for (auto& page : _pages) {
         RETURN_IF_ERROR(_write_data_page(page.get()));
     }
@@ -635,6 +636,7 @@ Status ScalarColumnWriter::write_data() {
                 {dict_body.slice()}, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
     }
+    _data_page_size = _file_writer->bytes_appended() - offset;
     _page_builder.reset();
     return Status::OK();
 }
@@ -1250,6 +1252,11 @@ Status VariantColumnWriter::write_inverted_index() {
 Status VariantColumnWriter::write_bloom_filter_index() {
     return _impl->write_bloom_filter_index();
 }
+
+uint64_t VariantColumnWriter::get_data_page_size() const {
+    return 0; // TODO
+}
+
 Status VariantColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
                                             size_t num_rows) {
     return _impl->append_nullable(null_map, ptr, num_rows);

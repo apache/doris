@@ -423,6 +423,7 @@ public class SchemaTable extends Table {
                             .column("END_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("INDEX_DISK_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("DATA_DISK_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("COMMON_INDEX_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("CREATION_TIME", ScalarType.createType(PrimitiveType.DATETIME))
                             .column("NEWEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.DATETIME))
                             .column("SCHEMA_VERSION", ScalarType.createType(PrimitiveType.INT))
@@ -632,6 +633,18 @@ public class SchemaTable extends Table {
                                     .column("AUTH_TIME", ScalarType.createType(PrimitiveType.DATETIME))
                                     .column("REF_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REFRESH_INTERVAL_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build())
+            )
+            .put("column_data_sizes",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "column_data_sizes", TableType.SCHEMA,
+                            builder().column("BACKEND_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TABLE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("ROWSET_ID", ScalarType.createVarchar(64))
+                                    .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("COLUMN_UNIQUE_ID", ScalarType.createType(PrimitiveType.INT))
+                                    .column("COLUMN_NAME", ScalarType.createVarchar(64))
+                                    .column("COLUMN_TYPE", ScalarType.createVarchar(64))
+                                    .column("DATA_PAGE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
             .put("routine_load_jobs",
