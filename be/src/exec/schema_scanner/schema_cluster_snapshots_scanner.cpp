@@ -253,10 +253,14 @@ Status SchemaClusterSnapshotsScanner::_fill_block_impl(vectorized::Block* block)
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, datas));
     }
-    // TODO count
+    // count
     {
-        std::vector<void*> null_datas(row_num, nullptr);
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, null_datas));
+        std::vector<int32_t> srcs(row_num);
+        for (int i = 0; i < row_num; ++i) {
+            srcs[i] = _snapshots[i].derived_instance_ids_size();
+            datas[i] = srcs.data() + i;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));
     }
     return Status::OK();
 }
