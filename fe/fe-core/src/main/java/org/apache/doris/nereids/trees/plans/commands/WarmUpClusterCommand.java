@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -120,17 +121,46 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
         handleWarmUp(ctx, executor);
     }
 
+    private void checkWarmupCgs(CloudSystemInfoService cloudSys) throws AnalysisException {
+        if (!Strings.isNullOrEmpty(srcCluster)) {
+            ComputeGroup srcCg = cloudSys.getComputeGroupByName(srcCluster);
+            if (srcCg != null && srcCg.isVirtual()) {
+                throw new AnalysisException("The srcClusterName " + srcCluster
+                    + " is a virtual compute group, not support");
+            }
+        }
+
+        if (!Strings.isNullOrEmpty(dstCluster)) {
+            ComputeGroup dstCg = cloudSys.getComputeGroupByName(dstCluster);
+            if (dstCg != null && dstCg.isVirtual()) {
+                throw new AnalysisException("The dstClusterName " + dstCluster
+                    + " is a virtual compute group, not support");
+            }
+        }
+
+        if (!Strings.isNullOrEmpty(srcCluster) && !Strings.isNullOrEmpty(dstCluster)) {
+            String srcMayOwnedVcg = cloudSys.ownedByVirtualComputeGroup(srcCluster);
+            String dstMayOwnedVcg = cloudSys.ownedByVirtualComputeGroup(srcCluster);
+            if (srcMayOwnedVcg != null && srcMayOwnedVcg.equals(dstMayOwnedVcg)) {
+                throw new AnalysisException("The srcClusterName " + srcCluster + " dstClusterName " + dstCluster
+                    + " is owned by virtual compute group " + srcMayOwnedVcg + " not support");
+            }
+        }
+    }
+
     /**
      * validate
      */
     public void validate(ConnectContext connectContext) throws UserException {
         if (!Config.isCloudMode()) {
-            throw new UserException("The sql is illegal in disk mode ");
+            throw new UserException("The sql is just support in cloud mode");
         }
 
-        if (!((CloudSystemInfoService) Env.getCurrentSystemInfo()).containClusterName(dstCluster)) {
+        CloudSystemInfoService cloudSys = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
+        if (!cloudSys.containClusterName(dstCluster)) {
             throw new AnalysisException("The dstClusterName " + dstCluster + " doesn't exist");
         }
+        checkWarmupCgs(cloudSys);
 
         if (!isWarmUpWithTable
                 && !((CloudSystemInfoService) Env.getCurrentSystemInfo()).containClusterName(srcCluster)) {
