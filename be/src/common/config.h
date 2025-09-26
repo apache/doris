@@ -1654,6 +1654,8 @@ DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 
 DECLARE_mDouble(compression_min_space_saving);
 
+DECLARE_Bool(use_plain_encoding);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

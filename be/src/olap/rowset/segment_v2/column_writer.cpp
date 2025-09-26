@@ -448,6 +448,11 @@ Status ScalarColumnWriter::init() {
     // should store more concrete encoding type instead of DEFAULT_ENCODING
     // because the default encoding of a data type can be changed in the future
     DCHECK_NE(_opts.meta->encoding(), DEFAULT_ENCODING);
+    LOG_INFO(
+            "[verbose] scalar column writer init, column_id={}, type={}, encoding={}, "
+            "is_nullable={}",
+            _opts.meta->column_id(), get_field()->type(),
+            EncodingTypePB_Name(_opts.meta->encoding()), _opts.meta->is_nullable());
     _page_builder.reset(page_builder);
     // create ordinal builder
     _ordinal_index_builder = std::make_unique<OrdinalIndexWriter>();
