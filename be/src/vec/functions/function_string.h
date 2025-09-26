@@ -55,6 +55,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_varbinary.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/int_exp.h"
@@ -2353,17 +2354,14 @@ public:
 
         int argument_size = arguments.size();
         std::vector<ColumnPtr> argument_columns(argument_size);
-
-        std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
-        std::vector<const ColumnString::Chars*> chars_list(argument_size);
+        std::vector<uint8_t> is_const(argument_size, 0);
 
         for (int i = 0; i < argument_size; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (const auto* col_str = assert_cast<const ColumnString*>(argument_columns[i].get())) {
-                offsets_list[i] = &col_str->get_offsets();
-                chars_list[i] = &col_str->get_chars();
-            } else {
+            std::tie(argument_columns[i], is_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+
+            if (!(argument_columns[i]->is_column_string() ||
+                  dynamic_cast<const ColumnVarbinary*>(argument_columns[i].get()))) {
                 return Status::RuntimeError("Illegal column {} of argument of function {}",
                                             block.get_by_position(arguments[0]).column->get_name(),
                                             get_name());
@@ -2378,15 +2376,13 @@ public:
         for (size_t i = 0; i < input_rows_count; ++i) {
             using ObjectData = typename Impl::ObjectData;
             ObjectData digest;
-            for (size_t j = 0; j < offsets_list.size(); ++j) {
-                const auto& current_offsets = *offsets_list[j];
-                const auto& current_chars = *chars_list[j];
-
-                int size = current_offsets[i] - current_offsets[i - 1];
-                if (size < 1) {
+            for (size_t j = 0; j < argument_columns.size(); ++j) {
+                StringRef data_ref = is_const[j] ? argument_columns[j]->get_data_at(0)
+                                                 : argument_columns[j]->get_data_at(i);
+                if (data_ref.size < 1) {
                     continue;
                 }
-                digest.update(&current_chars[current_offsets[i - 1]], size);
+                digest.update(data_ref.data, data_ref.size);
             }
             digest.digest();
 
