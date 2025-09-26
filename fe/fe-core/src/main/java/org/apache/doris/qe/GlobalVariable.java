@@ -249,7 +249,7 @@ public final class GlobalVariable {
                             + "Currently, this only applies to mapping databases in "
                             + "External Catalogs and accessing them. "
                             + "Creation is not supported."})
-    public static boolean enableNestedNamespace = false;
+    public static boolean enableNestedNamespace = true;
 
     // Don't allow creating instance.
     private GlobalVariable() {
