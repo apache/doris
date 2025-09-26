@@ -85,7 +85,7 @@ suite("test_view_hive_mtmv", "p0,external,hive,external_docker,external_docker_h
             sql """
                     REFRESH MATERIALIZED VIEW ${mvName} complete
                 """
-            waitingMTMVTaskFinished(jobName)
+            waitingMTMVTaskFinishedByMvName(mvName)
             order_qt_refresh_complete_rebuild "SELECT * FROM ${mvName} order by id"
 
             sql """drop materialized view if exists ${mvName};"""
