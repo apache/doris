@@ -56,7 +56,6 @@ private:
 };
 
 // Note: the cache_lock is scoped, so do not add do...while(0) here.
-#ifdef ENABLE_CACHE_LOCK_DEBUG
 #define SCOPED_CACHE_LOCK(MUTEX, cache)                                                           \
     std::chrono::time_point<std::chrono::steady_clock> start_time =                               \
             std::chrono::steady_clock::now();                                                     \
@@ -71,9 +70,6 @@ private:
                      << get_stack_trace() << std::endl;                                           \
     }                                                                                             \
     LockScopedTimer cache_lock_timer;
-#else
-#define SCOPED_CACHE_LOCK(MUTEX, cache) std::lock_guard cache_lock(MUTEX);
-#endif
 
 class FSFileCacheStorage;
 
