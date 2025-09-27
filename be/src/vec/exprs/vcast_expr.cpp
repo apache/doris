@@ -105,7 +105,7 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
     DCHECK(_open_finished || _getting_const_col)
             << _open_finished << _getting_const_col << _expr_name;
     if (is_const_and_have_executed()) { // const have executed in open function
-        return get_result_from_const(block, _expr_name, result_column_id);
+        return CEHCK_EXPR_EXECTUED(get_result_from_const(block, _expr_name, result_column_id));
     }
     // for each child call execute
     int column_id = 0;
@@ -119,7 +119,7 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
                                        {static_cast<uint32_t>(column_id)},
                                        num_columns_without_result, block->rows()));
     *result_column_id = num_columns_without_result;
-    return Status::OK();
+    return CEHCK_EXPR_EXECTUED(Status::OK());
 }
 
 const std::string& VCastExpr::expr_name() const {

@@ -98,7 +98,7 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
                        expr_name()});
         *result_column_id = block->columns() - 1;
         COUNTER_UPDATE(_always_true_filter_rows, size);
-        return Status::OK();
+        return CEHCK_EXPR_EXECTUED(Status::OK());
     } else {
         if (_getting_const_col) {
             _impl->set_getting_const_col(true);
@@ -117,7 +117,7 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
             change_null_to_true(result_column.column, block->get_by_position(args[0]).column);
         }
 
-        return Status::OK();
+        return CEHCK_EXPR_EXECTUED(Status::OK());
     }
 }
 

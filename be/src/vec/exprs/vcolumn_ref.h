@@ -60,7 +60,7 @@ public:
     Status execute(VExprContext* context, Block* block, int* result_column_id) override {
         DCHECK(_open_finished || _getting_const_col);
         *result_column_id = _column_id + _gap;
-        return Status::OK();
+        return CEHCK_EXPR_EXECTUED(Status::OK());
     }
 
     bool is_constant() const override { return false; }

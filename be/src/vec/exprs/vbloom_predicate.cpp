@@ -90,7 +90,7 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
     _filter->find_fixed_len(argument_column, ptr);
     block->insert({std::move(res_data_column), _data_type, EXPR_NAME});
     *result_column_id = num_columns_without_result;
-    return Status::OK();
+    return CEHCK_EXPR_EXECTUED(Status::OK());
 }
 
 const std::string& VBloomPredicate::expr_name() const {
