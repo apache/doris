@@ -49,6 +49,9 @@ public class VariantType extends ScalarType {
     @SerializedName(value = "variantMaxSparseColumnStatisticsSize")
     private int variantMaxSparseColumnStatisticsSize = 10000;
 
+    @SerializedName(value = "variantSparseBucketNum")
+    private int variantSparseBucketNum = 32;
+
     private Map<String, String> properties = Maps.newHashMap();
 
     public VariantType() {
@@ -86,7 +89,8 @@ public class VariantType extends ScalarType {
 
     public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
                                                         boolean enableTypedPathsToSparse,
-                                                        int variantMaxSparseColumnStatisticsSize) {
+                                                        int variantMaxSparseColumnStatisticsSize,
+                                                        int variantSparseBucketNum) {
         super(PrimitiveType.VARIANT);
         Preconditions.checkNotNull(fields);
         this.predefinedFields = fields;
@@ -96,6 +100,7 @@ public class VariantType extends ScalarType {
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.enableTypedPathsToSparse = enableTypedPathsToSparse;
         this.variantMaxSparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize;
+        this.variantSparseBucketNum = variantSparseBucketNum;
     }
 
     @Override
@@ -135,6 +140,11 @@ public class VariantType extends ScalarType {
             sb.append(",");
             sb.append("\"variant_max_sparse_column_statistics_size\" = \"")
                                     .append(String.valueOf(variantMaxSparseColumnStatisticsSize)).append("\"");
+        }
+        if (variantSparseBucketNum != 0 && variantSparseBucketNum != 1) {
+            sb.append(",");
+            sb.append("\"variant_sparse_bucket_num\" = \"")
+                                    .append(String.valueOf(variantSparseBucketNum)).append("\"");
         }
         sb.append(")>");
         return sb.toString();
@@ -208,5 +218,13 @@ public class VariantType extends ScalarType {
 
     public void setVariantMaxSparseColumnStatisticsSize(int variantMaxSparseColumnStatisticsSize) {
         this.variantMaxSparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize;
+    }
+
+    public int getVariantSparseBucketNum() {
+        return variantSparseBucketNum;
+    }
+
+    public void setVariantSparseBucketNum(int variantSparseBucketNum) {
+        this.variantSparseBucketNum = variantSparseBucketNum;
     }
 }

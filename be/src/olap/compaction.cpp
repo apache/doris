@@ -360,6 +360,10 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     rowset_meta->set_segments_key_bounds(segment_key_bounds);
 
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
+
+    // 2. check variant column path stats
+    RETURN_IF_ERROR(vectorized::schema_util::VariantCompactionUtil::check_path_stats(
+            _input_rowsets, _output_rowset, _tablet));
     return Status::OK();
 }
 

@@ -316,52 +316,154 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
 Status VariantColumnWriterImpl::_process_sparse_column(
         vectorized::ColumnVariant* ptr, vectorized::OlapBlockDataConvertor* converter,
         size_t num_rows, int& column_id) {
-    // create sparse column writer
-    TabletColumn sparse_column = vectorized::schema_util::create_sparse_column(*_tablet_column);
-    ColumnWriterOptions sparse_writer_opts;
-    sparse_writer_opts.meta = _opts.footer->add_columns();
+    // decide serialization mode & bucket num
+    // prefer per-column bucket num configured on FE schema
+    int bucket_num = std::max(1, _tablet_column->variant_sparse_bucket_num());
+    if (bucket_num == 1) {
+        // original single sparse column
+        TabletColumn sparse_column = vectorized::schema_util::create_sparse_column(*_tablet_column);
+        ColumnWriterOptions sparse_writer_opts;
+        sparse_writer_opts.meta = _opts.footer->add_columns();
 
-    _init_column_meta(sparse_writer_opts.meta, column_id, sparse_column, _opts.compression_type);
-    RETURN_IF_ERROR(ColumnWriter::create_map_writer(sparse_writer_opts, &sparse_column,
-                                                    _opts.file_writer, &_sparse_column_writer));
-    RETURN_IF_ERROR(_sparse_column_writer->init());
+        _init_column_meta(sparse_writer_opts.meta, column_id, sparse_column,
+                          _opts.compression_type);
+        RETURN_IF_ERROR(ColumnWriter::create_map_writer(sparse_writer_opts, &sparse_column,
+                                                        _opts.file_writer, &_sparse_column_writer));
+        RETURN_IF_ERROR(_sparse_column_writer->init());
 
-    // convert root column data from engine format to storage layer format
-    converter->add_column_data_convertor(sparse_column);
-    DCHECK_EQ(ptr->get_sparse_column()->size(), num_rows);
-    RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
-            {ptr->get_sparse_column(), nullptr, ""}, 0, num_rows, column_id));
-    auto [status, column] = converter->convert_column_data(column_id);
-    if (!status.ok()) {
-        return status;
+        converter->add_column_data_convertor(sparse_column);
+        DCHECK_EQ(ptr->get_sparse_column()->size(), num_rows);
+        RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
+                {ptr->get_sparse_column(), nullptr, ""}, 0, num_rows, column_id));
+        auto [status, column] = converter->convert_column_data(column_id);
+        if (!status.ok()) {
+            return status;
+        }
+        RETURN_IF_ERROR(
+                _sparse_column_writer->append(column->get_nullmap(), column->get_data(), num_rows));
+        converter->clear_source_content(column_id);
+        ++column_id;
+
+        // statistics
+        std::unordered_map<StringRef, size_t> sparse_data_paths_statistics;
+        const auto [sparse_data_paths, _] = ptr->get_sparse_data_paths_and_values();
+        for (size_t i = 0; i != sparse_data_paths->size(); ++i) {
+            auto path = sparse_data_paths->get_data_at(i);
+            if (auto it = sparse_data_paths_statistics.find(path);
+                it != sparse_data_paths_statistics.end()) {
+                ++it->second;
+            } else if (sparse_data_paths_statistics.size() <
+                       _tablet_column->variant_max_sparse_column_statistics_size()) {
+                sparse_data_paths_statistics.emplace(path, 1);
+            }
+        }
+        for (const auto& [path, size] : sparse_data_paths_statistics) {
+            _statistics.sparse_column_non_null_size.emplace(path.to_string(), size);
+        }
+        _statistics.to_pb(sparse_writer_opts.meta->mutable_variant_statistics());
+        sparse_writer_opts.meta->set_num_rows(num_rows);
+        return Status::OK();
     }
-    RETURN_IF_ERROR(
-            _sparse_column_writer->append(column->get_nullmap(), column->get_data(), num_rows));
-    converter->clear_source_content(column_id);
-    ++column_id;
 
-    // get stastics
-    // todo: reuse the statics from collected stastics from compaction stage
-    std::unordered_map<StringRef, size_t> sparse_data_paths_statistics;
-    const auto [sparse_data_paths, _] = ptr->get_sparse_data_paths_and_values();
-    for (size_t i = 0; i != sparse_data_paths->size(); ++i) {
-        auto path = sparse_data_paths->get_data_at(i);
-        if (auto it = sparse_data_paths_statistics.find(path);
-            it != sparse_data_paths_statistics.end()) {
-            ++it->second;
-        } else if (sparse_data_paths_statistics.size() <
-                   _tablet_column->variant_max_sparse_column_statistics_size()) {
-            sparse_data_paths_statistics.emplace(path, 1);
+    // MAP_WITH_BUCKETS: split serialized_sparse_column to N map buckets and write N map columns
+    // 1) Prepare N map writers
+    _sparse_bucket_writers.clear();
+    _sparse_bucket_opts.clear();
+    _sparse_bucket_writers.resize(bucket_num);
+    _sparse_bucket_opts.resize(bucket_num);
+    for (int b = 0; b < bucket_num; ++b) {
+        TabletColumn bucket_col =
+                vectorized::schema_util::create_sparse_bucket_column(*_tablet_column, b);
+        _sparse_bucket_opts[b] = _opts; // inherit
+        _sparse_bucket_opts[b].meta = _opts.footer->add_columns();
+        _init_column_meta(_sparse_bucket_opts[b].meta, column_id, bucket_col,
+                          _opts.compression_type);
+        RETURN_IF_ERROR(ColumnWriter::create_map_writer(_sparse_bucket_opts[b], &bucket_col,
+                                                        _opts.file_writer,
+                                                        &_sparse_bucket_writers[b]));
+        RETURN_IF_ERROR(_sparse_bucket_writers[b]->init());
+        ++column_id;
+    }
+
+    // 2) Build N temporary Map columns in engine format and convert append
+    //    We reuse converter path by composing N ColumnMap from original serialized_sparse_column
+    const auto [paths_col, values_col] = ptr->get_sparse_data_paths_and_values();
+    const auto& offsets = ptr->serialized_sparse_column_offsets();
+
+    // build N Map(String,String) columns: keys, values, offsets
+    std::vector<vectorized::MutableColumnPtr> tmp_maps(bucket_num);
+    for (int b = 0; b < bucket_num; ++b) {
+        tmp_maps[b] = vectorized::ColumnMap::create(
+                vectorized::ColumnString::create(), vectorized::ColumnString::create(),
+                vectorized::ColumnArray::ColumnOffsets::create());
+    }
+
+    // reserve offsets for each bucket
+    for (int b = 0; b < bucket_num; ++b) {
+        auto& m = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]);
+        m.get_offsets().reserve(num_rows);
+    }
+
+    for (ssize_t row = 0; row < static_cast<ssize_t>(num_rows); ++row) {
+        size_t start = offsets[row - 1];
+        size_t end = offsets[row];
+        // // per-bucket row start size snapshot
+        // std::vector<size_t> bucket_key_sizes(bucket_num);
+        // for (int b = 0; b < bucket_num; ++b) {
+        //     bucket_key_sizes[b] = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]).get_keys().size();
+        // }
+        for (size_t i = start; i < end; ++i) {
+            StringRef path = paths_col->get_data_at(i);
+            uint32_t b = vectorized::schema_util::variant_sparse_bucket_of(path, bucket_num);
+            auto& map_col = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]);
+            map_col.get_keys_ptr()->assume_mutable()->insert_from(*paths_col, i);
+            map_col.get_values_ptr()->assume_mutable()->insert_from(*values_col, i);
+        }
+        // push new offsets per bucket
+        for (int b = 0; b < bucket_num; ++b) {
+            auto& map_col = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]);
+            map_col.get_offsets().push_back(map_col.get_keys().size());
         }
     }
 
-    // assign to _statistics.sparse_column_non_null_size
-    for (const auto& [path, size] : sparse_data_paths_statistics) {
-        _statistics.sparse_column_non_null_size.emplace(path.to_string(), size);
+    // 3) Convert and append each bucket map
+    for (int b = 0; b < bucket_num; ++b) {
+        TabletColumn bucket_col =
+                vectorized::schema_util::create_sparse_bucket_column(*_tablet_column, b);
+        converter->add_column_data_convertor(bucket_col);
+        int this_col_id = (column_id - bucket_num) + b; // align to writer column id assigned above
+        RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
+                {tmp_maps[b]->get_ptr(), nullptr, ""}, 0, num_rows, this_col_id));
+        auto [st, converted] = converter->convert_column_data(this_col_id);
+        RETURN_IF_ERROR(st);
+        RETURN_IF_ERROR(_sparse_bucket_writers[b]->append(converted->get_nullmap(),
+                                                          converted->get_data(), num_rows));
+        converter->clear_source_content(this_col_id);
+        _sparse_bucket_opts[b].meta->set_num_rows(num_rows);
     }
-    // set statistics info
-    _statistics.to_pb(sparse_writer_opts.meta->mutable_variant_statistics());
-    sparse_writer_opts.meta->set_num_rows(num_rows);
+
+    // 4) statistics per bucket: only record paths that appear in this bucket
+    for (int b = 0; b < bucket_num; ++b) {
+        auto& map_col = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]);
+        const auto& keys = assert_cast<const vectorized::ColumnString&>(map_col.get_keys());
+        std::unordered_map<StringRef, size_t> bucket_path_counts;
+        bucket_path_counts.reserve(1024);
+        size_t limit = _tablet_column->variant_max_sparse_column_statistics_size();
+        for (size_t i = 0; i < keys.size(); ++i) {
+            StringRef k = keys.get_data_at(i);
+            if (auto it = bucket_path_counts.find(k); it != bucket_path_counts.end()) {
+                ++it->second;
+            } else if (bucket_path_counts.size() < limit) {
+                bucket_path_counts.emplace(k, 1);
+            }
+        }
+        segment_v2::VariantStatistics bucket_stats;
+        for (const auto& [k, cnt] : bucket_path_counts) {
+            bucket_stats.sparse_column_non_null_size.emplace(k.to_string(),
+                                                             static_cast<int64_t>(cnt));
+        }
+        bucket_stats.to_pb(_sparse_bucket_opts[b].meta->mutable_variant_statistics());
+    }
     return Status::OK();
 }
 
@@ -466,6 +568,11 @@ Status VariantColumnWriterImpl::finish() {
     if (_sparse_column_writer) {
         RETURN_IF_ERROR(_sparse_column_writer->finish());
     }
+    for (auto& sub_bucket_writer : _sparse_bucket_writers) {
+        if (sub_bucket_writer) {
+            RETURN_IF_ERROR(sub_bucket_writer->finish());
+        }
+    }
     return Status::OK();
 }
 Status VariantColumnWriterImpl::write_data() {
@@ -479,6 +586,11 @@ Status VariantColumnWriterImpl::write_data() {
     if (_sparse_column_writer) {
         RETURN_IF_ERROR(_sparse_column_writer->write_data());
     }
+    for (auto& sub_bucket_writer : _sparse_bucket_writers) {
+        if (sub_bucket_writer) {
+            RETURN_IF_ERROR(sub_bucket_writer->write_data());
+        }
+    }
     return Status::OK();
 }
 Status VariantColumnWriterImpl::write_ordinal_index() {
@@ -490,6 +602,11 @@ Status VariantColumnWriterImpl::write_ordinal_index() {
     }
     if (_sparse_column_writer) {
         RETURN_IF_ERROR(_sparse_column_writer->write_ordinal_index());
+    }
+    for (auto& sub_bucket_writer : _sparse_bucket_writers) {
+        if (sub_bucket_writer) {
+            RETURN_IF_ERROR(sub_bucket_writer->write_ordinal_index());
+        }
     }
     return Status::OK();
 }
