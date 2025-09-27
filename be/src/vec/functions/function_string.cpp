@@ -42,6 +42,7 @@
 #include "vec/functions/function_string_to_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/functions/string_hex_util.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -966,60 +967,11 @@ struct UnHexImplNull {
     static constexpr auto name = "unhex_null";
 };
 
-static constexpr int MAX_STACK_CIPHER_LEN = 1024 * 64;
-
 template <typename Name>
 struct UnHexImpl {
     static constexpr auto name = Name::name;
     using ReturnType = DataTypeString;
     using ColumnType = ColumnString;
-
-    static bool check_and_decode_one(char& c, const char src_c, bool flag) {
-        int k = flag ? 16 : 1;
-        int value = src_c - '0';
-        // 9 = ('9'-'0')
-        if (value >= 0 && value <= 9) {
-            c += value * k;
-            return true;
-        }
-
-        value = src_c - 'A';
-        // 5 = ('F'-'A')
-        if (value >= 0 && value <= 5) {
-            c += (value + 10) * k;
-            return true;
-        }
-
-        value = src_c - 'a';
-        // 5 = ('f'-'a')
-        if (value >= 0 && value <= 5) {
-            c += (value + 10) * k;
-            return true;
-        }
-        // not in ( ['0','9'], ['a','f'], ['A','F'] )
-        return false;
-    }
-
-    static int hex_decode(const char* src_str, ColumnString::Offset src_len, char* dst_str) {
-        // if str length is odd or 0, return empty string like mysql dose.
-        if ((src_len & 1) != 0 or src_len == 0) {
-            return 0;
-        }
-        //check and decode one character at the same time
-        // character in ( ['0','9'], ['a','f'], ['A','F'] ), return 'NULL' like mysql dose.
-        for (auto i = 0, dst_index = 0; i < src_len; i += 2, dst_index++) {
-            char c = 0;
-            // combine two character into dst_str one character
-            bool left_4bits_flag = check_and_decode_one(c, *(src_str + i), true);
-            bool right_4bits_flag = check_and_decode_one(c, *(src_str + i + 1), false);
-
-            if (!left_4bits_flag || !right_4bits_flag) {
-                return 0;
-            }
-            *(dst_str + dst_index) = c;
-        }
-        return src_len / 2;
-    }
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
@@ -1035,17 +987,17 @@ struct UnHexImpl {
                 continue;
             }
 
-            char dst_array[MAX_STACK_CIPHER_LEN];
+            char dst_array[string_hex::MAX_STACK_CIPHER_LEN];
             char* dst = dst_array;
 
             int cipher_len = srclen / 2;
             std::unique_ptr<char[]> dst_uptr;
-            if (cipher_len > MAX_STACK_CIPHER_LEN) {
+            if (cipher_len > string_hex::MAX_STACK_CIPHER_LEN) {
                 dst_uptr.reset(new char[cipher_len]);
                 dst = dst_uptr.get();
             }
 
-            int outlen = hex_decode(source, srclen, dst);
+            int outlen = string_hex::hex_decode(source, srclen, dst);
             StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
         }
 
@@ -1067,17 +1019,17 @@ struct UnHexImpl {
                 continue;
             }
 
-            char dst_array[MAX_STACK_CIPHER_LEN];
+            char dst_array[string_hex::MAX_STACK_CIPHER_LEN];
             char* dst = dst_array;
 
             int cipher_len = srclen / 2;
             std::unique_ptr<char[]> dst_uptr;
-            if (cipher_len > MAX_STACK_CIPHER_LEN) {
+            if (cipher_len > string_hex::MAX_STACK_CIPHER_LEN) {
                 dst_uptr.reset(new char[cipher_len]);
                 dst = dst_uptr.get();
             }
 
-            int outlen = hex_decode(source, srclen, dst);
+            int outlen = string_hex::hex_decode(source, srclen, dst);
             if (outlen == 0) {
                 StringOP::push_null_string(i, dst_data, dst_offsets, *null_map_data);
                 continue;
@@ -1144,12 +1096,12 @@ struct ToBase64Impl {
                 continue;
             }
 
-            char dst_array[MAX_STACK_CIPHER_LEN];
+            char dst_array[string_hex::MAX_STACK_CIPHER_LEN];
             char* dst = dst_array;
 
             int cipher_len = (int)(4.0 * ceil((double)srclen / 3.0));
             std::unique_ptr<char[]> dst_uptr;
-            if (cipher_len > MAX_STACK_CIPHER_LEN) {
+            if (cipher_len > string_hex::MAX_STACK_CIPHER_LEN) {
                 dst_uptr.reset(new char[cipher_len]);
                 dst = dst_uptr.get();
             }
@@ -1187,12 +1139,12 @@ struct FromBase64Impl {
                 continue;
             }
 
-            char dst_array[MAX_STACK_CIPHER_LEN];
+            char dst_array[string_hex::MAX_STACK_CIPHER_LEN];
             char* dst = dst_array;
 
             int cipher_len = srclen;
             std::unique_ptr<char[]> dst_uptr;
-            if (cipher_len > MAX_STACK_CIPHER_LEN) {
+            if (cipher_len > string_hex::MAX_STACK_CIPHER_LEN) {
                 dst_uptr.reset(new char[cipher_len]);
                 dst = dst_uptr.get();
             }
