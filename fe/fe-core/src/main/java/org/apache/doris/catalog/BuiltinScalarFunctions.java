@@ -554,8 +554,7 @@ import java.util.List;
 /**
  * Builtin scalar functions.
  * <p>
- * Note: Please ensure that this class only has some lists and no procedural
- * code.
+ * Note: Please ensure that this class only has some lists and no procedural code.
  * It helps to be clear and concise.
  */
 public class BuiltinScalarFunctions implements FunctionHelper {
