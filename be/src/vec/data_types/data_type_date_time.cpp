@@ -40,14 +40,6 @@ namespace doris::vectorized {
 bool DataTypeDateTime::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
-std::string DataTypeDateTime::to_string(Int64 int_val) const {
-    doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
-
-    char buf[64];
-    value.to_string(buf);
-    // DateTime to_string the end is /0
-    return buf;
-}
 
 void DataTypeDateTime::cast_to_date_time(Int64& x) {
     auto value = binary_cast<Int64, doris::VecDateTimeValue>(x);

@@ -79,9 +79,18 @@ public:
     }
     bool equals(const IDataType& rhs) const override;
 
+#ifdef BE_TEST
     /// TODO: remove this in the future
     using IDataType::to_string;
-    std::string to_string(UInt32 int_val) const;
+    std::string to_string(UInt32 int_val) const {
+        DateV2Value<DateV2ValueType> val =
+                binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
+
+        char buf[64];
+        val.to_string(buf); // DateTime to_string the end is /0
+        return std::string {buf};
+    }
+#endif
 
     MutableColumnPtr create_column() const override;
 
@@ -126,9 +135,18 @@ public:
     bool equals_ignore_precision(const IDataType& rhs) const override {
         return rhs.get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2;
     }
+#ifdef BE_TEST
     /// TODO: remove this in the future
     using IDataType::to_string;
-    std::string to_string(UInt64 int_val) const;
+    std::string to_string(UInt64 int_val) const {
+        DateV2Value<DateTimeV2ValueType> val =
+                binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
+
+        char buf[64];
+        val.to_string(buf, _scale);
+        return buf; // DateTime to_string the end is /0
+    }
+#endif
     using SerDeType = DataTypeDateTimeV2SerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(_scale, nesting_level);

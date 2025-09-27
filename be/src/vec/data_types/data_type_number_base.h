@@ -56,10 +56,11 @@ public:
     static constexpr PrimitiveType PType = T;
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
     using FieldType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+#ifdef BE_TEST
     /// TODO: remove this in the future
     using IDataType::to_string;
     static std::string to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType& value);
-
+#endif
     const std::string get_family_name() const override { return type_to_string(T); }
     PrimitiveType get_primitive_type() const override {
         // Doris does not support uint8 at present, use uint8 as boolean type
