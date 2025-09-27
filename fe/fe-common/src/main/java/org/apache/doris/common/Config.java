@@ -3323,8 +3323,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cloud_min_balance_tablet_num_per_run = 2;
 
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_cloud_warm_up_for_rebalance = true;
+
+    @ConfField(description = {"指定存算分离模式下所有Compute group的扩缩容预热方式",
+        "Specify the scaling and warming methods for all Compute groups in a storage-compute separation mode"},
+            options = {"direct_switch", "warmup_cache", "sync_cache"})
+    public static String cloud_warm_up_for_rebalance_type = "warmup_cache";
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";

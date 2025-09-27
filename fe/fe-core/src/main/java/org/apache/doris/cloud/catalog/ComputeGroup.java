@@ -18,7 +18,10 @@
 package org.apache.doris.cloud.catalog;
 
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.common.DdlException;
 
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import lombok.Getter;
 import lombok.Setter;
@@ -32,6 +35,23 @@ import java.util.Map;
 
 public class ComputeGroup {
     private static final Logger LOG = LogManager.getLogger(ComputeGroup.class);
+
+    public static final String BALANCE_TYPE = "balance_type";
+
+    public static final String BALANCE_WARM_UP_TASK_TIMEOUT = "balance_warm_up_task_timeout";
+
+    private static final ImmutableSet<String> ALL_PROPERTIES_NAME = new ImmutableSet.Builder<String>()
+            .add(BALANCE_TYPE).add(BALANCE_WARM_UP_TASK_TIMEOUT).build();
+
+    private static final Map<String, String> ALL_PROPERTIES_DEFAULT_VALUE_MAP = Maps.newHashMap();
+
+    public static final int DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT = 300;
+    public static final BalanceTypeEnum DEFAULT_COMPUTE_GROUP_BALANCE_ENUM = BalanceTypeEnum.WARMUP_CACHE;
+
+    static {
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(BALANCE_TYPE, BalanceTypeEnum.WARMUP_CACHE.getValue());
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(BALANCE_WARM_UP_TASK_TIMEOUT, "300");
+    }
 
     private enum PolicyTypeEnum {
         ActiveStandby,
@@ -110,6 +130,10 @@ public class ComputeGroup {
     @Setter
     private boolean needRebuildFileCache = false;
 
+    @Getter
+    @Setter
+    private Map<String, String> properties = new LinkedHashMap<>(ALL_PROPERTIES_DEFAULT_VALUE_MAP);
+
     public ComputeGroup(String id, String name, ComputeTypeEnum type) {
         this.id = id;
         this.name = name;
@@ -134,6 +158,88 @@ public class ComputeGroup {
         return policy.getStandbyComputeGroup();
     }
 
+    /**
+     * Validate a single property key-value pair.
+     */
+    private static void validateProperty(String key, String value) throws DdlException {
+        if (value == null || value.isEmpty()) {
+            return;
+        }
+
+        if (!ALL_PROPERTIES_NAME.contains(key)) {
+            throw new DdlException("Property " + key + " is not supported");
+        }
+
+        // Validate specific properties
+        if (BALANCE_TYPE.equals(key)) {
+            if (!BalanceTypeEnum.isValid(value)) {
+                throw new DdlException("Property " + BALANCE_TYPE
+                    + " only support direct_switch or warmup_cache or sync_cache");
+            }
+        } else if (BALANCE_WARM_UP_TASK_TIMEOUT.equals(key)) {
+            try {
+                int timeout = Integer.parseInt(value);
+                if (timeout < 0) {
+                    throw new DdlException("Property " + BALANCE_WARM_UP_TASK_TIMEOUT + " must be positive integer");
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException("Property " + BALANCE_WARM_UP_TASK_TIMEOUT + " must be positive integer");
+            }
+        }
+    }
+
+    public static void checkProperties(Map<String, String> properties) throws DdlException {
+        if (properties == null || properties.isEmpty()) {
+            return;
+        }
+
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            validateProperty(entry.getKey(), entry.getValue());
+        }
+    }
+
+    // set properties, just set in periodic instance status checker
+    public void setProperties(Map<String, String> propertiesInMs) {
+        if (propertiesInMs == null || propertiesInMs.isEmpty()) {
+            return;
+        }
+
+        for (Map.Entry<String, String> entry : propertiesInMs.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
+
+            try {
+                validateProperty(key, value);
+            } catch (DdlException e) {
+                LOG.warn("ignore invalid property. compute group: {}, key: {}, value: {}, error: {}",
+                        name, key, value, e.getMessage());
+                continue;
+            }
+
+            if (value != null && !value.isEmpty()) {
+                properties.put(key, value);
+            }
+        }
+    }
+
+    public BalanceTypeEnum getBalanceType() {
+        String balanceType = properties.get(BALANCE_TYPE);
+        BalanceTypeEnum type = BalanceTypeEnum.fromString(balanceType);
+        if (type == null) {
+            return BalanceTypeEnum.WARMUP_CACHE;
+        }
+        return type;
+    }
+
+    public int getBalanceWarmUpTaskTimeout() {
+        String timeoutStr = properties.get(BALANCE_WARM_UP_TASK_TIMEOUT);
+        try {
+            return Integer.parseInt(timeoutStr);
+        } catch (NumberFormatException e) {
+            return 300;
+        }
+    }
+
     @Override
     public String toString() {
         Map<String, String> showMap = new LinkedHashMap<>();
@@ -143,6 +249,7 @@ public class ComputeGroup {
         showMap.put("unavailableSince", String.valueOf(unavailableSince));
         showMap.put("availableSince", String.valueOf(availableSince));
         showMap.put("policy", policy == null ? "no_policy" : policy.toString());
+        showMap.put("properties", properties.toString());
         Gson gson = new Gson();
         return gson.toJson(showMap);
     }
