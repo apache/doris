@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
@@ -52,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -204,8 +204,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             MaterializationContext materializationContext) {
         List<Plan> rewriteResults = new ArrayList<>();
         StructInfo viewStructInfo = materializationContext.getStructInfo();
-        MatchMode matchMode = decideMatchMode(queryStructInfo.getRelations(), viewStructInfo.getRelations());
-        if (MatchMode.COMPLETE != matchMode) {
+        MatchMode matchMode = decideMatchMode(queryStructInfo.getRelations(), viewStructInfo.getRelations(),
+                cascadesContext);
+        if (MatchMode.COMPLETE != matchMode && MatchMode.QUERY_PARTIAL != matchMode) {
             materializationContext.recordFailReason(queryStructInfo, "Match mode is invalid",
                     () -> String.format("matchMode is %s", matchMode));
             return rewriteResults;
@@ -846,15 +847,15 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      *
      * @see MatchMode
      */
-    private MatchMode decideMatchMode(List<CatalogRelation> queryRelations, List<CatalogRelation> viewRelations) {
-
-        Set<TableIdentifier> queryTables = new HashSet<>();
+    private MatchMode decideMatchMode(List<CatalogRelation> queryRelations, List<CatalogRelation> viewRelations,
+            CascadesContext cascadesContext) {
+        Set<TableId> queryTables = new HashSet<>();
         for (CatalogRelation catalogRelation : queryRelations) {
-            queryTables.add(new TableIdentifier(catalogRelation.getTable()));
+            queryTables.add(cascadesContext.getStatementContext().getTableId(catalogRelation.getTable()));
         }
-        Set<TableIdentifier> viewTables = new HashSet<>();
+        Set<TableId> viewTables = new HashSet<>();
         for (CatalogRelation catalogRelation : viewRelations) {
-            viewTables.add(new TableIdentifier(catalogRelation.getTable()));
+            viewTables.add(cascadesContext.getStatementContext().getTableId(catalogRelation.getTable()));
         }
         if (queryTables.equals(viewTables)) {
             return MatchMode.COMPLETE;
