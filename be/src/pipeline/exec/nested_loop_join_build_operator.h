@@ -46,6 +46,7 @@ public:
 private:
     friend class NestedLoopJoinBuildSinkOperatorX;
 
+    bool _should_build_hash_table = true;
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
     std::shared_ptr<RuntimeFilterProducerHelperCross> _runtime_filter_producer_helper;
 };
@@ -80,6 +81,7 @@ private:
 
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
 
+    bool _use_shared_hash_table = false;
     const bool _is_output_left_side_only;
     RowDescriptor _row_descriptor;
 };
