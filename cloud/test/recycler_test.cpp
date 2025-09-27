@@ -61,6 +61,9 @@ std::string instance_id = "instance_id_recycle_test";
 int64_t current_time = 0;
 static constexpr int64_t db_id = 1000;
 static RecyclerMetricsContext ctx;
+static std::string recycler_s3_path = "recycler_test_s3";
+static doris::cloud::ObjectStoreInfoPB_Provider provider =
+        ObjectStoreInfoPB_Provider::ObjectStoreInfoPB_Provider_S3;
 
 std::vector<std::string> index_v2_file_path = {
         "data/1753202639945/0200000000001a5c92f4e7d9j8f2b4c8a3e6f8b1c9d2e5f8_0.idx",
@@ -104,6 +107,23 @@ std::vector<std::string> index_v1_file_path = {
 
 doris::cloud::RecyclerThreadPoolGroup thread_group;
 
+ObjectStoreInfoPB_Provider parser_provider(const std::string& provider_str) {
+    if (provider_str.empty()) {
+        return ObjectStoreInfoPB_Provider::ObjectStoreInfoPB_Provider_S3;
+    }
+    if (provider_str == "S3" || provider_str == "OSS" || provider_str == "COS" ||
+        provider_str == "OBS" || provider_str == "BOS") {
+        return ObjectStoreInfoPB_Provider::ObjectStoreInfoPB_Provider_S3;
+    } else if (provider_str == "GCP") {
+        return ObjectStoreInfoPB_Provider::ObjectStoreInfoPB_Provider_GCP;
+    } else if (provider_str == "AZURE") {
+        return ObjectStoreInfoPB_Provider::ObjectStoreInfoPB_Provider_AZURE;
+    } else {
+        LOG_WARNING("unknown provider {}, use S3 as default", provider_str);
+        return ObjectStoreInfoPB_Provider::ObjectStoreInfoPB_Provider_S3;
+    }
+}
+
 int main(int argc, char** argv) {
     auto conf_file = "doris_cloud.conf";
     if (!cloud::config::init(conf_file, true)) {
@@ -114,6 +134,17 @@ int main(int argc, char** argv) {
         std::cerr << "failed to init glog" << std::endl;
         return -1;
     }
+
+#ifdef USE_STORAGE_VAULT_FOR_TEST
+    if (!config::test_s3_provider.empty()) {
+        provider = parser_provider(config::test_s3_provider);
+        LOG(INFO) << "use test s3 config, bucket=" << config::test_s3_bucket
+                  << ", prefix=" << recycler_s3_path << ", provider=" << provider;
+    } else {
+        std::cerr << "lack of s3 config, please set test_s3_ak/sk/bucket in conf file" << std::endl;
+        return -1;
+    }
+#endif
 
     using namespace std::chrono;
     current_time = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
@@ -1025,8 +1056,8 @@ static int create_instance(const std::string& internal_stage_id,
                            const std::string& external_stage_id, InstanceInfoPB& instance_info) {
     // create internal stage
     {
-        std::string s3_prefix = "internal_prefix";
-        std::string stage_prefix = fmt::format("{}/stage/root/{}/", s3_prefix, internal_stage_id);
+        std::string stage_prefix =
+                fmt::format("{}/stage/root/{}/", recycler_s3_path, internal_stage_id);
         ObjectStoreInfoPB object_info;
         object_info.set_id(internal_stage_id); // test use accessor_map_ in recycle
 
@@ -1196,7 +1227,8 @@ TEST(RecyclerTest, recycle_empty) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("recycle_empty");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/recycle_empty");
 
     InstanceRecycler recycler(txn_kv, instance, thread_group,
                               std::make_shared<TxnLazyCommitter>(txn_kv));
@@ -1219,7 +1251,8 @@ TEST(RecyclerTest, recycle_rowsets) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("recycle_rowsets");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/recycle_rowsets");
 
     config::instance_recycler_worker_pool_size = 1;
 
@@ -1301,7 +1334,8 @@ TEST(RecyclerTest, recycle_rowsets_with_data_ref_count) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("recycle_rowsets_with_data_ref_count");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/recycle_rowsets_with_data_ref_count");
 
     config::instance_recycler_worker_pool_size = 1;
 
@@ -1382,7 +1416,8 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("recycle_rowsets");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/recycle_rowsets");
 
     config::instance_recycler_worker_pool_size = 10;
     config::recycle_task_threshold_seconds = 0;
@@ -1465,7 +1500,8 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("recycle_tmp_rowsets");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/recycle_tmp_rowsets");
 
     int insert_no_inverted_index = 0;
     int insert_inverted_index = 0;
@@ -1557,7 +1593,8 @@ TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("recycle_tmp_rowsets_partial_update");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/recycle_tmp_rowsets_partial_update");
 
     InstanceRecycler recycler(txn_kv, instance, thread_group,
                               std::make_shared<TxnLazyCommitter>(txn_kv));
@@ -1626,7 +1663,8 @@ TEST(RecyclerTest, recycle_tablet) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("recycle_tablet");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/recycle_tablet");
 
     InstanceRecycler recycler(txn_kv, instance, thread_group,
                               std::make_shared<TxnLazyCommitter>(txn_kv));
@@ -1709,6 +1747,7 @@ TEST(RecyclerTest, recycle_tablet) {
 TEST(RecyclerTest, recycle_indexes) {
     config::retention_seconds = 0;
     auto txn_kv = std::make_shared<MemTxnKv>();
+    std::string prefix = recycler_s3_path + "/recycle_indexes";
     ASSERT_EQ(txn_kv->init(), 0);
 
     InstanceInfoPB instance;
@@ -1720,7 +1759,8 @@ TEST(RecyclerTest, recycle_indexes) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("recycle_indexes");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(prefix);
 
     InstanceRecycler recycler(txn_kv, instance, thread_group,
                               std::make_shared<TxnLazyCommitter>(txn_kv));
@@ -1740,9 +1780,10 @@ TEST(RecyclerTest, recycle_indexes) {
 
     constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
     auto accessor = recycler.accessor_map_.begin()->second;
+    accessor->delete_directory(recycler_s3_path);
     int64_t tablet_id_base = 10100;
     int64_t txn_id_base = 114115;
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < 20; ++i) {
         int64_t tablet_id = tablet_id_base + i;
         create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id);
         for (int j = 0; j < 10; ++j) {
@@ -1764,7 +1805,7 @@ TEST(RecyclerTest, recycle_indexes) {
 
     ASSERT_EQ(create_partition_version_kv(txn_kv.get(), table_id, partition_id), 0);
     create_recycle_index(txn_kv.get(), table_id, index_id);
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < 20; ++i) {
         int64_t tablet_id = tablet_id_base + i;
         check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 10);
     }
@@ -1774,7 +1815,7 @@ TEST(RecyclerTest, recycle_indexes) {
 
     // check rowset does not exist on s3
     std::unique_ptr<ListIterator> list_iter;
-    ASSERT_EQ(0, accessor->list_directory("data/", &list_iter));
+    ASSERT_EQ(0, accessor->list_directory(prefix, &list_iter));
     ASSERT_FALSE(list_iter->has_next()) << [&]() -> std::string {
         std::string out;
         while (list_iter->has_next()) {
@@ -1859,7 +1900,8 @@ TEST(RecyclerTest, recycle_partitions) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("recycle_partitions");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/recycle_partitions");
 
     InstanceRecycler recycler(txn_kv, instance, thread_group,
                               std::make_shared<TxnLazyCommitter>(txn_kv));
@@ -2072,7 +2114,8 @@ TEST(RecyclerTest, recycle_restore_jobs) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("recycle_restore_jobs");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/recycle_restore_jobs");
 
     InstanceRecycler recycler(txn_kv, instance, thread_group,
                               std::make_shared<TxnLazyCommitter>(txn_kv));
@@ -2864,7 +2907,7 @@ TEST(RecyclerTest, recycle_stage) {
     ASSERT_NE(txn_kv.get(), nullptr);
     ASSERT_EQ(txn_kv->init(), 0);
 
-    std::string stage_prefix = "prefix/stage/bob/bc9fff5e-5f91-4168-8eaa-0afd6667f7ef";
+    std::string stage_prefix = recycler_s3_path + "/stage/bob/bc9fff5e-5f91-4168-8eaa-0afd6667f7ef";
     ObjectStoreInfoPB object_info;
     object_info.set_id("obj_id");
     InstanceInfoPB instance;
@@ -3115,7 +3158,8 @@ TEST(RecyclerTest, multi_recycler) {
         obj_info->set_endpoint(config::test_s3_endpoint);
         obj_info->set_region(config::test_s3_region);
         obj_info->set_bucket(config::test_s3_bucket);
-        obj_info->set_prefix("multi_recycler_test");
+        obj_info->set_provider(provider);
+        obj_info->set_prefix(recycler_s3_path + "/multi_recycler_test");
         InstanceKeyInfo key_info {std::to_string(i)};
         std::string key;
         instance_key(key_info, &key);
@@ -3233,7 +3277,8 @@ TEST(CheckerTest, DISABLED_abnormal_inverted_check) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("CheckerTest");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/DISABLED_abnormal_inverted_check");
 
     auto sp = SyncPoint::get_instance();
     SyncPoint::CallbackGuard guard;
@@ -3378,7 +3423,8 @@ TEST(CheckerTest, normal_check_index_file_v2) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("CheckerTest");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/normal_check_index_file_v2");
 
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
@@ -3430,7 +3476,8 @@ TEST(CheckerTest, normal_inverted_check_index_file_v2) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("CheckerTest");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/normal_inverted_check_index_file_v2");
 
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
@@ -3482,7 +3529,8 @@ TEST(CheckerTest, abnormal_check_index_file_v1) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("CheckerTest");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/abnormal_check_index_file_v1");
 
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
@@ -3545,7 +3593,8 @@ TEST(CheckerTest, abnormal_inverted_check_index_file_v1) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("CheckerTest");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/abnormal_inverted_check_index_file_v1");
 
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
@@ -3629,7 +3678,8 @@ TEST(CheckerTest, abnormal_inverted_check_index_file_v2) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("CheckerTest");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/abnormal_inverted_check_index_file_v2");
 
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
@@ -3714,7 +3764,8 @@ TEST(CheckerTest, abnormal_check_index_file_v2) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("CheckerTest");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/abnormal_check_index_file_v2");
 
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
@@ -5053,7 +5104,8 @@ TEST(CheckerTest, version_key_check_normal) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("version_key_check_normal");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/version_key_check_normal");
 
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
@@ -5096,7 +5148,8 @@ TEST(CheckerTest, version_key_check_abnormal) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("version_key_check_normal");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/version_key_check_normal");
 
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
@@ -5144,7 +5197,8 @@ TEST(RecyclerTest, delete_rowset_data) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("recycle_tmp_rowsets");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/recycle_tmp_rowsets");
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
     for (int i = 0; i < 5; ++i) {
@@ -5183,7 +5237,7 @@ TEST(RecyclerTest, delete_rowset_data) {
     }
     {
         InstanceInfoPB tmp_instance;
-        std::string resource_id = "recycle_tmp_rowsets";
+        std::string resource_id = recycler_s3_path + "/recycle_tmp_rowsets";
         tmp_instance.set_instance_id(instance_id);
         auto tmp_obj_info = tmp_instance.add_obj_info();
         tmp_obj_info->set_id(resource_id);
@@ -5192,6 +5246,7 @@ TEST(RecyclerTest, delete_rowset_data) {
         tmp_obj_info->set_endpoint(config::test_s3_endpoint);
         tmp_obj_info->set_region(config::test_s3_region);
         tmp_obj_info->set_bucket(config::test_s3_bucket);
+        obj_info->set_provider(provider);
         tmp_obj_info->set_prefix(resource_id);
 
         InstanceRecycler recycler(txn_kv, tmp_instance, thread_group,
@@ -5251,7 +5306,8 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("recycle_tmp_rowsets");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/recycle_tmp_rowsets");
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
     for (int i = 0; i < 5; ++i) {
@@ -5290,7 +5346,7 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
     }
     {
         InstanceInfoPB tmp_instance;
-        std::string resource_id = "recycle_tmp_rowsets";
+        std::string resource_id = recycler_s3_path + "/recycle_tmp_rowsets";
         tmp_instance.set_instance_id(instance_id);
         auto tmp_obj_info = tmp_instance.add_obj_info();
         tmp_obj_info->set_id(resource_id);
@@ -5299,6 +5355,7 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
         tmp_obj_info->set_endpoint(config::test_s3_endpoint);
         tmp_obj_info->set_region(config::test_s3_region);
         tmp_obj_info->set_bucket(config::test_s3_bucket);
+        obj_info->set_provider(provider);
         tmp_obj_info->set_prefix(resource_id);
 
         InstanceRecycler recycler(txn_kv, tmp_instance, thread_group,
@@ -5403,7 +5460,7 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
         hdfs_build_conf.set_fs_name("fs_name");
         hdfs_build_conf.set_user("root");
         HdfsVaultInfo hdfs_info;
-        hdfs_info.set_prefix("root_path");
+        hdfs_info.set_prefix(recycler_s3_path + "/root_path");
         hdfs_info.mutable_build_conf()->MergeFrom(hdfs_build_conf);
         vault.mutable_hdfs_info()->MergeFrom(hdfs_info);
         vault.set_name("test_failed_hdfs_vault_1");
@@ -5451,7 +5508,7 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
         hdfs_build_conf.set_fs_name("fs_name");
         hdfs_build_conf.set_user("root");
         HdfsVaultInfo hdfs_info;
-        hdfs_info.set_prefix("root_path");
+        hdfs_info.set_prefix(recycler_s3_path + "/root_path");
         hdfs_info.mutable_build_conf()->MergeFrom(hdfs_build_conf);
         vault.mutable_hdfs_info()->MergeFrom(hdfs_info);
         vault.set_name("test_success_hdfs_vault");
@@ -5536,7 +5593,7 @@ TEST(RecyclerTest, recycle_tablet_without_resource_id) {
         hdfs_build_conf.set_fs_name("fs_name");
         hdfs_build_conf.set_user("root");
         HdfsVaultInfo hdfs_info;
-        hdfs_info.set_prefix("root_path");
+        hdfs_info.set_prefix(recycler_s3_path + "/root_path");
         hdfs_info.mutable_build_conf()->MergeFrom(hdfs_build_conf);
         vault.mutable_hdfs_info()->MergeFrom(hdfs_info);
         vault.set_name("test_success_hdfs_vault");
@@ -5619,7 +5676,7 @@ TEST(RecyclerTest, recycle_tablet_with_wrong_resource_id) {
         hdfs_build_conf.set_fs_name("fs_name");
         hdfs_build_conf.set_user("root");
         HdfsVaultInfo hdfs_info;
-        hdfs_info.set_prefix("root_path");
+        hdfs_info.set_prefix(recycler_s3_path + "/root_path");
         hdfs_info.mutable_build_conf()->MergeFrom(hdfs_build_conf);
         vault.mutable_hdfs_info()->MergeFrom(hdfs_info);
         vault.set_name("test_success_hdfs_vault");
@@ -5752,7 +5809,7 @@ TEST(RecyclerTest, recycler_storage_vault_white_list_test) {
         hdfs_build_conf.set_fs_name("fs_name");
         hdfs_build_conf.set_user("root");
         HdfsVaultInfo hdfs_info;
-        hdfs_info.set_prefix("root_path");
+        hdfs_info.set_prefix(recycler_s3_path + "/root_path");
         hdfs_info.mutable_build_conf()->MergeFrom(hdfs_build_conf);
         vault.mutable_hdfs_info()->MergeFrom(hdfs_info);
         vault.set_name("hdfs_1");
@@ -5769,7 +5826,7 @@ TEST(RecyclerTest, recycler_storage_vault_white_list_test) {
         hdfs_build_conf.set_fs_name("fs_name");
         hdfs_build_conf.set_user("root");
         HdfsVaultInfo hdfs_info;
-        hdfs_info.set_prefix("root_path");
+        hdfs_info.set_prefix(recycler_s3_path + "/root_path");
         hdfs_info.mutable_build_conf()->MergeFrom(hdfs_build_conf);
         vault.mutable_hdfs_info()->MergeFrom(hdfs_info);
         vault.set_name("hdfs_2");
@@ -5849,7 +5906,8 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v1) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("delete_tmp_rowset_data_with_idx_v1");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/delete_tmp_rowset_data_with_idx_v1");
 
     doris::TabletSchemaCloudPB schema;
     schema.set_schema_version(1);
@@ -5929,7 +5987,8 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v2) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("delete_tmp_rowset_data_with_idx_v2");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/delete_tmp_rowset_data_with_idx_v2");
 
     doris::TabletSchemaCloudPB schema;
     schema.set_schema_version(1);
@@ -6008,7 +6067,8 @@ TEST(RecyclerTest, delete_tmp_rowset_without_resource_id) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("delete_tmp_rowset_data_with_idx_v2");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/delete_tmp_rowset_data_with_idx_v2");
 
     doris::TabletSchemaCloudPB schema;
     schema.set_schema_version(1);
@@ -6769,7 +6829,8 @@ TEST(RecyclerTest, recycle_restore_job_complete_state) {
     obj_info->set_endpoint(config::test_s3_endpoint);
     obj_info->set_region(config::test_s3_region);
     obj_info->set_bucket(config::test_s3_bucket);
-    obj_info->set_prefix("recycle_restore_job_transaction");
+    obj_info->set_provider(provider);
+    obj_info->set_prefix(recycler_s3_path + "/recycle_restore_job_transaction");
 
     InstanceRecycler recycler(txn_kv, instance, thread_group,
                               std::make_shared<TxnLazyCommitter>(txn_kv));

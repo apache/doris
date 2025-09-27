@@ -549,7 +549,7 @@ InstanceRecycler::~InstanceRecycler() = default;
 
 int InstanceRecycler::init_obj_store_accessors() {
     for (const auto& obj_info : instance_info_.obj_info()) {
-#ifdef UNIT_TEST
+#if defined(UNIT_TEST) && !defined(USE_STORAGE_VAULT_FOR_TEST)
         auto accessor = std::make_shared<MockAccessor>();
 #else
         auto s3_conf = S3Conf::from_obj_store_info(obj_info);
@@ -4548,7 +4548,7 @@ int InstanceRecycler::recycle_copy_jobs() {
 int InstanceRecycler::init_copy_job_accessor(const std::string& stage_id,
                                              const StagePB::StageType& stage_type,
                                              std::shared_ptr<StorageVaultAccessor>* accessor) {
-#ifdef UNIT_TEST
+#if defined(UNIT_TEST) && !defined(USE_STORAGE_VAULT_FOR_TEST)
     // In unit test, external use the same accessor as the internal stage
     auto it = accessor_map_.find(stage_id);
     if (it != accessor_map_.end()) {

@@ -52,6 +52,7 @@ Usage: $0 <options>
                         a <binary_name> is the name of a cpp file without '.cpp' suffix.
                         e.g. binary_name of xxx_test.cpp is xxx_test
      --fdb              run with a specific fdb connection string, e.g fdb_cluster0:cluster0@192.168.1.100:4500
+     --vault             run with storage vault, test_s3_ak, test_s3_sk, ... must be set
      -j                 build parallel
      -h                 print this help message
 
@@ -64,6 +65,7 @@ Usage: $0 <options>
     $0 --run --filter=recycler_test:FooTest.*-FooTest.Bar                       runs everything in test suite FooTest except FooTest.Bar in recycler_test.cpp
     $0 --run --filter=recycler_test:FooTest.*:BarTest.*-FooTest.Bar:BarTest.Foo runs everything in test suite FooTest except FooTest.Bar and everything in test suite BarTest except BarTest.Foo in recycler_test.cpp
     $0 --run --fdb=fdb_cluster0:cluster0@192.168.1.100:4500                     run with specific fdb
+    $0 --run --vault                                                            run with storage vault
     $0 --run --coverage                                                         run with coverage report
     $0 --clean                                                                  clean and build tests
     $0 --clean --run                                                            clean, build and run all tests
@@ -71,7 +73,7 @@ Usage: $0 <options>
     exit 1
 }
 
-if ! OPTS=$(getopt -n "$0" -o vhj:f: -l run,clean,filter:,fdb:,coverage -- "$@"); then
+if ! OPTS=$(getopt -n "$0" -o vhj:f: -l run,clean,filter:,fdb:,coverage,vault -- "$@"); then
     usage
 fi
 
@@ -87,6 +89,7 @@ FILTER=""
 FDB=""
 ENABLE_CLANG_COVERAGE=OFF
 BUILD_AZURE="ON"
+ENABLE_VAULT=OFF
 
 echo "===================== filter: ${FILTER}"
 if [[ $# != 1 ]]; then
@@ -102,6 +105,10 @@ if [[ $# != 1 ]]; then
             ;;
         --coverage)
             ENABLE_CLANG_COVERAGE="ON"
+            shift
+            ;;
+        --vault)
+            ENABLE_VAULT="ON"
             shift
             ;;
         --fdb)
@@ -137,6 +144,7 @@ echo "Get params:
     CLEAN               -- ${CLEAN}
     FILTER              -- ${FILTER}
     COVERAGE            -- ${ENABLE_CLANG_COVERAGE}
+    VAULT               -- ${ENABLE_VAULT}
     FDB                 -- ${FDB}
 "
 echo "Build Doris Cloud UT"
@@ -194,6 +202,7 @@ find . -name "*.gcda" -exec rm {} \;
     -DENABLE_CLANG_COVERAGE="${ENABLE_CLANG_COVERAGE}" \
     "${CMAKE_USE_CCACHE}" \
     -DBUILD_AZURE="${BUILD_AZURE}" \
+    -DENABLE_VAULT="${ENABLE_VAULT}" \
     "${DORIS_HOME}/cloud/"
 "${BUILD_SYSTEM}" -j "${PARALLEL}"
 "${BUILD_SYSTEM}" install
