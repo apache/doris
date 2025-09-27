@@ -1307,7 +1307,7 @@ class Config {
 
         Integer connectTimeout = 5000
         Integer socketTimeout = 1000 * 60 * 30
-        String s = String.format("connectTimeout=%d&socketTimeout=%d", connectTimeout, socketTimeout)
+        String s = String.format("connectTimeout=%d&socketTimeout=%d&tcpKeepAlive=true", connectTimeout, socketTimeout)
         if (url.charAt(url.length() - 1) == '?') {
             return url + s
             // e.g: jdbc:mysql://locahost:8080/dbname?a=b
