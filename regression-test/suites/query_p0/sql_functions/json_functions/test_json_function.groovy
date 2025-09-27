@@ -16,6 +16,7 @@
 // under the License.
 suite("test_json_function", "arrow_flight_sql") {
     sql "set batch_size = 4096;"
+    sql "set experimental_enable_virtual_slot_for_cse=true;"
 
     qt_sql "SELECT get_json_double('{\"k1\":1.3, \"k2\":\"2\"}', \"\$.k1\");"
     qt_sql "SELECT get_json_double('{\"k1\":\"v1\", \"my.key\":[1.1, 2.2, 3.3]}', '\$.\"my.key\"[1]');"

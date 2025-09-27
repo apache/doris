@@ -34,6 +34,7 @@ suite("query8") {
     sql 'set runtime_filter_type=8'
     sql 'set enable_runtime_filter_prune=true'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+    sql "set experimental_enable_virtual_slot_for_cse=true"
 
 
     def ds = """select  s_store_name
