@@ -717,6 +717,9 @@ suite("test_bitmap_function") {
                 [('2023-07-25'), ('2023-07-26')))
         DISTRIBUTED BY HASH(dt1, dt2) BUCKETS 1 properties("replication_num"="1");
     """
+    def result = sql "show partitions from test_bitmap_intersect;"
+    logger.info("${result}")
+    assertEquals(result.size(), 1)
 
     sql """
         insert into test_bitmap_intersect
