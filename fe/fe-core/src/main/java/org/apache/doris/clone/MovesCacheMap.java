@@ -54,9 +54,11 @@ public class MovesCacheMap {
 
         MovesCache(long duration, TimeUnit unit) {
             cache = CacheBuilder.newBuilder().expireAfterAccess(duration, unit).build();
+            LOG.debug("MovesCache cache created {}", cache.asMap().toString());
         }
 
         public Cache<Long, Pair<PartitionRebalancer.TabletMove, Long>> get() {
+            LOG.debug("MovesCacheMap get cache {}", cache.asMap().toString());
             return cache;
         }
     }
@@ -87,11 +89,15 @@ public class MovesCacheMap {
     }
 
     public Map<Tag, Map<TStorageMedium, MovesCache>> getCacheMap() {
+        if (LOG.isDebugEnabled()) {
+            cacheMap.forEach((key, value) -> LOG.debug("MovesCacheMap get cache {} - {}", key, value));
+        }
         return cacheMap;
     }
 
     public MovesCache getCache(Tag tag, TStorageMedium medium) {
         Map<TStorageMedium, MovesCache> mediumMoves = cacheMap.get(tag);
+        LOG.debug("MovesCacheMap getCache {} - {}", medium, mediumMoves);
         if (mediumMoves != null) {
             return mediumMoves.get(medium);
         }
@@ -100,8 +106,10 @@ public class MovesCacheMap {
 
     public void invalidateTablet(TabletSchedCtx tabletCtx) {
         Map<TStorageMedium, MovesCache> mediumMoves = cacheMap.get(tabletCtx.getTag());
+        LOG.debug("invalidateTablet moves {}, tabletCtx {}", mediumMoves, tabletCtx);
         if (mediumMoves != null) {
             MovesCache cache = mediumMoves.get(tabletCtx.getStorageMedium());
+            LOG.debug("invalidateTablet cache {}", cache);
             if (cache != null) {
                 cache.get().invalidate(tabletCtx.getTabletId());
             } else {
@@ -115,22 +123,27 @@ public class MovesCacheMap {
         for (Map<TStorageMedium, MovesCache> mediumMap : cacheMap.values()) {
             MovesCache cache = mediumMap.get(tabletCtx.getStorageMedium());
             if (cache == null) {
+                LOG.debug("cant get table move cache {}", tabletCtx.getTabletId());
                 continue;
             }
             return cache.get().getIfPresent(tabletCtx.getTabletId());
         }
+        LOG.debug("cant get table move {}", tabletCtx.getTabletId());
         return null;
     }
 
 
     // For each MovesCache, performs any pending maintenance operations needed by the cache.
     public void maintain() {
-        cacheMap.values().forEach(maps -> maps.values().forEach(map -> map.get().cleanUp()));
+        cacheMap.values().forEach(maps -> maps.values().forEach(map -> {
+            LOG.debug("maintain moves {}", map);
+            map.get().cleanUp();
+        }));
     }
 
     public long size() {
         return cacheMap.values().stream().mapToLong(
-                maps -> maps.values().stream().mapToLong(map -> map.get().size()).sum()).sum();
+            maps -> maps.values().stream().mapToLong(map -> map.get().size()).sum()).sum();
     }
 
     @Override
