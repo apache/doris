@@ -98,9 +98,7 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
         this.relationToLazySlotMap = relationToLazySlotMap;
         this.relationToRowId = relationToRowId;
         this.materializedSlots = ImmutableList.copyOf(materializedSlots);
-        this.relations = ImmutableList.copyOf(relationToRowId.keySet());
         this.materializeMap = materializeMap;
-
         lazySlotLocations = new ArrayList<>();
         lazyTableIdxs = new ArrayList<>();
         lazyColumns = new ArrayList<>();
@@ -110,10 +108,12 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
         int idx = materializedSlots.size();
         int loc = idx;
         ImmutableList.Builder<Slot> rowIdListBuilder = ImmutableList.builder();
+        ImmutableList.Builder<Relation> relationListBuilder = ImmutableList.builder();
         for (; idx < materializeInput.size(); idx++) {
             Slot rowId = materializeInput.get(idx);
             rowIdListBuilder.add(rowId);
             Relation rel = relationToRowId.inverse().get(rowId);
+            relationListBuilder.add(rel);
             TableIf relationTable;
             if (rel instanceof CatalogRelation) {
                 relationTable = ((CatalogRelation) rel).getTable();
@@ -138,6 +138,7 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
                 loc++;
             }
         }
+        relations = relationListBuilder.build();
         rowIdList = rowIdListBuilder.build();
         this.materializeOutput = outputBuilder.build();
     }
