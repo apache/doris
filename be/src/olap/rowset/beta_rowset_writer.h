@@ -119,7 +119,7 @@ public:
 
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
-    Status add_block(const vectorized::Block* block) override;
+    Status add_block(vectorized::Block* block) override;
 
     // Declare these interface in `BaseBetaRowsetWriter`
     // add rowset by create hard link
