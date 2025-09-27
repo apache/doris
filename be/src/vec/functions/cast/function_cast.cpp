@@ -331,9 +331,23 @@ public:
     const DataTypes& get_argument_types() const override { return argument_types; }
     const DataTypePtr& get_return_type() const override { return return_type; }
 
-    PreparedFunctionPtr prepare(FunctionContext* context, const Block& /*sample_block*/,
-                                const ColumnNumbers& /*arguments*/,
-                                uint32_t /*result*/) const override {
+    PreparedFunctionPtr prepare(FunctionContext* context, const Block& block,
+                                const ColumnNumbers& arguments, uint32_t result) const override {
+        if (!block.get_by_position(arguments[0]).type->equals(*argument_types[0])) {
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    fmt::format("unexpected type of function {}, expected {}, got {}", name,
+                                argument_types[0]->get_name(),
+                                block.get_by_position(arguments[0]).type->get_name()));
+        }
+
+        if (!return_type->equals(*block.get_by_position(result).type)) {
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    fmt::format("unexpected type of result of function {}, expected {}, got {}",
+                                name, return_type->get_name(),
+                                block.get_by_position(result).type->get_name()));
+        }
         return std::make_shared<PreparedFunctionCast>(
                 CastWrapper::prepare_unpack_dictionaries(context, get_argument_types()[0],
                                                          get_return_type()),
