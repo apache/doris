@@ -57,6 +57,8 @@ struct FileReaderOptions {
     int64_t file_size = -1;
     // Use modification time to determine whether the file is changed
     int64_t mtime = 0;
+    // Used to query the location of the file cache
+    int64_t tablet_id = -1;
 
     static const FileReaderOptions DEFAULT;
 };
