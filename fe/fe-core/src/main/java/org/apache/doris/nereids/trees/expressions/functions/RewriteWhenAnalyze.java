@@ -15,11 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions.generator;
+package org.apache.doris.nereids.trees.expressions.functions;
+
+import org.apache.doris.nereids.trees.expressions.Expression;
 
 /**
  * interface for all functions need to be rewritten.
  */
 public interface RewriteWhenAnalyze {
-    TableGeneratingFunction rewrite();
+    Expression rewriteWhenAnalyze();
 }
