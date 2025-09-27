@@ -3375,7 +3375,7 @@ public class Env {
         if (StringUtils.isEmpty(command.getCtlName())) {
             catalogIf = getCurrentCatalog();
         } else {
-            catalogIf = catalogMgr.getCatalog(command.getCtlName());
+            catalogIf = catalogMgr.getCatalogOrDdlException(command.getCtlName());
         }
         catalogIf.createDb(command.getDbName(), command.isIfNotExists(), command.getProperties());
     }
