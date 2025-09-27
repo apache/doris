@@ -34,6 +34,7 @@
 #include <thread>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/simple_thread_pool.h"
 #include "common/util.h"
@@ -6212,6 +6213,62 @@ TEST(RecyclerTest, recycle_txn_label_deal_with_conflict_error_test) {
     ASSERT_EQ(recycler.recycle_expired_txn_label(), -1);
 
     EXPECT_GT(txn_conflict_count, 0) << "txn_conflict sync point should be triggered";
+}
+
+TEST(CheckerTest, CheckCostTooMuchTime) {
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+
+    int64_t tablet_id = 1000;
+    constexpr size_t NUM_BATCH_SIZE = 100;
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    for (size_t i = 0; i < NUM_BATCH_SIZE * 2; i++) {
+        std::string key = meta_rowset_key({instance_id, tablet_id, i});
+        std::string value = "rowset_value_" + std::to_string(i);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, value);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    sp->set_call_back("InstanceChecker:scan_and_handle_kv:limit",
+                      [&](auto&& args) { *try_any_cast<int*>(args[0]) = NUM_BATCH_SIZE; });
+
+    std::vector<doris::RowsetMetaCloudPB> rowset_metas;
+    size_t count = 0;
+    sp->set_call_back("InstanceChecker:scan_and_handle_kv:get_err", [&](auto&& args) {
+        if (++count == 2) {
+            *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TOO_OLD;
+        }
+    });
+
+    std::string begin = meta_rowset_key({instance_id, tablet_id, 0});
+    std::string end = meta_rowset_key({instance_id, tablet_id + 1, 0});
+
+    int ret =
+            checker.scan_and_handle_kv(begin, end, [&](std::string_view key, std::string_view val) {
+                doris::RowsetMetaCloudPB rowset_meta;
+                if (rowset_meta.ParseFromArray(val.data(), val.size()) != 0) {
+                    return -1;
+                }
+                rowset_metas.push_back(rowset_meta);
+                return 0;
+            });
+    ASSERT_EQ(0, ret);
+    ASSERT_EQ(rowset_metas.size(), NUM_BATCH_SIZE * 2);
 }
 
 } // namespace doris::cloud
