@@ -151,9 +151,9 @@ public class CloudEnvFactory extends EnvFactory {
 
     @Override
     public Coordinator createCoordinator(ConnectContext context, Planner planner,
-                                         StatsErrorEstimator statsErrorEstimator) {
+                                         StatsErrorEstimator statsErrorEstimator, long jobId) {
         if (planner instanceof NereidsPlanner && SessionVariable.canUseNereidsDistributePlanner()) {
-            return new NereidsCoordinator(context, (NereidsPlanner) planner, statsErrorEstimator);
+            return new NereidsCoordinator(context, (NereidsPlanner) planner, statsErrorEstimator, jobId);
         }
         return new CloudCoordinator(context, planner, statsErrorEstimator);
     }
