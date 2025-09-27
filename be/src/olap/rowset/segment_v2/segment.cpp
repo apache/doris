@@ -197,13 +197,16 @@ Status Segment::_open(OlapReaderStatistics* stats) {
     _num_rows = footer_pb_shared->num_rows();
 
     // An estimated memory usage of a segment
-    _meta_mem_usage += footer_pb_shared->ByteSizeLong();
+    // Footer is seperated to StoragePageCache so we don't need to add it to _meta_mem_usage
+    // _meta_mem_usage += footer_pb_shared->ByteSizeLong();
     if (_pk_index_meta != nullptr) {
         _meta_mem_usage += _pk_index_meta->ByteSizeLong();
     }
 
     _meta_mem_usage += sizeof(*this);
-    _meta_mem_usage += _tablet_schema->num_columns() * config::estimated_mem_per_column_reader;
+    _meta_mem_usage += std::min(static_cast<int>(_tablet_schema->num_columns()),
+                                config::max_segment_partial_column_cache_size) *
+                       config::estimated_mem_per_column_reader;
 
     // 1024 comes from SegmentWriterOptions
     _meta_mem_usage += (_num_rows + 1023) / 1024 * (36 + 4);
@@ -1064,11 +1067,16 @@ Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb,
 
     PageCacheHandle cache_handle;
 
+    // Put segment footer into index page cache.
+    // Rationale:
+    // - Footer is metadata (small, parsed with indexes), not data page payload.
+    // - Using PageTypePB::INDEX_PAGE keeps it under the same eviction policy/shards
+    //   as other index/metadata pages and avoids competing with DATA_PAGE budget.
     if (!segment_footer_cache->lookup(cache_key, &cache_handle,
-                                      segment_v2::PageTypePB::DATA_PAGE)) {
+                                      segment_v2::PageTypePB::INDEX_PAGE)) {
         RETURN_IF_ERROR(_parse_footer(footer_pb_shared, stats));
         segment_footer_cache->insert(cache_key, footer_pb_shared, footer_pb_shared->ByteSizeLong(),
-                                     &cache_handle, segment_v2::PageTypePB::DATA_PAGE);
+                                     &cache_handle, segment_v2::PageTypePB::INDEX_PAGE);
     } else {
         VLOG_DEBUG << fmt::format("Segment footer of {}:{}:{} is found in cache",
                                   _file_reader->path().native(), _file_reader->size(),
