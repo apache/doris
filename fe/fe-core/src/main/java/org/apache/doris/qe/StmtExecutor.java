@@ -1191,14 +1191,14 @@ public class StmtExecutor {
             context.getState().setIsQuery(true);
         } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
             coord = new NereidsCoordinator(context,
-                    (NereidsPlanner) planner, context.getStatsErrorEstimator());
+                    (NereidsPlanner) planner, context.getStatsErrorEstimator(), -1L);
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QueryInfo(context, originStmt.originStmt, coord));
             coordBase = coord;
         } else {
             coord = EnvFactory.getInstance().createCoordinator(
-                    context, planner, context.getStatsErrorEstimator());
+                    context, planner, context.getStatsErrorEstimator(), -1L);
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QueryInfo(context, originStmt.originStmt, coord));
@@ -1817,7 +1817,7 @@ public class StmtExecutor {
                 context.getSessionVariable().enableProfile = true;
             }
             coord = EnvFactory.getInstance().createCoordinator(context,
-                    planner, context.getStatsErrorEstimator());
+                    planner, context.getStatsErrorEstimator(), -1L);
             profile.addExecutionProfile(coord.getExecutionProfile());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),

@@ -87,11 +87,11 @@ public class NereidsCoordinator extends Coordinator {
 
     // sql execution
     public NereidsCoordinator(ConnectContext context,
-            NereidsPlanner planner, StatsErrorEstimator statsErrorEstimator) {
+            NereidsPlanner planner, StatsErrorEstimator statsErrorEstimator, long jobId) {
         super(context, planner, statsErrorEstimator);
 
         this.coordinatorContext = CoordinatorContext.buildForSql(planner, this);
-        this.coordinatorContext.setJobProcessor(buildJobProcessor(coordinatorContext));
+        this.coordinatorContext.setJobProcessor(buildJobProcessor(coordinatorContext, jobId));
         this.needEnqueue = true;
 
         Preconditions.checkState(!planner.getFragments().isEmpty()
@@ -516,13 +516,12 @@ public class NereidsCoordinator extends Coordinator {
         return false;
     }
 
-    private JobProcessor buildJobProcessor(CoordinatorContext coordinatorContext) {
+    private JobProcessor buildJobProcessor(CoordinatorContext coordinatorContext, long jobId) {
         DataSink dataSink = coordinatorContext.dataSink;
         if ((dataSink instanceof ResultSink || dataSink instanceof ResultFileSink)) {
             return QueryProcessor.build(coordinatorContext);
         } else {
-            // insert statement has jobId == -1
-            return new LoadProcessor(coordinatorContext, -1L);
+            return new LoadProcessor(coordinatorContext, jobId);
         }
     }
 
