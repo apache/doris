@@ -22,22 +22,42 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
+import org.apache.doris.datasource.iceberg.IcebergTransaction;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFileExecutor;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFileManager;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteDataGroup;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteResult;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
+import org.apache.doris.qe.ConnectContext;
 
+import org.apache.iceberg.DataFile;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
- * Iceberg rewrite data files action implementation.
- * This action rewrites data files in Iceberg tables to optimize file sizes
- * and improve query performance.
+ * Action for rewriting Iceberg data files by executing INSERT-SELECT operations.
+ *
+ * Execution Flow:
+ * 1. Validate rewrite parameters and get Iceberg table
+ * 2. Use RewriteDataFileManager to scan files and organize them into groups
+ * 3. Create RewriteDataFileExecutor to execute rewrite for each group
+ * 4. Manage IcebergTransaction directly to commit all changes atomically
+ * 5. Collect and return execution results including statistics
  */
 public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
+    private static final Logger LOG = LogManager.getLogger(IcebergRewriteDataFilesAction.class);
     // File size parameters
     public static final String TARGET_FILE_SIZE_BYTES = "target-file-size-bytes";
     public static final String MIN_FILE_SIZE_BYTES = "min-file-size-bytes";
@@ -54,6 +74,10 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
 
     // Output specification parameter
     public static final String OUTPUT_SPEC_ID = "output-spec-id";
+
+    // Parameters with special default handling
+    private long minFileSizeBytes;
+    private long maxFileSizeBytes;
 
     public IcebergRewriteDataFilesAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
@@ -132,14 +156,115 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
 
     @Override
     protected void validateIcebergAction() throws UserException {
-        // TODO: Implement validation logic for rewrite_data_files parameters
+        // Validate min and max file size parameters
+        long targetFileSizeBytes = namedArguments.getLong(TARGET_FILE_SIZE_BYTES);
+        // min-file-size-bytes default to 75% of target file size
+        this.minFileSizeBytes = namedArguments.getLong(MIN_FILE_SIZE_BYTES);
+        if (this.minFileSizeBytes == 0) {
+            this.minFileSizeBytes = (long) (targetFileSizeBytes * 0.75);
+        }
+        // max-file-size-bytes default to 180% of target file size
+        this.maxFileSizeBytes = namedArguments.getLong(MAX_FILE_SIZE_BYTES);
+        if (this.maxFileSizeBytes == 0) {
+            this.maxFileSizeBytes = (long) (targetFileSizeBytes * 1.8);
+        }
     }
 
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
-        // TODO: Implement the logic to rewrite data files in the Iceberg table
-        // For now, just return dummy values
-        return Lists.newArrayList("0", "1", "2", "3");
+        try {
+            org.apache.iceberg.Table icebergTable = IcebergUtils.getIcebergTable(this.icebergTable);
+
+            if (icebergTable.currentSnapshot() == null) {
+                LOG.info("Table {} has no data, skipping rewrite", table.getName());
+                return Lists.newArrayList("0", "0", "0", "0");
+            }
+
+            RewriteDataFileManager.Parameters parameters = buildRewriteParameters();
+
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext == null) {
+                throw new UserException("No active connection context found");
+            }
+
+            // Step 1: Plan and organize file scan tasks into groups
+            RewriteDataFileManager fileManager = new RewriteDataFileManager(icebergTable, parameters);
+            fileManager.planAndOrganizeTasks();
+
+            if (fileManager.getTotalGroupCount() == 0) {
+                LOG.info("No file groups need rewriting for table: {}", table.getName());
+                return Lists.newArrayList("0", "0", "0", "0");
+            }
+
+            // Step 2: Initialize executor and transaction
+            RewriteDataFileExecutor executor = new RewriteDataFileExecutor(
+                            this.icebergTable, connectContext);
+            executor.initialize();
+
+            // Step 3: Create and manage IcebergTransaction directly
+            IcebergExternalCatalog catalog = (IcebergExternalCatalog) this.icebergTable.getCatalog();
+            catalog.makeSureInitialized();
+            IcebergMetadataOps metadataOps = (IcebergMetadataOps) catalog.getMetadataOps();
+            IcebergTransaction icebergTransaction = new IcebergTransaction(metadataOps);
+
+            try {
+                // Step 4: Begin rewrite transaction
+                icebergTransaction.beginRewrite(this.icebergTable, null);
+
+                // Step 5: Execute rewrite for each group and collect file changes
+                RewriteResult totalResult = new RewriteResult();
+                while (fileManager.hasMoreGroup()) {
+                    RewriteDataGroup group = fileManager.nextGroup();
+
+                    // Execute the group and get result
+                    RewriteResult groupResult = executor.executeGroup(group);
+                    totalResult.merge(groupResult);
+
+                    Set<DataFile> oldFiles = group.getDataFiles();
+                    List<DataFile> oldFilesList = new ArrayList<>(oldFiles);
+                    // TODO: implement retrieval of actual new data files from execution result
+                    List<DataFile> newDataFiles = new ArrayList<>();
+                    icebergTransaction.addRewriteFiles(oldFilesList, newDataFiles);
+
+                    LOG.info("Added rewrite group to transaction - old files: {}, new files: {}",
+                            oldFiles.size(), newDataFiles.size());
+                }
+
+                // Step 6: Commit all rewrite operations atomically
+                icebergTransaction.finishRewrite();
+                icebergTransaction.commit();
+
+                LOG.info("Rewrite data files completed for table: {}, result: {}",
+                        table.getName(), totalResult);
+                return totalResult.toStringList();
+
+            } catch (Exception e) {
+                // Rollback transaction in case of failure
+                LOG.error("Error during rewrite execution, rolling back transaction", e);
+                icebergTransaction.rollback();
+                throw e;
+            }
+
+        } catch (Exception e) {
+            LOG.error("Failed to rewrite data files for table: " + table.getName(), e);
+            throw new UserException("Rewrite data files failed: " + e.getMessage());
+        }
+    }
+
+    private RewriteDataFileManager.Parameters buildRewriteParameters() {
+            return new RewriteDataFileManager.Parameters(
+                namedArguments.getLong(TARGET_FILE_SIZE_BYTES),
+                this.minFileSizeBytes,
+                this.maxFileSizeBytes,
+                namedArguments.getInt(MIN_INPUT_FILES),
+                namedArguments.getBoolean(REWRITE_ALL),
+                namedArguments.getLong(MAX_FILE_GROUP_SIZE_BYTES),
+                namedArguments.getInt(DELETE_FILE_THRESHOLD),
+                namedArguments.getDouble(DELETE_RATIO_THRESHOLD),
+                namedArguments.getLong(OUTPUT_SPEC_ID),
+                partitionNamesInfo,
+                whereCondition
+        );
     }
 
     @Override
