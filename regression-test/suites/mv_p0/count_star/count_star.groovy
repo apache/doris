@@ -36,20 +36,27 @@ suite ("count_star") {
         """
 
     sql "insert into d_table select 1,1,1,'a';"
+    sql "insert into d_table select 1,1,1,'a';"
+    sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
+    sql "insert into d_table select 3,-3,null,'c';"
+    sql "insert into d_table values(1,1,1,'a'),(1,1,1,'a');"
     sql "insert into d_table values(1,1,1,'a'),(1,1,1,'a');"
 
     createMV ("create materialized view kstar as select k1 as a1,k4 as a2,count(*) from d_table group by k1,k4;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
+    sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table select 3,2,null,'c';"
+    sql "insert into d_table select 3,2,null,'c';"
+    sql "insert into d_table values(2,1,1,'a'),(2,1,1,'a');"
     sql "insert into d_table values(2,1,1,'a'),(2,1,1,'a');"
 
 
     sql """set enable_stats=true;"""
     sql "analyze table d_table with sync;"
-    sql """alter table d_table modify column k4 set stats ('row_count'='8');"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='16');"""
 
     qt_select_star "select * from d_table order by k1,k2,k3,k4;"
 
