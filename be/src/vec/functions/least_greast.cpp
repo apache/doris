@@ -49,7 +49,7 @@ class DecimalV2Value;
 
 namespace doris::vectorized {
 
-template <template <PrimitiveType, PrimitiveType> class Op, typename Impl>
+template <template <PrimitiveType> class Op, typename Impl>
 struct CompareMultiImpl {
     static constexpr auto name = Impl::name;
 
@@ -83,8 +83,7 @@ struct CompareMultiImpl {
                 for (int cmp_col = 1; cmp_col < arguments.size(); ++cmp_col) {
                     auto temp_data = assert_cast<const ColumnString&>(*cols[cmp_col])
                                              .get_data_at(index_check_const(i, col_const[cmp_col]));
-                    str_data = Op<TYPE_STRING, TYPE_STRING>::apply(temp_data, str_data) ? temp_data
-                                                                                        : str_data;
+                    str_data = Op<TYPE_STRING>::apply(temp_data, str_data) ? temp_data : str_data;
                 }
                 column_res.insert_data(str_data.data, str_data.size);
             }
@@ -311,8 +310,8 @@ private:
         if constexpr (std::is_same_v<ColumnType, ColumnDecimal128V2>) {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 result_raw_data[i] =
-                        Op<TYPE_DECIMALV2, TYPE_DECIMALV2>::apply(
-                                column_raw_data[index_check_const(i, ArgConst)], result_raw_data[i])
+                        Op<TYPE_DECIMALV2>::apply(column_raw_data[index_check_const(i, ArgConst)],
+                                                  result_raw_data[i])
                                 ? column_raw_data[index_check_const(i, ArgConst)]
                                 : result_raw_data[i];
             }
@@ -321,17 +320,17 @@ private:
                              std::is_same_v<ColumnType, ColumnDecimal128V3> ||
                              std::is_same_v<ColumnType, ColumnDecimal256>) {
             for (size_t i = 0; i < input_rows_count; ++i) {
-                result_raw_data[i] = Op<PType, PType>::apply(
-                                             column_raw_data[index_check_const(i, ArgConst)].value,
-                                             result_raw_data[i].value)
-                                             ? column_raw_data[index_check_const(i, ArgConst)]
-                                             : result_raw_data[i];
+                result_raw_data[i] =
+                        Op<PType>::apply(column_raw_data[index_check_const(i, ArgConst)].value,
+                                         result_raw_data[i].value)
+                                ? column_raw_data[index_check_const(i, ArgConst)]
+                                : result_raw_data[i];
             }
         } else {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 result_raw_data[i] =
-                        Op<PType, PType>::apply(column_raw_data[index_check_const(i, ArgConst)],
-                                                result_raw_data[i])
+                        Op<PType>::apply(column_raw_data[index_check_const(i, ArgConst)],
+                                         result_raw_data[i])
                                 ? column_raw_data[index_check_const(i, ArgConst)]
                                 : result_raw_data[i];
             }
@@ -374,7 +373,7 @@ struct FunctionFieldImpl {
                     auto [column, is_const] = unpack_if_const(argument_columns[col]);
                     const auto& temp_data = assert_cast<const ColumnString&>(*column).get_data_at(
                             index_check_const(row, is_const));
-                    if (EqualsOp<TYPE_STRING, TYPE_STRING>::apply(temp_data, str_data)) {
+                    if (EqualsOp<TYPE_STRING>::apply(temp_data, str_data)) {
                         res_data[row] = col;
                         break;
                     }
@@ -516,22 +515,20 @@ private:
                 assert_cast<const ColumnType&>(*argument_column_raw).get_data().data()[0];
         if constexpr (std::is_same_v<ColumnType, ColumnDecimal128V2>) {
             for (size_t i = 0; i < input_rows_count; ++i) {
-                res_data[i] |= (!res_data[i] *
-                                (EqualsOp<TYPE_DECIMALV2, TYPE_DECIMALV2>::apply(first_raw_data[i],
-                                                                                 arg_data)) *
-                                col);
+                res_data[i] |=
+                        (!res_data[i] *
+                         (EqualsOp<TYPE_DECIMALV2>::apply(first_raw_data[i], arg_data)) * col);
             }
         } else if constexpr (is_decimal(PType)) {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 res_data[i] |=
                         (!res_data[i] *
-                         (EqualsOp<PType, PType>::apply(first_raw_data[i].value, arg_data.value)) *
-                         col);
+                         (EqualsOp<PType>::apply(first_raw_data[i].value, arg_data.value)) * col);
             }
         } else {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 res_data[i] |= (!res_data[i] *
-                                (EqualsOp<PType, PType>::apply(first_raw_data[i], arg_data)) * col);
+                                (EqualsOp<PType>::apply(first_raw_data[i], arg_data)) * col);
             }
         }
     }
