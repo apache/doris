@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.load;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -245,10 +247,14 @@ public class NereidsStreamLoadPlanner {
         NereidsLoadPlanInfoCollector planInfoCollector = new NereidsLoadPlanInfoCollector(destTable, taskInfo, loadId,
                 db.getId(), uniquekeyUpdateMode, partialUpdateNewRowPolicy, partialUpdateInputColumns,
                 context.exprMap);
-        NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(streamLoadPlan);
+        DescriptorTable descriptorTable = new DescriptorTable();
+        TupleDescriptor scanTupleDesc = descriptorTable.createTupleDescriptor();
+        scanTupleDesc.setTable(destTable);
+        NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(streamLoadPlan,
+                descriptorTable, scanTupleDesc);
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfo.getDestTuple());
         fileScanNode.finalizeForNereids(loadId, Lists.newArrayList(fileGroupInfo), Lists.newArrayList(context),
-                loadPlanInfo);
+                Lists.newArrayList(loadPlanInfo));
         scanNode = fileScanNode;
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
@@ -262,7 +268,7 @@ public class NereidsStreamLoadPlanner {
         params.setProtocolVersion(PaloInternalServiceVersion.V1);
         params.setFragment(fragment.toThrift());
 
-        params.setDescTbl(loadPlanInfo.getDescriptorTable().toThrift());
+        params.setDescTbl(descriptorTable.toThrift());
         params.setCoord(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
         params.setCurrentConnectFe(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
 
