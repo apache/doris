@@ -97,6 +97,7 @@ public class PaimonScanNodeTest {
         // Mock SessionVariable behavior
         Mockito.when(sv.isForceJniScanner()).thenReturn(false);
         Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
+        Mockito.when(sv.getMaxExternalSplitNum()).thenReturn(10000);
 
         // native
         mockNativeReader(spyPaimonScanNode);
