@@ -131,10 +131,10 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 )
         ));
 
-        Expression bigIntSlot = new SlotReference("a", BigIntType.INSTANCE);
-        Expression intSlot = new SlotReference("a", IntegerType.INSTANCE);
-        Expression smallIntSlot = new SlotReference("a", SmallIntType.INSTANCE);
-        Expression tinyIntSlot = new SlotReference("a", TinyIntType.INSTANCE);
+        Expression bigIntSlot = new SlotReference("a", BigIntType.INSTANCE, false);
+        Expression intSlot = new SlotReference("a", IntegerType.INSTANCE, false);
+        Expression smallIntSlot = new SlotReference("a", SmallIntType.INSTANCE, false);
+        Expression tinyIntSlot = new SlotReference("a", TinyIntType.INSTANCE, false);
 
         assertRewrite(new LessThan(new Cast(bigIntSlot, LargeIntType.INSTANCE), new LargeIntLiteral(new BigInteger("10"))),
                 new LessThan(bigIntSlot, new BigIntLiteral(10L)));
@@ -172,11 +172,11 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
         rewrittenExpression = executor.rewrite(typeCoercion(expression), context);
         Assertions.assertEquals(dt.getDataType(), rewrittenExpression.child(0).getDataType());
 
-        Expression date = new SlotReference("a", DateV2Type.INSTANCE);
-        Expression datev1 = new SlotReference("a", DateType.INSTANCE);
-        Expression datetime0 = new SlotReference("a", DateTimeV2Type.of(0));
-        Expression datetime2 = new SlotReference("a", DateTimeV2Type.of(2));
-        Expression datetimev1 = new SlotReference("a", DateTimeType.INSTANCE);
+        Expression date = new SlotReference("a", DateV2Type.INSTANCE, false);
+        Expression datev1 = new SlotReference("a", DateType.INSTANCE, false);
+        Expression datetime0 = new SlotReference("a", DateTimeV2Type.of(0), false);
+        Expression datetime2 = new SlotReference("a", DateTimeV2Type.of(2), false);
+        Expression datetimev1 = new SlotReference("a", DateTimeType.INSTANCE, false);
 
         // date
         // cast (date as datetimev1) cmp datetimev1
@@ -502,10 +502,10 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(left.child(0).getDataType(), rewrittenExpression.child(1).getDataType());
         Assertions.assertEquals(rewrittenExpression.child(0).getDataType(), rewrittenExpression.child(1).getDataType());
 
-        Expression tinyIntSlot = new SlotReference("a", TinyIntType.INSTANCE);
-        Expression smallIntSlot = new SlotReference("a", SmallIntType.INSTANCE);
-        Expression intSlot = new SlotReference("a", IntegerType.INSTANCE);
-        Expression bigIntSlot = new SlotReference("a", BigIntType.INSTANCE);
+        Expression tinyIntSlot = new SlotReference("a", TinyIntType.INSTANCE, false);
+        Expression smallIntSlot = new SlotReference("a", SmallIntType.INSTANCE, false);
+        Expression intSlot = new SlotReference("a", IntegerType.INSTANCE, false);
+        Expression bigIntSlot = new SlotReference("a", BigIntType.INSTANCE, false);
 
         // tiny int, literal not exceeds data type limit
         assertRewrite(new EqualTo(new Cast(tinyIntSlot, FloatType.INSTANCE), new FloatLiteral(12.0f)),
@@ -647,10 +647,10 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 bottomUp(SimplifyComparisonPredicate.INSTANCE)
         ));
 
-        Expression tinyIntSlot = new SlotReference("a", TinyIntType.INSTANCE);
-        Expression smallIntSlot = new SlotReference("a", SmallIntType.INSTANCE);
-        Expression intSlot = new SlotReference("a", IntegerType.INSTANCE);
-        Expression bigIntSlot = new SlotReference("a", BigIntType.INSTANCE);
+        Expression tinyIntSlot = new SlotReference("a", TinyIntType.INSTANCE, false);
+        Expression smallIntSlot = new SlotReference("a", SmallIntType.INSTANCE, false);
+        Expression intSlot = new SlotReference("a", IntegerType.INSTANCE, false);
+        Expression bigIntSlot = new SlotReference("a", BigIntType.INSTANCE, false);
 
         // tiny int, literal not exceeds data type limit
         DecimalV3Type tinyDecimalType = DecimalV3Type.createDecimalV3Type(4, 1);

@@ -38,7 +38,7 @@ public class MappingSlot extends Slot {
     private final Expression mappingExpression;
 
     public MappingSlot(Slot slot, Expression mappingExpression) {
-        super(Optional.empty());
+        super(Optional.empty(), true);
         this.slot = slot;
         this.mappingExpression = mappingExpression;
     }

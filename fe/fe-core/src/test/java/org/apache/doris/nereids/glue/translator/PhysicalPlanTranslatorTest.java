@@ -58,9 +58,9 @@ public class PhysicalPlanTranslatorTest {
         List<String> qualifier = new ArrayList<>();
         qualifier.add("test");
         List<Slot> t1Output = new ArrayList<>();
-        SlotReference col1 = new SlotReference("col1", IntegerType.INSTANCE);
-        SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE);
-        SlotReference col3 = new SlotReference("col2", IntegerType.INSTANCE);
+        SlotReference col1 = new SlotReference("col1", IntegerType.INSTANCE, false);
+        SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE, false);
+        SlotReference col3 = new SlotReference("col2", IntegerType.INSTANCE, false);
         t1Output.add(col1);
         t1Output.add(col2);
         t1Output.add(col3);

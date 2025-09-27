@@ -40,7 +40,7 @@ public class PhysicalTopNTest {
         LogicalOneRowRelation oneRowRelation
                 = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(new Alias(Literal.of(1))));
         SlotReference a = new SlotReference(new ExprId(0), "a",
-                BigIntType.INSTANCE, true, Lists.newArrayList());
+                BigIntType.INSTANCE, true, Lists.newArrayList(), false);
         List<OrderKey> orderKeysA = Lists.newArrayList();
         orderKeysA.add(new OrderKey(a, true, true));
         PhysicalTopN topn1 = new PhysicalTopN(orderKeysA, 1, 1, SortPhase.LOCAL_SORT,
@@ -50,7 +50,7 @@ public class PhysicalTopNTest {
         Assertions.assertNotEquals(topn1, topn2);
 
         SlotReference b = new SlotReference(new ExprId(0), "b",
-                BigIntType.INSTANCE, true, Lists.newArrayList());
+                BigIntType.INSTANCE, true, Lists.newArrayList(), false);
         List<OrderKey> orderKeysB = Lists.newArrayList();
         orderKeysB.add(new OrderKey(b, true, true));
         PhysicalTopN topn3 = new PhysicalTopN(orderKeysB, 1, 1, SortPhase.LOCAL_SORT,

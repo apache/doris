@@ -66,7 +66,7 @@ public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
     @Test
     void testLambdaExpression() {
         ArrayItemReference ref = new ArrayItemReference("x", new SlotReference(new ExprId(1), "y",
-                ArrayType.of(IntegerType.INSTANCE), true, ImmutableList.of()));
+                ArrayType.of(IntegerType.INSTANCE), true, ImmutableList.of(), false), false);
         Expression add = new Add(ref.toSlot(), Literal.of(1));
         Expression and = new And(add, add);
         ArrayMap arrayMap = new ArrayMap(new Lambda(ImmutableList.of("x"), and, ImmutableList.of(ref)));
@@ -143,7 +143,7 @@ public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
             if (exitsSlot != null) {
                 return exitsSlot;
             } else {
-                SlotReference slotReference = new SlotReference(slot.getName(), IntegerType.INSTANCE);
+                SlotReference slotReference = new SlotReference(slot.getName(), IntegerType.INSTANCE, false);
                 slotMap.put(slot.getName(), slotReference);
                 return slotReference;
             }
