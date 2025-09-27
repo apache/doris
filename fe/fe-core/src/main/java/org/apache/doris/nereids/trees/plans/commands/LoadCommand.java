@@ -79,6 +79,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
     public static final String PRIORITY = "priority";
     public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
+    public static final String RANDOM_TABLET_SWITCHING_THRESHOLD = "random_tablet_switching_threshold";
 
     // deprecated, keeping this property to make LoadStmt#checkProperties() happy
     public static final String USE_NEW_LOAD_SCAN_NODE = "use_new_load_scan_node";

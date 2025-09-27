@@ -35,6 +35,7 @@
 #include <future>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 #include "cloud/config.h"
@@ -575,6 +576,20 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_load_to_single_tablet(true);
         } else {
             request.__set_load_to_single_tablet(false);
+        }
+    }
+
+    if (!http_req->header(HTTP_RANDOM_TABLET_SWITCHING_THRESHOLD).empty()) {
+        try {
+            int64_t threshold =
+                    std::stoll(http_req->header(HTTP_RANDOM_TABLET_SWITCHING_THRESHOLD));
+            if (threshold > 0) {
+                request.__set_random_tablet_switching_threshold(threshold);
+            }
+        } catch (const std::exception&) {
+            return Status::InvalidArgument(
+                    "Invalid random_tablet_switching_threshold: {}",
+                    http_req->header(HTTP_RANDOM_TABLET_SWITCHING_THRESHOLD));
         }
     }
 

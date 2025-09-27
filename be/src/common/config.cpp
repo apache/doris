@@ -638,6 +638,11 @@ DEFINE_mBool(enable_stream_load_commit_txn_on_be, "false");
 // The buffer size to store stream table function schema info
 DEFINE_Int64(stream_tvf_buffer_size, "1048576"); // 1MB
 
+// Random distribution tablet switching threshold for stream load
+// When load_to_single_tablet is false and table uses random distribution,
+// switch to next tablet after this many rows are loaded to current tablet
+DEFINE_mInt64(random_distribution_tablet_switching_threshold, "10000000");
+
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
 DEFINE_mInt32(olap_table_sink_send_interval_microseconds, "1000");

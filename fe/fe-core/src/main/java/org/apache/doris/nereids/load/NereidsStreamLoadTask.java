@@ -97,6 +97,8 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
 
     private boolean emptyFieldAsNull = false;
 
+    private long randomTabletSwitchingThreshold = 0;
+
     /**
      * NereidsStreamLoadTask
      */
@@ -346,6 +348,14 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         this.emptyFieldAsNull = emptyFieldAsNull;
     }
 
+    public long getRandomTabletSwitchingThreshold() {
+        return randomTabletSwitchingThreshold;
+    }
+
+    public void setRandomTabletSwitchingThreshold(long randomTabletSwitchingThreshold) {
+        this.randomTabletSwitchingThreshold = randomTabletSwitchingThreshold;
+    }
+
     /**
      * fromTStreamLoadPutRequest
      */
@@ -513,6 +523,9 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         }
         if (request.isSetEmptyFieldAsNull()) {
             emptyFieldAsNull = request.isEmptyFieldAsNull();
+        }
+        if (request.isSetRandomTabletSwitchingThreshold()) {
+            randomTabletSwitchingThreshold = request.getRandomTabletSwitchingThreshold();
         }
     }
 

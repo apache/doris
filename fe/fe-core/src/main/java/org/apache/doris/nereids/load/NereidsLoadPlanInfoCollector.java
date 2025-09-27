@@ -322,9 +322,16 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
         }
         int timeout = taskInfo.getTimeout();
         try {
+            long randomTabletSwitchingThreshold = 0L;
+            if (taskInfo instanceof NereidsStreamLoadTask) {
+                NereidsStreamLoadTask streamLoadTask = (NereidsStreamLoadTask) taskInfo;
+                randomTabletSwitchingThreshold = streamLoadTask.getRandomTabletSwitchingThreshold();
+            }
+
             loadPlanInfo.olapTableSink.init(loadId, taskInfo.getTxnId(), dbId, timeout,
                     taskInfo.getSendBatchParallelism(),
-                    taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), timeout, uniquekeyUpdateMode,
+                    taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), timeout,
+                    randomTabletSwitchingThreshold, uniquekeyUpdateMode,
                     uniquekeyUpdateNewRowPolicy, partialUpdateInputColumns);
         } catch (UserException e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
