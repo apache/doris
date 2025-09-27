@@ -26,6 +26,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_varbinary.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
@@ -148,33 +149,26 @@ struct XxHashImpl {
             to_column.insert_many_defaults(input_rows_count);
         }
         auto& col_to_data = to_column.get_data();
-        if (const auto* col_from = check_and_get_column<ColumnString>(column)) {
-            const typename ColumnString::Chars& data = col_from->get_chars();
-            const typename ColumnString::Offsets& offsets = col_from->get_offsets();
-            size_t size = offsets.size();
-            ColumnString::Offset current_offset = 0;
-            for (size_t i = 0; i < size; ++i) {
+        if (column->is_column_string() || typeid(*column) == typeid(ColumnVarbinary)) {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto data_ref = column->get_data_at(i);
                 if constexpr (ReturnType == TYPE_INT) {
-                    col_to_data[i] = HashUtil::xxHash32WithSeed(
-                            reinterpret_cast<const char*>(&data[current_offset]),
-                            offsets[i] - current_offset, col_to_data[i]);
+                    col_to_data[i] = HashUtil::xxHash32WithSeed(data_ref.data, data_ref.size,
+                                                                col_to_data[i]);
                 } else {
-                    col_to_data[i] = HashUtil::xxHash64WithSeed(
-                            reinterpret_cast<const char*>(&data[current_offset]),
-                            offsets[i] - current_offset, col_to_data[i]);
+                    col_to_data[i] = HashUtil::xxHash64WithSeed(data_ref.data, data_ref.size,
+                                                                col_to_data[i]);
                 }
-                current_offset = offsets[i];
             }
-        } else if (const ColumnConst* col_from_const =
-                           check_and_get_column_const_string_or_fixedstring(column)) {
-            auto value = col_from_const->get_value<String>();
+        } else if (const auto* const_col = check_and_get_column<ColumnConst>(column)) {
+            auto data_ref = const_col->get_data_at(0);
             for (size_t i = 0; i < input_rows_count; ++i) {
                 if constexpr (ReturnType == TYPE_INT) {
-                    col_to_data[i] =
-                            HashUtil::xxHash32WithSeed(value.data(), value.size(), col_to_data[i]);
+                    col_to_data[i] = HashUtil::xxHash32WithSeed(data_ref.data, data_ref.size,
+                                                                col_to_data[i]);
                 } else {
-                    col_to_data[i] =
-                            HashUtil::xxHash64WithSeed(value.data(), value.size(), col_to_data[i]);
+                    col_to_data[i] = HashUtil::xxHash64WithSeed(data_ref.data, data_ref.size,
+                                                                col_to_data[i]);
                 }
             }
         } else {

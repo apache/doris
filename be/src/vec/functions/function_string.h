@@ -55,6 +55,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_varbinary.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/int_exp.h"
@@ -2361,17 +2362,14 @@ public:
 
         int argument_size = arguments.size();
         std::vector<ColumnPtr> argument_columns(argument_size);
-
-        std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
-        std::vector<const ColumnString::Chars*> chars_list(argument_size);
+        std::vector<uint8_t> is_const(argument_size, 0);
 
         for (int i = 0; i < argument_size; ++i) {
-            argument_columns[i] =
-                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (const auto* col_str = assert_cast<const ColumnString*>(argument_columns[i].get())) {
-                offsets_list[i] = &col_str->get_offsets();
-                chars_list[i] = &col_str->get_chars();
-            } else {
+            std::tie(argument_columns[i], is_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+
+            if (!(argument_columns[i]->is_column_string() ||
+                  dynamic_cast<const ColumnVarbinary*>(argument_columns[i].get()))) {
                 return Status::RuntimeError("Illegal column {} of argument of function {}",
                                             block.get_by_position(arguments[0]).column->get_name(),
                                             get_name());
@@ -2386,15 +2384,13 @@ public:
         for (size_t i = 0; i < input_rows_count; ++i) {
             using ObjectData = typename Impl::ObjectData;
             ObjectData digest;
-            for (size_t j = 0; j < offsets_list.size(); ++j) {
-                const auto& current_offsets = *offsets_list[j];
-                const auto& current_chars = *chars_list[j];
-
-                int size = current_offsets[i] - current_offsets[i - 1];
-                if (size < 1) {
+            for (size_t j = 0; j < argument_columns.size(); ++j) {
+                StringRef data_ref = is_const[j] ? argument_columns[j]->get_data_at(0)
+                                                 : argument_columns[j]->get_data_at(i);
+                if (data_ref.size < 1) {
                     continue;
                 }
-                digest.update(&current_chars[current_offsets[i - 1]], size);
+                digest.update(data_ref.data, data_ref.size);
             }
             digest.digest();
 
@@ -2424,8 +2420,6 @@ public:
         DCHECK_EQ(arguments.size(), 1);
 
         ColumnPtr str_col = block.get_by_position(arguments[0]).column;
-        auto& data = assert_cast<const ColumnString*>(str_col.get())->get_chars();
-        auto& offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
 
         auto res_col = ColumnString::create();
         auto& res_data = res_col->get_chars();
@@ -2434,8 +2428,8 @@ public:
 
         SHA1Digest digest;
         for (size_t i = 0; i < input_rows_count; ++i) {
-            int size = offset[i] - offset[i - 1];
-            digest.reset(&data[offset[i - 1]], size);
+            StringRef data_ref = str_col->get_data_at(i);
+            digest.reset(data_ref.data, data_ref.size);
             std::string_view ans = digest.digest();
 
             StringOP::push_value_string(ans, i, res_data, res_offset);
@@ -2462,9 +2456,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK(!is_column_const(*block.get_by_position(arguments[0]).column));
 
-        ColumnPtr str_col = block.get_by_position(arguments[0]).column;
-        auto& data = assert_cast<const ColumnString*>(str_col.get())->get_chars();
-        auto& offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
+        ColumnPtr data_col = block.get_by_position(arguments[0]).column;
 
         [[maybe_unused]] const auto& [right_column, right_const] =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
@@ -2476,13 +2468,13 @@ public:
         res_offset.resize(input_rows_count);
 
         if (digest_length == 224) {
-            execute_base<SHA224Digest>(data, offset, input_rows_count, res_data, res_offset);
+            execute_base<SHA224Digest>(data_col, input_rows_count, res_data, res_offset);
         } else if (digest_length == 256) {
-            execute_base<SHA256Digest>(data, offset, input_rows_count, res_data, res_offset);
+            execute_base<SHA256Digest>(data_col, input_rows_count, res_data, res_offset);
         } else if (digest_length == 384) {
-            execute_base<SHA384Digest>(data, offset, input_rows_count, res_data, res_offset);
+            execute_base<SHA384Digest>(data_col, input_rows_count, res_data, res_offset);
         } else if (digest_length == 512) {
-            execute_base<SHA512Digest>(data, offset, input_rows_count, res_data, res_offset);
+            execute_base<SHA512Digest>(data_col, input_rows_count, res_data, res_offset);
         } else {
             return Status::InvalidArgument(
                     "sha2's digest length only support 224/256/384/512 but meet {}", digest_length);
@@ -2494,13 +2486,12 @@ public:
 
 private:
     template <typename T>
-    void execute_base(const ColumnString::Chars& data, const ColumnString::Offsets& offset,
-                      int input_rows_count, ColumnString::Chars& res_data,
+    void execute_base(ColumnPtr data_col, int input_rows_count, ColumnString::Chars& res_data,
                       ColumnString::Offsets& res_offset) const {
         T digest;
         for (size_t i = 0; i < input_rows_count; ++i) {
-            int size = offset[i] - offset[i - 1];
-            digest.reset(&data[offset[i - 1]], size);
+            StringRef data_ref = data_col->get_data_at(i);
+            digest.reset(data_ref.data, data_ref.size);
             std::string_view ans = digest.digest();
 
             StringOP::push_value_string(ans, i, res_data, res_offset);
