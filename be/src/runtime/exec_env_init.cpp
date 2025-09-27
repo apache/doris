@@ -613,10 +613,12 @@ Status ExecEnv::init_mem_env() {
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
-    _condition_cache = ConditionCache::create_global_cache(inverted_index_query_cache_limit);
+    // use memory limit
+    int64_t condition_cache_limit = config::condition_cache_limit * 1024L * 1024L;
+    _condition_cache = ConditionCache::create_global_cache(condition_cache_limit);
     LOG(INFO) << "Condition cache memory limit: "
-              << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
-              << ", origin config value: " << config::inverted_index_query_cache_limit;
+              << PrettyPrinter::print(condition_cache_limit, TUnit::BYTES)
+              << ", origin config value: " << config::condition_cache_limit;
 
     // init orc memory pool
     _orc_memory_pool = new doris::vectorized::ORCMemoryPool();

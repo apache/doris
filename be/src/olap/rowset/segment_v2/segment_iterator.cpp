@@ -113,14 +113,23 @@ SegmentIterator::~SegmentIterator() = default;
 
 void SegmentIterator::_init_row_bitmap_by_condition_cache() {
     // Only dispose need column predicate and expr cal in condition cache
-    if (_is_need_vec_eval || _is_need_short_eval || _is_need_expr_eval) {
+    if (!_col_predicates.empty() ||
+        (_enable_common_expr_pushdown && !_remaining_conjunct_roots.empty())) {
         if (_opts.condition_cache_digest) {
             auto* condition_cache = ConditionCache::instance();
             ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
                                                _opts.condition_cache_digest);
 
+            // Increment search count when digest != 0
+            DorisMetrics::instance()->condition_cache_search_count->increment(1);
+
             ConditionCacheHandle handle;
             _find_condition_cache = condition_cache->lookup(cache_key, &handle);
+
+            // Increment hit count if cache lookup is successful
+            if (_find_condition_cache) {
+                DorisMetrics::instance()->condition_cache_hit_count->increment(1);
+            }
 
             auto num_rows = _segment->num_rows();
             if (_find_condition_cache) {
