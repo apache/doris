@@ -21,7 +21,7 @@
 
 #include <memory>
 
-namespace doris::segment_v2 {
+namespace doris::segment_v2::inverted_index {
 
 CompositeBreakIterator::CompositeBreakIterator(const ICUTokenizerConfigPtr& config)
         : config_(config) {
@@ -80,4 +80,4 @@ BreakIteratorWrapper* CompositeBreakIterator::get_break_iterator(int32_t scriptC
     return word_breakers_[scriptCode].get();
 }
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index

@@ -22,18 +22,15 @@
 #include <memory>
 #include <string>
 
-namespace doris::segment_v2 {
+namespace doris::segment_v2::inverted_index {
 #include "common/compile_check_begin.h"
-ICUTokenizer::ICUTokenizer() {
-    this->lowercase = false;
-    this->ownReader = false;
 
+ICUTokenizer::ICUTokenizer() {
     config_ = std::make_shared<DefaultICUTokenizerConfig>(true, true);
     breaker_ = std::make_unique<CompositeBreakIterator>(config_);
 }
 
-ICUTokenizer::ICUTokenizer(bool lower_case, bool own_reader) : ICUTokenizer() {
-    this->lowercase = lower_case;
+ICUTokenizer::ICUTokenizer(bool own_reader) : ICUTokenizer() {
     this->ownReader = own_reader;
 }
 
@@ -69,9 +66,10 @@ Token* ICUTokenizer::next(Token* token) {
     return token;
 }
 
-void ICUTokenizer::reset(lucene::util::Reader* reader) {
+void ICUTokenizer::reset() {
+    DorisTokenizer::reset();
     const char* buf = nullptr;
-    int32_t len = reader->read((const void**)&buf, 0, static_cast<int32_t>(reader->size()));
+    int32_t len = _in->read((const void**)&buf, 0, static_cast<int32_t>(_in->size()));
     buffer_ = icu::UnicodeString::fromUTF8(icu::StringPiece(buf, len));
     if (!buffer_.isEmpty() && buffer_.isBogus()) {
         _CLTHROWT(CL_ERR_Runtime, "Failed to convert UTF-8 string to UnicodeString.");
@@ -79,5 +77,5 @@ void ICUTokenizer::reset(lucene::util::Reader* reader) {
     breaker_->set_text(buffer_.getBuffer(), 0, buffer_.length());
 }
 
-} // namespace doris::segment_v2
 #include "common/compile_check_end.h"
+} // namespace doris::segment_v2::inverted_index

@@ -85,7 +85,7 @@ private:
         indexwriter->setMergeFactor(1000000000);
         indexwriter->setUseCompoundFile(false);
 
-        auto* char_string_reader = _CLNEW lucene::util::SStringReader<char>;
+        auto char_string_reader = std::make_shared<lucene::util::SStringReader<char>>();
 
         auto* doc = _CLNEW lucene::document::Document();
         int32_t field_config = lucene::document::Field::STORE_NO;
@@ -110,7 +110,6 @@ private:
 
         _CLLDELETE(indexwriter);
         _CLLDELETE(doc);
-        _CLLDELETE(char_string_reader);
     }
 };
 
