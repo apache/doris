@@ -1822,7 +1822,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<List<Expr>> distributeExprLists = getDistributeExprs(nestedLoopJoin.child(0), nestedLoopJoin.child(1));
         PlanNode leftFragmentPlanRoot = leftFragment.getPlanRoot();
         PlanNode rightFragmentPlanRoot = rightFragment.getPlanRoot();
-        ((ExchangeNode) rightFragmentPlanRoot).setRightChildOfBroadcastHashJoin(true);
 
         if (!JoinUtils.shouldNestedLoopJoin(nestedLoopJoin)) {
             throw new RuntimeException("Physical nested loop join could not execute with equal join condition.");

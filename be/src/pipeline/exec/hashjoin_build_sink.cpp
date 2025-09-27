@@ -53,6 +53,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     }
     _shared_state->build_exprs_size = _build_expr_ctxs.size();
 
+    _should_build_hash_table = true;
     custom_profile()->add_info_string("BroadcastJoin", std::to_string(p._is_broadcast_join));
     if (p._use_shared_hash_table) {
         _should_build_hash_table = info.task_idx == 0;

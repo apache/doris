@@ -35,9 +35,6 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<NestedLoopJoinBuildSinkOperatorX>();
-    if (p._use_shared_hash_table) {
-        _should_build_hash_table = info.task_idx == 0;
-    }
     _shared_state->join_op_variants = p._join_op_variants;
     _filter_src_expr_ctxs.resize(p._filter_src_expr_ctxs.size());
     for (size_t i = 0; i < _filter_src_expr_ctxs.size(); i++) {
@@ -87,7 +84,6 @@ Status NestedLoopJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
 Status NestedLoopJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>::prepare(state));
     size_t num_build_tuples = _child->row_desc().tuple_descriptors().size();
-    _use_shared_hash_table = state->enable_share_hash_table_for_broadcast_join();
 
     for (size_t i = 0; i < num_build_tuples; ++i) {
         TupleDescriptor* build_tuple_desc = _child->row_desc().tuple_descriptors()[i];
