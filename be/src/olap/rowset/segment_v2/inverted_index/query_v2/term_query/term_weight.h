@@ -17,10 +17,16 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
+#include <memory>
+#include <string>
+
 #include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
 #include "olap/rowset/segment_v2/inverted_index/similarity/similarity.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
@@ -35,16 +41,23 @@ public:
               _enable_scoring(enable_scoring) {}
     ~TermWeight() override = default;
 
-    ScorerPtr scorer(const CompositeReaderPtr& composite_reader) override {
-        auto t = make_term_ptr(_field.c_str(), _term.c_str());
-        auto* reader = composite_reader->get_reader(_field);
-        auto iter = make_term_doc_ptr(reader, t.get(), _enable_scoring, _context->io_ctx);
+    ScorerPtr scorer(const QueryExecutionContext& ctx) override { return scorer(ctx, {}); }
 
+    ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
+        auto reader = lookup_reader(ctx, binding_key);
         auto make_scorer = [this](auto segment_postings) -> ScorerPtr {
             using PostingsT = decltype(segment_postings);
             return std::make_shared<TermScorer<PostingsT>>(std::move(segment_postings),
                                                            _similarity);
         };
+
+        if (!reader) {
+            auto segment_postings = std::make_shared<EmptySegmentPosting<TermDocsPtr>>();
+            return make_scorer(std::move(segment_postings));
+        }
+
+        auto t = make_term_ptr(_field.c_str(), _term.c_str());
+        auto iter = make_term_doc_ptr(reader.get(), t.get(), _enable_scoring, _context->io_ctx);
 
         if (iter) {
             if (_enable_scoring) {
@@ -56,13 +69,30 @@ public:
                         std::make_shared<NoScoreSegmentPosting<TermDocsPtr>>(std::move(iter));
                 return make_scorer(std::move(segment_postings));
             }
-        } else {
-            auto segment_postings = std::make_shared<EmptySegmentPosting<TermDocsPtr>>();
-            return make_scorer(std::move(segment_postings));
         }
+
+        auto segment_postings = std::make_shared<EmptySegmentPosting<TermDocsPtr>>();
+        return make_scorer(std::move(segment_postings));
     }
 
 private:
+    std::shared_ptr<lucene::index::IndexReader> lookup_reader(
+            const QueryExecutionContext& ctx, const std::string& binding_key) const {
+        if (!binding_key.empty()) {
+            if (auto it = ctx.reader_bindings.find(binding_key); it != ctx.reader_bindings.end()) {
+                return it->second;
+            }
+        }
+        if (auto it = ctx.field_reader_bindings.find(_field);
+            it != ctx.field_reader_bindings.end()) {
+            return it->second;
+        }
+        if (!ctx.readers.empty()) {
+            return ctx.readers.front();
+        }
+        return nullptr;
+    }
+
     IndexQueryContextPtr _context;
 
     std::wstring _field;
