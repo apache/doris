@@ -154,16 +154,6 @@ Status FunctionSearch::execute_impl(FunctionContext* /*context*/, Block& /*block
     return Status::RuntimeError("only inverted index queries are supported");
 }
 
-Status build_query_recursive(const FunctionSearch& function, const TSearchClause& clause,
-                             const std::shared_ptr<IndexQueryContext>& context,
-                             FieldReaderResolver& resolver, query_v2::QueryPtr* out,
-                             std::string* binding_key);
-
-Status build_leaf_query(const FunctionSearch& function, const TSearchClause& clause,
-                        const std::shared_ptr<IndexQueryContext>& context,
-                        FieldReaderResolver& resolver, query_v2::QueryPtr* out,
-                        std::string* binding_key);
-
 // Enhanced implementation: Handle new parameter structure (DSL + SlotReferences)
 Status FunctionSearch::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
@@ -206,18 +196,9 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
     std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
 
-    // Read null bitmap from all iterators and combine them
-    // For multi-field queries, we need to exclude rows where ANY field is NULL
-    for (const auto& [field_name, iterator] : iterators) {
-        if (iterator && iterator->has_null()) {
-            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-            RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
-            auto field_null_bitmap = null_bitmap_cache_handle.get_bitmap();
-            if (field_null_bitmap) {
-                *null_bitmap |= *field_null_bitmap;
-            }
-        }
-    }
+    // Collect NULL bitmaps for fields referenced in the query
+    // Apply proper NULL semantics based on query structure
+    RETURN_IF_ERROR(collect_query_null_bitmap(search_param.root, iterators, null_bitmap));
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = num_rows;
@@ -249,13 +230,11 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
 
     LOG(INFO) << "search: Query completed, matched " << matched_docs << " documents";
 
-    if (null_bitmap && roaring) {
-        *null_bitmap -= *roaring;
-    }
-
     bitmap_result = InvertedIndexResultBitmap(std::move(roaring), std::move(null_bitmap));
-    // Mask out NULL values to follow SQL semantics where NULL comparisons return UNKNOWN
-    bitmap_result.mask_out_null();
+    // Apply SQL NULL semantics: only mask out NULL when query doesn't handle them properly
+    if (should_mask_null_values(search_param.root)) {
+        bitmap_result.mask_out_null();
+    }
     return Status::OK();
 }
 
@@ -347,10 +326,12 @@ InvertedIndexQueryType FunctionSearch::clause_type_to_query_type(
     return InvertedIndexQueryType::EQUAL_QUERY;
 }
 
-Status build_query_recursive(const FunctionSearch& function, const TSearchClause& clause,
-                             const std::shared_ptr<IndexQueryContext>& context,
-                             FieldReaderResolver& resolver, query_v2::QueryPtr* out,
-                             std::string* binding_key) {
+Status FunctionSearch::build_query_recursive(const FunctionSearch& function,
+                                             const TSearchClause& clause,
+                                             const std::shared_ptr<IndexQueryContext>& context,
+                                             FieldReaderResolver& resolver,
+                                             inverted_index::query_v2::QueryPtr* out,
+                                             std::string* binding_key) const {
     DCHECK(out != nullptr);
     *out = nullptr;
     if (binding_key) {
@@ -386,10 +367,11 @@ Status build_query_recursive(const FunctionSearch& function, const TSearchClause
     return build_leaf_query(function, clause, context, resolver, out, binding_key);
 }
 
-Status build_leaf_query(const FunctionSearch& function, const TSearchClause& clause,
-                        const std::shared_ptr<IndexQueryContext>& context,
-                        FieldReaderResolver& resolver, query_v2::QueryPtr* out,
-                        std::string* binding_key) {
+Status FunctionSearch::build_leaf_query(const FunctionSearch& function, const TSearchClause& clause,
+                                        const std::shared_ptr<IndexQueryContext>& context,
+                                        FieldReaderResolver& resolver,
+                                        inverted_index::query_v2::QueryPtr* out,
+                                        std::string* binding_key) const {
     DCHECK(out != nullptr);
     *out = nullptr;
     if (binding_key) {
@@ -528,6 +510,53 @@ Status build_leaf_query(const FunctionSearch& function, const TSearchClause& cla
     LOG(WARNING) << "search: Unexpected clause type '" << clause_type << "', using TERM fallback";
     *out = make_term_query(value_wstr);
     return Status::OK();
+}
+
+Status FunctionSearch::collect_query_null_bitmap(
+        const TSearchClause& clause,
+        const std::unordered_map<std::string, IndexIterator*>& iterators,
+        std::shared_ptr<roaring::Roaring>& null_bitmap) const {
+    const std::string& clause_type = clause.clause_type;
+
+    if (clause_type == "AND" || clause_type == "OR" || clause_type == "NOT") {
+        // For compound queries, collect NULL bitmaps from children
+        if (clause.__isset.children) {
+            for (const auto& child_clause : clause.children) {
+                RETURN_IF_ERROR(collect_query_null_bitmap(child_clause, iterators, null_bitmap));
+            }
+        }
+        return Status::OK();
+    }
+
+    // For leaf queries, collect NULL bitmap from the specific field
+    if (clause.__isset.field_name) {
+        const std::string& field_name = clause.field_name;
+        auto it = iterators.find(field_name);
+        if (it != iterators.end() && it->second && it->second->has_null()) {
+            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(it->second->read_null_bitmap(&null_bitmap_cache_handle));
+            auto field_null_bitmap = null_bitmap_cache_handle.get_bitmap();
+            if (field_null_bitmap) {
+                *null_bitmap |= *field_null_bitmap;
+            }
+        }
+    }
+
+    return Status::OK();
+}
+
+bool FunctionSearch::should_mask_null_values(const TSearchClause& clause) const {
+    const std::string& clause_type = clause.clause_type;
+
+    // For OR queries at the top level, don't mask NULL values
+    // This allows proper SQL three-value logic: NULL OR TRUE = TRUE
+    if (clause_type == "OR") {
+        return false;
+    }
+
+    // For all other queries (including NOT), apply NULL masking
+    // This ensures search('NOT ...') behaves consistently with NOT search('...')
+    return true;
 }
 
 void register_function_search(SimpleFunctionFactory& factory) {

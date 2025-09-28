@@ -152,6 +152,24 @@ public:
     // Map clause_type string to InvertedIndexQueryType
     InvertedIndexQueryType clause_type_to_query_type(const std::string& clause_type) const;
 
+    Status build_query_recursive(const FunctionSearch& function, const TSearchClause& clause,
+                                 const std::shared_ptr<IndexQueryContext>& context,
+                                 FieldReaderResolver& resolver,
+                                 inverted_index::query_v2::QueryPtr* out,
+                                 std::string* binding_key) const;
+
+    Status build_leaf_query(const FunctionSearch& function, const TSearchClause& clause,
+                            const std::shared_ptr<IndexQueryContext>& context,
+                            FieldReaderResolver& resolver, inverted_index::query_v2::QueryPtr* out,
+                            std::string* binding_key) const;
+
+    Status collect_query_null_bitmap(
+            const TSearchClause& clause,
+            const std::unordered_map<std::string, IndexIterator*>& iterators,
+            std::shared_ptr<roaring::Roaring>& null_bitmap) const;
+
+    bool should_mask_null_values(const TSearchClause& clause) const;
+
 private:
 };
 
