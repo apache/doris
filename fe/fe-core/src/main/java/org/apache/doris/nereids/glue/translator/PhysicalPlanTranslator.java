@@ -207,6 +207,7 @@ import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -218,10 +219,12 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -2509,8 +2512,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private void updateScanSlotsMaterialization(ScanNode scanNode,
             Set<SlotId> requiredSlotIdSet, Set<SlotId> requiredByProjectSlotIdSet,
             PlanTranslatorContext context) {
-        // TODO: use smallest slot if do not need any slot in upper node
-        SlotDescriptor smallest = scanNode.getTupleDesc().getSlots().get(0);
+
+        // Find the smallest column, for count(*) or other situation that slot is empty after prune
+        SlotDescriptor smallest = getSmallestSlot(scanNode.getTupleDesc().getSlots());
         scanNode.getTupleDesc().getSlots().removeIf(s -> !requiredSlotIdSet.contains(s.getId()));
         if (scanNode.getTupleDesc().getSlots().isEmpty()) {
             scanNode.getTupleDesc().getSlots().add(smallest);
@@ -2525,6 +2529,56 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 }
             }
             context.removeScanFromStatsUnknownColumnsMap(scanNode);
+        }
+    }
+
+    /**
+     * Get the smallest slot in the slot list.
+     *
+     * @param slots slot list
+     * @return the smallest slot
+     */
+    @VisibleForTesting
+    @Nullable
+    public static SlotDescriptor getSmallestSlot(List<SlotDescriptor> slots) {
+        if (slots == null || slots.isEmpty()) {
+            return null;
+        }
+        return Collections.min(slots, new SlotSizeComparator());
+    }
+
+    /**
+     * Comparator to compare the size of two slots.
+     */
+    public static class SlotSizeComparator implements Comparator<SlotDescriptor> {
+        @Override
+        public int compare(SlotDescriptor s1, SlotDescriptor s2) {
+            int p1 = typePriority(s1);
+            int p2 = typePriority(s2);
+
+            if (p1 != p2) {
+                return Integer.compare(p1, p2);
+            }
+
+            int res = Integer.compare(s1.getType().getSlotSize(), s2.getType().getSlotSize());
+            if (res != 0) {
+                return res;
+            } else {
+                return Integer.compare(s1.getType().getLength(), s2.getType().getLength());
+            }
+        }
+
+        private int typePriority(SlotDescriptor s) {
+            if (s.getType().isNumericType() || s.getType().isDateType() || s.getType().isBoolean()
+                    || s.getType().isTime() || s.getType().isTimeV2() || s.getType().isIP()) {
+                return 1;
+            } else if (s.getType().isStringType()) {
+                return 2;
+            } else if (s.getType().isComplexType()) {
+                return 3;
+            } else {
+                return Integer.MAX_VALUE;
+            }
         }
     }
 
