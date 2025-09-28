@@ -21,29 +21,40 @@ suite('test_snapshot_command') {
         return
     }
 
-    // backup snapshot
+    // create snapshot
     test {
-        sql """ ADMIN BACKUP CLUSTER SNAPSHOT PROPERTIES('ttl' = '600', 'label' = 'test_snapshot'); """
+        sql """ ADMIN CREATE CLUSTER SNAPSHOT PROPERTIES('ttl' = '600', 'label' = 'test_snapshot'); """
         exception "submitJob is not implemented"
     }
 
-    // set snapshot properties
+    // snapshot feature off
     test {
-        sql """ ADMIN SET CLUSTER SNAPSHOT PROPERTIES('enabled'='true', 'max_reserved_snapshots'='10', 'snapshot_interval_seconds'='3600');"""
+        sql """ ADMIN SET CLUSTER SNAPSHOT FEATURE OFF; """
+        exception ""
+    }
+    // snapshot feature on
+    test {
+        sql """ ADMIN SET CLUSTER SNAPSHOT FEATURE ON; """
+        exception ""
+    }
+
+    // set auto snapshot properties
+    test {
+        sql """ ADMIN SET AUTO CLUSTER SNAPSHOT PROPERTIES('max_reserved_snapshots'='10', 'snapshot_interval_seconds'='3600');"""
         exception ""
     }
 
     // show snapshot properties
-    def result = sql """ ADMIN SHOW CLUSTER SNAPSHOT PROPERTIES; """
+    def result = sql """ select * from information_schema.cluster_snapshot_properties; """
     logger.info("show result: " + result)
 
     // list snapshot
     test {
-        sql """ ADMIN SHOW CLUSTER SNAPSHOT; """
+        result = sql """ select * from information_schema.cluster_snapshots; """
         exception ""
     }
     test {
-        sql """ ADMIN SHOW full CLUSTER SNAPSHOT; """
+        result = sql """ select * from information_schema.cluster_snapshots where id like '%1%'; """
         exception ""
     }
 

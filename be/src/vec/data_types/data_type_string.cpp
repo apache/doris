@@ -43,24 +43,6 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-std::string DataTypeString::to_string(const IColumn& column, size_t row_num) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
-    return value.to_string();
-}
-
-void DataTypeString::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
-                               class doris::vectorized::BufferWritable& ostr) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
-    ostr.write(value.data, value.size);
-}
 
 Field DataTypeString::get_default() const {
     return Field::create_field<TYPE_STRING>(String());

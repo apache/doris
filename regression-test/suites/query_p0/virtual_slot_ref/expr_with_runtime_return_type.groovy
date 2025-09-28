@@ -16,6 +16,7 @@
 // under the License.
 
 suite("expr_with_runtime_return_type") {
+    sql "set experimental_enable_virtual_slot_for_cse=true;"
     sql """
         DROP TABLE IF EXISTS expr_with_runtime_return_type
     """
