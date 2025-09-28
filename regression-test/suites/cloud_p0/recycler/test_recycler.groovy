@@ -114,7 +114,7 @@ suite("test_recycler") {
         checkJobInfoApi.call() {
             respCode, body ->
                 logger.info("http cli result: ${body} ${respCode}")
-                checkJobInfoResult = body
+                def checkJobInfoResult = body
                 logger.info("checkJobInfoResult:${checkJobInfoResult}")
                 assertEquals(respCode, 200)
                 def info = parseJson(checkJobInfoResult.trim())
