@@ -341,5 +341,16 @@ void DataTypeJsonbSerDe::to_string(const IColumn& column, size_t row_num,
         bw.write("NULL", 4);
     }
 }
+
+void DataTypeJsonbSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                                 Arena& mem_pool, int32_t col_id,
+                                                 int64_t row_num) const {
+    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
+    const auto& data_ref = column.get_data_at(row_num);
+    result.writeStartBinary();
+    result.writeBinary(reinterpret_cast<const char*>(data_ref.data), data_ref.size);
+    result.writeEndBinary();
+}
+
 } // namespace vectorized
 } // namespace doris
