@@ -68,91 +68,97 @@ def getProfileWithToken = { token ->
     return profile;
 }
 
-suite('runtime_profile_size_limit', 'nonConcurrent') {
-    sql """
-        DROP TABLE IF EXISTS runtime_profile_size_limit;
-    """
-    sql """
-        CREATE TABLE if not exists `runtime_profile_size_limit` (
-            `id` INT,
-            `name` varchar(32),
-            `age` INT,
-        ) ENGINE=OLAP
-        DISTRIBUTED BY HASH(`id`) BUCKETS 10
-        PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
-        );
-    """
+suite('profile_size_limit', 'docker, nonConcurrent') {
+    def options = new ClusterOptions()
+    options.beNum = 1
+    options.enableDebugPoints()
 
-    sql """
-        INSERT INTO runtime_profile_size_limit VALUES
-        (1, "Senior_Software_Engineer_Backend", 25),
-        (2, "Data_Scientist_Machine_Learning", 30),
-        (3, "Cloud_Architect_AWS_Certified", 28),
-        (4, "DevOps_Engineer_Kubernetes_Expert", 35),
-        (5, "Frontend_Developer_React_Specialist", 40),
-        (6, "Database_Administrator_MySQL", 32),
-        (7, "Security_Analyst_Penetration_Testing", 29),
-        (8, "Mobile_Developer_Flutter_Expert", 27),
-        (9, "AI_Researcher_Computer_Vision", 33),
-        (10, "System_Administrator_Linux", 26),
-        (20, "Network_Engineer_Cisco_Certified", 31),
-        (30, "QA_Automation_Engineer_Selenium", 34),
-        (40, "Business_Intelligence_Analyst", 28),
-        (50, "Technical_Lead_Scrum_Master", 29),
-        (60, "Embedded_Systems_Engineer", 36),
-        (70, "Blockchain_Developer_Ethereum", 30),
-        (80, "Game_Developer_Unity_Expert", 32),
-        (90, "Data_Engineer_Apache_Spark", 38),
-        (101, "Machine_Learning_Engineer_NLP", 27),
-        (201, "Cloud_Native_Developer_Docker", 33),
-        (301, "Cybersecurity_Specialist_SOC", 35),
-        (401, "Full_Stack_Developer_NodeJS", 29),
-        (501, "IoT_Engineer_Embedded_Systems", 31),
-        (601, "Site_Reliability_Engineer_SRE", 34),
-        (701, "Product_Manager_Technical", 28),
-        (801, "UX_Designer_Interaction_Design", 36),
-        (901, "Research_Scientist_AI", 30),
-        (1010, "Infrastructure_Engineer_Terraform", 32),
-        (2010, "Big_Data_Engineer_Hadoop", 37),
-        (3010, "Software_Architect_Enterprise", 39),
-        (4010, "Database_Developer_PostgreSQL", 33),
-        (5010, "Mobile_Architect_iOS_Android", 35),
-        (6010, "Security_Engineer_Cryptography", 40),
-        (7010, "Data_Analyst_Business_Intelligence", 31),
-        (8010, "Platform_Engineer_Cloud", 29),
-        (9010, "CTO_Technical_Strategy_Lead", 42);
-    """
-
-    sql "set enable_profile=true;"
-    sql "set profile_level=2;"
-
-    def feHttpAddress = context.config.feHttpAddress.split(":")
-    def feHost = feHttpAddress[0]
-    def fePort = feHttpAddress[1] as int
-
-    sql """
-        select "${token}", * from runtime_profile_size_limit;
-    """
-    def String profile = getProfileWithToken(token)
-    logger.info("Profile of ${token} size: ${profile.size()}")
-    assertTrue(profile.size() > 0, PROFILE_SIZE_NOT_GREATER_THAN_ZERO_MSG)
-
-    int maxProfileSize = profile.size()
-
-    while (maxProfileSize >= 64) {
-        maxProfileSize /= 2;
-
-        DebugPoint.enableDebugPoint(feHost, fePort, NodeType.FE, "Profile.profileSizeLimit",
-                ["profileSizeLimit": maxProfileSize.toString()])
-        token = UUID.randomUUID().toString()
+    docker(options) {
         sql """
-            select "${token}", * from runtime_profile_size_limit;
+            DROP TABLE IF EXISTS profile_size_limit;
         """
-        profile = getProfileWithToken(token)
-        logger.info("Profile of ${token} size: ${profile.size()}, limit: ${maxProfileSize}")
-        assertTrue(profile.size() <= maxProfileSize, PROFILE_SIZE_GREATER_THAN_LIMIT_MSG)
-    }
+        sql """
+            CREATE TABLE if not exists `profile_size_limit` (
+                `id` INT,
+                `name` varchar(64),
+                `age` INT,
+            ) ENGINE=OLAP
+            DISTRIBUTED BY HASH(`id`) BUCKETS 10
+            PROPERTIES (
+                "replication_num"="1"
+            );
+        """
 
-    DebugPoint.disableDebugPoint(feHost, fePort, NodeType.FE, "Profile.profileSizeLimit")
+        sql """
+            INSERT INTO profile_size_limit VALUES
+            (1, "Senior_Software_Engineer_Backend", 25),
+            (2, "Data_Scientist_Machine_Learning", 30),
+            (3, "Cloud_Architect_AWS_Certified", 28),
+            (4, "DevOps_Engineer_Kubernetes_Expert", 35),
+            (5, "Frontend_Developer_React_Specialist", 40),
+            (6, "Database_Administrator_MySQL", 32),
+            (7, "Security_Analyst_Penetration_Testing", 29),
+            (8, "Mobile_Developer_Flutter_Expert", 27),
+            (9, "AI_Researcher_Computer_Vision", 33),
+            (10, "System_Administrator_Linux", 26),
+            (20, "Network_Engineer_Cisco_Certified", 31),
+            (30, "QA_Automation_Engineer_Selenium", 34),
+            (40, "Business_Intelligence_Analyst", 28),
+            (50, "Technical_Lead_Scrum_Master", 29),
+            (60, "Embedded_Systems_Engineer", 36),
+            (70, "Blockchain_Developer_Ethereum", 30),
+            (80, "Game_Developer_Unity_Expert", 32),
+            (90, "Data_Engineer_Apache_Spark", 38),
+            (101, "Machine_Learning_Engineer_NLP", 27),
+            (201, "Cloud_Native_Developer_Docker", 33),
+            (301, "Cybersecurity_Specialist_SOC", 35),
+            (401, "Full_Stack_Developer_NodeJS", 29),
+            (501, "IoT_Engineer_Embedded_Systems", 31),
+            (601, "Site_Reliability_Engineer_SRE", 34),
+            (701, "Product_Manager_Technical", 28),
+            (801, "UX_Designer_Interaction_Design", 36),
+            (901, "Research_Scientist_AI", 30),
+            (1010, "Infrastructure_Engineer_Terraform", 32),
+            (2010, "Big_Data_Engineer_Hadoop", 37),
+            (3010, "Software_Architect_Enterprise", 39),
+            (4010, "Database_Developer_PostgreSQL", 33),
+            (5010, "Mobile_Architect_iOS_Android", 35),
+            (6010, "Security_Engineer_Cryptography", 40),
+            (7010, "Data_Analyst_Business_Intelligence", 31),
+            (8010, "Platform_Engineer_Cloud", 29),
+            (9010, "CTO_Technical_Strategy_Lead", 42);
+        """
+
+        sql "set enable_profile=true;"
+        sql "set profile_level=2;"
+
+        def feHttpAddress = context.config.feHttpAddress.split(":")
+        def feHost = feHttpAddress[0]
+        def fePort = feHttpAddress[1] as int
+
+        sql """
+            select "${token}", * from profile_size_limit;
+        """
+        def String profile = getProfileWithToken(token)
+        logger.info("Profile of ${token} size: ${profile.size()}")
+        assertTrue(profile.size() > 0, PROFILE_SIZE_NOT_GREATER_THAN_ZERO_MSG)
+
+        int maxProfileSize = profile.size()
+
+        while (maxProfileSize >= 64) {
+            maxProfileSize /= 2;
+
+            DebugPoint.enableDebugPoint(feHost, fePort, NodeType.FE, "Profile.profileSizeLimit",
+                    ["profileSizeLimit": maxProfileSize.toString()])
+            token = UUID.randomUUID().toString()
+            sql """
+                select "${token}", * from profile_size_limit;
+            """
+            profile = getProfileWithToken(token)
+            logger.info("Profile of ${token} size: ${profile.size()}, limit: ${maxProfileSize}")
+            assertTrue(profile.size() <= maxProfileSize, PROFILE_SIZE_GREATER_THAN_LIMIT_MSG)
+        }
+
+        DebugPoint.disableDebugPoint(feHost, fePort, NodeType.FE, "Profile.profileSizeLimit")
+    }
 }
