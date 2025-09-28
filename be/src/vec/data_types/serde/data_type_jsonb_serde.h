@@ -32,9 +32,9 @@ class JsonbOutStream;
 namespace vectorized {
 class Arena;
 
-class DataTypeJsonbSerDe : public DataTypeStringSerDe {
+class DataTypeJsonbSerDe : public DataTypeSerDe {
 public:
-    DataTypeJsonbSerDe(int nesting_level = 1) : DataTypeStringSerDe(nesting_level) {};
+    DataTypeJsonbSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
 
     std::string get_name() const override { return "JSONB"; }
 
@@ -81,6 +81,23 @@ public:
                                   int64_t row_num) const override;
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
+
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
+                                 int32_t col_id, int64_t row_num) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method write_one_cell_to_jsonb is not supported for jsonb serde");
+    }
+
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method read_one_cell_from_jsonb is not supported for jsonb serde");
+    }
+
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const override {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method read_column_from_arrow is not supported for jsonb serde");
+    }
 
 private:
     template <bool is_binary_format>
