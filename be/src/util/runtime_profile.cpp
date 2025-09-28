@@ -116,12 +116,8 @@ void RuntimeProfile::merge(RuntimeProfile* other) {
             }
         }
 
-        ChildCounterMap::const_iterator child_counter_src_itr;
-
-        for (child_counter_src_itr = other->_child_counter_map.begin();
-             child_counter_src_itr != other->_child_counter_map.end(); ++child_counter_src_itr) {
-            _child_counter_map[child_counter_src_itr->first].insert(
-                    child_counter_src_itr->second.begin(), child_counter_src_itr->second.end());
+        for (const auto& kv : other->_child_counter_map) {
+            _child_counter_map[kv.first].insert(kv.second.begin(), kv.second.end());
         }
     }
 
@@ -170,7 +166,6 @@ void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* 
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);
         // update this level
-        std::map<std::string, Counter*>::iterator dst_iter;
 
         for (int i = 0; i < node.counters.size(); ++i) {
             const TCounter& tcounter = node.counters[i];
@@ -189,24 +184,20 @@ void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* 
             }
         }
 
-        ChildCounterMap::const_iterator child_counter_src_itr;
-
-        for (child_counter_src_itr = node.child_counters_map.begin();
-             child_counter_src_itr != node.child_counters_map.end(); ++child_counter_src_itr) {
-            _child_counter_map[child_counter_src_itr->first].insert(
-                    child_counter_src_itr->second.begin(), child_counter_src_itr->second.end());
+        for (const auto& kv : node.child_counters_map) {
+            _child_counter_map[kv.first].insert(kv.second.begin(), kv.second.end());
         }
     }
 
     {
         std::lock_guard<std::mutex> l(_info_strings_lock);
-        const InfoStrings& info_strings = node.info_strings;
+        const auto& info_strings = node.info_strings;
         for (const std::string& key : node.info_strings_display_order) {
             // Look for existing info strings and update in place. If there
             // are new strings, add them to the end of the display order.
             // TODO: Is nodes.info_strings always a superset of
             // _info_strings? If so, can just copy the display order.
-            InfoStrings::const_iterator it = info_strings.find(key);
+            auto it = info_strings.find(key);
             DCHECK(it != info_strings.end());
             InfoStrings::iterator existing = _info_strings.find(key);
 
@@ -320,11 +311,10 @@ void RuntimeProfile::update(const google::protobuf::RepeatedPtrField<PRuntimePro
 
 void RuntimeProfile::divide(int n) {
     DCHECK_GT(n, 0);
-    std::map<std::string, Counter*>::iterator iter;
     {
         std::lock_guard<std::mutex> l(_counter_map_lock);
 
-        for (iter = _counter_map.begin(); iter != _counter_map.end(); ++iter) {
+        for (auto iter = _counter_map.begin(); iter != _counter_map.end(); ++iter) {
             if (iter->second->type() == TUnit::DOUBLE_VALUE) {
                 iter->second->set(iter->second->double_value() / n);
             } else {
@@ -625,7 +615,7 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix,
         child_counter_map = _child_counter_map;
     }
 
-    std::map<std::string, Counter*>::const_iterator total_time = counter_map.find("TotalTime");
+    auto total_time = counter_map.find("TotalTime");
     DCHECK(total_time != counter_map.end());
 
     stream.flags(std::ios::fixed);
@@ -688,7 +678,10 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64_t 
 
     {
         std::lock_guard<std::mutex> l(_info_strings_lock);
-        node.info_strings = _info_strings;
+        node.info_strings.clear();
+        for (const auto& kv : _info_strings) {
+            node.info_strings.emplace(kv.first, kv.second);
+        }
         node.info_strings_display_order = _info_strings_display_order;
     }
 
