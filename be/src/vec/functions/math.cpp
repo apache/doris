@@ -71,10 +71,93 @@ struct AsinhName {
 };
 using FunctionAsinh = FunctionMathUnary<UnaryFunctionPlain<AsinhName, std::asinh>>;
 
-struct AtanName {
+class FunctionAtan : public IFunction {
+public:
     static constexpr auto name = "atan";
+    static FunctionPtr create() { return std::make_shared<FunctionAtan>(); }
+
+    String get_name() const override { return name; }
+    bool is_variadic() const override { return true; }
+    size_t get_number_of_arguments() const override { return 0; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeFloat64>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        if (arguments.size() == 1) {
+            return execute_unary(block, arguments, result, input_rows_count);
+        } else if (arguments.size() == 2) {
+            return execute_binary(block, arguments, result, input_rows_count);
+        } else {
+            return Status::InvalidArgument("atan function expects 1 or 2 arguments, but got {}",
+                                           arguments.size());
+        }
+    }
+
+private:
+    Status execute_unary(Block& block, const ColumnNumbers& arguments, uint32_t result,
+                         size_t input_rows_count) const {
+        auto res_col = ColumnFloat64::create(input_rows_count);
+        auto& res_data = res_col->get_data();
+
+        const auto& col_data =
+                assert_cast<const ColumnFloat64*>(block.get_by_position(arguments[0]).column.get())
+                        ->get_data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            res_data[i] = std::atan(col_data[i]);
+        }
+
+        block.replace_by_position(result, std::move(res_col));
+        return Status::OK();
+    }
+
+    Status execute_binary(Block& block, const ColumnNumbers& arguments, uint32_t result,
+                          size_t input_rows_count) const {
+        auto [col_y, is_const_y] = unpack_if_const(block.get_by_position(arguments[0]).column);
+        auto [col_x, is_const_x] = unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        auto result_column = ColumnFloat64::create(input_rows_count);
+        auto& result_data = result_column->get_data();
+
+        if (is_const_y && is_const_x) {
+            auto y_val = assert_cast<const ColumnConst*>(col_y.get())->get_value<Float64>();
+            auto x_val = assert_cast<const ColumnConst*>(col_x.get())->get_value<Float64>();
+            double atan2_value = std::atan2(y_val, x_val);
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                result_data[i] = atan2_value;
+            }
+        } else if (is_const_y) {
+            auto y_val = assert_cast<const ColumnConst*>(col_y.get())->get_value<Float64>();
+
+            const auto* x_col = assert_cast<const ColumnFloat64*>(col_x.get());
+            const auto& x_data = x_col->get_data();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                result_data[i] = std::atan2(y_val, x_data[i]);
+            }
+        } else if (is_const_x) {
+            auto x_val = assert_cast<const ColumnConst*>(col_x.get())->get_value<Float64>();
+
+            const auto* y_col = assert_cast<const ColumnFloat64*>(col_y.get());
+            const auto& y_data = y_col->get_data();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                result_data[i] = std::atan2(y_data[i], x_val);
+            }
+        } else {
+            const auto* y_col = assert_cast<const ColumnFloat64*>(col_y.get());
+            const auto* x_col = assert_cast<const ColumnFloat64*>(col_x.get());
+            const auto& y_data = y_col->get_data();
+            const auto& x_data = x_col->get_data();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                result_data[i] = std::atan2(y_data[i], x_data[i]);
+            }
+        }
+
+        block.replace_by_position(result, std::move(result_column));
+        return Status::OK();
+    }
 };
-using FunctionAtan = FunctionMathUnary<UnaryFunctionPlain<AtanName, std::atan>>;
 
 struct AtanhName {
     static constexpr auto name = "atanh";

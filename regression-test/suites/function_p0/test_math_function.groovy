@@ -121,6 +121,78 @@ suite("test_math_function") {
             atan2(cast('-1.0' as double), cast('inf' as double))
     """
 
+    qt_select_atan_with_two_args""" 
+        select
+            atan(cast('nan' as double), cast('1.0' as double)),
+            atan(cast('1.0' as double), cast('nan' as double)),
+
+            atan(cast('0.0' as double),  cast('1.0' as double)),
+            atan(cast('-0.0' as double), cast('1.0' as double)),
+            atan(cast('0.0' as double),  cast('0.0' as double)),
+            atan(cast('-0.0' as double), cast('0.0' as double)),
+
+            atan(cast('0.0' as double),  cast('-1.0' as double)),
+            atan(cast('-0.0' as double), cast('-1.0' as double)),
+            atan(cast('0.0' as double),  cast('-0.0' as double)),
+            atan(cast('-0.0' as double), cast('-0.0' as double)),
+
+            atan(cast('1.0' as double),  cast('0.0' as double)),
+            atan(cast('1.0' as double),  cast('-0.0' as double)),
+            atan(cast('-1.0' as double), cast('0.0' as double)),
+            atan(cast('-1.0' as double), cast('-0.0' as double)),
+
+            atan(cast('inf' as double),  cast('1.0' as double)),
+            atan(cast('-inf' as double), cast('1.0' as double)),
+
+            atan(cast('inf' as double),  cast('-inf' as double)),
+            atan(cast('-inf' as double), cast('-inf' as double)),
+
+            atan(cast('inf' as double),  cast('inf' as double)),
+            atan(cast('-inf' as double), cast('inf' as double)),
+
+            atan(cast('1.0' as double),  cast('-inf' as double)),
+            atan(cast('-1.0' as double), cast('-inf' as double)),
+
+            atan(cast('1.0' as double),  cast('inf' as double)),
+            atan(cast('-1.0' as double), cast('inf' as double))
+    """
+
+    testFoldConst""" 
+        select
+            atan(cast('nan' as double), cast('1.0' as double)),
+            atan(cast('1.0' as double), cast('nan' as double)),
+
+            atan(cast('0.0' as double),  cast('1.0' as double)),
+            atan(cast('-0.0' as double), cast('1.0' as double)),
+            atan(cast('0.0' as double),  cast('0.0' as double)),
+            atan(cast('-0.0' as double), cast('0.0' as double)),
+
+            atan(cast('0.0' as double),  cast('-1.0' as double)),
+            atan(cast('-0.0' as double), cast('-1.0' as double)),
+            atan(cast('0.0' as double),  cast('-0.0' as double)),
+            atan(cast('-0.0' as double), cast('-0.0' as double)),
+
+            atan(cast('1.0' as double),  cast('0.0' as double)),
+            atan(cast('1.0' as double),  cast('-0.0' as double)),
+            atan(cast('-1.0' as double), cast('0.0' as double)),
+            atan(cast('-1.0' as double), cast('-0.0' as double)),
+
+            atan(cast('inf' as double),  cast('1.0' as double)),
+            atan(cast('-inf' as double), cast('1.0' as double)),
+
+            atan(cast('inf' as double),  cast('-inf' as double)),
+            atan(cast('-inf' as double), cast('-inf' as double)),
+
+            atan(cast('inf' as double),  cast('inf' as double)),
+            atan(cast('-inf' as double), cast('inf' as double)),
+
+            atan(cast('1.0' as double),  cast('-inf' as double)),
+            atan(cast('-1.0' as double), cast('-inf' as double)),
+
+            atan(cast('1.0' as double),  cast('inf' as double)),
+            atan(cast('-1.0' as double), cast('inf' as double))
+    """
+
     testFoldConst""" select cbrt(cast('nan' as double)), cbrt(cast('inf' as double)), cbrt(cast('-inf' as double)) """
     qt_select_cbrt""" select cbrt(cast('nan' as double)), cbrt(cast('inf' as double)), cbrt(cast('-inf' as double)) """
 
