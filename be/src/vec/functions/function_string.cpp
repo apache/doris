@@ -977,7 +977,8 @@ struct UnHexImpl {
                          ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
-
+        std::array<char, string_hex::MAX_STACK_CIPHER_LEN> stack_buf;
+        std::vector<char> heap_buf;
         for (int i = 0; i < rows_count; ++i) {
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             ColumnString::Offset srclen = offsets[i] - offsets[i - 1];
@@ -987,14 +988,13 @@ struct UnHexImpl {
                 continue;
             }
 
-            char dst_array[string_hex::MAX_STACK_CIPHER_LEN];
-            char* dst = dst_array;
-
-            int cipher_len = srclen / 2;
-            std::unique_ptr<char[]> dst_uptr;
-            if (cipher_len > string_hex::MAX_STACK_CIPHER_LEN) {
-                dst_uptr.reset(new char[cipher_len]);
-                dst = dst_uptr.get();
+            auto cipher_len = srclen / 2;
+            char* dst = nullptr;
+            if (cipher_len <= stack_buf.size()) {
+                dst = stack_buf.data();
+            } else {
+                heap_buf.resize(cipher_len);
+                dst = heap_buf.data();
             }
 
             int outlen = string_hex::hex_decode(source, srclen, dst);
@@ -1009,7 +1009,8 @@ struct UnHexImpl {
                          ColumnUInt8::Container* null_map_data) {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
-
+        std::array<char, string_hex::MAX_STACK_CIPHER_LEN> stack_buf;
+        std::vector<char> heap_buf;
         for (int i = 0; i < rows_count; ++i) {
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             ColumnString::Offset srclen = offsets[i] - offsets[i - 1];
@@ -1019,14 +1020,13 @@ struct UnHexImpl {
                 continue;
             }
 
-            char dst_array[string_hex::MAX_STACK_CIPHER_LEN];
-            char* dst = dst_array;
-
-            int cipher_len = srclen / 2;
-            std::unique_ptr<char[]> dst_uptr;
-            if (cipher_len > string_hex::MAX_STACK_CIPHER_LEN) {
-                dst_uptr.reset(new char[cipher_len]);
-                dst = dst_uptr.get();
+            auto cipher_len = srclen / 2;
+            char* dst = nullptr;
+            if (cipher_len <= stack_buf.size()) {
+                dst = stack_buf.data();
+            } else {
+                heap_buf.resize(cipher_len);
+                dst = heap_buf.data();
             }
 
             int outlen = string_hex::hex_decode(source, srclen, dst);
@@ -1086,7 +1086,8 @@ struct ToBase64Impl {
                          ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
-
+        std::array<char, string_hex::MAX_STACK_CIPHER_LEN> stack_buf;
+        std::vector<char> heap_buf;
         for (int i = 0; i < rows_count; ++i) {
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t srclen = offsets[i] - offsets[i - 1];
@@ -1096,14 +1097,13 @@ struct ToBase64Impl {
                 continue;
             }
 
-            char dst_array[string_hex::MAX_STACK_CIPHER_LEN];
-            char* dst = dst_array;
-
-            int cipher_len = (int)(4.0 * ceil((double)srclen / 3.0));
-            std::unique_ptr<char[]> dst_uptr;
-            if (cipher_len > string_hex::MAX_STACK_CIPHER_LEN) {
-                dst_uptr.reset(new char[cipher_len]);
-                dst = dst_uptr.get();
+            auto cipher_len = srclen / 2;
+            char* dst = nullptr;
+            if (cipher_len <= stack_buf.size()) {
+                dst = stack_buf.data();
+            } else {
+                heap_buf.resize(cipher_len);
+                dst = heap_buf.data();
             }
 
             auto outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
@@ -1124,7 +1124,8 @@ struct FromBase64Impl {
                          NullMap& null_map) {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
-
+        std::array<char, string_hex::MAX_STACK_CIPHER_LEN> stack_buf;
+        std::vector<char> heap_buf;
         for (int i = 0; i < rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
@@ -1139,14 +1140,13 @@ struct FromBase64Impl {
                 continue;
             }
 
-            char dst_array[string_hex::MAX_STACK_CIPHER_LEN];
-            char* dst = dst_array;
-
-            int cipher_len = srclen;
-            std::unique_ptr<char[]> dst_uptr;
-            if (cipher_len > string_hex::MAX_STACK_CIPHER_LEN) {
-                dst_uptr.reset(new char[cipher_len]);
-                dst = dst_uptr.get();
+            auto cipher_len = srclen / 2;
+            char* dst = nullptr;
+            if (cipher_len <= stack_buf.size()) {
+                dst = stack_buf.data();
+            } else {
+                heap_buf.resize(cipher_len);
+                dst = heap_buf.data();
             }
             auto outlen = base64_decode(source, srclen, dst);
 

@@ -59,17 +59,20 @@ public:
             auto col_res = ColumnVarbinary::create();
             const auto& data = col->get_chars();
             const auto& offsets = col->get_offsets();
+
+            std::array<char, string_hex::MAX_STACK_CIPHER_LEN> stack_buf;
+            std::vector<char> heap_buf;
             for (int i = 0; i < input_rows_count; ++i) {
                 const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
                 ColumnString::Offset srclen = offsets[i] - offsets[i - 1];
 
-                char dst_array[string_hex::MAX_STACK_CIPHER_LEN];
-                char* dst = dst_array;
-                int cipher_len = srclen / 2;
-                std::unique_ptr<char[]> dst_uptr;
-                if (cipher_len > string_hex::MAX_STACK_CIPHER_LEN) {
-                    dst_uptr.reset(new char[cipher_len]);
-                    dst = dst_uptr.get();
+                auto cipher_len = srclen / 2;
+                char* dst = nullptr;
+                if (cipher_len <= stack_buf.size()) {
+                    dst = stack_buf.data();
+                } else {
+                    heap_buf.resize(cipher_len);
+                    dst = heap_buf.data();
                 }
                 int outlen = string_hex::hex_decode(source, srclen, dst);
 
