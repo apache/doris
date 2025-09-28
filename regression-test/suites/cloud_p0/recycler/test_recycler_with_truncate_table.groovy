@@ -23,6 +23,12 @@ suite("test_recycler_with_truncate_table") {
     def instanceId = context.config.instanceId;
     def cloudUniqueId = context.config.cloudUniqueId
     def tableName = 'test_recycler_with_truncate_table'
+    def recycleBeforeTest = context.config.recycleBeforeTest
+
+    if( recycleBeforeTest == 'true') {
+        triggerRecycle(token, instanceId)
+        Thread.sleep(60000)
+    }
 
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE"""
     sql """
