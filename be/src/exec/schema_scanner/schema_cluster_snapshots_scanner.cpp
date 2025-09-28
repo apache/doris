@@ -174,9 +174,9 @@ Status SchemaClusterSnapshotsScanner::_fill_block_impl(vectorized::Block* block)
     }
     // status
     {
-        std::string prepare_status = "SNAPSHOT_PREPARE";
-        std::string normal_status = "SNAPSHOT_NORMAL";
-        std::string aborted_status = "SNAPSHOT_ABORTED";
+        std::string prepare_status = "PREPARE";
+        std::string normal_status = "NORMAL";
+        std::string aborted_status = "ABORTED";
         for (int i = 0; i < row_num; ++i) {
             auto& snapshot = _snapshots[i];
             if (snapshot.has_status()) {
