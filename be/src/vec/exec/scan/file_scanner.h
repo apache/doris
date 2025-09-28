@@ -268,10 +268,10 @@ private:
         return range.__isset.format_type ? range.format_type : _params->format_type;
     };
 
-    Status _init_io_ctx(bool not_cache) {
+    Status _init_io_ctx() {
         _io_ctx.reset(new io::IOContext());
         _io_ctx->query_id = &_state->query_id();
-        _io_ctx->is_disposable = not_cache;
+        _io_ctx->is_disposable = _state->not_cache();
         return Status::OK();
     };
 
