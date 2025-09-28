@@ -85,10 +85,7 @@ public:
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
                                  int32_t col_id, int64_t row_num) const override;
 
-    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method read_one_cell_from_jsonb is not supported for jsonb serde");
-    }
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override {
