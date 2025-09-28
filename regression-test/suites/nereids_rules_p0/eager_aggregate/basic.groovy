@@ -138,8 +138,7 @@ suite("basic") {
     join shunt_log_com_dd_library b on
             a.device_id = b.device_id
     where
-            a.event_id = "ad_click"
-            and b.experiment_id = 37
+            b.experiment_id = 37
     group by
             b.group_id;
     """

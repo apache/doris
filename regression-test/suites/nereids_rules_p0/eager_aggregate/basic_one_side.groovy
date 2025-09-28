@@ -139,8 +139,7 @@ suite("basic_one_side") {
     join shunt_log_com_dd_library_one_side b on
             a.device_id = b.device_id
     where
-            a.event_id = "ad_click"
-            and b.experiment_id = 37
+            b.experiment_id = 37
     group by
             b.group_id;
     """

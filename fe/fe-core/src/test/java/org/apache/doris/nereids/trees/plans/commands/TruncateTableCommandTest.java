@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -51,6 +52,7 @@ import java.util.Set;
 public class TruncateTableCommandTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
+        FeConstants.runningUnitTest = false;
         Config.enable_debug_points = true;
         createDatabase("testcommand");
         connectContext.setDatabase("testcommand");
