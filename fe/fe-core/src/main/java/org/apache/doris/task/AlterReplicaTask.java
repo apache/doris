@@ -137,19 +137,21 @@ public class AlterReplicaTask extends AgentTask {
         }
 
         if (defineExprs != null) {
-            for (Map.Entry<String, Expr> entry : defineExprs.entrySet()) {
-                Object value = objectPool.get(entry.getKey());
-                if (value == null) {
+            Object value = objectPool.get(defineExprs);
+            if (value == null) {
+                List<TAlterMaterializedViewParam> mvParams = new ArrayList<TAlterMaterializedViewParam>();
+                for (Map.Entry<String, Expr> entry : defineExprs.entrySet()) {
                     List<SlotRef> slots = Lists.newArrayList();
                     entry.getValue().collect(SlotRef.class, slots);
                     TAlterMaterializedViewParam mvParam = new TAlterMaterializedViewParam(entry.getKey());
                     mvParam.setMvExpr(entry.getValue().treeToThrift());
-                    req.addToMaterializedViewParams(mvParam);
-                    objectPool.put(entry.getKey(), mvParam);
-                } else {
-                    TAlterMaterializedViewParam mvParam = (TAlterMaterializedViewParam) value;
-                    req.addToMaterializedViewParams(mvParam);
+                    mvParams.add(mvParam);
+                    req.setMaterializedViewParams(mvParams);
+                    objectPool.put(defineExprs, mvParams);
                 }
+            } else {
+                List<TAlterMaterializedViewParam> mvParams = (List<TAlterMaterializedViewParam>) value;
+                req.setMaterializedViewParams(mvParams);
             }
         }
 
