@@ -1480,6 +1480,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");
     factory.register_alias(SubstringUtil::name, "substr");
+    factory.register_alias(SubstringUtil::name, "mid");
     factory.register_alias(FunctionToLower::name, "lcase");
     factory.register_alias(FunctionToUpper::name, "ucase");
     factory.register_alias(FunctionStringDigestOneArg<MD5Sum>::name, "md5");
