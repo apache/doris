@@ -32,13 +32,16 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.scheduler.JobScheduler;
+import org.apache.doris.job.scheduler.StreamingTaskScheduler;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -46,6 +49,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
+import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -71,6 +75,11 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
 
     private JobScheduler<T, C> jobScheduler;
 
+    @Getter
+    private final StreamingTaskManager streamingTaskManager = new StreamingTaskManager();
+    @Getter
+    private StreamingTaskScheduler streamingTaskScheduler;
+
     // lock for job
     // lock is private and must use after db lock
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
@@ -94,8 +103,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     public void start() {
         jobScheduler = new JobScheduler<T, C>(jobMap);
         jobScheduler.start();
+        streamingTaskScheduler = new StreamingTaskScheduler();
+        streamingTaskScheduler.start();
     }
-
 
     /**
      * get running job
@@ -105,6 +115,21 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
      */
     public T getJob(long jobId) {
         return jobMap.get(jobId);
+    }
+
+    /**
+     * get streaming running job
+     *
+     * @return running job
+     */
+    public int getStreamingJobCnt() {
+        int count = 0;
+        for (T job : jobMap.values()) {
+            if (job.getJobConfig().getExecuteType().equals(JobExecuteType.STREAMING)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     public void registerJob(T job) throws JobException {
@@ -219,19 +244,39 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         jobMap.get(jobId).logUpdateOperation();
     }
 
+    public void alterJob(T job) {
+        writeLock();
+        try {
+            jobMap.put(job.getJobId(), job);
+            job.logUpdateOperation();
+        } finally {
+            writeUnlock();
+        }
+        log.info("update job success, jobId: {}", job.getJobId());
+    }
+
     public void alterJobStatus(String jobName, JobStatus jobStatus) throws JobException {
         for (T a : jobMap.values()) {
             if (a.getJobName().equals(jobName)) {
                 try {
-                    if (jobStatus.equals(a.getJobStatus())) {
-                        throw new JobException("Can't change job status to the same status");
-                    }
+                    checkSameStatus(a, jobStatus);
                     alterJobStatus(a.getJobId(), jobStatus);
                 } catch (JobException e) {
                     throw new JobException("Alter job status error, jobName is %s, errorMsg is %s",
                             jobName, e.getMessage());
                 }
             }
+        }
+    }
+
+    private void checkSameStatus(T a, JobStatus newStatus) throws JobException {
+        if (newStatus.equals(a.getJobStatus())) {
+            throw new JobException("Can't change job status to the same status");
+        }
+        if (JobExecuteType.STREAMING.equals(a.getJobConfig().getExecuteType())
+                && a.getJobStatus().equals(JobStatus.RUNNING)
+                && JobStatus.isRunning(newStatus)) {
+            throw new JobException("Can't change job status to the same status, job already running");
         }
     }
 
@@ -323,7 +368,14 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
             LOG.warn("replayUpdateJob not normal, job: {}, jobId: {}, jobMap: {}", job, jobId, jobMap);
             return;
         }
-        jobMap.put(jobId, job);
+
+        if (job instanceof StreamingInsertJob) {
+            // for streaming job, we only update part properties
+            StreamingInsertJob currentJob = (StreamingInsertJob) jobMap.get(jobId);
+            currentJob.replayOnUpdated((StreamingInsertJob) job);
+        } else {
+            jobMap.put(jobId, job);
+        }
         log.info(new LogBuilder(LogKey.SCHEDULER_JOB, jobId)
                 .add("msg", "replay update scheduler job").build());
     }
@@ -349,6 +401,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
      */
     public void cancelTaskById(String jobName, Long taskId) throws JobException {
         for (T job : jobMap.values()) {
+            if (job.getJobConfig().getExecuteType().equals(JobExecuteType.STREAMING)) {
+                throw new JobException("streaming job not support cancel task by id");
+            }
             if (job.getJobName().equals(jobName)) {
                 job.cancelTaskById(taskId);
                 job.logUpdateOperation();
@@ -392,6 +447,14 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         return jobMap.get(jobId);
     }
 
+    public T getJobByName(String jobName) throws JobException {
+        for (T a : jobMap.values()) {
+            if (a.getJobName().equals(jobName)) {
+                return a;
+            }
+        }
+        throw new JobException("job not exist, jobName:" + jobName);
+    }
 
     /**
      * get load info by db

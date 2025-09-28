@@ -137,6 +137,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         if (targetTableIf instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ctx)) {
             throw new AnalysisException("Not allowed to perform current operation on async materialized view");
         }
+        ctx.getStatementContext().setIsInsert(true);
         Optional<CascadesContext> analyzeContext = Optional.of(
                 CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
         );

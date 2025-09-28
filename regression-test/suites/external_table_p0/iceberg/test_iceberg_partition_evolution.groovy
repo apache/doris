@@ -88,7 +88,7 @@ suite("test_iceberg_partition_evolution", "p0,external,doris,external_docker,ext
     try {
         sql """ select * from iceberg_evolution_partition """ 
     }catch (Exception e) {
-        assertTrue(e.getMessage().contains("Unable to read Iceberg table with dropped old partition column."), e.getMessage())
+        assertTrue(e.getMessage().contains("Unable to plan for this table"), e.getMessage())
     }
 
 }

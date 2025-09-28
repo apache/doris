@@ -16,6 +16,7 @@
 // under the License.
 
 suite("fix_array_type_and_lambda_func") {
+    sql "set experimental_enable_virtual_slot_for_cse=true;"
     sql """DROP TABLE IF EXISTS fix_array_type_and_lambda_func"""
     sql """
         CREATE TABLE

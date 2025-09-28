@@ -160,7 +160,7 @@ suite("test_http_stream_properties", "p0") {
             streamLoad {
                 set 'version', '1'
                 set 'sql', """
-                        insert into ${db}.${tableNm}(${target_columns[i]}) select ${columns[i]} from http_stream("format"="csv", "column_separator"="|")
+                        insert into ${db}.${tableNm}(${target_columns[i]}) select ${columns[i]} from http_stream("format"="csv", "column_separator"="|", "strict_mode"="false")
                         """
                 file files[i]
                 time 10000 // limit inflight 10s

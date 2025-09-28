@@ -9,7 +9,7 @@ test_base_replace_multi_level_mtmv_mv2	SCHEMA_CHANGE	SUCCESS
 test_base_replace_multi_level_mtmv_mv3	SCHEMA_CHANGE	SUCCESS
 
 -- !replace_t1_mv4 --
-test_base_replace_multi_level_mtmv_mv4	SCHEMA_CHANGE	SUCCESS
+test_base_replace_multi_level_mtmv_mv4	NORMAL	SUCCESS
 
 -- !refresh_t1_mv1 --
 test_base_replace_multi_level_mtmv_mv1	NORMAL	SUCCESS
@@ -33,5 +33,5 @@ test_base_replace_multi_level_mtmv_mv2	SCHEMA_CHANGE	SUCCESS
 test_base_replace_multi_level_mtmv_mv3	SCHEMA_CHANGE	SUCCESS
 
 -- !replace_t1_mv4 --
-test_base_replace_multi_level_mtmv_mv4	SCHEMA_CHANGE	SUCCESS
+test_base_replace_multi_level_mtmv_mv4	NORMAL	SUCCESS
 

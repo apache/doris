@@ -63,6 +63,11 @@ static void* run_bthread_work(void* arg) {
            lock_id == SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID;
 }
 
+[[maybe_unused]] void record_txn_commit_stats(doris::cloud::Transaction* txn,
+                                              const std::string& instance_id,
+                                              int64_t partition_count, int64_t tablet_count,
+                                              int64_t txn_id);
+
 class MetaServiceImpl : public cloud::MetaService {
 public:
     MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv, std::shared_ptr<ResourceManager> resource_mgr,
@@ -324,6 +329,11 @@ public:
                                    const GetRLTaskCommitAttachRequest* request,
                                    GetRLTaskCommitAttachResponse* response,
                                    ::google::protobuf::Closure* done) override;
+
+    void get_streaming_task_commit_attach(::google::protobuf::RpcController* controller,
+                                          const GetStreamingTaskCommitAttachRequest* request,
+                                          GetStreamingTaskCommitAttachResponse* response,
+                                          ::google::protobuf::Closure* done) override;
 
     void reset_rl_progress(::google::protobuf::RpcController* controller,
                            const ResetRLProgressRequest* request, ResetRLProgressResponse* response,
@@ -829,6 +839,14 @@ public:
                                    ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_rl_task_commit_attach, controller, request, response,
                   done);
+    }
+
+    void get_streaming_task_commit_attach(::google::protobuf::RpcController* controller,
+                                          const GetStreamingTaskCommitAttachRequest* request,
+                                          GetStreamingTaskCommitAttachResponse* response,
+                                          ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_streaming_task_commit_attach, controller, request,
+                  response, done);
     }
 
     void reset_rl_progress(::google::protobuf::RpcController* controller,

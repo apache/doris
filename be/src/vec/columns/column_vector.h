@@ -346,11 +346,13 @@ public:
     size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }
 
 protected:
+    // when run function which need_replace_null_data_to_default, use the value far from 0 to avoid
+    // raise errors for null cell.
     static value_type default_value() {
         if constexpr (T == PrimitiveType::TYPE_DATEV2 || T == PrimitiveType::TYPE_DATETIMEV2) {
-            return PrimitiveTypeTraits<T>::CppType::FIRST_DAY.to_date_int_val();
+            return PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE.to_date_int_val();
         } else if constexpr (T == PrimitiveType::TYPE_DATE || T == PrimitiveType::TYPE_DATETIME) {
-            return PrimitiveTypeTraits<T>::CppType::FIRST_DAY;
+            return PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE;
         } else {
             return value_type();
         }

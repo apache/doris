@@ -145,7 +145,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_no_holes) {
     // Verify tablet still has the same number of rowsets (no holes to fill)
     EXPECT_EQ(tablet->tablet_meta()->all_rs_metas().size(), 5);
     // Verify rows number is correct
-    for (const auto& rs_meta : tablet->tablet_meta()->all_rs_metas()) {
+    for (const auto& [_, rs_meta] : tablet->tablet_meta()->all_rs_metas()) {
         EXPECT_EQ(rs_meta->num_rows(), 100);
     }
 }
@@ -203,7 +203,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_with_holes) {
     // Verify all versions are present
     auto rs_metas = tablet->tablet_meta()->all_rs_metas();
     std::set<int64_t> found_versions;
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         found_versions.insert(rs_meta->version().first);
     }
     EXPECT_EQ(found_versions.size(), 5);
@@ -214,7 +214,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_with_holes) {
     EXPECT_TRUE(found_versions.contains(4));
 
     // Verify the hole rowsets (versions 1 and 3) are empty
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         if (rs_meta->version().first == 1 || rs_meta->version().first == 3) {
             EXPECT_TRUE(rs_meta->empty());
             EXPECT_EQ(rs_meta->num_rows(), 0);
@@ -379,7 +379,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_trailing_holes) {
     // Verify all versions are present
     auto rs_metas = tablet->tablet_meta()->all_rs_metas();
     std::set<int64_t> found_versions;
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         found_versions.insert(rs_meta->version().first);
     }
     EXPECT_EQ(found_versions.size(), 6);
@@ -388,7 +388,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_trailing_holes) {
     }
 
     // Verify the trailing hole rowsets (versions 3, 4, 5) are empty
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         if (rs_meta->version().first >= 3) {
             EXPECT_TRUE(rs_meta->empty())
                     << "Version " << rs_meta->version().first << " should be empty";
@@ -454,7 +454,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_single_hole) {
     // Verify all versions are present
     auto rs_metas = tablet->tablet_meta()->all_rs_metas();
     std::set<int64_t> found_versions;
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         found_versions.insert(rs_meta->version().first);
     }
     EXPECT_EQ(found_versions.size(), 3);
@@ -463,7 +463,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_single_hole) {
     EXPECT_TRUE(found_versions.contains(2));
 
     // Verify the hole rowset (version 1) is empty
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         if (rs_meta->version().first == 1) {
             EXPECT_TRUE(rs_meta->empty());
             EXPECT_EQ(rs_meta->num_rows(), 0);
@@ -527,7 +527,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_multiple_consecutive_holes) {
     // Verify all versions are present
     auto rs_metas = tablet->tablet_meta()->all_rs_metas();
     std::set<int64_t> found_versions;
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         found_versions.insert(rs_meta->version().first);
     }
     EXPECT_EQ(found_versions.size(), 6);
@@ -536,7 +536,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_multiple_consecutive_holes) {
     }
 
     // Verify the hole rowsets (versions 1, 2, 3, 4) are empty
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         if (rs_meta->version().first >= 1 && rs_meta->version().first <= 4) {
             EXPECT_TRUE(rs_meta->empty())
                     << "Version " << rs_meta->version().first << " should be empty";
@@ -602,7 +602,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_mixed_holes) {
     // Verify all versions are present
     auto rs_metas = tablet->tablet_meta()->all_rs_metas();
     std::set<int64_t> found_versions;
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         found_versions.insert(rs_meta->version().first);
     }
     EXPECT_EQ(found_versions.size(), 9);
@@ -613,7 +613,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_mixed_holes) {
     // Verify the hole rowsets (versions 1, 3, 4, 7, 8) are empty
     std::set<int64_t> original_versions = {0, 2, 5, 6};
     std::set<int64_t> hole_versions = {1, 3, 4, 7, 8};
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         int64_t version = rs_meta->version().first;
         if (hole_versions.contains(version)) {
             EXPECT_TRUE(rs_meta->empty()) << "Version " << version << " should be empty";

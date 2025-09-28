@@ -92,6 +92,10 @@ suite("test_json_extract") {
         select json_extract('[[1,2,3], {"k": [4,5], "b": "123"}]', ' \$**.k    ', '\$**[1] ');
     """
 
+    qt_wildcard11 """
+        select json_extract('[1]', ' \$**[0]');
+    """
+
     qt_array_last """
         select JSONB_EXTRACT('[1, 2, 3, 4, 5]', '\$[-1]') v1, JSONB_EXTRACT('[1, 2, 3, 4, 5]', '\$[last]') v2;
     """

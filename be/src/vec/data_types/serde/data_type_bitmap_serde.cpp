@@ -236,5 +236,16 @@ Status DataTypeBitMapSerDe::from_string(StringRef& str, IColumn& column,
     auto slice = str.to_slice();
     return deserialize_one_cell_from_json(column, slice, options);
 }
+
+void DataTypeBitMapSerDe::to_string(const IColumn& column, size_t row_num,
+                                    BufferWritable& bw) const {
+    /// TODO: remove const_cast in the future
+    auto& data =
+            const_cast<BitmapValue&>(assert_cast<const ColumnBitmap&>(column).get_element(row_num));
+    std::string buffer(data.getSizeInBytes(), '0');
+    data.write_to(const_cast<char*>(buffer.data()));
+    bw.write(buffer.c_str(), buffer.size());
+}
+
 } // namespace vectorized
 } // namespace doris

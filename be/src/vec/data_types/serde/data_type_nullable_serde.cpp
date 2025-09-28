@@ -427,7 +427,11 @@ void DataTypeNullableSerDe::to_string(const IColumn& column, size_t row_num,
                                       BufferWritable& bw) const {
     const auto& col_null = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
     if (col_null.is_null_at(row_num)) {
-        bw.write("NULL", 4);
+        if (_nesting_level > 1) {
+            bw.write("null", 4);
+        } else {
+            bw.write("NULL", 4);
+        }
     } else {
         nested_serde->to_string(col_null.get_nested_column(), row_num, bw);
     }

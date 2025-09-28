@@ -193,8 +193,8 @@ public:
 
     TabletSchema* mutable_tablet_schema();
 
-    const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
-    std::vector<RowsetMetaSharedPtr>& all_mutable_rs_metas();
+    const RowsetMetaMapContainer& all_rs_metas() const;
+    RowsetMetaMapContainer& all_mutable_rs_metas();
     Status add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     void delete_rs_meta_by_version(const Version& version,
                                    std::vector<RowsetMetaSharedPtr>* deleted_rs_metas);
@@ -206,7 +206,7 @@ public:
     void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
     void revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap);
 
-    const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
+    const RowsetMetaMapContainer& all_stale_rs_metas() const;
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_stale_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
@@ -336,11 +336,11 @@ private:
     TabletSchemaSPtr _schema;
     Cache::Handle* _handle = nullptr;
 
-    std::vector<RowsetMetaSharedPtr> _rs_metas;
+    RowsetMetaMapContainer _rs_metas;
     // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.
     // These stale rowsets meta are been removed when rowsets' pathVersion is expired,
     // this policy is judged and computed by TimestampedVersionTracker.
-    std::vector<RowsetMetaSharedPtr> _stale_rs_metas;
+    RowsetMetaMapContainer _stale_rs_metas;
     bool _in_restore_mode = false;
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
 
@@ -670,7 +670,7 @@ inline void TabletMeta::set_cumulative_layer_point(int64_t new_point) {
 
 inline size_t TabletMeta::num_rows() const {
     size_t num_rows = 0;
-    for (auto& rs : _rs_metas) {
+    for (const auto& [_, rs] : _rs_metas) {
         num_rows += rs->num_rows();
     }
     return num_rows;
@@ -678,7 +678,7 @@ inline size_t TabletMeta::num_rows() const {
 
 inline size_t TabletMeta::tablet_footprint() const {
     size_t total_size = 0;
-    for (auto& rs : _rs_metas) {
+    for (const auto& [_, rs] : _rs_metas) {
         total_size += rs->total_disk_size();
     }
     return total_size;
@@ -686,7 +686,7 @@ inline size_t TabletMeta::tablet_footprint() const {
 
 inline size_t TabletMeta::tablet_local_size() const {
     size_t total_size = 0;
-    for (auto& rs : _rs_metas) {
+    for (const auto& [_, rs] : _rs_metas) {
         if (rs->is_local()) {
             total_size += rs->total_disk_size();
         }
@@ -696,7 +696,7 @@ inline size_t TabletMeta::tablet_local_size() const {
 
 inline size_t TabletMeta::tablet_remote_size() const {
     size_t total_size = 0;
-    for (auto& rs : _rs_metas) {
+    for (const auto& [_, rs] : _rs_metas) {
         if (!rs->is_local()) {
             total_size += rs->total_disk_size();
         }
@@ -706,7 +706,7 @@ inline size_t TabletMeta::tablet_remote_size() const {
 
 inline size_t TabletMeta::tablet_local_index_size() const {
     size_t total_size = 0;
-    for (auto& rs : _rs_metas) {
+    for (const auto& [_, rs] : _rs_metas) {
         if (rs->is_local()) {
             total_size += rs->index_disk_size();
         }
@@ -716,7 +716,7 @@ inline size_t TabletMeta::tablet_local_index_size() const {
 
 inline size_t TabletMeta::tablet_local_segment_size() const {
     size_t total_size = 0;
-    for (auto& rs : _rs_metas) {
+    for (const auto& [_, rs] : _rs_metas) {
         if (rs->is_local()) {
             total_size += rs->data_disk_size();
         }
@@ -726,7 +726,7 @@ inline size_t TabletMeta::tablet_local_segment_size() const {
 
 inline size_t TabletMeta::tablet_remote_index_size() const {
     size_t total_size = 0;
-    for (auto& rs : _rs_metas) {
+    for (const auto& [_, rs] : _rs_metas) {
         if (!rs->is_local()) {
             total_size += rs->index_disk_size();
         }
@@ -736,7 +736,7 @@ inline size_t TabletMeta::tablet_remote_index_size() const {
 
 inline size_t TabletMeta::tablet_remote_segment_size() const {
     size_t total_size = 0;
-    for (auto& rs : _rs_metas) {
+    for (const auto& [_, rs] : _rs_metas) {
         if (!rs->is_local()) {
             total_size += rs->data_disk_size();
         }
@@ -776,25 +776,25 @@ inline TabletSchema* TabletMeta::mutable_tablet_schema() {
     return _schema.get();
 }
 
-inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_rs_metas() const {
+inline const RowsetMetaMapContainer& TabletMeta::all_rs_metas() const {
     return _rs_metas;
 }
 
-inline std::vector<RowsetMetaSharedPtr>& TabletMeta::all_mutable_rs_metas() {
+inline RowsetMetaMapContainer& TabletMeta::all_mutable_rs_metas() {
     return _rs_metas;
 }
 
-inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_stale_rs_metas() const {
+inline const RowsetMetaMapContainer& TabletMeta::all_stale_rs_metas() const {
     return _stale_rs_metas;
 }
 
 inline bool TabletMeta::all_beta() const {
-    for (auto& rs : _rs_metas) {
+    for (const auto& [_, rs] : _rs_metas) {
         if (rs->rowset_type() != RowsetTypePB::BETA_ROWSET) {
             return false;
         }
     }
-    for (auto& rs : _stale_rs_metas) {
+    for (const auto& [_, rs] : _stale_rs_metas) {
         if (rs->rowset_type() != RowsetTypePB::BETA_ROWSET) {
             return false;
         }

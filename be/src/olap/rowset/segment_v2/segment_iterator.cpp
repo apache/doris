@@ -1890,9 +1890,10 @@ void SegmentIterator::_vec_init_char_column_id(vectorized::Block* block) {
             if (_has_char_type(*column_desc)) {
                 _char_type_idx.emplace_back(i);
             }
-            if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
-                _is_char_type[cid] = true;
-            }
+        }
+
+        if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            _is_char_type[cid] = true;
         }
     }
 }
@@ -2413,8 +2414,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     }
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
         if (nrows_read_limit != 1) {
-            LOG(ERROR) << "nrows_read_limit: " << nrows_read_limit
-                       << ", _opts.topn_limit: " << _opts.topn_limit;
             return Status::Error<ErrorCode::INTERNAL_ERROR>(
                     "topn opt 1 execute failed: nrows_read_limit={}, _opts.topn_limit={}",
                     nrows_read_limit, _opts.topn_limit);
@@ -2871,7 +2870,7 @@ bool SegmentIterator::_can_opt_topn_reads() {
     });
 
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
-        LOG(INFO) << "column_ids: " << _schema->column_ids().size() << ", all_true: " << all_true;
+        LOG(INFO) << "col_predicates: " << _col_predicates.size() << ", all_true: " << all_true;
     })
 
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_2", {

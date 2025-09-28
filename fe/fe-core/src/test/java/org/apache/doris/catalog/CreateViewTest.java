@@ -212,6 +212,14 @@ public class CreateViewTest {
     }
 
     @Test
+    public void testViewRejectVarbinary() throws Exception {
+        ExceptionChecker.expectThrowsWithMsg(
+                org.apache.doris.common.AnalysisException.class,
+                "View does not support VARBINARY type: vb",
+                () -> createView("create view test.vb_view as select X'AB' as vb;"));
+    }
+
+    @Test
     public void testResetViewDefForRestore() {
         View view = new View();
         view.setInlineViewDefWithSqlMode("SELECT `internal`.`test`.`test`.`k2` AS `k1`, "

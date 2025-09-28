@@ -200,7 +200,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
             return false;
         }
 
-        StringRef port_start_str = protocol_end.substring(end_pos + _s_colon.size);
+        StringRef port_start_str = host_start.substring(end_pos + _s_colon.size);
         int32_t port_end_pos = _s_slash_search.search(&port_start_str);
         //if '/' not found, try to find '?'
         if (port_end_pos < 0) {

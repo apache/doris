@@ -316,7 +316,7 @@ public class InvertedIndexUtil {
         }
 
         if (dictCompression != null) {
-            if (!colType.isStringType()) {
+            if (!colType.isStringType() && !colType.isVariantType()) {
                 throw new AnalysisException("dict_compression can only be set for StringType columns. type: "
                         + colType);
             }

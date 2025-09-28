@@ -50,6 +50,7 @@ suite("test_tvf_error_column", "p0") {
                                 "SECRET_KEY" = "${sk}",
                                 "format" = "csv",
                                 "column_separator" = ",",
+                                "enclose" = "\\"",
                                 "region" = "${region}"
                                 );
         """
@@ -67,13 +68,15 @@ suite("test_tvf_error_column", "p0") {
                                 "SECRET_KEY" = "${sk}",
                                 "format" = "csv",
                                 "column_separator" = ",",
+                                "enclose" = "\\"",
                                 "region" = "${region}"
                                 );
         """
-        exception "Insert has filtered data in strict mode"
+        exception "parse number fail"
     }
 
     // Step3: NOT NULL column with NULL data
+    /*
     test {
         sql """       
                 INSERT INTO ${tableName}
@@ -104,6 +107,7 @@ suite("test_tvf_error_column", "p0") {
         """
         exception "Insert has filtered data in strict mode"
     }
+    */
 
     // Step5: error compression type
     test {

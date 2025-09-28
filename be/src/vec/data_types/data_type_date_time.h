@@ -75,8 +75,8 @@ public:
     }
 
     bool equals(const IDataType& rhs) const override;
-
-    std::string to_string(const IColumn& column, size_t row_num) const override;
+    /// TODO: remove this in the future
+    using IDataType::to_string;
     std::string to_string(Int64 value) const;
 
     using SerDeType = DataTypeDateTimeSerDe;
@@ -94,15 +94,6 @@ public:
                                    "Invalid value: {} for type DateTime", node.date_literal.value);
         }
     }
-
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<PrimitiveType::TYPE_DATETIME>::template to_string_batch_impl<
-                DataTypeDateTime>(column, column_to);
-    }
-
-    size_t number_length() const;
-    void push_number(ColumnString::Chars& chars, const Int64& num) const;
 
     static void cast_to_date_time(Int64& x);
 

@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <utility>
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_scorer.h"
 
@@ -88,6 +89,78 @@ ScorerPtr intersection_scorer_build(std::vector<ScorerPtr>& scorers) {
 
     return std::make_shared<IntersectionScorer<ScorerPtr>>(std::move(left), std::move(right),
                                                            std::move(others));
+}
+
+AndNotScorer::AndNotScorer(ScorerPtr include, std::vector<ScorerPtr> excludes)
+        : _include(std::move(include)), _excludes(std::move(excludes)) {
+    if (_include != nullptr) {
+        _align(_include->doc());
+    }
+}
+
+uint32_t AndNotScorer::advance() {
+    if (_include == nullptr) {
+        return TERMINATED;
+    }
+    return _align(_include->advance());
+}
+
+uint32_t AndNotScorer::seek(uint32_t target) {
+    if (_include == nullptr) {
+        return TERMINATED;
+    }
+    return _align(_include->seek(target));
+}
+
+uint32_t AndNotScorer::doc() const {
+    if (_include == nullptr) {
+        return TERMINATED;
+    }
+    return _include->doc();
+}
+
+uint32_t AndNotScorer::size_hint() const {
+    if (_include == nullptr) {
+        return 0;
+    }
+    return _include->size_hint();
+}
+
+float AndNotScorer::score() {
+    if (_include == nullptr) {
+        return 0.0F;
+    }
+    return _include->score();
+}
+
+uint32_t AndNotScorer::_align(uint32_t candidate) {
+    if (_include == nullptr) {
+        return TERMINATED;
+    }
+
+    while (candidate != TERMINATED) {
+        bool excluded = false;
+        for (auto& scorer : _excludes) {
+            if (scorer == nullptr) {
+                continue;
+            }
+            uint32_t exclude_doc = scorer->doc();
+            if (exclude_doc < candidate) {
+                exclude_doc = scorer->seek(candidate);
+            }
+            if (exclude_doc == candidate) {
+                candidate = _include->advance();
+                excluded = true;
+                break;
+            }
+        }
+
+        if (!excluded) {
+            return candidate;
+        }
+    }
+
+    return TERMINATED;
 }
 
 template <typename PivotScorerPtr>

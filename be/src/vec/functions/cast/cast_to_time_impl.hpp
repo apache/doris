@@ -26,6 +26,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h" // IWYU pragma: keep
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
@@ -48,7 +49,7 @@ template <bool IsStrict>
         }
 
         // align to `target_scale` digits
-        auto in_scale_part =
+        uint32_t in_scale_part =
                 (frac_length > target_scale)
                         ? (uint32_t)(frac_input / common::exp10_i64(frac_length - target_scale))
                         : (uint32_t)(frac_input * common::exp10_i64(target_scale - frac_length));
@@ -63,7 +64,7 @@ template <bool IsStrict>
                 if (in_scale_part == common::exp10_i32(target_scale)) {
                     // overflow, round up to next second
                     val += sign * TimeValue::ONE_SECOND_MICROSECONDS;
-                    SET_PARAMS_RET_FALSE_IFN(val <= TimeValue::MAX_TIME,
+                    SET_PARAMS_RET_FALSE_IFN(TimeValue::valid(val),
                                              "time overflow when rounding up");
                     in_scale_part = 0;
                 }
