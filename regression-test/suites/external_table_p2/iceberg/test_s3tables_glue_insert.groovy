@@ -15,20 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,external_remote_iceberg") {
-    // disable this test by default, glue + s3table is recommended
-    def run_test = false;
-    if (!run_test) {
-        return;
-    }
+import java.util.concurrent.ThreadLocalRandom
+
+suite("test_s3tables_glue_insert", "p2,external,iceberg,external_remote,external_remote_iceberg") {
     def format_compressions = ["parquet_zstd", "orc_zlib"]
 
     def q01 = { String format_compression, String catalog_name ->
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
-        def all_types_table = "iceberg_all_types_${format_compression}_branch31"
-        def all_types_partition_table = "iceberg_all_types_par_${format_compression}_branch31"
+        def all_types_table = "iceberg_all_types_${format_compression}_master"
+        def all_types_partition_table = "iceberg_all_types_par_${format_compression}_master"
         sql """ DROP TABLE IF EXISTS `${all_types_table}`; """
         sql """
         CREATE TABLE `${all_types_table}`(
@@ -327,8 +324,8 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
-        def all_types_table = "iceberg_all_types_${format_compression}_branch31"
-        def all_types_partition_table = "iceberg_all_types_par_${format_compression}_branch31"
+        def all_types_table = "iceberg_all_types_${format_compression}_master"
+        def all_types_partition_table = "iceberg_all_types_par_${format_compression}_master"
         sql """ DROP TABLE IF EXISTS `${all_types_partition_table}`; """
         sql """
         CREATE TABLE `${all_types_partition_table}`(
@@ -648,8 +645,8 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
         return
     }
 
-    String catalog_name = "test_s3tables_write_insert"
-    String props = context.config.otherConfigs.get("icebergS3TablesCatalog")
+    String catalog_name = "test_s3tables_glue_rest_insert"
+    String props = context.config.otherConfigs.get("icebergS3TablesCatalogGlueRest")
     sql """drop catalog if exists ${catalog_name};"""
     sql """
         create catalog ${catalog_name} properties (
@@ -657,8 +654,11 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
         );
     """
 
+    def tmpdb = "s3table_glue_db_insert_" + ThreadLocalRandom.current().nextInt(1000);
     sql """ switch ${catalog_name};"""
-    sql """ use my_namespace;""" 
+    sql """ drop database if exists ${tmpdb} force"""
+    sql """ create database ${tmpdb}"""
+    sql """ use ${tmpdb};""" 
     sql """ set enable_fallback_to_original_planner=false """
 
     try {
