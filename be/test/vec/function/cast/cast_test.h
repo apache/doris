@@ -437,7 +437,7 @@ struct FunctionCastTest : public testing::Test {
                         if constexpr (std::is_same_v<ToValueType, float> ||
                                       std::is_same_v<ToValueType, double>) {
                             char buffer[64] = {0};
-                            fast_to_buffer(test_data_set[i].second, buffer);
+                            CastToString::_fast_to_buffer(test_data_set[i].second, buffer);
                             (*ofs_const_expected_result)
                                     << fmt::format("{}\t{}\n\n", test_data_set[i].first, buffer);
                         } else {

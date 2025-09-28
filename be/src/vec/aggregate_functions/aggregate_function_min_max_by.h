@@ -233,12 +233,7 @@ public:
             : IAggregateFunctionDataHelper<Data, AggregateFunctionsMinMaxBy<Data>, true>(
                       {arguments[0], arguments[1]}),
               value_type(this->argument_types[0]),
-              key_type(this->argument_types[1]) {
-        if (StringRef(Data::name()) == StringRef("min_by") ||
-            StringRef(Data::name()) == StringRef("max_by")) {
-            CHECK(key_type->is_comparable());
-        }
-    }
+              key_type(this->argument_types[1]) {}
 
     String get_name() const override { return Data::name(); }
 

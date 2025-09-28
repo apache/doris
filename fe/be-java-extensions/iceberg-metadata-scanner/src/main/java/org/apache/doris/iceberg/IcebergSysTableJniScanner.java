@@ -17,6 +17,7 @@
 
 package org.apache.doris.iceberg;
 
+import org.apache.doris.common.classloader.ThreadClassLoaderContext;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
@@ -77,19 +78,22 @@ public class IcebergSysTableJniScanner extends JniScanner {
 
     @Override
     public void open() throws IOException {
-        Thread.currentThread().setContextClassLoader(classLoader);
-        nextScanTask();
+        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+            nextScanTask();
+        }
     }
 
     private void nextScanTask() throws IOException {
         Preconditions.checkArgument(scanTasks.hasNext());
         FileScanTask scanTask = scanTasks.next();
         try {
-            preExecutionAuthenticator.execute(() -> {
-                // execute FileScanTask to get rows
-                reader = scanTask.asDataTask().rows().iterator();
-                return null;
-            });
+            try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+                preExecutionAuthenticator.execute(() -> {
+                    // execute FileScanTask to get rows
+                    reader = scanTask.asDataTask().rows().iterator();
+                    return null;
+                });
+            }
         } catch (Exception e) {
             this.close();
             String msg = String.format("Failed to open next scan task: %s", scanTask);
@@ -100,28 +104,35 @@ public class IcebergSysTableJniScanner extends JniScanner {
 
     @Override
     protected int getNext() throws IOException {
-        int rows = 0;
-        while ((reader.hasNext() || scanTasks.hasNext()) && rows < getBatchSize()) {
-            if (!reader.hasNext()) {
-                nextScanTask();
+        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+            int rows = 0;
+            while (rows < getBatchSize()) {
+                while (!reader.hasNext() && scanTasks.hasNext()) {
+                    nextScanTask();
+                }
+                if (!reader.hasNext()) {
+                    break;
+                }
+                StructLike row = reader.next();
+                for (int i = 0; i < fields.size(); i++) {
+                    NestedField field = fields.get(i);
+                    Object value = row.get(i, field.type().typeId().javaClass());
+                    ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone);
+                    appendData(i, columnValue);
+                }
+                rows++;
             }
-            StructLike row = reader.next();
-            for (int i = 0; i < fields.size(); i++) {
-                NestedField field = fields.get(i);
-                Object value = row.get(i, field.type().typeId().javaClass());
-                ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone);
-                appendData(i, columnValue);
-            }
-            rows++;
+            return rows;
         }
-        return rows;
     }
 
     @Override
     public void close() throws IOException {
-        if (reader != null) {
-            // Close the iterator to release resources
-            reader.close();
+        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+            if (reader != null) {
+                // Close the iterator to release resources
+                reader.close();
+            }
         }
     }
 

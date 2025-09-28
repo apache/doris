@@ -76,25 +76,7 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
 
     @Test
     public void testExperimentalConfig() throws Exception {
-        // 1. set without experimental
-        boolean enableMtmv = Config.enable_mtmv;
-        String sql = "admin set frontend config('enable_mtmv' = '" + String.valueOf(!enableMtmv) + "');";
-        LogicalPlan plan = new NereidsParser().parseSingle(sql);
-
-        Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
-        Env.getCurrentEnv().setConfig((AdminSetFrontendConfigCommand) plan, false);
-        Assertions.assertNotEquals(enableMtmv, Config.enable_mtmv);
-
-        // 2. set with experimental
-        enableMtmv = Config.enable_mtmv;
-        sql = "admin set frontend config('experimental_enable_mtmv' = '" + String.valueOf(!enableMtmv) + "');";
-        plan = new NereidsParser().parseSingle(sql);
-
-        Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
-        Env.getCurrentEnv().setConfig((AdminSetFrontendConfigCommand) plan, false);
-        Assertions.assertNotEquals(enableMtmv, Config.enable_mtmv);
-
-        // 3. show config
+        // show config
         int num = ConfigBase.getConfigNumByVariableAnnotation(VariableAnnotation.EXPERIMENTAL);
         PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern("%experimental%",
                 CaseSensibility.CONFIG.getCaseSensibility());
@@ -103,7 +85,7 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
 
         num = ConfigBase.getConfigNumByVariableAnnotation(VariableAnnotation.DEPRECATED);
         matcher = PatternMatcherWrapper.createMysqlPattern("%deprecated%",
-            CaseSensibility.CONFIG.getCaseSensibility());
+                CaseSensibility.CONFIG.getCaseSensibility());
         results = ConfigBase.getConfigInfo(matcher);
         Assertions.assertEquals(num, results.size());
     }

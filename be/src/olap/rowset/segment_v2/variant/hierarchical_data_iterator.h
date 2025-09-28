@@ -51,6 +51,8 @@
 
 namespace doris::segment_v2 {
 
+class ColumnReaderCache;
+
 #include "common/compile_check_begin.h"
 
 struct PathWithColumnAndType {
@@ -67,12 +69,11 @@ public:
     // Currently two types of read, merge sparse columns with root columns, or read directly
     enum class ReadType { MERGE_ROOT, READ_DIRECT };
 
-    HierarchicalDataIterator(const vectorized::PathInData& path) : _path(path) {}
-
-    static Status create(ColumnIteratorUPtr* reader, vectorized::PathInData path,
-                         const SubcolumnColumnReaders::Node* target_node,
-                         const SubcolumnColumnReaders::Node* root, ReadType read_type,
-                         std::unique_ptr<ColumnIterator>&& sparse_reader);
+    static Status create(ColumnIteratorUPtr* reader, int32_t col_uid, vectorized::PathInData path,
+                         const SubcolumnColumnMetaInfo::Node* target_node,
+                         std::unique_ptr<SubstreamIterator>&& sparse_reader,
+                         std::unique_ptr<SubstreamIterator>&& root_column_reader,
+                         ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats);
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -85,9 +86,8 @@ public:
 
     ordinal_t get_current_ordinal() const override;
 
-    Status add_stream(const SubcolumnColumnReaders::Node* node);
-
-    void set_root(std::unique_ptr<SubstreamIterator>&& root) { _root_reader = std::move(root); }
+    Status add_stream(int32_t col_uid, const SubcolumnColumnMetaInfo::Node* node,
+                      ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats);
 
 private:
     SubstreamReaderTree _substream_reader;
@@ -95,6 +95,9 @@ private:
     std::unique_ptr<SubstreamIterator> _sparse_column_reader;
     size_t _rows_read = 0;
     vectorized::PathInData _path;
+    OlapReaderStatistics* _stats = nullptr;
+
+    HierarchicalDataIterator(const vectorized::PathInData& path) : _path(path) {}
 
     template <typename NodeFunction>
     Status tranverse(NodeFunction&& node_func) {
@@ -154,7 +157,11 @@ private:
 
         // read sparse column
         if (_sparse_column_reader) {
+            SCOPED_RAW_TIMER(&_stats->variant_scan_sparse_column_timer_ns);
+            int64_t curr_size = _sparse_column_reader->column->byte_size();
             RETURN_IF_ERROR(read_func(*_sparse_column_reader, {}, nullptr));
+            _stats->variant_scan_sparse_column_bytes +=
+                    _sparse_column_reader->column->byte_size() - curr_size;
         }
 
         MutableColumnPtr container;

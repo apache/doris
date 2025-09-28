@@ -44,6 +44,7 @@
 #include "olap/schema_cache.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/olap/vgeneric_iterators.h"
@@ -102,6 +103,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.remaining_conjunct_roots = _read_context->remaining_conjunct_roots;
     _read_options.common_expr_ctxs_push_down = _read_context->common_expr_ctxs_push_down;
     _read_options.virtual_column_exprs = _read_context->virtual_column_exprs;
+    _read_options.ann_topn_runtime = _read_context->ann_topn_runtime;
     _read_options.vir_cid_to_idx_in_block = _read_context->vir_cid_to_idx_in_block;
     _read_options.vir_col_idx_to_type = _read_context->vir_col_idx_to_type;
     _read_options.score_runtime = _read_context->score_runtime;
@@ -244,7 +246,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     if (_read_context->record_rowids && _read_context->rowid_conversion) {
         // init segment rowid map for rowid conversion
         std::vector<uint32_t> segment_rows;
-        RETURN_IF_ERROR(_rowset->get_segment_num_rows(&segment_rows));
+        RETURN_IF_ERROR(_rowset->get_segment_num_rows(&segment_rows, _stats));
         RETURN_IF_ERROR(_read_context->rowid_conversion->init_segment_map(rowset()->rowset_id(),
                                                                           segment_rows));
     }

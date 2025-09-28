@@ -279,8 +279,8 @@ suite("test_array_functions_by_literal") {
         qt_sql "select array_join(['1', '2', '', null], '_')"
         qt_sql "select array_join(['', '', '3'], '_')"
         qt_sql "select array_join(['1', '2', '', ''], '_')"
-        qt_sql "select array_join([null, null, '1', '2', '', '', null], '_')"
-        qt_sql "select array_join([null, null, 1, 2, '', '', null], '_', 'any')"
+        qt_sql "select array_join([null, null, '1', '2', '1', '2', null], '_')"
+        qt_sql "select array_join([null, null, 1, 2, '1', '2', null], '_', 'any')"
         qt_sql "select array_join([''], '_')"
         qt_sql "select array_join(['', ''], '_')"
         qt_sql_array_with_constant1 "select array_with_constant(3, '_'), array_repeat('_', 3)"
@@ -407,7 +407,7 @@ suite("test_array_functions_by_literal") {
         // abnormal test
         test {
             sql "select array_intersect([1, 2, 3, 1, 2, 3], '1[3, 2, 5]')"
-            exception "Can not find the compatibility function signature: array_intersect"
+            exception "array_intersect does not support complex types"
         }
 
         // array_min/max with nested array for args
@@ -708,8 +708,8 @@ suite("test_array_functions_by_literal") {
         qt_sql "select array_join(['1', '2', '', null], '_')"
         qt_sql "select array_join(['', '', '3'], '_')"
         qt_sql "select array_join(['1', '2', '', ''], '_')"
-        qt_sql "select array_join([null, null, '1', '2', '', '', null], '_')"
-        qt_sql "select array_join([null, null, 1, 2, '', '', null], '_', 'any')"
+        qt_sql "select array_join([null, null, '1', '2', '1', '2', null], '_')"
+        qt_sql "select array_join([null, null, 1, 2, '1', '2', null], '_', 'any')"
         qt_sql "select array_join([''], '_')"
         qt_sql "select array_join(['', ''], '_')"
         qt_sql_array_with_constant1 "select array_with_constant(3, '_'), array_repeat('_', 3)"
@@ -836,7 +836,7 @@ suite("test_array_functions_by_literal") {
         // abnormal test
         test {
             sql "select array_intersect([1, 2, 3, 1, 2, 3], '1[3, 2, 5]')"
-            exception "Can not find the compatibility function signature: array_intersect"
+            exception "array_intersect does not support complex types"
         }
 
         // array_min/max with nested array for args
@@ -1136,7 +1136,7 @@ suite("test_array_functions_by_literal") {
         qt_sql "select array_join(['', '', '3'], '_')"
         qt_sql "select array_join(['1', '2', '', ''], '_')"
         qt_sql "select array_join([null, null, '1', '2', '', '', null], '_')"
-        qt_sql "select array_join([null, null, 1, 2, '', '', null], '_', 'any')"
+        qt_sql "select array_join([null, null, 1, 2, '1', '2', null], '_', 'any')"
         qt_sql "select array_join([''], '_')"
         qt_sql "select array_join(['', ''], '_')"
         qt_sql_array_with_constant1 "select array_with_constant(3, '_'), array_repeat('_', 3)"
@@ -1263,7 +1263,7 @@ suite("test_array_functions_by_literal") {
         // abnormal test
         test {
             sql "select array_intersect([1, 2, 3, 1, 2, 3], '1[3, 2, 5]')"
-            exception "Can not find the compatibility function signature: array_intersect"
+            exception "array_intersect does not support complex type"
         }
 
         // array_min/max with nested array for args

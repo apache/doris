@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -160,7 +161,7 @@ public class TopNWeighted extends NullableAggregateFunction
 
     public TopNWeighted(boolean distinct, boolean alwaysNullable, Expression arg0, Expression arg1,
             Expression arg2, Expression arg3) {
-        super("topn_weighted", distinct, alwaysNullable, arg0, arg1, arg2);
+        super("topn_weighted", distinct, alwaysNullable, arg0, arg1, arg2, arg3);
     }
 
     /** constructor for withChildren and reuse signature */
@@ -190,5 +191,19 @@ public class TopNWeighted extends NullableAggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (!getArgument(2).isConstant()) {
+            throw new AnalysisException(
+                    "topn_weighted requires third parameter must be a constant: "
+                            + this.toSql());
+        }
+        if (arity() == 4 && !getArgument(3).isConstant()) {
+            throw new AnalysisException(
+                    "topn_weighted requires fourth parameter must be a constant: "
+                            + this.toSql());
+        }
     }
 }

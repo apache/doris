@@ -51,6 +51,7 @@ public class AddColumnOp extends AlterTableOp {
     private String rollupName;
 
     private Map<String, String> properties;
+
     // set in analyze
     private Column column;
 
@@ -73,6 +74,10 @@ public class AddColumnOp extends AlterTableOp {
 
     public String getRollupName() {
         return rollupName;
+    }
+
+    public void setColumn(Column column) {
+        this.column = column;
     }
 
     @Override

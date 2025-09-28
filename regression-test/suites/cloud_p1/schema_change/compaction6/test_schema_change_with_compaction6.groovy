@@ -124,7 +124,7 @@ suite('test_schema_change_with_compaction6', 'docker') {
 
             // base compaction
             logger.info("run compaction:" + originTabletId)
-            (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
+            def (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
 
 
@@ -169,7 +169,7 @@ suite('test_schema_change_with_compaction6', 'docker') {
             }
 
         } catch (Exception e) {
-            logger.error("Exception: " + e)
+            logger.info("Exception: " + e)
         } finally {
             if (injectBe != null) {
                 GetDebugPoint().disableDebugPointForAllBEs(injectName)

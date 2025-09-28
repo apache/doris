@@ -86,6 +86,51 @@ Status DataTypeSerDe::parse_column_from_jsonb_string(IColumn& column, const Json
     return deserialize_one_cell_from_json(column, slice, format_options);
 }
 
+Status DataTypeSerDe::deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
+                                                           const ColumnString& col_from_json,
+                                                           CastParameters& castParms) const {
+    const size_t size = col_from_json.size();
+    const bool is_strict = castParms.is_strict;
+    for (size_t i = 0; i < size; ++i) {
+        const auto& val = col_from_json.get_data_at(i);
+        auto* value = handle_jsonb_value(val);
+        if (!value) {
+            column_to.insert_default();
+            continue;
+        }
+        Status from_st =
+                deserialize_column_from_jsonb(column_to.get_nested_column(), value, castParms);
+
+        if (from_st.ok()) {
+            // fill not null if success
+            column_to.get_null_map_data().push_back(0);
+        } else {
+            if (is_strict) {
+                return from_st;
+            } else {
+                // fill null if fail
+                column_to.insert_default();
+            }
+        }
+    }
+    return Status::OK();
+}
+
+void DataTypeSerDe::to_string_batch(const IColumn& column, ColumnString& column_to) const {
+    const auto size = column.size();
+    column_to.reserve(size);
+    VectorBufferWriter write_buffer(column_to);
+    for (size_t i = 0; i < size; ++i) {
+        to_string(column, i, write_buffer);
+        write_buffer.commit();
+    }
+}
+
+void DataTypeSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const {
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "Data type {} to_string_batch not implement.", get_name());
+}
+
 const std::string DataTypeSerDe::NULL_IN_COMPLEX_TYPE = "null";
 const std::string DataTypeSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE = "\\N";
 

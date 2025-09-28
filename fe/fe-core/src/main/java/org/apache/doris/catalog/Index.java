@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -186,7 +187,7 @@ public class Index implements Writable {
 
     // Whether the index can be changed in light mode
     public boolean isLightIndexChangeSupported() {
-        return indexType == IndexDef.IndexType.INVERTED;
+        return indexType == IndexDef.IndexType.INVERTED || indexType == IndexType.NGRAM_BF;
     }
 
     // Whether the index can be added in light mode
@@ -331,6 +332,10 @@ public class Index implements Writable {
 
             case BLOOMFILTER:
                 builder.setIndexType(OlapFile.IndexType.BLOOMFILTER);
+                break;
+
+            case ANN:
+                builder.setIndexType(OlapFile.IndexType.ANN);
                 break;
 
             default:

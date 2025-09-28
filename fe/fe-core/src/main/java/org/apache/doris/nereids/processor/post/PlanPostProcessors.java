@@ -65,12 +65,17 @@ public class PlanPostProcessors {
         Builder<PlanPostProcessor> builder = ImmutableList.builder();
         builder.add(new PushDownFilterThroughProject());
         builder.add(new RemoveUselessProjectPostProcessor());
-        if (cascadesContext.getConnectContext().getSessionVariable().enableTopnLazyMaterialization) {
-            // LazyMaterializeTopN should run before MergeProjectPostProcessor
+        builder.add(new RecomputeLogicalPropertiesProcessor());
+        /*
+         1. LazyMaterializeTopN should be applied before MergeProjectPostProcessor
+         2. LazyMaterializeTopN should be applied after RecomputeLogicalPropertiesProcessor
+         PhysicalLazyMaterialize.materializedSlots should be subsequence of topN.getOutput().
+         */
+        if (cascadesContext.getConnectContext().getSessionVariable().enableTopnLazyMaterialization()) {
             builder.add(new LazyMaterializeTopN());
         }
         builder.add(new MergeProjectPostProcessor());
-        builder.add(new RecomputeLogicalPropertiesProcessor());
+
         if (cascadesContext.getConnectContext().getSessionVariable().enableAggregateCse) {
             builder.add(new ProjectAggregateExpressionsForCse());
         }

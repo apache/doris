@@ -16,17 +16,13 @@
 // under the License.
 
 suite("regression_test_variant_predefine_multi_var", "variant_type"){
-    int max_subcolumns_count = Math.floor(Math.random() * 7) + 1
     def table_name = "multi_variants"
-    boolean enable_typed_paths_to_sparse = new Random().nextBoolean()
-    sql "set default_variant_enable_typed_paths_to_sparse = ${enable_typed_paths_to_sparse}"
+
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double,
-                properties("variant_max_subcolumns_count" = "${max_subcolumns_count}", "variant_enable_typed_paths_to_sparse" = "${enable_typed_paths_to_sparse}")
-            >,
+            v variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4
@@ -36,21 +32,20 @@ suite("regression_test_variant_predefine_multi_var", "variant_type"){
     sql """INSERT INTO ${table_name} SELECT *, '{"k7":123, "k8": "elden ring", "k9" : 1.1112, "k10" : [1.12], "k11" : ["moon"]}' FROM numbers("number" = "203") where number > 100"""
     sql """INSERT INTO ${table_name} SELECT *, '{"k7":123, "k8": "elden ring", "k9" : 1.1112, "k10" : [1.12], "k11" : ["moon"]}' FROM numbers("number" = "411") where number > 200"""
     trigger_and_wait_compaction(table_name, "cumulative")
-    sql """alter table ${table_name} add column v2 variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double ,
-                properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\", \"variant_enable_typed_paths_to_sparse\" = \"${enable_typed_paths_to_sparse}\")> default null"""
-    sql """INSERT INTO ${table_name} select k, v, v from ${table_name}"""
-    sql """alter table ${table_name} add column v3 variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double,
-            properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\", \"variant_enable_typed_paths_to_sparse\" = \"${enable_typed_paths_to_sparse}\")> default null"""
-    sql """INSERT INTO ${table_name} select k, v, v, v from ${table_name}"""
+    sql """alter table ${table_name} add column v2 variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double> default null"""
+    sql """INSERT INTO ${table_name} select k, v, cast(v as string) from ${table_name}"""
+
+    sql """alter table ${table_name} add column v3 variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double> default null"""
+    sql """INSERT INTO ${table_name} select k, v, cast(v as string), cast(v as string) from ${table_name}"""
     sql "alter table ${table_name} add column ss string default null"
-    sql """INSERT INTO ${table_name} select k, v, v, v, v from ${table_name}"""
+    sql """INSERT INTO ${table_name} select k, v,  cast(v as string),  cast(v as string),  cast(v as string) from ${table_name}"""
     sql """DELETE FROM ${table_name} where k = 1"""
     trigger_and_wait_compaction(table_name, "cumulative")
     qt_sql """select cast(v["k1"] as tinyint), cast(v2["k2"] as text), cast(v3["k3"] as string), cast(v["k7"] as tinyint), cast(v2["k8"] as text), cast(v3["k9"] as double) from ${table_name} order by k, 1, 2, 3, 4, 5, 6 limit 10"""
     qt_sql """select cast(v["k1"] as tinyint), cast(v2["k2"] as text), cast(v3["k3"] as string), cast(v["k7"] as tinyint), cast(v2["k8"] as text), cast(v3["k9"] as double) from ${table_name} where k > 200 order by k, 1, 2, 3, 4, 5, 6 limit 10"""
     qt_sql """select cast(v["k1"] as tinyint), cast(v2["k2"] as text), cast(v3["k3"] as string), cast(v["k7"] as tinyint), cast(v2["k8"] as text), cast(v3["k9"] as double) from ${table_name} where k > 300 order by k, 1, 2, 3, 4, 5, 6 limit 10"""
 
-    sql "alter table ${table_name} add column v4 variant<properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\", \"variant_enable_typed_paths_to_sparse\" = \"${enable_typed_paths_to_sparse}\")> default null"
+    sql "alter table ${table_name} add column v4 variant<'k1' : int, 'k2' : string, 'k3' : array<int>, 'k4' : double> default null"
     for (int i = 0; i < 20; i++) {
         sql """insert into ${table_name}  values (1, '{"a" : 1}', '{"a" : 1}', '{"a" : 1}', '{"a" : 1}', '{"a" : 1}')"""
     }

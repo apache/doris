@@ -52,6 +52,7 @@ Status IndexStorageFormatV2::write() {
         auto result = create_output_stream();
         out_dir = std::move(result.first);
         compound_file_output = std::move(result.second);
+        VLOG_DEBUG << fmt::format("Output compound index file to streams: {}", out_dir->toString());
 
         // Write version and number of indices
         write_version_and_indices_count(compound_file_output.get());
@@ -190,7 +191,6 @@ IndexStorageFormatV2::create_output_stream() {
     DCHECK(_index_file_writer->_idx_v2_writer != nullptr)
             << "inverted index file writer v2 is nullptr";
     auto compound_file_output = out_dir->createOutputV2(_index_file_writer->_idx_v2_writer.get());
-
     return {std::move(out_dir_ptr), std::move(compound_file_output)};
 }
 

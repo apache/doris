@@ -116,6 +116,10 @@ public class PrepareCommand extends Command {
         statementContext.setPrepareStage(true);
         List<Slot> slots;
         if (logicalPlan instanceof Command) {
+            if (logicalPlan instanceof InsertIntoTableCommand
+                    && ((InsertIntoTableCommand) logicalPlan).getLabelName().isPresent()) {
+                throw new org.apache.doris.common.UserException("Only support prepare Group Commit without label");
+            }
             ResultSetMetaData md = ((Command) logicalPlan).getResultSetMetaData();
             slots = Lists.newArrayList();
             for (Column c : md.getColumns()) {
@@ -128,10 +132,6 @@ public class PrepareCommand extends Command {
         if (LOG.isDebugEnabled()) {
             LOG.debug("add prepared statement {}, isBinaryProtocol {}",
                     name, ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE);
-        }
-        if (logicalPlan instanceof InsertIntoTableCommand
-                    && ((InsertIntoTableCommand) logicalPlan).getLabelName().isPresent()) {
-            throw new org.apache.doris.common.UserException("Only support prepare InsertStmt without label now");
         }
         ctx.addPreparedStatementContext(name,
                 new PreparedStatementContext(this, ctx, ctx.getStatementContext(), name));

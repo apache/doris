@@ -66,6 +66,8 @@
 // 0x01 "job" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} -> TabletJobInfoPB
 // 0x01 "job" ${instance_id} "recycle"                                                     -> JobRecyclePB
 // 0x01 "job" ${instance_id} "check"                                                       -> JobRecyclePB
+// 0x01 "job" ${instance_id} "streaming_job" ${db_id} ${job_id}                            -> StreamingJobPB
+
 //
 // 0x01 "copy" ${instance_id} "job" ${stage_id} ${table_id} ${copy_id} ${group_id}         -> CopyJobPB
 // 0x01 "copy" ${instance_id} "loading_file" ${stage_id} ${table_id} ${obj_name} ${etag}   -> CopyFilePB
@@ -98,6 +100,7 @@
 // 0x03 "meta" ${instance_id} "schema" ${index_id} ${schema_version}                -> TabletSchemaPB
 // 0x03 "meta" ${instance_id} "rowset_load" ${tablet_id} ${version} ${timestamp}    -> RowsetMetaPB
 // 0x03 "meta" ${instance_id} "rowset_compact" ${tablet_id} ${version} ${timestamp} -> RowsetMetaPB
+// 0x03 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id}             -> DeleteBitmapStoragePB
 //
 // 0x03 "data" ${instance_id} "rowset_ref_count" ${tablet_id} ${rowset_id} => int64
 //
@@ -218,6 +221,9 @@ using MetaPendingDeleteBitmapInfo = BasicKeyInfo<24 , std::tuple<std::string, in
 //                                                      0:instance_id 1:db_id  2:job_id
 using RLJobProgressKeyInfo = BasicKeyInfo<25, std::tuple<std::string, int64_t, int64_t>>;
 
+//                                                      0:instance_id 1:db_id  2:job_id
+using StreamingJobKeyInfo = BasicKeyInfo<52, std::tuple<std::string, int64_t, int64_t>>;
+
 //                                                      0:instance_id 1:vault_id
 using StorageVaultKeyInfo = BasicKeyInfo<26, std::tuple<std::string, std::string>>;
 
@@ -296,6 +302,10 @@ using MetaRowsetLoadKeyInfo = BasicKeyInfo<44, std::tuple<std::string, int64_t, 
 // 0x03 "meta" ${instance_id} "rowset_compact" ${tablet_id} ${version} ${timestamp} -> RowsetMetaPB
 //                                                      0:instance_id  1:tablet_id  2:version 
 using MetaRowsetCompactKeyInfo = BasicKeyInfo<45, std::tuple<std::string, int64_t, int64_t>>;
+
+// 0x03 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} -> DeleteBitmapStoragePB
+//                                                      0:instance_id  1:tablet_id  2:rowest_id
+using MetaDeleteBitmapInfo = BasicKeyInfo<22 , std::tuple<std::string, int64_t,   std::string>>;
 
 // 0x03 "data" ${instance_id} "rowset_ref_count" ${tablet_id} ${rowset_id}            -> int64
 //                                                      0:instance_id  1:tablet_id  2:rowset_id
@@ -403,6 +413,8 @@ void job_tablet_key(const JobTabletKeyInfo& in, std::string* out);
 static inline std::string job_tablet_key(const JobTabletKeyInfo& in) { std::string s; job_tablet_key(in, &s); return s; }
 void rl_job_progress_key_info(const RLJobProgressKeyInfo& in, std::string* out);
 static inline std::string rl_job_progress_key_info(const RLJobProgressKeyInfo& in) { std::string s; rl_job_progress_key_info(in, &s); return s; }
+void streaming_job_key(const StreamingJobKeyInfo& in, std::string* out);
+static inline std::string streaming_job_key(const StreamingJobKeyInfo& in) { std::string s; streaming_job_key(in, &s); return s; }
 
 std::string copy_key_prefix(std::string_view instance_id);
 void copy_job_key(const CopyJobKeyInfo& in, std::string* out);
@@ -433,6 +445,13 @@ std::string system_meta_service_encryption_key_info_key();
 namespace versioned {
 
 // clang-format off
+std::string version_key_prefix(std::string_view instance_id);
+std::string index_key_prefix(std::string_view instance_id);
+std::string stats_key_prefix(std::string_view instance_id);
+std::string meta_key_prefix(std::string_view instance_id);
+std::string data_key_prefix(std::string_view instance_id);
+std::string log_key_prefix(std::string_view instance_id);
+
 void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out);
 static inline std::string partition_version_key(const PartitionVersionKeyInfo& in) { std::string s; partition_version_key(in, &s); return s; }
 
@@ -444,6 +463,7 @@ static inline std::string partition_index_key(const PartitionIndexKeyInfo& in) {
 
 void partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in, std::string* out);
 static inline std::string partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in) { std::string s; partition_inverted_index_key(in, &s); return s; }
+int decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id, int64_t* partition_id);
 
 void tablet_index_key(const TabletIndexKeyInfo& in, std::string* out);
 static inline std::string tablet_index_key(const TabletIndexKeyInfo& in) { std::string s; tablet_index_key(in, &s); return s; }
@@ -481,6 +501,9 @@ static inline std::string meta_rowset_load_key(const MetaRowsetLoadKeyInfo& in) 
 void meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in, std::string* out);
 static inline std::string meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in) { std::string s; meta_rowset_compact_key(in, &s); return s; }
 
+void meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in, std::string* out);
+static inline std::string meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in) { std::string s; meta_delete_bitmap_key(in, &s); return s; }
+
 void data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in, std::string* out);
 static inline std::string data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in) { std::string s; data_rowset_ref_count_key(in, &s); return s; }
 
@@ -489,6 +512,7 @@ static inline std::string snapshot_full_key(const SnapshotFullKeyInfo& in) { std
 
 void snapshot_reference_key(const SnapshotReferenceKeyInfo& in, std::string* out);
 static inline std::string snapshot_reference_key(const SnapshotReferenceKeyInfo& in) { std::string s; snapshot_reference_key(in, &s); return s; }
+std::string snapshot_reference_key_prefix(std::string_view instance_id, Versionstamp timestamp);
 
 void log_key(const LogKeyInfo& in, std::string* out);
 static inline std::string log_key(const LogKeyInfo& in) { std::string s; log_key(in, &s); return s; }
@@ -507,5 +531,10 @@ static inline std::string log_key(const LogKeyInfo& in) { std::string s; log_key
  */
 int decode_key(std::string_view* in,
                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>>* out);
+
+/**
+ * Return the list of single version meta key prefixs.
+ */
+std::vector<std::string> get_single_version_meta_key_prefixs();
 
 } // namespace doris::cloud

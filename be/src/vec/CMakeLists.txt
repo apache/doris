@@ -27,6 +27,7 @@ add_library(Vec STATIC
         ${VEC_FILES}
 )
 
+target_link_libraries(Vec PUBLIC faiss)
 pch_reuse(Vec)
 
 if (${BUILD_TASK_EXECUTOR_SIMULATOR} STREQUAL "ON")

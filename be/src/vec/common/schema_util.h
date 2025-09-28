@@ -189,15 +189,19 @@ public:
 
     // Calculate statistics about variant data paths from the encoded sparse column
     static void calculate_variant_stats(const IColumn& encoded_sparse_column,
-                                        segment_v2::VariantStatisticsPB* stats, size_t row_pos,
+                                        segment_v2::VariantStatisticsPB* stats,
+                                        size_t max_sparse_column_statistics_size, size_t row_pos,
                                         size_t num_rows);
 
-    static void get_compaction_subcolumns(TabletSchema::PathsSetInfo& paths_set_info,
-                                          const TabletColumnPtr parent_column,
-                                          const TabletSchemaSPtr& target,
-                                          const PathToDataTypes& path_to_data_types,
-                                          const std::unordered_set<std::string>& sparse_paths,
-                                          TabletSchemaSPtr& output_schema);
+    static void get_compaction_subcolumns_from_subpaths(
+            TabletSchema::PathsSetInfo& paths_set_info, const TabletColumnPtr parent_column,
+            const TabletSchemaSPtr& target, const PathToDataTypes& path_to_data_types,
+            const std::unordered_set<std::string>& sparse_paths, TabletSchemaSPtr& output_schema);
+
+    static void get_compaction_subcolumns_from_data_types(
+            TabletSchema::PathsSetInfo& paths_set_info, const TabletColumnPtr parent_column,
+            const TabletSchemaSPtr& target, const PathToDataTypes& path_to_data_types,
+            TabletSchemaSPtr& output_schema);
 
     static Status get_compaction_typed_columns(const TabletSchemaSPtr& target,
                                                const std::unordered_set<std::string>& typed_paths,

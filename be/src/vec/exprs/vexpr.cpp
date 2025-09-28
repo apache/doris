@@ -33,6 +33,8 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
+#include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
@@ -397,7 +399,9 @@ Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprC
         RETURN_IF_ERROR(i->prepare(state, row_desc, context));
     }
     --context->_depth_num;
+#ifndef BE_TEST
     _enable_inverted_index_query = state->query_options().enable_inverted_index_query;
+#endif
     return Status::OK();
 }
 
@@ -433,6 +437,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         case TExprNodeType::TIMEV2_LITERAL:
         case TExprNodeType::STRING_LITERAL:
         case TExprNodeType::JSON_LITERAL:
+        case TExprNodeType::VARBINARY_LITERAL:
         case TExprNodeType::NULL_LITERAL: {
             expr = VLiteral::create_shared(expr_node);
             break;
@@ -488,6 +493,10 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         }
         case TExprNodeType::CAST_EXPR: {
             expr = VCastExpr::create_shared(expr_node);
+            break;
+        }
+        case TExprNodeType::TRY_CAST_EXPR: {
+            expr = TryCastExpr::create_shared(expr_node);
             break;
         }
         case TExprNodeType::IN_PRED: {
@@ -631,7 +640,7 @@ Status VExpr::check_expr_output_type(const VExprContextSPtrs& ctxs,
         auto&& [name, expected_type] = name_and_types[i];
         if (!check_type_can_be_converted(real_expr_type, expected_type)) {
             return Status::InternalError(
-                    "output type not match expr type  , col name {} , expected type {} , real type "
+                    "output type not match expr type, col name {} , expected type {} , real type "
                     "{}",
                     name, expected_type->get_name(), real_expr_type->get_name());
         }
@@ -961,6 +970,33 @@ bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vector
 
 bool VExpr::equals(const VExpr& other) {
     return false;
+}
+
+Status VExpr::evaluate_ann_range_search(
+        const segment_v2::AnnRangeSearchRuntime& runtime,
+        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
+        const std::vector<ColumnId>& idx_to_cid,
+        const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+        roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats) {
+    return Status::OK();
+}
+
+void VExpr::prepare_ann_range_search(const doris::VectorSearchUserParams& params,
+                                     segment_v2::AnnRangeSearchRuntime& range_search_runtime,
+                                     bool& suitable_for_ann_index) {
+    if (!suitable_for_ann_index) {
+        return;
+    }
+    for (auto& child : _children) {
+        child->prepare_ann_range_search(params, range_search_runtime, suitable_for_ann_index);
+        if (!suitable_for_ann_index) {
+            return;
+        }
+    }
+}
+
+bool VExpr::has_been_executed() {
+    return _has_been_executed;
 }
 
 #include "common/compile_check_end.h"

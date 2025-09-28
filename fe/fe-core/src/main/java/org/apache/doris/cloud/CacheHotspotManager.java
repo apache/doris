@@ -267,7 +267,7 @@ public class CacheHotspotManager extends MasterDaemon {
         }
         traverseAllDatabaseForTable();
         // it's thread safe to iterate through this concurrent map's ref
-        nodeMgr.getCloudClusterIdToBackend().entrySet().forEach(clusterToBeList -> {
+        nodeMgr.getCloudClusterIdToBackend(false).entrySet().forEach(clusterToBeList -> {
             List<Pair<CompletableFuture<TGetTopNHotPartitionsResponse>, Backend>> futureList
                     = new ArrayList<>();
             clusterToBeList.getValue().forEach(backend -> {
@@ -303,6 +303,7 @@ public class CacheHotspotManager extends MasterDaemon {
 
     // table_id table_name, index_id, partition_id
     public List<List<String>> getClusterTopNHotPartitions(String clusterName) {
+        LOG.debug("getClusterTopNHotPartitions called with clusterName={}", clusterName);
         return CacheHotspotManagerUtils.getClusterTopNPartitions(nodeMgr.getCloudClusterIdByName(clusterName));
     }
 
@@ -784,8 +785,8 @@ public class CacheHotspotManager extends MasterDaemon {
                                                             stmt.isForce());
             }
             Map<Long, List<List<Long>>> beToTabletIdBatches = splitBatch(beToWarmUpTablets);
-            warmUpJob = new CloudWarmUpJob(jobId, null, stmt.getDstCluster(),
-                    beToTabletIdBatches, JobType.TABLE);
+            warmUpJob = new CloudWarmUpJob(jobId, stmt.getDstCluster(),
+                    beToTabletIdBatches, JobType.TABLE, stmt.getTables(), stmt.isForce());
         } else {
             CloudWarmUpJob.Builder builder = new CloudWarmUpJob.Builder()
                     .setJobId(jobId)

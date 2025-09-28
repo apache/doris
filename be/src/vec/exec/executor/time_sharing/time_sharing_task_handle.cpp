@@ -19,6 +19,7 @@
 
 namespace doris {
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 TimeSharingTaskHandle::TimeSharingTaskHandle(
         const TaskId& task_id, std::shared_ptr<SplitQueue> split_queue,
@@ -38,7 +39,7 @@ Status TimeSharingTaskHandle::init() {
 Priority TimeSharingTaskHandle::add_scheduled_nanos(int64_t duration_nanos) {
     std::lock_guard<std::mutex> lock(_mutex);
     _concurrency_controller.update(duration_nanos, _utilization_supplier(),
-                                   _running_leaf_splits.size());
+                                   static_cast<int>(_running_leaf_splits.size()));
     _scheduled_nanos += duration_nanos;
 
     Priority new_priority =
@@ -131,7 +132,7 @@ bool TimeSharingTaskHandle::record_intermediate_split(
 
 int TimeSharingTaskHandle::running_leaf_splits() const {
     std::lock_guard<std::mutex> lock(_mutex);
-    return _running_leaf_splits.size();
+    return static_cast<int>(_running_leaf_splits.size());
 }
 
 int64_t TimeSharingTaskHandle::scheduled_nanos() const {
@@ -163,7 +164,7 @@ std::shared_ptr<PrioritizedSplitRunner> TimeSharingTaskHandle::poll_next_split()
 void TimeSharingTaskHandle::split_finished(std::shared_ptr<PrioritizedSplitRunner> split) {
     std::lock_guard<std::mutex> lock(_mutex);
     _concurrency_controller.split_finished(split->scheduled_nanos(), _utilization_supplier(),
-                                           _running_leaf_splits.size());
+                                           static_cast<int>(_running_leaf_splits.size()));
 
     _running_intermediate_splits.erase(split->split_runner());
     _running_leaf_splits.erase(split->split_runner());

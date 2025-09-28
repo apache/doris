@@ -83,4 +83,23 @@ public class UtilTest {
                 "java.lang.Exception: Root cause message With suppressed[0]:Suppressed message",
                 Util.getRootCauseWithSuppressedMessage(chainedException));
     }
+
+    @Test
+    public void sha256longEcoding() {
+        String str = "东南卫视";
+        String str1 = "东方卫视";
+        Assertions.assertNotEquals(Util.sha256long(str), Util.sha256long(str1));
+    }
+
+    @Test
+    public void sha256longHandlesLongMinValue() {
+        String testStr = "test_long_min_value_case";
+        long result = Util.sha256long(testStr);
+
+        Assertions.assertNotEquals(Long.MIN_VALUE, result,
+                "sha256long should not return Long.MIN_VALUE");
+
+        Assertions.assertEquals(result, Util.sha256long(testStr),
+                "Same input should produce same output");
+    }
 }

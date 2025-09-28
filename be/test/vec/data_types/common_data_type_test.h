@@ -36,18 +36,17 @@
 // for example DataTypeIPv4 should test this function:
 // 1. datatype meta info:
 //         get_type_id, get_type_as_type_descriptor, get_storage_field_type, have_subtypes, get_pdata_type (const IDataType *data_type), to_pb_column_meta (PColumnMeta *col_meta)
-//         get_family_name, get_is_parametric, should_align_right_in_pretty_formats
-//         text_can_contain_only_valid_utf8
+//         get_family_name, get_is_parametric,
 //         have_maximum_size_of_value, get_maximum_size_of_value_in_memory, get_size_of_value_in_memory
 //         get_precision, get_scale
 //         get_field
-//         is_null_literal, is_value_represented_by_number, is_value_unambiguously_represented_in_contiguous_memory_region, is_value_unambiguously_represented_in_fixed_size_contiguous_memory_region
+//         is_null_literal, is_value_unambiguously_represented_in_fixed_size_contiguous_memory_region
 // 2. datatype creation with column: create_column, create_column_const (size_t size, const Field &field), create_column_const_with_default_value (size_t size),  get_uncompressed_serialized_bytes (const IColumn &column, int be_exec_version)
 // 3. serde related: get_serde (int nesting_level=1)
 //          to_string (const IColumn &column, size_t row_num, BufferWritable &ostr), to_string (const IColumn &column, size_t row_num), to_string_batch (const IColumn &column, ColumnString &column_to), from_string (ReadBuffer &rb, IColumn *column)
 //          this two function should move to DataTypeSerDe and only used in Block
 //          serialize (const IColumn &column, char *buf, int be_exec_version), deserialize (const char *buf, MutableColumnPtr *column, int be_exec_version)
-// 4. compare: equals (const IDataType &rhs), is_comparable
+// 4. compare: equals (const IDataType &rhs)
 
 namespace doris::vectorized {
 
@@ -105,17 +104,13 @@ public:
         std::string family_name;
         bool has_subtypes = false;
         doris::FieldType storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_UNKNOWN;
-        bool should_align_right_in_pretty_formats = false;
-        bool text_can_contain_only_valid_utf8 = false;
         bool have_maximum_size_of_value = false;
         size_t size_of_value_in_memory = -1;
         size_t precision = -1;
         size_t scale = -1;
         bool is_null_literal = true;
-        bool is_value_represented_by_number = false;
         PColumnMeta* pColumnMeta = nullptr;
         DataTypeSerDeSPtr serde = nullptr;
-        bool is_value_unambiguously_represented_in_contiguous_memory_region = false;
         Field default_field;
     };
     void SetUp() override {}
@@ -127,15 +122,8 @@ public:
         ASSERT_TRUE(data_type->equals(*meta_info.type_as_type_descriptor))
                 << data_type->get_name() << " " << meta_info.type_as_type_descriptor->get_name();
         ASSERT_EQ(data_type->get_family_name(), meta_info.family_name);
-        ASSERT_EQ(data_type->have_subtypes(), meta_info.has_subtypes);
         ASSERT_EQ(data_type->get_storage_field_type(), meta_info.storage_field_type);
-        ASSERT_EQ(data_type->should_align_right_in_pretty_formats(),
-                  meta_info.should_align_right_in_pretty_formats);
-        ASSERT_EQ(data_type->text_can_contain_only_valid_utf8(),
-                  meta_info.text_can_contain_only_valid_utf8);
         ASSERT_EQ(data_type->have_maximum_size_of_value(), meta_info.have_maximum_size_of_value);
-        ASSERT_EQ(data_type->is_value_unambiguously_represented_in_contiguous_memory_region(),
-                  meta_info.is_value_unambiguously_represented_in_contiguous_memory_region);
         if (is_decimal(data_type->get_primitive_type()) || data_type->is_nullable() ||
             data_type->get_primitive_type() == TYPE_STRUCT ||
             data_type->get_primitive_type() == INVALID_TYPE ||
@@ -157,8 +145,6 @@ public:
             EXPECT_EQ(data_type->get_scale(), 0);
         }
         ASSERT_EQ(data_type->is_null_literal(), meta_info.is_null_literal);
-        ASSERT_EQ(data_type->is_value_represented_by_number(),
-                  meta_info.is_value_represented_by_number);
         ASSERT_EQ(data_type->get_default(), meta_info.default_field);
     }
 
@@ -287,8 +273,6 @@ public:
 
     // should all datatype is compare?
     void assert_compare_behavior(const DataTypePtr& l_dt, const DataTypePtr& r_dt) {
-        ASSERT_TRUE(l_dt->is_comparable());
-        ASSERT_TRUE(r_dt->is_comparable());
         // compare
         ASSERT_FALSE(l_dt->equals(*r_dt));
     }

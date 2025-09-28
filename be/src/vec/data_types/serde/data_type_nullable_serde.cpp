@@ -267,7 +267,7 @@ Status DataTypeNullableSerDe::write_column_to_pb(const IColumn& column, PValues&
     auto row_count = cast_set<int>(end - start);
     const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
     const auto& null_col = nullable_col.get_null_map_column();
-    if (nullable_col.has_null(row_count)) {
+    if (nullable_col.has_null(start, end)) {
         result.set_has_null(true);
         auto* null_map = result.mutable_null_map();
         null_map->Reserve(row_count);
@@ -420,6 +420,20 @@ void DataTypeNullableSerDe::write_one_cell_to_binary(const IColumn& src_column,
     } else {
         auto& nested_col = col.get_nested_column();
         nested_serde->write_one_cell_to_binary(nested_col, chars, row_num);
+    }
+}
+
+void DataTypeNullableSerDe::to_string(const IColumn& column, size_t row_num,
+                                      BufferWritable& bw) const {
+    const auto& col_null = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+    if (col_null.is_null_at(row_num)) {
+        if (_nesting_level > 1) {
+            bw.write("null", 4);
+        } else {
+            bw.write("NULL", 4);
+        }
+    } else {
+        nested_serde->to_string(col_null.get_nested_column(), row_num, bw);
     }
 }
 

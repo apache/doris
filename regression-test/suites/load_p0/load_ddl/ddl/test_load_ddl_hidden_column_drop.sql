@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS test_load_ddl_hidden_column;

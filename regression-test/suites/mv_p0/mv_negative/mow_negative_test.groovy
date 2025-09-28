@@ -21,6 +21,9 @@ suite("mow_negative_mv_test", "mv_negative") {
     def prefix_str = "mv_mow_negative"
     def tb_name = prefix_str + "_tb"
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+
     sql """drop table if exists ${tb_name};"""
     sql """
         CREATE TABLE `${tb_name}` (
@@ -47,6 +50,7 @@ suite("mow_negative_mv_test", "mv_negative") {
         "enable_unique_key_merge_on_write" = "true"
         );
         """
+    sql "set enable_insert_strict=false"
     sql """insert into ${tb_name} values 
             ("2023-08-16 22:28:00","ax",1,1,"'0.0.0.0'",1,"asd",[1,2,3,4,5], 1, 1, 1, to_bitmap(243), HLL_HASH(1), "'0.0.0.0'"),
             ("2023-08-16 22:27:00","ax1",1,1,"'0.0.0.0'",1,"asd",[1,2,3,4,5], 1, 1, 1, to_bitmap(243), HLL_HASH(1), "'0.0.0.0'"),
@@ -64,6 +68,7 @@ suite("mow_negative_mv_test", "mv_negative") {
             ("2023-08-16 24:27:00","ax1",2,0,"'0.0.0.0'",4,"asd",[5,4,3,2,1], 3, 5, 6, to_bitmap(2), HLL_HASH(100), "'255.255.255.255'"),
             ("2024-08-17 22:27:00","ax2",3,1,"'0.0.0.0'",8,"asd3",[1,2,3,4,6], 7, 9, 10, to_bitmap(3), HLL_HASH(1000), "'0.0.1.0'"),
             ("2023-09-16 22:27:00","ax4",4,0,"'0.0.0.0'",11,"asd2",[1,2,9,4,5], 11, 11, 11, to_bitmap(4), HLL_HASH(1), "'0.10.0.0'");"""
+    sql "set enable_insert_strict=true"
 
     def mv_name = """${prefix_str}_mv"""
     def no_mv_name = """no_${prefix_str}_mv"""

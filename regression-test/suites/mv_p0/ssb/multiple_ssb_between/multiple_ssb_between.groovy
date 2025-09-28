@@ -202,7 +202,21 @@ suite ("multiple_ssb_between") {
                 AND LO_ORDERDATE <= 19971231
             GROUP BY C_NATION, S_NATION, YEAR
             ORDER BY YEAR ASC, revenue DESC;""",
-        "lineorder_q_3_1")
+        "lineorder_q_3_1", true, [NOT_IN_RBO])
+
+    mv_rewrite_success_without_check_chosen("""SELECT
+                C_NATION,
+                S_NATION, (LO_ORDERDATE DIV 10000) AS YEAR,
+                SUM(LO_REVENUE) AS revenue
+            FROM lineorder_flat
+            WHERE
+                C_REGION = 'ASIA'
+                AND S_REGION = 'ASIA'
+                AND LO_ORDERDATE >= 19920101
+                AND LO_ORDERDATE <= 19971231
+            GROUP BY C_NATION, S_NATION, YEAR
+            ORDER BY YEAR ASC, revenue DESC;""",
+            "lineorder_q_3_1", [TRY_IN_RBO, FORCE_IN_RBO])
     
     qt_select_q_3_1 """SELECT
                         C_NATION,

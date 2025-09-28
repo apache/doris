@@ -36,7 +36,7 @@ public:
 
 private:
     // Map from column path to footer column index for fast lookup
-    std::unordered_map<int32_t, std::unordered_map<std::string, size_t>> _path_to_footer_index;
+    std::unordered_map<int32_t, std::unordered_map<std::string, int>> _path_to_footer_index;
 
     // Reference to the footer where we store the statistics
     SegmentFooterPB* _footer;
@@ -45,7 +45,9 @@ private:
 
     // Helper method to calculate sparse column statistics
     void _calculate_sparse_column_stats(const vectorized::IColumn& column,
-                                        ColumnMetaPB* column_meta, size_t row_pos, size_t num_rows);
+                                        ColumnMetaPB* column_meta,
+                                        size_t max_sparse_column_statistics_size, size_t row_pos,
+                                        size_t num_rows);
 
     // Helper method to calculate sub column statistics
     void _calculate_sub_column_stats(const vectorized::IColumn& column, ColumnMetaPB* column_meta,

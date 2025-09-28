@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -52,9 +53,8 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.mv.InitConsistentMaterializationContextHook;
-import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
+import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -69,7 +69,9 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
@@ -78,6 +80,7 @@ import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -135,22 +138,25 @@ public class PlanChecker {
 
     public PlanChecker parse(String sql) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
-        this.cascadesContext.toMemo();
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        return this;
+    }
+
+    public PlanChecker setIsQuery() {
+        this.cascadesContext.getConnectContext().getState().setIsQuery(true);
         return this;
     }
 
     public PlanChecker analyze() {
-        this.cascadesContext.getStatementContext().addPlannerHook(InitConsistentMaterializationContextHook.INSTANCE);
         this.cascadesContext.newTableCollector().collect();
-        this.cascadesContext.setCteContext(new CTEContext());
         this.cascadesContext.newAnalyzer().analyze();
-        this.cascadesContext.toMemo();
+        this.cascadesContext.setCteContext(new CTEContext());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
     }
 
     public PlanChecker analyze(Plan plan) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-        this.cascadesContext.getStatementContext().addPlannerHook(InitConsistentMaterializationContextHook.INSTANCE);
         this.cascadesContext.newTableCollector().collect();
         this.cascadesContext.setCteContext(new CTEContext());
         Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
@@ -159,18 +165,16 @@ public class PlanChecker {
         connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", disableRuleWithAuth));
         this.cascadesContext.newAnalyzer().analyze();
         connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
-        this.cascadesContext.toMemo();
-        MemoValidator.validate(cascadesContext.getMemo());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
     }
 
     public PlanChecker analyze(String sql) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
-        this.cascadesContext.getStatementContext().addPlannerHook(InitConsistentMaterializationContextHook.INSTANCE);
         this.cascadesContext.newTableCollector().collect();
-        this.cascadesContext.setCteContext(new CTEContext());
         this.cascadesContext.newAnalyzer().analyze();
-        this.cascadesContext.toMemo();
+        this.cascadesContext.setCteContext(new CTEContext());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
     }
 
@@ -178,8 +182,7 @@ public class PlanChecker {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
                         ImmutableList.of(Rewriter.custom(RuleType.TEST_REWRITE, () -> customRewriter)))
                 .execute();
-        cascadesContext.toMemo();
-        MemoValidator.validate(cascadesContext.getMemo());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
     }
 
@@ -216,15 +219,21 @@ public class PlanChecker {
     }
 
     public PlanChecker applyTopDown(RuleFactory ruleFactory) {
-        return applyTopDown(ruleFactory.buildRules());
+        PlanChecker planChecker = applyTopDown(ruleFactory.buildRules());
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
+                PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+        collectTableInfoAndInitHook(cascadesContext);
+        return planChecker;
     }
 
     public PlanChecker applyTopDown(List<Rule> rule) {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
                         ImmutableList.of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteTopDownJob::new, true)))
                 .execute();
-        cascadesContext.toMemo();
-        MemoValidator.validate(cascadesContext.getMemo());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
+                PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+        collectTableInfoAndInitHook(cascadesContext);
         return this;
     }
 
@@ -250,6 +259,9 @@ public class PlanChecker {
             }
         });
         MemoValidator.validate(cascadesContext.getMemo());
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
+                PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+        collectTableInfoAndInitHook(cascadesContext);
         return this;
     }
 
@@ -257,8 +269,10 @@ public class PlanChecker {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
                         ImmutableList.of(Rewriter.bottomUp(rule)))
                 .execute();
-        cascadesContext.toMemo();
-        MemoValidator.validate(cascadesContext.getMemo());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
+                PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+        collectTableInfoAndInitHook(cascadesContext);
         return this;
     }
 
@@ -266,8 +280,10 @@ public class PlanChecker {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
                         ImmutableList.of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteBottomUpJob::new, true)))
                 .execute();
-        cascadesContext.toMemo();
-        MemoValidator.validate(cascadesContext.getMemo());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
+                PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+        collectTableInfoAndInitHook(cascadesContext);
         return this;
     }
 
@@ -285,16 +301,79 @@ public class PlanChecker {
             }
         });
         MemoValidator.validate(cascadesContext.getMemo());
+        cascadesContext.getStatementContext().setNeedPreMvRewrite(
+                PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+        collectTableInfoAndInitHook(cascadesContext);
         return this;
     }
 
     public PlanChecker rewrite() {
-        cascadesContext.withPlanProcess(true, () -> {
-            Rewriter.getWholeTreeRewriter(cascadesContext).execute();
-            MaterializedViewUtils.collectTableUsedPartitions(cascadesContext.getRewritePlan(), cascadesContext);
-            InitMaterializationContextHook.INSTANCE.initMaterializationContext(this.cascadesContext);
-            cascadesContext.toMemo();
-        });
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        try {
+            cascadesContext.withPlanProcess(true, () -> {
+                Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+                cascadesContext.toMemo();
+                cascadesContext.getStatementContext().setNeedPreMvRewrite(
+                        PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+                collectTableInfoAndInitHook(cascadesContext);
+            });
+        } finally {
+            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // other test cases
+            try {
+                VariableMgr.revertSessionValue(sessionVariable);
+                // origin value init
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
+            } catch (DdlException e) {
+                Assertions.fail("revert Session Value fail when rewrite");
+            }
+        }
+        return this;
+    }
+
+    private static void collectTableInfoAndInitHook(CascadesContext cascadesContext) {
+        if (cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
+            for (Plan plan : cascadesContext.getStatementContext().getTmpPlanForMvRewrite()) {
+                MaterializedViewUtils.collectTableUsedPartitions(plan, cascadesContext);
+            }
+        } else {
+            MaterializedViewUtils.collectTableUsedPartitions(cascadesContext.getRewritePlan(),
+                    cascadesContext);
+        }
+        // init materialization context for mv rewrite
+        cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(cascadesContext));
+    }
+
+    public PlanChecker preMvRewrite() {
+        if (!cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
+            return this;
+        }
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        List<Plan> tmpPlansForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
+        List<Plan> plansWhichContainMv = new ArrayList<>();
+        for (Plan planForRewrite : tmpPlansForMvRewrite) {
+            // pre rewrite
+            Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                    PreMaterializedViewRewriter::rewrite, planForRewrite, planForRewrite, true);
+            Plan ruleOptimizedPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                    childOptContext -> {
+                        Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext).execute();
+                        return childOptContext.getRewritePlan();
+                    }, rewrittenPlan, planForRewrite, false);
+            if (ruleOptimizedPlan == null) {
+                continue;
+            }
+            plansWhichContainMv.add(ruleOptimizedPlan);
+        }
+        // if rule-based optimized, would not be rewritten by cbo, so clear materialized hooks
+        this.cascadesContext.getStatementContext().setPreMvRewritten(true);
+        if (plansWhichContainMv.isEmpty()) {
+            return this;
+        }
+        // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
+        statementContext.getRewrittenPlansByMv().clear();
+        plansWhichContainMv.forEach(statementContext::addRewrittenPlanByMv);
         return this;
     }
 
@@ -318,13 +397,29 @@ public class PlanChecker {
         LogicalPlan parsedPlan = new NereidsParser().parseSingle(sql);
         LogicalPlanAdapter parsedPlanAdaptor = new LogicalPlanAdapter(parsedPlan, statementContext);
         statementContext.setParsedStatement(parsedPlanAdaptor);
-        planner.plan(parsedPlanAdaptor);
+
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        try {
+            planner.plan(parsedPlanAdaptor);
+        } finally {
+            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // other test cases
+            try {
+                VariableMgr.revertSessionValue(sessionVariable);
+                // origin value init
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
+            } catch (DdlException e) {
+                Assertions.fail("revert Session Value fail when explain");
+            }
+        }
         return planner;
     }
 
     public PlanChecker dpHypOptimize() {
         double now = System.currentTimeMillis();
         cascadesContext.getStatementContext().setDpHyp(true);
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         cascadesContext.getConnectContext().getSessionVariable().enableDPHypOptimizer = true;
         Group root = cascadesContext.getMemo().getRoot();
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
@@ -337,6 +432,7 @@ public class PlanChecker {
     }
 
     public PlanChecker implement() {
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         Plan plan = transformToPhysicalPlan(cascadesContext.getMemo().getRoot());
         Assertions.assertTrue(plan instanceof PhysicalPlan);
         if (plan instanceof PhysicalQuickSort && !((PhysicalQuickSort) plan).getSortPhase().isLocal()) {
@@ -503,9 +599,9 @@ public class PlanChecker {
     }
 
     public PlanChecker deriveStats() {
-        cascadesContext.pushJob(
-                new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
-                        cascadesContext.getCurrentJobContext()));
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        cascadesContext.getMemo().getRoot().getLogicalExpressions().forEach(groupExpression ->
+                cascadesContext.pushJob(new DeriveStatsJob(groupExpression, cascadesContext.getCurrentJobContext())));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         return this;
     }
@@ -528,6 +624,16 @@ public class PlanChecker {
         Memo memo = cascadesContext.getMemo();
         checkSlotFromChildren(memo);
         assertMatches(memo, () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        return this;
+    }
+
+    public PlanChecker anyMatches(PatternDescriptor<? extends Plan> patternDesc) {
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        Set<Boolean> matchResult = new HashSet<>();
+        Memo memo = cascadesContext.getMemo();
+        checkSlotFromChildren(memo);
+        matchResult.add(MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        assertMatches(memo, () -> matchResult.contains(true));
         return this;
     }
 
@@ -619,7 +725,21 @@ public class PlanChecker {
         connectContext.setStatementContext(statementContext);
         LogicalPlanAdapter adapter = LogicalPlanAdapter.of(parsed);
         adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN, false));
-        nereidsPlanner.plan(adapter);
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        try {
+            nereidsPlanner.plan(adapter);
+        } finally {
+            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // other test cases
+            try {
+                VariableMgr.revertSessionValue(sessionVariable);
+                // origin value init
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
+            } catch (DdlException e) {
+                Assertions.fail("revert Session Value fail when explain");
+            }
+        }
         consumer.accept(nereidsPlanner);
         return this;
     }
@@ -629,7 +749,21 @@ public class PlanChecker {
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
         NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
         connectContext.setStatementContext(statementContext);
-        nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        try {
+            nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
+        } finally {
+            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // other test cases
+            try {
+                VariableMgr.revertSessionValue(sessionVariable);
+                // origin value init
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
+            } catch (DdlException e) {
+                Assertions.fail("revert Session Value fail when plan");
+            }
+        }
         consumer.accept(nereidsPlanner);
         return this;
     }

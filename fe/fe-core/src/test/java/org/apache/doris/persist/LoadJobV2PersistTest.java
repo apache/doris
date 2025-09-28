@@ -18,7 +18,6 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -27,6 +26,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.Maps;
@@ -51,7 +51,7 @@ public class LoadJobV2PersistTest {
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob(1L, "label", brokerDesc, originStatement,
                 UserIdentity.ADMIN);
         Map<String, String> jobProperties = Maps.newHashMap();
-        jobProperties.put(LoadStmt.LOAD_PARALLELISM, "5");
+        jobProperties.put(LoadCommand.LOAD_PARALLELISM, "5");
         brokerLoadJob.setJobProperties(jobProperties);
         return brokerLoadJob;
     }

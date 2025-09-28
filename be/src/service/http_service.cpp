@@ -34,6 +34,7 @@
 #include "http/action/batch_download_action.h"
 #include "http/action/be_proc_thread_action.h"
 #include "http/action/calc_file_crc_action.h"
+#include "http/action/check_encryption_action.h"
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
@@ -67,6 +68,7 @@
 #include "http/action/snapshot_action.h"
 #include "http/action/stream_load.h"
 #include "http/action/stream_load_2pc.h"
+#include "http/action/stream_load_forward_handler.h"
 #include "http/action/tablet_migration_action.h"
 #include "http/action/tablets_distribution_action.h"
 #include "http/action/tablets_info_action.h"
@@ -134,6 +136,11 @@ Status HttpService::start() {
                                       streamload_2pc_action);
     _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_stream_load_2pc",
                                       streamload_2pc_action);
+
+    // register stream load forward handler
+    auto* forward_handler = _pool.add(new StreamLoadForwardHandler());
+    _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_stream_load_forward",
+                                      forward_handler);
 
     // register http_stream
     HttpStreamAction* http_stream_action = _pool.add(new HttpStreamAction(_env));
@@ -406,6 +413,11 @@ void HttpService::register_local_handler(StorageEngine& engine) {
                                              TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count_local",
                                       count_delete_bitmap_action);
+    DeleteBitmapAction* count_agg_cache_delete_bitmap_action =
+            _pool.add(new DeleteBitmapAction(DeleteBitmapActionType::COUNT_AGG_CACHE, _env, engine,
+                                             TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count_agg_cache",
+                                      count_agg_cache_delete_bitmap_action);
 
     CheckTabletSegmentAction* check_tablet_segment_action = _pool.add(new CheckTabletSegmentAction(
             _env, engine, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
@@ -437,6 +449,10 @@ void HttpService::register_local_handler(StorageEngine& engine) {
             _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, engine.tablet_manager()));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction_score",
                                       compaction_score_action);
+    CheckEncryptionAction* check_encryption_action =
+            _pool.add(new CheckEncryptionAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ALL));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/check_tablet_encryption",
+                                      check_encryption_action);
 }
 
 void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
@@ -465,6 +481,11 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
                                              TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count_ms",
                                       count_ms_delete_bitmap_action);
+    DeleteBitmapAction* count_agg_cache_delete_bitmap_action =
+            _pool.add(new DeleteBitmapAction(DeleteBitmapActionType::COUNT_AGG_CACHE, _env, engine,
+                                             TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count_agg_cache",
+                                      count_agg_cache_delete_bitmap_action);
 #ifdef ENABLE_INJECTION_POINT
     InjectionPointAction* injection_point_action = _pool.add(new InjectionPointAction);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}",
@@ -487,6 +508,10 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
             _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, engine.tablet_mgr()));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction_score",
                                       compaction_score_action);
+    CheckEncryptionAction* check_encryption_action =
+            _pool.add(new CheckEncryptionAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ALL));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/check_tablet_encryption",
+                                      check_encryption_action);
 }
 // NOLINTEND(readability-function-size)
 

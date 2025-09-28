@@ -54,7 +54,7 @@ public class CreateTableLikeInfo {
     public void validate(ConnectContext ctx) throws AnalysisException {
         existedTableName.analyze(ctx);
         // disallow external catalog
-        Util.prohibitExternalCatalog(existedTableName.getCtl(), "CreateTableLikeStmt");
+        Util.prohibitExternalCatalog(existedTableName.getCtl(), "CreateTableLikeCommand");
         //check privilege
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ctx, existedTableName.getCtl(), existedTableName.getDb(),
@@ -64,7 +64,7 @@ public class CreateTableLikeInfo {
 
         tableName.analyze(ctx);
         // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), "CreateTableLikeStmt");
+        Util.prohibitExternalCatalog(tableName.getCtl(), "CreateTableLikeCommand");
         FeNameFormat.checkTableName(tableName.getTbl());
         //check privilege
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, tableName.getCtl(), tableName.getDb(),

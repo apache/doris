@@ -35,9 +35,14 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class HMSBaseProperties {
+    public static final String HIVE_METASTORE_TYPE = "hive.metastore.type";
+    public static final String DLF_TYPE = "dlf";
+    public static final String GLUE_TYPE = "glue";
+    public static final String HIVE_VERSION = "hive.version";
+    public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
 
     @Getter
-    @ConnectorProperty(names = {"hive.metastore.uris", "uri"},
+    @ConnectorProperty(names = {HIVE_METASTORE_URIS, "uri"},
             description = "The uri of the hive metastore.")
     private String hiveMetastoreUri = "";
 
@@ -165,6 +170,7 @@ public class HMSBaseProperties {
                 && this.hdfsAuthenticationType.equalsIgnoreCase("kerberos")) {
             KerberosAuthenticationConfig authenticationConfig = new KerberosAuthenticationConfig(
                     this.hdfsKerberosPrincipal, this.hdfsKerberosKeytab, hiveConf);
+            hiveConf.set("hadoop.security.authentication", "kerberos");
             this.hmsAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
             return;
         }

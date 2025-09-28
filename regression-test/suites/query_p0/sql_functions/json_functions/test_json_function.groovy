@@ -16,6 +16,7 @@
 // under the License.
 suite("test_json_function", "arrow_flight_sql") {
     sql "set batch_size = 4096;"
+    sql "set experimental_enable_virtual_slot_for_cse=true;"
 
     qt_sql "SELECT get_json_double('{\"k1\":1.3, \"k2\":\"2\"}', \"\$.k1\");"
     qt_sql "SELECT get_json_double('{\"k1\":\"v1\", \"my.key\":[1.1, 2.2, 3.3]}', '\$.\"my.key\"[1]');"
@@ -79,7 +80,7 @@ suite("test_json_function", "arrow_flight_sql") {
     qt_sql """SELECT JSON_CONTAINS("",'1','\$.a')"""
 
     qt_sql """select k6, json_extract_string(cast(k7 as json), "\$.a") as x10 from test_query_db.baseall group by k6, x10 order by 1,2; """
-    
+
     qt_sql "SELECT json_extract_no_quotes('[1, 2, 3]', '\$.[1]');"
     qt_sql "SELECT json_extract_no_quotes('{\"id\": 123, \"name\": \"doris\"}', '\$.name');"
     qt_sql "SELECT json_extract_no_quotes('{\"id\": 123, \"name\": \"doris\"}', '\$.id', null);"
@@ -95,22 +96,48 @@ suite("test_json_function", "arrow_flight_sql") {
     sql "drop table if exists d_table;"
     sql """
         create table d_table (
-            k1 varchar(100) null,
-            k2 varchar(100) not null
+            k1 varchar(255) null,
+            k2 varchar(100) not null,
+            path string,
+            path_n string not null
         )
         duplicate key (k1)
         distributed BY hash(k1) buckets 3
         properties("replication_num" = "1");
     """
-    sql """insert into d_table values 
-    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}'),
-    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 5}}'),
-    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 6}}'),
-    (null,'{\"name\": \"John\", \"age\": 30, \"city\": \"New York\", \"hobbies\": [\"reading\", \"travelling\"]}');
+    sql """insert into d_table values
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '\$', '\$'),
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 5}}', null, '\$.c.d'),
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 6}}', '\$', '\$'),
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 5}}', null, '\$'),
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 6}}', '\$.', '\$.'),
+    (null,'{\"name\": \"John\", \"age\": 30, \"city\": \"New York\", \"hobbies\": [\"reading\", \"travelling\"]}', null, '\$');
     """
-    qt_test """
-      SELECT k1,k2,JSON_CONTAINS(k1, '\$'),JSON_CONTAINS(k2, '\$') from d_table order by k1,k2;
+
+    sql """
+      insert into d_table values
+      ('{"name": "John", "age": 30, "city": "New York", "hobbies": ["reading", "travelling"]}', '"reading"', '\$.hobbies[0]', '\$.hobbies[0]'),
+      ('{"name": "John", "age": 30, "projects": [{"name": "Project A", "year": 2020}, {"name": "Project B", "year": 2021}]}', '{"name": "Project B", "year": 2021}', '\$.projects[1]', '\$.projects[1]'),
+      ('{"name": "John", "age": 30, "address": {"city": "New York", "country": "USA"}}', '"USA"', '\$.address.country', '\$.address.country');
     """
+
+    qt_test2 """
+      select 
+        k1, k2, path, path_n, JSON_CONTAINS(k1, k2, path), JSON_CONTAINS(k1, k2, path_n)
+      from d_table
+      where (path != '\$.' or path is null) and path_n != '\$.'
+      order by k1, k2, path, path_n;
+    """
+
+    test {
+      sql """
+        select 
+          k1,k2,JSON_CONTAINS(k1, k2, path), JSON_CONTAINS(k1, k2, path_n)
+        from d_table
+        order by k1,k2;
+      """
+      exception "Json path error: Invalid Json Path for value: \$."
+    }
 
     qt_json_contains1 """
       SELECT JSON_CONTAINS('{"age": 30, "name": "John", "hobbies": ["reading", "swimming"]}', '{"invalid": "format"}');
@@ -131,6 +158,13 @@ suite("test_json_function", "arrow_flight_sql") {
       SELECT JSON_CONTAINS(NULL, '"music"', '{"age": 25}');
     """
 
+    test {
+      sql """
+        select json_contains(k1, k2, '\$.') from d_table order by k1,k2;
+      """
+      exception "Json path error: Invalid Json Path for value: \$."
+    }
+
     qt_json_keys """
       SELECT JSON_KEYS('{"name": "John", "age": 30, "city": "New York"}');
     """
@@ -149,7 +183,7 @@ suite("test_json_function", "arrow_flight_sql") {
 
         exception "In this situation, path expressions may not contain the * and ** tokens or an array range."
     }
-    
+
     test {
         sql """
             SELECT JSON_KEYS(k1, '\$.*.c') FROM d_table order by k1;
@@ -157,4 +191,130 @@ suite("test_json_function", "arrow_flight_sql") {
 
         exception "In this situation, path expressions may not contain the * and ** tokens or an array range."
     }
+
+    test {
+        sql """
+            select json_extract('[[1,2,3], {"k": [4,5], "b": "123"}]', '\$**');
+        """
+
+        exception "Json path error: Invalid Json Path for value: \$**"
+    }
+
+    qt_json_remove1 """
+      SELECT JSON_REMOVE('{"a": 1, "b": 2, "c": 3}', '\$.b');
+    """
+
+    qt_json_remove2 """
+      SELECT JSON_REMOVE('{"Name": "Homer", "Gender": "Male", "Age": 39}', '\$.Age');
+    """
+
+    qt_json_remove3 """
+      SELECT JSON_REMOVE('{"Name": "Homer", "Age": 39}', '\$.Gender');
+    """
+
+    qt_json_remove4 """
+      SELECT JSON_REMOVE('[1, 2, 3]', '\$[0]');
+    """
+
+    qt_json_remove5 """
+      SELECT JSON_REMOVE('[1, 2, [3, 4, 5]]', '\$[2][1]');
+    """
+
+    qt_json_remove6 """
+      SELECT JSON_REMOVE('[1, 2, 3, 4, 5]', '\$[1]', '\$[3]');
+    """
+
+    qt_json_remove7 """
+      SELECT JSON_REMOVE('[1, 2, 3, 4, 5]', '\$[3]');
+    """
+
+    qt_json_remove8 """
+      SELECT JSON_REMOVE('[1, 2, [3, 4, 5]]', '\$[0]', '\$[1][1]');
+    """
+
+    qt_json_remove9 """
+      SELECT JSON_REMOVE('[1, 2, [3, 4, 5]]', '\$[2][1]', '\$[0]');
+    """
+
+    qt_json_remove10 """
+      SELECT JSON_REMOVE('{"Person": {"Name": "Homer","Age": 39,"Hobbies": ["Eating", "Sleeping", "Base Jumping"]}}', '\$.Person.Age', '\$.Person.Hobbies[2]');
+    """
+
+    qt_json_remove11 """
+      SELECT JSON_REMOVE(NULL, '\$.a');
+    """
+
+    qt_json_remove12 """
+      SELECT JSON_REMOVE('{"a": 1, "b": 2}', NULL);
+    """
+
+    qt_json_remove13 """
+      SELECT JSON_REMOVE(NULL, NULL);
+    """
+
+    qt_json_remove14 """
+      SELECT JSON_REMOVE('{"a": 1, "b": 2}', '\$.a', NULL, '\$.b');
+    """
+
+    sql "drop table if exists json_remove_test_table;"
+    sql """
+        create table json_remove_test_table (
+            id int,
+            json_data varchar(500) null,
+            path1 varchar(100),
+            path2 varchar(100)
+        )
+        duplicate key (id)
+        distributed BY hash(id) buckets 1
+        properties("replication_num" = "1");
+    """
+
+    sql """insert into json_remove_test_table values
+    (1, '{"name": "Alice", "age": 25, "skills": ["Java", "Python", "SQL"]}', '\$.age', '\$.skills[1]'),
+    (2, '{"product": "laptop", "price": 999, "specs": {"cpu": "Intel", "ram": "16GB"}}', '\$.price', '\$.specs.ram'),
+    (3, '{"users": [{"id": 1, "name": "Bob"}, {"id": 2, "name": "Charlie"}]}', '\$.users[0].id', '\$.users[1]'),
+    (4, '{"empty": {}}', '\$.empty', '\$.nonexistent');
+    """
+
+    qt_json_remove15 """
+      SELECT JSON_REMOVE(json_data, path1) FROM json_remove_test_table ORDER BY id;
+    """
+
+    qt_json_remove16 """
+      SELECT JSON_REMOVE(json_data, path1, path2) FROM json_remove_test_table ORDER BY id;
+    """
+
+    // returning errors
+    test {
+        sql """
+            SELECT JSON_REMOVE('{"a": 1}', '\$.*');
+        """
+        exception "In this situation, path expressions may not contain the * and ** tokens or an array range"
+    }
+
+    test {
+        sql """
+            SELECT JSON_REMOVE('{"a": 1}', '\$**');
+        """
+        exception "Json path error: Invalid Json Path for value: \$**"
+    }
+
+    // edge cases
+    qt_json_remove17 """
+      SELECT JSON_REMOVE('{}', '\$.nonexistent');
+    """
+
+    qt_json_remove18 """
+      SELECT JSON_REMOVE('[]', '\$[0]');
+    """
+
+    qt_json_remove19 """
+      SELECT JSON_REMOVE('123', '\$.key');
+    """
+
+    qt_json_remove20 """
+      SELECT JSON_REMOVE('true', '\$.key');
+    """
+
+    sql "drop table if exists json_remove_test_table;"
 }

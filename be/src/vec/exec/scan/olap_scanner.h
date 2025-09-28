@@ -118,6 +118,10 @@ public:
     // The idx of vir_col in block to its data type.
     std::map<size_t, vectorized::DataTypePtr> _vir_col_idx_to_type;
     std::shared_ptr<vectorized::ScoreRuntime> _score_runtime;
+
+    std::shared_ptr<segment_v2::AnnTopNRuntime> _ann_topn_runtime;
+
+    VectorSearchUserParams _vector_search_params;
 };
 } // namespace vectorized
 } // namespace doris

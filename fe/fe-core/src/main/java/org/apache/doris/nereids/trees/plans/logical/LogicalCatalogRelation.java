@@ -24,6 +24,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -153,14 +154,14 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
      * Full qualified name parts, i.e., concat qualifier and name into a list.
      */
     public List<String> qualified() {
-        return Utils.qualifiedNameParts(qualifier, table.getName());
+        return Utils.qualifiedNameParts(qualifier, Util.getTempTableDisplayName(table.getName()));
     }
 
     /**
      * Full qualified table name, concat qualifier and name with `.` as separator.
      */
     public String qualifiedName() {
-        return Utils.qualifiedName(qualifier, table.getName());
+        return Utils.qualifiedName(qualifier, Util.getTempTableDisplayName(table.getName()));
     }
 
     @Override

@@ -82,6 +82,11 @@ TEST_F(FunctionCastTest, string_to_datetime6_valid_case_strict_mode) {
             {{std::string("00-01-01")}, std::string("2000-01-01")},
             {{std::string("12010203040506.999")}, std::string("1201-02-03 04:05:06.999000")},
             {{std::string("12010203040506.")}, std::string("1201-02-03 04:05:06")},
+
+            {{std::string("2024/05/01")}, std::string("2024-05-01")},
+            {{std::string("2024/05-01T12:30:45")}, std::string("2024-05-01 12:30:45")},
+            {{std::string("2025/06/15T00:00:00.99999999999999")},
+             std::string("2025-06-15 00:00:01")},
     };
     check_function_for_cast_strict_mode<DataTypeDateTimeV2>(input_types, data_set, "", 6);
 }
@@ -93,7 +98,6 @@ TEST_F(FunctionCastTest, string_to_datetime6_invalid_cases_in_strict_mode) {
             {{std::string("abc")}, Null()},
             {{std::string("2020-05-05 12:30:60")}, Null()},
             {{std::string("2023-07-16T19.123+08:00")}, Null()},
-            {{std::string("2024/05/01")}, Null()},
             {{std::string("24012")}, Null()},
             {{std::string("2411 123")}, Null()},
             {{std::string("2024-05-01 01:030:02")}, Null()},
@@ -134,9 +138,7 @@ TEST_F(FunctionCastTest, string_to_datetime6_invalid_cases_in_strict_mode) {
             {{std::string("2024-05-01  12:00:00")}, Null()},
             {{std::string("2024.05.01")}, Null()},
             {{std::string("2024.05.01 12.30.45")}, Null()},
-            {{std::string("2024/05-01T12:30:45")}, Null()},
             {{std::string("2024-05/01 12.30.45")}, Null()},
-            {{std::string("2025/06/15T00:00:00.99999999999999")}, Null()},
             {{std::string("-1")}, Null()},
             {{std::string("-12")}, Null()},
             {{std::string("-1234")}, Null()},
@@ -206,6 +208,7 @@ TEST_F(FunctionCastTest, string_to_datetime6_strict_case_non_strict_mode) {
             {{std::string("12010203040506.999")}, std::string("1201-02-03 04:05:06.999000")},
             {{std::string("12010203040506.")}, std::string("1201-02-03 04:05:06")},
             {{std::string("2024/05/01")}, std::string("2024-05-01")},
+            {{std::string("2024-05-01:12:12:12.1230")}, std::string("2024-05-01 12:12:12.123")},
 
             // Invalid formats (should return NULL)
             {{std::string("19991231T235960.5UTC")}, Null()},
@@ -307,6 +310,35 @@ TEST_F(FunctionCastTest, test_from_numeric_to_datetime) {
     }
 }
 
+TEST_F(FunctionCastTest, test_from_numeric_to_datetime_invalid) {
+    // Test casting from Int64
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
+        DataSet data_set = {
+                {{int64_t(1)}, Null()},
+                {{int64_t(22)}, Null()},
+                {{int64_t(-222)}, Null()},
+                {{int64_t(7777777)}, Null()},
+                {{int64_t(2015010203040516)}, Null()},
+        };
+        check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set);
+        check_function_for_cast_strict_mode<DataTypeDateTimeV2>(input_types, data_set, "datetime");
+    }
+    // Test casting from Double
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+        DataSet data_set = {
+                {{1.}, Null()},
+                {{22.223}, Null()},
+                {{-222.}, Null()},
+                {{7777777.}, Null()},
+                {{2015010203040516.}, Null()},
+        };
+        check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set);
+        check_function_for_cast_strict_mode<DataTypeDateTimeV2>(input_types, data_set, "datetime");
+    }
+}
+
 TEST_F(FunctionCastTest, test_from_decimal_to_datetime) {
     // Test casting from Decimal(9,3)
     {
@@ -328,6 +360,17 @@ TEST_F(FunctionCastTest, test_from_decimal_to_datetime) {
                 {{DECIMAL64(20151231, 999999, 6)}, std::string("2015-12-31 00:00:00.999999")},
                 {{Null()}, Null()}};
         check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 6);
+    }
+}
+
+TEST_F(FunctionCastTest, test_from_decimal_to_datetime_invalid) {
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DECIMAL64, 3, 17}};
+        DataSet data_set = {
+                {{DECIMAL64(99991231235959, 999, 3)}, Null()},
+        };
+        check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 2);
+        check_function_for_cast_strict_mode<DataTypeDateTimeV2>(input_types, data_set, "datetime");
     }
 }
 

@@ -23,6 +23,7 @@ FDB_ENDPOINT=${FDB_ENDPOINT}
 CONFIGMAP_PATH=${CONFIGMAP_PATH:="/etc/doris"}
 DORIS_HOME=${DORIS_HOME:="/opt/apache-doris"}
 
+echo "" >> $DORIS_HOME/ms/conf/doris_cloud.conf
 echo "fdb_cluster=$FDB_ENDPOINT" >> $DORIS_HOME/ms/conf/doris_cloud.conf
 if [[ -d $CONFIGMAP_PATH ]]; then
     for file in `ls $CONFIGMAP_PATH`
@@ -41,4 +42,5 @@ if [[ -d $CONFIGMAP_PATH ]]; then
        done
 fi
 
-$DORIS_HOME/ms/bin/start.sh --console
+
+$DORIS_HOME/ms/bin/start.sh --console --conf=$DORIS_HOME/ms/conf/doris_cloud.conf

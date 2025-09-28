@@ -145,6 +145,10 @@ public class DatabaseTransactionMgr {
     // it must exists in dbIdToTxnLabels, and vice versa
     private final Map<String, Set<Long>> labelToTxnIds = Maps.newHashMap();
 
+    private final Map<Long, Long> tableCommittedTxnCount = Maps.newConcurrentMap();
+
+    private Long lastCommittedTxnCountUpdateTime = 0L;
+
     // count the number of running txns of database
     private volatile int runningTxnNums = 0;
 
@@ -361,7 +365,7 @@ public class DatabaseTransactionMgr {
                 }
             }
 
-            checkRunningTxnExceedLimit();
+            checkRunningTxnExceedLimit(tableIdList);
 
             tid = idGenerator.getNextTransactionId();
             TransactionState transactionState = new TransactionState(dbId, tableIdList,
@@ -384,7 +388,7 @@ public class DatabaseTransactionMgr {
         Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
 
         if (usedQuotaDataBytes == -1) {
-            usedQuotaDataBytes = db.getUsedDataQuotaWithLock();
+            usedQuotaDataBytes = db.getUsedDataQuota();
         }
 
         long dataQuotaBytes = db.getDataQuota();
@@ -1062,16 +1066,44 @@ public class DatabaseTransactionMgr {
     }
 
     protected List<TransactionState> getCommittedTxnList() {
+        List<TransactionState> committedTxnList = null;
         readLock();
         try {
             // only send task to committed transaction
-            return idToRunningTransactionState.values().stream()
-                    .filter(transactionState ->
-                            (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED))
-                    .sorted(Comparator.comparing(TransactionState::getCommitTime))
-                    .collect(Collectors.toList());
+            committedTxnList = idToRunningTransactionState.values().stream()
+                                    .filter(transactionState ->
+                                            (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED))
+                                    .sorted(Comparator.comparing(TransactionState::getCommitTime))
+                                    .collect(Collectors.toList());
         } finally {
             readUnlock();
+        }
+
+        updateCommittedTxnCountPerTable(committedTxnList);
+
+        return committedTxnList;
+    }
+
+    // given list of transactionstate, calculate committed trasactions for each table.
+    protected void updateCommittedTxnCountPerTable(List<TransactionState> txnList) {
+        // Control frequency by recording last update time
+        long now = System.currentTimeMillis();
+        // Only update if enough time has passed (e.g., 60 seconds)
+        if (now - this.lastCommittedTxnCountUpdateTime < 60000 || Config.max_publishing_txn_num_per_table < 0) {
+            return;
+        }
+
+        this.lastCommittedTxnCountUpdateTime = now;
+        tableCommittedTxnCount.clear();
+        for (TransactionState txn : txnList) {
+            if (txn.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                List<Long> tableIds = txn.getTableIdList();
+                if (tableIds != null) {
+                    for (Long tableId : tableIds) {
+                        tableCommittedTxnCount.put(tableId, tableCommittedTxnCount.getOrDefault(tableId, 0L) + 1);
+                    }
+                }
+            }
         }
     }
 
@@ -2068,12 +2100,25 @@ public class DatabaseTransactionMgr {
         return infos;
     }
 
-    protected void checkRunningTxnExceedLimit()
+    protected void checkRunningTxnExceedLimit(List<Long> tableIdList)
             throws BeginTransactionException, MetaNotFoundException {
         long txnQuota = env.getInternalCatalog().getDbOrMetaException(dbId).getTransactionQuotaSize();
+
         if (runningTxnNums >= txnQuota) {
             throw new BeginTransactionException("current running txns on db " + dbId + " is "
                     + runningTxnNums + ", larger than limit " + txnQuota);
+        }
+
+        // Check if committed txn count on any table exceeds the configured limit
+        if (Config.max_publishing_txn_num_per_table >= 0) {
+            for (Long tableId : tableIdList) {
+                long committedTxnCount = tableCommittedTxnCount.getOrDefault(tableId, 0L);
+                if (committedTxnCount >= Config.max_publishing_txn_num_per_table) {
+                    throw new BeginTransactionException("current committed txns on table " + tableId
+                            + " is " + committedTxnCount + ", larger than limit "
+                            + Config.max_publishing_txn_num_per_table);
+                }
+            }
         }
     }
 

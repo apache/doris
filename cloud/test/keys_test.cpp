@@ -24,8 +24,6 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
-#include <random>
-#include <variant>
 #include <vector>
 
 #include "common/util.h"
@@ -81,6 +79,8 @@ int decode_bytes(std::string_view* in, std::string* out);
 // 0x01 "trash" ${instacne_id} "table" -> TableTrashPB
 // 
 // 0x01 "node_status" ${instance_id} "compute" ${backend_id} -> ComputeNodeStatusPB
+//
+// 0x01 "job" ${instance_id} "streaming_job" ${db_id} ${job_id} -> StreamingJobPB
 // clang-format on
 
 TEST(KeysTest, InstanceKeyTest) {
@@ -1247,6 +1247,14 @@ TEST(KeysTest, VersionedPartitionInvertedIndexKeyTest) {
         EXPECT_EQ(db_id, decoded_db_id);
         EXPECT_EQ(table_id, decoded_table_id);
         EXPECT_EQ(partition_id, decoded_partition_id);
+
+        key_sv = encoded_partition_inverted_index_key;
+        EXPECT_EQ(decode_partition_inverted_index_key(&key_sv, &decoded_db_id, &decoded_table_id,
+                                                      &decoded_partition_id),
+                  0);
+        EXPECT_EQ(db_id, decoded_db_id);
+        EXPECT_EQ(table_id, decoded_table_id);
+        EXPECT_EQ(partition_id, decoded_partition_id);
     }
 }
 
@@ -1831,6 +1839,30 @@ TEST(KeysTest, VersionedSnapshotReferenceKeyTest) {
         EXPECT_EQ(timestamp.order(), decoded_timestamp.order());
         EXPECT_EQ(ref_instance_id, decoded_ref_instance_id);
     }
+
+    {
+        std::string encoded_snapshot_reference_key =
+                snapshot_reference_key_prefix(instance_id, timestamp);
+
+        std::string decoded_snapshot_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_reference_prefix;
+        Versionstamp decoded_timestamp;
+
+        std::string_view key_sv(encoded_snapshot_reference_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_snapshot_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_reference_prefix), 0);
+        ASSERT_EQ(decode_versionstamp(&key_sv, &decoded_timestamp), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("snapshot", decoded_snapshot_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("reference", decoded_reference_prefix);
+        EXPECT_EQ(timestamp.version(), decoded_timestamp.version());
+        EXPECT_EQ(timestamp.order(), decoded_timestamp.order());
+    }
 }
 
 TEST(KeysTest, VersionedLogKeyTest) {
@@ -1930,5 +1962,164 @@ TEST(KeysTest, RestoreJobKeysTest) {
         std::cout << hex(encoded_key1) << std::endl;
 
         ASSERT_GT(encoded_key1, encoded_key);
+    }
+}
+
+TEST(KeysTest, StreamingJobKeysTest) {
+    using namespace doris::cloud;
+    std::string instance_id = "instance_id_deadbeef";
+
+    // 0x01 "job" ${instance_id} "streaming_job" ${db_id} ${job_id} -> StreamingJobPB
+    {
+        int64_t db_id = 123;
+        int64_t job_id = 456;
+        StreamingJobKeyInfo streaming_key {instance_id, db_id, job_id};
+        std::string encoded_streaming_key0;
+        streaming_job_key(streaming_key, &encoded_streaming_key0);
+        std::cout << hex(encoded_streaming_key0) << std::endl;
+
+        std::string dec_instance_id;
+        int64_t dec_db_id = 0;
+        int64_t dec_job_id = 0;
+
+        std::string_view key_sv(encoded_streaming_key0);
+        std::string dec_job_prefix;
+        std::string dec_streaming_infix;
+        remove_user_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_job_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_streaming_infix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &dec_db_id), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &dec_job_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("job", dec_job_prefix);
+        EXPECT_EQ("streaming_job", dec_streaming_infix);
+        EXPECT_EQ(instance_id, dec_instance_id);
+        EXPECT_EQ(db_id, dec_db_id);
+        EXPECT_EQ(job_id, dec_job_id);
+
+        std::get<2>(streaming_key) = job_id + 1;
+        std::string encoded_streaming_key1;
+        streaming_job_key(streaming_key, &encoded_streaming_key1);
+        std::cout << hex(encoded_streaming_key1) << std::endl;
+
+        ASSERT_GT(encoded_streaming_key1, encoded_streaming_key0);
+
+        std::get<1>(streaming_key) = db_id + 1;
+        std::string encoded_streaming_key2;
+        streaming_job_key(streaming_key, &encoded_streaming_key2);
+        std::cout << hex(encoded_streaming_key2) << std::endl;
+
+        ASSERT_GT(encoded_streaming_key2, encoded_streaming_key0);
+    }
+}
+
+TEST(KeysTest, VersionedKeyPrefixTest) {
+    using namespace doris::cloud;
+    using namespace doris::cloud::versioned;
+    std::string instance_id = "test_instance_id";
+
+    // Test versioned key prefixes - these use key space 0x03
+    {
+        // versioned::version_key_prefix - 0x03 "version" ${instance_id}
+        std::string version_prefix = versioned::version_key_prefix(instance_id);
+        std::cout << "versioned::version_key_prefix: " << hex(version_prefix) << std::endl;
+
+        std::string dec_version_prefix;
+        std::string dec_instance_id;
+        std::string_view key_sv(version_prefix);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_version_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("version", dec_version_prefix);
+        EXPECT_EQ(instance_id, dec_instance_id);
+    }
+
+    {
+        // versioned::index_key_prefix - 0x03 "index" ${instance_id}
+        std::string index_prefix = versioned::index_key_prefix(instance_id);
+        std::cout << "versioned::index_key_prefix: " << hex(index_prefix) << std::endl;
+
+        std::string dec_index_prefix;
+        std::string dec_instance_id;
+        std::string_view key_sv(index_prefix);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_index_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("index", dec_index_prefix);
+        EXPECT_EQ(instance_id, dec_instance_id);
+    }
+
+    {
+        // versioned::stats_key_prefix - 0x03 "stats" ${instance_id}
+        std::string stats_prefix = versioned::stats_key_prefix(instance_id);
+        std::cout << "versioned::stats_key_prefix: " << hex(stats_prefix) << std::endl;
+
+        std::string dec_stats_prefix;
+        std::string dec_instance_id;
+        std::string_view key_sv(stats_prefix);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_stats_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("stats", dec_stats_prefix);
+        EXPECT_EQ(instance_id, dec_instance_id);
+    }
+
+    {
+        // versioned::meta_key_prefix - 0x03 "meta" ${instance_id}
+        std::string meta_prefix = versioned::meta_key_prefix(instance_id);
+        std::cout << "versioned::meta_key_prefix: " << hex(meta_prefix) << std::endl;
+
+        std::string dec_meta_prefix;
+        std::string dec_instance_id;
+        std::string_view key_sv(meta_prefix);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_meta_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("meta", dec_meta_prefix);
+        EXPECT_EQ(instance_id, dec_instance_id);
+    }
+
+    {
+        // versioned::data_key_prefix - 0x03 "data" ${instance_id}
+        std::string data_prefix = versioned::data_key_prefix(instance_id);
+        std::cout << "versioned::data_key_prefix: " << hex(data_prefix) << std::endl;
+
+        std::string dec_data_prefix;
+        std::string dec_instance_id;
+        std::string_view key_sv(data_prefix);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_data_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("data", dec_data_prefix);
+        EXPECT_EQ(instance_id, dec_instance_id);
+    }
+
+    {
+        // versioned::log_key_prefix - 0x03 "log" ${instance_id}
+        std::string log_prefix = versioned::log_key_prefix(instance_id);
+        std::cout << "versioned::log_key_prefix: " << hex(log_prefix) << std::endl;
+
+        std::string dec_log_prefix;
+        std::string dec_instance_id;
+        std::string_view key_sv(log_prefix);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_log_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("log", dec_log_prefix);
+        EXPECT_EQ(instance_id, dec_instance_id);
     }
 }

@@ -228,7 +228,6 @@ public abstract class TestWithFeService {
         CascadesContext cascadesContext = createCascadesContext(sql);
         cascadesContext.newAnalyzer().analyze();
         connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
-        cascadesContext.toMemo();
         return (LogicalPlan) cascadesContext.getRewritePlan();
     }
 
@@ -240,7 +239,6 @@ public abstract class TestWithFeService {
         CascadesContext cascadesContext = createCascadesContext(sql, ctx);
         cascadesContext.newAnalyzer().analyze();
         ctx.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
-        cascadesContext.toMemo();
         return (LogicalPlan) cascadesContext.getRewritePlan();
     }
 
@@ -258,7 +256,6 @@ public abstract class TestWithFeService {
         CascadesContext cascadesContext = createCascadesContext(sql, ctx);
         cascadesContext.newAnalyzer().analyze();
         ctx.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
-        cascadesContext.toMemo();
         LogicalPlan plan = (LogicalPlan) cascadesContext.getRewritePlan();
         LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, cascadesContext.getStatementContext());
         adapter.setViewDdlSqls(cascadesContext.getStatementContext().getViewDdlSqls());
@@ -569,6 +566,24 @@ public abstract class TestWithFeService {
     public void executeSql(String queryStr) throws Exception {
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
+        stmtExecutor.execute();
+        if (connectContext.getState().getStateType() == QueryState.MysqlStateType.ERR
+                || connectContext.getState().getErrorCode() != null) {
+            throw new IllegalStateException(connectContext.getState().getErrorMessage());
+        }
+    }
+
+    public void executeNereidsSql(String queryStr) throws Exception {
+        connectContext.getState().reset();
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(queryStr, 0));
+        connectContext.setStatementContext(statementContext);
+        statementContext.setConnectContext(connectContext);
+
+        LogicalPlan plan = new NereidsParser().parseSingle(queryStr);
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(plan, statementContext);
+        logicalPlanAdapter.setOrigStmt(statementContext.getOriginStatement());
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, logicalPlanAdapter);
         stmtExecutor.execute();
         if (connectContext.getState().getStateType() == QueryState.MysqlStateType.ERR
                 || connectContext.getState().getErrorCode() != null) {
