@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "runtime/jsonb_value.h"
+#include "runtime/primitive_type.h"
 #include "util/jsonb_parser_simd.h"
 namespace doris {
 namespace vectorized {
@@ -350,6 +351,12 @@ void DataTypeJsonbSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
     result.writeStartBinary();
     result.writeBinary(reinterpret_cast<const char*>(data_ref.data), data_ref.size);
     result.writeEndBinary();
+}
+
+void DataTypeJsonbSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    DCHECK(arg->isBinary());
+    const auto* blob = arg->unpack<JsonbBinaryVal>();
+    assert_cast<ColumnString&>(column).insert_data(blob->getBlob(), blob->getBlobLen());
 }
 
 } // namespace vectorized
