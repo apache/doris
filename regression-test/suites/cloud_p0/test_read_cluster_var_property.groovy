@@ -85,13 +85,13 @@ suite('test_read_cluster_var_property') {
                 assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_prefer_cache_count") == preferCachedRowsetCount
 
                 // user property has higher prioroty than session variable
-                sql "set property for '${userName}' enable_prefer_cached_rowset=true;"
+                sql "set property for '${userName}' 'enable_prefer_cached_rowset'='true';"
                 preferCachedRowsetCount = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_prefer_cache_count")
                 sql "select * from ${tableName};"
                 assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_prefer_cache_count") == 1 + preferCachedRowsetCount
             } finally {
                 sql "set enable_prefer_cached_rowset=false;"
-                sql "set property for '${userName}' enable_prefer_cached_rowset=false;"
+                sql "set property for '${userName}' 'enable_prefer_cached_rowset'='false';"
             }
 
             try {
@@ -107,21 +107,21 @@ suite('test_read_cluster_var_property') {
                 assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count") == queryFreshnessTolerance
 
                 // user property has higher prioroty than session variable
-                sql "set property for '${userName}' query_freshness_tolerance_ms=2000;"
+                sql "set property for '${userName}' 'query_freshness_tolerance_ms'='2000';"
                 queryFreshnessTolerance = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count")
                 sql "select * from ${tableName};"
                 assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count") == 1 + queryFreshnessTolerance
             } finally {
                 sql "set query_freshness_tolerance_ms=-1;"
-                sql "set property for '${userName}' query_freshness_tolerance_ms=-1;"
+                sql "set property for '${userName}' 'query_freshness_tolerance_ms'='-1';"
             }
         } catch (Exception e) {
             logger.error("Error occurred while testing query_freshness_tolerance_ms: ${e.message}")
         } finally {
             sql "set enable_prefer_cached_rowset=false;"
             sql "set query_freshness_tolerance_ms=-1;"
-            sql "set property for '${userName}' enable_prefer_cached_rowset=false;"
-            sql "set property for '${userName}' query_freshness_tolerance_ms=-1;"
+            sql "set property for '${userName}' 'enable_prefer_cached_rowset'='false';"
+            sql "set property for '${userName}' 'query_freshness_tolerance_ms'='-1';"
         }
 
         // test mow table
@@ -171,13 +171,13 @@ suite('test_read_cluster_var_property') {
                 assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_prefer_cache_count") == preferCachedRowsetCount
 
                 // user property has higher prioroty than session variable
-                sql "set property for '${userName}' enable_prefer_cached_rowset=true;"
+                sql "set property for '${userName}' 'enable_prefer_cached_rowset'='true';"
                 preferCachedRowsetCount = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_prefer_cache_count")
                 sql "select * from ${tableName};"
                 assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_prefer_cache_count") == preferCachedRowsetCount
             } finally {
                 sql "set enable_prefer_cached_rowset=false;"
-                sql "set property for '${userName}' enable_prefer_cached_rowset=false;"
+                sql "set property for '${userName}' 'enable_prefer_cached_rowset'='false';"
             }
 
             try {
@@ -193,13 +193,13 @@ suite('test_read_cluster_var_property') {
                 assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count") == queryFreshnessTolerance
 
                 // user property has higher prioroty than session variable
-                sql "set property for '${userName}' query_freshness_tolerance_ms=2000;"
+                sql "set property for '${userName}' 'query_freshness_tolerance_ms'='2000';"
                 queryFreshnessTolerance = getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count")
                 sql "select * from ${tableName};"
                 assert getBrpcMetrics(tabletBackend.Host, tabletBackend.BrpcPort, "capture_with_freshness_tolerance_count") == 1 + queryFreshnessTolerance
             } finally {
                 sql "set query_freshness_tolerance_ms=-1;"
-                sql "set property for '${userName}' query_freshness_tolerance_ms=-1;"
+                sql "set property for '${userName}' 'query_freshness_tolerance_ms'='-1';"
             }
         } catch (Exception e) {
             logger.error("Error occurred while testing query_freshness_tolerance_ms: ${e.message}")
@@ -207,8 +207,8 @@ suite('test_read_cluster_var_property') {
         } finally {
             sql "set enable_prefer_cached_rowset=false;"
             sql "set query_freshness_tolerance_ms=-1;"
-            sql "set property for '${userName}' enable_prefer_cached_rowset=false;"
-            sql "set property for '${userName}' query_freshness_tolerance_ms=-1;"
+            sql "set property for '${userName}' 'enable_prefer_cached_rowset'='false';"
+            sql "set property for '${userName}' 'query_freshness_tolerance_ms'='-1';"
         }
     }
 }
