@@ -3329,7 +3329,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                   << ", start version=" << begin_versions[i] << ", end version=" << end_versions[i]
                   << ", internal round=" << round << ", delete_bitmap_num=" << delete_bitmap_num
                   << ", delete_bitmap_byte=" << delete_bitmap_byte;
-        
+
         response->add_returned_rowset_ids(rowset_ids[i]);
         if (delete_bitmap_byte >= dbm_bytes_threshold && i < rowset_ids.size() - 1) {
             response->set_has_more(true);

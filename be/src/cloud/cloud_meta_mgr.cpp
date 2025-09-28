@@ -893,7 +893,6 @@ Status CloudMetaMgr::_get_delete_bitmap_from_ms_by_batch(GetDeleteBitmapRequest&
         cur_req.set_cumulative_compaction_cnt(req.cumulative_compaction_cnt());
         cur_req.set_cumulative_point(req.cumulative_point());
         *(cur_req.mutable_idx()) = req.idx();
-        cur_req.set_store_version(req.store_version());
         if (bytes_threadhold > 0) {
             cur_req.set_dbm_bytes_threshold(bytes_threadhold);
         }
@@ -908,15 +907,10 @@ Status CloudMetaMgr::_get_delete_bitmap_from_ms_by_batch(GetDeleteBitmapRequest&
         RETURN_IF_ERROR(_get_delete_bitmap_from_ms(cur_req, cur_res));
         ++count;
 
-        // v1 delete bitmap
         res.mutable_rowset_ids()->MergeFrom(cur_res.rowset_ids());
         res.mutable_segment_ids()->MergeFrom(cur_res.segment_ids());
         res.mutable_versions()->MergeFrom(cur_res.versions());
         res.mutable_segment_delete_bitmaps()->MergeFrom(cur_res.segment_delete_bitmaps());
-
-        // v2 delete bitmap
-        res.mutable_delta_rowset_ids()->MergeFrom(cur_res.delta_rowset_ids());
-        res.mutable_delete_bitmap_storages()->MergeFrom(cur_res.delete_bitmap_storages());
 
         for (const auto& rowset_id : cur_res.returned_rowset_ids()) {
             finished_rowset_ids.insert(rowset_id);
