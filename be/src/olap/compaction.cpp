@@ -240,11 +240,11 @@ Status Compaction::merge_input_rowsets() {
     // schema stored in RowsetMeta. This is used when compaction temporarily
     // extends schema to split variant subcolumns for vertical compaction but
     // the final rowset meta must not persist those extracted subcolumns.
-    if (_enable_vertical_compact_variant_subcolumns &&
-        (_cur_tablet_schema->num_variant_columns() > 0)) {
-        _output_rowset->rowset_meta()->set_tablet_schema(
-                _cur_tablet_schema->copy_without_variant_extracted_columns());
-    }
+    // if (_enable_vertical_compact_variant_subcolumns &&
+    //     (_cur_tablet_schema->num_variant_columns() > 0)) {
+    //     _output_rowset->rowset_meta()->set_tablet_schema(
+    //             _cur_tablet_schema->copy_without_variant_extracted_columns());
+    // }
 
     //RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
     set_delete_predicate_for_output_rowset();
@@ -411,11 +411,11 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
     // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
     // so get_extended_compaction_schema will extended the schema for variant columns
     // for ordered compaction, we don't need to extend the schema for variant columns
-    if (_enable_vertical_compact_variant_subcolumns && !is_ordered_compaction) {
-        RETURN_IF_ERROR(
-                vectorized::schema_util::VariantCompactionUtil::get_extended_compaction_schema(
-                        _input_rowsets, _cur_tablet_schema));
-    }
+    // if (_enable_vertical_compact_variant_subcolumns && !is_ordered_compaction) {
+    //     RETURN_IF_ERROR(
+    //             vectorized::schema_util::VariantCompactionUtil::get_extended_compaction_schema(
+    //                     _input_rowsets, _cur_tablet_schema));
+    // }
     return Status::OK();
 }
 
@@ -1454,11 +1454,11 @@ Status CloudCompactionMixin::build_basic_info() {
 
     // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
     // so get_extended_compaction_schema will extended the schema for variant columns
-    if (_enable_vertical_compact_variant_subcolumns) {
-        RETURN_IF_ERROR(
-                vectorized::schema_util::VariantCompactionUtil::get_extended_compaction_schema(
-                        _input_rowsets, _cur_tablet_schema));
-    }
+    // if (_enable_vertical_compact_variant_subcolumns) {
+    //     RETURN_IF_ERROR(
+    //             vectorized::schema_util::VariantCompactionUtil::get_extended_compaction_schema(
+    //                     _input_rowsets, _cur_tablet_schema));
+    // }
     return Status::OK();
 }
 
