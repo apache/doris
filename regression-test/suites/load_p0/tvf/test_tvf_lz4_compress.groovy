@@ -94,8 +94,6 @@ suite("test_tvf_lz4_compress") {
         try_sql("DROP TABLE IF EXISTS test_table1")
     }
 
-    // oss://doris-regression-hk/load/tvf_compress.csv.lz4
-
     // with S3 load test
     try {
         sql """
@@ -129,7 +127,6 @@ suite("test_tvf_lz4_compress") {
             )
             """
 
-        // 等待加载完成并检查数据
         def max_try_milli_secs = 60000
         while (max_try_milli_secs > 0) {
             def count = sql """ select * from test_table2; """
@@ -164,7 +161,6 @@ suite("test_tvf_lz4_compress") {
             )
             """
 
-        // 等待加载完成并检查数据
         while (max_try_milli_secs > 0) {
             def count = sql """ select * from test_table2; """
             if (count.size() == 10) {
