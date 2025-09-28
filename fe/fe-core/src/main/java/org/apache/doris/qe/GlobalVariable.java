@@ -91,7 +91,8 @@ public final class GlobalVariable {
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
     public static String versionComment = Version.DORIS_BUILD_VERSION_PREFIX + " version "
             + Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH
-            + (Config.isCloudMode() ? " (Cloud Mode)" : "");
+            + (Config.isCloudMode() ? " (Cloud Mode)" : "")
+            + (Version.DORIS_FEATURE_LIST.isEmpty() ? "" : " features: " + Version.DORIS_FEATURE_LIST);
 
     @VariableMgr.VarAttr(name = VERSION)
     public static String version = MysqlHandshakePacket.DEFAULT_SERVER_VERSION;

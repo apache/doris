@@ -508,6 +508,23 @@ echo "Get params:
     WITH_TDE_DIR                        -- ${WITH_TDE_DIR}
 "
 
+FEAT=()
+if [[ -n "${WITH_TDE_DIR}" ]]; then
+    FEAT+=("TDE")
+fi
+if [[ "${ENABLE_HDFS_STORAGE_VAULT:-OFF}" == "ON" ]]; then
+    FEAT+=("HDFS_STORAGE_VAULT")
+fi
+if [[ ${BUILD_UI} -eq 1 ]]; then
+    FEAT+=("WEBUI")
+fi
+if [[ "${BUILD_AZURE}" == "ON" ]]; then
+    FEAT+=("AZURE_BLOB,AZURE_STORAGE_VAULT")
+fi
+
+export DORIS_FEATURE_LIST=$(IFS=','; echo "${FEAT[*]}")
+echo "Feature List: ${DORIS_FEATURE_LIST}"
+
 # Clean and build generated code
 if [[ "${CLEAN}" -eq 1 ]]; then
     clean_gensrc
