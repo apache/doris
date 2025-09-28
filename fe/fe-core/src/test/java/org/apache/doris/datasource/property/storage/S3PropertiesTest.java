@@ -200,7 +200,7 @@ public class S3PropertiesTest {
         s3EndpointProps.put("oss.region", "cn-hangzhou");
         origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
         // not support
-        ExceptionChecker.expectThrowsNoException(() -> StorageProperties.createPrimary(s3EndpointProps));
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class, "Endpoint must be set.", () -> StorageProperties.createPrimary(s3EndpointProps));
     }
 
     @Test
@@ -310,7 +310,7 @@ public class S3PropertiesTest {
         String invalidEndpoint1 = "s3.amazonaws.com";
         origProps.put("s3.endpoint", invalidEndpoint1);
         ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Endpoint and region must be set.", () -> StorageProperties.createPrimary(origProps));
+                "Region must be set.", () -> StorageProperties.createPrimary(origProps));
         origProps.put("s3.region", "us-west-2");
         Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
         // Fails because it contains 'amazonaws.com' but doesn't match the strict S3 endpoint pattern (invalid subdomain).

@@ -43,7 +43,7 @@ public class OSSPropertiesTest {
         origProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
         Map<String, String> finalOrigProps = origProps;
         ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Invalid endpoint: https://oss.aliyuncs.com", () -> StorageProperties.createPrimary(finalOrigProps));
+                "Region must be set.", () -> StorageProperties.createPrimary(finalOrigProps));
         origProps.put("oss.endpoint", "oss-cn-shenzhen-finance-1-internal.aliyuncs.com");
         Map<String, String> finalOrigProps1 = origProps;
         OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(finalOrigProps1);
@@ -145,7 +145,7 @@ public class OSSPropertiesTest {
         ossNoEndpointProps.put("oss.region", "cn-hangzhou");
         origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
         // oss support without endpoint
-        ExceptionChecker.expectThrowsNoException(() -> StorageProperties.createPrimary(ossNoEndpointProps));
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class, "Endpoint must be set.", () -> StorageProperties.createPrimary(ossNoEndpointProps));
     }
 
     @Test

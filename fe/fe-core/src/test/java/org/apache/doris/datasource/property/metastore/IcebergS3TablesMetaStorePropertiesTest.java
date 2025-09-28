@@ -41,12 +41,8 @@ public class IcebergS3TablesMetaStorePropertiesTest {
                 "s3.access_key", "AK",
                 "s3.secret_key", "SK",
                 "s3.endpoint", "https://s3.us-west-2.amazonaws.com");
-        IcebergS3TablesMetaStoreProperties failedProperties = (IcebergS3TablesMetaStoreProperties) MetastoreProperties.create(baseProps);
-        Assertions.assertEquals("s3tables", failedProperties.getIcebergCatalogType());
-        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
-            failedProperties.initializeCatalog("iceberg_catalog", StorageProperties.createAll(baseProps));
-        });
-        Assertions.assertTrue(exception.getMessage().contains("region must not be blank or empty."));
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> MetastoreProperties.create(baseProps));
+        Assertions.assertTrue(exception.getMessage().contains("Region must be set."));
         Map<String, String> allProps = ImmutableMap.<String, String>builder()
                 .putAll(baseProps)
                 .putAll(s3Props)

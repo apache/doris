@@ -137,9 +137,16 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         if (StringUtils.isBlank(getAccessKey()) != StringUtils.isBlank(getSecretKey())) {
             throw new IllegalArgumentException("Both the access key and the secret key must be set.");
         }
-        if (StringUtils.isBlank(getRegion()) || StringUtils.isBlank(getEndpoint())) {
-            throw new IllegalArgumentException("Endpoint and region must be set.");
+        if (StringUtils.isBlank(getRegion())) {
+            throw new IllegalArgumentException("Region must be set.");
         }
+        if (isEndpointCheckRequired() && StringUtils.isBlank(getEndpoint())) {
+            throw new IllegalArgumentException("Endpoint must be set.");
+        }
+    }
+
+    boolean isEndpointCheckRequired() {
+        return true;
     }
 
     /**
@@ -247,8 +254,12 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     private void appendS3HdfsProperties(Configuration hadoopStorageConfig) {
         hadoopStorageConfig.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         hadoopStorageConfig.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        hadoopStorageConfig.set("fs.s3a.endpoint", getEndpoint());
-        hadoopStorageConfig.set("fs.s3a.endpoint.region", getRegion());
+        if (StringUtils.isNotBlank(getEndpoint())) {
+            hadoopStorageConfig.set("fs.s3a.endpoint", getEndpoint());
+        }
+        if (StringUtils.isNotBlank(getRegion())) {
+            hadoopStorageConfig.set("fs.s3a.endpoint.region", getRegion());
+        }
         hadoopStorageConfig.set("fs.s3.impl.disable.cache", "true");
         hadoopStorageConfig.set("fs.s3a.impl.disable.cache", "true");
         if (StringUtils.isNotBlank(getAccessKey())) {
