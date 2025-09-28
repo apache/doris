@@ -249,6 +249,10 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
 
     LOG(INFO) << "search: Query completed, matched " << matched_docs << " documents";
 
+    if (null_bitmap && roaring) {
+        *null_bitmap -= *roaring;
+    }
+
     bitmap_result = InvertedIndexResultBitmap(std::move(roaring), std::move(null_bitmap));
     // Mask out NULL values to follow SQL semantics where NULL comparisons return UNKNOWN
     bitmap_result.mask_out_null();
