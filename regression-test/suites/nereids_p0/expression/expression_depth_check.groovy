@@ -16,7 +16,8 @@
 // under the License.
 
 suite("expression_depth_check", "nonConcurrent") {
-    sql """
+    multi_sql """
+        set enable_sql_cache=false;
         drop table if exists tbl1;
         CREATE TABLE tbl1
         (
@@ -28,9 +29,8 @@ suite("expression_depth_check", "nonConcurrent") {
         (
             "replication_num" = "1"
         );
+        admin set frontend config("expr_depth_limit" = "3000");
         select floor(abs(ceil(1+k1))) from tbl1;
-    """
-    sql """
         admin set frontend config("expr_depth_limit" = "3");
     """
     def depthCheckFailed = true;

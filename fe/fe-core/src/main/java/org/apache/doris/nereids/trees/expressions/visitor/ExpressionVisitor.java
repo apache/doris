@@ -117,6 +117,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 /**
@@ -256,6 +257,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitVarcharLiteral(VarcharLiteral varcharLiteral, C context) {
         return visitLiteral(varcharLiteral, context);
+    }
+
+    public R visitVarBinaryLiteral(VarBinaryLiteral varBinaryLiteral, C context) {
+        return visitLiteral(varBinaryLiteral, context);
     }
 
     public R visitStringLiteral(StringLiteral stringLiteral, C context) {

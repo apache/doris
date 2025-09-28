@@ -36,6 +36,7 @@
 #include "meta-store/versionstamp.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
+#include "snapshot/snapshot_manager.h"
 
 namespace brpc {
 class Server;
@@ -116,6 +117,7 @@ private:
     RecyclerThreadPoolGroup _thread_pool_group;
 
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
+    std::shared_ptr<SnapshotManager> snapshot_manager_;
 };
 
 enum class RowsetRecyclingState {
@@ -233,6 +235,9 @@ public:
                               std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
     ~InstanceRecycler();
 
+    std::string_view instance_id() const { return instance_id_; }
+    const InstanceInfoPB& instance_info() const { return instance_info_; }
+
     // returns 0 for success otherwise error
     int init();
 
@@ -296,6 +301,9 @@ public:
     // scan and recycle useless partition version kv
     int recycle_versions();
 
+    // scan and recycle the orphan partitions
+    int recycle_orphan_partitions();
+
     // scan and abort timeout txn label
     // returns 0 for success otherwise error
     int abort_timeout_txn();
@@ -324,6 +332,10 @@ public:
     // returns 0 for success otherwise error
     int recycle_restore_jobs();
 
+    // scan and recycle snapshots
+    // returns 0 for success otherwise error
+    int recycle_cluster_snapshots();
+
     bool check_recycle_tasks();
 
     int scan_and_statistics_indexes();
@@ -351,6 +363,11 @@ public:
     void TEST_add_accessor(std::string_view id, std::shared_ptr<StorageVaultAccessor> accessor) {
         accessor_map_.insert({std::string(id), std::move(accessor)});
     }
+
+    // Recycle snapshot meta and data, return 0 for success otherwise error.
+    int recycle_snapshot_meta_and_data(const std::string& resource_id,
+                                       Versionstamp snapshot_version,
+                                       const SnapshotPB& snapshot_pb);
 
 private:
     // returns 0 for success otherwise error
@@ -441,6 +458,7 @@ private:
     RecyclerThreadPoolGroup _thread_pool_group;
 
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
+    std::shared_ptr<SnapshotManager> snapshot_manager_;
 
     TabletRecyclerMetricsContext tablet_metrics_context_;
     SegmentRecyclerMetricsContext segment_metrics_context_;

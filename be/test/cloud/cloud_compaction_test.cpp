@@ -23,6 +23,8 @@
 
 #include <memory>
 
+#include "cloud/cloud_base_compaction.h"
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
@@ -70,6 +72,9 @@ class CloudCompactionTest : public testing::Test {
             "creation_time": 1553765670,
             "num_segments": 3
         })";
+        _cluster_info = std::make_shared<CloudClusterInfo>();
+        _cluster_info->_is_in_standby = false;
+        ExecEnv::GetInstance()->_cluster_info = _cluster_info.get();
     }
     void TearDown() override {}
 
@@ -113,6 +118,7 @@ protected:
 
 public:
     CloudStorageEngine _engine;
+    std::shared_ptr<CloudClusterInfo> _cluster_info;
 };
 
 TEST_F(CloudCompactionTest, failure_base_compaction_tablet_sleep_test) {
@@ -379,5 +385,49 @@ TEST_F(CloudCompactionTest, test_set_storage_resource_from_input_rowsets) {
         // No storage resource should be set
         ASSERT_FALSE(ctx.storage_resource.has_value());
     }
+}
+TEST_F(CloudCompactionTest, should_cache_compaction_output) {
+    CloudTabletSPtr tablet = std::make_shared<CloudTablet>(_engine, std::make_shared<TabletMeta>());
+    CloudBaseCompaction cloud_base_compaction(_engine, tablet);
+    cloud_base_compaction._input_rowsets_total_size = 0;
+    cloud_base_compaction._input_rowsets_cached_data_size = 0;
+    cloud_base_compaction._input_rowsets_cached_index_size = 0;
+    ASSERT_EQ(cloud_base_compaction.should_cache_compaction_output(), false);
+
+    cloud_base_compaction._input_rowsets_total_size = 100;
+    cloud_base_compaction._input_rowsets_cached_data_size = 0;
+    cloud_base_compaction._input_rowsets_cached_index_size = 0;
+    ASSERT_EQ(cloud_base_compaction.should_cache_compaction_output(), false);
+
+    cloud_base_compaction._input_rowsets_total_size = 100;
+    cloud_base_compaction._input_rowsets_cached_data_size = 70;
+    cloud_base_compaction._input_rowsets_cached_index_size = 0;
+    ASSERT_EQ(cloud_base_compaction.should_cache_compaction_output(), false);
+
+    cloud_base_compaction._input_rowsets_total_size = 100;
+    cloud_base_compaction._input_rowsets_cached_data_size = 0;
+    cloud_base_compaction._input_rowsets_cached_index_size = 70;
+    ASSERT_EQ(cloud_base_compaction.should_cache_compaction_output(), false);
+
+    cloud_base_compaction._input_rowsets_total_size = 100;
+    cloud_base_compaction._input_rowsets_cached_data_size = 0;
+    cloud_base_compaction._input_rowsets_cached_index_size = 70;
+    ASSERT_EQ(cloud_base_compaction.should_cache_compaction_output(), false);
+
+    cloud_base_compaction._input_rowsets_total_size = 100;
+    cloud_base_compaction._input_rowsets_cached_data_size = 80;
+    cloud_base_compaction._input_rowsets_cached_index_size = 0;
+    ASSERT_EQ(cloud_base_compaction.should_cache_compaction_output(), true);
+
+    cloud_base_compaction._input_rowsets_total_size = 100;
+    cloud_base_compaction._input_rowsets_cached_data_size = 0;
+    cloud_base_compaction._input_rowsets_cached_index_size = 80;
+    ASSERT_EQ(cloud_base_compaction.should_cache_compaction_output(), true);
+
+    cloud_base_compaction._input_rowsets_total_size = 100;
+    cloud_base_compaction._input_rowsets_cached_data_size = 50;
+    cloud_base_compaction._input_rowsets_cached_index_size = 50;
+    ASSERT_EQ(cloud_base_compaction.should_cache_compaction_output(), true);
+    LOG(INFO) << "should_cache_compaction_output done";
 }
 } // namespace doris

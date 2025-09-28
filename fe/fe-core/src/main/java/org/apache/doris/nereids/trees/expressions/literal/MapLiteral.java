@@ -72,10 +72,10 @@ public class MapLiteral extends Literal {
             return new MapLiteral(
                     map.entrySet().stream()
                             .collect(ImmutableMap.toImmutableMap(
-                                    entry -> (Literal) entry.getKey().uncheckedCastWithFallback(((MapType) targetType)
+                                    entry -> (Literal) entry.getKey().checkedCastWithFallback(((MapType) targetType)
                                             .getKeyType()),
                                     entry -> (Literal) entry.getValue()
-                                            .uncheckedCastWithFallback(((MapType) targetType).getValueType())
+                                            .checkedCastWithFallback(((MapType) targetType).getValueType())
                             )),
                     targetType
             );

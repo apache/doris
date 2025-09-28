@@ -89,6 +89,11 @@ public abstract class AesCryptoFunction extends CryptoFunction {
     }
 
     @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        checkLegalityAfterRewrite();
+    }
+
+    @Override
     public void checkLegalityAfterRewrite() {
         if (arity() >= 4 && child(3) instanceof StringLikeLiteral) {
             String mode = ((StringLikeLiteral) child(3)).getValue().toUpperCase();

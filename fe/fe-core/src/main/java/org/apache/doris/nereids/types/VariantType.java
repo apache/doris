@@ -57,7 +57,7 @@ public class VariantType extends PrimitiveType {
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.predefinedFields = Lists.newArrayList();
         this.enableTypedPathsToSparse = false;
-        this.variantMaxSparseColumnStatisticsSize = 0;
+        this.variantMaxSparseColumnStatisticsSize = 10000;
         this.flattenKeys = Lists.newArrayList();
     }
 
@@ -68,7 +68,7 @@ public class VariantType extends PrimitiveType {
         this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
         this.variantMaxSubcolumnsCount = 0;
         this.enableTypedPathsToSparse = false;
-        this.variantMaxSparseColumnStatisticsSize = 0;
+        this.variantMaxSparseColumnStatisticsSize = 10000;
         this.flattenKeys = Lists.newArrayList();
     }
 
@@ -112,7 +112,9 @@ public class VariantType extends PrimitiveType {
         sb.append("<");
         if (!predefinedFields.isEmpty()) {
             sb.append(predefinedFields.stream().map(VariantField::toSql).collect(Collectors.joining(",")));
-            if (variantMaxSubcolumnsCount == 0 && !enableTypedPathsToSparse) {
+            if (variantMaxSubcolumnsCount == 0 && !enableTypedPathsToSparse
+                    && variantMaxSparseColumnStatisticsSize == 10000) {
+                // end sign for predefinedFields
                 sb.append(">");
                 return sb.toString();
             } else {
@@ -132,7 +134,7 @@ public class VariantType extends PrimitiveType {
             sb.append("\"variant_enable_typed_paths_to_sparse\" = \"")
                                     .append(String.valueOf(enableTypedPathsToSparse)).append("\"");
         }
-        if (variantMaxSparseColumnStatisticsSize != 0) {
+        if (variantMaxSparseColumnStatisticsSize != 10000) {
             sb.append(",");
             sb.append("\"variant_max_sparse_column_statistics_size\" = \"")
                                     .append(String.valueOf(variantMaxSparseColumnStatisticsSize))

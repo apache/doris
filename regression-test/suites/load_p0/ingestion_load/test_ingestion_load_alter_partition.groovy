@@ -123,8 +123,8 @@ suite('test_ingestion_load_alter_partition', 'p0,external') {
                 qt_select "select c1, count(*) from ${testTable} group by c1 order by c1"
                 break
             } else if (result[0][2] == "CANCELLED") {
-                msg = result[0][7]
-                logger.info("err msg: " + msg)
+                def msg2 = result[0][7]
+                logger.info("err msg: " + msg2)
                 assertTrue((result[0][7] =~ /partition does not exist/).find())
                 break
             } else {
@@ -140,11 +140,15 @@ suite('test_ingestion_load_alter_partition', 'p0,external') {
 
     if (enableHdfs()) {
 
-        tableName1 = 'tbl_test_spark_load_alter_partition_1'
-        tableName2 = 'tbl_test_spark_load_alter_partition_2'
-        tableName3 = 'tbl_test_spark_load_alter_partition_3'
+        def tableName1 = 'tbl_test_spark_load_alter_partition_1'
+        def tableName2 = 'tbl_test_spark_load_alter_partition_2'
+        def tableName3 = 'tbl_test_spark_load_alter_partition_3'
 
         try {
+
+            sql "DROP TABLE if exists ${tableName1}"
+            sql "DROP TABLE if exists ${tableName2}"
+            sql "DROP TABLE if exists ${tableName3}"
 
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName1} (
@@ -218,7 +222,5 @@ suite('test_ingestion_load_alter_partition', 'p0,external') {
 //            sql "DROP TABLE ${tableName2}"
 //            sql "DROP TABLE ${tableName3}"
         }
-
     }
-
 }

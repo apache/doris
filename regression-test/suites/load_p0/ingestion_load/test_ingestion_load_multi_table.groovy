@@ -103,7 +103,7 @@ suite('test_ingestion_load_multi_table', 'p0,external') {
                     "msg": "",
                     "appId": "",
                     "dppResult": "${dppResult}",
-                    "filePathToSize": "{\\"${etlResultFilePath1}\\": 81758, \\"${etlResultFilePath2}\\": 81758}",
+                    "filePathToSize": "{\\"${etlResultFilePath1}\\": 5745, \\"${etlResultFilePath2}\\": 5745}",
                     "hadoopProperties": "{\\"fs.defaultFS\\":\\"${getHdfsFs()}\\",\\"hadoop.username\\":\\"${getHdfsUser()}\\",\\"hadoop.password\\":\\"${getHdfsPasswd()}\\"}"
                 }
             }"""
@@ -145,7 +145,7 @@ suite('test_ingestion_load_multi_table', 'p0,external') {
 
     if (enableHdfs()) {
 
-        tableName1 = 'tbl_test_spark_load_multi_1'
+        def tableName1 = 'tbl_test_spark_load_multi_1'
 
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName1} (
@@ -172,7 +172,7 @@ suite('test_ingestion_load_multi_table', 'p0,external') {
             )
             """
 
-        tableName2 = 'tbl_test_spark_load_multi_2'
+        def tableName2 = 'tbl_test_spark_load_multi_2'
 
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName2} (

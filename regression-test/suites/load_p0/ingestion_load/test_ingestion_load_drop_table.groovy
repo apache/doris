@@ -85,7 +85,7 @@ suite('test_ingestion_load_drop_table', 'p0,external') {
                     "msg": "",
                     "appId": "",
                     "dppResult": "${dppResult}",
-                    "filePathToSize": "{\\"${etlResultFilePath}\\": 81758}",
+                    "filePathToSize": "{\\"${etlResultFilePath}\\": 5745}",
                     "hadoopProperties": "{\\"fs.defaultFS\\":\\"${getHdfsFs()}\\",\\"hadoop.username\\":\\"${getHdfsUser()}\\",\\"hadoop.password\\":\\"${getHdfsPasswd()}\\"}"
                 }
             }"""
@@ -126,7 +126,7 @@ suite('test_ingestion_load_drop_table', 'p0,external') {
 
     if (enableHdfs()) {
 
-        tableName = 'tbl_test_spark_load_drop_table'
+        def tableName = 'tbl_test_spark_load_drop_table'
 
         try {
 
@@ -156,7 +156,7 @@ suite('test_ingestion_load_drop_table', 'p0,external') {
                 )
                 """
 
-            label = "test_ingestion_load_drop_table"
+            def label = "test_ingestion_load_drop_table"
 
             testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet', {
                 sql "DROP TABLE ${tableName}"
@@ -188,7 +188,6 @@ suite('test_ingestion_load_drop_table', 'p0,external') {
             })
 
         } finally {
-            sql "DROP TABLE ${tableName}"
         }
 
     }

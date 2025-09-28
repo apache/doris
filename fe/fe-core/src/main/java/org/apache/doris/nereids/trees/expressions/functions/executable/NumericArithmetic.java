@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
@@ -89,12 +90,12 @@ public class NumericArithmetic {
 
     @ExecFunction(name = "abs")
     public static Expression abs(DecimalLiteral literal) {
-        return new DecimalLiteral(literal.getValue().abs());
+        return new DecimalLiteral((DecimalV2Type) literal.getDataType(), literal.getValue().abs());
     }
 
     @ExecFunction(name = "abs")
     public static Expression abs(DecimalV3Literal literal) {
-        return new DecimalV3Literal(literal.getValue().abs());
+        return new DecimalV3Literal((DecimalV3Type) literal.getDataType(), literal.getValue().abs());
     }
 
     /**
@@ -500,6 +501,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "sqrt")
     public static Expression sqrt(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
@@ -612,6 +616,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "asin")
     public static Expression asin(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, -1.0, 1.0, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
@@ -623,6 +630,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "acos")
     public static Expression acos(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, -1.0, 1.0, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
@@ -919,6 +929,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "dsqrt")
     public static Expression dsqrt(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }

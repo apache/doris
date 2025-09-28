@@ -58,6 +58,8 @@ public:
         return assert_cast<const Derived&>(*this).number_of_arguments;
     }
 
+    bool is_blockable() const override { return true; }
+
     virtual Status build_prompt(const Block& block, const ColumnNumbers& arguments, size_t row_num,
                                 std::string& prompt) const {
         const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
@@ -73,23 +75,6 @@ public:
                 assert_cast<const Derived&>(*this).get_return_type_impl(DataTypes());
         MutableColumnPtr col_result = return_type_impl->create_column();
 
-        std::unique_ptr<ThreadPool> thread_pool;
-        Status st = ThreadPoolBuilder("LLMRequestPool")
-                            .set_min_threads(1)
-                            .set_max_threads(config::llm_max_concurrent_requests > 0
-                                                     ? config::llm_max_concurrent_requests
-                                                     : 1)
-                            .build(&thread_pool);
-        if (!st.ok()) {
-            return Status::InternalError("Failed to create thread pool: " + st.to_string());
-        }
-
-        struct RowResult {
-            std::variant<std::string, std::vector<float>> data;
-            Status status;
-            bool is_null = false;
-        };
-
         TAIResource config;
         std::shared_ptr<AIAdapter> adapter;
         if (Status status =
@@ -99,114 +84,62 @@ public:
             return status;
         }
 
-        std::vector<RowResult> results(input_rows_count);
         for (size_t i = 0; i < input_rows_count; ++i) {
-            Status submit_status = thread_pool->submit_func([this, i, &block, &arguments, &results,
-                                                             &adapter, &config, context,
-                                                             &return_type_impl]() {
-                RowResult& row_result = results[i];
+            // Build AI prompt text
+            std::string prompt;
+            RETURN_IF_ERROR(
+                    assert_cast<const Derived&>(*this).build_prompt(block, arguments, i, prompt));
 
-                try {
-                    // Build AI prompt text
-                    std::string prompt;
-                    Status status = assert_cast<const Derived&>(*this).build_prompt(
-                            block, arguments, i, prompt);
+            // Execute a single AI request and get the result
+            if (return_type_impl->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
+                // Array(Float) for AI_EMBED
+                std::vector<float> float_result;
+                RETURN_IF_ERROR(
+                        execute_single_request(prompt, float_result, config, adapter, context));
 
-                    if (!status.ok()) {
-                        row_result.status = status;
-                        row_result.is_null = true;
-                        return;
-                    }
+                auto& col_array = assert_cast<ColumnArray&>(*col_result);
+                auto& offsets = col_array.get_offsets();
+                auto& nested_nullable_col = assert_cast<ColumnNullable&>(col_array.get_data());
+                auto& nested_col =
+                        assert_cast<ColumnFloat32&>(*(nested_nullable_col.get_nested_column_ptr()));
+                nested_col.reserve(nested_col.size() + float_result.size());
 
-                    // Execute a single AI request and get the result
-                    if (return_type_impl->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
-                        std::vector<float> float_result;
-                        status = execute_single_request(prompt, float_result, config, adapter,
-                                                        context);
-                        if (!status.ok()) {
-                            row_result.status = status;
-                            row_result.is_null = true;
-                            return;
-                        }
-                        row_result.data = std::move(float_result);
-                    } else {
-                        std::string string_result;
-                        status = execute_single_request(prompt, string_result, config, adapter,
-                                                        context);
-                        if (!status.ok()) {
-                            row_result.status = status;
-                            row_result.is_null = true;
-                            return;
-                        }
-                        row_result.data = std::move(string_result);
-                    }
-                    row_result.status = Status::OK();
-                } catch (const std::exception& e) {
-                    row_result.status = Status::InternalError("Exception in AI request: " +
-                                                              std::string(e.what()));
-                    row_result.is_null = true;
-                }
-            });
+                size_t current_offset = nested_col.size();
+                nested_col.insert_many_raw_data(reinterpret_cast<const char*>(float_result.data()),
+                                                float_result.size());
+                offsets.push_back(current_offset + float_result.size());
+                auto& null_map = nested_nullable_col.get_null_map_column();
+                null_map.insert_many_vals(0, float_result.size());
+            } else {
+                std::string string_result;
+                RETURN_IF_ERROR(
+                        execute_single_request(prompt, string_result, config, adapter, context));
 
-            if (!submit_status.ok()) {
-                return Status::InternalError("Failed to submit task to thread pool: " +
-                                             submit_status.to_string());
-            }
-        }
-
-        thread_pool->wait();
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            const RowResult& row_result = results[i];
-
-            if (!row_result.status.ok()) {
-                return row_result.status;
-            }
-
-            if (!row_result.is_null) {
                 switch (return_type_impl->get_primitive_type()) {
                 case PrimitiveType::TYPE_STRING: { // string
-                    const auto& str_data = std::get<std::string>(row_result.data);
                     assert_cast<ColumnString&>(*col_result)
-                            .insert_data(str_data.data(), str_data.size());
+                            .insert_data(string_result.data(), string_result.size());
                     break;
                 }
-                case PrimitiveType::TYPE_BOOLEAN: { // boolean
-                    const auto& bool_data = std::get<std::string>(row_result.data);
-                    if (bool_data != "true" && bool_data != "false") {
-                        return Status::RuntimeError("Failed to parse boolean value: " + bool_data);
+                case PrimitiveType::TYPE_BOOLEAN: { // boolean for AI_FILTER
+#ifdef BE_TEST
+                    string_result = "false";
+#endif
+                    if (string_result != "true" && string_result != "false") {
+                        return Status::RuntimeError("Failed to parse boolean value: " +
+                                                    string_result);
                     }
                     assert_cast<ColumnUInt8&>(*col_result)
-                            .insert_value(static_cast<UInt8>(bool_data == "true"));
+                            .insert_value(static_cast<UInt8>(string_result == "true"));
                     break;
                 }
-                case PrimitiveType::TYPE_FLOAT: { // float
-                    const auto& str_data = std::get<std::string>(row_result.data);
-                    assert_cast<ColumnFloat32&>(*col_result).insert_value(std::stof(str_data));
-                    break;
-                }
-                case PrimitiveType::TYPE_ARRAY: { // array of floats
-                    const auto& float_data = std::get<std::vector<float>>(row_result.data);
-                    auto& col_array = assert_cast<ColumnArray&>(*col_result);
-                    auto& offsets = col_array.get_offsets();
-                    auto& nested_nullable_col = assert_cast<ColumnNullable&>(col_array.get_data());
-                    auto& nested_col = assert_cast<ColumnFloat32&>(
-                            *(nested_nullable_col.get_nested_column_ptr()));
-                    nested_col.reserve(nested_col.size() + float_data.size());
-
-                    size_t current_offset = nested_col.size();
-                    nested_col.insert_many_raw_data(
-                            reinterpret_cast<const char*>(float_data.data()), float_data.size());
-                    offsets.push_back(current_offset + float_data.size());
-                    auto& null_map = nested_nullable_col.get_null_map_column();
-                    null_map.insert_many_vals(0, float_data.size());
+                case PrimitiveType::TYPE_FLOAT: { // float for AI_SIMILARITY
+                    assert_cast<ColumnFloat32&>(*col_result).insert_value(std::stof(string_result));
                     break;
                 }
                 default:
                     return Status::InternalError("Unsupported ReturnType for AIFunction");
                 }
-            } else {
-                col_result->insert_default();
             }
         }
 
@@ -228,14 +161,14 @@ private:
                 context->state()->get_query_ctx()->get_ai_resources();
         auto it = ai_resources.find(resource_name);
         if (it == ai_resources.end()) {
-            return Status::InternalError("AI resource not found: " + resource_name);
+            return Status::InvalidArgument("AI resource not found: " + resource_name);
         }
         config = it->second;
 
         // 2. Create an adapter based on provider_type
         adapter = AIAdapterFactory::create_adapter(config.provider_type);
         if (!adapter) {
-            return Status::InternalError("Unsupported AI provider type: " + config.provider_type);
+            return Status::InvalidArgument("Unsupported AI provider type: " + config.provider_type);
         }
         adapter->init(config);
 
@@ -251,7 +184,7 @@ private:
         QueryContext* query_ctx = context->state()->get_query_ctx();
         int64_t remaining_query_time = query_ctx->get_remaining_query_time_seconds();
         if (remaining_query_time <= 0) {
-            return Status::InternalError("Query timeout exceeded before AI request");
+            return Status::TimedOut("Query timeout exceeded before AI request");
         }
 
         client->set_timeout_ms(remaining_query_time * 1000);

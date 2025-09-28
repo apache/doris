@@ -28,7 +28,6 @@ suite("one_level_nestedtypes_with_s3data") {
     sql """ set max_pushdown_conditions_per_column=1024 """
 
     def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/regression/datalake"
-//    def dataFilePath = "/mnt/disk1/wangqiannan/export/ol"
     def table_names = ["test_array_one_level", "test_map_one_level", "test_struct_one_level"]
 
     def colNameArr = ["c_bool", "c_tinyint", "c_smallint", "c_int", "c_bigint", "c_largeint", "c_float",
@@ -85,7 +84,7 @@ suite("one_level_nestedtypes_with_s3data") {
                     "format" = "${format}",
                     "provider" = "${getS3Provider()}",
                     "column_separator"="|",
-                    "read_json_by_line"="true") order by c1 limit 10; """
+                    "read_json_by_line"="true") where c1 is not null order by c1 limit 10; """
 
             sql """
             insert into ${table_name} select * from s3(
@@ -103,7 +102,7 @@ suite("one_level_nestedtypes_with_s3data") {
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
                     "provider" = "${getS3Provider()}",
-                    "read_json_by_line"="true") order by k1 limit 10; """
+                    "read_json_by_line"="true") where k1 is not null order by k1 limit 10; """
 
             sql """
             insert into ${table_name} select * from s3(

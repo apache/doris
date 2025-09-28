@@ -6,7 +6,7 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
 --------filter((a.event_id = 'ad_click'))
 ----------PhysicalOlapScan[com_dd_library]
---------filter((cast(experiment_id as DOUBLE) = 37.0))
+--------filter((cast(experiment_id as DECIMALV3(38, 6)) = 37.000000))
 ----------PhysicalOlapScan[shunt_log_com_dd_library]
 
 -- !2 --
@@ -15,7 +15,7 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
 --------PhysicalOlapScan[com_dd_library]
---------filter((cast(experiment_id as DOUBLE) = 73.0))
+--------filter((cast(experiment_id as DECIMALV3(38, 6)) = 73.000000))
 ----------PhysicalOlapScan[shunt_log_com_dd_library]
 
 -- !3 --
@@ -24,7 +24,7 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
 --------PhysicalOlapScan[com_dd_library]
---------filter((cast(experiment_id as DOUBLE) = 73.0))
+--------filter((cast(experiment_id as DECIMALV3(38, 6)) = 73.000000))
 ----------PhysicalOlapScan[shunt_log_com_dd_library]
 
 -- !4 --
@@ -44,7 +44,7 @@ PhysicalResultSink
 ----------filter((a.event_id = 'ad_click'))
 ------------PhysicalOlapScan[com_dd_library]
 --------hashAgg[GLOBAL]
-----------filter((cast(experiment_id as DOUBLE) = 37.0))
+----------filter((cast(experiment_id as DECIMALV3(38, 6)) = 37.000000))
 ------------PhysicalOlapScan[shunt_log_com_dd_library]
 
 Hint log:
@@ -59,7 +59,7 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
 --------hashAgg[GLOBAL]
 ----------PhysicalOlapScan[com_dd_library]
---------filter((cast(experiment_id as DOUBLE) = 73.0))
+--------filter((cast(experiment_id as DECIMALV3(38, 6)) = 73.000000))
 ----------PhysicalOlapScan[shunt_log_com_dd_library]
 
 Hint log:
@@ -74,7 +74,7 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
 --------hashAgg[GLOBAL]
 ----------PhysicalOlapScan[com_dd_library]
---------filter((cast(experiment_id as DOUBLE) = 73.0))
+--------filter((cast(experiment_id as DECIMALV3(38, 6)) = 73.000000))
 ----------PhysicalOlapScan[shunt_log_com_dd_library]
 
 Hint log:

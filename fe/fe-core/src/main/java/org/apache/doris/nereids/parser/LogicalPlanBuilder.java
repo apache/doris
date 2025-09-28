@@ -274,6 +274,7 @@ import org.apache.doris.nereids.DorisParser.PartitionValueListContext;
 import org.apache.doris.nereids.DorisParser.PartitionsDefContext;
 import org.apache.doris.nereids.DorisParser.PauseMTMVContext;
 import org.apache.doris.nereids.DorisParser.PlanTypeContext;
+import org.apache.doris.nereids.DorisParser.PositionContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
 import org.apache.doris.nereids.DorisParser.PrimitiveDataTypeContext;
@@ -435,6 +436,7 @@ import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.StructLiteralContext;
 import org.apache.doris.nereids.DorisParser.SubqueryContext;
 import org.apache.doris.nereids.DorisParser.SubqueryExpressionContext;
+import org.apache.doris.nereids.DorisParser.SubstringContext;
 import org.apache.doris.nereids.DorisParser.SupportedUnsetStatementContext;
 import org.apache.doris.nereids.DorisParser.SwitchCatalogContext;
 import org.apache.doris.nereids.DorisParser.SyncContext;
@@ -577,6 +579,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.DistributeType.JoinDistributeType;
@@ -595,8 +598,12 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCreateClusterSnapshotCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminDropClusterSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetAutoClusterSnapshotCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetClusterSnapshotFeatureSwitchCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetEncryptionRootKeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetPartitionVersionCommand;
@@ -609,6 +616,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColocateGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterDatabasePropertiesCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
@@ -717,6 +725,7 @@ import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillQueryCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.LockTablesCommand;
+import org.apache.doris.nereids.trees.plans.commands.OptimizeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
@@ -1147,11 +1156,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Optional<Long> interval = ctx.timeInterval == null ? Optional.empty() :
                 Optional.of(Long.valueOf(ctx.timeInterval.getText()));
         Optional<String> intervalUnit = ctx.timeUnit == null ? Optional.empty() : Optional.of(ctx.timeUnit.getText());
+        Map<String, String> properties = ctx.propertyClause() != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
         String comment =
                 visitCommentSpec(ctx.commentSpec());
         String executeSql = getOriginSql(ctx.supportedDmlStatement());
         CreateJobInfo createJobInfo = new CreateJobInfo(label, atTime, interval, intervalUnit, startTime,
-                endsTime, immediateStartOptional, comment, executeSql);
+                endsTime, immediateStartOptional, comment, executeSql, ctx.STREAMING() != null, properties);
         return new CreateJobCommand(createJobInfo);
     }
 
@@ -1159,6 +1170,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (key.isEmpty() || !key.equalsIgnoreCase(keyFormat)) {
             throw new ParseException(keyFormat + " should be: '" + keyFormat + "'", parseContext);
         }
+    }
+
+    @Override
+    public LogicalPlan visitAlterJob(DorisParser.AlterJobContext ctx) {
+        Map<String, String> properties = ctx.propertyClause() != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
+        String executeSql = getOriginSql(ctx.supportedDmlStatement());
+        return new AlterJobCommand(ctx.jobName.getText(), properties, executeSql);
     }
 
     @Override
@@ -2044,7 +2063,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     compressType,
                     srcTable,
                     mutableColumnsFromPath,
-                    false,
+                    ddc.negative == null ? false : true,
                     colMappings,
                     ddc.preFilter == null ? null : getExpression(ddc.preFilter.expression()),
                     ddc.where == null ? null : getExpression(ddc.where.booleanExpression()),
@@ -3093,6 +3112,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public Object visitSubstring(SubstringContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            List<Expression> params = visit(ctx.expression(), Expression.class);
+            String name = ctx.SUBSTR() != null ? "substr" : "substring";
+            return processUnboundFunction(ctx, null, name, false, params, null, null);
+        });
+    }
+
+    @Override
+    public Object visitPosition(PositionContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            List<Expression> params = visit(ctx.expression(), Expression.class);
+            return processUnboundFunction(ctx, null, "position", false, params, null, null);
+        });
+    }
+
+    @Override
     public Expression visitFunctionCallExpression(DorisParser.FunctionCallExpressionContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             String dbName = null;
@@ -3360,6 +3396,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new StringLiteral(s);
         }
         return new VarcharLiteral(s, strLength);
+    }
+
+    @Override
+    public Literal visitVarbinaryLiteral(DorisParser.VarbinaryLiteralContext ctx) {
+        String txt = ctx.VARBINARY_LITERAL().getText();
+        // Parse hex string from X'...' or X"..." format
+        String hexString;
+        char firstChar = Character.toUpperCase(txt.charAt(0));
+        if (firstChar == 'X' && txt.endsWith("'")) {
+            hexString = txt.substring(2, txt.length() - 1);
+        } else if (firstChar == 'X' && txt.endsWith("\"")) {
+            hexString = txt.substring(2, txt.length() - 1);
+        } else {
+            throw new ParseException("Invalid varbinary literal format: " + txt);
+        }
+        return new VarBinaryLiteral(hexString);
     }
 
     @Override
@@ -6227,14 +6279,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String cgName = ctx.computeGroup == null ? "" : stripQuotes(ctx.computeGroup.getText());
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
-        return new AlterWorkloadGroupCommand(cgName, ctx.name.getText(), properties);
+        return new AlterWorkloadGroupCommand(cgName, stripQuotes(ctx.name.getText()), properties);
     }
 
     @Override
     public LogicalPlan visitAlterWorkloadPolicy(AlterWorkloadPolicyContext ctx) {
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
-        return new AlterWorkloadPolicyCommand(ctx.name.getText(), properties);
+        return new AlterWorkloadPolicyCommand(stripQuotes(ctx.name.getText()), properties);
     }
 
     @Override
@@ -6707,12 +6759,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitDropWorkloadGroup(DropWorkloadGroupContext ctx) {
         String cgName = ctx.computeGroup == null ? "" : stripQuotes(ctx.computeGroup.getText());
-        return new DropWorkloadGroupCommand(cgName, ctx.name.getText(), ctx.EXISTS() != null);
+        return new DropWorkloadGroupCommand(cgName, stripQuotes(ctx.name.getText()), ctx.EXISTS() != null);
     }
 
     @Override
     public LogicalPlan visitDropWorkloadPolicy(DropWorkloadPolicyContext ctx) {
-        return new DropWorkloadPolicyCommand(ctx.name.getText(), ctx.EXISTS() != null);
+        return new DropWorkloadPolicyCommand(stripQuotes(ctx.name.getText()), ctx.EXISTS() != null);
     }
 
     @Override
@@ -6974,6 +7026,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         return ctx.catalog != null ? new UseCommand(ctx.catalog.getText(), ctx.database.getText())
                 : new UseCommand(ctx.database.getText());
+    }
+
+    @Override
+    public LogicalPlan visitOptimizeTable(DorisParser.OptimizeTableContext ctx) {
+        TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.multipartIdentifier()));
+        Optional<PartitionNamesInfo> partitionNamesInfo = Optional.empty();
+        if (ctx.partitionSpec() != null) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+            partitionNamesInfo = Optional.of(new PartitionNamesInfo(partitionSpec.first, partitionSpec.second));
+        }
+        Optional<Expression> whereCondition = ctx.booleanExpression() == null
+                ? Optional.empty()
+                : Optional.of((Expression) visit(ctx.booleanExpression()));
+        Map<String, String> properties = ctx.properties == null
+                ? Maps.newHashMap()
+                : visitPropertyClause(ctx.properties);
+
+        return new OptimizeTableCommand(
+                tableName,
+                partitionNamesInfo,
+                whereCondition,
+                properties);
     }
 
     @Override
@@ -7400,7 +7474,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitCreateWorkloadPolicy(CreateWorkloadPolicyContext ctx) {
-        String policyName = ctx.name.getText();
+        String policyName = stripQuotes(ctx.name.getText());
         boolean ifNotExists = ctx.IF() != null;
 
         List<WorkloadConditionMeta> conditions = new ArrayList<>();
@@ -7947,6 +8021,42 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitAdminCancelRepairTable(DorisParser.AdminCancelRepairTableContext ctx) {
         TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
         return new AdminCancelRepairTableCommand(tableRefInfo);
+    }
+
+    @Override
+    public LogicalPlan visitAdminCreateClusterSnapshot(DorisParser.AdminCreateClusterSnapshotContext ctx) {
+        Map<String, String> properties;
+        if (ctx.propertyClause() != null) {
+            properties = visitPropertyClause(ctx.propertyClause());
+        } else {
+            properties = ImmutableMap.of();
+        }
+        return new AdminCreateClusterSnapshotCommand(properties);
+    }
+
+    @Override
+    public LogicalPlan visitAdminSetAutoClusterSnapshot(DorisParser.AdminSetAutoClusterSnapshotContext ctx) {
+        Map<String, String> properties;
+        if (ctx.propertyClause() != null) {
+            properties = visitPropertyClause(ctx.propertyClause());
+        } else {
+            properties = ImmutableMap.of();
+        }
+        return new AdminSetAutoClusterSnapshotCommand(properties);
+    }
+
+    @Override
+    public LogicalPlan visitAdminSetClusterSnapshotFeatureSwitch(
+            DorisParser.AdminSetClusterSnapshotFeatureSwitchContext ctx) {
+        return new AdminSetClusterSnapshotFeatureSwitchCommand(ctx.ON() != null);
+    }
+
+    @Override
+    public LogicalPlan visitAdminDropClusterSnapshot(
+            DorisParser.AdminDropClusterSnapshotContext ctx) {
+        String key = ctx.key == null ? null : stripQuotes(ctx.key.getText());
+        String value = ctx.value == null ? null : stripQuotes(ctx.value.getText());
+        return new AdminDropClusterSnapshotCommand(key, value);
     }
 
     @Override

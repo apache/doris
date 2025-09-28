@@ -351,7 +351,8 @@ static std::string debug_info(const Request& req) {
         return fmt::format(" table_id={}, lock_id={}", req.table_id(), req.lock_id());
     } else if constexpr (is_any_v<Request, GetTabletRequest>) {
         return fmt::format(" tablet_id={}", req.tablet_id());
-    } else if constexpr (is_any_v<Request, GetObjStoreInfoRequest>) {
+    } else if constexpr (is_any_v<Request, GetObjStoreInfoRequest, ListSnapshotRequest,
+                                  GetInstanceRequest>) {
         return "";
     } else if constexpr (is_any_v<Request, CreateRowsetRequest>) {
         return fmt::format(" tablet_id={}", req.rowset_meta().tablet_id());
@@ -822,6 +823,107 @@ bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64
     return true;
 }
 
+Status CloudMetaMgr::_get_delete_bitmap_from_ms(GetDeleteBitmapRequest& req,
+                                                GetDeleteBitmapResponse& res) {
+    VLOG_DEBUG << "send GetDeleteBitmapRequest: " << req.ShortDebugString();
+    TEST_SYNC_POINT_CALLBACK("CloudMetaMgr::_get_delete_bitmap_from_ms", &req, &res);
+
+    auto st = retry_rpc("get delete bitmap", req, &res, &MetaService_Stub::get_delete_bitmap);
+    if (st.code() == ErrorCode::THRIFT_RPC_ERROR) {
+        return st;
+    }
+
+    if (res.status().code() == MetaServiceCode::TABLET_NOT_FOUND) {
+        return Status::NotFound("failed to get delete bitmap: {}", res.status().msg());
+    }
+    // The delete bitmap of stale rowsets will be removed when commit compaction job,
+    // then delete bitmap of stale rowsets cannot be obtained. But the rowsets obtained
+    // by sync_tablet_rowsets may include these stale rowsets. When this case happend, the
+    // error code of ROWSETS_EXPIRED will be returned, we need to retry sync rowsets again.
+    //
+    // Be query thread             meta-service          Be compaction thread
+    //      |                            |                         |
+    //      |        get rowset          |                         |
+    //      |--------------------------->|                         |
+    //      |    return get rowset       |                         |
+    //      |<---------------------------|                         |
+    //      |                            |        commit job       |
+    //      |                            |<------------------------|
+    //      |                            |    return commit job    |
+    //      |                            |------------------------>|
+    //      |      get delete bitmap     |                         |
+    //      |--------------------------->|                         |
+    //      |  return get delete bitmap  |                         |
+    //      |<---------------------------|                         |
+    //      |                            |                         |
+    if (res.status().code() == MetaServiceCode::ROWSETS_EXPIRED) {
+        return Status::Error<ErrorCode::ROWSETS_EXPIRED, false>("failed to get delete bitmap: {}",
+                                                                res.status().msg());
+    }
+    if (res.status().code() != MetaServiceCode::OK) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("failed to get delete bitmap: {}",
+                                                               res.status().msg());
+    }
+    return Status::OK();
+}
+
+Status CloudMetaMgr::_get_delete_bitmap_from_ms_by_batch(GetDeleteBitmapRequest& req,
+                                                         GetDeleteBitmapResponse& res,
+                                                         int64_t bytes_threadhold) {
+    std::unordered_set<std::string> finished_rowset_ids {};
+    int count = 0;
+    do {
+        GetDeleteBitmapRequest cur_req;
+        GetDeleteBitmapResponse cur_res;
+
+        cur_req.set_cloud_unique_id(config::cloud_unique_id);
+        cur_req.set_tablet_id(req.tablet_id());
+        cur_req.set_base_compaction_cnt(req.base_compaction_cnt());
+        cur_req.set_cumulative_compaction_cnt(req.cumulative_compaction_cnt());
+        cur_req.set_cumulative_point(req.cumulative_point());
+        *(cur_req.mutable_idx()) = req.idx();
+        cur_req.set_store_version(req.store_version());
+        if (bytes_threadhold > 0) {
+            cur_req.set_dbm_bytes_threshold(bytes_threadhold);
+        }
+        for (int i = 0; i < req.rowset_ids_size(); i++) {
+            if (!finished_rowset_ids.contains(req.rowset_ids(i))) {
+                cur_req.add_rowset_ids(req.rowset_ids(i));
+                cur_req.add_begin_versions(req.begin_versions(i));
+                cur_req.add_end_versions(req.end_versions(i));
+            }
+        }
+
+        RETURN_IF_ERROR(_get_delete_bitmap_from_ms(cur_req, cur_res));
+        ++count;
+
+        // v1 delete bitmap
+        res.mutable_rowset_ids()->MergeFrom(cur_res.rowset_ids());
+        res.mutable_segment_ids()->MergeFrom(cur_res.segment_ids());
+        res.mutable_versions()->MergeFrom(cur_res.versions());
+        res.mutable_segment_delete_bitmaps()->MergeFrom(cur_res.segment_delete_bitmaps());
+
+        // v2 delete bitmap
+        res.mutable_delta_rowset_ids()->MergeFrom(cur_res.delta_rowset_ids());
+        res.mutable_delete_bitmap_storages()->MergeFrom(cur_res.delete_bitmap_storages());
+
+        for (const auto& rowset_id : cur_res.returned_rowset_ids()) {
+            finished_rowset_ids.insert(rowset_id);
+        }
+
+        bool has_more = cur_res.has_has_more() && cur_res.has_more();
+        if (!has_more) {
+            break;
+        }
+        LOG_INFO("batch get delete bitmap, progress={}/{}", finished_rowset_ids.size(),
+                 req.rowset_ids_size())
+                .tag("tablet_id", req.tablet_id())
+                .tag("cur_returned_rowsets", cur_res.returned_rowset_ids_size())
+                .tag("rpc_count", count);
+    } while (finished_rowset_ids.size() < req.rowset_ids_size());
+    return Status::OK();
+}
+
 Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                                std::ranges::range auto&& rs_metas,
                                                const TabletStatsPB& stats, const TabletIndexPB& idx,
@@ -888,46 +990,15 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
         sync_stats->get_remote_delete_bitmap_rowsets_num += req.rowset_ids_size();
     }
 
-    VLOG_DEBUG << "send GetDeleteBitmapRequest: " << req.ShortDebugString();
-
     auto start = std::chrono::steady_clock::now();
-    auto st = retry_rpc("get delete bitmap", req, &res, &MetaService_Stub::get_delete_bitmap);
+    if (config::enable_batch_get_delete_bitmap) {
+        RETURN_IF_ERROR(_get_delete_bitmap_from_ms_by_batch(
+                req, res, config::get_delete_bitmap_bytes_threshold));
+    } else {
+        RETURN_IF_ERROR(_get_delete_bitmap_from_ms(req, res));
+    }
     auto end = std::chrono::steady_clock::now();
-    if (st.code() == ErrorCode::THRIFT_RPC_ERROR) {
-        return st;
-    }
 
-    if (res.status().code() == MetaServiceCode::TABLET_NOT_FOUND) {
-        return Status::NotFound("failed to get delete bitmap: {}", res.status().msg());
-    }
-    // The delete bitmap of stale rowsets will be removed when commit compaction job,
-    // then delete bitmap of stale rowsets cannot be obtained. But the rowsets obtained
-    // by sync_tablet_rowsets may include these stale rowsets. When this case happend, the
-    // error code of ROWSETS_EXPIRED will be returned, we need to retry sync rowsets again.
-    //
-    // Be query thread             meta-service          Be compaction thread
-    //      |                            |                         |
-    //      |        get rowset          |                         |
-    //      |--------------------------->|                         |
-    //      |    return get rowset       |                         |
-    //      |<---------------------------|                         |
-    //      |                            |        commit job       |
-    //      |                            |<------------------------|
-    //      |                            |    return commit job    |
-    //      |                            |------------------------>|
-    //      |      get delete bitmap     |                         |
-    //      |--------------------------->|                         |
-    //      |  return get delete bitmap  |                         |
-    //      |<---------------------------|                         |
-    //      |                            |                         |
-    if (res.status().code() == MetaServiceCode::ROWSETS_EXPIRED) {
-        return Status::Error<ErrorCode::ROWSETS_EXPIRED, false>("failed to get delete bitmap: {}",
-                                                                res.status().msg());
-    }
-    if (res.status().code() != MetaServiceCode::OK) {
-        return Status::Error<ErrorCode::INTERNAL_ERROR, false>("failed to get delete bitmap: {}",
-                                                               res.status().msg());
-    }
     // v1 delete bitmap
     const auto& rowset_ids = res.rowset_ids();
     const auto& segment_ids = res.segment_ids();
@@ -972,12 +1043,12 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
     }
     int64_t latency = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
     if (latency > 100 * 1000) { // 100ms
-        LOG(INFO) << "finish get_delete_bitmap rpc. rowset_ids.size()=" << rowset_ids.size()
+        LOG(INFO) << "finish get_delete_bitmap rpcs. rowset_ids.size()=" << rowset_ids.size()
                   << ", delete_bitmaps.size()=" << delete_bitmaps.size()
                   << ", delta_delete_bitmaps.size()=" << delta_rowset_ids.size()
                   << ", latency=" << latency << "us, read_version=" << read_version;
     } else {
-        LOG_EVERY_N(INFO, 100) << "finish get_delete_bitmap rpc. rowset_ids.size()="
+        LOG_EVERY_N(INFO, 100) << "finish get_delete_bitmap rpcs. rowset_ids.size()="
                                << rowset_ids.size()
                                << ", delete_bitmaps.size()=" << delete_bitmaps.size()
                                << ", delta_delete_bitmaps.size()=" << delta_rowset_ids.size()
@@ -1964,7 +2035,7 @@ Status CloudMetaMgr::fill_version_holes(CloudTablet* tablet, int64_t max_version
     }
 
     Versions existing_versions;
-    for (const auto& rs : tablet->tablet_meta()->all_rs_metas()) {
+    for (const auto& [_, rs] : tablet->tablet_meta()->all_rs_metas()) {
         existing_versions.emplace_back(rs->version());
     }
 
@@ -1981,28 +2052,61 @@ Status CloudMetaMgr::fill_version_holes(CloudTablet* tablet, int64_t max_version
                   return a.first < b.first;
               });
 
+    // During schema change, get_tablet operations on new tablets trigger sync_tablet_rowsets which calls
+    // fill_version_holes. For schema change tablets (TABLET_NOTREADY state), we selectively skip hole
+    // filling for versions <= alter_version to prevent:
+    // 1. Abnormal compaction score calculations for schema change tablets
+    // 2. Unexpected -235 errors during load operations
+    // This allows schema change to proceed normally while still permitting hole filling for versions
+    // beyond the alter_version threshold.
+    bool is_schema_change_tablet = tablet->tablet_state() == TABLET_NOTREADY;
+    if (is_schema_change_tablet && tablet->alter_version() <= 1) {
+        LOG(INFO) << "Skip version hole filling for new schema change tablet "
+                  << tablet->tablet_id() << " with alter_version " << tablet->alter_version();
+        return Status::OK();
+    }
+
     int64_t last_version = -1;
     for (const Version& version : existing_versions) {
+        VLOG_NOTICE << "Existing version for tablet " << tablet->tablet_id() << ": ["
+                    << version.first << ", " << version.second << "]";
         // missing versions are those that are not in the existing_versions
         if (version.first > last_version + 1) {
             // there is a hole between versions
             auto prev_non_hole_rowset = tablet->get_rowset_by_version(version);
             for (int64_t ver = last_version + 1; ver < version.first; ++ver) {
+                // Skip hole filling for versions <= alter_version during schema change
+                if (is_schema_change_tablet && ver <= tablet->alter_version()) {
+                    continue;
+                }
                 RowsetSharedPtr hole_rowset;
                 RETURN_IF_ERROR(create_empty_rowset_for_hole(
                         tablet, ver, prev_non_hole_rowset->rowset_meta(), &hole_rowset));
                 hole_rowsets.push_back(hole_rowset);
             }
             LOG(INFO) << "Created empty rowset for version hole, from " << last_version + 1
-                      << " to " << version.first - 1 << " for tablet " << tablet->tablet_id();
+                      << " to " << version.first - 1 << " for tablet " << tablet->tablet_id()
+                      << (is_schema_change_tablet
+                                  ? (", schema change tablet skipped filling versions <= " +
+                                     std::to_string(tablet->alter_version()))
+                                  : "");
         }
         last_version = version.second;
     }
 
     if (last_version + 1 <= max_version) {
         LOG(INFO) << "Created empty rowset for version hole, from " << last_version + 1 << " to "
-                  << max_version << " for tablet " << tablet->tablet_id();
+                  << max_version << " for tablet " << tablet->tablet_id()
+                  << (is_schema_change_tablet
+                              ? (", schema change tablet skipped filling versions <= " +
+                                 std::to_string(tablet->alter_version()))
+                              : "");
+        // there is a hole after the last existing version
         for (; last_version + 1 <= max_version; ++last_version) {
+            // Skip hole filling for versions <= alter_version during schema change
+            if (is_schema_change_tablet && last_version + 1 <= tablet->alter_version()) {
+                continue;
+            }
             RowsetSharedPtr hole_rowset;
             auto prev_non_hole_rowset = tablet->get_rowset_by_version(existing_versions.back());
             RETURN_IF_ERROR(create_empty_rowset_for_hole(
@@ -2071,6 +2175,37 @@ Status CloudMetaMgr::create_empty_rowset_for_hole(CloudTablet* tablet, int64_t v
     }
     (*rowset)->set_hole_rowset(true);
 
+    return Status::OK();
+}
+
+Status CloudMetaMgr::list_snapshot(std::vector<SnapshotInfoPB>& snapshots) {
+    ListSnapshotRequest req;
+    ListSnapshotResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_include_aborted(true);
+    RETURN_IF_ERROR(retry_rpc("list snapshot", req, &res, &MetaService_Stub::list_snapshot));
+    for (auto& snapshot : snapshots) {
+        snapshots.emplace_back(snapshot);
+    }
+    return Status::OK();
+}
+
+Status CloudMetaMgr::get_snapshot_properties(SnapshotSwitchStatus& switch_status,
+                                             int64_t& max_reserved_snapshots,
+                                             int64_t& snapshot_interval_seconds) {
+    GetInstanceRequest req;
+    GetInstanceResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    RETURN_IF_ERROR(
+            retry_rpc("get snapshot properties", req, &res, &MetaService_Stub::get_instance));
+    switch_status = res.instance().has_snapshot_switch_status()
+                            ? res.instance().snapshot_switch_status()
+                            : SnapshotSwitchStatus::SNAPSHOT_SWITCH_DISABLED;
+    max_reserved_snapshots =
+            res.instance().has_max_reserved_snapshot() ? res.instance().max_reserved_snapshot() : 0;
+    snapshot_interval_seconds = res.instance().has_snapshot_interval_seconds()
+                                        ? res.instance().snapshot_interval_seconds()
+                                        : 3600;
     return Status::OK();
 }
 #include "common/compile_check_end.h"

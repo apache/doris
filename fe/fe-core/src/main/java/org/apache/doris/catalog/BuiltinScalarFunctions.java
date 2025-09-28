@@ -268,6 +268,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSet;
@@ -305,8 +306,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeSet;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
@@ -747,8 +751,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Ipv6StringToNumOrNull.class, "ipv6_string_to_num_or_null", "inet6_aton"),
             scalar(IsIpv4Compat.class, "is_ipv4_compat"),
             scalar(IsIpv4Mapped.class, "is_ipv4_mapped"),
-            scalar(IsIpv4String.class, "is_ipv4_string"),
-            scalar(IsIpv6String.class, "is_ipv6_string"),
+            scalar(IsIpv4String.class, "is_ipv4_string", "is_ipv4"),
+            scalar(IsIpv6String.class, "is_ipv6_string", "is_ipv6"),
             scalar(IsIpAddressInRange.class, "is_ip_address_in_range"),
             scalar(IsNan.class, "isnan"),
             scalar(IsInf.class, "isinf"),
@@ -764,6 +768,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonInsert.class, "json_insert", "jsonb_insert"),
             scalar(JsonReplace.class, "json_replace", "jsonb_replace"),
             scalar(JsonSet.class, "json_set", "jsonb_set"),
+            scalar(JsonRemove.class, "json_remove"),
             scalar(JsonbExistsPath.class, "json_exists_path"),
             scalar(JsonbExistsPath.class, "jsonb_exists_path"),
             scalar(JsonbExtract.class, "jsonb_extract", "json_extract"),
@@ -798,7 +803,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Crc32Internal.class, "crc32_internal"),
             scalar(Like.class, "like"),
             scalar(Ln.class, "ln", "dlog1"),
-            scalar(Locate.class, "locate"),
+            scalar(Locate.class, "position", "locate"),
             scalar(Log.class, "log"),
             scalar(Log10.class, "log10"),
             scalar(Log2.class, "log2"),
@@ -807,8 +812,10 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Ltrim.class, "ltrim"),
             scalar(LtrimIn.class, "ltrim_in"),
             scalar(MakeDate.class, "makedate"),
+            scalar(MapContainsEntry.class, "map_contains_entry"),
             scalar(MapContainsKey.class, "map_contains_key"),
             scalar(MapContainsValue.class, "map_contains_value"),
+            scalar(MapEntries.class, "map_entries"),
             scalar(MapKeys.class, "map_keys"),
             scalar(MapSize.class, "map_size"),
             scalar(MapValues.class, "map_values"),
@@ -1039,7 +1046,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(AISummarize.class, "ai_summarize"),
             scalar(AISimilarity.class, "ai_similarity"),
             scalar(Embed.class, "embed"),
-            scalar(Uniform.class, "uniform"));
+            scalar(Uniform.class, "uniform"),
+            scalar(MakeSet.class, "make_set"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 

@@ -85,7 +85,7 @@ suite('test_ingestion_load_alter_column', 'p0,external') {
                     "msg": "",
                     "appId": "",
                     "dppResult": "${dppResult}",
-                    "filePathToSize": "{\\"${etlResultFilePath}\\": 81758}",
+                    "filePathToSize": "{\\"${etlResultFilePath}\\": 5745}",
                     "hadoopProperties": "{\\"fs.defaultFS\\":\\"${getHdfsFs()}\\",\\"hadoop.username\\":\\"${getHdfsUser()}\\",\\"hadoop.password\\":\\"${getHdfsPasswd()}\\"}"
                 }
             }"""
@@ -112,7 +112,7 @@ suite('test_ingestion_load_alter_column', 'p0,external') {
         while (max_try_milli_secs) {
             def result = sql "show load where label = '${loadLabel}'"
             if (result[0][2] == "CANCELLED") {
-                msg = result[0][7]
+                def  msg = result[0][7]
                 logger.info("err msg: " + msg)
                 assertTrue((result[0][7] =~ /schema of index \[\d+\] has changed/).find())
                 break
@@ -129,11 +129,13 @@ suite('test_ingestion_load_alter_column', 'p0,external') {
 
     if (enableHdfs()) {
 
-        tableName1 = 'tbl_test_spark_load_alter_column_1'
-        tableName2 = 'tbl_test_spark_load_alter_column_2'
+        def tableName1 = 'tbl_test_spark_load_alter_column_1'
+        def tableName2 = 'tbl_test_spark_load_alter_column_2'
 
         try {
 
+            sql "DROP TABLE if exists ${tableName1}"
+            sql "DROP TABLE if exists ${tableName2}"
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName1} (
                     c_int int(11) NULL,
@@ -192,7 +194,7 @@ suite('test_ingestion_load_alter_column', 'p0,external') {
                 )
                 """
 
-            label = "test_ingestion_load_alter_column_2"
+            def label = "test_ingestion_load_alter_column_2"
 
             testIngestLoadJob.call(tableName2, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet', {
                 sql "alter table ${tableName2} add column c_string string null"
@@ -202,7 +204,6 @@ suite('test_ingestion_load_alter_column', 'p0,external') {
             //sql "DROP TABLE ${tableName1}"
             //sql "DROP TABLE ${tableName2}"
         }
-
     }
-
 }
+

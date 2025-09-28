@@ -64,6 +64,7 @@
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_varbinary.h"
 #include "vec/data_types/data_type_variant.h"
 
 namespace doris::vectorized {
@@ -281,6 +282,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     case PGenericType::HLL:
         nested = std::make_shared<DataTypeHLL>();
         break;
+    case PGenericType::VARBINARY:
+        nested = std::make_shared<DataTypeVarbinary>();
+        break;
     case PGenericType::LIST:
         DCHECK(pcolumn.children_size() == 1);
         nested = std::make_shared<DataTypeArray>(create_data_type(pcolumn.children(0)));
@@ -473,6 +477,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         const_cast<vectorized::DataTypeUInt8&>(
                 reinterpret_cast<const vectorized::DataTypeUInt8&>(*nested))
                 .set_null_literal(true);
+        break;
+    case TYPE_VARBINARY:
+        nested = std::make_shared<vectorized::DataTypeVarbinary>(len, TYPE_VARBINARY);
         break;
     case TYPE_AGG_STATE:
     case TYPE_ARRAY:

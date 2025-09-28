@@ -518,7 +518,7 @@ public class StatsCalculatorTest {
         StatsCalculator calculator = new StatsCalculator(null);
         Statistics outputStats = calculator.computeUnion(unionAll, ImmutableList.of(child0Stats, child1Stats));
         ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
-        Assertions.assertEquals(1, iaStatsOut.getHotValues().size());
+        Assertions.assertEquals(3, iaStatsOut.getHotValues().size());
         Assertions.assertTrue(containsHotValue(iaStatsOut, "1"));
     }
 

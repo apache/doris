@@ -185,10 +185,11 @@ public:
         if constexpr (has_input_param) {
             Int32 input_max_num_buckets =
                     assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
-            if (input_max_num_buckets <= 0) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "Invalid max_num_buckets {}, row_num {}",
-                                       input_max_num_buckets, row_num);
+            if (input_max_num_buckets <= 0 || input_max_num_buckets > 1000000) {
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Invalid max_num_buckets {}, row_num {}, should be in (0, 1000000]",
+                        input_max_num_buckets, row_num);
             }
             this->data(place).set_parameters(input_max_num_buckets);
         } else {

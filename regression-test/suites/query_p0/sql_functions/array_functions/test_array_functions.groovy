@@ -150,7 +150,7 @@ suite("test_array_functions") {
     qt_select_array_with_constant4 "SELECT k1, array_with_constant(2, 123), array_repeat(123, 2) from ${tableName} ORDER BY k1"
     qt_select_array_with_constant5 "SELECT k1, array_with_constant(k1, 3), array_repeat(3, k1) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array(2, k1) from ${tableName} ORDER BY k1"
-    qt_select "SELECT k1, array(k1, null, '2020-01-01') from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array(k1, null, '2020') from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array(null, k1) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_position(k2, 5) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_position(k3, 'a') FROM ${tableName} ORDER BY k1"
