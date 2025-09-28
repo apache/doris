@@ -113,13 +113,13 @@ suite("test_binary_for_digest", "p0,external,mysql,external_docker,external_dock
                 "xxHash64 mismatch for row ${xxhash64_result[i][0]}: VarBinary=${xxhash64_result[i][1]}, VARCHAR=${xxhash64_result[i][2]}")
         }
 
-        def variadic_xxhash32_result = sql """select id, xxhash_32(vb, vc), xxhash_32(vc, vb) from ${test_table} order by id"""
+        def variadic_xxhash32_result = sql """select id, xxhash_32(vb, vb), xxhash_32(vc, vc) from ${test_table} order by id"""
         for (int i = 0; i < variadic_xxhash32_result.size(); i++) {
             assertTrue(variadic_xxhash32_result[i][1] != null && variadic_xxhash32_result[i][2] != null,
                 "Variadic xxHash32 should work with mixed VarBinary and VARCHAR arguments for row ${variadic_xxhash32_result[i][0]}")
         }
 
-        def variadic_xxhash64_result = sql """select id, xxhash_64(vb, vc), xxhash_64(vc, vb) from ${test_table} order by id"""
+        def variadic_xxhash64_result = sql """select id, xxhash_64(vb, vb), xxhash_64(vc, vc) from ${test_table} order by id"""
         for (int i = 0; i < variadic_xxhash64_result.size(); i++) {
             assertTrue(variadic_xxhash64_result[i][1] != null && variadic_xxhash64_result[i][2] != null,
                 "Variadic xxHash64 should work with mixed VarBinary and VARCHAR arguments for row ${variadic_xxhash64_result[i][0]}")

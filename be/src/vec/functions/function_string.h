@@ -2351,47 +2351,39 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
-
-        int argument_size = arguments.size();
-        std::vector<ColumnPtr> argument_columns(argument_size);
-        std::vector<uint8_t> is_const(argument_size, 0);
-
-        for (int i = 0; i < argument_size; ++i) {
-            std::tie(argument_columns[i], is_const[i]) =
-                    unpack_if_const(block.get_by_position(arguments[i]).column);
-
-            if (!(argument_columns[i]->is_column_string() ||
-                  dynamic_cast<const ColumnVarbinary*>(argument_columns[i].get()))) {
-                return Status::RuntimeError("Illegal column {} of argument of function {}",
-                                            block.get_by_position(arguments[0]).column->get_name(),
-                                            get_name());
-            }
-        }
+        ColumnPtr data_col = block.get_by_position(arguments[0]).column;
 
         auto res = ColumnString::create();
         auto& res_data = res->get_chars();
         auto& res_offset = res->get_offsets();
-
         res_offset.resize(input_rows_count);
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            using ObjectData = typename Impl::ObjectData;
-            ObjectData digest;
-            for (size_t j = 0; j < argument_columns.size(); ++j) {
-                StringRef data_ref = is_const[j] ? argument_columns[j]->get_data_at(0)
-                                                 : argument_columns[j]->get_data_at(i);
-                if (data_ref.size < 1) {
-                    continue;
-                }
-                digest.update(data_ref.data, data_ref.size);
-            }
-            digest.digest();
 
-            StringOP::push_value_string(std::string_view(digest.hex().c_str(), digest.hex().size()),
-                                        i, res_data, res_offset);
+        if (const auto* str_col = check_and_get_column<ColumnString>(data_col.get())) {
+            vector_execute(str_col, input_rows_count, res_data, res_offset);
+        } else if (const auto* vb_col = check_and_get_column<ColumnVarbinary>(data_col.get())) {
+            vector_execute(vb_col, input_rows_count, res_data, res_offset);
+        } else {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        data_col->get_name(), get_name());
         }
 
         block.replace_by_position(result, std::move(res));
         return Status::OK();
+    }
+
+private:
+    template <typename ColumnType>
+    void vector_execute(const ColumnType* col, size_t input_rows_count,
+                        ColumnString::Chars& res_data, ColumnString::Offsets& res_offset) const {
+        using ObjectData = typename Impl::ObjectData;
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            ObjectData digest;
+            StringRef str_ref = col->get_data_at(i);
+            digest.update(str_ref.data, str_ref.size);
+            digest.digest();
+            StringOP::push_value_string(std::string_view(digest.hex().c_str(), digest.hex().size()),
+                                        i, res_data, res_offset);
+        }
     }
 };
 
@@ -2410,25 +2402,37 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 1);
-
-        ColumnPtr str_col = block.get_by_position(arguments[0]).column;
+        ColumnPtr data_col = block.get_by_position(arguments[0]).column;
 
         auto res_col = ColumnString::create();
         auto& res_data = res_col->get_chars();
         auto& res_offset = res_col->get_offsets();
         res_offset.resize(input_rows_count);
+        if (const auto* str_col = check_and_get_column<ColumnString>(data_col.get())) {
+            vector_execute(str_col, input_rows_count, res_data, res_offset);
+        } else if (const auto* vb_col = check_and_get_column<ColumnVarbinary>(data_col.get())) {
+            vector_execute(vb_col, input_rows_count, res_data, res_offset);
+        } else {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        data_col->get_name(), get_name());
+        }
 
+        block.replace_by_position(result, std::move(res_col));
+        return Status::OK();
+    }
+
+private:
+    template <typename ColumnType>
+    void vector_execute(const ColumnType* col, size_t input_rows_count,
+                        ColumnString::Chars& res_data, ColumnString::Offsets& res_offset) const {
         SHA1Digest digest;
         for (size_t i = 0; i < input_rows_count; ++i) {
-            StringRef data_ref = str_col->get_data_at(i);
+            StringRef data_ref = col->get_data_at(i);
             digest.reset(data_ref.data, data_ref.size);
             std::string_view ans = digest.digest();
 
             StringOP::push_value_string(ans, i, res_data, res_offset);
         }
-
-        block.replace_by_position(result, std::move(res_col));
-        return Status::OK();
     }
 };
 
@@ -2480,9 +2484,23 @@ private:
     template <typename T>
     void execute_base(ColumnPtr data_col, int input_rows_count, ColumnString::Chars& res_data,
                       ColumnString::Offsets& res_offset) const {
-        T digest;
+        if (const auto* str_col = check_and_get_column<ColumnString>(data_col.get())) {
+            vector_execute<T>(str_col, input_rows_count, res_data, res_offset);
+        } else if (const auto* vb_col = check_and_get_column<ColumnVarbinary>(data_col.get())) {
+            vector_execute<T>(vb_col, input_rows_count, res_data, res_offset);
+        } else {
+            throw Exception(ErrorCode::RUNTIME_ERROR,
+                            "Illegal column {} of argument of function {}", data_col->get_name(),
+                            get_name());
+        }
+    }
+
+    template <typename DigestType, typename ColumnType>
+    void vector_execute(const ColumnType* col, size_t input_rows_count,
+                        ColumnString::Chars& res_data, ColumnString::Offsets& res_offset) const {
+        DigestType digest;
         for (size_t i = 0; i < input_rows_count; ++i) {
-            StringRef data_ref = data_col->get_data_at(i);
+            StringRef data_ref = col->get_data_at(i);
             digest.reset(data_ref.data, data_ref.size);
             std::string_view ans = digest.digest();
 
