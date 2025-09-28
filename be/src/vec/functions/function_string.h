@@ -2364,16 +2364,15 @@ public:
                     unpack_if_const(block.get_by_position(arguments[i]).column);
         }
 
-        ColumnPtr first_data_col = block.get_by_position(arguments[0]).column;
-        if (check_and_get_column<ColumnString>(first_data_col.get())) {
+        if (check_and_get_column<ColumnString>(argument_columns[0].get())) {
             vector_execute<ColumnString>(block, input_rows_count, argument_columns, is_const,
                                          res_data, res_offset);
-        } else if (check_and_get_column<ColumnVarbinary>(first_data_col.get())) {
+        } else if (check_and_get_column<ColumnVarbinary>(argument_columns[0].get())) {
             vector_execute<ColumnVarbinary>(block, input_rows_count, argument_columns, is_const,
                                             res_data, res_offset);
         } else {
             return Status::RuntimeError("Illegal column {} of argument of function {}",
-                                        first_data_col->get_name(), get_name());
+                                        argument_columns[0]->get_name(), get_name());
         }
 
         block.replace_by_position(result, std::move(res));
