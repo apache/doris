@@ -712,6 +712,9 @@ struct TRecCTENode {
     4: optional list<list<Exprs.TExpr>> result_expr_lists
 }
 
+struct TRecCTEScanNode {
+}
+
 struct TEsScanNode {
     1: required Types.TTupleId tuple_id
     2: optional map<string,string> properties
@@ -1470,6 +1473,8 @@ struct TPlanNode {
 
   50: optional list<list<Exprs.TExpr>> distribute_expr_lists
   51: optional bool is_serial_operator
+  52: optional TRecCTEScanNode rec_cte_scan_node
+
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id
