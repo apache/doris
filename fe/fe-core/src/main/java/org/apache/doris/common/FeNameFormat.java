@@ -32,7 +32,7 @@ public class FeNameFormat {
     private static final String LABEL_REGEX = "^[\\-_A-Za-z0-9:]{1," + Config.label_regex_length + "}$";
     // if modify the matching length of a regular expression,
     // please modify error msg when FeNameFormat.checkCommonName throw exception in CreateRoutineLoadStmt
-    private static final String COMMON_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9\\-_]{0,63}$";
+    private static final String COMMON_NAME_REGEX = "^[a-zA-Z0-9][a-zA-Z0-9\\-_]{0,63}$";
     private static final String UNDERSCORE_COMMON_NAME_REGEX = "^[_a-zA-Z][a-zA-Z0-9\\-_]{0,63}$";
     private static final String TABLE_NAME_REGEX = "^[a-zA-Z0-9\\-_$]*$";
     private static final String USER_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9.\\-_]*$";
@@ -41,7 +41,7 @@ public class FeNameFormat {
             = "^[.a-zA-Z0-9_+\\-/?@#$%^&*\"\\s,:]{0,255}[.a-zA-Z0-9_+\\-/?@#$%^&*\",:]$";
 
     private static final String UNICODE_LABEL_REGEX = "^[\\-_A-Za-z0-9:\\p{L}]{1," + Config.label_regex_length + "}$";
-    private static final String UNICODE_COMMON_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9\\-_\\p{L}]{0,63}$";
+    private static final String UNICODE_COMMON_NAME_REGEX = "^[a-zA-Z0-9\\p{L}][a-zA-Z0-9\\-_\\p{L}]{0,63}$";
     private static final String UNICODE_UNDERSCORE_COMMON_NAME_REGEX = "^[_a-zA-Z\\p{L}][a-zA-Z0-9\\-_\\p{L}]{0,63}$";
     private static final String UNICODE_TABLE_NAME_REGEX = "^[\\s\\S]*[\\S]$";
     private static final String UNICODE_USER_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9.\\-_\\p{L}]*$";
@@ -80,6 +80,16 @@ public class FeNameFormat {
         if (tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1) {
             ErrorReport.reportAnalysisException("Incorrect table name, table name can't contains "
                     + FeNameFormat.TEMPORARY_TABLE_SIGN);
+        }
+    }
+
+    public static void checkPrefix(String prefix) throws AnalysisException {
+        if (prefix == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_PARTITION_NAME, prefix);
+        }
+
+        if (prefix.startsWith(FORBIDDEN_PARTITION_NAME)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_PARTITION_NAME, prefix);
         }
     }
 

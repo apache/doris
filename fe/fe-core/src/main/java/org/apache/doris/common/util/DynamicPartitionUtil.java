@@ -113,7 +113,7 @@ public class DynamicPartitionUtil {
 
     public static void checkPrefix(String prefix) throws DdlException {
         try {
-            FeNameFormat.checkPartitionName(prefix);
+            FeNameFormat.checkPrefix(prefix);
         } catch (AnalysisException e) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_PREFIX, prefix);
         }
@@ -482,8 +482,9 @@ public class DynamicPartitionUtil {
             if (Strings.isNullOrEmpty(timeUnit)) {
                 throw new DdlException("Must assign dynamic_partition.time_unit properties");
             }
-            if (Strings.isNullOrEmpty(prefix)) {
-                throw new DdlException("Must assign dynamic_partition.prefix properties");
+            // Allow empty prefix for dynamic partition
+            if (prefix == null) {
+                properties.put(DynamicPartitionProperty.PREFIX, "");
             }
             if (Strings.isNullOrEmpty(start)) {
                 properties.put(DynamicPartitionProperty.START, String.valueOf(Integer.MIN_VALUE));
