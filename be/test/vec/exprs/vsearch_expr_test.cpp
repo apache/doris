@@ -17,15 +17,87 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Types_types.h"
+#include "olap/rowset/segment_v2/index_iterator.h"
+#include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vsearch.h"
+
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wkeyword-macro"
+#endif
+#define private public
 #include "vec/exprs/vslot_ref.h"
+#undef private
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 namespace doris::vectorized {
+
+namespace {
+
+class StubIndexIterator : public segment_v2::IndexIterator {
+public:
+    segment_v2::IndexReaderPtr get_reader(segment_v2::IndexReaderType) const override {
+        return nullptr;
+    }
+    Status read_from_index(const segment_v2::IndexParam&) override { return Status::OK(); }
+    Status read_null_bitmap(segment_v2::InvertedIndexQueryCacheHandle*) override {
+        return Status::OK();
+    }
+    Result<bool> has_null() override { return false; }
+};
+
+class DummyExpr : public VExpr {
+public:
+    DummyExpr() { set_node_type(TExprNodeType::COMPOUND_PRED); }
+
+    const std::string& expr_name() const override {
+        static const std::string kName = "DummyExpr";
+        return kName;
+    }
+
+    Status execute(VExprContext*, Block*, int*) override { return Status::OK(); }
+};
+
+const std::string& intern_column_name(const std::string& name) {
+    static std::vector<std::string> storage;
+    storage.emplace_back(name);
+    return storage.back();
+}
+
+VExprSPtr create_slot_ref(int column_id, const std::string& column_name) {
+    auto slot = std::make_shared<VSlotRef>();
+    slot->set_node_type(TExprNodeType::SLOT_REF);
+    slot->set_slot_id(column_id);
+    slot->set_column_id(column_id);
+    const std::string& stored_name = intern_column_name(column_name);
+    slot->_column_name = &stored_name;
+    return slot;
+}
+
+std::shared_ptr<InvertedIndexContext> make_inverted_context(
+        std::vector<ColumnId>& col_ids,
+        std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
+        std::vector<IndexFieldNameAndTypePair>& storage_types,
+        std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>& status_map) {
+    return std::make_shared<InvertedIndexContext>(col_ids, index_iterators, storage_types,
+                                                  status_map, nullptr);
+}
+
+} // namespace
 
 class VSearchExprTest : public testing::Test {
 public:
@@ -58,6 +130,8 @@ protected:
         rootClause.clause_type = "TERM";
         rootClause.field_name = "title";
         rootClause.value = "hello";
+        rootClause.__isset.field_name = true;
+        rootClause.__isset.value = true;
         searchParam.root = rootClause;
 
         TSearchFieldBinding binding;
@@ -1210,6 +1284,108 @@ TEST_F(VSearchExprTest, TestEvaluateInvertedIndexWithEmptyDSL) {
     auto status = vsearch_expr->evaluate_inverted_index(&context, 100);
     EXPECT_FALSE(status.ok()); // Should return error due to empty DSL
     EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+}
+
+TEST_F(VSearchExprTest, FastExecuteReturnsPrecomputedColumn) {
+    auto expr = VSearchExpr::create_shared(test_node);
+    auto context = std::make_shared<VExprContext>(expr);
+
+    std::vector<ColumnId> col_ids;
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
+    std::vector<IndexFieldNameAndTypePair> storage_types;
+    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
+
+    auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
+    MutableColumnPtr result_column = ColumnUInt8::create();
+    inverted_ctx->set_inverted_index_result_column_for_expr(expr.get(), std::move(result_column));
+    context->set_inverted_index_context(inverted_ctx);
+
+    Block block;
+    int result_column_id = -1;
+    auto status = expr->execute(context.get(), &block, &result_column_id);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(1, block.columns());
+    EXPECT_EQ(0, result_column_id);
+}
+
+TEST_F(VSearchExprTest, EvaluateInvertedIndexFailsWithoutStorageType) {
+    auto expr = VSearchExpr::create_shared(test_node);
+    expr->add_child(create_slot_ref(0, "title"));
+
+    std::vector<ColumnId> col_ids = {0};
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
+    index_iterators.emplace_back(std::make_unique<StubIndexIterator>());
+    std::vector<IndexFieldNameAndTypePair> storage_types; // intentionally empty
+    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
+    status_map[0][expr.get()] = false;
+
+    auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
+    auto context = std::make_shared<VExprContext>(expr);
+    context->set_inverted_index_context(inverted_ctx);
+
+    auto status = expr->evaluate_inverted_index(context.get(), 128);
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(ErrorCode::INTERNAL_ERROR, status.code());
+}
+
+TEST_F(VSearchExprTest, EvaluateInvertedIndexWithUnsupportedChildReturnsError) {
+    auto expr = VSearchExpr::create_shared(test_node);
+    expr->add_child(std::make_shared<DummyExpr>());
+
+    std::vector<ColumnId> col_ids;
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
+    std::vector<IndexFieldNameAndTypePair> storage_types;
+    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
+
+    auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
+    auto context = std::make_shared<VExprContext>(expr);
+    context->set_inverted_index_context(inverted_ctx);
+
+    auto status = expr->evaluate_inverted_index(context.get(), 64);
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
+}
+
+TEST_F(VSearchExprTest, EvaluateInvertedIndexHandlesMissingIterators) {
+    auto expr = VSearchExpr::create_shared(test_node);
+    expr->add_child(create_slot_ref(0, "title"));
+
+    std::vector<ColumnId> col_ids = {0};
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
+    index_iterators.emplace_back(nullptr);                // iterator unavailable
+    std::vector<IndexFieldNameAndTypePair> storage_types; // unused because iterator is null
+    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
+    status_map[0][expr.get()] = false;
+
+    auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
+    auto context = std::make_shared<VExprContext>(expr);
+    context->set_inverted_index_context(inverted_ctx);
+
+    auto status = expr->evaluate_inverted_index(context.get(), 32);
+    EXPECT_TRUE(status.ok());
+    EXPECT_FALSE(status_map[0][expr.get()]);
+}
+
+TEST_F(VSearchExprTest, EvaluateInvertedIndexPropagatesFunctionFailure) {
+    auto expr = VSearchExpr::create_shared(test_node);
+    expr->add_child(create_slot_ref(0, "title"));
+
+    std::vector<ColumnId> col_ids = {0};
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
+    index_iterators.emplace_back(std::make_unique<StubIndexIterator>());
+    std::vector<IndexFieldNameAndTypePair> storage_types;
+    storage_types.emplace_back("stored_title", std::make_shared<DataTypeString>());
+    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
+    status_map[0][expr.get()] = false;
+
+    auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
+    auto context = std::make_shared<VExprContext>(expr);
+    context->set_inverted_index_context(inverted_ctx);
+
+    auto status = expr->evaluate_inverted_index(context.get(), 256);
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND, status.code());
+    EXPECT_FALSE(status_map[0][expr.get()]);
 }
 
 // Note: Full testing with actual InvertedIndexContext and real iterators

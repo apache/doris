@@ -22,6 +22,7 @@
 #include <chrono>
 
 #include "gen_cpp/Exprs_types.h"
+#include "olap/rowset/segment_v2/index_iterator.h"
 #include "vec/core/block.h"
 
 namespace doris::vectorized {
@@ -32,6 +33,24 @@ public:
 
 protected:
     std::shared_ptr<FunctionSearch> function_search;
+};
+
+class DummyIndexIterator : public segment_v2::IndexIterator {
+public:
+    segment_v2::IndexReaderPtr get_reader(
+            segment_v2::IndexReaderType /*reader_type*/) const override {
+        return nullptr;
+    }
+
+    Status read_from_index(const segment_v2::IndexParam& /*param*/) override {
+        return Status::OK();
+    }
+
+    Status read_null_bitmap(segment_v2::InvertedIndexQueryCacheHandle* /*cache_handle*/) override {
+        return Status::OK();
+    }
+
+    Result<bool> has_null() override { return false; }
 };
 
 TEST_F(FunctionSearchTest, TestGetName) {
@@ -1048,7 +1067,7 @@ TEST_F(FunctionSearchTest, TestPerformanceWithLargeQueries) {
 
 // Tests for FieldReaderResolver::resolve function coverage (lines 74+)
 TEST_F(FunctionSearchTest, TestFieldReaderResolverWithNonInvertedIndexIterator) {
-    // Test the path where iterator is not InvertedIndexIterator (lines 74-78)
+    // Exercise the branch where the iterator exists but is not an InvertedIndexIterator
     TSearchParam search_param;
     search_param.original_dsl = "title:hello";
 
@@ -1063,22 +1082,19 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithNonInvertedIndexIterator) 
     std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
-    // Add a non-InvertedIndexIterator (nullptr will be treated as non-InvertedIndexIterator)
     data_types["title"] = {"title", nullptr};
-    iterators["title"] = nullptr; // This will cause the dynamic_cast to return nullptr
+    DummyIndexIterator dummy_iterator;
+    iterators["title"] = &dummy_iterator;
 
     uint32_t num_rows = 100;
     InvertedIndexResultBitmap bitmap_result;
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
             search_param, data_types, iterators, num_rows, bitmap_result);
-    EXPECT_FALSE(status.ok()); // Should return error when iterator is not InvertedIndexIterator
-
+    EXPECT_FALSE(status.ok());
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
-    // The actual error message will be "iterator not found for field 'title'"
-    // because the iterator is nullptr, not because it's not InvertedIndexIterator
-    EXPECT_TRUE(status.to_string().find("iterator not found for field 'title'") !=
-                std::string::npos);
+    EXPECT_NE(status.to_string().find("iterator for field 'title' is not InvertedIndexIterator"),
+              std::string::npos);
 }
 
 TEST_F(FunctionSearchTest, TestFieldReaderResolverWithValidIterator) {
