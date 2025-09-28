@@ -287,7 +287,7 @@ std::string RuntimeFilterMgr::debug_string() {
     std::string result = "Merger Info:\n";
     std::lock_guard l(_lock);
     for (const auto& [filter_id, merger] : _local_merge_map) {
-        result += fmt::format("merger: {}\n", filter_id, merger.merger->debug_string());
+        result += fmt::format("{}\n", merger.merger->debug_string());
     }
     return result;
 }
