@@ -168,6 +168,7 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
     _file_reader_stats.reset(new io::FileReaderStats());
 
     RETURN_IF_ERROR(_init_io_ctx());
+    // Refrain : how can we set _io_ctx->is_disposable here?
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->file_reader_stats = _file_reader_stats.get();
 
@@ -1098,6 +1099,7 @@ Status FileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
+            LOG(INFO) << "Refrain : _io_ctx.is_disposable = " << _io_ctx->is_disposable;
             _cur_reader =
                     NewJsonReader::create_unique(_state, _profile, &_counter, *_params, range,
                                                  _file_slot_descs, &_scanner_eof, _io_ctx.get());
