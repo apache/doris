@@ -74,6 +74,7 @@ export DORIS_BUILD_VERSION_HOTFIX=0
 export DORIS_BUILD_VERSION_RC_VERSION=""
 
 echo "build.sh with args_remain: ${args_remain}"
+export WITH_TDE_DIR=enterprise
 sh build.sh ${args_remain}
 
 ret=$?

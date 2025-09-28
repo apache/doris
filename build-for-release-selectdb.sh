@@ -182,11 +182,11 @@ export JAVA_HOME="${OUTPUT_JAVA17}"
 export PATH="${JAVA_HOME}/bin:${PATH}"
 
 # build core
-WITH_TDE_DIR=enterprise
-USE_AVX2="${_USE_AVX2}"
+export WITH_TDE_DIR=enterprise
+export USE_AVX2="${_USE_AVX2}"
 if [[ ${BUILD_ONLY} -eq 1 ]]; then
     sh build.sh
-    exit 0
+    exit
 else # for release and package
     sh build.sh && sh build.sh --be --meta-tool --cloud
 fi
