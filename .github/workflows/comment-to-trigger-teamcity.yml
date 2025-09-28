@@ -59,7 +59,6 @@ jobs:
             "${COMMENT_BODY}" == *'run vault_p0'* ||
             "${COMMENT_BODY}" == *'run nonConcurrent'* ||
             "${COMMENT_BODY}" == *'run check_coverage'* ||
-            "${COMMENT_BODY}" == *'run arm'* ||
             "${COMMENT_BODY}" == *'run performance'* ]]; then
             echo "comment_trigger=true" | tee -a "$GITHUB_OUTPUT"
             echo "comment_skip=false" | tee -a "$GITHUB_OUTPUT"
@@ -121,7 +120,7 @@ jobs:
         echo "TARGET_BRANCH='${TARGET_BRANCH}'" | tee -a "$GITHUB_OUTPUT"
         echo "COMMENT_BODY='${COMMENT_BODY}'" | tee -a "$GITHUB_OUTPUT"
 
-        reg="run (buildall|compile|p0|p1|feut|beut|cloudut|external|clickbench|cloud_p0|cloud_p1|vault_p0|nonConcurrent|arm|performance|check_coverage)( [1-9]*[0-9]+)*"
+        reg="run (buildall|compile|p0|p1|feut|beut|cloudut|external|clickbench|cloud_p0|cloud_p1|vault_p0|nonConcurrent|performance|check_coverage)( [1-9]*[0-9]+)*"
         COMMENT_TRIGGER_TYPE="$(echo -e "${COMMENT_BODY}" | xargs | grep -E "${reg}" | awk -F' ' '{print $2}' | sed -n 1p | sed 's/\r//g')"
         COMMENT_REPEAT_TIMES="$(echo -e "${COMMENT_BODY}" | xargs | grep -E "${reg}" | awk -F' ' '{print $3}' | sed -n 1p | sed 's/\r//g')"
         echo "COMMENT_TRIGGER_TYPE=${COMMENT_TRIGGER_TYPE}" | tee -a "$GITHUB_OUTPUT"
@@ -156,12 +155,10 @@ jobs:
           if file_changed_regression_p0; then
             echo "changed_p0=true" | tee -a "$GITHUB_OUTPUT"
             echo "changed_external=true" | tee -a "$GITHUB_OUTPUT"
-            echo "changed_arm=true" | tee -a "$GITHUB_OUTPUT"
             echo "changed_nonConcurrent=true" | tee -a "$GITHUB_OUTPUT"
           else
             echo "changed_p0=false" | tee -a "$GITHUB_OUTPUT"
             echo "changed_external=false" | tee -a "$GITHUB_OUTPUT"
-            echo "changed_arm=false" | tee -a "$GITHUB_OUTPUT"
             echo "changed_nonConcurrent=false" | tee -a "$GITHUB_OUTPUT"
           fi
           if file_changed_regression_p1; then
@@ -198,7 +195,6 @@ jobs:
           echo "changed_cloud_ut=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_p0=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_external=true" | tee -a "$GITHUB_OUTPUT"
-          echo "changed_arm=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_p1=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_performance=true" | tee -a "$GITHUB_OUTPUT"
           echo "changed_cloud_p0=true" | tee -a "$GITHUB_OUTPUT"
@@ -407,19 +403,6 @@ jobs:
           "cloud_p1" \
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
-    - name: "Trigger or Skip arm"
-      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["arm", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
-      run: |
-        source ./regression-test/pipeline/common/teamcity-utils.sh
-        set -x
-        trigger_or_skip_build \
-          "${{ steps.changes.outputs.changed_arm }}" \
-          "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
-          "${{ steps.parse.outputs.TARGET_BRANCH }}" \
-          "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
-          "arm" \
-          "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
-
     - name: "Trigger or Skip performance"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["performance", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
@@ -444,7 +427,6 @@ jobs:
         skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" p1
         skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" external
         skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" performance
-        skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" arm
         skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" cloud_p0
         skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" cloud_p1
         skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" cloudut

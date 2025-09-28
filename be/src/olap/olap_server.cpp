@@ -1411,7 +1411,7 @@ void StorageEngine::do_remove_unused_remote_files() {
         UniqueId cooldown_meta_id;
         {
             std::shared_lock rlock(t->get_header_lock());
-            for (auto&& rs_meta : t->tablet_meta()->all_rs_metas()) {
+            for (const auto& [_, rs_meta] : t->tablet_meta()->all_rs_metas()) {
                 if (!rs_meta->is_local()) {
                     cooldowned_rowsets.insert(rs_meta->rowset_id());
                 }

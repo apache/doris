@@ -404,8 +404,10 @@ suite("insert_group_commit_into") {
             int count = 0;
             while (count < 30) {
                 try {
+                    sql "set enable_insert_strict = false"
                     group_commit_insert """ 
                 insert into ${table} values('cib2205045_1_1s','2023/6/10 3:55:33','{"DB1":168939,"DNT":"2023-06-10 03:55:33"}');""", 1
+                    sql "set enable_insert_strict = true"
                     break
                 } catch (Exception e) {
                     logger.info("got exception:" + e)
@@ -415,9 +417,11 @@ suite("insert_group_commit_into") {
                     count++
                 }
             }
+            sql "set enable_insert_strict = false"
             group_commit_insert """insert into ${table} values('cib2205045_1_1s','2023/6/10 3:56:33','{"DB1":168939,"DNT":"2023-06-10 03:56:33"}');""", 1
             group_commit_insert """insert into ${table} values('cib2205045_1_1s','2023/6/10 3:57:33','{"DB1":168939,"DNT":"2023-06-10 03:57:33"}');""", 1
             group_commit_insert """insert into ${table} values('cib2205045_1_1s','2023/6/10 3:58:33','{"DB1":168939,"DNT":"2023-06-10 03:58:33"}');""", 1
+            sql "set enable_insert_strict = true"
 
             getRowCount(4)
 

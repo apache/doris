@@ -162,20 +162,5 @@ void ColumnVarbinary::replace_column_data(const IColumn& rhs, size_t row, size_t
     _data[self_row] = doris::StringView(dst, val.size());
 }
 
-ColumnPtr ColumnVarbinary::convert_to_string_column() const {
-    auto string_column = ColumnString::create();
-    auto& res_data = assert_cast<ColumnString&>(*string_column).get_chars();
-    auto& res_offsets = assert_cast<ColumnString&>(*string_column).get_offsets();
-    res_data.reserve(res_data.size() + byte_size());
-    size_t current_offset = 0;
-    for (const auto& value : _data) {
-        res_data.insert(value.data(), value.data() + value.size());
-        current_offset += value.size();
-        res_offsets.push_back(current_offset);
-    }
-    _converted_string_column = string_column->get_ptr();
-    return _converted_string_column;
-}
-
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

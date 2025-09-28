@@ -207,7 +207,8 @@ Recycler::Recycler(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
             RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
                                     std::move(group_recycle_function_pool));
 
-    txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_);
+    auto resource_mgr = std::make_shared<ResourceManager>(txn_kv_);
+    txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_, std::move(resource_mgr));
     snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
 }
 
@@ -538,6 +539,10 @@ InstanceRecycler::InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const Instance
           _thread_pool_group(std::move(thread_pool_group)),
           txn_lazy_committer_(std::move(txn_lazy_committer)) {
     snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
+
+    // Since the recycler's resource manager could not be notified when instance info changes,
+    // we need to refresh the instance info here to ensure the resource manager has the latest info.
+    txn_lazy_committer_->resource_manager()->refresh_instance(instance_id_, instance);
 };
 
 InstanceRecycler::~InstanceRecycler() = default;

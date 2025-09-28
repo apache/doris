@@ -30,6 +30,7 @@
 #include "meta-service/meta_service_helper.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv_error.h"
+#include "snapshot/snapshot_manager.h"
 
 namespace doris::cloud {
 
@@ -1430,6 +1431,21 @@ void ResourceManager::refresh_instance(const std::string& instance_id,
     } else {
         instance_multi_version_status_.erase(instance_id);
     }
+
+    if (instance.has_source_instance_id() && !instance.source_instance_id().empty()) {
+        Versionstamp versionstamp;
+        if (!SnapshotManager::parse_snapshot_versionstamp(instance.source_snapshot_id(),
+                                                          &versionstamp)) {
+            LOG(WARNING) << "invalid source_snapshot_id, instance_id=" << instance_id
+                         << " source_snapshot_id=" << instance.source_snapshot_id()
+                         << " source_instance_id=" << instance.source_instance_id();
+            return;
+        }
+        instance_source_snapshot_info_.insert_or_assign(
+                instance_id, std::make_pair(instance.source_instance_id(), versionstamp));
+    } else {
+        instance_source_snapshot_info_.erase(instance_id);
+    }
 }
 
 bool ResourceManager::is_version_read_enabled(std::string_view instance_id) const {
@@ -1496,6 +1512,19 @@ std::pair<MetaServiceCode, std::string> ResourceManager::validate_sub_clusters(
     }
 
     return std::make_pair(MetaServiceCode::OK, "");
+}
+
+bool ResourceManager::get_source_snapshot_info(const std::string& instance_id,
+                                               std::string* source_instance_id,
+                                               Versionstamp* snapshot_versionstamp) {
+    std::shared_lock l(mtx_);
+    auto it = instance_source_snapshot_info_.find(instance_id);
+    if (it == instance_source_snapshot_info_.end()) {
+        return false;
+    }
+    *source_instance_id = it->second.first;
+    *snapshot_versionstamp = it->second.second;
+    return true;
 }
 
 } // namespace doris::cloud

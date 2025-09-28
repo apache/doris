@@ -52,6 +52,7 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
@@ -192,6 +193,11 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes = Sets.newHashSet();
         allowedTypes.add(QuantileStateType.class);
         strictCastWhiteList.put(QuantileStateType.class, allowedTypes);
+
+        //varbinary
+        allowedTypes = Sets.newHashSet();
+        allowedTypes.add(VarBinaryType.class);
+        strictCastWhiteList.put(VarBinaryType.class, allowedTypes);
 
         // array
         allowedTypes = Sets.newHashSet();

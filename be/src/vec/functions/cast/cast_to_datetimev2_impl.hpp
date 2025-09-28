@@ -270,7 +270,7 @@ inline bool CastToDatetimeV2::from_integer(T input, DateV2Value<DateTimeV2ValueT
 
 ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 
-<date>           ::= <year> "-" <month1> "-" <day1>
+<date>           ::= <year> ("-" | "/") <month1> ("-" | "/") <day1>
                    | <year> <month2> <day2>
 
 <year>           ::= <digit>{2} | <digit>{4} ; 1970 为界
@@ -418,13 +418,13 @@ inline bool CastToDatetimeV2::from_string_strict_mode(const StringRef& str,
                                  std::string {ptr, end});
         SET_PARAMS_RET_FALSE_IFN(in_bound(ptr, end, 0), "too short date part, got '{}'",
                                  std::string {ptr, end});
-        if (*ptr == '-') {
+        if (is_date_sep(*ptr)) {
             // 2 digits year
             ++ptr; // consume one bar
             SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 1, 2>(ptr, end, part[1])),
                                      "failed to consume 1 or 2 digits for month, got {}",
                                      std::string {ptr, end});
-            SET_PARAMS_RET_FALSE_IFN((consume_one_bar(ptr, end)),
+            SET_PARAMS_RET_FALSE_IFN((consume_one_date_sep(ptr, end)),
                                      "failed to consume one bar after month, got {}",
                                      std::string {ptr, end});
             SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 1, 2>(ptr, end, part[2])),
@@ -445,13 +445,13 @@ inline bool CastToDatetimeV2::from_string_strict_mode(const StringRef& str,
             SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[1])),
                                      "failed to consume 4 digits for year, got {}",
                                      std::string {ptr, end});
-            SET_PARAMS_RET_FALSE_IFN((consume_one_bar(ptr, end)),
+            SET_PARAMS_RET_FALSE_IFN((consume_one_date_sep(ptr, end)),
                                      "failed to consume one bar after year, got {}",
                                      std::string {ptr, end});
             SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 1, 2>(ptr, end, part[2])),
                                      "failed to consume 1 or 2 digits for month, got {}",
                                      std::string {ptr, end});
-            SET_PARAMS_RET_FALSE_IFN((consume_one_bar(ptr, end)),
+            SET_PARAMS_RET_FALSE_IFN((consume_one_date_sep(ptr, end)),
                                      "failed to consume one bar after month, got {}",
                                      std::string {ptr, end});
             SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 1, 2>(ptr, end, part[3])),

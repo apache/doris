@@ -154,6 +154,38 @@ suite("doc_date_functions_test") {
     qt_date_format_2 """SELECT DATE_FORMAT('2007-10-04 22:23:00', '%H:%i:%s')"""
     qt_date_format_3 """SELECT DATE_FORMAT('1999-01-01', '%Y-%m-%d')"""
     qt_date_format_4 """SELECT DATE_FORMAT('1999-01-01 00:00:00', '%d/%m/%Y %H:%i:%s')"""
+
+    qt_date_format_5 """select date_format('2022-11-13 11:12:12',repeat('%l',51));"""
+
+    test {
+        sql """select date_format('2022-11-13 11:12:12',repeat('%l',52));"""
+        exception "Operation date_format of 142335814007783424, %l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l is invalid"
+    }
+
+    test {
+        sql """select date_format('2023-11-13 23:00:00' ,repeat('%l',53));"""
+        exception "Operation date_format of 142406233473679360, %l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l%l is invalid"
+    }
+
+    test {
+        sql """SELECT DATE_FORMAT('1222-12-12', repeat('s',129))"""
+        exception  "Operation date_format of invalid or oversized format is invalid"
+    }
+
+    test {
+        sql """select date_format('2022-11-13',repeat('%I',52));"""
+        exception "Operation date_format of 142335765945253888, %I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I%I is invalid"
+    }
+
+    test {
+        sql """select date_format('2022-11-13',repeat('%M',15));"""
+        exception "Operation date_format of 142335765945253888, %M%M%M%M%M%M%M%M%M%M%M%M%M%M%M is invalid"
+    }
+
+    test {
+        sql """select date_format('2022-11-13',repeat('%p',52));"""
+        exception "Operation date_format of 142335765945253888, %p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p%p is invalid"
+    }
     
     // 特殊格式符测试
     qt_date_format_5 """SELECT DATE_FORMAT('2009-10-04', '%a %b %c')"""

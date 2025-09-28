@@ -25,7 +25,6 @@ import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateExtractNonConstant;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateToEqualToRule;
-import org.apache.doris.nereids.rules.expression.rules.JsonFunctionRewrite;
 import org.apache.doris.nereids.rules.expression.rules.LogToLn;
 import org.apache.doris.nereids.rules.expression.rules.MedianConvert;
 import org.apache.doris.nereids.rules.expression.rules.MergeDateTrunc;
@@ -68,7 +67,6 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 SimplifyArithmeticComparisonRule.INSTANCE,
                 ConvertAggStateCast.INSTANCE,
                 MergeDateTrunc.INSTANCE,
-                JsonFunctionRewrite.INSTANCE,
                 CheckCast.INSTANCE
             )
     );

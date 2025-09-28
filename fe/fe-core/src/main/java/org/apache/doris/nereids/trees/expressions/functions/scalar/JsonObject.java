@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.JsonType;
@@ -37,7 +38,7 @@ import java.util.List;
  * By convention, the argument list consists of alternating keys and values.
  * Key arguments are coerced to text; value arguments are converted as per to_json or to_jsonb.
  */
-public class JsonObject extends ScalarFunction implements CustomSignature, AlwaysNotNullable {
+public class JsonObject extends ScalarFunction implements CustomSignature, AlwaysNotNullable, RewriteWhenAnalyze {
 
     /**
      * constructor with 0 or more arguments.
@@ -87,5 +88,22 @@ public class JsonObject extends ScalarFunction implements CustomSignature, Alway
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitJsonObject(this, context);
+    }
+
+    @Override
+    public Expression rewriteWhenAnalyze() {
+        List<Expression> convectedChildren = new ArrayList<Expression>();
+        List<Expression> children = children();
+        for (int i = 0; i < children.size(); i++) {
+            Expression child = children.get(i);
+            if (i % 2 == 0) {
+                convectedChildren.add(child);
+            } else if (child.getDataType() instanceof JsonType) {
+                convectedChildren.add(child);
+            } else {
+                convectedChildren.add(new ToJson(child));
+            }
+        }
+        return withChildren(convectedChildren);
     }
 }

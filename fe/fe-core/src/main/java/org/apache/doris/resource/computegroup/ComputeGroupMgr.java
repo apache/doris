@@ -17,6 +17,7 @@
 
 package org.apache.doris.resource.computegroup;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -40,11 +41,14 @@ public class ComputeGroupMgr {
     public ComputeGroup getComputeGroupByName(String name) throws UserException {
         if (Config.isCloudMode()) {
             CloudSystemInfoService cloudSystemInfoService = (CloudSystemInfoService) systemInfoService;
-            String clusterId = cloudSystemInfoService.getCloudClusterIdByName(name);
+            String physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getPhysicalCluster(name);
+            String clusterId = cloudSystemInfoService.getCloudClusterIdByName(physicalClusterName);
             if (StringUtils.isEmpty(clusterId)) {
-                throw new UserException("Can not find compute group:" + name);
+                throw new UserException("Can not find compute group:" + name
+                    + " real compute group name:" + physicalClusterName);
             }
-            return new CloudComputeGroup(clusterId, name, cloudSystemInfoService);
+            return new CloudComputeGroup(clusterId, physicalClusterName, cloudSystemInfoService);
         } else {
             return new ComputeGroup(name, name, systemInfoService);
         }

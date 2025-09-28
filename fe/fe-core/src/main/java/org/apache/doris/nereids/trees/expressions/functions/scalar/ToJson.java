@@ -37,6 +37,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeV2Type;
@@ -54,6 +55,7 @@ public class ToJson extends ScalarFunction
         implements UnaryExpression, NullOrIdenticalSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(JsonType.INSTANCE).args(NullType.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(TinyIntType.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(SmallIntType.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(IntegerType.INSTANCE),

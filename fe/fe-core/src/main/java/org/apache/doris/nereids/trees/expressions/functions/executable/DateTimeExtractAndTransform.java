@@ -43,6 +43,8 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.util.DateUtils;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DayOfWeek;
@@ -65,7 +67,8 @@ import java.util.Locale;
 
 /**
  * executable function:
- * year, quarter, month, week, dayOfYear, dayOfweek, dayOfMonth, hour, minute, second, microsecond
+ * year, quarter, month, week, dayOfYear, dayOfweek, dayOfMonth, hour, minute,
+ * second, microsecond
  */
 public class DateTimeExtractAndTransform {
 
@@ -324,30 +327,60 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateLiteral date, StringLikeLiteral format) {
+        if (StringUtils.trim(format.getValue()).length() > 128) {
+            throw new AnalysisException("The length of format string in date_format() function should not be greater"
+                    + " than 128.");
+        }
+        DateTimeV2Literal datetime = new DateTimeV2Literal(date.getYear(), date.getMonth(), date.getDay(), 0, 0, 0, 0);
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.dateTimeFormatter(format.getValue()).format(
+        return new VarcharLiteral(DateUtils.dateTimeFormatterChecklength(format.getValue(), datetime).format(
                 java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
     }
 
+    /**
+     * datetime arithmetic function date-format
+     */
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateTimeLiteral date, StringLikeLiteral format) {
+        if (StringUtils.trim(format.getValue()).length() > 128) {
+            throw new AnalysisException("The length of format string in date_format() function should not be greater"
+                    + " than 128.");
+        }
+        DateTimeV2Literal datetime = new DateTimeV2Literal(date.getYear(), date.getMonth(), date.getDay(),
+                date.getHour(), date.getMinute(), date.getSecond(), date.getMicroSecond());
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.dateTimeFormatter(format.getValue()).format(
+        return new VarcharLiteral(DateUtils.dateTimeFormatterChecklength(format.getValue(), datetime).format(
                 java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
-                        ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()))));
+                        ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()),
+                        ((int) date.getMicroSecond() * 1000))));
     }
 
+    /**
+     * datetime arithmetic function date-format
+     */
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateV2Literal date, StringLikeLiteral format) {
+        if (StringUtils.trim(format.getValue()).length() > 128) {
+            throw new AnalysisException("The length of format string in date_format() function should not be greater"
+                    + " than 128.");
+        }
+        DateTimeV2Literal datetime = new DateTimeV2Literal(date.getYear(), date.getMonth(), date.getDay(), 0, 0, 0, 0);
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.dateTimeFormatter(format.getValue()).format(
+        return new VarcharLiteral(DateUtils.dateTimeFormatterChecklength(format.getValue(), datetime).format(
                 java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
     }
 
+    /**
+     * datetime arithmetic function date-format
+     */
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateTimeV2Literal date, StringLikeLiteral format) {
+        if (StringUtils.trim(format.getValue()).length() > 128) {
+            throw new AnalysisException("The length of format string in date_format() function should not be greater"
+                    + " than 128.");
+        }
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.dateTimeFormatter(format.getValue()).format(
+        return new VarcharLiteral(DateUtils.dateTimeFormatterChecklength(format.getValue(), date).format(
                 java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
                         ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()),
                         ((int) date.getMicroSecond() * 1000))));

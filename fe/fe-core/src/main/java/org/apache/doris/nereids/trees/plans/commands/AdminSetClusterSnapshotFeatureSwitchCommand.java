@@ -40,7 +40,6 @@ import org.apache.logging.log4j.Logger;
  */
 public class AdminSetClusterSnapshotFeatureSwitchCommand extends Command implements ForwardWithSync {
 
-    public static final String PROP_ENABLED = "enabled";
     private static final Logger LOG = LogManager.getLogger(AdminSetClusterSnapshotFeatureSwitchCommand.class);
 
     private boolean on;
@@ -59,7 +58,7 @@ public class AdminSetClusterSnapshotFeatureSwitchCommand extends Command impleme
         Cloud.AlterInstanceRequest.Builder builder = Cloud.AlterInstanceRequest.newBuilder()
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
                 .setOp(Cloud.AlterInstanceRequest.Operation.SET_SNAPSHOT_PROPERTY)
-                .putProperties(PROP_ENABLED, String.valueOf(on));
+                .putProperties(Cloud.AlterInstanceRequest.SnapshotProperty.ENABLE_SNAPSHOT.name(), String.valueOf(on));
         CloudSnapshotHandler cloudSnapshotHandler = ((CloudEnv) ctx.getEnv()).getCloudSnapshotHandler();
         cloudSnapshotHandler.alterInstance(builder.build());
         cloudSnapshotHandler.refreshAutoSnapshotJob();

@@ -335,26 +335,6 @@ TEST_F(ColumnVarbinaryTest, SerializeSizeAtShouldIncludeLengthHeader) {
     EXPECT_EQ(sz, v.size() + sizeof(uint32_t));
 }
 
-TEST_F(ColumnVarbinaryTest, ConvertToStringColumn) {
-    auto col = ColumnVarbinary::create();
-    std::vector<std::string> vals = {make_bytes(0, 0x00), make_bytes(3, 0x80),
-                                     make_bytes(doris::StringView::kInlineSize + 2, 0x81)};
-    for (auto& v : vals) {
-        col->insert_data(v.data(), v.size());
-    }
-
-    auto str_mut = assert_cast<ColumnVarbinary&>(*col).convert_to_string_column();
-    auto str_col_ptr = std::move(str_mut);
-    const auto& str_col = assert_cast<const ColumnString&>(*str_col_ptr);
-
-    ASSERT_EQ(str_col.size(), vals.size());
-    for (size_t i = 0; i < vals.size(); ++i) {
-        auto r = str_col.get_data_at(i);
-        ASSERT_EQ(r.size, vals[i].size());
-        ASSERT_EQ(memcmp(r.data, vals[i].data(), r.size), 0);
-    }
-}
-
 TEST_F(ColumnVarbinaryTest, FieldAccessOperatorAndGet) {
     auto col = ColumnVarbinary::create();
     std::vector<std::string> vals = {
