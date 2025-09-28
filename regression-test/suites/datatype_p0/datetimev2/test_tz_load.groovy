@@ -36,17 +36,20 @@ suite("test_tz_load", "nonConcurrent") {
     DUPLICATE KEY(`id`)
     DISTRIBUTED BY HASH(`id`) BUCKETS 3
     PROPERTIES (
-        "replication_num" = "1"
+        "replication_num" = "1" 
     )
     """
 
-    // case1 stream load set timezone = UTC
+    // case1 stream load set time_zone = UTC
+    //       stream load set timezone = UTC
     //       broker load set timezone = UTC
     // insert into does not support setting timezone
     // same as case3
     /*
     1	2024-04-11T08:00:13	2024-04-11
     1	2024-04-11T08:00:13	2024-04-11
+    1	2024-04-11T08:00:13	2024-04-11
+    2	2024-04-10T22:00:13	2024-04-11
     2	2024-04-10T22:00:13	2024-04-11
     2	2024-04-10T22:00:13	2024-04-11
     */
@@ -54,6 +57,13 @@ suite("test_tz_load", "nonConcurrent") {
         table "${table1}"
         set 'column_separator', ','
         set 'timezone', 'UTC'
+        file "test_global_timezone_streamload2.csv"
+        time 20000
+    }
+    streamLoad {
+        table "${table1}"
+        set 'column_separator', ','
+        set 'time_zone', 'UTC'
         file "test_global_timezone_streamload2.csv"
         time 20000
     }
