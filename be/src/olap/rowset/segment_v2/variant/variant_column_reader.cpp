@@ -81,26 +81,28 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
         // read each bucket into temp maps
-        _temp_maps.clear();
-        _temp_maps.reserve(_iters.size());
+        _sparse_data_buckets.clear();
+        _sparse_data_buckets.reserve(_iters.size());
         for (auto& it : _iters) {
             vectorized::MutableColumnPtr m = vectorized::ColumnVariant::create_sparse_column_fn();
             RETURN_IF_ERROR(it->next_batch(n, m, has_null));
-            _temp_maps.emplace_back(std::move(m));
+            _sparse_data_buckets.emplace_back(std::move(m));
         }
-        return _merge_into_dst(*n, dst);
+        collect_sparse_data_from_buckets(*dst, nullptr);
+        return Status::OK();
     }
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override {
-        _temp_maps.clear();
-        _temp_maps.reserve(_iters.size());
+        _sparse_data_buckets.clear();
+        _sparse_data_buckets.reserve(_iters.size());
         for (auto& it : _iters) {
             vectorized::MutableColumnPtr m = vectorized::ColumnVariant::create_sparse_column_fn();
             RETURN_IF_ERROR(it->read_by_rowids(rowids, count, m));
-            _temp_maps.emplace_back(std::move(m));
+            _sparse_data_buckets.emplace_back(std::move(m));
         }
-        return _merge_into_dst(count, dst);
+        collect_sparse_data_from_buckets(*dst, nullptr);
+        return Status::OK();
     }
 
     ordinal_t get_current_ordinal() const override {
@@ -108,32 +110,79 @@ public:
     }
 
 private:
-    Status _merge_into_dst(size_t rows, vectorized::MutableColumnPtr& dst) {
-        // dst is a Map(String,String)
-        auto& out_map = assert_cast<vectorized::ColumnMap&>(*dst);
-        out_map.get_offsets().clear();
-        // clear keys/values by replacing with empty columns
-        out_map.get_keys_ptr()->assume_mutable()->clear();
-        out_map.get_values_ptr()->assume_mutable()->clear();
+    void collect_sparse_data_from_buckets(vectorized::IColumn& sparse_data_column,
+                                          const std::string* paths_prefix) {
+        using namespace vectorized;
+        auto& column_map = assert_cast<ColumnMap&>(sparse_data_column);
+        auto& dst_sparse_data_paths = assert_cast<vectorized::ColumnString&>(column_map.get_keys());
+        auto& dst_sparse_data_values =
+                assert_cast<vectorized::ColumnString&>(column_map.get_values());
+        auto& dst_sparse_data_offsets =
+                assert_cast<vectorized::ColumnArray::Offsets64&>(column_map.get_offsets());
+        std::vector<const ColumnString*> src_sparse_data_paths_buckets(_sparse_data_buckets.size());
+        std::vector<const ColumnString*> src_sparse_data_values_buckets(
+                _sparse_data_buckets.size());
+        std::vector<const ColumnArray::Offsets64*> src_sparse_data_offsets_buckets(
+                _sparse_data_buckets.size());
+        for (size_t i = 0; i != _sparse_data_buckets.size(); ++i) {
+            const auto& src_map =
+                    assert_cast<const vectorized::ColumnMap&>(*_sparse_data_buckets[i]);
+            src_sparse_data_paths_buckets[i] =
+                    assert_cast<const vectorized::ColumnString*>(&src_map.get_keys());
+            src_sparse_data_values_buckets[i] =
+                    assert_cast<const vectorized::ColumnString*>(&src_map.get_values());
+            src_sparse_data_offsets_buckets[i] =
+                    assert_cast<const vectorized::ColumnArray::Offsets64*>(&src_map.get_offsets());
+        }
 
-        for (size_t row = 0; row < rows; ++row) {
-            // merge each bucket row's map items into dst
-            for (auto& m : _temp_maps) {
-                auto& bm = assert_cast<vectorized::ColumnMap&>(*m);
-                size_t start = (row == 0 ? 0 : bm.get_offsets()[row - 1]);
-                size_t end = bm.get_offsets()[row];
-                for (size_t i = start; i < end; ++i) {
-                    out_map.get_keys_ptr()->assume_mutable()->insert_from(bm.get_keys(), i);
-                    out_map.get_values_ptr()->assume_mutable()->insert_from(bm.get_values(), i);
+        size_t num_rows = _sparse_data_buckets[0]->size();
+        for (size_t i = 0; i != num_rows; ++i) {
+            // Sparse data contains paths in sorted order in each row.
+            // Collect all paths from all buckets in this row and sort them.
+            // Save each path bucket and index to be able find corresponding value later.
+            std::vector<std::tuple<std::string_view, size_t, size_t>> all_paths;
+            for (size_t bucket = 0; bucket != _sparse_data_buckets.size(); ++bucket) {
+                size_t offset_start = (*src_sparse_data_offsets_buckets[bucket])[ssize_t(i) - 1];
+                size_t offset_end = (*src_sparse_data_offsets_buckets[bucket])[ssize_t(i)];
+
+                // If no paths prefix specified, collect all paths.
+                if (!paths_prefix) {
+                    for (size_t j = offset_start; j != offset_end; ++j) {
+                        auto path = src_sparse_data_paths_buckets[bucket]
+                                            ->get_data_at(j)
+                                            .to_string_view();
+                        all_paths.emplace_back(path, bucket, j);
+                    }
+                }
+                // Otherwise collect only paths that match the prefix.
+                else {
+                    size_t lower_bound_index = ColumnVariant::find_path_lower_bound_in_sparse_data(
+                            StringRef(*paths_prefix), *src_sparse_data_paths_buckets[bucket],
+                            offset_start, offset_end);
+                    for (; lower_bound_index != offset_end; ++lower_bound_index) {
+                        auto path = src_sparse_data_paths_buckets[bucket]->get_data_at(
+                                lower_bound_index);
+                        if (!path.start_with(StringRef(*paths_prefix))) {
+                            break;
+                        }
+                        auto sub_path = path.substring(paths_prefix->size());
+                        all_paths.emplace_back(sub_path, bucket, lower_bound_index);
+                    }
                 }
             }
-            out_map.get_offsets().push_back(out_map.get_keys().size());
+
+            std::sort(all_paths.begin(), all_paths.end());
+            for (const auto [path, bucket, offset] : all_paths) {
+                dst_sparse_data_paths.insert_data(path.data(), path.size());
+                dst_sparse_data_values.insert_from(*src_sparse_data_values_buckets[bucket], offset);
+            }
+
+            dst_sparse_data_offsets.push_back(dst_sparse_data_paths.size());
         }
-        return Status::OK();
     }
 
     std::vector<std::unique_ptr<ColumnIterator>> _iters;
-    std::vector<vectorized::MutableColumnPtr> _temp_maps;
+    std::vector<vectorized::MutableColumnPtr> _sparse_data_buckets;
 };
 
 bool VariantColumnReader::exist_in_sparse_column(
@@ -490,13 +539,13 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
             uint32_t bucket_index = vectorized::schema_util::variant_sparse_bucket_of(
                     StringRef {relative_path.get_path().data(), relative_path.get_path().size()},
                     N);
-            SparseColumnCacheSPtr sparse_column_cache = DORIS_TRY(_get_shared_column_cache(
+            sparse_column_cache = DORIS_TRY(_get_shared_column_cache(
                     sparse_column_cache_ptr,
                     SPARSE_COLUMN_PATH + ".b" + std::to_string(bucket_index),
                     _sparse_bucket_readers[bucket_index]));
         } else {
-            DORIS_TRY(_get_shared_column_cache(sparse_column_cache_ptr, SPARSE_COLUMN_PATH,
-                                               _sparse_column_reader));
+            sparse_column_cache = DORIS_TRY(_get_shared_column_cache(
+                    sparse_column_cache_ptr, SPARSE_COLUMN_PATH, _sparse_column_reader));
         }
         DCHECK(opt);
         // Sparse column exists or reached sparse size limit, read sparse column

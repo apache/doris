@@ -862,6 +862,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
                                                             "default_variant_max_sparse_column_statistics_size";
+    public static final String DEFAULT_VARIANT_SPARSE_BUCKET_NUM = "default_variant_sparse_bucket_num";
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
 
@@ -3010,6 +3011,13 @@ public class SessionVariable implements Serializable, Writable {
     )
     public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
 
+    @VariableMgr.VarAttr(
+            name = DEFAULT_VARIANT_SPARSE_BUCKET_NUM,
+            needForward = true,
+            fuzzy = true
+    )
+    public int defaultVariantSparseBucketNum = 1;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     @SuppressWarnings("checkstyle:Indentation")
@@ -3032,6 +3040,7 @@ public class SessionVariable implements Serializable, Writable {
         int maxBytes = 10 * 1024 * 1024;
         this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
         this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
+        this.defaultVariantSparseBucketNum = random.nextInt(5) + 1;
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -5475,6 +5484,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getDefaultVariantMaxSparseColumnStatisticsSize() {
         return defaultVariantMaxSparseColumnStatisticsSize;
+    }
+
+    public int getDefaultVariantSparseBucketNum() {
+        return defaultVariantSparseBucketNum;
     }
 
     public void readAffectQueryResultVariables(BiConsumer<String, Object> variablesReader) {

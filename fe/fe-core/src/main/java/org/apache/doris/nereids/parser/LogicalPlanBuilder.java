@@ -4742,7 +4742,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         int variantMaxSparseColumnStatisticsSize = ConnectContext.get() == null ? 0 :
                 ConnectContext.get().getSessionVariable().getDefaultVariantMaxSparseColumnStatisticsSize();
         // default no bucketing
-        int variantSparseBucketNum = 1;
+        int variantSparseBucketNum = ConnectContext.get() == null ? 1 :
+                ConnectContext.get().getSessionVariable().getDefaultVariantSparseBucketNum();
 
         try {
             variantMaxSubcolumnsCount = PropertyAnalyzer
