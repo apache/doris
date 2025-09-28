@@ -83,10 +83,7 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
 
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
-                                 int32_t col_id, int64_t row_num) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method write_one_cell_to_jsonb is not supported for jsonb serde");
-    }
+                                 int32_t col_id, int64_t row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
