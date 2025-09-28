@@ -131,14 +131,14 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         setEndpointIfPossible();
-        if (!isValidEndpoint(getEndpoint())) {
-            throw new IllegalArgumentException("Invalid endpoint: " + getEndpoint());
-        }
         setRegionIfPossible();
         //Allow anonymous access if both access_key and secret_key are empty
         //But not recommended for production use.
         if (StringUtils.isBlank(getAccessKey()) != StringUtils.isBlank(getSecretKey())) {
             throw new IllegalArgumentException("Both the access key and the secret key must be set.");
+        }
+        if (StringUtils.isBlank(getRegion()) || StringUtils.isBlank(getEndpoint())) {
+            throw new IllegalArgumentException("Endpoint and region must be set.");
         }
     }
 
@@ -216,23 +216,6 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     }
 
     protected abstract Set<Pattern> endpointPatterns();
-
-    private boolean isValidEndpoint(String endpoint) {
-        if (StringUtils.isBlank(endpoint)) {
-            // Endpoint is not required, so we consider it valid if empty.
-            return true;
-        }
-        if (endpointPatterns().isEmpty()) {
-            return true;
-        }
-        for (Pattern pattern : endpointPatterns()) {
-            Matcher matcher = pattern.matcher(endpoint.toLowerCase());
-            if (matcher.matches()) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     // This method should be overridden by subclasses to provide a default endpoint based on the region.
     // Because for aws s3, only region is needed, the endpoint can be constructed from the region.

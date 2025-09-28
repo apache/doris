@@ -59,8 +59,7 @@ public class S3PropertiesTest {
         origProps.put("s3.secret_key", "myS3SecretKey");
         origProps.put("s3.region", "us-west-1");
         origProps.put(StorageProperties.FS_S3_SUPPORT, "true");
-        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Invalid endpoint: https://cos.example.com", () -> StorageProperties.createAll(origProps));
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createAll(origProps));
         origProps = new HashMap<>();
         origProps.put("s3.endpoint", "s3-fips.dualstack.us-east-2.amazonaws.com");
         origProps.put(StorageProperties.FS_S3_SUPPORT, "true");
@@ -120,7 +119,6 @@ public class S3PropertiesTest {
 
     @Test
     public void testToNativeS3Configuration() throws UserException {
-        origProps.put("s3.endpoint", "https://cos.example.com");
         origProps.put("s3.access_key", "myS3AccessKey");
         origProps.put("s3.secret_key", "myS3SecretKey");
         origProps.put("s3.region", "us-west-1");
@@ -129,11 +127,6 @@ public class S3PropertiesTest {
         origProps.put("s3.connection.maximum", "88");
         origProps.put("s3.connection.timeout", "6000");
         origProps.put("test_non_storage_param", "6000");
-
-        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Invalid endpoint: https://cos.example.com", () -> {
-                    StorageProperties.createAll(origProps).get(1);
-                });
         origProps.put("s3.endpoint", "s3.us-west-1.amazonaws.com");
         S3Properties s3Properties = (S3Properties) StorageProperties.createAll(origProps).get(0);
         Map<String, String> s3Props = s3Properties.getBackendConfigProperties();
@@ -230,7 +223,7 @@ public class S3PropertiesTest {
 
     @Test
     public void testGetAwsCredentialsProviderWithIamRoleAndExternalId(@Mocked StsClientBuilder mockBuilder,
-            @Mocked StsClient mockStsClient, @Mocked InstanceProfileCredentialsProvider mockInstanceCreds) {
+                                                                      @Mocked StsClient mockStsClient, @Mocked InstanceProfileCredentialsProvider mockInstanceCreds) {
 
         new Expectations() {
             {
@@ -317,21 +310,16 @@ public class S3PropertiesTest {
         String invalidEndpoint1 = "s3.amazonaws.com";
         origProps.put("s3.endpoint", invalidEndpoint1);
         ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Invalid endpoint: s3.amazonaws.com", () -> StorageProperties.createPrimary(origProps));
-
+                "Endpoint and region must be set.", () -> StorageProperties.createPrimary(origProps));
+        origProps.put("s3.region", "us-west-2");
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
         // Fails because it contains 'amazonaws.com' but doesn't match the strict S3 endpoint pattern (invalid subdomain).
         String invalidEndpoint2 = "my-s3-service.amazonaws.com";
         origProps.put("s3.endpoint", invalidEndpoint2);
-        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Invalid endpoint: my-s3-service.amazonaws.com",
-                () -> StorageProperties.createPrimary(origProps));
-
-        // Fails because it contains 'amazonaws.com' but doesn't match the strict S3 endpoint pattern (invalid TLD).
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
         String invalidEndpoint3 = "http://s3.us-west-2.amazonaws.com.cn";
         origProps.put("s3.endpoint", invalidEndpoint3);
-        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Invalid endpoint: http://s3.us-west-2.amazonaws.com.cn",
-                () -> StorageProperties.createPrimary(origProps));
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
     }
 
     @Test
