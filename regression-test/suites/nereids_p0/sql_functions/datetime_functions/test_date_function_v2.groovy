@@ -195,4 +195,19 @@ suite("test_date_function_v2") {
         sql("select sub_time('0000-01-01 00:00:00', '122:35:22.123456');")
         exception "datetime value is out of range in function sub_time"
     }
+
+    //test computetimearithmetic regular
+
+    qt_sql_addtime9 "select add_time('221222', cast('221010' as time));"
+    qt_sql_addtime10 "select add_time('22:12:22', '221010');"
+    qt_sql_addtime11 "select add_time('+22:12:22', '221010');"
+
+    //datetime parameter
+    qt_sql_addtime12 "select add_time('22/12/22', '221010');"
+
+    qt_sql_subtime9 "select sub_time('221222', cast('221010' as time));"
+    qt_sql_subtime10 "select sub_time('22:12:22', '221010');"
+    qt_sql_subtime11 "select sub_time('-22:12:22', '221010');"
+    //datetime parameter
+    qt_sql_subtime12 "select sub_time('22/12/22', '221010');"
 }

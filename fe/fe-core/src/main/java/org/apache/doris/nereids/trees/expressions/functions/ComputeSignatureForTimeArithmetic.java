@@ -38,8 +38,7 @@ public interface ComputeSignatureForTimeArithmetic extends ComputeSignature {
         if (child(0) instanceof StringLikeLiteral) {
             try {
                 String s = ((StringLikeLiteral) child(0)).getStringValue().trim();
-                // check if the string is in the format of HH:MM:SS[.FFFFFF]
-                if (!s.contains("-")) { // avoid matching datetime format
+                if (isTimeFormat(s)) {
                     new TimeV2Literal(s); // check legality
                     return FunctionSignature.ret(TimeV2Type.INSTANCE).args(TimeV2Type.INSTANCE, TimeV2Type.INSTANCE);
                 }
@@ -48,5 +47,59 @@ public interface ComputeSignatureForTimeArithmetic extends ComputeSignature {
             }
         }
         return ret;
+    }
+
+    /**
+     * Check if the string is in a valid time format.
+     */
+    default boolean isTimeFormat(String s) {
+        if (s == null || s.isEmpty()) {
+            return false;
+        }
+
+        s = s.trim();
+        if (s.startsWith("+") || s.startsWith("-")) {
+            return true;
+        }
+
+        if (s.contains("-") || s.contains("/")) {
+            return false;
+        }
+
+        if (s.contains(":")) {
+            return isColonTimeFormat(s);
+        } else {
+            return isNumericTimeFormat(s);
+        }
+    }
+
+    /**
+     * Check if the string is in HH:MM[:SS[.FFFFFF]] format.
+     */
+    default boolean isColonTimeFormat(String s) {
+        String[] parts = s.split("\\.", 2);
+        String timePart = parts[0];
+
+        // Split time part
+        String[] timeFields = timePart.split(":");
+        if (timeFields[0].length() == 2 || timeFields[0].length() == 3 || timePart.length() < 8) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if the string is in numeric format: continuous digits [ .FFFFFF ]
+     */
+    default boolean isNumericTimeFormat(String s) {
+        String[] parts = s.split("\\.", 2);
+        String numberPart = parts[0];
+
+        int length = numberPart.length();
+        if (length < 7) {
+            return true;
+        }
+        return false;
     }
 }
