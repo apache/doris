@@ -440,7 +440,7 @@ Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColum
 Status JniConnector::_fill_array_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                         const DataTypePtr& data_type, size_t num_rows) {
     ColumnPtr& element_column = static_cast<ColumnArray&>(*doris_column).get_data_ptr();
-    const DataTypePtr& element_type = 
+    const DataTypePtr& element_type =
             (assert_cast<const DataTypeArray*>(remove_nullable(data_type).get()))
                     ->get_nested_type();
     ColumnArray::Offsets64& offsets_data = static_cast<ColumnArray&>(*doris_column).get_offsets();
@@ -462,9 +462,9 @@ Status JniConnector::_fill_array_column(TableMetaAddress& address, MutableColumn
 Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                       const DataTypePtr& data_type, size_t num_rows) {
     auto& map = static_cast<ColumnMap&>(*doris_column);
-    const DataTypePtr& key_type = 
+    const DataTypePtr& key_type =
             reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())->get_key_type();
-    const DataTypePtr& value_type = 
+    const DataTypePtr& value_type =
             reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())
                     ->get_value_type();
     ColumnPtr& key_column = map.get_keys_ptr();

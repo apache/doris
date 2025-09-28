@@ -178,8 +178,7 @@ public:
         std::map<std::string, StructChild> children;
 
     public:
-        std::shared_ptr<Node> get_children_node(
-                std::string table_column_name) const override {
+        std::shared_ptr<Node> get_children_node(std::string table_column_name) const override {
             DCHECK(children.contains(table_column_name));
             DCHECK(children_column_exists(table_column_name));
             return children.at(table_column_name).node;
@@ -235,8 +234,7 @@ public:
         // If you can be sure that there has been no schema change between the table and the file,
         // you can use constNode (of course, you need to pay attention to case sensitivity).
     public:
-        std::shared_ptr<Node> get_children_node(
-                std::string table_column_name) const override {
+        std::shared_ptr<Node> get_children_node(std::string table_column_name) const override {
             return get_instance();
         };
 
