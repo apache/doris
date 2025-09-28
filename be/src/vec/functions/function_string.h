@@ -249,8 +249,8 @@ private:
             res_s += '_';
         }
         for (int i = 0; i < s.length(); i++) {
-            char ch = s[i];
-            if (std::isalnum(ch)) {
+            char16_t ch = s[i];
+            if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) {
                 res_s += ch;
             } else {
                 int unicodeValue = _get_code_point_at(s, i);
@@ -307,9 +307,9 @@ private:
 
             // check the name of length
             int len = res_p.size();
-            if (len > 50) [[unlikely]] {
-                return Status::InvalidArgument(
-                        "The list partition name cannot exceed 50 characters");
+            if (len > 50) {
+                res_p = std::format("{}_{:08x}", res_p.substr(0, 50), to_hash_code(res_p));
+                len = res_p.size();
             }
             curr_len += len;
             res_data.resize(curr_len);
@@ -400,6 +400,14 @@ private:
         }
         block.get_by_position(result).column = std::move(res);
         return Status::OK();
+    }
+
+    int32_t to_hash_code(const std::string& str) const {
+        uint64_t h = 0;
+        for (uint8_t c : str) {
+            h = (h * 31U + c) & 0xFFFFFFFFU;
+        }
+        return static_cast<int32_t>(h);
     }
 };
 
@@ -4956,6 +4964,109 @@ private:
             res_col.insert_data(text.data(), text.size());
         }
         return Status::OK();
+    }
+};
+
+class FunctionMakeSet : public IFunction {
+public:
+    static constexpr auto name = "make_set";
+    static FunctionPtr create() { return std::make_shared<FunctionMakeSet>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+    bool use_default_implementation_for_nulls() const override { return false; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (arguments[0].get()->is_nullable()) {
+            return make_nullable(std::make_shared<DataTypeString>());
+        }
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto res_col = ColumnString::create();
+        auto null_map = ColumnUInt8::create();
+
+        const auto& [bit_col, bit_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+
+        if (bit_const) {
+            if (bit_col->is_null_at(0)) {
+                res_col->insert_many_defaults(input_rows_count);
+                null_map->insert_many_vals(1, input_rows_count);
+            } else {
+                const uint64_t bit_data =
+                        assert_cast<const ColumnInt64*>(bit_col.get())->get_element(0);
+                vector_execute<true>(block, arguments, input_rows_count, *res_col, bit_data,
+                                     null_map->get_data());
+            }
+        } else if (const auto* bit_data = check_and_get_column<ColumnNullable>(bit_col.get())) {
+            null_map->insert_range_from(bit_data->get_null_map_column(), 0, input_rows_count);
+            vector_execute<false>(block, arguments, input_rows_count, *res_col,
+                                  assert_cast<const ColumnInt64&>(bit_data->get_nested_column()),
+                                  null_map->get_data());
+
+        } else {
+            null_map->get_data().resize_fill(input_rows_count, 0);
+            vector_execute<false>(block, arguments, input_rows_count, *res_col,
+                                  assert_cast<const ColumnInt64&>(*bit_col.get()),
+                                  null_map->get_data());
+        }
+
+        if (block.get_by_position(arguments[0]).type.get()->is_nullable()) {
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(res_col), std::move(null_map)));
+        } else {
+            block.replace_by_position(result, std::move(res_col));
+        }
+        return Status::OK();
+    }
+
+private:
+    template <bool bit_const>
+    void vector_execute(const Block& block, const ColumnNumbers& arguments, size_t input_rows_count,
+                        ColumnString& res_col, const ColumnInt64& bit_col,
+                        PaddedPODArray<uint8_t>& null_map) const {
+        if constexpr (bit_const) {
+            uint64_t bit = bit_col.get_element(0);
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                execute_one_row(block, arguments, res_col, bit, i);
+            }
+        } else {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                if (null_map[i]) {
+                    res_col.insert_default();
+                    continue;
+                }
+                execute_one_row(block, arguments, res_col, bit_col.get_element(i), i);
+            }
+        }
+    }
+
+    void execute_one_row(const Block& block, const ColumnNumbers& arguments, ColumnString& res_col,
+                         uint64_t bit, int row_num) const {
+        static constexpr char SEPARATOR = ',';
+        uint64_t pos = __builtin_ffsll(bit);
+        ColumnString::Chars data;
+        while (pos != 0 && pos < arguments.size() && bit != 0) {
+            auto col = block.get_by_position(arguments[pos]).column;
+            if (!col->is_null_at(row_num)) {
+                /* Here insert `str,` directly to support the case below:
+                 * SELECT MAKE_SET(3, '', 'a');
+                 * the exception result should be ',a'
+                 */
+                auto s_ref = col->get_data_at(row_num);
+                data.insert(s_ref.data, s_ref.data + s_ref.size);
+                data.push_back(SEPARATOR);
+            }
+            bit &= ~(1ULL << (pos - 1));
+            pos = __builtin_ffsll(bit);
+        }
+        // remove the last ','
+        if (!data.empty()) {
+            data.pop_back();
+        }
+        res_col.insert_data(reinterpret_cast<const char*>(data.data()), data.size());
     }
 };
 

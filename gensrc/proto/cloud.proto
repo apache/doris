@@ -1374,11 +1374,19 @@ message AlterInstanceRequest {
         SET_NORMAL                  = 7;
         SET_SNAPSHOT_PROPERTY       = 8;
     }
+
+    enum SnapshotProperty {
+        UNKNOWN_PROPERTY                = 0;
+        ENABLE_SNAPSHOT                 = 1;    // true or false
+        MAX_RESERVED_SNAPSHOTS          = 2;    // in [0, max_reserved_snapshots]
+        SNAPSHOT_INTERVAL_SECONDS       = 3;    // in [min_interval_seconds, +inf)
+    }
+
     optional string instance_id = 1;
     optional Operation op = 2;
     optional string name = 3;
     optional string request_ip = 4;
-    map<string, string> properties = 5;
+    map<string, string> properties = 5; // key is the Name of SnapshotProperty value.
 }
 
 message AlterInstanceResponse {
@@ -1998,6 +2006,7 @@ message ListSnapshotRequest {
     optional string required_snapshot_id = 2;   // Return all snapshots if not set.
     optional bool include_aborted = 3;
     optional string request_ip = 4;
+    optional string instance_id = 5;
 }
 
 message ListSnapshotResponse {

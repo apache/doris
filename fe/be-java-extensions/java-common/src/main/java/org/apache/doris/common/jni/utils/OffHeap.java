@@ -199,6 +199,48 @@ public class OffHeap {
         return newMemory;
     }
 
+    /**
+     * Allocate a batch of off-heap memory blocks via single JNI call.
+     * When testing mode is enabled, this falls back to per-block allocateMemory wrapper.
+     */
+    public static long[] allocateMemoryBatch(int[] sizes) {
+        if (sizes == null || sizes.length == 0) {
+            return new long[0];
+        }
+        if (IS_TESTING) {
+            long[] addrs = new long[sizes.length];
+            for (int i = 0; i < sizes.length; i++) {
+                addrs[i] = allocateMemory(sizes[i]);
+            }
+            return addrs;
+        } else {
+            long[] addrs = JNINativeMethod.memoryTrackerMallocBatch(sizes);
+            if (addrs == null) {
+                throw new OutOfMemoryError("memoryTrackerMallocBatch failed for " + sizes.length + " blocks");
+            }
+            return addrs;
+        }
+    }
+
+    /**
+     * Free a batch of off-heap memory blocks via single JNI call.
+     * When testing mode is enabled, this falls back to per-block freeMemory wrapper.
+     */
+    public static void freeMemoryBatch(long[] addrs) {
+        if (addrs == null || addrs.length == 0) {
+            return;
+        }
+        if (IS_TESTING) {
+            for (long addr : addrs) {
+                if (addr != 0) {
+                    freeMemory(addr);
+                }
+            }
+        } else {
+            JNINativeMethod.memoryTrackerFreeBatch(addrs);
+        }
+    }
+
     public static void copyMemory(Object src, long srcOffset, Object dst, long dstOffset, long length) {
         // Check if dstOffset is before or after srcOffset to determine if we should copy
         // forward or backwards. This is necessary in case src and dst overlap.

@@ -678,6 +678,20 @@ static HttpResponse process_set_snapshot_property(MetaServiceImpl* service,
                                                   brpc::Controller* ctrl) {
     AlterInstanceRequest req;
     PARSE_MESSAGE_OR_RETURN(ctrl, req);
+    auto* properties = req.mutable_properties();
+    if (properties->contains("status")) {
+        std::string status = properties->at("status");
+        if (status != "ENABLED" && status != "DISABLED") {
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                   "Invalid value for status property: " + status +
+                                           ", expected 'ENABLED' or 'DISABLED' (case insensitive)");
+        }
+        std::string_view is_enable = (status == "ENABLED") ? "true" : "false";
+        const std::string& property_name =
+                AlterInstanceRequest::SnapshotProperty_Name(AlterInstanceRequest::ENABLE_SNAPSHOT);
+        (*properties)[property_name] = is_enable;
+        properties->erase("status");
+    }
     req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
     AlterInstanceResponse resp;
     service->alter_instance(ctrl, &req, &resp, nullptr);
@@ -687,12 +701,18 @@ static HttpResponse process_set_snapshot_property(MetaServiceImpl* service,
 static HttpResponse process_set_multi_version_status(MetaServiceImpl* service,
                                                      brpc::Controller* ctrl) {
     auto& uri = ctrl->http_request().uri();
-    std::string cloud_unique_id(http_query(uri, "cloud_unique_id"));
     std::string instance_id(http_query(uri, "instance_id"));
+    std::string cloud_unique_id(http_query(uri, "cloud_unique_id"));
     std::string multi_version_status_str(http_query(uri, "multi_version_status"));
 
-    if (cloud_unique_id.empty() || instance_id.empty() || multi_version_status_str.empty()) {
-        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "missing required arguments");
+    // Prefer instance_id if provided, fallback to cloud_unique_id
+    if (instance_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "empty instance id");
+    }
+
+    if (multi_version_status_str.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "multi_version_status is required");
     }
 
     // Parse multi_version_status from string to enum
@@ -716,8 +736,9 @@ static HttpResponse process_set_multi_version_status(MetaServiceImpl* service,
                 "MULTI_VERSION_WRITE_ONLY, MULTI_VERSION_READ_WRITE, MULTI_VERSION_ENABLED");
     }
     // Call snapshot manager directly
-    auto [code, msg] = service->snapshot_manager()->set_multi_version_status(
-            instance_id, cloud_unique_id, multi_version_status);
+    auto [code, msg] = service->snapshot_manager()->set_multi_version_status(instance_id,
+                                                                             multi_version_status);
+
     return http_json_reply(code, msg);
 }
 
@@ -751,19 +772,19 @@ static HttpResponse process_get_snapshot_property(MetaServiceImpl* service,
     std::string switch_status;
     switch (instance.snapshot_switch_status()) {
     case SNAPSHOT_SWITCH_DISABLED:
-        switch_status = "disabled";
+        switch_status = "UNSUPPORTED";
         break;
     case SNAPSHOT_SWITCH_OFF:
-        switch_status = "false";
+        switch_status = "DISABLED";
         break;
     case SNAPSHOT_SWITCH_ON:
-        switch_status = "true";
+        switch_status = "ENABLED";
         break;
     default:
-        switch_status = "unknown";
+        switch_status = "UNKNOWN";
         break;
     }
-    properties.AddMember("enabled", rapidjson::Value(switch_status.c_str(), allocator), allocator);
+    properties.AddMember("status", rapidjson::Value(switch_status.c_str(), allocator), allocator);
 
     // Max reserved snapshots
     if (instance.has_max_reserved_snapshot()) {
