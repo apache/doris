@@ -76,6 +76,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryOperator;
 import org.apache.doris.nereids.trees.expressions.Variable;
@@ -361,6 +362,11 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitCast(Cast cast, C context) {
         return visit(cast, context);
+    }
+
+    // By default, use visitCast for TryCast.
+    public R visitTryCast(TryCast tryCast, C context) {
+        return visitCast(tryCast, context);
     }
 
     public R visitUnaryArithmetic(UnaryArithmetic unaryArithmetic, C context) {
