@@ -678,6 +678,8 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                     ++it;
                 }
             }
+            _opts.condition_cache_digest =
+                    _common_expr_ctxs_push_down.empty() ? 0 : _opts.condition_cache_digest;
             _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
             for (auto cid : _schema->column_ids()) {
                 bool result_true = _check_all_conditions_passed_inverted_index_for_column(cid);
