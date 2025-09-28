@@ -495,6 +495,10 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             expr = VCastExpr::create_shared(expr_node);
             break;
         }
+        case TExprNodeType::TRY_CAST_EXPR: {
+            expr = TryCastExpr::create_shared(expr_node);
+            break;
+        }
         case TExprNodeType::IN_PRED: {
             expr = VInPredicate::create_shared(expr_node);
             break;
