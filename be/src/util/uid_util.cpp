@@ -79,5 +79,16 @@ bool parse_id(std::string& s, TUniqueId* id) {
     bool valid = *error_hi == '\0' && *error_lo == '\0';
     return valid;
 }
+
+bool TUniqueId::operator<(const TUniqueId& rhs) const {
+    if (hi < rhs.hi) {
+        return true;
+    }
+    if (hi > rhs.hi) {
+        return false;
+    }
+    return lo < rhs.lo;
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris

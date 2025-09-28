@@ -100,6 +100,7 @@
 // 0x03 "meta" ${instance_id} "schema" ${index_id} ${schema_version}                -> TabletSchemaPB
 // 0x03 "meta" ${instance_id} "rowset_load" ${tablet_id} ${version} ${timestamp}    -> RowsetMetaPB
 // 0x03 "meta" ${instance_id} "rowset_compact" ${tablet_id} ${version} ${timestamp} -> RowsetMetaPB
+// 0x03 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id}             -> DeleteBitmapStoragePB
 //
 // 0x03 "data" ${instance_id} "rowset_ref_count" ${tablet_id} ${rowset_id} => int64
 //
