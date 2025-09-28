@@ -95,10 +95,22 @@ suite("test_binary_for_digest", "p0,external,mysql,external_docker,external_dock
                 "MD5 hash mismatch for row ${md5_result[i][0]}: VarBinary=${md5_result[i][1]}, VARCHAR=${md5_result[i][2]}")
         }
 
+        def md5sum_result = sql """select id, md5sum(vb, vb, vb), md5sum(vc, vc, vc) from ${test_table} order by id"""
+        for (int i = 0; i < md5sum_result.size(); i++) {
+            assertTrue(md5sum_result[i][1] == md5sum_result[i][2],
+                "MD5SUM hash mismatch for row ${md5sum_result[i][0]}: VarBinary=${md5sum_result[i][1]}, VARCHAR=${md5sum_result[i][2]}")
+        }
+
         def sm3_result = sql """select id, sm3(vb), sm3(vc) from ${test_table} order by id"""
         for (int i = 0; i < sm3_result.size(); i++) {
             assertTrue(sm3_result[i][1] == sm3_result[i][2],
                 "SM3 hash mismatch for row ${sm3_result[i][0]}: VarBinary=${sm3_result[i][1]}, VARCHAR=${sm3_result[i][2]}")
+        }
+
+        def sm3sum_result = sql """select id, sm3sum(vb, vb, vb), sm3sum(vc, vc, vc) from ${test_table} order by id"""
+        for (int i = 0; i < sm3sum_result.size(); i++) {
+            assertTrue(sm3sum_result[i][1] == sm3sum_result[i][2],
+                "SM3SUM hash mismatch for row ${sm3sum_result[i][0]}: VarBinary=${sm3sum_result[i][1]}, VARCHAR=${sm3sum_result[i][2]}")
         }
 
         def xxhash32_result = sql """select id, xxhash_32(vb), xxhash_32(vc) from ${test_table} order by id"""
