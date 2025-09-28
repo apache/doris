@@ -118,6 +118,7 @@ Suite.metaClass.checkRecycleTable = { String token, String instanceId, String cl
 
     suite.getLogger().info(getObjStoreInfoApiResult.result.toString())
     if (getObjStoreInfoApiResult.result.toString().contains("storage_vault=[") && getObjStoreInfoApiResult.result.toString().contains("hdfs_info")) {
+        System.setProperty("java.security.krb5.conf", "/etc/krb/krb5.conf")
         String fsUri = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.build_conf.fs_name
         String prefix = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.prefix
         String kbsPrincipal = ''
