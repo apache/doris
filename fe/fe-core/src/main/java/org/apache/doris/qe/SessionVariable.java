@@ -730,6 +730,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
+    public static final String COMPUTE_GROUP = "compute_group";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
     public static final String CLOUD_PARTITION_VERSION_CACHE_TTL_MS =
             "cloud_partition_version_cache_ttl_ms";
@@ -2692,7 +2693,7 @@ public class SessionVariable implements Serializable, Writable {
 
 
     // CLOUD_VARIABLES_BEGIN
-    @VariableMgr.VarAttr(name = CLOUD_CLUSTER)
+    @VariableMgr.VarAttr(name = CLOUD_CLUSTER, alias = {COMPUTE_GROUP})
     public String cloudCluster = "";
     @VariableMgr.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
     public boolean disableEmptyPartitionPrune = false;
