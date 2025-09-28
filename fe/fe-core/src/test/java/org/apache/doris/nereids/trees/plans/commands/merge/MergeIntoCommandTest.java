@@ -15,50 +15,49 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.nereids.trees.plans.commands.merge;
 
-public enum StmtType {
-    ADMIN,
-    ALTER,
-    ANALYZE,
-    BACKUP,
-    CALL,
-    CANCEL,
-    CLEAN,
-    CREATE,
-    DDL,
-    DELETE,
-    DROP,
-    EXECUTE,
-    EXPLAIN,
-    EXPORT,
-    GRANT,
-    IMPORT,
-    INSERT,
-    INSTALL,
-    KILL,
-    LOAD,
-    MERGE_INTO,
-    OTHER,
-    OPTIMIZE,
-    PAUSE,
-    PREPARE,
-    RECOVER,
-    REFRESH,
-    REPLAY,
-    RESTORE,
-    RESUME,
-    REVOKE,
-    SELECT,
-    SET,
-    SHOW,
-    STOP,
-    SWITCH,
-    SYNC,
-    TRANSACTION,
-    TRUNCATE,
-    UNINSTALL,
-    UNSET,
-    UPDATE,
-    USE
+import org.junit.jupiter.api.Test;
+
+public class MergeIntoCommandTest {
+
+    @Test
+    public void testGenerateBasePlan() {
+
+    }
+
+    @Test
+    public void testGenerateBranchLabel() {
+
+    }
+
+    @Test
+    public void testGenerateMatchedMark() {
+
+    }
+
+    @Test
+    public void testGenerateDeleteProjection() {
+
+    }
+
+    @Test
+    public void testGenerateUpdateProjection() {
+
+    }
+
+    @Test
+    public void testGenerateInsertWithoutColListProjection() {
+
+    }
+
+    @Test
+    public void testGenerateInsertWithColListProjection() {
+
+    }
+
+    @Test
+    public void testGenerateFinalProjections() {
+
+    }
 }
