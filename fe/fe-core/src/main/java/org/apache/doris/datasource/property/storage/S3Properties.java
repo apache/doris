@@ -72,23 +72,31 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     @Getter
     @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY", "glue.access_key",
-            "aws.glue.access-key", "client.credentials-provider.glue.access_key", "iceberg.rest.access-key-id"},
+            "aws.glue.access-key", "client.credentials-provider.glue.access_key", "iceberg.rest.access-key-id",
+            "s3.access-key-id"},
             required = false,
             description = "The access key of S3. Optional for anonymous access to public datasets.")
     protected String accessKey = "";
 
     @Getter
     @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY", "glue.secret_key",
-            "aws.glue.secret-key", "client.credentials-provider.glue.secret_key", "iceberg.rest.secret-access-key"},
+            "aws.glue.secret-key", "client.credentials-provider.glue.secret_key", "iceberg.rest.secret-access-key",
+            "s3.secret-access-key"},
             required = false,
             description = "The secret key of S3. Optional for anonymous access to public datasets.")
     protected String secretKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"s3.session_token", "session_token"},
+    @ConnectorProperty(names = {"s3.session_token", "session_token", "s3.session-token"},
             required = false,
             description = "The session token of S3.")
     protected String sessionToken = "";
+
+    @Getter
+    @ConnectorProperty(names = {"s3.session-token-token-expires-at-ms"},
+            required = false,
+            description = "The session token expiration time in milliseconds since epoch.")
+    protected String sessionTokenExpiresAtMs = "";
 
     @Getter
     @ConnectorProperty(names = {"s3.connection.maximum",

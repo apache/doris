@@ -100,10 +100,6 @@ private:
 public:
     std::pair<TypeDescriptor, bool> get_doris_type(const tparquet::SchemaElement& physical_schema);
 
-    // org.apache.iceberg.avro.AvroSchemaUtil#sanitize will encode special characters,
-    // we have to decode these characters
-    void iceberg_sanitize(const std::vector<std::string>& read_columns);
-
     FieldDescriptor() = default;
     ~FieldDescriptor() = default;
 

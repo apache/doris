@@ -1662,7 +1662,7 @@ class Suite implements GroovyInterceptable {
 
     void waitingMVTaskFinishedByMvName(String dbName, String tableName, String indexName) {
         Thread.sleep(2000)
-        String showTasks = "SHOW ALTER TABLE MATERIALIZED VIEW from ${dbName} where TableName='${tableName}' ORDER BY CreateTime DESC"
+        String showTasks = "SHOW ALTER TABLE MATERIALIZED VIEW from ${dbName} where TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1"
         String status = "NULL"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
@@ -1671,12 +1671,7 @@ class Suite implements GroovyInterceptable {
         while (timeoutTimestamp > System.currentTimeMillis() && (status != 'FINISHED')) {
             result = sql(showTasks)
             logger.info("crrent db is " + dbName + ", showTasks result: " + result.toString())
-            // just consider current db
-            for (List<String> taskRow : result) {
-                if (taskRow.get(5).equals(indexName)) {
-                    toCheckTaskRow = taskRow;
-                }
-            }
+            toCheckTaskRow = result.last()
             if (toCheckTaskRow.isEmpty()) {
                 logger.info("waitingMVTaskFinishedByMvName toCheckTaskRow is empty")
                 Thread.sleep(1000);

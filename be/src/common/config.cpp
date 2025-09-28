@@ -54,6 +54,9 @@ DEFINE_String(custom_config_dir, "${DORIS_HOME}/conf");
 // Dir of jdbc drivers
 DEFINE_String(jdbc_drivers_dir, "${DORIS_HOME}/plugins/jdbc_drivers");
 
+// Dir of java udf
+DEFINE_String(java_udf_dir, "${DORIS_HOME}/plugins/java_udf");
+
 // cluster id
 DEFINE_Int32(cluster_id, "-1");
 // port on which BackendService is exported
@@ -786,6 +789,8 @@ DEFINE_String(default_rowset_type, "BETA");
 // Maximum size of a single message body in all protocols
 DEFINE_Int64(brpc_max_body_size, "3147483648");
 DEFINE_Int64(brpc_socket_max_unwritten_bytes, "-1");
+DEFINE_mBool(brpc_usercode_in_pthread, "false");
+
 // TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
 // Controller Attachment and send it through http brpc when the length of the Tuple/Block data
@@ -809,7 +814,7 @@ DEFINE_Int32(txn_map_shard_size, "1024");
 DEFINE_Int32(txn_shard_size, "1024");
 
 // Whether to continue to start be when load tablet from header failed.
-DEFINE_Bool(ignore_load_tablet_failure, "false");
+DEFINE_Bool(ignore_load_tablet_failure, "true");
 
 // Whether to continue to start be when load tablet from header failed.
 DEFINE_mBool(ignore_rowset_stale_unconsistent_delete, "false");
@@ -1276,7 +1281,7 @@ DEFINE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap, "true");
 DEFINE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap, "false");
 
 // The secure path with user files, used in the `local` table function.
-DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
+DEFINE_String(user_files_secure_path, "${DORIS_HOME}");
 
 DEFINE_Int32(fe_expire_duration_seconds, "60");
 
@@ -1335,8 +1340,6 @@ DEFINE_mInt32(buffered_reader_read_timeout_ms, "600000");
 DEFINE_Bool(enable_snapshot_action, "false");
 
 DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
-
-DEFINE_mInt32(variant_max_sparse_column_statistics_size, "10000");
 
 DEFINE_mBool(enable_column_type_check, "true");
 // 128 MB
@@ -1564,6 +1567,12 @@ DEFINE_mInt32(max_segment_partial_column_cache_size, "500");
 
 DEFINE_mBool(enable_wal_tde, "false");
 
+<<<<<<< HEAD
+=======
+DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
+DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
+
+>>>>>>> 3.1.1-rc01
 // clang-format off
 #ifdef BE_TEST
 // test s3
@@ -2015,6 +2024,8 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
     fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
             ((distribution(*generator) % 2) == 0) ? "5" : "10";
+    fuzzy_field_and_value["skip_writing_empty_rowset_metadata"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
 
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =

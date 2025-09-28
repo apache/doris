@@ -71,6 +71,6 @@ suite("test_validate_restore_inverted_index", "validate_restore") {
     }
 
     runValidateRestoreInvertedIndex("3.0")
-    //runValidateRestoreInvertedIndex("2.1")
+    runValidateRestoreInvertedIndex("2.1")
 }
 

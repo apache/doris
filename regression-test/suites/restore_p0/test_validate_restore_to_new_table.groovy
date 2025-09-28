@@ -79,5 +79,5 @@ suite("test_validate_restore_to_new_table", "validate_restore") {
     }
 
     runValidateRestoreToNewTable("3.0")
-    //runValidateRestoreToNewTable("2.1")
+    runValidateRestoreToNewTable("2.1")
 }

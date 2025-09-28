@@ -40,6 +40,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/fs/file_meta_cache.h"
 #include "io/hdfs_builder.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/delete_handler.h"

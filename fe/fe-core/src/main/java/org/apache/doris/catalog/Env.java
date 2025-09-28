@@ -4330,7 +4330,8 @@ public class Env {
         if (Strings.isNullOrEmpty(info.getCtlName()) || info.getCtlName()
                 .equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             Table table = info.getTable();
-            getInternalCatalog().replayCreateTable(info.getDbName(), table);
+            long dbId = info.getDbId();
+            getInternalCatalog().replayCreateTable(info.getDbName(), dbId, table);
             if (table instanceof MTMV) {
                 ((MTMV) table).compatible(Env.getCurrentEnv().getCatalogMgr());
             }
@@ -4352,7 +4353,7 @@ public class Env {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getCatalogName(),
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
         catalogIf.dropTable(stmt.getDbName(), stmt.getTableName(), stmt.isView(), stmt.isMaterializedView(),
-                stmt.isSetIfExists(), stmt.isForceDrop());
+                stmt.isSetIfExists(), stmt.isMustTemporary(), stmt.isForceDrop());
     }
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,

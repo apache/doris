@@ -20,6 +20,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 
 #include "common/status.h"
+#include "io/fs/file_meta_cache.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "util/profile_collector.h"
@@ -85,6 +86,10 @@ protected:
     /// Whether the underlying FileReader has filled the partition&missing columns
     bool _fill_all_columns = false;
     TPushAggOp::type _push_down_agg_type {};
+
+    // Cache to save some common part such as file footer.
+    // Maybe null if not used
+    FileMetaCache* _meta_cache = nullptr;
 };
 
 #include "common/compile_check_end.h"

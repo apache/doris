@@ -400,7 +400,8 @@ public abstract class DataType {
                         .collect(ImmutableList.toImmutableList());
                 return new VariantType(variantFields,
                         ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
-                        ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse());
+                        ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse(),
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize());
             }
             return new VariantType(0);
         } else {

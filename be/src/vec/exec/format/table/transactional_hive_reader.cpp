@@ -38,8 +38,10 @@ namespace doris::vectorized {
 TransactionalHiveReader::TransactionalHiveReader(std::unique_ptr<GenericReader> file_format_reader,
                                                  RuntimeProfile* profile, RuntimeState* state,
                                                  const TFileScanRangeParams& params,
-                                                 const TFileRangeDesc& range, io::IOContext* io_ctx)
-        : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx) {
+                                                 const TFileRangeDesc& range, io::IOContext* io_ctx,
+                                                 FileMetaCache* meta_cache)
+        : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx,
+                            meta_cache) {
     static const char* transactional_hive_profile = "TransactionalHiveProfile";
     ADD_TIMER(_profile, transactional_hive_profile);
     _transactional_orc_profile.num_delete_files =
@@ -163,7 +165,7 @@ Status TransactionalHiveReader::init_row_filters() {
         delete_range.file_size = -1;
 
         OrcReader delete_reader(_profile, _state, _params, delete_range, _MIN_BATCH_SIZE,
-                                _state->timezone(), _io_ctx, false);
+                                _state->timezone(), _io_ctx, _meta_cache, false);
 
         auto acid_info_node = std::make_shared<StructNode>();
         for (auto idx = 0; idx < TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE.size();

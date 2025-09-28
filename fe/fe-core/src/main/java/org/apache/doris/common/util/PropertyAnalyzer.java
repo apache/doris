@@ -257,6 +257,12 @@ public class PropertyAnalyzer {
     public static final String AES256 = "AES256";
     public static final String SM4 = "SM4";
     public static final String PLAINTEXT = "PLAINTEXT";
+<<<<<<< HEAD
+=======
+
+    public static final String PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
+            "variant_max_sparse_column_statistics_size";
+>>>>>>> 3.1.1-rc01
 
     public enum RewriteType {
         PUT,      // always put property
@@ -1876,6 +1882,29 @@ public class PropertyAnalyzer {
         return enableTypedPathsToSparse;
     }
 
+<<<<<<< HEAD
+=======
+    public static int analyzeVariantMaxSparseColumnStatisticsSize(Map<String, String> properties, int defuatValue)
+                                                                                throws AnalysisException {
+        int maxSparseColumnStatisticsSize = defuatValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE)) {
+            String maxSparseColumnStatisticsSizeStr =
+                    properties.get(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
+            try {
+                maxSparseColumnStatisticsSize = Integer.parseInt(maxSparseColumnStatisticsSizeStr);
+                if (maxSparseColumnStatisticsSize < 0 || maxSparseColumnStatisticsSize > 50000) {
+                    throw new AnalysisException("variant_max_sparse_column_statistics_size must between 0 and 50000 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException("variant_max_sparse_column_statistics_size format error:" + e.getMessage());
+            }
+
+            properties.remove(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
+        }
+        return maxSparseColumnStatisticsSize;
+    }
+
+>>>>>>> 3.1.1-rc01
     public static TEncryptionAlgorithm analyzeTDEAlgorithm(Map<String, String> properties) throws AnalysisException {
         String name;
         //if (properties == null || !properties.containsKey(PROPERTIES_TDE_ALGORITHM)) {

@@ -27,9 +27,9 @@ class HudiReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
     HudiReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                RuntimeState* state, const TFileScanRangeParams& params, const TFileRangeDesc& range,
-               io::IOContext* io_ctx)
+               io::IOContext* io_ctx, FileMetaCache* meta_cache)
             : TableFormatReader(std::move(file_format_reader), state, profile, params, range,
-                                io_ctx) {};
+                                io_ctx, meta_cache) {};
 
     ~HudiReader() override = default;
 
@@ -43,8 +43,9 @@ public:
     ENABLE_FACTORY_CREATOR(HudiParquetReader);
     HudiParquetReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                       RuntimeState* state, const TFileScanRangeParams& params,
-                      const TFileRangeDesc& range, io::IOContext* io_ctx)
-            : HudiReader(std::move(file_format_reader), profile, state, params, range, io_ctx) {};
+                      const TFileRangeDesc& range, io::IOContext* io_ctx, FileMetaCache* meta_cache)
+            : HudiReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
+                         meta_cache) {};
     ~HudiParquetReader() final = default;
 
     Status init_reader(
@@ -63,8 +64,9 @@ public:
     ENABLE_FACTORY_CREATOR(HudiOrcReader);
     HudiOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                   RuntimeState* state, const TFileScanRangeParams& params,
-                  const TFileRangeDesc& range, io::IOContext* io_ctx)
-            : HudiReader(std::move(file_format_reader), profile, state, params, range, io_ctx) {};
+                  const TFileRangeDesc& range, io::IOContext* io_ctx, FileMetaCache* meta_cache)
+            : HudiReader(std::move(file_format_reader), profile, state, params, range, io_ctx,
+                         meta_cache) {};
     ~HudiOrcReader() final = default;
 
     Status init_reader(

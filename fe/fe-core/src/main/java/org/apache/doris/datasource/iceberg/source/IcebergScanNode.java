@@ -33,11 +33,13 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.credentials.CredentialUtils;
+import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.datasource.iceberg.IcebergVendedCredentialsProvider;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
@@ -108,6 +110,10 @@ public class IcebergScanNode extends FileQueryScanNode {
     private int formatVersion;
     private ExecutionAuthenticator preExecutionAuthenticator;
     private TableScan icebergTableScan;
+    // Store PropertiesMap, including vended credentials or static credentials
+    // get them in doInitialize() to ensure internal consistency of ScanNode
+    private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
+    private Map<String, String> backendStorageProperties;
 
     // for test
     @VisibleForTesting
@@ -154,6 +160,13 @@ public class IcebergScanNode extends FileQueryScanNode {
         isPartitionedTable = icebergTable.spec().isPartitioned();
         formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
         preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) source.getCatalog();
+        storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                catalog.getCatalogProperty().getMetastoreProperties(),
+                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                icebergTable
+        );
+        backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
         super.doInitialize();
         ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
     }
@@ -363,8 +376,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private Split createIcebergSplit(FileScanTask fileScanTask) {
         String originalPath = fileScanTask.file().path().toString();
-        LocationPath locationPath = LocationPath.of(originalPath,
-                source.getCatalog().getCatalogProperty().getStoragePropertiesMap());
+        LocationPath locationPath = LocationPath.of(originalPath, storagePropertiesMap);
         IcebergSplit split = new IcebergSplit(
                 locationPath,
                 fileScanTask.start(),
@@ -372,7 +384,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 fileScanTask.file().fileSizeInBytes(),
                 new String[0],
                 formatVersion,
-                source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
+                storagePropertiesMap,
                 new ArrayList<>(),
                 originalPath);
         if (!fileScanTask.deletes().isEmpty()) {
@@ -548,12 +560,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public Map<String, String> getLocationProperties() throws UserException {
-        IcebergExternalCatalog catalog = (IcebergExternalCatalog) source.getCatalog();
-        return IcebergVendedCredentialsProvider.getBackendLocationProperties(
-                catalog.getCatalogProperty().getMetastoreProperties(),
-                catalog.getCatalogProperty().getStoragePropertiesMap(),
-                icebergTable
-        );
+        return backendStorageProperties;
     }
 
     @Override

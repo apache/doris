@@ -189,6 +189,8 @@ public:
 
     int64_t initiator() const;
 
+    int64_t num_input_rowsets() const;
+
 protected:
     CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
 
@@ -202,6 +204,8 @@ protected:
 
 private:
     Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
+
+    Status set_storage_resource_from_input_rowsets(RowsetWriterContext& ctx);
 
     Status execute_compact_impl(int64_t permits);
 

@@ -108,6 +108,8 @@ suite("test_external_catalog_hive", "p0,external,hive,external_docker,external_d
         //qt_null_expr_dict_filter_orc """ select count(*), count(distinct user_no) from multi_catalog.dict_fitler_test_orc WHERE `partitions` in ('2023-08-21') and actual_intf_type  =  'type1' and (REUSE_FLAG<> 'y' or REUSE_FLAG is null); """
         //qt_null_expr_dict_filter_parquet """ select count(*), count(distinct user_no) from multi_catalog.dict_fitler_test_parquet WHERE `partitions` in ('2023-08-21') and actual_intf_type  =  'type1' and (REUSE_FLAG<> 'y' or REUSE_FLAG is null); """
 
+        sql """set  hive_orc_use_column_names = true """
+        sql """set  hive_parquet_use_column_names = true """
         // test par fields in file
         qt_par_fields_in_file_orc1 """ select * from multi_catalog.par_fields_in_file_orc where year = 2023 and month = 8 order by id; """
         qt_par_fields_in_file_parquet1 """ select * from multi_catalog.par_fields_in_file_parquet where year = 2023 and month = 8 order by id; """
@@ -120,6 +122,22 @@ suite("test_external_catalog_hive", "p0,external,hive,external_docker,external_d
         qt_par_fields_in_file_orc5 """ select * from multi_catalog.par_fields_in_file_orc where month = 8 and year = 2022 order by id; """
         qt_par_fields_in_file_parquet5 """ select * from multi_catalog.par_fields_in_file_parquet where month = 8 and year = 2022 order by id; """
 
+        sql """set  hive_orc_use_column_names = false; """
+        sql """set  hive_parquet_use_column_names = false"""
+        qt_par_fields_in_file_orc1 """ select * from multi_catalog.par_fields_in_file_orc where year = 2023 and month = 8 order by id; """
+        qt_par_fields_in_file_parquet1 """ select * from multi_catalog.par_fields_in_file_parquet where year = 2023 and month = 8 order by id; """
+        qt_par_fields_in_file_orc2 """ select * from multi_catalog.par_fields_in_file_orc where year = 2023 order by id; """
+        qt_par_fields_in_file_parquet2 """ select * from multi_catalog.par_fields_in_file_parquet where year = 2023 order by id; """
+        qt_par_fields_in_file_orc3 """ select * from multi_catalog.par_fields_in_file_orc where month = 8 order by id; """
+        qt_par_fields_in_file_parquet3 """ select * from multi_catalog.par_fields_in_file_parquet where month = 8 order by id; """
+        qt_par_fields_in_file_orc4 """ select * from multi_catalog.par_fields_in_file_orc where month = 8 and year >= 2022 order by id; """
+        qt_par_fields_in_file_parquet4 """ select * from multi_catalog.par_fields_in_file_parquet where month = 8 and year >= 2022 order by id; """
+        qt_par_fields_in_file_orc5 """ select * from multi_catalog.par_fields_in_file_orc where month = 8 and year = 2022 order by id; """
+        qt_par_fields_in_file_parquet5 """ select * from multi_catalog.par_fields_in_file_parquet where month = 8 and year = 2022 order by id; """
+
+
+        sql """set  hive_orc_use_column_names = true """
+        sql """set  hive_parquet_use_column_names = true """
         // timestamp with isAdjustedToUTC=true
         qt_parquet_adjusted_utc """select * from multi_catalog.timestamp_with_time_zone order by date_col;"""
 

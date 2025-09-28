@@ -1079,7 +1079,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 LOG.debug("Chosen partition for table {}. [{}]", name, partition.toString());
             }
         }
-        return cache.getFilesByPartitionsWithoutCache(hivePartitions);
+        return cache.getFilesByPartitions(hivePartitions, false, true);
     }
 
     @Override

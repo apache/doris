@@ -61,6 +61,6 @@ suite("test_validate_restore_reserve_dynamic_partition_false", "validate_restore
     }
 
     runValidateRestoreReserveDynamicPartitionFalse("3.0")
-    //runValidateRestoreReserveDynamicPartitionFalse("2.1")
+    runValidateRestoreReserveDynamicPartitionFalse("2.1")
 }
 

@@ -34,6 +34,7 @@ public:
         column_pb->set_is_nullable(is_nullable);
         if (column_type == "VARIANT") {
             column_pb->set_variant_max_subcolumns_count(variant_max_subcolumns_count);
+            column_pb->set_variant_max_sparse_column_statistics_size(10000);
         }
     }
 

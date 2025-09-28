@@ -656,12 +656,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
             if (!Strings.isNullOrEmpty(newDbName)) {
-                try {
-                    db.writeUnlock();
-                    db.setNameWithLock(newDbName);
-                } finally {
-                    db.writeLock();
-                }
+                db.setNameWithLock(newDbName);
             }
             fullNameToDb.put(db.getFullName(), db);
             idToDb.put(db.getId(), db);
@@ -840,6 +835,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         Database db = null;
+        // catalog lock
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
@@ -853,16 +849,24 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (fullNameToDb.get(newFullDbName) != null) {
                 throw new DdlException("Database name[" + newFullDbName + "] is already used");
             }
-            // 1. rename db
-            db.setNameWithLock(newFullDbName);
+            // db lock
+            db.writeLock();
+            try {
+                // 1. rename db
+                db.setNameWithoutLock(newFullDbName);
 
-            // 2. add to meta. check again
-            fullNameToDb.remove(fullDbName);
-            fullNameToDb.put(newFullDbName, db);
+                // 2. add to meta. check again
+                fullNameToDb.remove(fullDbName);
+                fullNameToDb.put(newFullDbName, db);
 
-            DatabaseInfo dbInfo = new DatabaseInfo(fullDbName, newFullDbName, -1L, QuotaType.NONE);
-            Env.getCurrentEnv().getEditLog().logDatabaseRename(dbInfo);
+                DatabaseInfo dbInfo = new DatabaseInfo(fullDbName, newFullDbName, -1L, QuotaType.NONE);
+                Env.getCurrentEnv().getEditLog().logDatabaseRename(dbInfo);
+            } finally {
+                // db lock
+                db.writeUnlock();
+            }
         } finally {
+            // catalog lock
             unlock();
         }
 
@@ -885,7 +889,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     @Override
     public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv,
-            boolean ifExists, boolean force) throws DdlException {
+            boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
         Map<String, Long> costTimes = new TreeMap<String, Long>();
         StopWatch watch = StopWatch.createStarted();
         LOG.info("begin to drop table: {} from db: {}, is force: {}", tableName, dbName, force);
@@ -961,6 +965,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (table.isTemporary()) {
                 dropTableInternal(db, table, false, true, watch, costTimes);
             } else {
+                if (mustTemporary) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
+                }
                 dropTableInternal(db, table, isView, force, watch, costTimes);
             }
         } catch (UserException e) {
@@ -1016,14 +1023,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                     costTimes.put("5:getRecycleTimeById", watch.getSplitTime());
                 }
             }
+            DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, isView, forceDrop, recycleTime);
+            Env.getCurrentEnv().getEditLog().logDropTable(info);
         } finally {
             table.writeUnlock();
         }
 
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                 db.getId(), table.getId());
-        DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, isView, forceDrop, recycleTime);
-        Env.getCurrentEnv().getEditLog().logDropTable(info);
         Env.getCurrentEnv().getMtmvService().dropTable(table);
         if (Config.isCloudMode()) {
             ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr())
@@ -1484,8 +1491,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void replayCreateTable(String dbName, Table table) throws MetaNotFoundException {
-        Database db = this.fullNameToDb.get(dbName);
+    public void replayCreateTable(String dbName, long dbId, Table table) throws MetaNotFoundException {
+        if (dbId != -1L) {
+            Database db = getDbOrMetaException(dbId);
+            replayCreateTableInternal(db, table);
+        } else {
+            // Compatible with old logic
+            Database db = getDbOrMetaException(dbName);
+            replayCreateTableInternal(db, table);
+        }
+    }
+
+    private void replayCreateTableInternal(Database db, Table table) throws MetaNotFoundException {
         try {
             db.createTableWithLock(table, true, false);
         } catch (DdlException e) {
@@ -3270,8 +3287,18 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else {
                 throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
             }
-
-            Pair<Boolean, Boolean> result = db.createTableWithLock(olapTable, false, stmt.isSetIfNotExists());
+            Pair<Boolean, Boolean> result;
+            db.writeLockOrDdlException();
+            try {
+                // db name not changed
+                if (!db.getName().equals(ClusterNamespace.getNameFromFullName(stmt.getDbName()))) {
+                    throw new DdlException("Database name renamed, please check the database name");
+                }
+                // register table, write create table edit log
+                result = db.createTableWithoutLock(olapTable, false, stmt.isSetIfNotExists());
+            } finally {
+                db.writeUnlock();
+            }
             if (!result.first) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
             }

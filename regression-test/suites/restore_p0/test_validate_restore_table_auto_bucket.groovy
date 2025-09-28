@@ -61,6 +61,6 @@ suite("test_validate_restore_table_auto_bucket", "validate_restore") {
     }
 
     runValidateRestoreTableAutoBucket("3.0")
-    //runValidateRestoreTableAutoBucket("2.1")
+    runValidateRestoreTableAutoBucket("2.1")
 }
 

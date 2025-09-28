@@ -53,7 +53,7 @@ using apache::thrift::transport::TSocket;
 using apache::thrift::transport::TTransport;
 using apache::thrift::transport::TBufferedTransport;
 
-ExecEnv* ThriftRpcHelper::_s_exec_env;
+ExecEnv* ThriftRpcHelper::_s_exec_env = nullptr;
 
 void ThriftRpcHelper::setup(ExecEnv* exec_env) {
     _s_exec_env = exec_env;

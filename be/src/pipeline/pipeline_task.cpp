@@ -74,13 +74,30 @@ PipelineTask::PipelineTask(
           _task_idx(task_idx),
           _pipeline_name(_pipeline->name()) {
     _pipeline_task_watcher.start();
+#ifndef BE_TEST
+    _query_mem_tracker = fragment_context->get_query_ctx()->query_mem_tracker;
+#endif
     _execution_dependencies.push_back(state->get_query_ctx()->get_execution_dependency());
     auto shared_state = _sink->create_shared_state();
     if (shared_state) {
         _sink_shared_state = shared_state;
     }
 }
-
+PipelineTask::~PipelineTask() {
+// PipelineTask is also hold by task queue( https://github.com/apache/doris/pull/49753),
+// so that it maybe the last one to be destructed.
+// But pipeline task hold some objects, like operators, shared state, etc. So that should release
+// memory manually.
+#ifndef BE_TEST
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_mem_tracker);
+#endif
+    _sink_shared_state.reset();
+    _op_shared_states.clear();
+    _sink.reset();
+    _operators.clear();
+    _block.reset();
+    _pipeline.reset();
+}
 Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink,
                              QueryContext* query_ctx) {
     DCHECK(_sink);

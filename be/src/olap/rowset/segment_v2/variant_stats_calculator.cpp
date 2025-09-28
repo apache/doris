@@ -17,6 +17,8 @@
 
 #include "olap/rowset/segment_v2/variant_stats_calculator.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+
 #include "common/logging.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column_nullable.h"
@@ -67,7 +69,13 @@ Status VariantStatsCaculator::calculate_variant_stats(const vectorized::Block* b
             // Check if this is a sparse column or sub column
             if (column_path.ends_with("__DORIS_VARIANT_SPARSE__")) {
                 // This is a sparse column from variant column
-                _calculate_sparse_column_stats(*column, column_meta, row_pos, num_rows);
+                // get variant_max_sparse_column_statistics_size from tablet_schema
+                size_t variant_max_sparse_column_statistics_size =
+                        _tablet_schema->column_by_uid(tablet_column.parent_unique_id())
+                                .variant_max_sparse_column_statistics_size();
+                _calculate_sparse_column_stats(*column, column_meta,
+                                               variant_max_sparse_column_statistics_size, row_pos,
+                                               num_rows);
             } else {
                 // This is a sub column from variant column
                 _calculate_sub_column_stats(*column, column_meta, row_pos, num_rows);
@@ -79,12 +87,14 @@ Status VariantStatsCaculator::calculate_variant_stats(const vectorized::Block* b
 
 void VariantStatsCaculator::_calculate_sparse_column_stats(const vectorized::IColumn& column,
                                                            ColumnMetaPB* column_meta,
+                                                           size_t max_sparse_column_statistics_size,
                                                            size_t row_pos, size_t num_rows) {
     // Get or create variant statistics
     VariantStatisticsPB* stats = column_meta->mutable_variant_statistics();
 
     // Use the same logic as the original calculate_variant_stats function
-    vectorized::schema_util::calculate_variant_stats(column, stats, row_pos, num_rows);
+    vectorized::schema_util::calculate_variant_stats(
+            column, stats, max_sparse_column_statistics_size, row_pos, num_rows);
 
     VLOG_DEBUG << "Sparse column stats updated, non-null size count: "
                << stats->sparse_column_non_null_size_size();

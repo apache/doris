@@ -42,6 +42,7 @@
 #include "runtime/exec_env.h"
 #include "util/dynamic_util.h"
 #include "util/md5.h"
+#include "util/path_util.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -271,10 +272,12 @@ Status UserFunctionCache::_download_lib(const std::string& url,
         return Status::InternalError("fail to open file");
     }
 
+    std::string udf_path =
+            doris::path_util::get_real_plugin_url(url, doris::config::java_udf_dir, "java_udf");
     Md5Digest digest;
     HttpClient client;
     int64_t file_size = 0;
-    RETURN_IF_ERROR(client.init(url));
+    RETURN_IF_ERROR(client.init(udf_path));
     Status status;
     auto download_cb = [&status, &tmp_file, &fp, &digest, &file_size](const void* data,
                                                                       size_t length) {
@@ -382,4 +385,5 @@ std::vector<std::string> UserFunctionCache::_split_string_by_checksum(const std:
 
     return result;
 }
+
 } // namespace doris

@@ -270,7 +270,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     compaction_job->set_size_output_rowsets(_output_rowset->total_disk_size());
     compaction_job->set_num_input_segments(_input_segments);
     compaction_job->set_num_output_segments(_output_rowset->num_segments());
-    compaction_job->set_num_input_rowsets(_input_rowsets.size());
+    compaction_job->set_num_input_rowsets(num_input_rowsets());
     compaction_job->set_num_output_rowsets(1);
     compaction_job->add_input_versions(_input_rowsets.front()->start_version());
     compaction_job->add_input_versions(_input_rowsets.back()->end_version());
@@ -435,6 +435,8 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         LOG(INFO) << "delete_expired_stale_rowsets for tablet=" << _tablet->tablet_id();
         _engine.tablet_mgr().vacuum_stale_rowsets(CountDownLatch(1));
     });
+
+    _tablet->prefill_dbm_agg_cache_after_compaction(_output_rowset);
     return Status::OK();
 }
 

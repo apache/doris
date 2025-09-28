@@ -20,6 +20,8 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <atomic>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -67,6 +69,10 @@ public:
     void set_remote_storage_resource(StorageResource resource);
 
     const std::string& resource_id() const { return _rowset_meta_pb.resource_id(); }
+
+    void set_resource_id(const std::string& resource_id) {
+        _rowset_meta_pb.set_resource_id(resource_id);
+    }
 
     bool is_local() const { return !_rowset_meta_pb.has_resource_id(); }
 
@@ -204,6 +210,15 @@ public:
     void set_creation_time(int64_t creation_time) {
         return _rowset_meta_pb.set_creation_time(creation_time);
     }
+
+    int64_t stale_at() const {
+        int64_t stale_time = _stale_at_s.load();
+        return stale_time > 0 ? stale_time : _rowset_meta_pb.creation_time();
+    }
+
+    bool has_stale_at() const { return _stale_at_s.load() > 0; }
+
+    void set_stale_at(int64_t stale_at) { _stale_at_s.store(stale_at); }
 
     int64_t partition_id() const { return _rowset_meta_pb.partition_id(); }
 
@@ -402,6 +417,10 @@ private:
     StorageResource _storage_resource;
     bool _is_removed_from_rowset_meta = false;
     DorisCallOnce<Result<EncryptionAlgorithmPB>> _determine_encryption_once;
+<<<<<<< HEAD
+=======
+    std::atomic<int64_t> _stale_at_s {0};
+>>>>>>> 3.1.1-rc01
 };
 
 } // namespace doris

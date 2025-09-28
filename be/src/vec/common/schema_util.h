@@ -172,7 +172,8 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
 
 // Calculate statistics about variant data paths from the encoded sparse column
 void calculate_variant_stats(const IColumn& encoded_sparse_column,
-                             segment_v2::VariantStatisticsPB* stats, size_t row_pos,
+                             segment_v2::VariantStatisticsPB* stats,
+                             size_t max_sparse_column_statistics_size, size_t row_pos,
                              size_t num_rows);
 
 void get_field_info(const Field& field, FieldInfo* info);

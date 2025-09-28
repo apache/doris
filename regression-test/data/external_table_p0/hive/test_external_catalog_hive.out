@@ -107,6 +107,42 @@ a126	15
 
 -- !par_fields_in_file_parquet5 --
 
+-- !par_fields_in_file_orc1 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_parquet1 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_orc2 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_parquet2 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_orc3 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_parquet3 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_orc4 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_parquet4 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_orc5 --
+
+-- !par_fields_in_file_parquet5 --
+
 -- !parquet_adjusted_utc --
 1997-09-21	1999-01-12T15:12:31.235784
 1998-01-12	1993-06-11T11:33:12.356500
@@ -188,6 +224,42 @@ a126	15
 
 -- !null_expr_dict_filter_parquet --
 4844	4363
+
+-- !par_fields_in_file_orc1 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_parquet1 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_orc2 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_parquet2 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_orc3 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_parquet3 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_orc4 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_parquet4 --
+1	Alice	100.0	2023	8
+2	Bob	150.0	2023	8
+
+-- !par_fields_in_file_orc5 --
+
+-- !par_fields_in_file_parquet5 --
 
 -- !par_fields_in_file_orc1 --
 1	Alice	100.0	2023	8

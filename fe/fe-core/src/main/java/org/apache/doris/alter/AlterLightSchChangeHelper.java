@@ -252,6 +252,7 @@ public class AlterLightSchChangeHelper {
                 indexMeta.setMaxColUniqueId(schemaPair.first);
                 indexMeta.setSchema(schemaPair.second);
             }
+            olapTable.rebuildFullSchema();
         } catch (IOException e) {
             throw new IllegalStateException("fail to reset index schema", e);
         }

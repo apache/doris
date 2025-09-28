@@ -134,6 +134,10 @@ iceberg_rest_uri_port_cos=19183
 iceberg_minio_port=19001
 enableIcebergTest=true
 
+// polaris rest catalog config
+polaris_rest_uri_port=20181
+polaris_minio_port=20001
+
 enableEsTest=true
 es_5_port=59200
 es_6_port=19200

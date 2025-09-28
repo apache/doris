@@ -86,6 +86,15 @@ public class BackupMeta implements Writable, GsonPostProcessable {
         return tblIdMap.get(tblId);
     }
 
+    public boolean removeTable(Long tableId) {
+        Table removedTable = tblIdMap.remove(tableId);
+        if (removedTable != null) {
+            tblNameMap.remove(removedTable.getName());
+            return true;
+        }
+        return false;
+    }
+
     public static BackupMeta fromFile(String filePath, int metaVersion) throws IOException {
         return fromInputStream(new FileInputStream(filePath), metaVersion);
     }
@@ -94,7 +103,7 @@ public class BackupMeta implements Writable, GsonPostProcessable {
         return fromInputStream(new ByteArrayInputStream(bytes), metaVersion);
     }
 
-    protected static BackupMeta fromInputStream(InputStream stream, int metaVersion) throws IOException {
+    public static BackupMeta fromInputStream(InputStream stream, int metaVersion) throws IOException {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(metaVersion);
         metaContext.setThreadLocalInfo();

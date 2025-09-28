@@ -27,6 +27,7 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <shared_mutex>
 #include <unordered_map>
@@ -427,7 +428,9 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
     }
     std::vector<RowsetMetaSharedPtr> rs_metas;
     rs_metas.reserve(to_delete.size());
+    int64_t now = ::time(nullptr);
     for (auto&& rs : to_delete) {
+        rs->rowset_meta()->set_stale_at(now);
         rs_metas.push_back(rs->rowset_meta());
         _stale_rs_version_map[rs->version()] = rs;
     }
@@ -661,7 +664,6 @@ std::vector<RecycledRowsets> CloudTablet::recycle_cached_data(
 
 void CloudTablet::reset_approximate_stats(int64_t num_rowsets, int64_t num_segments,
                                           int64_t num_rows, int64_t data_size) {
-    _approximate_num_rowsets.store(num_rowsets, std::memory_order_relaxed);
     _approximate_num_segments.store(num_segments, std::memory_order_relaxed);
     _approximate_num_rows.store(num_rows, std::memory_order_relaxed);
     _approximate_data_size.store(data_size, std::memory_order_relaxed);
@@ -672,10 +674,16 @@ void CloudTablet::reset_approximate_stats(int64_t num_rowsets, int64_t num_segme
         if (v.second < cp) {
             continue;
         }
-
         cumu_num_deltas += r->is_segments_overlapping() ? r->num_segments() : 1;
         ++cumu_num_rowsets;
     }
+    // num_rowsets may be less than the size of _rs_version_map when there are some hole rowsets
+    // in the version map, so we use the max value to ensure that the approximate number
+    // of rowsets is at least the size of _rs_version_map.
+    // Note that this is not the exact number of rowsets, but an approximate number.
+    int64_t approximate_num_rowsets =
+            std::max(num_rowsets, static_cast<int64_t>(_rs_version_map.size()));
+    _approximate_num_rowsets.store(approximate_num_rowsets, std::memory_order_relaxed);
     _approximate_cumu_num_rowsets.store(cumu_num_rowsets, std::memory_order_relaxed);
     _approximate_cumu_num_deltas.store(cumu_num_deltas, std::memory_order_relaxed);
 }

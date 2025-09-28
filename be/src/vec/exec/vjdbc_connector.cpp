@@ -36,6 +36,7 @@
 #include "runtime/types.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
+#include "util/path_util.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
@@ -126,7 +127,8 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     // Add a scoped cleanup jni reference object. This cleans up local refs made below.
     JniLocalFrame jni_frame;
     {
-        std::string driver_path = _get_real_url(_conn_param.driver_path);
+        std::string driver_path = doris::path_util::get_real_plugin_url(
+                _conn_param.driver_path, doris::config::jdbc_drivers_dir, "jdbc_drivers", "");
 
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_statement(_sql_str);
@@ -631,13 +633,6 @@ Status JdbcConnector::_get_java_table_type(JNIEnv* env, TOdbcTableType::type tab
     RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, java_enum_local_obj, java_enum_obj));
     env->DeleteLocalRef(java_enum_local_obj);
     return Status::OK();
-}
-
-std::string JdbcConnector::_get_real_url(const std::string& url) {
-    if (url.find(":/") == std::string::npos) {
-        return "file://" + config::jdbc_drivers_dir + "/" + url;
-    }
-    return url;
 }
 
 } // namespace doris::vectorized

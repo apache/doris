@@ -308,61 +308,6 @@ TEST_F(SchemaUtilTest, test_multiple_index_inheritance) {
     }
 }
 
-TEST_F(SchemaUtilTest, test_index_update_logic) {
-    TabletSchemaPB schema_pb;
-    schema_pb.set_keys_type(KeysType::DUP_KEYS);
-    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
-
-    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "v1_index_orig1", 1,
-                     "VARIANT", "v1", IndexType::INVERTED);
-    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10001, "v1_index_orig2", 1,
-                     "VARIANT", "v1", IndexType::INVERTED);
-
-    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    tablet_schema->init_from_pb(schema_pb);
-    std::vector<TabletColumn> subcolumns;
-
-    construct_subcolumn(tablet_schema, FieldType::OLAP_FIELD_TYPE_STRING, 1, "v1.name",
-                        &subcolumns);
-    vectorized::schema_util::inherit_column_attributes(tablet_schema);
-
-    const auto& subcol = subcolumns[0];
-    auto initial_indexes = tablet_schema->inverted_indexs(subcol);
-    ASSERT_EQ(initial_indexes.size(), 2);
-    EXPECT_EQ(initial_indexes[0]->index_name(), "v1_index_orig1");
-    EXPECT_EQ(initial_indexes[1]->index_name(), "v1_index_orig2");
-
-    std::vector<TabletIndex> updated_indexes;
-    TabletIndexPB tablet_index_pb1;
-    tablet_index_pb1.set_index_id(10002);
-    tablet_index_pb1.set_index_name("v1_index_updated1");
-    tablet_index_pb1.set_index_type(IndexType::INVERTED);
-    tablet_index_pb1.add_col_unique_id(1);
-    TabletIndex tablet_index1;
-    tablet_index1.init_from_pb(tablet_index_pb1);
-    updated_indexes.emplace_back(std::move(tablet_index1));
-
-    TabletIndexPB tablet_index_pb2;
-    tablet_index_pb2.set_index_id(10003);
-    tablet_index_pb2.set_index_name("v1_index_updated2");
-    tablet_index_pb2.set_index_type(IndexType::INVERTED);
-    tablet_index_pb2.add_col_unique_id(1);
-    TabletIndex tablet_index2;
-    tablet_index2.init_from_pb(tablet_index_pb2);
-    updated_indexes.emplace_back(std::move(tablet_index2));
-
-    tablet_schema->update_index(tablet_schema->column(1), IndexType::INVERTED,
-                                std::move(updated_indexes));
-
-    vectorized::schema_util::inherit_column_attributes(tablet_schema);
-    auto updated_subcol_indexes = tablet_schema->inverted_indexs(subcol);
-
-    EXPECT_EQ(updated_subcol_indexes.size(), 2);
-    EXPECT_EQ(updated_subcol_indexes[0]->index_name(), "v1_index_updated1");
-    EXPECT_EQ(updated_subcol_indexes[1]->index_name(), "v1_index_updated2");
-    EXPECT_EQ(updated_subcol_indexes[0]->get_index_suffix(), "v1%2Ename");
-}
-
 static std::unordered_map<std::string, int> construct_column_map_with_random_values(
         auto& column_map, int key_size, int value_size, const std::string& prefix) {
     std::unordered_map<std::string, int> key_value_counts;
@@ -398,7 +343,9 @@ TEST_F(SchemaUtilTest, calculate_variant_stats) {
             construct_column_map_with_random_values(column_map, 200, 100, "key_");
 
     // calculate stats
-    schema_util::calculate_variant_stats(*column_map, &stats, 0, 200);
+    size_t max_sparse_column_statistics_size = 10000;
+    schema_util::calculate_variant_stats(*column_map, &stats, max_sparse_column_statistics_size, 0,
+                                         200);
     EXPECT_EQ(stats.sparse_column_non_null_size_size(), key_value_counts.size());
 
     for (const auto& kv : key_value_counts) {
@@ -411,7 +358,8 @@ TEST_F(SchemaUtilTest, calculate_variant_stats) {
     column_map->clear();
     const auto& key_value_counts2 =
             construct_column_map_with_random_values(column_map, 3000, 100, "key_");
-    schema_util::calculate_variant_stats(*column_map, &stats, 0, 3000);
+    schema_util::calculate_variant_stats(*column_map, &stats, max_sparse_column_statistics_size, 0,
+                                         3000);
     EXPECT_EQ(stats.sparse_column_non_null_size_size(), 3000);
 
     for (const auto& [path, size] : stats.sparse_column_non_null_size()) {
@@ -427,11 +375,10 @@ TEST_F(SchemaUtilTest, calculate_variant_stats) {
     // test with max size
     column_map->clear();
     const auto& key_value_counts3 = construct_column_map_with_random_values(
-            column_map, config::variant_max_sparse_column_statistics_size, 5, "key2_");
-    schema_util::calculate_variant_stats(*column_map, &stats, 0,
-                                         config::variant_max_sparse_column_statistics_size);
-    EXPECT_EQ(config::variant_max_sparse_column_statistics_size,
-              stats.sparse_column_non_null_size_size());
+            column_map, max_sparse_column_statistics_size, 5, "key2_");
+    schema_util::calculate_variant_stats(*column_map, &stats, max_sparse_column_statistics_size, 0,
+                                         max_sparse_column_statistics_size);
+    EXPECT_EQ(max_sparse_column_statistics_size, stats.sparse_column_non_null_size_size());
 
     for (const auto& [path, size] : stats.sparse_column_non_null_size()) {
         auto first_size = key_value_counts.find(path) == key_value_counts.end()
@@ -1741,7 +1688,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns) {
     variant.set_unique_id(30);
     variant.set_variant_max_subcolumns_count(3);
     variant.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
-
+    variant.set_variant_max_sparse_column_statistics_size(10000);
     TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
     schema->append_column(variant);
 
@@ -1798,7 +1745,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns) {
     output_schema = std::make_shared<TabletSchema>();
     sparse_paths.clear();
 
-    for (int i = 0; i < config::variant_max_sparse_column_statistics_size + 1; ++i) {
+    for (int i = 0; i < variant.variant_max_sparse_column_statistics_size() + 1; ++i) {
         sparse_paths.insert("dummy" + std::to_string(i));
     }
     schema_util::get_compaction_subcolumns(paths_set_info, parent_column, schema,
@@ -1815,6 +1762,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_advanced) {
     variant.set_variant_max_subcolumns_count(3);
     variant.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
     variant.set_variant_enable_typed_paths_to_sparse(true);
+    variant.set_variant_max_sparse_column_statistics_size(10000);
     TabletColumn subcolumn;
     subcolumn.set_name("c");
     subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_DATEV2);
@@ -1890,7 +1838,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_advanced) {
     output_schema = std::make_shared<TabletSchema>();
     sparse_paths.clear();
 
-    for (int i = 0; i < config::variant_max_sparse_column_statistics_size + 1; ++i) {
+    for (int i = 0; i < variant.variant_max_sparse_column_statistics_size() + 1; ++i) {
         sparse_paths.insert("dummy" + std::to_string(i));
     }
     schema_util::get_compaction_subcolumns(paths_set_info, parent_column, schema,

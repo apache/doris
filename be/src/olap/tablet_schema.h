@@ -224,6 +224,12 @@ public:
     void set_variant_max_subcolumns_count(int32_t variant_max_subcolumns_count) {
         _variant_max_subcolumns_count = variant_max_subcolumns_count;
     }
+
+    void set_variant_max_sparse_column_statistics_size(
+            int32_t variant_max_sparse_column_statistics_size) {
+        _variant_max_sparse_column_statistics_size = variant_max_sparse_column_statistics_size;
+    }
+
     int32_t variant_max_subcolumns_count() const { return _variant_max_subcolumns_count; }
 
     void set_variant_enable_typed_paths_to_sparse(bool variant_enable_typed_paths_to_sparse) {
@@ -232,6 +238,10 @@ public:
 
     bool variant_enable_typed_paths_to_sparse() const {
         return _variant_enable_typed_paths_to_sparse;
+    }
+
+    int32_t variant_max_sparse_column_statistics_size() const {
+        return _variant_max_sparse_column_statistics_size;
     }
 
 private:
@@ -286,6 +296,9 @@ private:
     int32_t _variant_max_subcolumns_count = 0;
     PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
     bool _variant_enable_typed_paths_to_sparse = false;
+    // set variant_max_sparse_column_statistics_size
+    int32_t _variant_max_sparse_column_statistics_size =
+            BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -383,8 +396,6 @@ public:
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
     void append_index(TabletIndex&& index);
-    void update_index(const TabletColumn& column, const IndexType& index_type,
-                      std::vector<TabletIndex>&& indexs);
     void remove_index(int64_t index_id);
     void clear_index();
     // Must make sure the row column is always the last column

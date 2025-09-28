@@ -1252,6 +1252,7 @@ Status CompactionMixin::modify_rowsets() {
     }
     DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowset",
                     { tablet()->delete_expired_stale_rowset(); });
+    _tablet->prefill_dbm_agg_cache_after_compaction(_output_rowset);
     return Status::OK();
 }
 
@@ -1430,6 +1431,46 @@ Status CloudCompactionMixin::modify_rowsets() {
     return Status::OK();
 }
 
+Status CloudCompactionMixin::set_storage_resource_from_input_rowsets(RowsetWriterContext& ctx) {
+    // Set storage resource from input rowsets by iterating backwards to find the first rowset
+    // with non-empty resource_id. This handles two scenarios:
+    // 1. Hole rowsets compaction: Multiple hole rowsets may lack storage resource.
+    //    Example: [0-1, 2-2, 3-3, 4-4, 5-5] where 2-5 are hole rowsets.
+    //    If 0-1 lacks resource_id, then 2-5 also lack resource_id.
+    // 2. Schema change: New tablet may have later version empty rowsets without resource_id,
+    //    but middle rowsets get resource_id after historical rowsets are converted.
+    //    We iterate backwards to find the most recent rowset with valid resource_id.
+
+    for (const auto& rowset : std::ranges::reverse_view(_input_rowsets)) {
+        const auto& resource_id = rowset->rowset_meta()->resource_id();
+
+        if (!resource_id.empty()) {
+            ctx.storage_resource = *DORIS_TRY(rowset->rowset_meta()->remote_storage_resource());
+            return Status::OK();
+        }
+
+        // Validate that non-empty rowsets (num_segments > 0) must have valid resource_id
+        // Only hole rowsets or empty rowsets are allowed to have empty resource_id
+        if (rowset->num_segments() > 0) {
+            auto error_msg = fmt::format(
+                    "Non-empty rowset must have valid resource_id. "
+                    "rowset_id={}, version=[{}-{}], is_hole_rowset={}, num_segments={}, "
+                    "tablet_id={}, table_id={}",
+                    rowset->rowset_id().to_string(), rowset->start_version(), rowset->end_version(),
+                    rowset->is_hole_rowset(), rowset->num_segments(), _tablet->tablet_id(),
+                    _tablet->table_id());
+
+#ifndef BE_TEST
+            DCHECK(false) << error_msg;
+#endif
+
+            return Status::InternalError<false>(error_msg);
+        }
+    }
+
+    return Status::OK();
+}
+
 Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
     // only do index compaction for dup_keys and unique_keys with mow enabled
     if (config::inverted_index_compaction_enable &&
@@ -1439,9 +1480,8 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
         construct_index_compaction_columns(ctx);
     }
 
-    // Use the storage resource of the previous rowset
-    ctx.storage_resource =
-            *DORIS_TRY(_input_rowsets.back()->rowset_meta()->remote_storage_resource());
+    // Use the storage resource of the previous rowset.
+    RETURN_IF_ERROR(set_storage_resource_from_input_rowsets(ctx));
 
     ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
                  std::numeric_limits<int64_t>::max(); // MUST be positive
@@ -1491,4 +1531,14 @@ Status CloudCompactionMixin::garbage_collection() {
     return Status::OK();
 }
 
+// should skip hole rowsets, ortherwise the count will be wrong in ms
+int64_t CloudCompactionMixin::num_input_rowsets() const {
+    int64_t count = 0;
+    for (const auto& r : _input_rowsets) {
+        if (!r->is_hole_rowset()) {
+            count++;
+        }
+    }
+    return count;
+}
 } // namespace doris

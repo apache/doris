@@ -141,8 +141,6 @@ private:
     Status _get_java_table_type(JNIEnv* env, TOdbcTableType::type table_type,
                                 jobject* java_enum_obj);
 
-    std::string _get_real_url(const std::string& url);
-
     bool _closed = false;
     jclass _executor_factory_clazz;
     jclass _executor_clazz;

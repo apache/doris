@@ -650,7 +650,7 @@ message TabletStatsPB {
     optional int64 cumulative_point = 9;
     optional int64 last_base_compaction_time_ms = 10;
     optional int64 last_cumu_compaction_time_ms = 11;
-    optional int64 full_compaction_cnt = 12;
+    optional int64 full_compaction_cnt = 12; // used by calc_sync_versions() only
     optional int64 last_full_compaction_time_ms = 13;
     optional int64 index_size = 14;
     optional int64 segment_size = 15; 
@@ -1069,6 +1069,7 @@ message GetRowsetRequest {
     // for compability reason we use FILL_WITH_DICT as default
     optional SchemaOp schema_op = 8  [default = FILL_WITH_DICT];
     optional string request_ip = 9;
+    optional int64 full_compaction_cnt = 10;
 }
 
 message GetRowsetResponse {
@@ -1076,7 +1077,9 @@ message GetRowsetResponse {
     repeated doris.RowsetMetaCloudPB rowset_meta = 2;
     optional TabletStatsPB stats = 3;
     // Return dict value if SchemaOp is RETURN_DICT
-    optional SchemaCloudDictionary schema_dict = 4; 
+    optional SchemaCloudDictionary schema_dict = 4;
+    // The current max version of the partition
+    optional int64 partition_max_version = 5;
 }
 
 message GetSchemaDictRequest {
@@ -1560,12 +1563,12 @@ message UpdateDeleteBitmapRequest {
     optional int64 txn_id = 13;
     // for load txn only
     optional int64 next_visible_version = 14;
+    optional string request_ip = 15;
     // remove delete_bitmap of pre rowsets since it is agged when compaction
-    optional int64 pre_rowset_agg_start_version = 15;
-    optional int64 pre_rowset_agg_end_version = 16;
+    optional int64 pre_rowset_agg_start_version = 16;
+    optional int64 pre_rowset_agg_end_version = 17;
     // when update delete_bitmap of pre rowsets, check the rowset exists
-    repeated int64 pre_rowset_versions = 17;
-    optional string request_ip = 18;
+    repeated int64 pre_rowset_versions = 18;
 }
 
 message UpdateDeleteBitmapResponse {

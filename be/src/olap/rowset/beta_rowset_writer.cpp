@@ -329,7 +329,8 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock meta_rlock(_context.tablet->get_header_lock());
-        specified_rowsets = _context.tablet->get_rowset_by_ids(&_context.mow_context->rowset_ids);
+        specified_rowsets =
+                _context.tablet->get_rowset_by_ids(_context.mow_context->rowset_ids.get());
     }
     OlapStopWatch watch;
     RETURN_IF_ERROR(BaseTablet::calc_delete_bitmap(
@@ -339,7 +340,7 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
     LOG(INFO) << "[Memtable Flush] construct delete bitmap tablet: " << _context.tablet->tablet_id()
-              << ", rowset_ids: " << _context.mow_context->rowset_ids.size()
+              << ", rowset_ids: " << _context.mow_context->rowset_ids->size()
               << ", cur max_version: " << _context.mow_context->max_version
               << ", transaction_id: " << _context.mow_context->txn_id << ", delete_bitmap_count: "
               << _context.mow_context->delete_bitmap->get_delete_bitmap_count()
@@ -376,8 +377,7 @@ Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr
             .is_doris_table = true,
             .cache_base_path {},
     };
-    auto s = segment_v2::Segment::open(io::global_local_filesystem(), path,
-                                       _rowset_meta->tablet_id(), segment_id, rowset_id(),
+    auto s = segment_v2::Segment::open(fs, path, _rowset_meta->tablet_id(), segment_id, rowset_id(),
                                        _context.tablet_schema, reader_options, &segment);
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << path << ":" << s;

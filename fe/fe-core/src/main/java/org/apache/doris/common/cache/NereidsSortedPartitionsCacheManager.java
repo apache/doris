@@ -35,6 +35,7 @@ import org.apache.doris.rpc.RpcException;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Range;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -103,6 +104,11 @@ public class NereidsSortedPartitionsCacheManager {
             return Optional.empty();
         }
         return Optional.of(partitionCacheContext.sortedPartitionRanges);
+    }
+
+    @VisibleForTesting
+    public Cache<TableIdentifier, PartitionCacheContext> getPartitionCaches() {
+        return partitionCaches;
     }
 
     private SortedPartitionRanges<?> loadCache(
@@ -182,6 +188,7 @@ public class NereidsSortedPartitionsCacheManager {
                 Config.expire_cache_partition_meta_table_in_fe_second
         );
         caches.putAll(cacheManager.partitionCaches.asMap());
+        caches.cleanUp();
         cacheManager.partitionCaches = caches;
     }
 

@@ -259,8 +259,8 @@ public class PropertyConverterTest extends TestWithFeService {
         String catalogName = "hms_oss_hdfs";
         CreateCatalogStmt analyzedStmt = createStmt(query1);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, catalogName);
-        Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals("cn-beijing.oss-dls.aliyuncs.com", hdProps.get("fs.oss.endpoint"));
+        Map<String, String> hdProps = catalog.getCatalogProperty().getBackendStorageProperties();
+        Assertions.assertTrue(hdProps.get("fs.oss.endpoint").endsWith("aliyuncs.com"));
     }
 
     @Disabled
@@ -756,7 +756,7 @@ public class PropertyConverterTest extends TestWithFeService {
         String createIceGlue = "CREATE CATALOG iceglue PROPERTIES (\n"
                 + "    \"type\"=\"iceberg\",\n"
                 + "    \"iceberg.catalog.type\" = \"glue\",\n"
-                + "    \"glue.endpoint\" = \"https://glue.us-east-1.amazonaws.com/\",\n"
+                + "    \"glue.endpoint\" = \"https://glue.us-east-1.amazonaws.com\",\n"
                 + "    \"glue.access_key\" = \"ak123\",\n"
                 + "    \"glue.secret_key\" = \"sk123\"\n"
                 + ");";

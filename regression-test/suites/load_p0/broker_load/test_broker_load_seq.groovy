@@ -77,7 +77,7 @@ suite("test_broker_load_seq", "load_p0") {
     def check_load_result = {checklabel, testTablex ->
         def max_try_milli_secs = 10000
         while(max_try_milli_secs) {
-            result = sql "show load where label = '${checklabel}'"
+            def result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
                 //sql "sync"
                 qt_select "select * from ${testTablex} order by user_id, date, group_id"

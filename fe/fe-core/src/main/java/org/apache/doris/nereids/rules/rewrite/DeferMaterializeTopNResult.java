@@ -187,8 +187,11 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                         ).when(project -> project.canMergeProjections(project.child().child()))).then(r -> {
                             LogicalProject<?> upperProject = r.child();
                             LogicalProject<LogicalOlapScan> bottomProject = r.child().child().child();
-                            List<NamedExpression> projections = upperProject.mergeProjections(bottomProject);
-                            LogicalProject<?> project = upperProject.withProjects(projections);
+                            Optional<List<NamedExpression>> projections = upperProject.mergeProjections(bottomProject);
+                            if (!projections.isPresent()) {
+                                return null;
+                            }
+                            LogicalProject<?> project = upperProject.withProjects(projections.get());
                             return deferMaterialize(r, r.child().child(), Optional.of(project),
                                     Optional.empty(), bottomProject.child());
                         })
@@ -246,8 +249,11 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                         ).when(project -> project.canMergeProjections(project.child().child()))).then(r -> {
                             LogicalProject<?> upperProject = r.child();
                             LogicalProject<LogicalFilter<LogicalOlapScan>> bottomProject = r.child().child().child();
-                            List<NamedExpression> projections = upperProject.mergeProjections(bottomProject);
-                            LogicalProject<?> project = upperProject.withProjects(projections);
+                            Optional<List<NamedExpression>> projections = upperProject.mergeProjections(bottomProject);
+                            if (!projections.isPresent()) {
+                                return null;
+                            }
+                            LogicalProject<?> project = upperProject.withProjects(projections.get());
                             LogicalFilter<LogicalOlapScan> filter = bottomProject.child();
                             return deferMaterialize(r, r.child().child(), Optional.of(project),
                                     Optional.of(filter), filter.child());

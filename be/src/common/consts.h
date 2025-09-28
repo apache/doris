@@ -46,5 +46,6 @@ static constexpr int MAX_DECIMALV2_SCALE = 9;
 
 static constexpr int MAX_DECIMALV3_PRECISION = MAX_DECIMAL256_PRECISION;
 static constexpr int MAX_DECIMALV3_SCALE = MAX_DECIMALV3_PRECISION;
+static constexpr int DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE = 10000;
 } // namespace BeConsts
 } // namespace doris

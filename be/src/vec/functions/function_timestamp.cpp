@@ -49,6 +49,7 @@
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/int_exp.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -674,11 +675,10 @@ struct UnixTimeStampDateImpl {
                 DCHECK(valid);
 
                 auto [sec, ms] = UnixTimeStampImpl::trim_timestamp(timestamp);
-                auto ms_str = std::to_string(ms).substr(0, scale);
-                if (ms_str.empty()) {
-                    ms_str = "0";
-                }
-                col_result_data[i] = Decimal64::from_int_frac(sec, std::stoll(ms_str), scale).value;
+                col_result_data[i] =
+                        Decimal64::from_int_frac(
+                                sec, ms / static_cast<int64_t>(std::pow(10, 6 - scale)), scale)
+                                .value;
             }
             block.replace_by_position(result, std::move(col_result));
         }

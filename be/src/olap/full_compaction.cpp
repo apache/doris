@@ -178,6 +178,8 @@ Status FullCompaction::modify_rowsets() {
         DBUG_EXECUTE_IF("FullCompaction.modify_rowsets.sleep", { sleep(5); })
         tablet()->save_meta();
     }
+
+    _tablet->prefill_dbm_agg_cache_after_compaction(_output_rowset);
     return Status::OK();
 }
 

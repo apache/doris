@@ -32,9 +32,12 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
+import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -846,6 +849,35 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+<<<<<<< HEAD
+=======
+    public void testCtasWithoutAs() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE TABLE t1 SELECT * FROM t2";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateTableCommand.class, logicalPlan);
+        CreateTableCommand createTableCommand = (CreateTableCommand) logicalPlan;
+        Assertions.assertTrue(createTableCommand.getCtasQuery().isPresent());
+    }
+
+    @Test
+    public void testCreateViewWithoutAs() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE VIEW t1 SELECT * FROM t2";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateViewCommand.class, logicalPlan);
+    }
+
+    @Test
+    public void testCreateMvWithoutAs() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE MATERIALIZED VIEW t1 SELECT * FROM t2";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(UnsupportedCommand.class, logicalPlan);
+    }
+
+    @Test
+>>>>>>> 3.1.1-rc01
     public void testAdminRotateTdeRootKey() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "admin rotate tde root key";

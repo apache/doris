@@ -23,12 +23,6 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-    def set_be_config = { key, value ->
-    for (String backend_id: backendId_to_backendIP.keySet()) {
-        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
     try {
         String backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
@@ -45,16 +39,17 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
             }
         }
 
-        set_be_config("variant_max_sparse_column_statistics_size", "2")
-        int max_subcolumns_count = Math.floor(Math.random() * 5) 
+
+        int max_subcolumns_count = Math.floor(Math.random() * 5)
+        int max_sparse_column_statistics_size = 2
         if (max_subcolumns_count == 1) {
             max_subcolumns_count = 0
         }
         def create_table = { tableName, buckets="auto", key_type="DUPLICATE" ->
             sql "DROP TABLE IF EXISTS ${tableName}"
-            def var_def = "variant <properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")>"
+            def var_def = "variant <properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\", \"variant_max_sparse_column_statistics_size\" = \"${max_sparse_column_statistics_size}\")>"
             if (key_type == "AGGREGATE") {
-                var_def = "variant <properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")> replace"
+                var_def = "variant <properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\", \"variant_max_sparse_column_statistics_size\" = \"${max_sparse_column_statistics_size}\")> replace"
             }
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -65,6 +60,25 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
                 DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
                 properties("replication_num" = "1", "disable_auto_compaction" = "true");
             """
+        }
+        // check the sparse column must not be read if max_subcolumns_count is 0
+        def check_sparse_column_must_not_be_read = { tableName ->
+            if (max_subcolumns_count == 0) {
+                try {
+                    GetDebugPoint().enableDebugPointForAllBEs("exist_in_sparse_column_must_be_false")
+                    sql """ select v['a'], v['b'], v['c'], v['x'], v['y'], v['z'], v['m'], v['l'], v['g'], v['z'], v['sala'], v['dddd'] from ${tableName}"""
+                } finally {
+                    GetDebugPoint().disableDebugPointForAllBEs("exist_in_sparse_column_must_be_false")
+                }
+            } else if (max_subcolumns_count > 1) {
+                // here will aways false
+                try {
+                    GetDebugPoint().enableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
+                    sql """ select v['mmm'] from ${tableName} where k = 30"""
+                } finally {
+                    GetDebugPoint().disableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
+                }
+            }
         }
         def key_types = ["DUPLICATE", "UNIQUE", "AGGREGATE"]
         // def key_types = ["AGGREGATE"]
@@ -119,8 +133,41 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
             qt_sql_55 "select cast(v['b'] as string), cast(v['b']['c'] as string) from  ${tableName} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) != '{}' order by k desc limit 10;"
         }
 
+    } catch (e) {
+        logger.info("catch exception: ${e}")
     } finally {
-        // set back to default
-        set_be_config("variant_max_sparse_column_statistics_size", "10000")
+        sql "DROP TABLE IF EXISTS simple_variant_DUPLICATE"
+        sql "DROP TABLE IF EXISTS simple_variant_UNIQUE"
+        sql "DROP TABLE IF EXISTS simple_variant_AGGREGATE"
     }
+
+    // test  variant_max_sparse_column_statistics_size debug error case
+    sql "DROP TABLE IF EXISTS tn_simple_variant_DUPLICATE"
+    sql """
+        CREATE TABLE IF NOT EXISTS tn_simple_variant_DUPLICATE (
+            k bigint,
+            v variant <properties(\"variant_max_subcolumns_count\" = \"2\", \"variant_max_sparse_column_statistics_size\" = \"1\")>
+        )
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        properties("replication_num" = "1", "disable_auto_compaction" = "true");
+    """
+    // here will always true
+    sql """insert into tn_simple_variant_DUPLICATE values (1, '{"a" : 1, "b" : 2}');"""
+    GetDebugPoint().enableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
+    test {
+        sql """ select v['a'] from tn_simple_variant_DUPLICATE where k = 1"""
+        exception null
+    }
+
+    // here will always false
+    sql """ truncate table tn_simple_variant_DUPLICATE --force ; """
+    sql """insert into tn_simple_variant_DUPLICATE values (1, '{"d" : "ddd",  "s" : "fff", "da": "ddd", "m": 111}');"""
+    test {
+        sql """ select v['m'] from tn_simple_variant_DUPLICATE"""
+        exception "exceeded_sparse_column_limit_must_be_false"
+    }
+
+    GetDebugPoint().disableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
+    
 }

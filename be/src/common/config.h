@@ -88,6 +88,9 @@ DECLARE_String(custom_config_dir);
 // Dir of jdbc drivers
 DECLARE_String(jdbc_drivers_dir);
 
+// Dir of java udf
+DECLARE_String(java_udf_dir);
+
 // cluster id
 DECLARE_Int32(cluster_id);
 // port on which BackendService is exported
@@ -830,6 +833,8 @@ DECLARE_Int64(brpc_max_body_size);
 // Default, if the physical memory is less than or equal to 64G, the value is 1G
 //          if the physical memory is greater than 64G, the value is physical memory * mem_limit(0.8) / 1024 * 20
 DECLARE_Int64(brpc_socket_max_unwritten_bytes);
+// Whether to set FLAGS_usercode_in_pthread to true in brpc
+DECLARE_mBool(brpc_usercode_in_pthread);
 // TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
 // Controller Attachment and send it through http brpc when the length of the Tuple/Block data
@@ -1333,7 +1338,7 @@ DECLARE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap);
 DECLARE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap);
 
 // The secure path with user files, used in the `local` table function.
-DECLARE_mString(user_files_secure_path);
+DECLARE_String(user_files_secure_path);
 
 // If fe's frontend info has not been updated for more than fe_expire_duration_seconds, it will be regarded
 // as an abnormal fe, this will cause be to cancel this fe's related query.
@@ -1407,9 +1412,6 @@ DECLARE_Bool(enable_snapshot_action);
 
 // The max columns size for a tablet schema
 DECLARE_mInt32(variant_max_merged_tablet_schema_size);
-
-// The max sparse column statistics size for a variant column
-DECLARE_mInt32(variant_max_sparse_column_statistics_size);
 
 DECLARE_mInt64(local_exchange_buffer_mem_limit);
 
@@ -1631,6 +1633,12 @@ DECLARE_mInt32(max_segment_partial_column_cache_size);
 
 DECLARE_mBool(enable_wal_tde);
 
+<<<<<<< HEAD
+=======
+DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
+DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);
+
+>>>>>>> 3.1.1-rc01
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
