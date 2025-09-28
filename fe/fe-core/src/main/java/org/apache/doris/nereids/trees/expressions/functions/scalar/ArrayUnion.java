@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
@@ -43,7 +42,7 @@ public class ArrayUnion extends ScalarFunction implements ExplicitlyCastableSign
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.retArgType(0)
-                    .varArgs(ArrayType.of(new AnyDataType(0)), ArrayType.of(new FollowToAnyDataType(0)))
+                    .varArgs(ArrayType.of(new AnyDataType(0)), ArrayType.of(new AnyDataType(0)))
     );
 
     /**
