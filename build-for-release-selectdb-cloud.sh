@@ -26,7 +26,7 @@ Usage: $0 --vendor <vendor>
 VENDOR=
 HELP=0
 args_remain=
-while [[ $# -gt 1 ]]; do
+while [[ $# -gt 0 ]]; do
     case "$1" in
     --vendor)
         VENDOR="$2"
