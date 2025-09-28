@@ -36,6 +36,7 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <type_traits> // added
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -222,7 +223,7 @@ public:
             counter.set_name(name);
             counter.set_value(this->value());
             counter.set_type(unit_to_proto(this->type()));
-            counter.set_level(this->value());
+            counter.set_level(this->level()); // fixed: was set to value()
             return counter;
         }
 
@@ -231,7 +232,7 @@ public:
             std::ostream& stream = *s;
             stream << prefix << "   - " << name << ": "
                    << PrettyPrinter::print(_value.load(std::memory_order_relaxed), type())
-                   << std::endl;
+                   << '\n'; // avoid std::endl flushing
         }
 
         TUnit::type type() const { return _type; }
@@ -288,7 +289,7 @@ public:
             counter.set_name(name);
             counter.set_value(current_value());
             counter.set_type(unit_to_proto(this->type()));
-            counter.set_level(this->value());
+            counter.set_level(this->level()); // fixed: was set to value()
             return counter;
         }
 
@@ -311,7 +312,7 @@ public:
             stream << prefix << "   - " << name
                    << " Current: " << PrettyPrinter::print(current_value(), type()) << " (Peak: "
                    << PrettyPrinter::print(_value.load(std::memory_order_relaxed), type()) << ")"
-                   << std::endl;
+                   << '\n'; // avoid std::endl flushing
         }
 
         /// Tries to increase the current value by delta. If current_value() + delta
@@ -401,7 +402,8 @@ public:
 
         Counter* clone() const override {
             std::lock_guard<std::mutex> l(_mutex);
-            return new ConditionCounter(type(), _condition_func, _condition, value(), level());
+            // fixed parameter order: (type, func, level, condition, value)
+            return new ConditionCounter(type(), _condition_func, level(), _condition, _value);
         }
 
         int64_t value() const override {
@@ -778,7 +780,14 @@ public:
 
     void start() { _sw.start(); }
 
-    bool is_cancelled() { return _is_cancelled != nullptr && *_is_cancelled; }
+    bool is_cancelled() {
+        if (_is_cancelled == nullptr) return false;
+        if constexpr (std::is_same_v<Bool, std::atomic_bool>) {
+            return _is_cancelled->load(std::memory_order_relaxed);
+        } else {
+            return *_is_cancelled;
+        }
+    }
 
     void UpdateCounter() {
         if (_counter != nullptr && !is_cancelled()) {
@@ -813,7 +822,13 @@ class ScopedRawTimer {
 public:
     ScopedRawTimer(C* counter) : _counter(counter) { _sw.start(); }
     // Update counter when object is destroyed
-    ~ScopedRawTimer() { *_counter += _sw.elapsed_time(); }
+    ~ScopedRawTimer() {
+        if constexpr (std::is_same_v<C, std::atomic<int64_t>>) {
+            _counter->fetch_add(_sw.elapsed_time(), std::memory_order_relaxed);
+        } else {
+            *_counter += _sw.elapsed_time();
+        }
+    }
 
     // Disable copy constructor and assignment
     ScopedRawTimer(const ScopedRawTimer& timer) = delete;
