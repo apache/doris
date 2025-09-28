@@ -685,10 +685,6 @@ public:
 
     int task_num() const { return _task_num; }
 
-    void set_not_cache(bool not_cache) { _not_cache = not_cache; }
-
-    bool not_cache() const { return _not_cache; }
-
     int profile_level() const { return _profile_level; }
 
     std::shared_ptr<IdFileMap>& get_id_file_map() { return _id_file_map; }
@@ -798,9 +794,6 @@ private:
     pipeline::PipelineTask* _task = nullptr;
     int _task_id = -1;
     int _task_num = 0;
-
-    // true if the scan data will enter the disposable cache queue
-    bool _not_cache = false;
 
     mutable std::mutex _hive_partition_updates_mutex;
     std::vector<THivePartitionUpdate> _hive_partition_updates;

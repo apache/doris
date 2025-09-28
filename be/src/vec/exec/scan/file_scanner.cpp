@@ -168,9 +168,10 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
     _file_reader_stats.reset(new io::FileReaderStats());
 
     RETURN_IF_ERROR(_init_io_ctx());
-    // Refrain : how can we set _io_ctx->is_disposable here?
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->file_reader_stats = _file_reader_stats.get();
+    _io_ctx->is_disposable = _state->query_options().disable_file_cache;
+    LOG(INFO) << "Refrain : set to " << _io_ctx->is_disposable;
 
     if (_is_load) {
         _src_row_desc.reset(new RowDescriptor(_state->desc_tbl(),

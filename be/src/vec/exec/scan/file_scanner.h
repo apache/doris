@@ -271,7 +271,6 @@ private:
     Status _init_io_ctx() {
         _io_ctx.reset(new io::IOContext());
         _io_ctx->query_id = &_state->query_id();
-        _io_ctx->is_disposable = _state->not_cache();
         return Status::OK();
     };
 

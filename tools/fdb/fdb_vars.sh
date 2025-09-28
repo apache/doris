@@ -23,7 +23,7 @@
 # Make sure to create these directories before running the script, and have to be absolute path.
 # For simplicity, you can use one direcotry. For production, you should use SSDs.
 # shellcheck disable=2034
-DATA_DIRS="/mnt/foundationdb/data1,/mnt/foundationdb/data2,/mnt/foundationdb/data3"
+DATA_DIRS="/mnt/disk2/huangruixin/fdb/data"
 
 MEDIUM_TYPE="SSD"
 
@@ -33,12 +33,12 @@ MEDIUM_TYPE="SSD"
 # num of coordinators depends on the number of nodes, see the function get_coordinators.
 # For high availability, machines should be in diffrent rack.
 # shellcheck disable=2034
-FDB_CLUSTER_IPS="172.200.0.5,172.200.0.6,172.200.0.7"
+FDB_CLUSTER_IPS="127.0.0.1"
 
 # Define the FoundationDB home directory, which contains the fdb binaries and logs.
 # default is /fdbhome and have to be absolute path.
 # shellcheck disable=2034
-FDB_HOME="/fdbhome"
+FDB_HOME="/mnt/disk2/huangruixin/fdb"
 
 # Define the cluster id, shoule be generated random like mktemp -u XXXXXXXX,
 # have to be different for each cluster.
