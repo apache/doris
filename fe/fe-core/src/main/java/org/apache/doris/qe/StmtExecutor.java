@@ -541,7 +541,7 @@ public class StmtExecutor {
                 }
                 LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                 context.getState().setError(e.getMessage());
-                return;
+                throw e;
             }
         } finally {
             // revert Session Value
