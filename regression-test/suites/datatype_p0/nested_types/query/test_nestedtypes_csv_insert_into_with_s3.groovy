@@ -198,6 +198,7 @@ suite("test_nestedtypes_csv_insert_into_with_s3", "p0") {
     // step1. select * from s3 with 0-100 items
     // step2. insert into doris table
     // step2. query and check
+    sql "set enable_insert_strict=false;"
     for (int i = 0; i < 3; ++i) {
         qt_sql_arr_csv_as_json_s3 """
          select * from s3("uri" = "${csv_as_json[i]}",

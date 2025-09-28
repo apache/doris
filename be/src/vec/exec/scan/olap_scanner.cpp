@@ -218,9 +218,15 @@ Status OlapScanner::prepare() {
                 ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
             }
 
+            CaptureRsReaderOptions opts {
+                    .skip_missing_version = _state->skip_missing_version(),
+                    .enable_prefer_cached_rowset =
+                            config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
+                    .query_freshness_tolerance_ms =
+                            config::is_cloud_mode() ? _state->query_freshness_tolerance_ms() : -1,
+            };
             auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
-                                                 &read_source.rs_splits,
-                                                 _state->skip_missing_version());
+                                                 &read_source.rs_splits, opts);
             if (!st.ok()) {
                 LOG(WARNING) << "fail to init reader.res=" << st;
                 return st;
@@ -271,11 +277,10 @@ Status OlapScanner::open(RuntimeState* state) {
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
-        std::stringstream ss;
-        ss << "failed to initialize storage reader. tablet="
-           << _tablet_reader_params.tablet->tablet_id() << ", res=" << res
-           << ", backend=" << BackendOptions::get_localhost();
-        return Status::InternalError(ss.str());
+        res.append("failed to initialize storage reader. tablet=" +
+                   std::to_string(_tablet_reader_params.tablet->tablet_id()) +
+                   ", backend=" + BackendOptions::get_localhost());
+        return res;
     }
 
     // Do not hold rs_splits any more to release memory.
@@ -741,6 +746,20 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_inverted_index_analyzer_timer,
                    stats.inverted_index_analyzer_timer);
     COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);
+    COUNTER_UPDATE(local_state->_variant_scan_sparse_column_timer,
+                   stats.variant_scan_sparse_column_timer_ns);
+    COUNTER_UPDATE(local_state->_variant_scan_sparse_column_bytes,
+                   stats.variant_scan_sparse_column_bytes);
+    COUNTER_UPDATE(local_state->_variant_fill_path_from_sparse_column_timer,
+                   stats.variant_fill_path_from_sparse_column_timer_ns);
+    COUNTER_UPDATE(local_state->_variant_subtree_default_iter_count,
+                   stats.variant_subtree_default_iter_count);
+    COUNTER_UPDATE(local_state->_variant_subtree_leaf_iter_count,
+                   stats.variant_subtree_leaf_iter_count);
+    COUNTER_UPDATE(local_state->_variant_subtree_hierarchical_iter_count,
+                   stats.variant_subtree_hierarchical_iter_count);
+    COUNTER_UPDATE(local_state->_variant_subtree_sparse_iter_count,
+                   stats.variant_subtree_sparse_iter_count);
 
     InvertedIndexProfileReporter inverted_index_profile;
     inverted_index_profile.update(local_state->_index_filter_profile.get(),

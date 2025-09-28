@@ -110,6 +110,8 @@ public:
         return {key_serde, value_serde};
     }
 
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

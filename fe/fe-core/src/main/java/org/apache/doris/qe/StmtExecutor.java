@@ -22,8 +22,6 @@ import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.analysis.SetStmt;
-import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
@@ -52,7 +50,6 @@ import org.apache.doris.common.QueryTimeoutException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -65,6 +62,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -86,6 +84,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -736,6 +735,75 @@ public class StmtExecutor {
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
+            if (MetricRepo.isInit) {
+                SummaryProfile summaryProfile = profile.getSummaryProfile();
+                int nereidsAnalysisTimeMs = summaryProfile.getNereidsAnalysisTimeMs();
+                // init is -1, so need record when >= 0
+                if (nereidsAnalysisTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_ANALYZE_DURATION.update(nereidsAnalysisTimeMs);
+                }
+                int nereidsRewriteTimeMs = summaryProfile.getNereidsRewriteTimeMs();
+                if (nereidsRewriteTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_REWRITE_DURATION.update(nereidsRewriteTimeMs);
+                }
+                // init is 0, so need record when > 0
+                int nereidsBeFoldConstTimeMs = summaryProfile.getNereidsBeFoldConstTimeMs();
+                if (nereidsBeFoldConstTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_FOLD_CONST_BY_BE_DURATION.update(nereidsBeFoldConstTimeMs);
+                }
+                int nereidsOptimizeTimeMs = summaryProfile.getNereidsOptimizeTimeMs();
+                if (nereidsOptimizeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_OPTIMIZE_DURATION.update(nereidsOptimizeTimeMs);
+                }
+                int nereidsTranslateTimeMs = summaryProfile.getNereidsTranslateTimeMs();
+                if (nereidsOptimizeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_TRANSLATE_DURATION.update(nereidsTranslateTimeMs);
+                }
+                long initScanNodeTimeMs = summaryProfile.getInitScanNodeTimeMs();
+                if (initScanNodeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_INIT_SCAN_NODE_DURATION.update(initScanNodeTimeMs);
+                }
+                long finalizeScanNodeTimeMs = summaryProfile.getFinalizeScanNodeTimeMs();
+                if (finalizeScanNodeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_FINALIZE_SCAN_NODE_DURATION.update(finalizeScanNodeTimeMs);
+                }
+                int createScanRangeTimeMs = summaryProfile.getCreateScanRangeTimeMs();
+                if (createScanRangeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_CREATE_SCAN_RANGE_DURATION.update(createScanRangeTimeMs);
+                }
+                int nereidsDistributeTimeMs = summaryProfile.getNereidsDistributeTimeMs();
+                if (nereidsDistributeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_DISTRIBUTE_DURATION.update(nereidsDistributeTimeMs);
+                }
+                int planTimeMs = summaryProfile.getPlanTimeMs();
+                if (planTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_DURATION.update(planTimeMs);
+                }
+                long externalCatalogMetaTimeMs = summaryProfile.getExternalCatalogMetaTimeMs();
+                if (externalCatalogMetaTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_EXTERNAL_CATALOG_META_DURATION.update(externalCatalogMetaTimeMs);
+                }
+                long externalTvfInitTimeMs = summaryProfile.getExternalTvfInitTimeMs();
+                if (externalTvfInitTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_EXTERNAL_TVF_INIT_DURATION.update(externalTvfInitTimeMs);
+                }
+                int nereidsLockTableTimeMs = summaryProfile.getNereidsLockTableTimeMs();
+                if (nereidsLockTableTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_LOCK_TABLES_DURATION.update(nereidsLockTableTimeMs);
+                }
+                long nereidsPartitiionPruneTimeMs = summaryProfile.getNereidsPartitiionPruneTimeMs();
+                if (nereidsPartitiionPruneTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_PARTITION_PRUNE_DURATION.update(nereidsPartitiionPruneTimeMs);
+                }
+                long cloudMetaTimeMs = summaryProfile.getCloudMetaTimeMs();
+                if (cloudMetaTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_CLOUD_META_DURATION.update(cloudMetaTimeMs);
+                }
+                long nereidsMvRewriteTimeMs = summaryProfile.getNereidsMvRewriteTimeMs();
+                if (nereidsMvRewriteTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_MATERIALIZED_VIEW_REWRITE_DURATION.update(nereidsMvRewriteTimeMs);
+                }
+            }
             handleQueryWithRetry(queryId);
         }
     }
@@ -767,6 +835,9 @@ public class StmtExecutor {
             statements = new NereidsParser().parseSQL(originStmt.originStmt, context.getSessionVariable());
             getProfile().getSummaryProfile().setParseSqlFinishTime(System.currentTimeMillis());
             getProfile().getSummaryProfile().parsedByConnectionProcess = false;
+            if (MetricRepo.isInit) {
+                MetricRepo.HISTO_PLAN_PARSE_DURATION.update(getProfile().getSummaryProfile().getParseSqlTimeMs());
+            }
         } catch (Exception e) {
             throw new ParseException("Nereids parse failed. " + e.getMessage());
         }
@@ -971,12 +1042,6 @@ public class StmtExecutor {
                 Forward forward = (Forward) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
                 forward.afterForwardToMaster(context);
             }
-        } else if (parsedStmt instanceof SetStmt) {
-            SetStmt setStmt = (SetStmt) parsedStmt;
-            setStmt.modifySetVarsForExecute();
-            for (SetVar var : setStmt.getSetVars()) {
-                VariableMgr.setVarForNonMasterFE(context.getSessionVariable(), var);
-            }
         }
     }
 
@@ -1094,39 +1159,12 @@ public class StmtExecutor {
      * Handle the SelectStmt via Cache.
      */
     private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel) throws Exception {
-        InternalService.PFetchCacheResult cacheResult = null;
-        boolean wantToParseSqlForSqlCache = planner instanceof NereidsPlanner
-                && CacheAnalyzer.canUseSqlCache(context.getSessionVariable());
-        try {
-            cacheResult = cacheAnalyzer.getCacheData();
-            if (cacheResult == null) {
-                if (ConnectContext.get() != null
-                        && !ConnectContext.get().getSessionVariable().testQueryCacheHit.equals("none")) {
-                    throw new UserException("The variable test_query_cache_hit is set to "
-                            + ConnectContext.get().getSessionVariable().testQueryCacheHit
-                            + ", but the query cache is not hit.");
-                }
-            }
-        } finally {
-            if (wantToParseSqlForSqlCache) {
-                String originStmt = parsedStmt.getOrigStmt().originStmt;
-                NereidsSqlCacheManager sqlCacheManager = context.getEnv().getSqlCacheManager();
-                if (cacheResult != null) {
-                    sqlCacheManager.tryAddBeCache(context, originStmt, cacheAnalyzer);
-                }
-            }
-        }
-
-        Queriable queryStmt = (Queriable) parsedStmt;
-        boolean isSendFields = false;
-        if (cacheResult != null) {
-            isCached = true;
-            if (cacheAnalyzer.getHitRange() == Cache.HitRange.Full) {
-                sendCachedValues(channel, cacheResult.getValuesList(), queryStmt, isSendFields, true);
-                return;
-            }
-        }
-        executeAndSendResult(false, isSendFields, queryStmt, channel, cacheAnalyzer, cacheResult);
+        // only compute CacheTable, but not get cache from be, because there has a case in nereids planner:
+        // `select * from tbl`. the tbl has 2 columns and create cache in be, use the **original sql** as the cache key,
+        // and then we add another column to the table, and the cache in be will not remove. if we use the result in be,
+        // it will return 2 columns result, but the correct result is 3 columns. so we will not trust the cache in be.
+        cacheAnalyzer.getCacheData(false);
+        executeAndSendResult(false, false, (Queriable) parsedStmt, channel, cacheAnalyzer, null);
     }
 
     // Process a select statement.
@@ -1817,9 +1855,9 @@ public class StmtExecutor {
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter,"
                         + " but parsedStmt is " + parsedStmt.getClass().getName());
-        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
+        NereidsPlanner nereidsPlanner = new PrepareCommandPlanner(statementContext);
         nereidsPlanner.plan(parsedStmt, context.getSessionVariable().toThrift());
-        return nereidsPlanner.getPhysicalPlan().getOutput();
+        return nereidsPlanner.getCascadesContext().getRewritePlan().getOutput();
     }
 
     public List<ResultRow> executeInternalQuery() {

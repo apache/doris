@@ -175,63 +175,6 @@ void DataTypeArray::to_pb_column_meta(PColumnMeta* col_meta) const {
     get_nested_type()->to_pb_column_meta(children);
 }
 
-void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    auto& data_column = assert_cast<const ColumnArray&>(*ptr);
-    auto& offsets = data_column.get_offsets();
-
-    size_t offset = offsets[row_num - 1];
-    size_t next_offset = offsets[row_num];
-
-    const IColumn& nested_column = data_column.get_data();
-    ostr.write("[", 1);
-    for (size_t i = offset; i < next_offset; ++i) {
-        if (i != offset) {
-            ostr.write(", ", 2);
-        }
-        if (is_string_type(nested->get_primitive_type())) {
-            ostr.write("'", 1);
-            nested->to_string(nested_column, i, ostr);
-            ostr.write("'", 1);
-        } else {
-            nested->to_string(nested_column, i, ostr);
-        }
-    }
-    ostr.write("]", 1);
-}
-
-std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    auto& data_column = assert_cast<const ColumnArray&>(*ptr);
-    auto& offsets = data_column.get_offsets();
-
-    size_t offset = offsets[row_num - 1];
-    size_t next_offset = offsets[row_num];
-    const IColumn& nested_column = data_column.get_data();
-    std::string str;
-    str += "[";
-    for (size_t i = offset; i < next_offset; ++i) {
-        if (i != offset) {
-            str += ", ";
-        }
-        if (is_string_type(nested->get_primitive_type())) {
-            str += "'";
-            str += nested->to_string(nested_column, i);
-            str += "'";
-        } else {
-            str += nested->to_string(nested_column, i);
-        }
-    }
-    str += "]";
-    return str;
-}
-
 FieldWithDataType DataTypeArray::get_field_with_data_type(const IColumn& column,
                                                           size_t row_num) const {
     const auto& array_column = assert_cast<const ColumnArray&>(column);

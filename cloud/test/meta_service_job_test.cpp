@@ -1142,6 +1142,14 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
         auto rowset_key = meta_rowset_key({instance_id, tablet_id, input_version_end});
         std::string rowset_val;
         EXPECT_EQ(txn->get(rowset_key, &rowset_val), TxnErrorCode::TXN_OK) << hex(rowset_key);
+        doris::RowsetMetaCloudPB rowset_meta;
+        ASSERT_TRUE(rowset_meta.ParseFromString(rowset_val));
+        ASSERT_TRUE(rowset_meta.has_visible_ts_ms() && rowset_meta.visible_ts_ms() > 0);
+        using namespace std::chrono;
+        auto visible_tp = time_point<system_clock>(milliseconds(rowset_meta.visible_ts_ms()));
+        std::time_t visible_time = system_clock::to_time_t(visible_tp);
+        std::cout << "visible time: "
+                  << std::put_time(std::localtime(&visible_time), "%Y%m%d %H:%M:%S") << "\n";
     };
 
     auto test_abort_compaction_job = [&](int64_t table_id, int64_t index_id, int64_t partition_id,
@@ -3630,6 +3638,12 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
             EXPECT_EQ(saved_rowset.start_version(), rs.start_version());
             EXPECT_EQ(saved_rowset.end_version(), rs.end_version());
             EXPECT_EQ(saved_rowset.rowset_id_v2(), rs.rowset_id_v2());
+            ASSERT_TRUE(saved_rowset.has_visible_ts_ms() && saved_rowset.visible_ts_ms() > 0);
+            using namespace std::chrono;
+            auto visible_tp = time_point<system_clock>(milliseconds(saved_rowset.visible_ts_ms()));
+            std::time_t visible_time = system_clock::to_time_t(visible_tp);
+            std::cout << "visible time: "
+                      << std::put_time(std::localtime(&visible_time), "%Y%m%d %H:%M:%S") << "\n";
         }
         for (int i = 3; i < 5; ++i) { // [14-14][15-15]
             auto [k, v] = it->next();
@@ -4973,6 +4987,230 @@ TEST(MetaServiceJobTest, IdempotentCompactionJob) {
         start_compaction_job(meta_service.get(), tablet_id, job_id, "ip:port", 9, 19,
                              TabletCompactionJobPB::BASE, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_TABLET_CACHE);
+    }
+}
+
+TEST(MetaServiceJobTest, UpdateStreamingJobMetaTest) {
+    auto meta_service = get_meta_service();
+    ASSERT_NE(meta_service, nullptr);
+
+    // Test case 1: First time update (job doesn't exist)
+    {
+        CommitTxnRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        // Begin a txn to obtain a valid txn_id and db_id mapping
+        int64_t db_id = 1000;
+        {
+            brpc::Controller cntl_bt;
+            BeginTxnRequest bt_req;
+            BeginTxnResponse bt_res;
+            auto* txn_info = bt_req.mutable_txn_info();
+            txn_info->set_db_id(db_id);
+            txn_info->set_label("streaming_ut_1");
+            txn_info->add_table_ids(1);
+            txn_info->set_load_job_source_type(
+                    LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
+            txn_info->set_timeout_ms(36000);
+            meta_service->begin_txn(&cntl_bt, &bt_req, &bt_res, nullptr);
+            ASSERT_EQ(bt_res.status().code(), MetaServiceCode::OK);
+            request.set_txn_id(bt_res.txn_id());
+            request.set_db_id(db_id);
+        }
+
+        TxnCommitAttachmentPB* attachment = request.mutable_commit_attachment();
+        attachment->set_type(TxnCommitAttachmentPB::STREAMING_TASK_TXN_COMMIT_ATTACHMENT);
+
+        StreamingTaskCommitAttachmentPB* streaming_attach =
+                attachment->mutable_streaming_task_txn_commit_attachment();
+        streaming_attach->set_job_id(1001);
+        streaming_attach->set_offset("test_offset_1");
+        streaming_attach->set_scanned_rows(1000);
+        streaming_attach->set_load_bytes(5000);
+        streaming_attach->set_num_files(10);
+        streaming_attach->set_file_bytes(8000);
+
+        CommitTxnResponse response;
+        brpc::Controller cntl;
+        meta_service->commit_txn(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 2: Update existing job (accumulate values)
+    {
+        CommitTxnRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        // Begin a txn to obtain a valid txn_id and db_id mapping
+        int64_t db_id = 1000;
+        {
+            brpc::Controller cntl_bt;
+            BeginTxnRequest bt_req;
+            BeginTxnResponse bt_res;
+            auto* txn_info = bt_req.mutable_txn_info();
+            txn_info->set_db_id(db_id);
+            txn_info->set_label("streaming_ut_2");
+            txn_info->add_table_ids(1);
+            txn_info->set_load_job_source_type(
+                    LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
+            txn_info->set_timeout_ms(36000);
+            meta_service->begin_txn(&cntl_bt, &bt_req, &bt_res, nullptr);
+            ASSERT_EQ(bt_res.status().code(), MetaServiceCode::OK);
+            request.set_txn_id(bt_res.txn_id());
+            request.set_db_id(db_id);
+        }
+
+        TxnCommitAttachmentPB* attachment = request.mutable_commit_attachment();
+        attachment->set_type(TxnCommitAttachmentPB::STREAMING_TASK_TXN_COMMIT_ATTACHMENT);
+
+        StreamingTaskCommitAttachmentPB* streaming_attach =
+                attachment->mutable_streaming_task_txn_commit_attachment();
+        streaming_attach->set_job_id(1001); // Same job_id as before
+        streaming_attach->set_offset("test_offset_2");
+        streaming_attach->set_scanned_rows(500);
+        streaming_attach->set_load_bytes(2000);
+        streaming_attach->set_num_files(5);
+        streaming_attach->set_file_bytes(3000);
+
+        CommitTxnResponse response;
+        brpc::Controller cntl;
+        meta_service->commit_txn(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 3: Missing commit attachment
+    {
+        CommitTxnRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        // Begin a txn to obtain a valid txn_id and db_id mapping
+        int64_t db_id = 1000;
+        {
+            brpc::Controller cntl_bt;
+            BeginTxnRequest bt_req;
+            BeginTxnResponse bt_res;
+            auto* txn_info = bt_req.mutable_txn_info();
+            txn_info->set_db_id(db_id);
+            txn_info->set_label("streaming_ut_missing_attach");
+            txn_info->add_table_ids(1);
+            txn_info->set_load_job_source_type(
+                    LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
+            txn_info->set_timeout_ms(36000);
+            meta_service->begin_txn(&cntl_bt, &bt_req, &bt_res, nullptr);
+            ASSERT_EQ(bt_res.status().code(), MetaServiceCode::OK);
+            request.set_txn_id(bt_res.txn_id());
+            request.set_db_id(db_id);
+        }
+        // No commit attachment set
+
+        CommitTxnResponse response;
+        brpc::Controller cntl;
+        meta_service->commit_txn(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_TRUE(response.status().msg().find("missing commit attachment") != std::string::npos);
+    }
+}
+
+TEST(MetaServiceJobTest, GetStreamingTaskCommitAttachTest) {
+    auto meta_service = get_meta_service();
+    ASSERT_NE(meta_service, nullptr);
+
+    // First, create a streaming job by committing a txn
+    {
+        CommitTxnRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        // Begin a txn to obtain a valid txn_id and db_id mapping
+        int64_t db_id = 1000;
+        {
+            brpc::Controller cntl_bt;
+            BeginTxnRequest bt_req;
+            BeginTxnResponse bt_res;
+            auto* txn_info = bt_req.mutable_txn_info();
+            txn_info->set_db_id(db_id);
+            txn_info->set_label("streaming_ut_3");
+            txn_info->add_table_ids(1);
+            txn_info->set_load_job_source_type(
+                    LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
+            txn_info->set_timeout_ms(36000);
+            meta_service->begin_txn(&cntl_bt, &bt_req, &bt_res, nullptr);
+            ASSERT_EQ(bt_res.status().code(), MetaServiceCode::OK);
+            request.set_txn_id(bt_res.txn_id());
+            request.set_db_id(db_id);
+        }
+
+        TxnCommitAttachmentPB* attachment = request.mutable_commit_attachment();
+        attachment->set_type(TxnCommitAttachmentPB::STREAMING_TASK_TXN_COMMIT_ATTACHMENT);
+
+        StreamingTaskCommitAttachmentPB* streaming_attach =
+                attachment->mutable_streaming_task_txn_commit_attachment();
+        streaming_attach->set_job_id(1002);
+        streaming_attach->set_offset("test_offset_3");
+        streaming_attach->set_scanned_rows(2000);
+        streaming_attach->set_load_bytes(10000);
+        streaming_attach->set_num_files(20);
+        streaming_attach->set_file_bytes(15000);
+
+        CommitTxnResponse response;
+        brpc::Controller cntl;
+        meta_service->commit_txn(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 1: Get existing streaming job
+    {
+        GetStreamingTaskCommitAttachRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        request.set_db_id(1000); // Must match db_id used when committing
+        request.set_job_id(1002);
+
+        GetStreamingTaskCommitAttachResponse response;
+        brpc::Controller cntl;
+        meta_service->get_streaming_task_commit_attach(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+        EXPECT_TRUE(response.has_commit_attach());
+        EXPECT_EQ(response.commit_attach().job_id(), 1002);
+        EXPECT_EQ(response.commit_attach().scanned_rows(), 2000);
+        EXPECT_EQ(response.commit_attach().load_bytes(), 10000);
+        EXPECT_EQ(response.commit_attach().num_files(), 20);
+        EXPECT_EQ(response.commit_attach().file_bytes(), 15000);
+    }
+
+    // Test case 2: Get non-existent streaming job
+    {
+        GetStreamingTaskCommitAttachRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        request.set_db_id(1000);
+        request.set_job_id(9999); // Non-existent job_id
+
+        GetStreamingTaskCommitAttachResponse response;
+        brpc::Controller cntl;
+        meta_service->get_streaming_task_commit_attach(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::STREAMING_JOB_PROGRESS_NOT_FOUND);
+        EXPECT_TRUE(response.status().msg().find("progress info not found") != std::string::npos);
+    }
+
+    // Test case 3: Missing required fields
+    {
+        GetStreamingTaskCommitAttachRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        // Missing db_id and job_id
+
+        GetStreamingTaskCommitAttachResponse response;
+        brpc::Controller cntl;
+        meta_service->get_streaming_task_commit_attach(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_TRUE(response.status().msg().find("empty db_id or job_id") != std::string::npos);
     }
 }
 

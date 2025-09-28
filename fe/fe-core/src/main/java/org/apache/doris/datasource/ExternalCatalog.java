@@ -18,7 +18,6 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -59,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
@@ -1283,8 +1283,8 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void truncateTable(String dbName, String tableName, PartitionNames partitionNames, boolean forceDrop,
-            String rawTruncateSql) throws DdlException {
+    public void truncateTable(String dbName, String tableName, PartitionNamesInfo partitionNamesInfo, boolean forceDrop,
+                              String rawTruncateSql) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new DdlException("Truncate table is not supported for catalog: " + getName());
@@ -1292,8 +1292,8 @@ public abstract class ExternalCatalog
         try {
             // delete all table data if null
             List<String> partitions = null;
-            if (partitionNames != null) {
-                partitions = partitionNames.getPartitionNames();
+            if (partitionNamesInfo != null) {
+                partitions = partitionNamesInfo.getPartitionNames();
             }
             ExternalTable dorisTable = getDbOrDdlException(dbName).getTableOrDdlException(tableName);
             metadataOps.truncateTable(dorisTable, partitions);

@@ -197,9 +197,9 @@ public:
     Status capture_consistent_rowsets_unlocked(
             const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const override;
 
-    // If skip_missing_version is true, skip versions if they are missing.
+    // If opts.skip_missing_version is true, skip versions if they are missing.
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-                              bool skip_missing_version) override;
+                              const CaptureRsReaderOptions& opts) override;
 
     // Find the missed versions until the spec_version.
     //
@@ -735,7 +735,7 @@ inline Version Tablet::max_version() const {
 inline uint64_t Tablet::segment_count() const {
     std::shared_lock rdlock(_meta_lock);
     uint64_t segment_nums = 0;
-    for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
+    for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
         segment_nums += rs_meta->num_segments();
     }
     return segment_nums;

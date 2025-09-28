@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DecodeAsVarchar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpAddressInRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
@@ -61,6 +62,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -156,6 +158,11 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         return ImmutableList.of(
                 logicalProject(logicalFilter(logicalOlapScan()
                         .when(s -> {
+                            // Only apply when session variable experimental_enable_virtual_slot_for_cse is enabled
+                            if (ConnectContext.get() == null
+                                    || !ConnectContext.get().getSessionVariable().experimentalEnableVirtualSlotForCse) {
+                                return false;
+                            }
                             boolean dupTblOrMOW = s.getTable().getKeysType() == KeysType.DUP_KEYS
                                     || s.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite();
                             return dupTblOrMOW && s.getVirtualColumns().isEmpty();
@@ -167,6 +174,11 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
                         }).toRule(RuleType.PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN),
                 logicalFilter(logicalOlapScan()
                         .when(s -> {
+                            // Only apply when session variable experimental_enable_virtual_slot_for_cse is enabled
+                            if (ConnectContext.get() == null
+                                    || !ConnectContext.get().getSessionVariable().experimentalEnableVirtualSlotForCse) {
+                                return false;
+                            }
                             boolean dupTblOrMOW = s.getTable().getKeysType() == KeysType.DUP_KEYS
                                     || s.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite();
                             return dupTblOrMOW && s.getVirtualColumns().isEmpty();
@@ -267,9 +279,10 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
 
         for (Expression expr : allExpressions) {
             // Skip expressions that contain lambda functions anywhere in the tree
-            if (expr.anyMatch(e -> e instanceof Lambda)) {
+            if (expr.anyMatch(e -> e instanceof Lambda)
+                    || expr.anyMatch(e -> e instanceof GroupingScalarFunction)) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Skipping expression containing lambda: {}", expr.toSql());
+                    LOG.debug("Skipping expression containing lambda/grouping: {}", expr.toSql());
                 }
                 continue;
             }
@@ -348,6 +361,11 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
      * @return SkipResult indicating how to handle this expression
      */
     private SkipResult shouldSkipExpression(Expression expr) {
+        // Grouping scalar functions can't be materialized into project/virtual columns.
+        // If an expression tree contains any grouping function, skip it entirely.
+        if (expr.anyMatch(e -> e instanceof GroupingScalarFunction)) {
+            return SkipResult.TERMINATE;
+        }
         // Skip simple slots and literals as they don't benefit from being pushed down
         if (expr instanceof Slot || expr.isConstant()) {
             return SkipResult.TERMINATE;

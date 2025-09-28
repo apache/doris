@@ -250,6 +250,84 @@ TEST_F(BooleanQueryTest, test_boolean_query_or_operation) {
     _CLDECDELETE(dir);
 }
 
+TEST_F(BooleanQueryTest, test_boolean_query_not_operation) {
+    std::wstring field = StringHelper::to_wstring("name1");
+
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
+    auto* reader = IndexReader::open(dir, true);
+    ASSERT_TRUE(reader != nullptr);
+
+    auto composite_reader = std::make_unique<query_v2::CompositeReader>();
+    composite_reader->set_reader(field, reader);
+
+    query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_NOT);
+    builder.add(std::make_shared<query_v2::TermQuery>(context, field,
+                                                      StringHelper::to_wstring("apple")));
+    auto query = builder.build();
+
+    auto weight = query->weight(false);
+    auto scorer = weight->scorer(composite_reader);
+
+    uint32_t doc = scorer->doc();
+    uint32_t count = 0;
+    while (doc != query_v2::TERMINATED) {
+        ++count;
+        doc = scorer->advance();
+    }
+
+    EXPECT_EQ(count, 40);
+
+    reader->close();
+    _CLLDELETE(reader);
+    _CLDECDELETE(dir);
+}
+
+TEST_F(BooleanQueryTest, test_boolean_query_or_with_not_operation) {
+    std::wstring field = StringHelper::to_wstring("name1");
+
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
+    auto* reader = IndexReader::open(dir, true);
+    ASSERT_TRUE(reader != nullptr);
+
+    auto composite_reader = std::make_unique<query_v2::CompositeReader>();
+    composite_reader->set_reader(field, reader);
+
+    query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_OR);
+    builder.add(std::make_shared<query_v2::TermQuery>(context, field,
+                                                      StringHelper::to_wstring("apple")));
+    {
+        query_v2::BooleanQuery::Builder not_builder(query_v2::OperatorType::OP_NOT);
+        not_builder.add(std::make_shared<query_v2::TermQuery>(context, field,
+                                                              StringHelper::to_wstring("banana")));
+        builder.add(not_builder.build());
+    }
+    auto query = builder.build();
+
+    auto weight = query->weight(false);
+    auto scorer = weight->scorer(composite_reader);
+
+    uint32_t doc = scorer->doc();
+    uint32_t count = 0;
+    while (doc != query_v2::TERMINATED) {
+        ++count;
+        doc = scorer->advance();
+    }
+
+    EXPECT_EQ(count, 50);
+
+    reader->close();
+    _CLLDELETE(reader);
+    _CLDECDELETE(dir);
+}
+
 TEST_F(BooleanQueryTest, test_boolean_query_scoring_or) {
     std::wstring field = StringHelper::to_wstring("name1");
 

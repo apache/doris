@@ -177,10 +177,10 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
                     context, from_type_not_nullable, to_type_not_nullable);
 
             auto nested_result_index = block.columns();
-            block.insert(block.get_by_position(result).get_nested());
+            block.insert(block.get_by_position(result).unnest_nullable());
             auto nested_source_index = block.columns();
-            block.insert(
-                    block.get_by_position(arguments[0]).get_nested(replace_null_data_to_default));
+            block.insert(block.get_by_position(arguments[0])
+                                 .unnest_nullable(replace_null_data_to_default));
 
             const auto& arg_col = block.get_by_position(arguments[0]);
             const NullMap::value_type* arg_null_map = nullptr;
