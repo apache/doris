@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatchAny;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -68,6 +69,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -81,6 +83,8 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
 
     @Test
     public void testExtractRepeatedSubExpressions() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
         // Create a test scenario where a sub-expression is repeated in multiple conjuncts
         // SELECT a, b FROM table WHERE (x + y) > 10 AND (x + y) < 100 AND z = (x + y)
 
@@ -141,6 +145,8 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
 
     @Test
     public void testExtractDistanceFunctions() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
         // Test the existing distance function extraction functionality
         DataType intType = IntegerType.INSTANCE;
         SlotReference vector1 = new SlotReference("vector1", intType);
@@ -177,7 +183,45 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
     }
 
     @Test
+    public void testL2DistanceWith768DimVectors() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
+
+        // Build two 768-dim float arrays to simulate embedding vectors
+        List<Expression> v1 = new ArrayList<>(768);
+        List<Expression> v2 = new ArrayList<>(768);
+        for (int i = 0; i < 768; i++) {
+            v1.add(new FloatLiteral((float) i));
+            v2.add(new FloatLiteral((float) (i + 1)));
+        }
+        Array arr1 = new Array(v1);
+        Array arr2 = new Array(v2);
+
+        L2Distance distance = new L2Distance(arr1, arr2);
+        GreaterThan distanceFilter = new GreaterThan(distance, new FloatLiteral(5.0f));
+
+        // Create OLAP scan and filter
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(distanceFilter), scan);
+
+        // Apply the rule
+        PushDownVirtualColumnsIntoOlapScan rule = new PushDownVirtualColumnsIntoOlapScan();
+        List<Rule> rules = rule.buildRules();
+
+        // Should create appropriate rules
+        Assertions.assertEquals(2, rules.size());
+
+        // No CSE should happen since the distance expression appears once
+        PlanChecker.from(connectContext, filter)
+                .applyTopDown(rules)
+                .matches(logicalOlapScan().when(o -> o.getVirtualColumns().isEmpty()));
+    }
+
+    @Test
     public void testComplexRepeatedExpressions() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
         // Test with more complex repeated expressions
         // SELECT * FROM table WHERE (x * y + z) > 10 AND (x * y + z) < 100
 
@@ -227,6 +271,8 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
 
     @Test
     public void testSkipWhenClause() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
         // Test that WhenClause expressions are not optimized as common sub-expressions
         // SELECT * FROM table WHERE CASE WHEN x = 1 THEN 'abc' ELSE WHEN x = 1 THEN 'abc' END != 'def'
 
@@ -259,13 +305,15 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // WhenClause expressions should NOT be optimized, but the rule should still match the pattern
         Assertions.assertTrue(hasMatchingRule, "Rule should match the filter pattern");
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+        PlanChecker.from(connectContext, filter)
                 .applyTopDown(rules)
                 .matches(logicalOlapScan().when(o -> o.getVirtualColumns().isEmpty()));
     }
 
     @Test
     public void testSkipCastExpressions() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
         // Test that CAST expressions are not optimized as common sub-expressions
         // SELECT * FROM table WHERE CAST(x AS VARCHAR) = 'abc' AND CAST(x AS VARCHAR) != 'def'
 
@@ -304,7 +352,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // CAST expressions should NOT be optimized, but the rule should still match the pattern
         Assertions.assertTrue(hasMatchingRule, "Rule should match the filter pattern");
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+        PlanChecker.from(connectContext, filter)
                 .applyTopDown(rules)
                 .matches(logicalOlapScan().when(o -> o.getVirtualColumns().isEmpty()));
     }
@@ -315,6 +363,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // With the new logic, any expression tree containing lambda should not be optimized
 
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
 
         // Create OLAP scan
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -361,6 +410,8 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
 
     @Test
     public void testMixedComplexExpressions() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
         // Test with a mix of optimizable and non-optimizable expressions
         // SELECT * FROM table WHERE
         //   (x + y) > 10 AND                    -- optimizable
@@ -421,6 +472,8 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
 
     @Test
     public void testNoOptimizationWhenNoRepeatedExpressions() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
         // Test that no optimization occurs when there are no repeated expressions
         // SELECT * FROM table WHERE x > 10 AND y < 100 AND z = 50
 
@@ -463,6 +516,8 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
 
     @Test
     public void testRulePatternMatching() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
         // Test that rules correctly match different plan patterns
 
         DataType intType = IntegerType.INSTANCE;
@@ -835,6 +890,8 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
 
     @Test
     public void testSkipGroupingFunctionsInFilter() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
         // Ensure expressions containing grouping() are completely skipped
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         SlotReference x = (SlotReference) scan.getOutput().get(0);
@@ -844,13 +901,15 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // even if repeated, should not extract
         LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
                 ImmutableSet.of(new EqualTo(grouping1, grouping2)), scan);
-        PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+        PlanChecker.from(connectContext, filter)
                 .applyTopDown(new PushDownVirtualColumnsIntoOlapScan())
                 .matches(logicalOlapScan().when(o -> o.getVirtualColumns().isEmpty()));
     }
 
     @Test
     public void testSkipGroupingFunctionsInProject() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
         // Ensure grouping() in project is not extracted or altered by CSE
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         SlotReference x = (SlotReference) scan.getOutput().get(0);
@@ -866,7 +925,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         );
         LogicalProject<LogicalFilter<LogicalOlapScan>> project = new LogicalProject<>(projects, filter);
 
-        Plan result = PlanChecker.from(MemoTestUtils.createConnectContext(), project)
+        Plan result = PlanChecker.from(connectContext, project)
                 .applyTopDown(new PushDownVirtualColumnsIntoOlapScan())
                 .getPlan();
 
@@ -891,6 +950,9 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
 
     @Test
     void testOnceUniqueFunction() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
+
         LogicalOlapScan olapScan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
                 PlanConstructor.newOlapTable(12345L, "t1", 0));
         SlotReference id = (SlotReference) olapScan.getOutput().get(0);
@@ -904,7 +966,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
                 ),
                 olapScan);
 
-        Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+        Plan root = PlanChecker.from(connectContext, filter)
                 .applyTopDown(new PushDownVirtualColumnsIntoOlapScan())
                 .getPlan();
         Assertions.assertInstanceOf(LogicalProject.class, root);
@@ -925,6 +987,9 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
 
     @Test
     void testMultipleTimesUniqueFunctions() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
+
         LogicalOlapScan olapScan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
                 PlanConstructor.newOlapTable(12345L, "t1", 0));
         SlotReference id = (SlotReference) olapScan.getOutput().get(0);
@@ -940,7 +1005,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
                 ),
                 olapScan);
 
-        Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+        Plan root = PlanChecker.from(connectContext, filter)
                 .applyTopDown(new PushDownVirtualColumnsIntoOlapScan())
                 .getPlan();
         Assertions.assertInstanceOf(LogicalProject.class, root);
@@ -965,6 +1030,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // Test that any expression tree containing lambda anywhere is completely skipped
 
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         SlotReference x = (SlotReference) scan.getOutput().get(0);
         SlotReference y = (SlotReference) scan.getOutput().get(1);
@@ -1026,6 +1092,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // Test that lambda-containing expressions in project are also skipped
 
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         SlotReference x = (SlotReference) scan.getOutput().get(0);
         SlotReference y = (SlotReference) scan.getOutput().get(1);
@@ -1091,6 +1158,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // Test deeply nested expressions containing lambda are completely skipped
 
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         SlotReference x = (SlotReference) scan.getOutput().get(0);
         SlotReference y = (SlotReference) scan.getOutput().get(1);
@@ -1157,6 +1225,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // Test comprehensive scenario mixing lambda and non-lambda expressions
 
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().experimentalEnableVirtualSlotForCse = true;
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
         SlotReference x = (SlotReference) scan.getOutput().get(0);
         SlotReference y = (SlotReference) scan.getOutput().get(1);

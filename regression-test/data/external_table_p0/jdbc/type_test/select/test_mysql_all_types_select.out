@@ -127,7 +127,15 @@ varbinary_c	varbinary(100)	Yes	true	\N
 0
 
 -- !select_varbinary_type3 --
+0
+
+-- !select_varbinary_type4 --
+0
+
+-- !select_varbinary_type5 --
 1	0x48656C6C6F20576F726C64
 2	0x48656C6C6F20576F726C6421
 3	0x48656C6C6F20576F726C6421
+4	\N
+5	0xAB
 

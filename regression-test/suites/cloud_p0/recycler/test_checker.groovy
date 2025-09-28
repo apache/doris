@@ -106,6 +106,7 @@ suite("test_checker") {
         logger.info("delete objectKey: ${objectKey}")
         s3Client.deleteObject(new DeleteObjectRequest(bucket, objectKey))
     } else if (getObjStoreInfoApiResult.result.toString().contains("storage_vault=[") && getObjStoreInfoApiResult.result.toString().contains("hdfs_info")) {
+        System.setProperty("java.security.krb5.conf", "/etc/krb/krb5.conf")
         String fsUri = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.build_conf.fs_name
         String prefix = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.prefix
         String hdfsPath = "/${prefix}/data/${tabletId}/"

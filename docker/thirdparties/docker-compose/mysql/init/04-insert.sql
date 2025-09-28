@@ -1210,6 +1210,7 @@ INSERT INTO doris_test.`test_cast` VALUES (1, '1', '2022-01-01', '2022-01-01 00:
 INSERT INTO doris_test.`test_cast` VALUES (2, '2', '2022-01-02', '2022-01-02 00:00:01');
 
 INSERT INTO test_varbinary_db.`test_varbinary` VALUES (1, X'48656C6C6F20576F726C64'), (2, X'48656C6C6F20576F726C6421');
+INSERT INTO test_varbinary_db.`test_varbinary_udf` VALUES (1, X'48656C6C6F20576F726C64'), (2, X'48656C6C6F20576F726C6421'), (3, NULL), (4, X'AB'), (5, X'ABCDEF');
 
 ANALYZE TABLE Doris.doris;
 ANALYZE TABLE Doris.DORIS;

@@ -38,6 +38,7 @@ import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
+import org.apache.doris.analysis.TryCastExpr;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function;
@@ -75,6 +76,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
@@ -438,6 +440,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 cast.child().accept(this, context), null);
         castExpr.setNullableFromNereids(cast.nullable());
         return castExpr;
+    }
+
+    @Override
+    public Expr visitTryCast(TryCast cast, PlanTranslatorContext context) {
+        // left child of cast is expression, right child of cast is target type
+        TryCastExpr tryCastExpr = new TryCastExpr(cast.getDataType().toCatalogDataType(),
+                cast.child().accept(this, context), null);
+        tryCastExpr.setNullableFromNereids(cast.nullable());
+        tryCastExpr.setOriginCastNullable(cast.parentNullable());
+        return tryCastExpr;
     }
 
     @Override

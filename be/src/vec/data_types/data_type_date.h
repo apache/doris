@@ -49,7 +49,8 @@ public:
     std::string do_get_name() const override { return "Date"; }
 
     bool equals(const IDataType& rhs) const override;
-    /// TODO: remove this in the future
+/// TODO: remove this in the future
+#ifdef BE_TEST
     using IDataType::to_string;
     std::string to_string(Int64 int_val) const {
         doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
@@ -57,6 +58,7 @@ public:
         value.to_string(buf);
         return buf;
     }
+#endif
     static void cast_to_date(Int64& x);
     Field get_field(const TExprNode& node) const override {
         VecDateTimeValue value;
