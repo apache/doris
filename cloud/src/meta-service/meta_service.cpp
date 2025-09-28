@@ -3190,6 +3190,9 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
     auto& rowset_ids = request->rowset_ids();
     auto& begin_versions = request->begin_versions();
     auto& end_versions = request->end_versions();
+    int64_t dbm_bytes_threshold = request->has_dbm_bytes_threshold()
+                                          ? request->dbm_bytes_threshold()
+                                          : std::numeric_limits<int64_t>::max();
     if (rowset_ids.size() != begin_versions.size() || rowset_ids.size() != end_versions.size()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         ss << "rowset and version size not match. "
@@ -3326,6 +3329,20 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                   << ", start version=" << begin_versions[i] << ", end version=" << end_versions[i]
                   << ", internal round=" << round << ", delete_bitmap_num=" << delete_bitmap_num
                   << ", delete_bitmap_byte=" << delete_bitmap_byte;
+
+        response->add_returned_rowset_ids(rowset_ids[i]);
+        if (delete_bitmap_byte >= dbm_bytes_threshold && i < rowset_ids.size() - 1) {
+            response->set_has_more(true);
+            LOG_INFO("stop in advance to get delete bitmap due to reach bytes threshold")
+                    .tag("instance_id", instance_id)
+                    .tag("tablet_id", tablet_id)
+                    .tag("req_rowset_num", rowset_ids.size())
+                    .tag("finished_rowset_num", response->returned_rowset_ids_size())
+                    .tag("delete_bitmap_num", delete_bitmap_num)
+                    .tag("delete_bitmap_byte", delete_bitmap_byte)
+                    .tag("bytes_threshold", dbm_bytes_threshold);
+            break;
+        }
     }
     LOG(INFO) << "finish get delete bitmap for tablet=" << tablet_id
               << ", delete_bitmap_num=" << delete_bitmap_num
