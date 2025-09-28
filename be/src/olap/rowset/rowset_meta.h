@@ -417,10 +417,7 @@ private:
     StorageResource _storage_resource;
     bool _is_removed_from_rowset_meta = false;
     DorisCallOnce<Result<EncryptionAlgorithmPB>> _determine_encryption_once;
-<<<<<<< HEAD
-=======
     std::atomic<int64_t> _stale_at_s {0};
->>>>>>> 3.1.1-rc01
 };
 
 } // namespace doris

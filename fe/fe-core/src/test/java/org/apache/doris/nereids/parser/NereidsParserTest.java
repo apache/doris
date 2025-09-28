@@ -849,8 +849,6 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-<<<<<<< HEAD
-=======
     public void testCtasWithoutAs() {
         NereidsParser parser = new NereidsParser();
         String sql = "CREATE TABLE t1 SELECT * FROM t2";
@@ -877,7 +875,6 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
->>>>>>> 3.1.1-rc01
     public void testAdminRotateTdeRootKey() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "admin rotate tde root key";

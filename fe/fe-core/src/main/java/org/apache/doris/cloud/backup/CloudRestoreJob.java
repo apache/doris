@@ -365,44 +365,6 @@ public class CloudRestoreJob extends RestoreJob {
             MaterializedIndexMeta indexMeta = localTbl.getIndexMetaByIndexId(restoredIdx.getId());
             List<Index> indexes = restoredIdx.getId() == localTbl.getBaseIndexId()
                     ? localTbl.getCopiedIndexes() : null;
-<<<<<<< HEAD
-            for (Tablet restoreTablet : restoredIdx.getTablets()) {
-                try {
-                    requestBuilder.addTabletMetas(((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                            .createTabletMetaBuilder(localTbl.getId(), restoredIdx.getId(),
-                                restorePart.getId(), restoreTablet,
-                                localTbl.getPartitionInfo().getTabletType(restorePart.getId()),
-                                indexMeta.getSchemaHash(), indexMeta.getKeysType(),
-                                indexMeta.getShortKeyColumnCount(), localTbl.getCopiedBfColumns(),
-                                localTbl.getBfFpp(), indexes, indexMeta.getSchema(), localTbl.getDataSortInfo(),
-                                localTbl.getCompressionType(), localTbl.getStoragePolicy(),
-                                localTbl.isInMemory(), false, localTbl.getName(), localTbl.getTTLSeconds(),
-                                localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.storeRowColumn(),
-                                localTbl.getBaseSchemaVersion(), localTbl.getCompactionPolicy(),
-                                localTbl.getTimeSeriesCompactionGoalSizeMbytes(),
-                                localTbl.getTimeSeriesCompactionFileCountThreshold(),
-                                localTbl.getTimeSeriesCompactionTimeThresholdSeconds(),
-                                localTbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
-                                localTbl.getTimeSeriesCompactionLevelThreshold(), localTbl.disableAutoCompaction(),
-                                localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                localTbl.getEnableMowLightDelete(),
-                                localTbl.getInvertedIndexFileStorageFormat(),
-                                localTbl.rowStorePageSize(),
-                                localTbl.variantEnableFlattenNested(),
-                                localTbl.storagePageSize(), localTbl.getTDEAlgorithmPB(),
-                                localTbl.storageDictPageSize(), false));
-                    // In cloud mode all storage medium will be saved to HDD.
-                    TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
-                            restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
-                    Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
-                    Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(),
-                            restoreTablet.getReplicaByBackendId(-1));
-                } catch (Exception e) {
-                    String errMsg = String.format("create tablet meta builder failed, errMsg:%s, local table:%d, "
-                            + "restore partition=%d, restore index=%d, restore tablet=%d", e.getMessage(),
-                            localTbl.getId(), restorePart.getId(), restoredIdx.getId(), restoreTablet.getId());
-                    status = new Status(Status.ErrCode.COMMON_ERROR, errMsg);
-=======
             int maxCreateTabletBatchSize = Config.cloud_restore_create_tablet_batch_size;
             List<Tablet> restoreTablets = restoredIdx.getTablets();
             for (int i = 0; i < restoreTablets.size(); i += maxCreateTabletBatchSize) {
@@ -447,7 +409,6 @@ public class CloudRestoreJob extends RestoreJob {
                         status = new Status(Status.ErrCode.COMMON_ERROR, errMsg);
                         return;
                     }
->>>>>>> 3.1.1-rc01
                 }
                 requestBuilders.add(requestBuilder);
             }

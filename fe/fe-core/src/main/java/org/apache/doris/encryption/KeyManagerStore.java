@@ -41,7 +41,6 @@ public class KeyManagerStore implements Writable {
     @SerializedName(value = "masterKeys")
     private final List<EncryptionKey> masterKeys = new ArrayList<>();
 
-<<<<<<< HEAD
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     public void readLock() {
@@ -57,23 +56,6 @@ public class KeyManagerStore implements Writable {
     }
 
     public void writeUnlock() {
-=======
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-
-    private void readLock() {
-        lock.readLock().lock();
-    }
-
-    private void readUnlock() {
-        lock.readLock().unlock();
-    }
-
-    private void writeLock() {
-        lock.writeLock().lock();
-    }
-
-    private void writeUnlock() {
->>>>>>> 3.1.1-rc01
         lock.writeLock().unlock();
     }
 
@@ -86,7 +68,6 @@ public class KeyManagerStore implements Writable {
         }
     }
 
-<<<<<<< HEAD
     public void clearMasterKeys() {
         writeLock();
         try {
@@ -96,8 +77,6 @@ public class KeyManagerStore implements Writable {
         }
     }
 
-=======
->>>>>>> 3.1.1-rc01
     public List<EncryptionKey> getMasterKeys() {
         readLock();
         try {

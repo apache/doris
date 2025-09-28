@@ -596,13 +596,9 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
     if (in.has_schema_version()) {
         out->set_schema_version(in.schema_version());
     }
-<<<<<<< HEAD
-    out->set_encryption_algorithm(in.encryption_algorithm());
-=======
     if (in.has_encryption_algorithm()) {
         out->set_encryption_algorithm(in.encryption_algorithm());
     }
->>>>>>> 3.1.1-rc01
 }
 
 TabletMetaPB cloud_tablet_meta_to_doris(const TabletMetaCloudPB& in) {
@@ -678,13 +674,9 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
     if (in.has_schema_version()) {
         out->set_schema_version(in.schema_version());
     }
-<<<<<<< HEAD
-    out->set_encryption_algorithm(in.encryption_algorithm());
-=======
     if (in.has_encryption_algorithm()) {
         out->set_encryption_algorithm(in.encryption_algorithm());
     }
->>>>>>> 3.1.1-rc01
 }
 
 void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
@@ -751,13 +743,9 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
     if (in.has_schema_version()) {
         out->set_schema_version(in.schema_version());
     }
-<<<<<<< HEAD
-    out->set_encryption_algorithm(in.encryption_algorithm());
-=======
     if (in.has_encryption_algorithm()) {
         out->set_encryption_algorithm(in.encryption_algorithm());
     }
->>>>>>> 3.1.1-rc01
 }
 
 } // namespace doris::cloud

@@ -76,12 +76,6 @@ merge_pr_to_target_branch_latest() {
 }
 
 if [[ "${target_branch}" == "master" ]]; then
-<<<<<<< HEAD
-    REMOTE_CCACHE='/mnt/remote_ccache_master'
-    docker_image="apache/doris:build-env-ldb-toolchain-latest"
-elif [[ "${target_branch}" == "branch-3.1" ]]; then
-=======
->>>>>>> 3.1.1-rc01
     REMOTE_CCACHE='/mnt/remote_ccache_master'
     docker_image="apache/doris:build-env-ldb-toolchain-latest"
 elif [[ "${target_branch}" == "branch-3.1" ]]; then

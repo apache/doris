@@ -257,12 +257,9 @@ public class PropertyAnalyzer {
     public static final String AES256 = "AES256";
     public static final String SM4 = "SM4";
     public static final String PLAINTEXT = "PLAINTEXT";
-<<<<<<< HEAD
-=======
 
     public static final String PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
             "variant_max_sparse_column_statistics_size";
->>>>>>> 3.1.1-rc01
 
     public enum RewriteType {
         PUT,      // always put property
@@ -1882,8 +1879,6 @@ public class PropertyAnalyzer {
         return enableTypedPathsToSparse;
     }
 
-<<<<<<< HEAD
-=======
     public static int analyzeVariantMaxSparseColumnStatisticsSize(Map<String, String> properties, int defuatValue)
                                                                                 throws AnalysisException {
         int maxSparseColumnStatisticsSize = defuatValue;
@@ -1904,7 +1899,6 @@ public class PropertyAnalyzer {
         return maxSparseColumnStatisticsSize;
     }
 
->>>>>>> 3.1.1-rc01
     public static TEncryptionAlgorithm analyzeTDEAlgorithm(Map<String, String> properties) throws AnalysisException {
         String name;
         //if (properties == null || !properties.containsKey(PROPERTIES_TDE_ALGORITHM)) {

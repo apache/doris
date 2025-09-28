@@ -1633,12 +1633,9 @@ DECLARE_mInt32(max_segment_partial_column_cache_size);
 
 DECLARE_mBool(enable_wal_tde);
 
-<<<<<<< HEAD
-=======
 DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
 DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);
 
->>>>>>> 3.1.1-rc01
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
