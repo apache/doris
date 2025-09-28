@@ -709,6 +709,7 @@ struct TRecCTENode {
     1: optional bool is_union_all
     2: optional list<TRecCTETarget> targets
     3: optional list<TRecCTEResetInfo> fragments_to_reset
+    4: optional list<list<Exprs.TExpr>> result_expr_lists
 }
 
 struct TEsScanNode {
