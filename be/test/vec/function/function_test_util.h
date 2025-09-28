@@ -59,6 +59,7 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
+#include "vec/data_types/data_type_varbinary.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -103,6 +104,8 @@ using VARCHAR = std::string;
 using CHAR = std::string;
 using STRING = std::string;
 
+using VARBINARY = doris::StringView;
+
 using DOUBLE = double;
 using FLOAT = float;
 
@@ -127,6 +130,11 @@ template <>
 struct ut_input_type<DataTypeString> {
     using type = std::string;
     inline static type default_value = "test_default";
+};
+template <>
+struct ut_input_type<DataTypeVarbinary> {
+    using type = doris::StringView;
+    inline static type default_value = doris::StringView("test_default");
 };
 template <>
 struct ut_input_type<DataTypeDate> {

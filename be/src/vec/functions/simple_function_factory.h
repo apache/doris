@@ -120,6 +120,7 @@ void register_function_ai(SimpleFunctionFactory& factory);
 void register_function_score(SimpleFunctionFactory& factory);
 void register_function_variant_type(SimpleFunctionFactory& factory);
 void register_function_soundex(SimpleFunctionFactory& factory);
+void register_function_binary(SimpleFunctionFactory& factory);
 
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
 void register_function_throw_exception(SimpleFunctionFactory& factory);
@@ -339,6 +340,7 @@ public:
             register_function_ai(instance);
             register_function_score(instance);
             register_function_soundex(instance);
+            register_function_binary(instance);
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
             register_function_throw_exception(instance);
 #endif

@@ -458,6 +458,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
@@ -2181,6 +2182,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStringRegexPredicate(StringRegexPredicate stringRegexPredicate, C context) {
         return visitScalarFunction(stringRegexPredicate, context);
+    }
+
+    default R visitSubBinary(SubBinary subBinary, C context) {
+        return visitScalarFunction(subBinary, context);
     }
 
     default R visitSubBitmap(SubBitmap subBitmap, C context) {

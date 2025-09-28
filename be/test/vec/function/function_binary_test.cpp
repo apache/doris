@@ -1,0 +1,444 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "vec/functions/function_binary.h"
+
+#include "function_test_util.h"
+#include "vec/data_types/data_type_varbinary.h"
+
+namespace doris::vectorized {
+
+using namespace ut_type;
+
+TEST(function_binary_test, function_binary_length_test) {
+    std::string func_name = "length";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY};
+    DataSet data_set = {
+            {{VARBINARY("YXNk5L2g5aW9")}, std::int32_t(12)},
+            {{VARBINARY("aGVsbG8gd29ybGQ")}, std::int32_t(15)},
+            {{VARBINARY("SEVMTE8sIV4l")}, std::int32_t(12)},
+            {{VARBINARY("__123hehe1")}, std::int32_t(10)},
+            {{VARBINARY("")}, std::int32_t(0)},
+            {{VARBINARY("5ZWK5ZOI5ZOI5ZOI8J+YhCDjgILigJTigJQh")}, std::int32_t(36)},
+            {{VARBINARY("ò&ø")}, std::int32_t(5)},
+            {{VARBINARY("TVl0ZXN0U1RS")}, std::int32_t(12)},
+            {{VARBINARY("123321!@#@$!@%!@#!@$!@")}, std::int32_t(22)},
+            {{VARBINARY("123")}, std::int32_t(3)},
+            {{VARBINARY("Hello, World!")}, std::int32_t(13)},  // 正常ASCII字符
+            {{VARBINARY("Привет, мир!")}, std::int32_t(21)},   // 俄文，使用Cyrillic characters
+            {{VARBINARY("こんにちは世界")}, std::int32_t(21)}, // 日文，每个字符通常3字节
+            {{VARBINARY("안녕하세요세계")}, std::int32_t(21)}, // 韩文字符
+            {{VARBINARY("你好，世界！")}, std::int32_t(18)}, // 简体中文，每个字符通常3字节
+            {{VARBINARY("مرحبا بالعالم!")}, std::int32_t(26)},            // 阿拉伯语
+            {{VARBINARY("1234567890")}, std::int32_t(10)},                // 数字
+            {{VARBINARY("👨‍👨‍👧‍👦")}, std::int32_t(25)}, // 家庭成员Emoji
+            {{VARBINARY("🇺🇸🇨🇳🇯🇵🇰🇷")}, std::int32_t(32)},                  // 国旗Emoji
+            {{VARBINARY("\u00F1")}, std::int32_t(2)}, // ñ，为拉丁字母n with tilde，UTF-8中占用2字节
+            {{VARBINARY("\u65E5\u672C\u8A9E")}, std::int32_t(9)}, // 日本语，每个字符通常3个字节
+            {{VARBINARY("Hello, 世界！")}, std::int32_t(16)}, // 混合ASCII和非ASCII字符
+            {{VARBINARY("😀😃😄😁")}, std::int32_t(16)},      // Emoji，每个通常4个字节
+            {{VARBINARY("Quick brown 狐 jumps over a lazy 狗.")}, std::int32_t(38)}, // 混合字符串
+            {{VARBINARY("Löwe 老虎 Léopard")}, std::int32_t(21)}, // 欧洲文字和中文的混合
+            {{VARBINARY("Café 美丽")}, std::int32_t(12)},         // 带重音的字符
+            {{VARBINARY("Björk")}, std::int32_t(6)},              // 北欧名称
+            {{VARBINARY("¿Dónde está la biblioteca?")}, std::int32_t(29)}, // 西班牙语句子
+            {{VARBINARY("Zażółć gęślą jaźń")}, std::int32_t(26)}, // 波兰语句子，含特殊字符
+            {{Null()}, Null()},                                   // 空值
+            {{VARBINARY(" ")}, std::int32_t(1)},                  // 空格
+            {{VARBINARY("  ")}, std::int32_t(2)},                 // 双空格
+
+    };
+
+    check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set);
+}
+
+TEST(function_binary_test, function_to_base64_test) {
+    std::string func_name = "to_base64";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY};
+
+    DataSet data_set = {
+            {{VARBINARY("ABC")}, std::string("QUJD")},
+            {{VARBINARY("ABB")}, std::string("QUJC")},
+            {{VARBINARY("HEHE")}, std::string("SEVIRQ==")},
+            {{VARBINARY("__123hehe1")}, std::string("X18xMjNoZWhlMQ==")},
+            {{VARBINARY("5ZWK5ZOI5ZOI5ZOI8J+YhCDjgILigJTigJQh")},
+             std::string("NVpXSzVaT0k1Wk9JNVpPSThKK1loQ0RqZ0lMaWdKVGlnSlFo")},
+            {{VARBINARY("ò&ø")}, std::string("w7Imw7g=")},
+            {{VARBINARY("hehe")}, std::string("aGVoZQ==")},
+            // // 特殊字符
+            {{VARBINARY("`~!@#$%^&*()-_=+")}, std::string("YH4hQCMkJV4mKigpLV89Kw==")},
+            // // 末尾空格，这对 base64 编码意义重大
+            {{VARBINARY("test ")}, std::string("dGVzdCA=")},
+            // // 空字符串
+            {{VARBINARY("")}, std::string("")},
+            {{Null()}, Null()},
+    };
+
+    check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+}
+
+TEST(function_binary_test, function_from_base64_test) {
+    std::string func_name = "from_base64";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+
+    DataSet data_set = {
+            {{std::string("YXNk5L2g5aW9")}, VARBINARY("asd你好")},
+            {{std::string("aGVsbG8gd29ybGQ")}, Null()},
+            {{std::string("SEVMTE8sIV4l")}, VARBINARY("HELLO,!^%")},
+            {{std::string("__123hehe1")}, Null()},
+            {{std::string("")}, VARBINARY("")},
+            {{std::string("5ZWK5ZOI5ZOI5ZOI8J+YhCDjgILigJTigJQh")}, VARBINARY("啊哈哈哈😄 。——!")},
+            {{std::string("ò&ø")}, Null()},
+            {{std::string("TVl0ZXN0U1RS")}, VARBINARY("MYtestSTR")},
+            {{Null()}, Null()},
+    };
+
+    check_function_all_arg_comb<DataTypeVarbinary, true>(func_name, input_types, data_set);
+}
+
+TEST(function_binary_test, function_binary_substr_test) {
+    std::string func_name = "sub_binary";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_INT,
+                                    PrimitiveType::TYPE_INT};
+
+        DataSet data_set = {
+                {{VARBINARY("AbCdEfg"), std::int32_t(1), std::int32_t(1)}, VARBINARY("A")},
+                {{VARBINARY("AbCdEfg"), std::int32_t(1), std::int32_t(5)}, VARBINARY("AbCdE")},
+                {{VARBINARY("AbCdEfg"), std::int32_t(1), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("AbCdEfg"), std::int32_t(1), std::int32_t(100)}, VARBINARY("AbCdEfg")},
+                {{VARBINARY("AbCdEfg"), std::int32_t(1), Null()}, Null()},
+                {{VARBINARY("AbCdEfg"), std::int32_t(5), std::int32_t(1)}, VARBINARY("E")},
+                {{VARBINARY("AbCdEfg"), std::int32_t(5), std::int32_t(5)}, VARBINARY("Efg")},
+                {{VARBINARY("AbCdEfg"), std::int32_t(5), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("AbCdEfg"), std::int32_t(5), std::int32_t(100)}, VARBINARY("Efg")},
+                {{VARBINARY("AbCdEfg"), std::int32_t(5), Null()}, Null()},
+                {{VARBINARY("AbCdEfg"), std::int32_t(-1), std::int32_t(1)}, VARBINARY("g")},
+                {{VARBINARY("AbCdEfg"), std::int32_t(-1), std::int32_t(5)}, VARBINARY("g")},
+                {{VARBINARY("AbCdEfg"), std::int32_t(-1), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("AbCdEfg"), std::int32_t(-1), std::int32_t(100)}, VARBINARY("g")},
+                {{VARBINARY("AbCdEfg"), std::int32_t(-1), Null()}, Null()},
+                {{VARBINARY("AbCdEfg"), std::int32_t(100), std::int32_t(1)}, VARBINARY("")},
+                {{VARBINARY("AbCdEfg"), std::int32_t(100), std::int32_t(5)}, VARBINARY("")},
+                {{VARBINARY("AbCdEfg"), std::int32_t(100), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("AbCdEfg"), std::int32_t(100), std::int32_t(100)}, VARBINARY("")},
+                {{VARBINARY("AbCdEfg"), std::int32_t(100), Null()}, Null()},
+                {{VARBINARY("AbCdEfg"), Null(), std::int32_t(1)}, Null()},
+                {{VARBINARY("AbCdEfg"), Null(), std::int32_t(5)}, Null()},
+                {{VARBINARY("AbCdEfg"), Null(), std::int32_t(-1)}, Null()},
+                {{VARBINARY("AbCdEfg"), Null(), std::int32_t(100)}, Null()},
+                {{VARBINARY("AbCdEfg"), Null(), Null()}, Null()},
+                {{VARBINARY("HELLO123"), std::int32_t(1), std::int32_t(1)}, VARBINARY("H")},
+                {{VARBINARY("HELLO123"), std::int32_t(1), std::int32_t(5)}, VARBINARY("HELLO")},
+                {{VARBINARY("HELLO123"), std::int32_t(1), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("HELLO123"), std::int32_t(1), std::int32_t(100)},
+                 VARBINARY("HELLO123")},
+                {{VARBINARY("HELLO123"), std::int32_t(1), Null()}, Null()},
+                {{VARBINARY("HELLO123"), std::int32_t(5), std::int32_t(1)}, VARBINARY("O")},
+                {{VARBINARY("HELLO123"), std::int32_t(5), std::int32_t(5)}, VARBINARY("O123")},
+                {{VARBINARY("HELLO123"), std::int32_t(5), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("HELLO123"), std::int32_t(5), std::int32_t(100)}, VARBINARY("O123")},
+                {{VARBINARY("HELLO123"), std::int32_t(5), Null()}, Null()},
+                {{VARBINARY("HELLO123"), std::int32_t(-1), std::int32_t(1)}, VARBINARY("3")},
+                {{VARBINARY("HELLO123"), std::int32_t(-1), std::int32_t(5)}, VARBINARY("3")},
+                {{VARBINARY("HELLO123"), std::int32_t(-1), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("HELLO123"), std::int32_t(-1), std::int32_t(100)}, VARBINARY("3")},
+                {{VARBINARY("HELLO123"), std::int32_t(-1), Null()}, Null()},
+                {{VARBINARY("HELLO123"), std::int32_t(100), std::int32_t(1)}, VARBINARY("")},
+                {{VARBINARY("HELLO123"), std::int32_t(100), std::int32_t(5)}, VARBINARY("")},
+                {{VARBINARY("HELLO123"), std::int32_t(100), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("HELLO123"), std::int32_t(100), std::int32_t(100)}, VARBINARY("")},
+                {{VARBINARY("HELLO123"), std::int32_t(100), Null()}, Null()},
+                {{VARBINARY("HELLO123"), Null(), std::int32_t(1)}, Null()},
+                {{VARBINARY("HELLO123"), Null(), std::int32_t(5)}, Null()},
+                {{VARBINARY("HELLO123"), Null(), std::int32_t(-1)}, Null()},
+                {{VARBINARY("HELLO123"), Null(), std::int32_t(100)}, Null()},
+                {{VARBINARY("HELLO123"), Null(), Null()}, Null()},
+                // VARBINARY("\xE4\xBD\xA0\xE5\xA5\xBD\x48\x45\x4C\x4C\x4F")  == VARBINARY("你好HELLO")
+                {{VARBINARY("你好HELLO"), std::int32_t(1), std::int32_t(1)}, VARBINARY("\xE4")},
+                {{VARBINARY("你好HELLO"), std::int32_t(1), std::int32_t(5)},
+                 VARBINARY("\xE4\xBD\xA0\xE5\xA5")},
+                {{VARBINARY("你好HELLO"), std::int32_t(1), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("你好HELLO"), std::int32_t(1), std::int32_t(100)},
+                 VARBINARY("你好HELLO")},
+                {{VARBINARY("你好HELLO"), std::int32_t(1), Null()}, Null()},
+                {{VARBINARY("你好HELLO"), std::int32_t(5), std::int32_t(1)}, VARBINARY("\xA5")},
+                {{VARBINARY("你好HELLO"), std::int32_t(5), std::int32_t(5)},
+                 VARBINARY("\xA5\xBD\x48\x45\x4C")},
+                {{VARBINARY("你好HELLO"), std::int32_t(5), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("你好HELLO"), std::int32_t(5), std::int32_t(100)},
+                 VARBINARY("\xA5\xBDHELLO")},
+                {{VARBINARY("你好HELLO"), std::int32_t(5), Null()}, Null()},
+                {{VARBINARY("你好HELLO"), std::int32_t(-1), std::int32_t(1)}, VARBINARY("O")},
+                {{VARBINARY("你好HELLO"), std::int32_t(-1), std::int32_t(5)}, VARBINARY("O")},
+                {{VARBINARY("你好HELLO"), std::int32_t(-1), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("你好HELLO"), std::int32_t(-1), std::int32_t(100)}, VARBINARY("O")},
+                {{VARBINARY("你好HELLO"), std::int32_t(-1), Null()}, Null()},
+                {{VARBINARY("你好HELLO"), std::int32_t(100), std::int32_t(1)}, VARBINARY("")},
+                {{VARBINARY("你好HELLO"), std::int32_t(100), std::int32_t(5)}, VARBINARY("")},
+                {{VARBINARY("你好HELLO"), std::int32_t(100), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("你好HELLO"), std::int32_t(100), std::int32_t(100)}, VARBINARY("")},
+                {{VARBINARY("你好HELLO"), std::int32_t(100), Null()}, Null()},
+                {{VARBINARY("你好HELLO"), Null(), std::int32_t(1)}, Null()},
+                {{VARBINARY("你好HELLO"), Null(), std::int32_t(5)}, Null()},
+                {{VARBINARY("你好HELLO"), Null(), std::int32_t(-1)}, Null()},
+                {{VARBINARY("你好HELLO"), Null(), std::int32_t(100)}, Null()},
+                {{VARBINARY("你好HELLO"), Null(), Null()}, Null()},
+                {{VARBINARY("123ABC_"), std::int32_t(1), std::int32_t(1)}, VARBINARY("1")},
+                {{VARBINARY("123ABC_"), std::int32_t(1), std::int32_t(5)}, VARBINARY("123AB")},
+                {{VARBINARY("123ABC_"), std::int32_t(1), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("123ABC_"), std::int32_t(1), std::int32_t(100)}, VARBINARY("123ABC_")},
+                {{VARBINARY("123ABC_"), std::int32_t(1), Null()}, Null()},
+                {{VARBINARY("123ABC_"), std::int32_t(5), std::int32_t(1)}, VARBINARY("B")},
+                {{VARBINARY("123ABC_"), std::int32_t(5), std::int32_t(5)}, VARBINARY("BC_")},
+                {{VARBINARY("123ABC_"), std::int32_t(5), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("123ABC_"), std::int32_t(5), std::int32_t(100)}, VARBINARY("BC_")},
+                {{VARBINARY("123ABC_"), std::int32_t(5), Null()}, Null()},
+                {{VARBINARY("123ABC_"), std::int32_t(-1), std::int32_t(1)}, VARBINARY("_")},
+                {{VARBINARY("123ABC_"), std::int32_t(-1), std::int32_t(5)}, VARBINARY("_")},
+                {{VARBINARY("123ABC_"), std::int32_t(-1), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("123ABC_"), std::int32_t(-1), std::int32_t(100)}, VARBINARY("_")},
+                {{VARBINARY("123ABC_"), std::int32_t(-1), Null()}, Null()},
+                {{VARBINARY("123ABC_"), std::int32_t(100), std::int32_t(1)}, VARBINARY("")},
+                {{VARBINARY("123ABC_"), std::int32_t(100), std::int32_t(5)}, VARBINARY("")},
+                {{VARBINARY("123ABC_"), std::int32_t(100), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("123ABC_"), std::int32_t(100), std::int32_t(100)}, VARBINARY("")},
+                {{VARBINARY("123ABC_"), std::int32_t(100), Null()}, Null()},
+                {{VARBINARY("123ABC_"), Null(), std::int32_t(1)}, Null()},
+                {{VARBINARY("123ABC_"), Null(), std::int32_t(5)}, Null()},
+                {{VARBINARY("123ABC_"), Null(), std::int32_t(-1)}, Null()},
+                {{VARBINARY("123ABC_"), Null(), std::int32_t(100)}, Null()},
+                {{VARBINARY("123ABC_"), Null(), Null()}, Null()},
+                {{VARBINARY("MYtestSTR"), std::int32_t(1), std::int32_t(1)}, VARBINARY("M")},
+                {{VARBINARY("MYtestSTR"), std::int32_t(1), std::int32_t(5)}, VARBINARY("MYtes")},
+                {{VARBINARY("MYtestSTR"), std::int32_t(1), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("MYtestSTR"), std::int32_t(1), std::int32_t(100)},
+                 VARBINARY("MYtestSTR")},
+                {{VARBINARY("MYtestSTR"), std::int32_t(1), Null()}, Null()},
+                {{VARBINARY("MYtestSTR"), std::int32_t(5), std::int32_t(1)}, VARBINARY("s")},
+                {{VARBINARY("MYtestSTR"), std::int32_t(5), std::int32_t(5)}, VARBINARY("stSTR")},
+                {{VARBINARY("MYtestSTR"), std::int32_t(5), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("MYtestSTR"), std::int32_t(5), std::int32_t(100)}, VARBINARY("stSTR")},
+                {{VARBINARY("MYtestSTR"), std::int32_t(5), Null()}, Null()},
+                {{VARBINARY("MYtestSTR"), std::int32_t(-1), std::int32_t(1)}, VARBINARY("R")},
+                {{VARBINARY("MYtestSTR"), std::int32_t(-1), std::int32_t(5)}, VARBINARY("R")},
+                {{VARBINARY("MYtestSTR"), std::int32_t(-1), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("MYtestSTR"), std::int32_t(-1), std::int32_t(100)}, VARBINARY("R")},
+                {{VARBINARY("MYtestSTR"), std::int32_t(-1), Null()}, Null()},
+                {{VARBINARY("MYtestSTR"), std::int32_t(100), std::int32_t(1)}, VARBINARY("")},
+                {{VARBINARY("MYtestSTR"), std::int32_t(100), std::int32_t(5)}, VARBINARY("")},
+                {{VARBINARY("MYtestSTR"), std::int32_t(100), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("MYtestSTR"), std::int32_t(100), std::int32_t(100)}, VARBINARY("")},
+                {{VARBINARY("MYtestSTR"), std::int32_t(100), Null()}, Null()},
+                {{VARBINARY("MYtestSTR"), Null(), std::int32_t(1)}, Null()},
+                {{VARBINARY("MYtestSTR"), Null(), std::int32_t(5)}, Null()},
+                {{VARBINARY("MYtestSTR"), Null(), std::int32_t(-1)}, Null()},
+                {{VARBINARY("MYtestSTR"), Null(), std::int32_t(100)}, Null()},
+                {{VARBINARY("MYtestSTR"), Null(), Null()}, Null()},
+                {{VARBINARY(""), std::int32_t(1), std::int32_t(1)}, VARBINARY("")},
+                {{VARBINARY(""), std::int32_t(1), std::int32_t(5)}, VARBINARY("")},
+                {{VARBINARY(""), std::int32_t(1), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY(""), std::int32_t(1), std::int32_t(100)}, VARBINARY("")},
+                {{VARBINARY(""), std::int32_t(1), Null()}, Null()},
+                {{VARBINARY(""), std::int32_t(5), std::int32_t(1)}, VARBINARY("")},
+                {{VARBINARY(""), std::int32_t(5), std::int32_t(5)}, VARBINARY("")},
+                {{VARBINARY(""), std::int32_t(5), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY(""), std::int32_t(5), std::int32_t(100)}, VARBINARY("")},
+                {{VARBINARY(""), std::int32_t(5), Null()}, Null()},
+                {{VARBINARY(""), std::int32_t(-1), std::int32_t(1)}, VARBINARY("")},
+                {{VARBINARY(""), std::int32_t(-1), std::int32_t(5)}, VARBINARY("")},
+                {{VARBINARY(""), std::int32_t(-1), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY(""), std::int32_t(-1), std::int32_t(100)}, VARBINARY("")},
+                {{VARBINARY(""), std::int32_t(-1), Null()}, Null()},
+                {{VARBINARY(""), std::int32_t(100), std::int32_t(1)}, VARBINARY("")},
+                {{VARBINARY(""), std::int32_t(100), std::int32_t(5)}, VARBINARY("")},
+                {{VARBINARY(""), std::int32_t(100), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY(""), std::int32_t(100), std::int32_t(100)}, VARBINARY("")},
+                {{VARBINARY(""), std::int32_t(100), Null()}, Null()},
+                {{VARBINARY(""), Null(), std::int32_t(1)}, Null()},
+                {{VARBINARY(""), Null(), std::int32_t(5)}, Null()},
+                {{VARBINARY(""), Null(), std::int32_t(-1)}, Null()},
+                {{VARBINARY(""), Null(), std::int32_t(100)}, Null()},
+                {{VARBINARY(""), Null(), Null()}, Null()},
+                {{Null(), std::int32_t(1), std::int32_t(1)}, Null()},
+                {{Null(), std::int32_t(1), std::int32_t(5)}, Null()},
+                {{Null(), std::int32_t(1), std::int32_t(-1)}, Null()},
+                {{Null(), std::int32_t(1), std::int32_t(100)}, Null()},
+                {{Null(), std::int32_t(1), Null()}, Null()},
+                {{Null(), std::int32_t(5), std::int32_t(1)}, Null()},
+                {{Null(), std::int32_t(5), std::int32_t(5)}, Null()},
+                {{Null(), std::int32_t(5), std::int32_t(-1)}, Null()},
+                {{Null(), std::int32_t(5), std::int32_t(100)}, Null()},
+                {{Null(), std::int32_t(5), Null()}, Null()},
+                {{Null(), std::int32_t(-1), std::int32_t(1)}, Null()},
+                {{Null(), std::int32_t(-1), std::int32_t(5)}, Null()},
+                {{Null(), std::int32_t(-1), std::int32_t(-1)}, Null()},
+                {{Null(), std::int32_t(-1), std::int32_t(100)}, Null()},
+                {{Null(), std::int32_t(-1), Null()}, Null()},
+                {{Null(), std::int32_t(100), std::int32_t(1)}, Null()},
+                {{Null(), std::int32_t(100), std::int32_t(5)}, Null()},
+                {{Null(), std::int32_t(100), std::int32_t(-1)}, Null()},
+                {{Null(), std::int32_t(100), std::int32_t(100)}, Null()},
+                {{Null(), std::int32_t(100), Null()}, Null()},
+                {{Null(), Null(), std::int32_t(1)}, Null()},
+                {{Null(), Null(), std::int32_t(5)}, Null()},
+                {{Null(), Null(), std::int32_t(-1)}, Null()},
+                {{Null(), Null(), std::int32_t(100)}, Null()},
+                {{Null(), Null(), Null()}, Null()},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(1), std::int32_t(1)}, VARBINARY("A")},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(1), std::int32_t(5)}, VARBINARY("A,b,C")},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(1), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(1), std::int32_t(100)},
+                 VARBINARY("A,b,C,D,_E")},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(1), Null()}, Null()},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(5), std::int32_t(1)}, VARBINARY("C")},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(5), std::int32_t(5)}, VARBINARY("C,D,_")},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(5), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(5), std::int32_t(100)},
+                 VARBINARY("C,D,_E")},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(5), Null()}, Null()},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(-1), std::int32_t(1)}, VARBINARY("E")},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(-1), std::int32_t(5)}, VARBINARY("E")},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(-1), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(-1), std::int32_t(100)}, VARBINARY("E")},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(-1), Null()}, Null()},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(100), std::int32_t(1)}, VARBINARY("")},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(100), std::int32_t(5)}, VARBINARY("")},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(100), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(100), std::int32_t(100)}, VARBINARY("")},
+                {{VARBINARY("A,b,C,D,_E"), std::int32_t(100), Null()}, Null()},
+                {{VARBINARY("A,b,C,D,_E"), Null(), std::int32_t(1)}, Null()},
+                {{VARBINARY("A,b,C,D,_E"), Null(), std::int32_t(5)}, Null()},
+                {{VARBINARY("A,b,C,D,_E"), Null(), std::int32_t(-1)}, Null()},
+                {{VARBINARY("A,b,C,D,_E"), Null(), std::int32_t(100)}, Null()},
+                {{VARBINARY("A,b,C,D,_E"), Null(), Null()}, Null()},
+                {{VARBINARY("1234321312312"), std::int32_t(1), std::int32_t(1)}, VARBINARY("1")},
+                {{VARBINARY("1234321312312"), std::int32_t(1), std::int32_t(5)},
+                 VARBINARY("12343")},
+                {{VARBINARY("1234321312312"), std::int32_t(1), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("1234321312312"), std::int32_t(1), std::int32_t(100)},
+                 VARBINARY("1234321312312")},
+                {{VARBINARY("1234321312312"), std::int32_t(1), Null()}, Null()},
+                {{VARBINARY("1234321312312"), std::int32_t(5), std::int32_t(1)}, VARBINARY("3")},
+                {{VARBINARY("1234321312312"), std::int32_t(5), std::int32_t(5)},
+                 VARBINARY("32131")},
+                {{VARBINARY("1234321312312"), std::int32_t(5), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("1234321312312"), std::int32_t(5), std::int32_t(100)},
+                 VARBINARY("321312312")},
+                {{VARBINARY("1234321312312"), std::int32_t(5), Null()}, Null()},
+                {{VARBINARY("1234321312312"), std::int32_t(-1), std::int32_t(1)}, VARBINARY("2")},
+                {{VARBINARY("1234321312312"), std::int32_t(-1), std::int32_t(5)}, VARBINARY("2")},
+                {{VARBINARY("1234321312312"), std::int32_t(-1), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("1234321312312"), std::int32_t(-1), std::int32_t(100)}, VARBINARY("2")},
+                {{VARBINARY("1234321312312"), std::int32_t(-1), Null()}, Null()},
+                {{VARBINARY("1234321312312"), std::int32_t(100), std::int32_t(1)}, VARBINARY("")},
+                {{VARBINARY("1234321312312"), std::int32_t(100), std::int32_t(5)}, VARBINARY("")},
+                {{VARBINARY("1234321312312"), std::int32_t(100), std::int32_t(-1)}, VARBINARY("")},
+                {{VARBINARY("1234321312312"), std::int32_t(100), std::int32_t(100)}, VARBINARY("")},
+                {{VARBINARY("1234321312312"), std::int32_t(100), Null()}, Null()},
+                {{VARBINARY("1234321312312"), Null(), std::int32_t(1)}, Null()},
+                {{VARBINARY("1234321312312"), Null(), std::int32_t(5)}, Null()},
+                {{VARBINARY("1234321312312"), Null(), std::int32_t(-1)}, Null()},
+                {{VARBINARY("1234321312312"), Null(), std::int32_t(100)}, Null()},
+                {{VARBINARY("1234321312312"), Null(), Null()}, Null()},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(1), std::int32_t(1)},
+                 VARBINARY("h")},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(1), std::int32_t(5)},
+                 VARBINARY("heh1h")},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(1), std::int32_t(-1)},
+                 VARBINARY("")},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(1), std::int32_t(100)},
+                 VARBINARY("heh1h2_!u@_u@i$o%ll_")},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(1), Null()}, Null()},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(5), std::int32_t(1)},
+                 VARBINARY("h")},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(5), std::int32_t(5)},
+                 VARBINARY("h2_!u")},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(5), std::int32_t(-1)},
+                 VARBINARY("")},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(5), std::int32_t(100)},
+                 VARBINARY("h2_!u@_u@i$o%ll_")},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(5), Null()}, Null()},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(-1), std::int32_t(1)},
+                 VARBINARY("_")},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(-1), std::int32_t(5)},
+                 VARBINARY("_")},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(-1), std::int32_t(-1)},
+                 VARBINARY("")},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(-1), std::int32_t(100)},
+                 VARBINARY("_")},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(-1), Null()}, Null()},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(100), std::int32_t(1)},
+                 VARBINARY("")},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(100), std::int32_t(5)},
+                 VARBINARY("")},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(100), std::int32_t(-1)},
+                 VARBINARY("")},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(100), std::int32_t(100)},
+                 VARBINARY("")},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), std::int32_t(100), Null()}, Null()},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), Null(), std::int32_t(1)}, Null()},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), Null(), std::int32_t(5)}, Null()},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), Null(), std::int32_t(-1)}, Null()},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), Null(), std::int32_t(100)}, Null()},
+                {{VARBINARY("heh1h2_!u@_u@i$o%ll_"), Null(), Null()}, Null()},
+        };
+
+        check_function_all_arg_comb<DataTypeVarbinary, true>(func_name, input_types, data_set);
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_INT};
+
+        DataSet data_set = {
+                {{VARBINARY("ABC"), std::int32_t(123)}, VARBINARY("")},
+                {{VARBINARY("ABC"), std::int32_t(321)}, VARBINARY("")},
+                {{VARBINARY("ABC"), std::int32_t(1)}, VARBINARY("ABC")},
+                {{VARBINARY("ABC"), std::int32_t(-1)}, VARBINARY("C")},
+                {{VARBINARY("ABC"), Null()}, Null()},
+                {{VARBINARY("ABC"), std::int32_t(100)}, VARBINARY("")},
+                {{VARBINARY("ABC"), std::int32_t(-100)}, VARBINARY("")},
+                {{VARBINARY("ABB"), std::int32_t(123)}, VARBINARY("")},
+                {{VARBINARY("ABB"), std::int32_t(321)}, VARBINARY("")},
+                {{VARBINARY("ABB"), std::int32_t(1)}, VARBINARY("ABB")},
+                {{VARBINARY("ABB"), std::int32_t(-1)}, VARBINARY("B")},
+                {{VARBINARY("ABB"), Null()}, Null()},
+                {{VARBINARY("ABB"), std::int32_t(100)}, VARBINARY("")},
+                {{VARBINARY("ABB"), std::int32_t(-100)}, VARBINARY("")},
+                {{VARBINARY("HEHE"), std::int32_t(123)}, VARBINARY("")},
+                {{VARBINARY("HEHE"), std::int32_t(321)}, VARBINARY("")},
+                {{VARBINARY("HEHE"), std::int32_t(1)}, VARBINARY("HEHE")},
+                {{VARBINARY("HEHE"), std::int32_t(-1)}, VARBINARY("E")},
+                {{VARBINARY("HEHE"), Null()}, Null()},
+                {{VARBINARY("HEHE"), std::int32_t(100)}, VARBINARY("")},
+                {{VARBINARY("HEHE"), std::int32_t(-100)}, VARBINARY("")},
+                {{Null(), std::int32_t(123)}, Null()},
+                {{Null(), std::int32_t(321)}, Null()},
+                {{Null(), std::int32_t(1)}, Null()},
+                {{Null(), std::int32_t(-1)}, Null()},
+                {{Null(), Null()}, Null()},
+                {{Null(), std::int32_t(100)}, Null()},
+                {{Null(), std::int32_t(-100)}, Null()},
+
+        };
+
+        check_function_all_arg_comb<DataTypeVarbinary, true>(func_name, input_types, data_set);
+    }
+}
+
+} // namespace doris::vectorized
