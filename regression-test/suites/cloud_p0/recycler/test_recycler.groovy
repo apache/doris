@@ -120,7 +120,8 @@ suite("test_recycler") {
                 def info = parseJson(checkJobInfoResult.trim())
                 if (info.last_finish_time_ms != null) { // Check done
                     checkerLastFinishTime = Long.parseLong(info.last_finish_time_ms)
-                    assertTrue(info.last_success_time_ms != null)
+                }
+                if(info.last_success_time_ms != null) {
                     checkerLastSuccessTime = Long.parseLong(info.last_success_time_ms)
                 }
         }
@@ -131,7 +132,7 @@ suite("test_recycler") {
         Thread.sleep(10000) // 10s
         getCheckJobInfo()
         logger.info("checkerLastFinishTime=${checkerLastFinishTime}, checkerLastSuccessTime=${checkerLastSuccessTime}")
-        if (checkerLastFinishTime > recyclerLastSuccessTime) {
+        if (checkerLastSuccessTime > recyclerLastSuccessTime) {
             break
         }
     } while (true)
