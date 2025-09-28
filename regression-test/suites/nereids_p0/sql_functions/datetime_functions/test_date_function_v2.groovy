@@ -168,7 +168,7 @@ suite("test_date_function_v2") {
     qt_sql_addtime4 "select add_time(cast('822:35:22.123456' as time), cast('421:01:01' as time));"
     qt_sql_addtime5 "select add_time(cast('-82:35:22.123456' as time), cast('-421:01:01' as time));"
     
-    // 测试表中的time字符串和datetime类型
+    // test time string and datetime type in table
     qt_sql_addtime6 "select add_time(datetime_val, time_str) from ${tableName} order by id;"
     qt_sql_addtime7 "select add_time(cast(time_str as time), cast('02:00:00.123' as time)) from ${tableName} order by id;"
     qt_sql_addtime8 "select add_time(datetime_val, cast('01:30:00' as time)) from ${tableName} order by id;"
@@ -186,7 +186,7 @@ suite("test_date_function_v2") {
     qt_sql_subtime4("select sub_time(cast('-421:01:01' as time), cast('822:35:22' as time));")
     qt_sql_subtime5("select sub_time(cast('421:01:01' as time), cast('-82:35:22.123456' as time));")
     
-    // 测试表中的time字符串和datetime类型
+    // test time string and datetime type in table
     qt_sql_subtime6("select sub_time(datetime_val, time_str) from ${tableName} order by id;")
     qt_sql_subtime7("select sub_time(cast(time_str as time), cast('02:00:00.123' as time)) from ${tableName} order by id;")
     qt_sql_subtime8("select sub_time(datetime_val, cast('01:30:00' as time)) from ${tableName} order by id;")
