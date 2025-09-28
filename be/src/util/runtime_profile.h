@@ -36,6 +36,7 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -654,7 +655,7 @@ private:
     std::unique_ptr<ObjectPool> _pool;
 
     // Pool for allocated counters. These counters are shared with some other objects.
-    std::map<std::string, std::shared_ptr<HighWaterMarkCounter>> _shared_counter_pool;
+    std::unordered_map<std::string, std::shared_ptr<HighWaterMarkCounter>> _shared_counter_pool;
 
     // Name for this runtime profile.
     std::string _name;
@@ -675,12 +676,12 @@ private:
 
     // Map from counter names to counters.  The profile owns the memory for the
     // counters.
-    using CounterMap = std::map<std::string, Counter*>;
+    using CounterMap = std::unordered_map<std::string, Counter*>;
     CounterMap _counter_map;
 
     // Map from parent counter name to a set of child counter name.
     // All top level counters are the child of RuntimeProfile::ROOT_COUNTER (root).
-    using ChildCounterMap = std::map<std::string, std::set<std::string>>;
+    using ChildCounterMap = std::unordered_map<std::string, std::set<std::string>>;
     ChildCounterMap _child_counter_map;
 
     // protects _counter_map, _counter_child_map and _bucketing_counters
@@ -689,14 +690,14 @@ private:
     // Child profiles.  Does not own memory.
     // We record children in both a map (to facilitate updates) and a vector
     // (to print things in the order they were registered)
-    using ChildMap = std::map<std::string, RuntimeProfile*>;
+    using ChildMap = std::unordered_map<std::string, RuntimeProfile*>;
     ChildMap _child_map;
     // vector of (profile, indentation flag)
     using ChildVector = std::vector<std::pair<RuntimeProfile*, bool>>;
     ChildVector _children;
     mutable std::mutex _children_lock; // protects _child_map and _children
 
-    using InfoStrings = std::map<std::string, std::string>;
+    using InfoStrings = std::unordered_map<std::string, std::string>;
     InfoStrings _info_strings;
 
     // Keeps track of the order in which InfoStrings are displayed when printed
