@@ -62,6 +62,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -157,6 +158,11 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         return ImmutableList.of(
                 logicalProject(logicalFilter(logicalOlapScan()
                         .when(s -> {
+                            // Only apply when session variable experimental_enable_virtual_slot_for_cse is enabled
+                            if (ConnectContext.get() == null
+                                    || !ConnectContext.get().getSessionVariable().experimentalEnableVirtualSlotForCse) {
+                                return false;
+                            }
                             boolean dupTblOrMOW = s.getTable().getKeysType() == KeysType.DUP_KEYS
                                     || s.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite();
                             return dupTblOrMOW && s.getVirtualColumns().isEmpty();
@@ -168,6 +174,11 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
                         }).toRule(RuleType.PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN),
                 logicalFilter(logicalOlapScan()
                         .when(s -> {
+                            // Only apply when session variable experimental_enable_virtual_slot_for_cse is enabled
+                            if (ConnectContext.get() == null
+                                    || !ConnectContext.get().getSessionVariable().experimentalEnableVirtualSlotForCse) {
+                                return false;
+                            }
                             boolean dupTblOrMOW = s.getTable().getKeysType() == KeysType.DUP_KEYS
                                     || s.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite();
                             return dupTblOrMOW && s.getVirtualColumns().isEmpty();

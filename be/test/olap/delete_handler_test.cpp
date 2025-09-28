@@ -1037,7 +1037,7 @@ protected:
 
     std::vector<RowsetMetaSharedPtr> get_delete_predicates() {
         std::vector<RowsetMetaSharedPtr> delete_preds;
-        for (auto&& rs_meta : tablet->tablet_meta()->_rs_metas) {
+        for (auto&& [_, rs_meta] : tablet->tablet_meta()->_rs_metas) {
             if (rs_meta->has_delete_predicate()) {
                 delete_preds.push_back(rs_meta);
             }

@@ -97,7 +97,7 @@ suite("test_recycler") {
         triggerCheckerApi.call() {
             respCode, body ->
                 log.info("http cli result: ${body} ${respCode}".toString())
-                triggerCheckerResult = body
+                def triggerCheckerResult = body
                 logger.info("triggerCheckerResult:${triggerCheckerResult}".toString())
                 assertTrue(triggerCheckerResult.trim().equalsIgnoreCase("OK"))
         }

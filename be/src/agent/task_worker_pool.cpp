@@ -500,11 +500,14 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
     {
         ALTER_count << n;
         // cloud auto stop need sc jobs, a tablet's sc can also be considered a fragment
-        doris::g_fragment_executing_count << 1;
-        int64_t now = duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch())
-                            .count();
-        g_fragment_last_active_time.set_value(now);
+        if (n > 0) {
+            // only count fragment when task is actually starting
+            doris::g_fragment_executing_count << 1;
+            int64_t now = duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+            g_fragment_last_active_time.set_value(now);
+        }
         return;
     }
     default:
@@ -897,7 +900,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             tablet->tablet_meta()->mutable_tablet_schema()->set_is_in_memory(
                     tablet_meta_info.is_in_memory);
             std::shared_lock rlock(tablet->get_header_lock());
-            for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
                 rowset_meta->tablet_schema()->set_is_in_memory(tablet_meta_info.is_in_memory);
             }
             tablet->tablet_schema_unlocked()->set_is_in_memory(tablet_meta_info.is_in_memory);
@@ -995,7 +998,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             std::shared_lock rlock(tablet->get_header_lock());
             tablet->tablet_meta()->mutable_tablet_schema()->set_enable_single_replica_compaction(
                     tablet_meta_info.enable_single_replica_compaction);
-            for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
                 rowset_meta->tablet_schema()->set_enable_single_replica_compaction(
                         tablet_meta_info.enable_single_replica_compaction);
             }
@@ -1007,7 +1010,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             std::shared_lock rlock(tablet->get_header_lock());
             tablet->tablet_meta()->mutable_tablet_schema()->set_disable_auto_compaction(
                     tablet_meta_info.disable_auto_compaction);
-            for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
                 rowset_meta->tablet_schema()->set_disable_auto_compaction(
                         tablet_meta_info.disable_auto_compaction);
             }
@@ -1020,7 +1023,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             std::shared_lock rlock(tablet->get_header_lock());
             tablet->tablet_meta()->mutable_tablet_schema()->set_skip_write_index_on_load(
                     tablet_meta_info.skip_write_index_on_load);
-            for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
                 rowset_meta->tablet_schema()->set_skip_write_index_on_load(
                         tablet_meta_info.skip_write_index_on_load);
             }

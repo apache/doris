@@ -12,6 +12,8 @@ set(TEST_LINK_LIBS ResourceManager ${TEST_LINK_LIBS})
 
 #add_executable(sync_point_test sync_point_test.cpp)
 
+add_executable(clone_chain_reader_test clone_chain_reader_test.cpp)
+
 add_executable(codec_test codec_test.cpp)
 
 add_executable(document_message_test document_message_test.cpp)
@@ -89,6 +91,8 @@ add_executable(bvars_test bvars_test.cpp)
 
 message("Meta-service test dependencies: ${TEST_LINK_LIBS}")
 #target_link_libraries(sync_point_test ${TEST_LINK_LIBS})
+
+target_link_libraries(clone_chain_reader_test ${TEST_LINK_LIBS})
 
 target_link_libraries(codec_test ${TEST_LINK_LIBS})
 

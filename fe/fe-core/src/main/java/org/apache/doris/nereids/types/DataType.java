@@ -372,9 +372,8 @@ public abstract class DataType {
                 break;
             case "varbinary":
                 // NOTICE, Maybe. not supported create table, and varbinary do not have len now
-                // dataType = VarBinaryType.INSTANCE;
-                // break;
-                throw new AnalysisException("doris do not support varbinary create table, could use it by catalog");
+                dataType = VarBinaryType.INSTANCE;
+                break;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
         }
