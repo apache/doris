@@ -2336,10 +2336,10 @@ struct MD5Sum {
 };
 
 template <typename Impl>
-class FunctionStringDigestOneArg : public IFunction {
+class FunctionStringDigestMulti : public IFunction {
 public:
     static constexpr auto name = Impl::name;
-    static FunctionPtr create() { return std::make_shared<FunctionStringDigestOneArg>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionStringDigestMulti>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 0; }
     bool is_variadic() const override { return true; }
