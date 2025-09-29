@@ -49,6 +49,7 @@ import org.junit.jupiter.api.Assertions;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
     protected static final NereidsParser PARSER = new NereidsParser();
@@ -62,7 +63,7 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
         context = new ExpressionRewriteContext(cascadesContext);
     }
 
-    protected final void assertRewrite(String expression, String expected) {
+    protected void assertRewrite(String expression, String expected) {
         Map<String, Slot> mem = Maps.newHashMap();
         Expression needRewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
         Expression expectedExpression = replaceUnboundSlot(PARSER.parseExpression(expected), mem);
@@ -90,12 +91,14 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
     }
 
     protected void assertRewriteAfterTypeCoercion(String expression, String expected) {
+        assertRewriteAfterConvert(expression, expected, ExpressionRewriteTestHelper::typeCoercion);
+    }
+
+    protected void assertRewriteAfterConvert(String expression, String expected, Function<Expression, Expression> converter) {
         Map<String, Slot> mem = Maps.newHashMap();
-        Expression needRewriteExpression = PARSER.parseExpression(expression);
-        needRewriteExpression = typeCoercion(replaceUnboundSlot(needRewriteExpression, mem));
-        Expression expectedExpression = PARSER.parseExpression(expected);
+        Expression needRewriteExpression = converter.apply(replaceUnboundSlot(PARSER.parseExpression(expression), mem));
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
-        expectedExpression = typeCoercion(replaceUnboundSlot(expectedExpression, mem));
+        Expression expectedExpression = converter.apply(replaceUnboundSlot(PARSER.parseExpression(expected), mem));
         Assertions.assertEquals(expectedExpression.toSql(), rewrittenExpression.toSql());
     }
 

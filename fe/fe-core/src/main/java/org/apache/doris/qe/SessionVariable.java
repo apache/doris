@@ -730,6 +730,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
+    public static final String COMPUTE_GROUP = "compute_group";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
     public static final String CLOUD_PARTITION_VERSION_CACHE_TTL_MS =
             "cloud_partition_version_cache_ttl_ms";
@@ -864,6 +865,8 @@ public class SessionVariable implements Serializable, Writable {
                                                             "default_variant_max_sparse_column_statistics_size";
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
+
+    public static final String MERGE_IO_READ_SLICE_SIZE = "merge_io_read_slice_size";
 
     public static final String ENABLE_PREFER_CACHED_ROWSET = "enable_prefer_cached_rowset";
     public static final String QUERY_FRESHNESS_TOLERANCE_MS = "query_freshness_tolerance_ms";
@@ -1504,7 +1507,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = "topn_lazy_materialization_threshold", needForward = true,
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL)
-    public int topNLazyMaterializationThreshold = 512 * 1024;
+    public int topNLazyMaterializationThreshold = 1024;
 
     public boolean enableTopnLazyMaterialization() {
         return ConnectContext.get() != null
@@ -2582,6 +2585,11 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkAggPhase")
     public int aggPhase = 0;
 
+
+    @VariableMgr.VarAttr(name = MERGE_IO_READ_SLICE_SIZE, description = {"调整 READ_SLICE_SIZE 大小，降低 Merge IO 读放大影响",
+            "Make the READ_SLICE_SIZE variable configurable to reduce the impact caused by read amplification."})
+    public int mergeReadSliceSize = 8388608;
+
     public void setAggPhase(int phase) {
         aggPhase = phase;
     }
@@ -2692,7 +2700,7 @@ public class SessionVariable implements Serializable, Writable {
 
 
     // CLOUD_VARIABLES_BEGIN
-    @VariableMgr.VarAttr(name = CLOUD_CLUSTER)
+    @VariableMgr.VarAttr(name = CLOUD_CLUSTER, alias = {COMPUTE_GROUP})
     public String cloudCluster = "";
     @VariableMgr.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
     public boolean disableEmptyPartitionPrune = false;
@@ -4703,7 +4711,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswEfSearch(hnswEFSearch);
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
-
+        tResult.setMergeReadSliceSize(mergeReadSliceSize);
         return tResult;
     }
 

@@ -220,6 +220,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FormatRound;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fpow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64Binary;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromIso8601Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
@@ -471,6 +472,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Timestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64Binary;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithCheck;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDate;
@@ -1310,8 +1312,13 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(fromBase64, context);
     }
 
+<<<<<<< HEAD
     default R visitFromBase64Binary(FromBase64Binary fromBase64Binary, C context) {
         return visitScalarFunction(fromBase64Binary, context);
+=======
+    default R visitFromBinary(FromBinary fromBinary, C context) {
+        return visitScalarFunction(fromBinary, context);
+>>>>>>> 9ef11f02f11e9bdc1f45b53d8f3e92753c9c9c86
     }
 
     default R visitFromDays(FromDays fromDays, C context) {
@@ -2246,8 +2253,13 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(toBase64, context);
     }
 
+<<<<<<< HEAD
     default R visitToBase64Binary(ToBase64Binary toBase64Binary, C context) {
         return visitScalarFunction(toBase64Binary, context);
+=======
+    default R visitToBinary(ToBinary toBinary, C context) {
+        return visitScalarFunction(toBinary, context);
+>>>>>>> 9ef11f02f11e9bdc1f45b53d8f3e92753c9c9c86
     }
 
     default R visitToBitmap(ToBitmap toBitmap, C context) {
