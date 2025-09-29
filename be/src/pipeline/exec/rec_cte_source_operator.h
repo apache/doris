@@ -18,12 +18,16 @@
 
 #include <gen_cpp/internal_service.pb.h>
 
+#include <cstdint>
+
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/common/distinct_agg_utils.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "util/brpc_client_cache.h"
 #include "util/uid_util.h"
+#include "vec/common/arena.h"
+#include "vec/core/block.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -45,6 +49,13 @@ public:
     RecCTESourceLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status open(RuntimeState* state) override;
+    Status init(RuntimeState* state, LocalStateInfo& info) override {
+        _hash_table_compute_timer = ADD_TIMER(Base::custom_profile(), "HashTableComputeTime");
+        _hash_table_emplace_timer = ADD_TIMER(Base::custom_profile(), "HashTableEmplaceTime");
+        _hash_table_input_counter =
+                ADD_COUNTER(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT);
+        return Status::OK();
+    }
 
 private:
     friend class RecCTESourceOperatorX;
@@ -52,6 +63,13 @@ private:
 
     vectorized::VExprContextSPtrs _child_expr;
     std::unique_ptr<DistinctDataVariants> _agg_data = nullptr;
+
+    RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
+
+    vectorized::Arena _arena;
+    vectorized::IColumn::Selector _distinct_row;
 };
 
 class RecCTESourceOperatorX MOCK_REMOVE(final) : public OperatorX<RecCTESourceLocalState> {
@@ -76,7 +94,7 @@ public:
             auto last_round_offset = _blocks.size();
             if (!_current_round) {
                 for (auto anchor_block : local_state._shared_state->anchor_side) {
-                    RETURN_IF_ERROR(_emplace_block(std::move(anchor_block)));
+                    RETURN_IF_ERROR(_emplace_block(state, std::move(anchor_block)));
                 }
             } else {
                 RETURN_IF_ERROR(_collect_child_block(state));
@@ -120,10 +138,7 @@ private:
             }
             vectorized::Block block;
             RETURN_IF_ERROR(materialize_block(local_state._child_expr, input_block, &block));
-            if (!_is_union_all) {
-                // do something
-            }
-            RETURN_IF_ERROR(_emplace_block(std::move(block)));
+            RETURN_IF_ERROR(_emplace_block(state, std::move(block)));
         }
         return Status::OK();
     }
@@ -214,8 +229,63 @@ private:
         return Status::OK();
     }
 
-    Status _emplace_block(vectorized::Block&& block) {
-        _blocks.emplace_back(std::move(block));
+    Status _emplace_block(RuntimeState* state, vectorized::Block&& block) {
+        auto& local_state = get_local_state(state);
+        if (!_is_union_all) {
+            local_state._distinct_row.clear();
+            auto num_rows = uint32_t(block.rows());
+            vectorized::ColumnRawPtrs raw_columns;
+            std::vector<vectorized::ColumnPtr> columns = block.get_columns_and_convert();
+            for (auto& col : columns) {
+                raw_columns.push_back(col.get());
+            }
+
+            std::visit(vectorized::Overload {
+                               [&](std::monostate& arg) -> void {
+                                   throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                          "uninited hash table");
+                               },
+                               [&](auto& agg_method) -> void {
+                                   auto& local_state = get_local_state(state);
+                                   SCOPED_TIMER(local_state._hash_table_compute_timer);
+                                   using HashMethodType = std::decay_t<decltype(agg_method)>;
+                                   using AggState = typename HashMethodType::State;
+
+                                   AggState agg_state(raw_columns);
+                                   agg_method.init_serialized_keys(raw_columns, num_rows);
+                                   local_state._distinct_row.clear();
+
+                                   size_t row = 0;
+                                   auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                                       HashMethodType::try_presis_key(key, origin,
+                                                                      local_state._arena);
+                                       ctor(key);
+                                       local_state._distinct_row.push_back(row);
+                                   };
+                                   auto creator_for_null_key = [&]() {
+                                       local_state._distinct_row.push_back(row);
+                                   };
+
+                                   SCOPED_TIMER(local_state._hash_table_emplace_timer);
+                                   for (; row < num_rows; ++row) {
+                                       agg_method.lazy_emplace(agg_state, row, creator,
+                                                               creator_for_null_key);
+                                   }
+                                   COUNTER_UPDATE(local_state._hash_table_input_counter, num_rows);
+                               }},
+                       local_state._agg_data->method_variant);
+
+            if (local_state._distinct_row.size() == block.rows()) {
+                _blocks.emplace_back(std::move(block));
+            } else if (!local_state._distinct_row.empty()) {
+                auto distinct_block = vectorized::MutableBlock(block.clone_empty());
+                RETURN_IF_ERROR(block.append_to_block_by_selector(&distinct_block,
+                                                                  local_state._distinct_row));
+                _blocks.emplace_back(distinct_block.to_block());
+            }
+        } else {
+            _blocks.emplace_back(std::move(block));
+        }
         return Status::OK();
     }
 
