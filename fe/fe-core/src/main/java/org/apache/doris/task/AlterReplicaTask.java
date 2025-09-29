@@ -147,8 +147,8 @@ public class AlterReplicaTask extends AgentTask {
                     mvParam.setMvExpr(entry.getValue().treeToThrift());
                     mvParams.add(mvParam);
                     req.setMaterializedViewParams(mvParams);
-                    objectPool.put(defineExprs, mvParams);
                 }
+                objectPool.put(defineExprs, mvParams);
             } else {
                 List<TAlterMaterializedViewParam> mvParams = (List<TAlterMaterializedViewParam>) value;
                 req.setMaterializedViewParams(mvParams);
