@@ -74,6 +74,9 @@ suite('profile_size_limit', 'docker, nonConcurrent') {
     options.enableDebugPoints()
 
     docker(options) {
+        sql "set enable_profile=true;"
+        sql "set profile_level=2;"
+        
         sql """
             DROP TABLE IF EXISTS profile_size_limit;
         """
@@ -128,9 +131,6 @@ suite('profile_size_limit', 'docker, nonConcurrent') {
             (8010, "Platform_Engineer_Cloud", 29),
             (9010, "CTO_Technical_Strategy_Lead", 42);
         """
-
-        sql "set enable_profile=true;"
-        sql "set profile_level=2;"
 
         def feHttpAddress = context.config.feHttpAddress.split(":")
         def feHost = feHttpAddress[0]
