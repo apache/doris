@@ -149,7 +149,7 @@ Status VariantColumnReader::_create_hierarchical_reader(ColumnIteratorUPtr* read
 }
 
 Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iterator,
-                                                        const StorageReadOptions* opts,
+                                                        StorageReadOptions* opts,
                                                         const TabletColumn& target_col,
                                                         SparseColumnCacheSPtr sparse_column_cache,
                                                         ColumnReaderCache* column_reader_cache) {
@@ -245,10 +245,9 @@ Result<SparseColumnCacheSPtr> VariantColumnReader::_get_shared_column_cache(
 }
 
 Status VariantColumnReader::_new_iterator_with_flat_leaves(
-        ColumnIteratorUPtr* iterator, const TabletColumn& target_col,
-        const StorageReadOptions* opts, bool exceeded_sparse_column_limit,
-        bool existed_in_sparse_column, ColumnReaderCache* column_reader_cache,
-        PathToSparseColumnCache* sparse_column_cache_ptr) {
+        ColumnIteratorUPtr* iterator, const TabletColumn& target_col, StorageReadOptions* opts,
+        bool exceeded_sparse_column_limit, bool existed_in_sparse_column,
+        ColumnReaderCache* column_reader_cache, PathToSparseColumnCache* sparse_column_cache_ptr) {
     DCHECK(opts != nullptr);
     auto relative_path = target_col.path_info_ptr()->copy_pop_front();
     // compaction need to read flat leaves nodes data to prevent from amplification
@@ -303,15 +302,13 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(
 }
 
 Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
-                                         const TabletColumn* target_col,
-                                         const StorageReadOptions* opt) {
+                                         const TabletColumn* target_col, StorageReadOptions* opt) {
     // return new_iterator(iterator, target_col, opt, nullptr);
     return Status::NotSupported("Not implemented");
 }
 
 Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
-                                         const TabletColumn* target_col,
-                                         const StorageReadOptions* opt,
+                                         const TabletColumn* target_col, StorageReadOptions* opt,
                                          ColumnReaderCache* column_reader_cache,
                                          PathToSparseColumnCache* sparse_column_cache_ptr) {
     int32_t col_uid =
@@ -352,7 +349,7 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
     // Otherwise read hierarchical data, since the variant subcolumns are flattened in schema_util::VariantCompactionUtil::get_extended_compaction_schema
     // when config::enable_vertical_compact_variant_subcolumns is true
     // For checksum reader, we need to read flat leaves to get the correct data if has extracted columns
-    auto need_read_flat_leaves = [](const StorageReadOptions* opts) {
+    auto need_read_flat_leaves = [](StorageReadOptions* opts) {
         return opts != nullptr && opts->tablet_schema != nullptr &&
                std::ranges::any_of(
                        opts->tablet_schema->columns(),

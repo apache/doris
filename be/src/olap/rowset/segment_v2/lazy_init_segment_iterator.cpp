@@ -31,7 +31,7 @@ LazyInitSegmentIterator::LazyInitSegmentIterator(BetaRowsetSharedPtr rowset, int
           _read_options(opts) {}
 
 /// See where the iterator is created in `BetaRowsetReader::get_segment_iterators`
-Status LazyInitSegmentIterator::init(const StorageReadOptions& opts) {
+Status LazyInitSegmentIterator::init(StorageReadOptions& opts) {
     _need_lazy_init = false;
     if (_inner_iterator) {
         return Status::OK();

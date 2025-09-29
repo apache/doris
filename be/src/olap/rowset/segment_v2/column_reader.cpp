@@ -800,7 +800,7 @@ Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColu
 }
 
 Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column,
-                                  const StorageReadOptions* opt) {
+                                  StorageReadOptions* opt) {
     if (is_empty()) {
         *iterator = std::make_unique<EmptyFileColumnIterator>();
         return Status::OK();
