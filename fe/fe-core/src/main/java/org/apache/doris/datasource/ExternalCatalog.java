@@ -368,7 +368,7 @@ public abstract class ExternalCatalog
                     localDbName -> Optional.ofNullable(
                             buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
                                     true)),
-                    (key, value, cause) -> value.ifPresent(v -> v.resetToUninitialized()));
+                    (key, value, cause) -> value.ifPresent(v -> v.resetMetaToUninitialized()));
         }
     }
 
@@ -579,6 +579,11 @@ public abstract class ExternalCatalog
         refreshOnlyCatalogCache(invalidCache);
     }
 
+    public synchronized void resetMetaToUninitialized(boolean invalidCache) {
+        this.initialized = false;
+        refreshOnlyCatalogCache(invalidCache);
+    }
+
     // Only for hms event handling.
     public void onRefreshCache() {
         refreshOnlyCatalogCache(true);
@@ -591,7 +596,7 @@ public abstract class ExternalCatalog
             } else if (!useMetaCache.get()) {
                 this.initialized = false;
                 for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
-                    db.resetToUninitialized();
+                    db.resetMetaToUninitialized();
                 }
             }
         }
@@ -1480,7 +1485,7 @@ public abstract class ExternalCatalog
         if (useMetaCache.isPresent() && useMetaCache.get() && metaCache != null) {
             metaCache.resetNames();
         } else {
-            resetToUninitialized(true);
+            resetMetaToUninitialized(true);
         }
     }
 

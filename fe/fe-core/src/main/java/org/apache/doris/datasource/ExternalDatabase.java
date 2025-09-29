@@ -131,7 +131,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
     }
 
-    public synchronized void resetToUninitialized() {
+    public synchronized void resetMetaToUninitialized() {
         if (LOG.isDebugEnabled()) {
             LOG.debug("resetToUninitialized db name {}, id {}, isInitializing: {}, initialized: {}",
                     this.name, this.id, isInitializing, initialized, new Exception());
@@ -885,7 +885,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         if (extCatalog.getUseMetaCache().isPresent() && extCatalog.getUseMetaCache().get() && metaCache != null) {
             metaCache.resetNames();
         } else {
-            resetToUninitialized();
+            resetMetaToUninitialized();
         }
     }
 }
