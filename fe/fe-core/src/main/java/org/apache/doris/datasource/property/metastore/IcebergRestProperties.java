@@ -288,8 +288,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     }
 
     private void addGlueRestCatalogProperties() {
-        if (Strings.isNotBlank(icebergRestSigningName) && icebergRestSigningName.equalsIgnoreCase("glue")) {
-            icebergRestCatalogProperties.put("rest.signing-name", "glue");
+        if (Strings.isNotBlank(icebergRestSigningName)) {
+            icebergRestCatalogProperties.put("rest.signing-name", icebergRestSigningName);
             icebergRestCatalogProperties.put("rest.sigv4-enabled", icebergRestSigV4Enabled);
             icebergRestCatalogProperties.put("rest.access-key-id", icebergRestAccessKeyId);
             icebergRestCatalogProperties.put("rest.secret-access-key", icebergRestSecretAccessKey);
