@@ -22,6 +22,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.execute.ExecuteAction;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
 import java.util.Map;
 import java.util.Optional;

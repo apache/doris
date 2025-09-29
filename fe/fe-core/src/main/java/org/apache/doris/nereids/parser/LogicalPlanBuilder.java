@@ -7044,7 +7044,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitAlterTableExecute(DorisParser.AlterTableExecuteContext ctx) {
         TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
         String action = ctx.actionName.getText();
-        
+
         // Parse WHERE condition if present
         Optional<Expression> whereCondition = ctx.whereExpression == null
                 ? Optional.empty()

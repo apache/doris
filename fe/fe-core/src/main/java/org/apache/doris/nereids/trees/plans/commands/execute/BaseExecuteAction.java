@@ -205,14 +205,4 @@ public abstract class BaseExecuteAction implements ExecuteAction {
                     actionType));
         }
     }
-
-    @Override
-    public String[] getSupportedArguments() {
-        return new String[0]; // Default implementation
-    }
-
-    @Override
-    public String getArgumentDescription(String argName) {
-        return ""; // Default implementation
-    }
 }
