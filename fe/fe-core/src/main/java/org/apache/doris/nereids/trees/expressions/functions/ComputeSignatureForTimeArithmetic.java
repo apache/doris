@@ -34,7 +34,6 @@ public interface ComputeSignatureForTimeArithmetic extends ComputeSignature {
 
     @Override
     default FunctionSignature computeSignature(FunctionSignature signature) {
-        FunctionSignature ret = ComputeSignature.super.computeSignature(signature);
         if (child(0) instanceof StringLikeLiteral) {
             try {
                 String s = ((StringLikeLiteral) child(0)).getStringValue().trim();
@@ -46,7 +45,8 @@ public interface ComputeSignatureForTimeArithmetic extends ComputeSignature {
                 // string like literal cannot cast to a legal time literal
             }
         }
-        return ret;
+        // Call the parent implementation for non-time formats
+        return ComputeSignature.super.computeSignature(signature);
     }
 
     /**
@@ -62,7 +62,7 @@ public interface ComputeSignatureForTimeArithmetic extends ComputeSignature {
             return true;
         }
 
-        if (s.contains("-") || s.contains("/")) {
+        if (s.contains("-") || s.contains("/") || s.contains(" ") || s.contains("T")) {
             return false;
         }
 
@@ -80,9 +80,14 @@ public interface ComputeSignatureForTimeArithmetic extends ComputeSignature {
         String[] parts = s.split("\\.", 2);
         String timePart = parts[0];
 
-        // Split time part
+        /*
+         * Split time part, first part is two length we define it is time type, such as
+         * 12:12:12
+         * datetime such as 2023:12:12 12:12:12 length is 19,time part length is <= 15
+         */
         String[] timeFields = timePart.split(":");
-        if (timeFields[0].length() == 2 || timeFields[0].length() == 3 || timePart.length() < 8) {
+        if ((timeFields[0].length() == 2 && timeFields[1].length() <= 15) || timeFields[0].length() == 3
+                || timePart.length() < 8) {
             return true;
         }
 
@@ -97,7 +102,7 @@ public interface ComputeSignatureForTimeArithmetic extends ComputeSignature {
         String numberPart = parts[0];
 
         int length = numberPart.length();
-        if (length < 7) {
+        if (length <= 7) {
             return true;
         }
         return false;
