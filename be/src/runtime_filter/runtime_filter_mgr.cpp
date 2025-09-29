@@ -48,7 +48,8 @@ namespace doris {
 #include "common/compile_check_begin.h"
 RuntimeFilterMgr::RuntimeFilterMgr(const bool is_global)
         : _is_global(is_global),
-          _tracker(std::make_unique<MemTracker>("RuntimeFilterMgr(experimental)")) {}
+          _tracker(std::make_unique<MemTracker>(
+                  fmt::format("RuntimeFilterMgr({})", is_global ? "global" : "local"))) {}
 
 std::vector<std::shared_ptr<RuntimeFilterConsumer>> RuntimeFilterMgr::get_consume_filters(
         int filter_id) {
@@ -284,10 +285,19 @@ Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request)
 }
 
 std::string RuntimeFilterMgr::debug_string() {
-    std::string result = "Merger Info:\n";
+    std::string result = "Local Merger Info:\n";
     std::lock_guard l(_lock);
-    for (const auto& [filter_id, merger] : _local_merge_map) {
-        result += fmt::format("{}\n", merger.merger->debug_string());
+    for (const auto& [filter_id, ctx] : _local_merge_map) {
+        result += fmt::format("{}\n", ctx.merger->debug_string());
+        for (const auto& producer : ctx.producers) {
+            result += fmt::format("{}\n", producer->debug_string());
+        }
+    }
+    result += "Consumer Info:\n";
+    for (const auto& [filter_id, consumers] : _consumer_map) {
+        for (const auto& consumer : consumers) {
+            result += fmt::format("{}\n", consumer->debug_string());
+        }
     }
     return result;
 }
@@ -408,4 +418,12 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
     return st;
 }
 
+std::string RuntimeFilterMergeControllerEntity::debug_string() {
+    std::string result = "RuntimeFilterMergeControllerEntity Info:\n";
+    std::shared_lock<std::shared_mutex> guard(_filter_map_mutex);
+    for (const auto& [filter_id, ctx] : _filter_map) {
+        result += fmt::format("{}\n", ctx.merger->debug_string());
+    }
+    return result;
+}
 } // namespace doris

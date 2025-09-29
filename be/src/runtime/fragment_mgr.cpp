@@ -806,6 +806,13 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
                             debug_string_buffer, "QueryId: {}, global_runtime_filter_mgr: {}\n",
                             print_id(it.first.first),
                             it.second->get_query_ctx()->runtime_filter_mgr()->debug_string());
+
+                    if (it.second->get_query_ctx()->get_merge_controller_handler()) {
+                        fmt::format_to(debug_string_buffer, "{}\n",
+                                       it.second->get_query_ctx()
+                                               ->get_merge_controller_handler()
+                                               ->debug_string());
+                    }
                 }
 
                 auto timeout_second = it.second->timeout_second();

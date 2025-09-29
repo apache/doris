@@ -146,6 +146,8 @@ public:
     Status send_filter_size(std::shared_ptr<QueryContext> query_ctx,
                             const PSendFilterSizeRequest* request);
 
+    std::string debug_string();
+
 private:
     Status _init_with_desc(std::shared_ptr<QueryContext> query_ctx,
                            const TRuntimeFilterDesc* runtime_filter_desc,
