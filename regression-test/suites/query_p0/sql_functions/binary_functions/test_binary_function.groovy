@@ -15,17 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-def toStr(val) {
-        if (val == null) {
-            return val;
-        }
-        if (val instanceof byte[]) {
-            return new String(val, "UTF-8")
-        } else {
-            return val
-        } 
-    }
-
 suite("test_binary_function", "p0,external,mysql,external_docker,external_docker_mysql") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
 
