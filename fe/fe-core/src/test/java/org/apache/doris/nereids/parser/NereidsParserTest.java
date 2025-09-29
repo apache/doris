@@ -656,6 +656,49 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertEquals("rollback_to_snapshot", cmd.getActionName());
         Assertions.assertEquals("3051729675574597004", cmd.getProperties().get("snapshot_id"));
         Assertions.assertTrue(cmd.getWhereCondition().isPresent());
+
+        // ALTER TABLE EXECUTE with partition specification - single partition
+        sql = "ALTER TABLE t1 EXECUTE rewrite_data_files(\"target-file-size-bytes\" = \"134217728\") PARTITION (p1)";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("rewrite_data_files", cmd.getActionName());
+        Assertions.assertEquals("134217728", cmd.getProperties().get("target-file-size-bytes"));
+        Assertions.assertTrue(cmd.getPartitionNamesInfo().isPresent());
+        Assertions.assertEquals(1, cmd.getPartitionNamesInfo().get().getPartitionNames().size());
+        Assertions.assertEquals("p1", cmd.getPartitionNamesInfo().get().getPartitionNames().get(0));
+        Assertions.assertFalse(cmd.getPartitionNamesInfo().get().isTemp());
+
+        // ALTER TABLE EXECUTE with partition specification - multiple partitions
+        sql = "ALTER TABLE t1 EXECUTE expire_snapshots(\"older_than\" = \"2024-01-01 00:00:00\") PARTITIONS (p1, p2, p3)";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("expire_snapshots", cmd.getActionName());
+        Assertions.assertEquals("2024-01-01 00:00:00", cmd.getProperties().get("older_than"));
+        Assertions.assertTrue(cmd.getPartitionNamesInfo().isPresent());
+        Assertions.assertEquals(3, cmd.getPartitionNamesInfo().get().getPartitionNames().size());
+        Assertions.assertFalse(cmd.getPartitionNamesInfo().get().isTemp());
+
+        // ALTER TABLE EXECUTE with temporary partition specification
+        sql = "ALTER TABLE t1 EXECUTE rewrite_data_files(\"target-file-size-bytes\" = \"134217728\") TEMPORARY PARTITION (temp_p1)";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("rewrite_data_files", cmd.getActionName());
+        Assertions.assertTrue(cmd.getPartitionNamesInfo().isPresent());
+        Assertions.assertTrue(cmd.getPartitionNamesInfo().get().isTemp());
+        Assertions.assertEquals("temp_p1", cmd.getPartitionNamesInfo().get().getPartitionNames().get(0));
+
+        // ALTER TABLE EXECUTE with partition and WHERE clause
+        sql = "ALTER TABLE t1 EXECUTE rewrite_data_files(\"target-file-size-bytes\" = \"134217728\") PARTITION (p1) WHERE id > 100";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("rewrite_data_files", cmd.getActionName());
+        Assertions.assertTrue(cmd.getPartitionNamesInfo().isPresent());
+        Assertions.assertEquals("p1", cmd.getPartitionNamesInfo().get().getPartitionNames().get(0));
+        Assertions.assertTrue(cmd.getWhereCondition().isPresent());
     }
 
     @Test

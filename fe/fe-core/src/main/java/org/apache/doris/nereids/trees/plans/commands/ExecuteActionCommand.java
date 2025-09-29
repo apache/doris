@@ -44,20 +44,23 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * ALTER TABLE table EXECUTE action("k" = "v", ...) [WHERE condition]
+ * ALTER TABLE table EXECUTE action("k" = "v", ...) [PARTITION (partition_list)] [WHERE condition]
  */
 public class ExecuteActionCommand extends Command implements ForwardWithSync {
     private final TableNameInfo tableNameInfo;
     private final String actionName;
     private final Map<String, String> properties;
+    private final Optional<PartitionNamesInfo> partitionNamesInfo;
     private final Optional<Expression> whereCondition;
 
     public ExecuteActionCommand(TableNameInfo tableNameInfo, String actionName,
-            Map<String, String> properties, Optional<Expression> whereCondition) {
+            Map<String, String> properties, Optional<PartitionNamesInfo> partitionNamesInfo,
+            Optional<Expression> whereCondition) {
         super(PlanType.OPTIMIZE_TABLE_COMMAND);
         this.tableNameInfo = Objects.requireNonNull(tableNameInfo, "tableNameInfo is null");
         this.actionName = Objects.requireNonNull(actionName, "actionName is null");
         this.properties = Objects.requireNonNull(properties, "properties is null");
+        this.partitionNamesInfo = Objects.requireNonNull(partitionNamesInfo, "partitionNamesInfo is null");
         this.whereCondition = Objects.requireNonNull(whereCondition, "whereCondition is null");
     }
 
@@ -84,7 +87,7 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
 
         try {
             ExecuteAction action = ExecuteActionFactory.createAction(
-                    actionName, properties, Optional.<PartitionNamesInfo>empty(), whereCondition, table);
+                    actionName, properties, partitionNamesInfo, whereCondition, table);
 
             if (!action.isSupported(table)) {
                 throw new AnalysisException("Action '" + actionName + "' is not supported for this table engine");
@@ -120,6 +123,10 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public Optional<PartitionNamesInfo> getPartitionNamesInfo() {
+        return partitionNamesInfo;
     }
 
     public Optional<Expression> getWhereCondition() {

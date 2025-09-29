@@ -7045,6 +7045,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
         String action = ctx.actionName.getText();
 
+        // Parse partition specification if present
+        Optional<PartitionNamesInfo> partitionNamesInfo = Optional.empty();
+        if (ctx.partitionSpec() != null) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+            partitionNamesInfo = Optional.of(new PartitionNamesInfo(partitionSpec.first, partitionSpec.second));
+        }
+
         // Parse WHERE condition if present
         Optional<Expression> whereCondition = ctx.whereExpression == null
                 ? Optional.empty()
@@ -7054,7 +7061,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ? Maps.newHashMap()
                 : visitPropertyItemList(ctx.propertyItemList());
         return new ExecuteActionCommand(
-                tableName, action, props, whereCondition);
+                tableName, action, props, partitionNamesInfo, whereCondition);
     }
 
     @Override

@@ -273,7 +273,7 @@ supportedAlterStatement
     | ALTER TABLE tableName=multipartIdentifier
         alterTableClause (COMMA alterTableClause)*                                          #alterTable
     | ALTER TABLE tableName=multipartIdentifier EXECUTE actionName=identifier
-        LEFT_PAREN propertyItemList? RIGHT_PAREN (WHERE whereExpression=booleanExpression)?  #alterTableExecute
+        LEFT_PAREN propertyItemList? RIGHT_PAREN partitionSpec? (WHERE whereExpression=booleanExpression)?  #alterTableExecute
     | ALTER TABLE tableName=multipartIdentifier ADD ROLLUP
         addRollupClause (COMMA addRollupClause)*                                            #alterTableAddRollup
     | ALTER TABLE tableName=multipartIdentifier DROP ROLLUP
