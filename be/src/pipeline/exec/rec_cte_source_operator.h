@@ -20,6 +20,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/common/distinct_agg_utils.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "util/brpc_client_cache.h"
 #include "util/uid_util.h"
@@ -41,7 +42,7 @@ public:
     ENABLE_FACTORY_CREATOR(RecCTESourceLocalState);
     using Base = PipelineXLocalState<RecCTESharedState>;
     using Parent = RecCTESourceOperatorX;
-    RecCTESourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
+    RecCTESourceLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status open(RuntimeState* state) override;
 
@@ -50,6 +51,7 @@ private:
     friend class OperatorX<RecCTESourceLocalState>;
 
     vectorized::VExprContextSPtrs _child_expr;
+    std::unique_ptr<DistinctDataVariants> _agg_data = nullptr;
 };
 
 class RecCTESourceOperatorX MOCK_REMOVE(final) : public OperatorX<RecCTESourceLocalState> {
@@ -74,7 +76,7 @@ public:
             auto last_round_offset = _blocks.size();
             if (!_current_round) {
                 for (auto anchor_block : local_state._shared_state->anchor_side) {
-                    _blocks.emplace_back(std::move(anchor_block));
+                    RETURN_IF_ERROR(_emplace_block(std::move(anchor_block)));
                 }
             } else {
                 RETURN_IF_ERROR(_collect_child_block(state));
@@ -121,7 +123,7 @@ private:
             if (!_is_union_all) {
                 // do something
             }
-            _blocks.emplace_back(std::move(block));
+            RETURN_IF_ERROR(_emplace_block(std::move(block)));
         }
         return Status::OK();
     }
@@ -209,6 +211,11 @@ private:
                 RETURN_IF_ERROR(Status::create(result.status()));
             }
         }
+        return Status::OK();
+    }
+
+    Status _emplace_block(vectorized::Block&& block) {
+        _blocks.emplace_back(std::move(block));
         return Status::OK();
     }
 

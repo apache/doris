@@ -76,6 +76,10 @@ public:
         }
         *block = std::move(local_state._blocks.back());
         local_state._blocks.pop_back();
+
+        RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
+        local_state.reached_limit(block, eos);
+
         *eos = false;
         return Status::OK();
     }

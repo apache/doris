@@ -20,6 +20,13 @@
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
+RecCTESourceLocalState::RecCTESourceLocalState(RuntimeState* state, OperatorXBase* parent)
+        : Base(state, parent) {
+    if (!parent->cast<RecCTESourceOperatorX>()._is_union_all) {
+        _agg_data = std::make_unique<DistinctDataVariants>();
+    }
+}
+
 Status RecCTESourceLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
@@ -28,6 +35,10 @@ Status RecCTESourceLocalState::open(RuntimeState* state) {
     _child_expr.resize(p._child_expr.size());
     for (size_t i = 0; i < p._child_expr.size(); i++) {
         RETURN_IF_ERROR(p._child_expr[i]->clone(state, _child_expr[i]));
+    }
+    if (_agg_data) {
+        RETURN_IF_ERROR(init_hash_method<DistinctDataVariants>(_agg_data.get(),
+                                                               get_data_types(_child_expr), false));
     }
     return Status::OK();
 }
