@@ -162,6 +162,43 @@ rapidjson::Value* match_value(const std::vector<JsonPath>& parsed_paths, rapidjs
                 } else {
                     root = &((*root)[col.c_str()]);
                 }
+            } else if (root->IsArray()) {
+                array_obj = static_cast<rapidjson::Value*>(
+                        mem_allocator.Malloc(sizeof(rapidjson::Value)));
+                array_obj->SetArray();
+                bool is_null = true;
+
+                // if array ,loop the array,find out all Objects,then find the results from the objects
+                for (int j = 0; j < root->Size(); j++) {
+                    rapidjson::Value* json_elem = &((*root)[j]);
+
+                    if (json_elem->IsArray() || json_elem->IsNull()) {
+                        continue;
+                    } else {
+                        if (!json_elem->IsObject()) {
+                            continue;
+                        }
+                        if (!json_elem->HasMember(col.c_str())) {
+                            if (is_insert_null) { // not found item, then insert a null object.
+                                is_null = false;
+                                rapidjson::Value nullObject(rapidjson::kNullType);
+                                array_obj->PushBack(nullObject, mem_allocator);
+                            }
+                            continue;
+                        }
+                        rapidjson::Value* obj = &((*json_elem)[col.c_str()]);
+                        if (obj->IsArray()) {
+                            is_null = false;
+                            for (int k = 0; k < obj->Size(); k++) {
+                                array_obj->PushBack((*obj)[k], mem_allocator);
+                            }
+                        } else if (!obj->IsNull()) {
+                            is_null = false;
+                            array_obj->PushBack(*obj, mem_allocator);
+                        }
+                    }
+                }
+                root = is_null ? nullptr : array_obj;
             } else {
                 // root is not a nested type, return NULL
                 return nullptr;
@@ -171,7 +208,7 @@ rapidjson::Value* match_value(const std::vector<JsonPath>& parsed_paths, rapidjs
         if (UNLIKELY(index != -1)) {
             // judge the rapidjson:Value, which base the top's result,
             // if not array return NULL;else get the index value from the array
-            if (root->IsArray()) {
+            if (NULL != root && root->IsArray()) {
                 if (root->IsNull()) {
                     return nullptr;
                 } else if (index == -2) {
