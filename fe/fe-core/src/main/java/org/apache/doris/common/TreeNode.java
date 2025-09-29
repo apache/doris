@@ -251,4 +251,14 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
         return false;
     }
 
+    /** foreachDown */
+    public void foreachDown(Predicate<TreeNode<NodeType>> visitor) {
+        if (!visitor.test(this)) {
+            return;
+        }
+
+        for (TreeNode<NodeType> child : getChildren()) {
+            child.foreachDown(visitor);
+        }
+    }
 }
