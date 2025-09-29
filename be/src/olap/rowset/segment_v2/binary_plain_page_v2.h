@@ -76,9 +76,9 @@ public:
             _positions.push_back(cast_set<uint32_t>(_buffer.size()));
 
             // Write varuint length prefix
-            uint8_t length_buffer[10];  // Max varuint64 size
+            uint8_t length_buffer[5]; // Max varuint32 size
             uint8_t* ptr = length_buffer;
-            ptr = encode_varint64(ptr, src->size);
+            ptr = encode_varint32(ptr, cast_set<uint32_t>(src->size));
             size_t length_size = ptr - length_buffer;
             RETURN_IF_CATCH_EXCEPTION(_buffer.append(length_buffer, length_size));
 
@@ -121,7 +121,7 @@ public:
             _buffer.reserve(_options.data_page_size == 0
                                     ? 1024
                                     : std::min(_options.data_page_size, _options.dict_page_size));
-            _size_estimate = sizeof(uint32_t);  // For the trailer
+            _size_estimate = sizeof(uint32_t); // For the trailer
             _finished = false;
             _last_value_size = 0;
         });
@@ -155,8 +155,8 @@ public:
         DCHECK_LT(idx, _positions.size());
 
         const uint8_t* ptr = reinterpret_cast<const uint8_t*>(&_buffer[_positions[idx]]);
-        uint64_t length;
-        const uint8_t* data_ptr = decode_varint64_ptr(ptr, ptr + 10, &length);
+        uint32_t length;
+        const uint8_t* data_ptr = decode_varint32_ptr(ptr, ptr + 5, &length);
 
         return Slice(data_ptr, length);
     }
@@ -169,8 +169,8 @@ private:
 
     void _copy_value_at(size_t idx, faststring* value) const {
         const uint8_t* ptr = reinterpret_cast<const uint8_t*>(&_buffer[_positions[idx]]);
-        uint64_t length;
-        const uint8_t* data_ptr = decode_varint64_ptr(ptr, ptr + 10, &length);
+        uint32_t length;
+        const uint8_t* data_ptr = decode_varint32_ptr(ptr, ptr + 5, &length);
         value->assign_copy(data_ptr, length);
     }
 
@@ -215,25 +215,27 @@ public:
         const uint8_t* ptr = reinterpret_cast<const uint8_t*>(_data.data);
         const uint8_t* limit = ptr + _data.get_size() - sizeof(uint32_t);
 
-        _positions.reserve(_num_elems + 1);  // +1 for end boundary
+        _positions.reserve(_num_elems + 1); // +1 for end boundary
         _lengths.reserve(_num_elems);
 
         for (uint32_t i = 0; i < _num_elems; i++) {
             if (ptr >= limit) {
                 return Status::Corruption(
-                        "file corruption: unexpected end of data while parsing BinaryPlainPageV2Decoder");
+                        "file corruption: unexpected end of data while parsing "
+                        "BinaryPlainPageV2Decoder");
             }
 
             // Decode varuint length
-            uint64_t length;
-            const uint8_t* data_start = decode_varint64_ptr(ptr, limit, &length);
+            uint32_t length;
+            const uint8_t* data_start = decode_varint32_ptr(ptr, limit, &length);
             if (data_start == nullptr) {
                 return Status::Corruption(
                         "file corruption: failed to decode varuint in BinaryPlainPageV2Decoder");
             }
 
             // Store the position of actual data (after varuint)
-            _positions.push_back(data_start - reinterpret_cast<const uint8_t*>(_data.data));
+            _positions.push_back(
+                    cast_set<uint32_t>(data_start - reinterpret_cast<const uint8_t*>(_data.data)));
             _lengths.push_back(length);
 
             // Move to next entry
@@ -246,7 +248,8 @@ public:
         }
 
         // Add end position for boundary checking
-        _positions.push_back(ptr - reinterpret_cast<const uint8_t*>(_data.data));
+        _positions.push_back(
+                cast_set<uint32_t>(ptr - reinterpret_cast<const uint8_t*>(_data.data)));
 
         _parsed = true;
         return Status::OK();
@@ -279,7 +282,8 @@ public:
         _binary_data.resize(max_fetch);
 
         for (size_t i = 0; i < max_fetch; i++) {
-            const uint8_t* data_ptr = reinterpret_cast<const uint8_t*>(_data.data) + _positions[_cur_idx + i];
+            const uint8_t* data_ptr =
+                    reinterpret_cast<const uint8_t*>(_data.data) + _positions[_cur_idx + i];
 
             _binary_data[i].data = const_cast<char*>(reinterpret_cast<const char*>(data_ptr));
             _binary_data[i].size = _lengths[_cur_idx + i];
@@ -316,9 +320,11 @@ public:
                 break;
             }
 
-            const uint8_t* data_ptr = reinterpret_cast<const uint8_t*>(_data.data) + _positions[ord];
+            const uint8_t* data_ptr =
+                    reinterpret_cast<const uint8_t*>(_data.data) + _positions[ord];
 
-            _binary_data[read_count].data = const_cast<char*>(reinterpret_cast<const char*>(data_ptr));
+            _binary_data[read_count].data =
+                    const_cast<char*>(reinterpret_cast<const char*>(data_ptr));
             _binary_data[read_count].size = _lengths[ord];
             read_count++;
         }

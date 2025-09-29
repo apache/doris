@@ -1600,7 +1600,11 @@ DEFINE_mBool(read_cluster_cache_opt_verbose_log, "false");
 
 DEFINE_mDouble(compression_min_space_saving, "0.1");
 
-DEFINE_Bool(use_plain_encoding, "true");
+DEFINE_Bool(all_use_plain_encoding, "false");
+
+DEFINE_Bool(use_plain_binary_v2, "true");
+
+DEFINE_Bool(numeric_not_use_bitshuffle, "true");
 
 // clang-format off
 #ifdef BE_TEST
