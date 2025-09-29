@@ -1016,6 +1016,9 @@ bool ParquetReader::_has_page_index(const std::vector<tparquet::ColumnChunk>& co
 Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
                                           const RowGroupReader::RowGroupIndex& row_group_index,
                                           std::vector<RowRange>& candidate_row_ranges) {
+    // Clear the OffsetIndex from the previous RowGroup.
+    _col_offsets.clear();
+
     if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
         return Status::EndOfFile("stop");
     }
