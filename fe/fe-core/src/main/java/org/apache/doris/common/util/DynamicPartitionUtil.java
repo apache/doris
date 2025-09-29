@@ -113,7 +113,7 @@ public class DynamicPartitionUtil {
 
     public static void checkPrefix(String prefix) throws DdlException {
         try {
-            FeNameFormat.checkPrefix(prefix);
+            FeNameFormat.checkPartitionName(prefix);
         } catch (AnalysisException e) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_PREFIX, prefix);
         }
