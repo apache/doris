@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/ann_index/ann_index.h"
 
+#include "util/doris_metrics.h"
 #include "vec/functions/array/function_array_distance.h"
 
 namespace doris::segment_v2 {
@@ -59,6 +60,14 @@ AnnIndexType string_to_ann_index_type(const std::string& type) {
     } else {
         return AnnIndexType::UNKNOWN;
     }
+}
+
+VectorIndex::VectorIndex() {
+    DorisMetrics::instance()->ann_index_in_memory_cnt->increment(1);
+}
+
+VectorIndex::~VectorIndex() {
+    DorisMetrics::instance()->ann_index_in_memory_cnt->increment(-1);
 }
 
 } // namespace doris::segment_v2
