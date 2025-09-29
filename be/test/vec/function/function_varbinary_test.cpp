@@ -38,28 +38,28 @@ TEST(function_binary_test, function_binary_length_test) {
             {{VARBINARY("TVl0ZXN0U1RS")}, std::int32_t(12)},
             {{VARBINARY("123321!@#@$!@%!@#!@$!@")}, std::int32_t(22)},
             {{VARBINARY("123")}, std::int32_t(3)},
-            {{VARBINARY("Hello, World!")}, std::int32_t(13)},  // 正常ASCII字符
-            {{VARBINARY("Привет, мир!")}, std::int32_t(21)},   // 俄文，使用Cyrillic characters
-            {{VARBINARY("こんにちは世界")}, std::int32_t(21)}, // 日文，每个字符通常3字节
-            {{VARBINARY("안녕하세요세계")}, std::int32_t(21)}, // 韩文字符
-            {{VARBINARY("你好，世界！")}, std::int32_t(18)}, // 简体中文，每个字符通常3字节
-            {{VARBINARY("مرحبا بالعالم!")}, std::int32_t(26)},            // 阿拉伯语
-            {{VARBINARY("1234567890")}, std::int32_t(10)},                // 数字
-            {{VARBINARY("👨‍👨‍👧‍👦")}, std::int32_t(25)}, // 家庭成员Emoji
-            {{VARBINARY("🇺🇸🇨🇳🇯🇵🇰🇷")}, std::int32_t(32)},                  // 国旗Emoji
-            {{VARBINARY("\u00F1")}, std::int32_t(2)}, // ñ，为拉丁字母n with tilde，UTF-8中占用2字节
-            {{VARBINARY("\u65E5\u672C\u8A9E")}, std::int32_t(9)}, // 日本语，每个字符通常3个字节
-            {{VARBINARY("Hello, 世界！")}, std::int32_t(16)}, // 混合ASCII和非ASCII字符
-            {{VARBINARY("😀😃😄😁")}, std::int32_t(16)},      // Emoji，每个通常4个字节
-            {{VARBINARY("Quick brown 狐 jumps over a lazy 狗.")}, std::int32_t(38)}, // 混合字符串
-            {{VARBINARY("Löwe 老虎 Léopard")}, std::int32_t(21)}, // 欧洲文字和中文的混合
-            {{VARBINARY("Café 美丽")}, std::int32_t(12)},         // 带重音的字符
-            {{VARBINARY("Björk")}, std::int32_t(6)},              // 北欧名称
-            {{VARBINARY("¿Dónde está la biblioteca?")}, std::int32_t(29)}, // 西班牙语句子
-            {{VARBINARY("Zażółć gęślą jaźń")}, std::int32_t(26)}, // 波兰语句子，含特殊字符
-            {{Null()}, Null()},                                   // 空值
-            {{VARBINARY(" ")}, std::int32_t(1)},                  // 空格
-            {{VARBINARY("  ")}, std::int32_t(2)},                 // 双空格
+            {{VARBINARY("Hello, World!")}, std::int32_t(13)},
+            {{VARBINARY("Привет, мир!")}, std::int32_t(21)},
+            {{VARBINARY("こんにちは世界")}, std::int32_t(21)},
+            {{VARBINARY("안녕하세요세계")}, std::int32_t(21)},
+            {{VARBINARY("你好，世界！")}, std::int32_t(18)},
+            {{VARBINARY("مرحبا بالعالم!")}, std::int32_t(26)},
+            {{VARBINARY("1234567890")}, std::int32_t(10)},
+            {{VARBINARY("👨‍👨‍👧‍👦")}, std::int32_t(25)},
+            {{VARBINARY("🇺🇸🇨🇳🇯🇵🇰🇷")}, std::int32_t(32)},
+            {{VARBINARY("\u00F1")}, std::int32_t(2)},
+            {{VARBINARY("\u65E5\u672C\u8A9E")}, std::int32_t(9)},
+            {{VARBINARY("Hello, 世界！")}, std::int32_t(16)},
+            {{VARBINARY("😀😃😄😁")}, std::int32_t(16)},
+            {{VARBINARY("Quick brown 狐 jumps over a lazy 狗.")}, std::int32_t(38)},
+            {{VARBINARY("Löwe 老虎 Léopard")}, std::int32_t(21)},
+            {{VARBINARY("Café 美丽")}, std::int32_t(12)},
+            {{VARBINARY("Björk")}, std::int32_t(6)},
+            {{VARBINARY("¿Dónde está la biblioteca?")}, std::int32_t(29)},
+            {{VARBINARY("Zażółć gęślą jaźń")}, std::int32_t(26)},
+            {{Null()}, Null()},
+            {{VARBINARY(" ")}, std::int32_t(1)},
+            {{VARBINARY("  ")}, std::int32_t(2)},
 
     };
 
@@ -79,11 +79,8 @@ TEST(function_binary_test, function_to_base64_test) {
              std::string("NVpXSzVaT0k1Wk9JNVpPSThKK1loQ0RqZ0lMaWdKVGlnSlFo")},
             {{VARBINARY("ò&ø")}, std::string("w7Imw7g=")},
             {{VARBINARY("hehe")}, std::string("aGVoZQ==")},
-            // // 特殊字符
             {{VARBINARY("`~!@#$%^&*()-_=+")}, std::string("YH4hQCMkJV4mKigpLV89Kw==")},
-            // // 末尾空格，这对 base64 编码意义重大
             {{VARBINARY("test ")}, std::string("dGVzdCA=")},
-            // // 空字符串
             {{VARBINARY("")}, std::string("")},
             {{Null()}, Null()},
     };

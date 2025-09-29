@@ -21,6 +21,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "util/url_coding.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -32,11 +33,9 @@
 #include "vec/data_types/data_type_varbinary.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/functions/string_hex_util.h"
-#include "util/url_coding.h"
-#include "vec/functions/function_totype.h"
-
 
 namespace doris::vectorized {
 #include "common/compile_check_avoid_begin.h"
