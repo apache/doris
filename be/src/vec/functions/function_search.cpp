@@ -27,6 +27,8 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include "common/status.h"
 #include "gen_cpp/Exprs_types.h"
@@ -45,6 +47,71 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+
+namespace {
+
+struct NullSafetyAnalysisResult {
+    std::unordered_set<std::string> referenced_fields;
+    bool contains_not = false;
+    bool requires_mask = false;
+};
+
+NullSafetyAnalysisResult analyze_null_safety(const TSearchClause& clause) {
+    NullSafetyAnalysisResult result;
+
+    if (clause.__isset.field_name) {
+        result.referenced_fields.insert(clause.field_name);
+    }
+
+    if (clause.clause_type == "NOT") {
+        result.contains_not = true;
+    }
+
+    if (clause.__isset.children) {
+        std::vector<NullSafetyAnalysisResult> child_results;
+        child_results.reserve(clause.children.size());
+        for (const auto& child : clause.children) {
+            auto child_result = analyze_null_safety(child);
+            if (child_result.contains_not) {
+                result.contains_not = true;
+            }
+            if (child_result.requires_mask) {
+                result.requires_mask = true;
+            }
+            result.referenced_fields.insert(child_result.referenced_fields.begin(),
+                                            child_result.referenced_fields.end());
+            child_results.emplace_back(std::move(child_result));
+        }
+
+        if (clause.clause_type == "OR") {
+            bool is_safe = true;
+            std::unordered_set<std::string> seen_fields;
+            for (const auto& child_result : child_results) {
+                if (child_result.contains_not || child_result.requires_mask) {
+                    is_safe = false;
+                    break;
+                }
+                for (const auto& field : child_result.referenced_fields) {
+                    if (!seen_fields.insert(field).second) {
+                        is_safe = false;
+                        break;
+                    }
+                }
+                if (!is_safe) {
+                    break;
+                }
+            }
+
+            if (!is_safe) {
+                result.requires_mask = true;
+            }
+        }
+    }
+
+    return result;
+}
+
+} // namespace
 
 Status FieldReaderResolver::resolve(const std::string& field_name,
                                     InvertedIndexQueryType query_type,
@@ -516,28 +583,47 @@ Status FunctionSearch::collect_query_null_bitmap(
         const TSearchClause& clause,
         const std::unordered_map<std::string, IndexIterator*>& iterators,
         std::shared_ptr<roaring::Roaring>& null_bitmap) const {
+    bool collect_nulls = should_mask_null_values(clause);
+    return collect_query_null_bitmap_internal(clause, iterators, null_bitmap, collect_nulls);
+}
+
+Status FunctionSearch::collect_query_null_bitmap_internal(
+        const TSearchClause& clause,
+        const std::unordered_map<std::string, IndexIterator*>& iterators,
+        std::shared_ptr<roaring::Roaring>& null_bitmap, bool collect_nulls) const {
     const std::string& clause_type = clause.clause_type;
+    bool next_collect = collect_nulls;
+
+    if (!collect_nulls && clause_type == "OR") {
+        if (!is_or_clause_null_safe(clause)) {
+            next_collect = true;
+        }
+    } else if (!collect_nulls && clause_type == "NOT") {
+        next_collect = true;
+    }
 
     if (clause_type == "AND" || clause_type == "OR" || clause_type == "NOT") {
-        // For compound queries, collect NULL bitmaps from children
         if (clause.__isset.children) {
             for (const auto& child_clause : clause.children) {
-                RETURN_IF_ERROR(collect_query_null_bitmap(child_clause, iterators, null_bitmap));
+                RETURN_IF_ERROR(collect_query_null_bitmap_internal(child_clause, iterators,
+                                                                   null_bitmap, next_collect));
             }
         }
         return Status::OK();
     }
 
-    // For leaf queries, collect NULL bitmap from the specific field
-    if (clause.__isset.field_name) {
+    if (next_collect && clause.__isset.field_name) {
         const std::string& field_name = clause.field_name;
         auto it = iterators.find(field_name);
-        if (it != iterators.end() && it->second && it->second->has_null()) {
-            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-            RETURN_IF_ERROR(it->second->read_null_bitmap(&null_bitmap_cache_handle));
-            auto field_null_bitmap = null_bitmap_cache_handle.get_bitmap();
-            if (field_null_bitmap) {
-                *null_bitmap |= *field_null_bitmap;
+        if (it != iterators.end() && it->second) {
+            auto has_null_result = it->second->has_null();
+            if (has_null_result.has_value() && has_null_result.value()) {
+                segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+                RETURN_IF_ERROR(it->second->read_null_bitmap(&null_bitmap_cache_handle));
+                auto field_null_bitmap = null_bitmap_cache_handle.get_bitmap();
+                if (field_null_bitmap) {
+                    *null_bitmap |= *field_null_bitmap;
+                }
             }
         }
     }
@@ -545,17 +631,22 @@ Status FunctionSearch::collect_query_null_bitmap(
     return Status::OK();
 }
 
-bool FunctionSearch::should_mask_null_values(const TSearchClause& clause) const {
-    const std::string& clause_type = clause.clause_type;
-
-    // For OR queries at the top level, don't mask NULL values
-    // This allows proper SQL three-value logic: NULL OR TRUE = TRUE
-    if (clause_type == "OR") {
+bool FunctionSearch::is_or_clause_null_safe(const TSearchClause& clause) const {
+    if (clause.clause_type != "OR") {
         return false;
     }
 
-    // For all other queries (including NOT), apply NULL masking
-    // This ensures search('NOT ...') behaves consistently with NOT search('...')
+    auto analysis = analyze_null_safety(clause);
+    return !analysis.contains_not && !analysis.requires_mask;
+}
+
+bool FunctionSearch::should_mask_null_values(const TSearchClause& clause) const {
+    const std::string& clause_type = clause.clause_type;
+
+    if (clause_type == "OR") {
+        return !is_or_clause_null_safe(clause);
+    }
+
     return true;
 }
 

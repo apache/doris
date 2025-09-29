@@ -171,6 +171,12 @@ public:
     bool should_mask_null_values(const TSearchClause& clause) const;
 
 private:
+    Status collect_query_null_bitmap_internal(
+            const TSearchClause& clause,
+            const std::unordered_map<std::string, IndexIterator*>& iterators,
+            std::shared_ptr<roaring::Roaring>& null_bitmap, bool collect_nulls) const;
+
+    bool is_or_clause_null_safe(const TSearchClause& clause) const;
 };
 
 } // namespace doris::vectorized
