@@ -284,7 +284,6 @@ Status PipelineFragmentContext::prepare(ThreadPool* thread_pool) {
         }
 
         // 1. Set up the global runtime state.
-        LOG(INFO) << "Refrian " << _params.query_options.disable_file_cache;
         _runtime_state = RuntimeState::create_unique(
                 _params.query_id, _params.fragment_id, _params.query_options,
                 _query_ctx->query_globals, _exec_env, _query_ctx.get());
