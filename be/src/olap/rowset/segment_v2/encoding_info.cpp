@@ -28,6 +28,7 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
+#include "olap/rowset/segment_v2/binary_plain_page_v2.h"
 #include "olap/rowset/segment_v2/binary_prefix_page.h"
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/bitshuffle_page_pre_decoder.h"
@@ -168,6 +169,18 @@ struct TypeEncodingTraits<type, PREFIX_ENCODING, Slice> {
     }
 };
 
+template <FieldType type>
+struct TypeEncodingTraits<type, PLAIN_ENCODING_V2, Slice> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return BinaryPlainPageV2Builder<type>::create(builder, opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new BinaryPlainPageV2Decoder<type>(data, opts);
+        return Status::OK();
+    }
+};
+
 EncodingInfoResolver::EncodingInfoResolver() {
     if (config::use_plain_encoding) {
         _add_map<FieldType::OLAP_FIELD_TYPE_TINYINT, PLAIN_ENCODING>();
@@ -203,22 +216,27 @@ EncodingInfoResolver::EncodingInfoResolver() {
         _add_map<FieldType::OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>();
 
         _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING>();
+        _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING_V2>();
         _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
         _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PREFIX_ENCODING, true>();
 
         _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
+        _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING_V2>();
         _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
         _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PREFIX_ENCODING, true>();
 
         _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING>();
+        _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING_V2>();
         _add_map<FieldType::OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();
         _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PREFIX_ENCODING, true>();
 
         _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING>();
+        _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING_V2>();
         _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, DICT_ENCODING>();
         _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PREFIX_ENCODING, true>();
 
         _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING>();
+        _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING_V2>();
         _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, DICT_ENCODING>();
         _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PREFIX_ENCODING, true>();
 
@@ -283,9 +301,9 @@ EncodingInfoResolver::EncodingInfoResolver() {
         _add_map<FieldType::OLAP_FIELD_TYPE_INT, FOR_ENCODING, true>();
         _add_map<FieldType::OLAP_FIELD_TYPE_INT, PLAIN_ENCODING>();
 
+        _add_map<FieldType::OLAP_FIELD_TYPE_BIGINT, PLAIN_ENCODING>();
         _add_map<FieldType::OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>();
         _add_map<FieldType::OLAP_FIELD_TYPE_BIGINT, FOR_ENCODING, true>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_BIGINT, PLAIN_ENCODING>();
 
         _add_map<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT, BIT_SHUFFLE>();
         _add_map<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT, BIT_SHUFFLE>();
@@ -302,22 +320,27 @@ EncodingInfoResolver::EncodingInfoResolver() {
 
         _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
         _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING>();
+        _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING_V2>();
         _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PREFIX_ENCODING, true>();
 
         _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
         _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
+        _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING_V2>();
         _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PREFIX_ENCODING, true>();
 
         _add_map<FieldType::OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();
         _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING>();
+        _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING_V2>();
         _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PREFIX_ENCODING, true>();
 
         _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, DICT_ENCODING>();
         _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING>();
+        _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING_V2>();
         _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PREFIX_ENCODING, true>();
 
         _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, DICT_ENCODING>();
         _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING>();
+        _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING_V2>();
         _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PREFIX_ENCODING, true>();
 
         _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, RLE>();
@@ -370,12 +393,16 @@ EncodingInfoResolver::EncodingInfoResolver() {
         _add_map<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE, true>();
     }
     _add_map<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING_V2>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING_V2>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING_V2>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING_V2>();
 }
 
 EncodingInfoResolver::~EncodingInfoResolver() {
