@@ -170,8 +170,7 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
     RETURN_IF_ERROR(_init_io_ctx());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->file_reader_stats = _file_reader_stats.get();
-    _io_ctx->is_disposable = state->query_options().disable_file_cache;
-    LOG(INFO) << "Refrain : set to " << _io_ctx->is_disposable;
+    _io_ctx->is_disposable = _state->query_options().disable_file_cache;
 
     if (_is_load) {
         _src_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
@@ -1100,7 +1099,6 @@ Status FileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
-            LOG(INFO) << "Refrain : _io_ctx.is_disposable = " << _io_ctx->is_disposable;
             _cur_reader =
                     NewJsonReader::create_unique(_state, _profile, &_counter, *_params, range,
                                                  _file_slot_descs, &_scanner_eof, _io_ctx.get());
