@@ -170,7 +170,7 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
     RETURN_IF_ERROR(_init_io_ctx());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->file_reader_stats = _file_reader_stats.get();
-    _io_ctx->is_disposable = _state->query_options().disable_file_cache;
+    _io_ctx->is_disposable = state->query_options().disable_file_cache;
     LOG(INFO) << "Refrain : set to " << _io_ctx->is_disposable;
 
     if (_is_load) {
