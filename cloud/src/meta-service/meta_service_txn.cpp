@@ -32,6 +32,7 @@
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
+#include "meta-store/clone_chain_reader.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/meta_reader.h"
@@ -1357,7 +1358,7 @@ void MetaServiceImpl::commit_txn_immediately(
 
         LOG(INFO) << "txn_id=" << txn_id << " txn_info=" << txn_info.ShortDebugString();
 
-        MetaReader meta_reader(instance_id, txn_kv_.get());
+        CloneChainReader meta_reader(instance_id, resource_mgr_.get());
 
         // Prepare rowset meta and new_versions
         AnnotateTag txn_tag("txn_id", txn_id);
@@ -1902,7 +1903,7 @@ void MetaServiceImpl::commit_txn_eventually(
             stats.del_counter += txn->num_del_keys();
         };
 
-        MetaReader meta_reader(instance_id, txn_kv_.get());
+        CloneChainReader meta_reader(instance_id, resource_mgr_.get());
 
         AnnotateTag txn_tag("txn_id", txn_id);
 
@@ -2401,7 +2402,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
 
         bool is_versioned_write = is_version_write_enabled(instance_id);
         bool is_versioned_read = is_version_read_enabled(instance_id);
-        MetaReader meta_reader(instance_id, txn_kv_.get());
+        CloneChainReader meta_reader(instance_id, resource_mgr_.get());
 
         // Prepare rowset meta and new_versions
         std::unordered_map<int64_t, TabletIndexPB> tablet_ids;

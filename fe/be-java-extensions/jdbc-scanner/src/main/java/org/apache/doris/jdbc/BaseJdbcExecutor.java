@@ -614,11 +614,11 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             case CHAR:
             case VARCHAR:
             case STRING:
-            case BINARY:
                 preparedStatement.setString(parameterIndex, column.getStringWithOffset(rowIdx));
                 break;
+            case BINARY:
             case VARBINARY:
-                preparedStatement.setBytes(parameterIndex, column.getBytesWithOffset(rowIdx));
+                preparedStatement.setBytes(parameterIndex, column.getBytesVarbinary(rowIdx));
                 break;
             default:
                 throw new RuntimeException("Unknown type value: " + dorisType);
@@ -667,9 +667,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             case CHAR:
             case VARCHAR:
             case STRING:
-            case BINARY:
                 preparedStatement.setNull(parameterIndex, Types.VARCHAR);
                 break;
+            case BINARY:
             case VARBINARY:
                 preparedStatement.setNull(parameterIndex, Types.VARBINARY);
                 break;

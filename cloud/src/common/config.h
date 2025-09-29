@@ -366,4 +366,8 @@ CONF_mBool(enable_logging_conflict_keys, "false");
 // Default is 1 hour (3600 seconds).
 CONF_Int64(prune_aborted_snapshot_seconds, "3600"); // 1h
 
+// Snapshot configuration limits
+CONF_Int32(snapshot_min_interval_seconds, "3600"); // 1h min interval limit
+CONF_Int32(snapshot_max_reserved_num, "35");       // max reserved snapshots limit
+
 } // namespace doris::cloud::config

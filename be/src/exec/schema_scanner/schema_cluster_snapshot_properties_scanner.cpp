@@ -35,8 +35,8 @@ class Block;
 } // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaClusterSnapshotPropertiesScanner::_s_tbls_columns = {
-        {"SNAPSHOT_ENABLED", TYPE_BOOLEAN, sizeof(int8_t), true},
-        {"AUTO_SNAPSHOT_ENABLED", TYPE_BOOLEAN, sizeof(int8_t), true},
+        {"SNAPSHOT_ENABLED", TYPE_STRING, sizeof(StringRef), true},
+        {"AUTO_SNAPSHOT", TYPE_BOOLEAN, sizeof(int8_t), true},
         {"MAX_RESERVED_SNAPSHOTS", TYPE_BIGINT, sizeof(int64_t), true},
         {"SNAPSHOT_INTERVAL_SECONDS", TYPE_BIGINT, sizeof(int64_t), true},
 };
@@ -73,10 +73,26 @@ Status SchemaClusterSnapshotPropertiesScanner::get_next_block_internal(vectorize
 
 Status SchemaClusterSnapshotPropertiesScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
-    bool ready = _switch_status != cloud::SnapshotSwitchStatus::SNAPSHOT_SWITCH_DISABLED;
-    bool enabled = _switch_status == cloud::SnapshotSwitchStatus::SNAPSHOT_SWITCH_ON;
-    SchemaScannerHelper::insert_bool_value(0, ready, block);
-    SchemaScannerHelper::insert_bool_value(1, enabled, block);
+    bool auto_snapshot_enabled =
+            _switch_status == cloud::SnapshotSwitchStatus::SNAPSHOT_SWITCH_ON &&
+            _max_reserved_snapshots > 0;
+    std::string_view snapshot_enable_status;
+    switch (_switch_status) {
+    case cloud::SnapshotSwitchStatus::SNAPSHOT_SWITCH_ON:
+        snapshot_enable_status = "YES";
+        break;
+    case cloud::SnapshotSwitchStatus::SNAPSHOT_SWITCH_OFF:
+        snapshot_enable_status = "NO";
+        break;
+    case cloud::SnapshotSwitchStatus::SNAPSHOT_SWITCH_DISABLED:
+        snapshot_enable_status = "DISABLED";
+        break;
+    default:
+        snapshot_enable_status = "UNKNOWN";
+        break;
+    }
+    SchemaScannerHelper::insert_string_value(0, snapshot_enable_status, block);
+    SchemaScannerHelper::insert_bool_value(1, auto_snapshot_enabled, block);
     SchemaScannerHelper::insert_int64_value(2, _max_reserved_snapshots, block);
     SchemaScannerHelper::insert_int64_value(3, _snapshot_interval_seconds, block);
     return Status::OK();
