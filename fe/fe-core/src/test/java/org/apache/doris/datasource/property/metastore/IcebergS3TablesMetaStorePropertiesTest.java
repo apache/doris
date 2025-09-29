@@ -42,7 +42,7 @@ public class IcebergS3TablesMetaStorePropertiesTest {
                 "s3.secret_key", "SK",
                 "s3.endpoint", "https://s3.us-west-2.amazonaws.com");
         RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> MetastoreProperties.create(baseProps));
-        Assertions.assertTrue(exception.getMessage().contains("Region must be set."));
+        Assertions.assertTrue(exception.getMessage().contains("Region is not set."));
         Map<String, String> allProps = ImmutableMap.<String, String>builder()
                 .putAll(baseProps)
                 .putAll(s3Props)
