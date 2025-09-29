@@ -91,6 +91,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
     public static final float FUNCTION_CALL_COST = 10;
 
     protected Optional<Boolean> nullableFromNereids = Optional.empty();
+    protected Optional<Boolean> originCastNullable = Optional.empty();
 
     // returns true if an Expr is a non-analytic aggregate.
     private static final com.google.common.base.Predicate<Expr> IS_AGGREGATE_PREDICATE =
@@ -1566,6 +1567,10 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
 
     public Optional<Boolean> getNullableFromNereids() {
         return nullableFromNereids;
+    }
+
+    public void setOriginCastNullable(boolean nullable) {
+        originCastNullable = Optional.of(nullable);
     }
 
     public void clearNullableFromNereids() {

@@ -966,7 +966,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StrToMap.class, "str_to_map"),
             scalar(SubBitmap.class, "sub_bitmap"),
             scalar(SubReplace.class, "sub_replace"),
-            scalar(Substring.class, "substr", "substring"),
+            scalar(Substring.class, "substr", "substring", "mid"),
             scalar(SubstringIndex.class, "substring_index"),
             scalar(Tan.class, "tan"),
             scalar(Tanh.class, "tanh"),

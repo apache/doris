@@ -3296,8 +3296,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 relationHints.addAll(commonHints);
             }
 
-            org.apache.doris.nereids.trees.TableSample newTableSample =
-                    new org.apache.doris.nereids.trees.TableSample(tableSample.getSampleValue(),
+            org.apache.doris.nereids.trees.TableSample newTableSample = tableSample == null ? null
+                    : new org.apache.doris.nereids.trees.TableSample(tableSample.getSampleValue(),
                             tableSample.isPercent(),
                             tableSample.getSeek());
 

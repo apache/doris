@@ -84,7 +84,8 @@ enum TExprNodeType {
   NULL_AWARE_BINARY_PRED = 37,
   TIMEV2_LITERAL = 38,
   VIRTUAL_SLOT_REF = 39,
-  VARBINARY_LITERAL = 40
+  VARBINARY_LITERAL = 40,
+  TRY_CAST_EXPR = 41
 }
 
 //enum TAggregationOp {
@@ -283,6 +284,7 @@ struct TExprNode {
   36: optional string label // alias name, a/b in `select xxx as a, count(1) as b`
   37: optional TTimeV2Literal timev2_literal
   38: optional TVarBinaryLiteral varbinary_literal
+  39: optional bool is_cast_nullable
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

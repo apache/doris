@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -39,10 +40,13 @@ public class AlterWorkloadPolicyCommand extends AlterCommand {
     /**
      * constructor
      */
-    public AlterWorkloadPolicyCommand(String workloadPolicyName, Map<String, String> properties) {
+    public AlterWorkloadPolicyCommand(String workloadPolicyName, Map<String, String> inputProperties) {
         super(PlanType.ALTER_WORKLOAD_POLICY_COMMAND);
         this.workloadPolicyName = workloadPolicyName;
-        this.properties = properties;
+        this.properties = new HashMap<>();
+        for (String key : inputProperties.keySet()) {
+            properties.put(key.toLowerCase(), inputProperties.get(key));
+        }
     }
 
     @Override
