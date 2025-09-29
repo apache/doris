@@ -18,6 +18,7 @@
 package org.apache.doris.cloud.storage;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 
 import com.azure.core.credential.AccessToken;
@@ -55,6 +56,7 @@ import java.io.File;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 
 public class AzureRemote extends RemoteBase {
 
@@ -203,7 +205,8 @@ public class AzureRemote extends RemoteBase {
     }
 
     @Override
-    public void multiPartUploadObject(File file, String key) throws DdlException {
+    public void multipartUploadObject(File file, String key, Function<String, Pair<Boolean, String>> function)
+            throws DdlException {
         // https://docs.azure.cn/zh-cn/storage/blobs/storage-blob-upload-java
         putObject(file, key);
     }

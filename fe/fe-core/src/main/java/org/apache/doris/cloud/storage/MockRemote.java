@@ -18,6 +18,7 @@
 package org.apache.doris.cloud.storage;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.tuple.Triple;
@@ -29,6 +30,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 public class MockRemote extends RemoteBase {
     private static final Logger LOG = LogManager.getLogger(MockRemote.class);
@@ -84,7 +86,8 @@ public class MockRemote extends RemoteBase {
     }
 
     @Override
-    public void multiPartUploadObject(File file, String key) throws DdlException {
+    public void multipartUploadObject(File file, String key, Function<String, Pair<Boolean, String>> function)
+            throws DdlException {
         throw new DdlException("Multi part upload object for Mock is unsupported");
     }
 

@@ -3633,7 +3633,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static long multi_part_upload_part_size_in_bytes = 512 * 1024 * 1024L; // 512MB
     @ConfField(mutable = true)
-    public static int multi_part_upload_max_seconds = 1200; // 20 minutes
+    public static int multi_part_upload_max_seconds = 3600; // 1 hour
     @ConfField(mutable = true)
     public static int multi_part_upload_pool_size = 10;
 }

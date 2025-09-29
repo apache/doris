@@ -19,6 +19,7 @@ package org.apache.doris.cloud.storage;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 
 import com.google.common.collect.Lists;
@@ -70,6 +71,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 
 /**
  * Default implementation of {@link RemoteBase} use {@link S3Client}.
@@ -212,14 +214,14 @@ public class DefaultRemote extends RemoteBase {
     }
 
     @Override
-    public void multiPartUploadObject(File file, String key) throws DdlException {
+    public void multipartUploadObject(File file, String key, Function<String, Pair<Boolean, String>> function)
+            throws DdlException {
         long fileSize = file.length();
         if (fileSize <= Config.multi_part_upload_part_size_in_bytes) {
             putObject(file, key);
             return;
         }
 
-        long start = System.currentTimeMillis();
         initClient();
         initPool();
         // create multipart upload
@@ -235,70 +237,89 @@ public class DefaultRemote extends RemoteBase {
             partSize = (fileSize + MULTI_PART_UPLOAD_MAX_PART_NUM - 1) / MULTI_PART_UPLOAD_MAX_PART_NUM;
         }
         int totalPartNum = (int) (fileSize / partSize) + (fileSize % partSize == 0 ? 0 : 1);
-        LOG.info("multi part upload file: {}, size: {}, part size: {}, total part num: {}",
-                file.getAbsolutePath(), fileSize, partSize, totalPartNum);
+        LOG.info("multipart upload file: {}, size: {}, part size: {}, total part num: {}, upload id: {}",
+                file.getAbsolutePath(), fileSize, partSize, totalPartNum, uploadId);
 
-        try (FileInputStream inputStream = FileUtils.openInputStream(file)) {
-            List<CompletedPart> parts = new ArrayList<>();
-            CountDownLatch latch = new CountDownLatch(totalPartNum);
-            int partNum = 1;
-            long totalUploaded = 0;
-            AtomicBoolean failed = new AtomicBoolean(false);
-
-            while (totalUploaded < fileSize && !failed.get()) {
-                long nextPartSize = Math.min(partSize, fileSize - totalUploaded);
-                int partNumConst = partNum;
-                POOL.submit(() -> {
-                    if (failed.get()) {
-                        return;
-                    }
-                    LOG.debug("start multi part upload for num: {}", partNumConst);
-                    UploadPartRequest uploadPartRequest = UploadPartRequest.builder().bucket(obj.getBucket()).key(key)
-                            .uploadId(uploadId).partNumber(partNumConst).build();
-                    try {
-                        UploadPartResponse uploadPartResponse = s3Client.uploadPart(uploadPartRequest,
-                                RequestBody.fromInputStream(inputStream, nextPartSize));
-                        synchronized (parts) {
-                            parts.add(CompletedPart.builder().partNumber(partNumConst).eTag(uploadPartResponse.eTag())
-                                    .build());
-                        }
-                        LOG.debug("finish multi part upload for num: {}", partNumConst);
-                    } catch (Exception e) {
-                        LOG.warn("Failed to multi part upload for num: {}", partNumConst, e);
-                        failed.set(true);
-                    } finally {
-                        latch.countDown();
-                    }
-                });
-                totalUploaded += nextPartSize;
-                partNum++;
-            }
-            for (int i = 0; i < Config.multi_part_upload_max_seconds / 10; i++) {
-                if (latch.await(10, TimeUnit.SECONDS) || failed.get()) {
-                    break;
+        try {
+            if (function != null) {
+                Pair<Boolean, String> result = function.apply(uploadId);
+                if (!result.first) {
+                    LOG.warn("Failed to multipart upload object, file: {}, key: {}, upload id: {}, reason: {}",
+                            file.getAbsolutePath(), key, uploadId, result.second == null ? "" : result.second);
+                    throw new DdlException("Failed to multi part upload object, reason: "
+                            + (result.second == null ? "" : result.second));
                 }
             }
-            if (failed.get() || parts.size() < totalPartNum) {
-                throw new DdlException("Failed to multi part upload object for S3, finished part num: " + parts.size()
-                        + ", total part num: " + totalPartNum);
-            }
 
-            // complete the multipart upload
-            parts.sort(Comparator.comparingInt(CompletedPart::partNumber));
-            CompleteMultipartUploadRequest completeMultipartUploadRequest = CompleteMultipartUploadRequest.builder()
-                    .bucket(obj.getBucket()).key(key).uploadId(uploadId)
-                    .multipartUpload(CompletedMultipartUpload.builder().parts(parts).build()).build();
-            CompleteMultipartUploadResponse completeMultipartUploadResponse = s3Client.completeMultipartUpload(
-                    completeMultipartUploadRequest);
-            LOG.info("Finish multi part upload file: {}, size: {}, etag: {}, cost {} ms",
-                    file.getAbsolutePath(), fileSize, completeMultipartUploadResponse.eTag(),
-                    System.currentTimeMillis() - start);
+            long start = System.currentTimeMillis();
+            try (FileInputStream inputStream = FileUtils.openInputStream(file)) {
+                List<CompletedPart> parts = new ArrayList<>();
+                CountDownLatch latch = new CountDownLatch(totalPartNum);
+                int partNum = 1;
+                long totalUploaded = 0;
+                AtomicBoolean failed = new AtomicBoolean(false);
+
+                while (totalUploaded < fileSize && !failed.get()) {
+                    long nextPartSize = Math.min(partSize, fileSize - totalUploaded);
+                    int partNumConst = partNum;
+                    POOL.submit(() -> {
+                        if (failed.get()) {
+                            return;
+                        }
+                        LOG.debug("start multipart upload part id: {} for file: {}, key, {}, upload id: {}",
+                                partNumConst, file.getAbsolutePath(), key, uploadId);
+                        UploadPartRequest uploadPartRequest = UploadPartRequest.builder().bucket(obj.getBucket())
+                                .key(key).uploadId(uploadId).partNumber(partNumConst).build();
+                        try {
+                            UploadPartResponse uploadPartResponse = s3Client.uploadPart(uploadPartRequest,
+                                    RequestBody.fromInputStream(inputStream, nextPartSize));
+                            synchronized (parts) {
+                                parts.add(
+                                        CompletedPart.builder().partNumber(partNumConst).eTag(uploadPartResponse.eTag())
+                                                .build());
+                            }
+                            LOG.debug("finish multipart upload part id: {} for file: {}, key, {}, upload id: {}",
+                                    partNumConst, file.getAbsolutePath(), key, uploadId);
+                        } catch (Exception e) {
+                            LOG.warn("Failed multipart upload part id: {} for file: {}, key, {}, upload id: {}",
+                                    partNumConst, file.getAbsolutePath(), key, uploadId, e);
+                            failed.set(true);
+                        } finally {
+                            latch.countDown();
+                        }
+                    });
+                    totalUploaded += nextPartSize;
+                    partNum++;
+                }
+                while ((System.currentTimeMillis() - start) / 1000 < Config.multi_part_upload_max_seconds) {
+                    if (latch.await(10, TimeUnit.SECONDS) || failed.get()) {
+                        break;
+                    }
+                }
+                if (failed.get() || parts.size() < totalPartNum) {
+                    throw new DdlException("Failed to multipart upload object for file: " + file.getAbsolutePath()
+                            + ", key=" + key + ", upload id: " + uploadId + ", finished part num: " + parts.size()
+                            + ", total part num: " + totalPartNum);
+                }
+
+                // complete the multipart upload
+                parts.sort(Comparator.comparingInt(CompletedPart::partNumber));
+                CompleteMultipartUploadRequest completeMultipartUploadRequest = CompleteMultipartUploadRequest.builder()
+                        .bucket(obj.getBucket()).key(key).uploadId(uploadId)
+                        .multipartUpload(CompletedMultipartUpload.builder().parts(parts).build()).build();
+                CompleteMultipartUploadResponse completeMultipartUploadResponse = s3Client.completeMultipartUpload(
+                        completeMultipartUploadRequest);
+                LOG.info("Finish multipart upload file: {}, size: {}, key: {}, upload id: {}, etag: {}, cost {} ms",
+                        file.getAbsolutePath(), fileSize, key, uploadId, completeMultipartUploadResponse.eTag(),
+                        System.currentTimeMillis() - start);
+            }
         } catch (Exception e) {
-            LOG.warn("Failed to multi part upload object for S3", e);
+            LOG.warn("Failed to multipart upload object for file: {}, size: {}, key: {}, upload id: {}",
+                    file.getAbsolutePath(), fileSize, key, uploadId, e);
             s3Client.abortMultipartUpload(
                     AbortMultipartUploadRequest.builder().uploadId(uploadId).bucket(obj.getBucket()).key(key)
                             .build());
-            throw new DdlException("Failed to multi part upload object for S3, Error message=" + e.getMessage());
+            throw new DdlException("Failed to multipart upload object, Error message=" + e.getMessage());
         }
     }
 
