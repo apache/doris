@@ -36,6 +36,8 @@ public:
 
     virtual void begin_snapshot(std::string_view instance_id, const BeginSnapshotRequest& request,
                                 BeginSnapshotResponse* response);
+    virtual void update_snapshot(std::string_view instance_id, const UpdateSnapshotRequest& request,
+                                 UpdateSnapshotResponse* response);
     virtual void commit_snapshot(std::string_view instance_id, const CommitSnapshotRequest& request,
                                  CommitSnapshotResponse* response);
     virtual void abort_snapshot(std::string_view instance_id, const AbortSnapshotRequest& request,
