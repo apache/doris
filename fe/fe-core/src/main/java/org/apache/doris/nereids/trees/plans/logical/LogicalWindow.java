@@ -213,6 +213,7 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         // 1. The window function should be one of the 'row_number()', 'rank()', 'dense_rank()'.
         // 2. The window frame should be 'UNBOUNDED' to 'CURRENT'.
         // 3. The 'PARTITION' key and 'ORDER' key can not be empty at the same time.
+        // 4. order of window expressions should be compatible.
         WindowExpression chosenWindowFunc = null;
         long chosenPartitionLimit = Long.MAX_VALUE;
         long chosenRowNumberPartitionLimit = Long.MAX_VALUE;
@@ -305,24 +306,24 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 }
             }
         }
-        // check all windowExpression's order key is empty or is the same as chosenWindowFunc's order key
-        for (NamedExpression windowExpr : windowExpressions) {
-            if (windowExpr != null && windowExpr instanceof Alias
-                    && windowExpr.child(0) instanceof WindowExpression) {
-                WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
-                if (windowFunc.getOrderKeys().isEmpty()
-                        || windowFunc.getOrderKeys().equals(chosenWindowFunc.getOrderKeys())) {
-                    continue;
-                } else {
-                    return null;
-                }
-            }
-        }
 
         if (chosenWindowFunc == null || (chosenPartitionLimit == Long.MAX_VALUE
                 && chosenRowNumberPartitionLimit == Long.MAX_VALUE)) {
             return null;
         } else {
+            // 4. check all windowExpression's order key is empty or is the same as chosenWindowFunc's order key
+            for (NamedExpression windowExpr : windowExpressions) {
+                if (windowExpr != null && windowExpr instanceof Alias
+                        && windowExpr.child(0) instanceof WindowExpression) {
+                    WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
+                    if (windowFunc.getOrderKeys().isEmpty()
+                            || windowFunc.getOrderKeys().equals(chosenWindowFunc.getOrderKeys())) {
+                        continue;
+                    } else {
+                        return null;
+                    }
+                }
+            }
             return Pair.of(chosenWindowFunc, hasRowNumber ? chosenRowNumberPartitionLimit : chosenPartitionLimit);
         }
     }
