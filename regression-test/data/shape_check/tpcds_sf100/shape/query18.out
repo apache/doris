@@ -10,7 +10,7 @@ PhysicalResultSink
 --------------hashAgg[LOCAL]
 ----------------PhysicalRepeat
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF5 cs_item_sk->[i_item_sk]
+--------------------hashJoin[INNER_JOIN shuffle] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF5 cs_item_sk->[i_item_sk]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[item] apply RFs: RF5
 ----------------------PhysicalProject

@@ -303,8 +303,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 int backEndNum = Math.max(1, ConnectContext.get().getEnv().getClusterInfo()
                         .getBackendsNumber(true));
                 int paraNum = Math.max(1, ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
-                int totalParaNum = Math.min(10, backEndNum * paraNum);
-                return totalBucketNum < totalParaNum;
+                return totalBucketNum < backEndNum * paraNum * 0.8;
             }
         }
     }
