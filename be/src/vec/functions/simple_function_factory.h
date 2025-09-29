@@ -339,8 +339,8 @@ public:
             register_function_dict_get_many(instance);
             register_function_ai(instance);
             register_function_score(instance);
-            register_function_soundex(instance);
             register_function_binary(instance);
+            register_function_soundex(instance);
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
             register_function_throw_exception(instance);
 #endif
