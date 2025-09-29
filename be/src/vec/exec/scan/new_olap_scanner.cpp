@@ -200,11 +200,16 @@ Status NewOlapScanner::init() {
                 ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
             }
 
-            auto maybe_read_source = tablet->capture_read_source(
-                    _tablet_reader_params.version,
-                    {.skip_missing_versions = _state->skip_missing_version(),
-                     .enable_fetch_rowsets_from_peers =
-                             config::enable_fetch_rowsets_from_peer_replicas});
+            CaptureRowsetOps opts {
+                    .skip_missing_versions = _state->skip_missing_version(),
+                    .enable_fetch_rowsets_from_peers =
+                            config::enable_fetch_rowsets_from_peer_replicas,
+                    .enable_prefer_cached_rowset =
+                            config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
+                    .query_freshness_tolerance_ms =
+                            config::is_cloud_mode() ? _state->query_freshness_tolerance_ms() : -1};
+            auto maybe_read_source =
+                    tablet->capture_read_source(_tablet_reader_params.version, opts);
             if (!maybe_read_source) {
                 LOG(WARNING) << "fail to init reader. res=" << maybe_read_source.error();
                 return maybe_read_source.error();

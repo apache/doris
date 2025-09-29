@@ -85,6 +85,9 @@ public class UserProperty implements Writable {
     public static final String DEFAULT_CLOUD_CLUSTER = "default_cloud_cluster";
     public static final String DEFAULT_COMPUTE_GROUP = "default_compute_group";
 
+    public static final String PROP_ENABLE_PREFER_CACHED_ROWSET = "enable_prefer_cached_rowset";
+    public static final String PROP_QUERY_FRESHNESS_TOLERANCE = "query_freshness_tolerance_ms";
+
     // for system user
     public static final Set<Pattern> ADVANCED_PROPERTIES = Sets.newHashSet();
     // for normal user
@@ -132,6 +135,8 @@ public class UserProperty implements Writable {
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_WORKLOAD_GROUP + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_CLOUD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_COMPUTE_GROUP + "$", Pattern.CASE_INSENSITIVE));
+        COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUERY_FRESHNESS_TOLERANCE + "$", Pattern.CASE_INSENSITIVE));
+        COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_ENABLE_PREFER_CACHED_ROWSET + "$", Pattern.CASE_INSENSITIVE));
     }
 
     public UserProperty() {
@@ -194,6 +199,14 @@ public class UserProperty implements Writable {
         return commonProperties.getExecMemLimit();
     }
 
+    public long getQueryFreshnessToleranceMs() {
+        return commonProperties.getQueryFreshnessToleranceMs();
+    }
+
+    public boolean getEnablePreferCachedRowset() {
+        return commonProperties.getEnablePreferCachedRowset();
+    }
+
     public void update(List<Pair<String, String>> properties) throws UserException {
         update(properties, false);
     }
@@ -211,6 +224,8 @@ public class UserProperty implements Writable {
         int insertTimeout = this.commonProperties.getInsertTimeout();
         String initCatalog = this.commonProperties.getInitCatalog();
         String workloadGroup = this.commonProperties.getWorkloadGroup();
+        long queryFreshnessToleranceMs = this.commonProperties.getQueryFreshnessToleranceMs();
+        boolean enablePreferCachedRowset = this.commonProperties.getEnablePreferCachedRowset();
 
         String newDefaultCloudCluster = defaultCloudCluster;
 
@@ -343,6 +358,21 @@ public class UserProperty implements Writable {
                     throw new DdlException("workload group " + value + " not exists");
                 }
                 workloadGroup = value;
+            } else if (keyArr[0].equalsIgnoreCase(PROP_QUERY_FRESHNESS_TOLERANCE)) {
+                // set property "query_freshness_tolerance" = "1000";
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_QUERY_FRESHNESS_TOLERANCE + " format error");
+                }
+                queryFreshnessToleranceMs = getLongProperty(key, value, keyArr, PROP_QUERY_FRESHNESS_TOLERANCE);
+            } else if (keyArr[0].equalsIgnoreCase(PROP_ENABLE_PREFER_CACHED_ROWSET)) {
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_ENABLE_PREFER_CACHED_ROWSET + " format error");
+                }
+                try {
+                    enablePreferCachedRowset = Boolean.parseBoolean(value);
+                } catch (NumberFormatException e) {
+                    throw new DdlException(PROP_ENABLE_PREFER_CACHED_ROWSET + " is not boolean");
+                }
             } else {
                 if (isReplay) {
                     // After using SET PROPERTY to modify the user property, if FE rolls back to a version without
@@ -367,6 +397,8 @@ public class UserProperty implements Writable {
         this.commonProperties.setInsertTimeout(insertTimeout);
         this.commonProperties.setInitCatalog(initCatalog);
         this.commonProperties.setWorkloadGroup(workloadGroup);
+        this.commonProperties.setQueryFreshnessToleranceMs(queryFreshnessToleranceMs);
+        this.commonProperties.setEnablePreferCachedRowset(enablePreferCachedRowset);
         defaultCloudCluster = newDefaultCloudCluster;
     }
 
@@ -463,6 +495,11 @@ public class UserProperty implements Writable {
         result.add(Lists.newArrayList(PROP_DEFAULT_INIT_CATALOG, String.valueOf(commonProperties.getInitCatalog())));
 
         result.add(Lists.newArrayList(PROP_WORKLOAD_GROUP, String.valueOf(commonProperties.getWorkloadGroup())));
+
+        result.add(Lists.newArrayList(PROP_ENABLE_PREFER_CACHED_ROWSET,
+                String.valueOf(commonProperties.getEnablePreferCachedRowset())));
+        result.add(Lists.newArrayList(PROP_QUERY_FRESHNESS_TOLERANCE,
+                String.valueOf(commonProperties.getQueryFreshnessToleranceMs())));
 
         // default cloud cluster
         if (defaultCloudCluster != null) {

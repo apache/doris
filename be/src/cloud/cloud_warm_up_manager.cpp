@@ -110,7 +110,7 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                                                io::FileSystemSPtr file_system,
                                                int64_t expiration_time,
                                                std::shared_ptr<bthread::CountdownEvent> wait,
-                                               bool is_index) {
+                                               bool is_index, std::function<void(Status)> done_cb) {
     if (file_size < 0) {
         auto st = file_system->file_size(path, &file_size);
         if (!st.ok()) [[unlikely]] {
@@ -141,13 +141,12 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                 .offset = offset,
                 .download_size = current_chunk_size,
                 .file_system = file_system,
-                .ctx =
-                        {
-                                .expiration_time = expiration_time,
-                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
-                        },
+                .ctx = {.expiration_time = expiration_time,
+                        .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                        .is_warmup = true},
                 .download_done =
-                        [=](Status st) {
+                        [&](Status st) {
+                            if (done_cb) done_cb(st);
                             if (!st) {
                                 LOG_WARNING("Warm up error ").error(st);
                             } else if (is_index) {
@@ -227,12 +226,24 @@ void CloudWarmUpManager::handle_jobs() {
                     if (expiration_time <= UnixSeconds()) {
                         expiration_time = 0;
                     }
+                    if (!tablet->add_rowset_warmup_state(*rs, WarmUpState::TRIGGERED_BY_JOB)) {
+                        LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
+                                  << ", skip it";
+                        continue;
+                    }
 
                     // 1st. download segment files
                     submit_download_tasks(
                             storage_resource.value()->remote_segment_path(*rs, seg_id),
                             rs->segment_file_size(seg_id), storage_resource.value()->fs,
-                            expiration_time, wait);
+                            expiration_time, wait, false, [tablet, rs, seg_id](Status st) {
+                                VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
+                                           << seg_id << " completed";
+                                if (tablet->complete_rowset_segment_warmup(
+                                            rs->rowset_id(), st, 1, 0) == WarmUpState::DONE) {
+                                    VLOG_DEBUG << "warmup rowset " << rs->version() << " completed";
+                                }
+                            });
 
                     // 2nd. download inverted index files
                     int64_t file_size = -1;
@@ -254,8 +265,20 @@ void CloudWarmUpManager::handle_jobs() {
                                     }
                                 }
                             }
-                            submit_download_tasks(idx_path, file_size, storage_resource.value()->fs,
-                                                  expiration_time, wait, true);
+                            tablet->update_rowset_warmup_state_inverted_idx_num(rs->rowset_id(), 1);
+                            submit_download_tasks(
+                                    idx_path, file_size, storage_resource.value()->fs,
+                                    expiration_time, wait, true, [=](Status st) {
+                                        VLOG_DEBUG << "warmup rowset " << rs->version()
+                                                   << " segment " << seg_id
+                                                   << "inverted idx:" << idx_path << " completed";
+                                        if (tablet->complete_rowset_segment_warmup(rs->rowset_id(),
+                                                                                   st, 0, 1) ==
+                                            WarmUpState::DONE) {
+                                            VLOG_DEBUG << "warmup rowset " << rs->version()
+                                                       << " completed";
+                                        }
+                                    });
                         }
                     } else {
                         if (schema_ptr->has_inverted_index()) {
@@ -263,8 +286,20 @@ void CloudWarmUpManager::handle_jobs() {
                                     storage_resource.value()->remote_idx_v2_path(*rs, seg_id);
                             file_size = idx_file_info.has_index_size() ? idx_file_info.index_size()
                                                                        : -1;
-                            submit_download_tasks(idx_path, file_size, storage_resource.value()->fs,
-                                                  expiration_time, wait, true);
+                            tablet->update_rowset_warmup_state_inverted_idx_num(rs->rowset_id(), 1);
+                            submit_download_tasks(
+                                    idx_path, file_size, storage_resource.value()->fs,
+                                    expiration_time, wait, true, [=](Status st) {
+                                        VLOG_DEBUG << "warmup rowset " << rs->version()
+                                                   << " segment " << seg_id
+                                                   << "inverted idx:" << idx_path << " completed";
+                                        if (tablet->complete_rowset_segment_warmup(rs->rowset_id(),
+                                                                                   st, 0, 1) ==
+                                            WarmUpState::DONE) {
+                                            VLOG_DEBUG << "warmup rowset " << rs->version()
+                                                       << " completed";
+                                        }
+                                    });
                         }
                     }
                 }
