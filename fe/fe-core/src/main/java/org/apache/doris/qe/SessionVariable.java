@@ -2428,7 +2428,7 @@ public class SessionVariable implements Serializable, Writable {
                             + "if rules in NEED_PRE_REWRITE_RULE_TYPES, "
                             + "NOT_IN_RBO : Do not attempt rewriting in the RBO phase; apply only during the CBO phase"
             })
-    public String preMaterializedViewRewriteStrategy = "TRY_IN_RBO";
+    public String preMaterializedViewRewriteStrategy = "NOT_IN_RBO";
 
     @VariableMgr.VarAttr(name = ALLOW_MODIFY_MATERIALIZED_VIEW_DATA, needForward = true,
             description = {"是否允许修改物化视图的数据",
