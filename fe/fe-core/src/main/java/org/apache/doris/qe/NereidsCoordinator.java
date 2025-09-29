@@ -103,8 +103,15 @@ public class NereidsCoordinator extends Coordinator {
         super(context, planner, statsErrorEstimator);
 
         this.coordinatorContext = CoordinatorContext.buildForSql(planner, this);
-        this.coordinatorContext.setJobProcessor(buildJobProcessor(coordinatorContext, jobId));
         this.needEnqueue = true;
+
+        DataSink dataSink = coordinatorContext.dataSink;
+        // output to mysql or to file
+        if ((dataSink instanceof ResultSink || dataSink instanceof ResultFileSink)) {
+            setForQuery();
+        } else {
+            setForInsert();
+        }
 
         Preconditions.checkState(!planner.getFragments().isEmpty()
                 && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
@@ -120,6 +127,8 @@ public class NereidsCoordinator extends Coordinator {
                 this, jobId, queryId, fragments, distributedPlans, scanNodes,
                 descTable, timezone, loadZeroTolerance, enableProfile
         );
+        // same reason in `setForInsert`
+        this.coordinatorContext.queryOptions.setDisableFileCache(true);
         this.needEnqueue = false;
 
         Preconditions.checkState(!fragments.isEmpty()
@@ -528,13 +537,18 @@ public class NereidsCoordinator extends Coordinator {
         return false;
     }
 
-    private JobProcessor buildJobProcessor(CoordinatorContext coordinatorContext, long jobId) {
-        DataSink dataSink = coordinatorContext.dataSink;
-        if ((dataSink instanceof ResultSink || dataSink instanceof ResultFileSink)) {
-            return QueryProcessor.build(coordinatorContext);
-        } else {
-            return new LoadProcessor(coordinatorContext, jobId);
-        }
+    private void setForInsert() {
+        // insert statement has jobId == -1
+        JobProcessor jobProc = new LoadProcessor(this.coordinatorContext, -1L);
+        this.coordinatorContext.setJobProcessor(jobProc);
+        // Set this field to true to avoid data entering the normal cache LRU queue
+        // see detail reasons in DORIS-22597
+        this.coordinatorContext.queryOptions.setDisableFileCache(true);
+    }
+
+    private void setForQuery() {
+        JobProcessor jobProc = QueryProcessor.build(this.coordinatorContext);
+        this.coordinatorContext.setJobProcessor(jobProc);
     }
 
     @Override
