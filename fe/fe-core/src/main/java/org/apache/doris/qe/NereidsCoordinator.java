@@ -98,9 +98,23 @@ public class NereidsCoordinator extends Coordinator {
         if ((dataSink instanceof ResultSink || dataSink instanceof ResultFileSink)) {
             setForQuery();
         } else {
-            setForInsert();
+            setForInsert(-1L);
         }
 
+        Preconditions.checkState(!planner.getFragments().isEmpty()
+                && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
+    }
+
+    // load, with JobId
+    public NereidsCoordinator(ConnectContext context,
+            NereidsPlanner planner, StatsErrorEstimator statsErrorEstimator, long jobId) {
+        super(context, planner, statsErrorEstimator);
+
+        this.coordinatorContext = CoordinatorContext.buildForSql(planner, this);
+        this.needEnqueue = true;
+
+        // we don't need to check the dataSink, Because setting jobId means this must be a load operation
+        setForInsert(jobId);
         Preconditions.checkState(!planner.getFragments().isEmpty()
                 && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
     }
@@ -468,6 +482,18 @@ public class NereidsCoordinator extends Coordinator {
         }
     }
 
+    private void setForInsert(long jobId) {
+        JobProcessor jobProc = new LoadProcessor(this.coordinatorContext, jobId);
+        this.coordinatorContext.setJobProcessor(jobProc);
+        // Set this field to true to avoid data entering the normal cache LRU queue
+        this.coordinatorContext.queryOptions.setDisableFileCache(true);
+    }
+
+    private void setForQuery() {
+        JobProcessor jobProc = QueryProcessor.build(this.coordinatorContext);
+        this.coordinatorContext.setJobProcessor(jobProc);
+    }
+
     private void setForBroker(
             CoordinatorContext coordinatorContext, PipelineDistributedPlan topPlan) throws AnalysisException {
         DataSink dataSink = coordinatorContext.dataSink;
@@ -523,20 +549,6 @@ public class NereidsCoordinator extends Coordinator {
             }
         }
         return false;
-    }
-
-    private void setForInsert() {
-        // insert statement has jobId == -1
-        JobProcessor jobProc = new LoadProcessor(this.coordinatorContext, -1L);
-        this.coordinatorContext.setJobProcessor(jobProc);
-        // Set this field to true to avoid data entering the normal cache LRU queue
-        // see detail reasons in DORIS-22597
-        this.coordinatorContext.queryOptions.setDisableFileCache(true);
-    }
-
-    private void setForQuery() {
-        JobProcessor jobProc = QueryProcessor.build(this.coordinatorContext);
-        this.coordinatorContext.setJobProcessor(jobProc);
     }
 
     @Override
