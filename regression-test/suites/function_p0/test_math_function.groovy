@@ -49,7 +49,7 @@ suite("test_math_function") {
 
     qt_select_atan""" select atan(cast('nan' as double)), atan(cast('inf' as double)), atan(cast('-inf' as double)), atan(cast('0.0' as double)), atan(cast('-0.0' as double)), atan(cast('1.0' as double)), atan(cast('-1.0' as double)), atan(cast('1e308' as double)), atan(cast('-1e308' as double)) """
 
-    def mathFuncTestTable = "match_function_test_table";
+    def mathFuncTestTable = "math_function_test_table";
 
     sql """ DROP TABLE IF EXISTS ${mathFuncTestTable}; """
 
