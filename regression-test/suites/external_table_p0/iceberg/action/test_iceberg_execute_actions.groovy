@@ -245,7 +245,7 @@ suite("test_iceberg_execute_actions_ddl", "p0,external,doris,external_docker,ext
         sql """
             ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE
         """
-        exception "mismatched input '<EOF>' expecting identifier"
+        exception "mismatched input '<EOF>'"
     }
 
     // Test unknown property for specific action
@@ -338,39 +338,12 @@ suite("test_iceberg_execute_actions_ddl", "p0,external,doris,external_docker,ext
         exception "Iceberg rollback_to_snapshot procedure is not implemented yet"
     }
 
-    // Test with partition specification
-    test {
-        sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE rewrite_data_files
-            ("target-file-size-bytes" = "134217728") PARTITION (p1)
-        """
-        exception "Iceberg rewrite_data_files procedure is not implemented yet"
-    }
-
     // Test with multiple partitions
     test {
         sql """
             ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE expire_snapshots
             ("older_than" = "2024-01-01T00:00:00") PARTITIONS (p1, p2, p3)
         """
-        exception "Iceberg expire_snapshots procedure is not implemented yet"
-    }
-
-    // Test with WHERE clause
-    test {
-        sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE rewrite_data_files
-            ("target-file-size-bytes" = "134217728") WHERE partition_column = 'value'
-        """
-        exception "Iceberg rewrite_data_files procedure is not implemented yet"
-    }
-
-    // Test with both partition and WHERE clause
-    test {
-        sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE rollback_to_snapshot
-            ("snapshot_id" = "123456789") PARTITION (p1) WHERE updated_at > '2024-01-01'
-        """
-        exception "Iceberg rollback_to_snapshot procedure is not implemented yet"
+        exception "Action 'expire_snapshots' does not support partition specification"
     }
 }

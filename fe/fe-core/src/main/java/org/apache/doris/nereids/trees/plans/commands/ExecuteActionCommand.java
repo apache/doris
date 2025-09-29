@@ -44,7 +44,8 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * ALTER TABLE table EXECUTE action("k" = "v", ...) [PARTITION (partition_list)] [WHERE condition]
+ * ALTER TABLE table EXECUTE action("k" = "v", ...) [PARTITION (partition_list)]
+ * [WHERE condition]
  */
 public class ExecuteActionCommand extends Command implements ForwardWithSync {
     private final TableNameInfo tableNameInfo;
@@ -53,6 +54,15 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
     private final Optional<PartitionNamesInfo> partitionNamesInfo;
     private final Optional<Expression> whereCondition;
 
+    /**
+     * Constructor for ExecuteActionCommand.
+     *
+     * @param tableNameInfo      table name information
+     * @param actionName         name of the action to execute
+     * @param properties         action properties as key-value pairs
+     * @param partitionNamesInfo optional partition information
+     * @param whereCondition     optional where condition for filtering
+     */
     public ExecuteActionCommand(TableNameInfo tableNameInfo, String actionName,
             Map<String, String> properties, Optional<PartitionNamesInfo> partitionNamesInfo,
             Optional<Expression> whereCondition) {

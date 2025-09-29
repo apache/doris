@@ -95,19 +95,4 @@ public interface ExecuteAction {
      * @return where condition
      */
     Optional<Expression> getWhereCondition();
-
-    /**
-     * Get supported argument names for this action.
-     *
-     * @return array of supported argument names
-     */
-    String[] getSupportedArguments();
-
-    /**
-     * Get argument description for help messages.
-     *
-     * @param argName argument name
-     * @return argument description
-     */
-    String getArgumentDescription(String argName);
 }
