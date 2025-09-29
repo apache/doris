@@ -121,15 +121,8 @@ private:
         auto result_column = ColumnFloat64::create(input_rows_count);
         auto& result_data = result_column->get_data();
 
-        if (is_const_y && is_const_x) {
-            auto y_val = assert_cast<const ColumnConst*>(col_y.get())->get_value<Float64>();
-            auto x_val = assert_cast<const ColumnConst*>(col_x.get())->get_value<Float64>();
-            double atan2_value = std::atan2(y_val, x_val);
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                result_data[i] = atan2_value;
-            }
-        } else if (is_const_y) {
-            auto y_val = assert_cast<const ColumnConst*>(col_y.get())->get_value<Float64>();
+        if (is_const_y) {
+            auto y_val = assert_cast<const ColumnFloat64*>(col_y.get())->get_element(0);
 
             const auto* x_col = assert_cast<const ColumnFloat64*>(col_x.get());
             const auto& x_data = x_col->get_data();
@@ -137,7 +130,7 @@ private:
                 result_data[i] = std::atan2(y_val, x_data[i]);
             }
         } else if (is_const_x) {
-            auto x_val = assert_cast<const ColumnConst*>(col_x.get())->get_value<Float64>();
+            auto x_val = assert_cast<const ColumnFloat64*>(col_x.get())->get_element(0);
 
             const auto* y_col = assert_cast<const ColumnFloat64*>(col_y.get());
             const auto& y_data = y_col->get_data();
