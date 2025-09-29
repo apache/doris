@@ -507,8 +507,6 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) {
     if (range_search_runtime.is_ann_range_search == false) {
-        ann_index_stats.ann_range_reason = "is_ann_range_search is false";
-        VLOG_DEBUG << "ANN range search skipped: " << ann_index_stats.ann_range_reason;
         return Status::OK();
     }
 
@@ -524,18 +522,17 @@ Status VectorizedFnCall::evaluate_ann_range_search(
     DCHECK(src_col_cid < cid_to_index_iterators.size());
     segment_v2::IndexIterator* index_iterator = cid_to_index_iterators[src_col_cid].get();
     if (index_iterator == nullptr) {
-        ann_index_stats.ann_range_reason =
-                fmt::format("No index iterator for column cid {}", src_col_cid);
-        VLOG_DEBUG << "ANN range search skipped: " << ann_index_stats.ann_range_reason;
+        VLOG_DEBUG << "ANN range search skipped: "
+                   << fmt::format("No index iterator for column cid {}", src_col_cid);
+        ;
         return Status::OK();
     }
 
     segment_v2::AnnIndexIterator* ann_index_iterator =
             dynamic_cast<segment_v2::AnnIndexIterator*>(index_iterator);
     if (ann_index_iterator == nullptr) {
-        ann_index_stats.ann_range_reason =
-                fmt::format("Column cid {} has no ANN index iterator", src_col_cid);
-        VLOG_DEBUG << "ANN range search skipped: " << ann_index_stats.ann_range_reason;
+        VLOG_DEBUG << "ANN range search skipped: "
+                   << fmt::format("Column cid {} has no ANN index iterator", src_col_cid);
         return Status::OK();
     }
     DCHECK(ann_index_iterator->get_reader(AnnIndexReaderType::ANN) != nullptr)
@@ -546,11 +543,10 @@ Status VectorizedFnCall::evaluate_ann_range_search(
             << "Ann index reader should not be null. Column cid: " << src_col_cid;
     // Check if metrics type is match.
     if (ann_index_reader->get_metric_type() != range_search_runtime.metric_type) {
-        ann_index_stats.ann_range_reason =
-                fmt::format("Metric type mismatch. Index={} Query={}",
-                            segment_v2::metric_to_string(ann_index_reader->get_metric_type()),
-                            segment_v2::metric_to_string(range_search_runtime.metric_type));
-        VLOG_DEBUG << "ANN range search skipped: " << ann_index_stats.ann_range_reason;
+        VLOG_DEBUG << "ANN range search skipped: "
+                   << fmt::format("Metric type mismatch. Index={} Query={}",
+                                  segment_v2::metric_to_string(ann_index_reader->get_metric_type()),
+                                  segment_v2::metric_to_string(range_search_runtime.metric_type));
         return Status::OK();
     }
 
