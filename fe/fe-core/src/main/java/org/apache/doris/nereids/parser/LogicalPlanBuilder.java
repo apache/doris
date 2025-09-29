@@ -714,6 +714,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExecuteActionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ExplainDictionaryCommand;
@@ -728,7 +729,6 @@ import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillQueryCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.LockTablesCommand;
-import org.apache.doris.nereids.trees.plans.commands.OptimizeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
@@ -7048,25 +7048,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public LogicalPlan visitOptimizeTable(DorisParser.OptimizeTableContext ctx) {
-        TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.multipartIdentifier()));
+    public LogicalPlan visitAlterTableExecute(DorisParser.AlterTableExecuteContext ctx) {
+        TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        String action = ctx.actionName.getText();
+
+        // Parse partition specification if present
         Optional<PartitionNamesInfo> partitionNamesInfo = Optional.empty();
         if (ctx.partitionSpec() != null) {
             Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
             partitionNamesInfo = Optional.of(new PartitionNamesInfo(partitionSpec.first, partitionSpec.second));
         }
-        Optional<Expression> whereCondition = ctx.booleanExpression() == null
-                ? Optional.empty()
-                : Optional.of((Expression) visit(ctx.booleanExpression()));
-        Map<String, String> properties = ctx.properties == null
-                ? Maps.newHashMap()
-                : visitPropertyClause(ctx.properties);
 
-        return new OptimizeTableCommand(
-                tableName,
-                partitionNamesInfo,
-                whereCondition,
-                properties);
+        // Parse WHERE condition if present
+        Optional<Expression> whereCondition = ctx.whereExpression == null
+                ? Optional.empty()
+                : Optional.of((Expression) visit(ctx.whereExpression));
+
+        Map<String, String> props = ctx.propertyItemList() == null
+                ? Maps.newHashMap()
+                : visitPropertyItemList(ctx.propertyItemList());
+        return new ExecuteActionCommand(
+                tableName, action, props, partitionNamesInfo, whereCondition);
     }
 
     @Override
