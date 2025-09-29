@@ -182,216 +182,109 @@ struct TypeEncodingTraits<type, PLAIN_ENCODING_V2, Slice> {
 };
 
 EncodingInfoResolver::EncodingInfoResolver() {
-    if (config::use_plain_encoding) {
-        _add_map<FieldType::OLAP_FIELD_TYPE_TINYINT, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_TINYINT, FOR_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_TINYINT, FOR_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_TINYINT, PLAIN_ENCODING>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_SMALLINT, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_SMALLINT, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_SMALLINT, FOR_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_SMALLINT, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_SMALLINT, FOR_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_SMALLINT, PLAIN_ENCODING>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_INT, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_INT, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_INT, FOR_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_INT, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_INT, FOR_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_INT, PLAIN_ENCODING>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_BIGINT, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_BIGINT, FOR_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_BIGINT, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_BIGINT, FOR_ENCODING, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT, BIT_SHUFFLE>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_LARGEINT, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_LARGEINT, FOR_ENCODING, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_LARGEINT, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_LARGEINT, FOR_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_FLOAT, PLAIN_ENCODING>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_FLOAT, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DOUBLE, PLAIN_ENCODING>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_DOUBLE, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING_V2>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PREFIX_ENCODING, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING_V2>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PREFIX_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING_V2>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PREFIX_ENCODING, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING_V2>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PREFIX_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING_V2>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PREFIX_ENCODING, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING_V2>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PREFIX_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, DICT_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING_V2>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PREFIX_ENCODING, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING_V2>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, DICT_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PREFIX_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, DICT_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING_V2>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PREFIX_ENCODING, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING_V2>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, DICT_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PREFIX_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, RLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, PLAIN_ENCODING, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, PLAIN_ENCODING, true>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, RLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DATE, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DATE, FOR_ENCODING, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATE, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATE, FOR_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DATEV2, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DATEV2, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DATEV2, FOR_ENCODING, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATEV2, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATEV2, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATEV2, FOR_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DATETIME, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DATETIME, FOR_ENCODING, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATETIME, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATETIME, FOR_ENCODING, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL32, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL32, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL32, BIT_SHUFFLE, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL32, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL32, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL32, BIT_SHUFFLE, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL64, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL64, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL64, BIT_SHUFFLE, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL64, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL64, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL64, BIT_SHUFFLE, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL128I, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL128I, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL128I, BIT_SHUFFLE, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL128I, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL128I, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL128I, BIT_SHUFFLE, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL256, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL256, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_IPV4, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_IPV4, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE, true>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_IPV6, PLAIN_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE, true>();
 
-        _add_map<FieldType::OLAP_FIELD_TYPE_IPV6, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE, true>();
-    } else {
-        _add_map<FieldType::OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_TINYINT, FOR_ENCODING, true>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_TINYINT, PLAIN_ENCODING>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_SMALLINT, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_SMALLINT, FOR_ENCODING, true>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_SMALLINT, PLAIN_ENCODING>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_INT, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_INT, FOR_ENCODING, true>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_INT, PLAIN_ENCODING>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_BIGINT, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_BIGINT, FOR_ENCODING, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT, BIT_SHUFFLE>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_LARGEINT, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_LARGEINT, FOR_ENCODING, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_FLOAT, PLAIN_ENCODING>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DOUBLE, PLAIN_ENCODING>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING_V2>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PREFIX_ENCODING, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING_V2>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PREFIX_ENCODING, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING_V2>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PREFIX_ENCODING, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, DICT_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING_V2>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PREFIX_ENCODING, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, DICT_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING_V2>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_VARIANT, PREFIX_ENCODING, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, RLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_BOOL, PLAIN_ENCODING, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATE, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATE, FOR_ENCODING, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATEV2, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATEV2, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATEV2, FOR_ENCODING, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATETIME, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DATETIME, FOR_ENCODING, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL32, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL32, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL32, BIT_SHUFFLE, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL64, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL64, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL64, BIT_SHUFFLE, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL128I, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL128I, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL128I, BIT_SHUFFLE, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL256, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_IPV4, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE, true>();
-
-        _add_map<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_IPV6, PLAIN_ENCODING>();
-        _add_map<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE, true>();
-    }
     _add_map<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING_V2>();
 
