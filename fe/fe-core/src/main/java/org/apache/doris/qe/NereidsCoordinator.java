@@ -105,18 +105,6 @@ public class NereidsCoordinator extends Coordinator {
                 && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
     }
 
-    public NereidsCoordinator(ConnectContext context,
-            NereidsPlanner planner, StatsErrorEstimator statsErrorEstimator, long jobId) {
-        super(context, planner, statsErrorEstimator);
-
-        this.coordinatorContext = CoordinatorContext.buildForSql(planner, this);
-        this.coordinatorContext.setJobProcessor(buildJobProcessor(coordinatorContext, jobId));
-        this.needEnqueue = true;
-
-        Preconditions.checkState(!planner.getFragments().isEmpty()
-                && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
-    }
-
     // broker load
     public NereidsCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
             List<PlanFragment> fragments, List<PipelineDistributedPlan> distributedPlans,
