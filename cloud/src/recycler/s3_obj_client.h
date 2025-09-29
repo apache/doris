@@ -53,6 +53,9 @@ public:
 
     ObjectStorageResponse check_versioning(const std::string& bucket) override;
 
+    ObjectStorageResponse abort_multipart_upload(ObjectStoragePathRef path,
+                                                 const std::string& upload_id) override;
+
 private:
     std::shared_ptr<Aws::S3::S3Client> s3_client_;
     std::string endpoint_;
