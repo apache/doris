@@ -17,8 +17,9 @@
 
 package org.apache.doris.common.util;
 
-import lombok.Getter;
 import org.apache.doris.common.profile.Profile;
+
+import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -28,18 +29,18 @@ public class SafeStringBuilder {
     private long maxCapacity;
     @Getter
     private boolean truncated = false;
-    private Logger LOG = LogManager.getLogger(Profile.class);
+    private Logger log = LogManager.getLogger(Profile.class);
 
     public SafeStringBuilder() {
         this(Integer.MAX_VALUE);
     }
 
-    public SafeStringBuilder(int _maxCapacity) {
-        if (_maxCapacity < 16) {
-            LOG.warn("SafeStringBuilder max capacity {} must be greater than 16", _maxCapacity);
-            _maxCapacity = 16;
+    public SafeStringBuilder(int maxCapacity) {
+        if (maxCapacity < 16) {
+            log.warn("SafeStringBuilder max capacity {} must be greater than 16", maxCapacity);
+            maxCapacity = 16;
         }
-        this.maxCapacity = _maxCapacity - 16;
+        this.maxCapacity = maxCapacity - 16;
     }
 
     public SafeStringBuilder append(String str) {
@@ -47,9 +48,9 @@ public class SafeStringBuilder {
             if (builder.length() + str.length() <= maxCapacity) {
                 builder.append(str);
             } else {
-                LOG.warn("Append str truncated, builder length(): {}, str length: {}, max capacity: {}",
+                log.warn("Append str truncated, builder length(): {}, str length: {}, max capacity: {}",
                         builder.length(), str.length(), maxCapacity);
-                builder.append(str, 0, (int)(maxCapacity - builder.length()));
+                builder.append(str, 0, (int) (maxCapacity - builder.length()));
                 markTruncated();
             }
         }
@@ -73,6 +74,6 @@ public class SafeStringBuilder {
 
     private void markTruncated() {
         truncated = true;
-        LOG.warn("SafeStringBuilder exceeded max capacity {}", maxCapacity);
+        log.warn("SafeStringBuilder exceeded max capacity {}", maxCapacity);
     }
 }

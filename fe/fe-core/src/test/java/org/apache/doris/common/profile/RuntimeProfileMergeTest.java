@@ -171,9 +171,9 @@ public class RuntimeProfileMergeTest {
 
         Assert.assertEquals(mergedProfile.getChildList().size(), 2);
         Assert.assertTrue(
-            mergedProfile.getChildList().get(0).first.getCounterMap().get("Counter1") instanceof AggCounter);
+                mergedProfile.getChildList().get(0).first.getCounterMap().get("Counter1") instanceof AggCounter);
         AggCounter aggCounterNode1 = (AggCounter) mergedProfile.getChildList().get(0).first.getCounterMap()
-            .get("Counter1");
+                .get("Counter1");
         Assert.assertEquals(aggCounterNode1.sum.getValue(), 3);
         Assert.assertEquals(aggCounterNode1.number, 3);
     }

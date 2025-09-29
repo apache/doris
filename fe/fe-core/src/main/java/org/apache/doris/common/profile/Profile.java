@@ -340,17 +340,22 @@ public class Profile {
     public String getProfileByLevel() {
         SafeStringBuilder builder = new SafeStringBuilder();
         if (DebugPointUtil.isEnable("Profile.profileSizeLimit")) {
-            DebugPointUtil.DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
-                "Profile.profileSizeLimit");
+            DebugPointUtil.DebugPoint debugPoint = DebugPointUtil.getDebugPoint("Profile.profileSizeLimit");
             int maxProfileSize = debugPoint.param("profileSizeLimit", 0);
             builder = new SafeStringBuilder(maxProfileSize);
             LOG.info("DebugPoint:Profile.profileSizeLimit, MAX_PROFILE_SIZE = {}", maxProfileSize);
         }
         // add summary to builder
         summaryProfile.prettyPrint(builder);
-        if (!builder.isTruncated()) getChangedSessionVars(builder);
-        if (!builder.isTruncated()) getExecutionProfileContent(builder);
-        if (!builder.isTruncated()) getOnStorageProfile(builder);
+        if (!builder.isTruncated()) {
+            getChangedSessionVars(builder);
+        }
+        if (!builder.isTruncated()) {
+            getExecutionProfileContent(builder);
+        }
+        if (!builder.isTruncated()) {
+            getOnStorageProfile(builder);
+        }
 
         return builder.toString();
     }

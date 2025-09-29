@@ -411,7 +411,9 @@ public class RuntimeProfile {
 
         // plan node info
         printPlanNodeInfo(prefix + "   ", builder);
-        if (builder.isTruncated()) return;
+        if (builder.isTruncated()) {
+            return;
+        }
 
         // 2. info String
         infoStringsLock.readLock().lock();
@@ -429,7 +431,9 @@ public class RuntimeProfile {
         } finally {
             infoStringsLock.readLock().unlock();
         }
-        if (builder.isTruncated()) return;
+        if (builder.isTruncated()) {
+            return;
+        }
 
         // 3. counters
         try {
@@ -437,14 +441,18 @@ public class RuntimeProfile {
         } catch (Exception e) {
             builder.append("print child counters error: ").append(e.getMessage());
         }
-        if (builder.isTruncated()) return;
+        if (builder.isTruncated()) {
+            return;
+        }
 
 
         // 4. children
         childLock.readLock().lock();
         try {
             for (int i = 0; i < childList.size(); i++) {
-                if (builder.isTruncated()) return;
+                if (builder.isTruncated()) {
+                    return;
+                }
                 Pair<RuntimeProfile, Boolean> pair = childList.get(i);
                 boolean indent = pair.second;
                 RuntimeProfile profile = pair.first;
@@ -591,7 +599,9 @@ public class RuntimeProfile {
         counterLock.readLock().lock();
         try {
             for (String childCounterName : childCounterSet) {
-                if (builder.isTruncated()) return;
+                if (builder.isTruncated()) {
+                    return;
+                }
                 Counter counter = this.counterMap.get(childCounterName);
                 if (counter != null) {
                     builder.append(prefix).append("   - ").append(childCounterName).append(": ")
