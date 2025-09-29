@@ -257,10 +257,13 @@ private:
                                        const SubcolumnColumnMetaInfo::Node* root,
                                        ColumnReaderCache* column_reader_cache,
                                        OlapReaderStatistics* stats);
+    // Create a reader that merges subcolumns into the destination sparse column.
+    // If bucket_index is set, only subcolumns whose path belongs to this bucket will be merged.
     Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, const StorageReadOptions* opts,
                                        const TabletColumn& target_col,
                                        SparseColumnCacheSPtr sparse_column_cache,
-                                       ColumnReaderCache* column_reader_cache);
+                                       ColumnReaderCache* column_reader_cache,
+                                       std::optional<uint32_t> bucket_index = std::nullopt);
 
     static Result<SparseColumnCacheSPtr> _get_shared_column_cache(
             PathToSparseColumnCache* sparse_column_cache_ptr, const std::string& path,

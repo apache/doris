@@ -294,7 +294,8 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
                                                         const StorageReadOptions* opts,
                                                         const TabletColumn& target_col,
                                                         SparseColumnCacheSPtr sparse_column_cache,
-                                                        ColumnReaderCache* column_reader_cache) {
+                                                        ColumnReaderCache* column_reader_cache,
+                                                        std::optional<uint32_t> bucket_index) {
     // Get subcolumns path set from tablet schema
     const auto& path_set_info = opts->tablet_schema->path_set_info(target_col.parent_unique_id());
 
@@ -306,6 +307,18 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
             path_set_info.sparse_path_set.end()) {
             // The subcolumn is not a sparse column, skip it
             continue;
+        }
+        // If bucketized sparse column is requested (per-bucket sparse output column),
+        // only collect subcolumns that belong to this bucket to avoid extra IO.
+        if (bucket_index.has_value() && _sparse_reader.has_buckets()) {
+            uint32_t N = static_cast<uint32_t>(_sparse_reader.num_buckets());
+            if (N > 1) {
+                uint32_t b = vectorized::schema_util::variant_sparse_bucket_of(
+                        StringRef {path.data(), path.size()}, N);
+                if (b != bucket_index.value()) {
+                    continue; // prune subcolumns of other buckets early
+                }
+            }
         }
         // Create subcolumn iterator
         std::shared_ptr<ColumnReader> column_reader;
@@ -398,7 +411,10 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(
     const auto* node =
             target_col.has_path_info() ? _subcolumns_meta_info->find_leaf(relative_path) : nullptr;
     if (!node) {
-        if (relative_path.get_path() == SPARSE_COLUMN_PATH && !_sparse_reader.has_buckets() &&
+        // Handle sparse column reads in flat-leaf compaction.
+        const std::string rel = relative_path.get_path();
+        // Case 1: single sparse column path
+        if (rel == SPARSE_COLUMN_PATH && !_sparse_reader.has_buckets() &&
             _sparse_reader.single() != nullptr) {
             // read sparse column and filter extracted columns in subcolumn_path_map
             SparseColumnCacheSPtr sparse_column_cache = DORIS_TRY(_get_shared_column_cache(
@@ -406,6 +422,25 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(
             // get subcolumns in sparse path set which will be merged into sparse column
             RETURN_IF_ERROR(_create_sparse_merge_reader(iterator, opts, target_col,
                                                         sparse_column_cache, column_reader_cache));
+            return Status::OK();
+        }
+        // Case 2: bucketized sparse column path: __DORIS_VARIANT_SPARSE__.b{i}
+        if (rel.rfind(std::string(SPARSE_COLUMN_PATH) + ".b", 0) == 0 &&
+            _sparse_reader.has_buckets()) {
+            // parse bucket index
+            uint32_t bucket_index = static_cast<uint32_t>(
+                    atoi(rel.substr(std::string(SPARSE_COLUMN_PATH).size() + 2).c_str()));
+            const auto& buckets = _sparse_reader.buckets();
+            if (bucket_index >= buckets.size() || !buckets[bucket_index]) {
+                return Status::NotFound("bucket sparse column reader not found: {}", rel);
+            }
+            std::string cache_key =
+                    std::string(SPARSE_COLUMN_PATH) + ".b" + std::to_string(bucket_index);
+            SparseColumnCacheSPtr sparse_column_cache = DORIS_TRY(_get_shared_column_cache(
+                    sparse_column_cache_ptr, cache_key, buckets[bucket_index]));
+            RETURN_IF_ERROR(_create_sparse_merge_reader(iterator, opts, target_col,
+                                                        sparse_column_cache, column_reader_cache,
+                                                        bucket_index));
             return Status::OK();
         }
 

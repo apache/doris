@@ -1104,9 +1104,19 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                     output_schema);
         }
 
-        // append sparse column
-        TabletColumn sparse_column = create_sparse_column(*column);
-        output_schema->append_column(sparse_column);
+        // append sparse column(s)
+        // If variant uses bucketized sparse columns, append one sparse bucket column per bucket.
+        // Otherwise, append the single sparse column.
+        int bucket_num = std::max(1, column->variant_sparse_bucket_num());
+        if (bucket_num > 1) {
+            for (int b = 0; b < bucket_num; ++b) {
+                TabletColumn sparse_bucket_column = create_sparse_bucket_column(*column, b);
+                output_schema->append_column(sparse_bucket_column);
+            }
+        } else {
+            TabletColumn sparse_column = create_sparse_column(*column);
+            output_schema->append_column(sparse_column);
+        }
     }
 
     target = output_schema;
