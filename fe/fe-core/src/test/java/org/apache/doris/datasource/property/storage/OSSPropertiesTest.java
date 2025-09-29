@@ -183,6 +183,32 @@ public class OSSPropertiesTest {
     }
 
     @Test
+    public void testDlfPropertiesEndpoint() {
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put("type", "iceberg");
+        origProps.put("warehouse", "oss://bucket/hive-dlf-oss-warehouse/iceberg/dlf-oss/");
+        origProps.put("dlf.region", "cn-beijing");
+        origProps.put("dlf.endpoint", "datalake-vpc.cn-beijing.aliyuncs.com");
+        origProps.put("dlf.uid", "12345");
+        origProps.put("dlf.catalog.id", "p2_regression_case");
+        origProps.put("dlf.access_key", "ACCESS_KEY");
+        origProps.put("dlf.secret_key", "SECERT_KET");
+        origProps.put("dlf.access.public", "true");
+        OSSProperties ossProperties = OSSProperties.of(origProps);
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", ossProperties.getEndpoint());
+        origProps.remove("dlf.access.public");
+        ossProperties = OSSProperties.of(origProps);
+        Assertions.assertEquals("oss-cn-beijing-internal.aliyuncs.com", ossProperties.getEndpoint());
+        origProps.put("oss.endpoint", "dlf.cn-beijing.aliyuncs.com");
+        ossProperties = OSSProperties.of(origProps);
+        Assertions.assertEquals("oss-cn-beijing-internal.aliyuncs.com", ossProperties.getEndpoint());
+        origProps.put("oss.endpoint", "dlf-vpc.cn-beijing.aliyuncs.com");
+        ossProperties = OSSProperties.of(origProps);
+        Assertions.assertEquals("oss-cn-beijing-internal.aliyuncs.com", ossProperties.getEndpoint());
+    }
+
+
+    @Test
     public void testNotEndpoint() throws UserException {
         Map<String, String> origProps = new HashMap<>();
         origProps.put("uri", "oss://examplebucket-1250000000/test/file.txt");
