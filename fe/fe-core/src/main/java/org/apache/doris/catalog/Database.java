@@ -387,11 +387,16 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                 result = setIfNotExist;
                 isTableExist = true;
             } else {
-                registerTable(table);
-                if (!isReplay) {
-                    // Write edit log
-                    CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
-                    Env.getCurrentEnv().getEditLog().logCreateTable(info);
+                table.writeLock();
+                try {
+                    registerTable(table);
+                    if (!isReplay) {
+                        // Write edit log
+                        CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
+                        Env.getCurrentEnv().getEditLog().logCreateTable(info);
+                    }
+                } finally {
+                    table.writeUnlock();
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
                     Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
