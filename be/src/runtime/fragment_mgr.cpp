@@ -753,13 +753,11 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                         if (parent.__isset.runtime_filter_info) {
                             auto info = parent.runtime_filter_info;
                             if (info.__isset.runtime_filter_params) {
-                                if (!info.runtime_filter_params.rid_to_runtime_filter.empty()) {
-                                    auto handler =
-                                            std::make_shared<RuntimeFilterMergeControllerEntity>();
-                                    RETURN_IF_ERROR(
-                                            handler->init(query_ctx, info.runtime_filter_params));
-                                    query_ctx->set_merge_controller_handler(handler);
-                                }
+                                auto handler =
+                                        std::make_shared<RuntimeFilterMergeControllerEntity>();
+                                RETURN_IF_ERROR(
+                                        handler->init(query_ctx, info.runtime_filter_params));
+                                query_ctx->set_merge_controller_handler(handler);
 
                                 query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                                         info.runtime_filter_params);
