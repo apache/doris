@@ -453,6 +453,8 @@ private:
                                size_t& offset, size_t& size);
     void remove_lru_dump_files();
 
+    void clear_need_update_lru_blocks();
+
     // info
     std::string _cache_base_path;
     size_t _capacity = 0;
