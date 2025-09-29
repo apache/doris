@@ -1458,8 +1458,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<
             FunctionStringFormatRound<FormatRoundDecimalImpl<TYPE_DECIMAL128I>>>();
     factory.register_function<FunctionStringFormatRound<FormatRoundDecimalImpl<TYPE_DECIMAL256>>>();
-    factory.register_function<FunctionStringDigestOneArg<SM3Sum>>();
-    factory.register_function<FunctionStringDigestOneArg<MD5Sum>>();
+    factory.register_function<FunctionStringDigestMulti<SM3Sum>>();
+    factory.register_function<FunctionStringDigestMulti<MD5Sum>>();
     factory.register_function<FunctionStringDigestSHA1>();
     factory.register_function<FunctionStringDigestSHA2>();
     factory.register_function<FunctionReplace<ReplaceImpl, true>>();
@@ -1483,9 +1483,9 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alias(SubstringUtil::name, "mid");
     factory.register_alias(FunctionToLower::name, "lcase");
     factory.register_alias(FunctionToUpper::name, "ucase");
-    factory.register_alias(FunctionStringDigestOneArg<MD5Sum>::name, "md5");
+    factory.register_alias(FunctionStringDigestMulti<MD5Sum>::name, "md5");
     factory.register_alias(FunctionStringUTF8Length::name, "character_length");
-    factory.register_alias(FunctionStringDigestOneArg<SM3Sum>::name, "sm3");
+    factory.register_alias(FunctionStringDigestMulti<SM3Sum>::name, "sm3");
     factory.register_alias(FunctionStringDigestSHA1::name, "sha");
     factory.register_alias(FunctionStringLocatePos::name, "position");
 }
