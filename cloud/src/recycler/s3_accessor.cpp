@@ -487,6 +487,7 @@ int S3Accessor::exists(const std::string& path) {
 }
 
 int S3Accessor::abort_multipart_upload(const std::string& path, const std::string& upload_id) {
+    LOG_INFO("abort multipart upload").tag("uri", to_uri(path)).tag("upload_id", upload_id);
     int ret = obj_client_
                       ->abort_multipart_upload({.bucket = conf_.bucket, .key = get_key(path)},
                                                upload_id)
@@ -495,6 +496,10 @@ int S3Accessor::abort_multipart_upload(const std::string& path, const std::strin
     if (ret == ObjectStorageResponse::OK || ret == ObjectStorageResponse::NOT_FOUND) {
         return 0;
     }
+    LOG_WARNING("fail abort multipart upload")
+            .tag("uri", to_uri(path))
+            .tag("upload_id", upload_id)
+            .tag("ret", ret);
     return ret;
 }
 
