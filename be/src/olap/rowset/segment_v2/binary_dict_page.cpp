@@ -27,6 +27,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "olap/rowset/segment_v2/binary_plain_page_v2.h"
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "util/coding.h"
 #include "util/slice.h" // for Slice
@@ -169,8 +170,9 @@ Status BinaryDictPageBuilder::reset() {
         if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
             PageBuilder* data_page_builder_ptr = nullptr;
             if (config::use_plain_binary_v2) {
-                RETURN_IF_ERROR(BinaryPlainPageV2Builder<FieldType::OLAP_FIELD_TYPE_VARCHAR>::create(
-                        &data_page_builder_ptr, _options));
+                RETURN_IF_ERROR(
+                        BinaryPlainPageV2Builder<FieldType::OLAP_FIELD_TYPE_VARCHAR>::create(
+                                &data_page_builder_ptr, _options));
                 _encoding_type = PLAIN_ENCODING_V2;
             } else {
                 RETURN_IF_ERROR(BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>::create(
@@ -275,7 +277,7 @@ void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRe
 };
 
 Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
-    if (_encoding_type == PLAIN_ENCODING) {
+    if (_encoding_type == PLAIN_ENCODING || _encoding_type == PLAIN_ENCODING_V2) {
         dst = dst->convert_to_predicate_column_if_dictionary();
         return _data_page_decoder->next_batch(n, dst);
     }
