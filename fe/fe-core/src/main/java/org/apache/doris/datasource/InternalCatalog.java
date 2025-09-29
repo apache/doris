@@ -819,13 +819,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             db.writeLock();
             try {
                 // 1. rename db
-                db.setNameWithoutLock(newDbName);
+                db.setNameWithoutLock(newFullDbName);
 
                 // 2. add to meta. check again
-                fullNameToDb.remove(dbName);
-                fullNameToDb.put(newDbName, db);
+                fullNameToDb.remove(fullDbName);
+                fullNameToDb.put(newFullDbName, db);
 
-                DatabaseInfo dbInfo = new DatabaseInfo(dbName, newDbName, -1L, QuotaType.NONE);
+                DatabaseInfo dbInfo = new DatabaseInfo(fullDbName, newFullDbName, -1L, QuotaType.NONE);
                 Env.getCurrentEnv().getEditLog().logDatabaseRename(dbInfo);
             } finally {
                 // db lock
