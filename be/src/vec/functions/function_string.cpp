@@ -167,6 +167,8 @@ struct StringLengthImpl {
     using Type = String;
     using ReturnColumnType = ColumnInt32;
 
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeString>()}; }
+
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          PaddedPODArray<Int32>& res) {
         auto size = offsets.size();

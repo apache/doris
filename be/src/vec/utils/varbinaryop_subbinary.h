@@ -17,37 +17,15 @@
 
 #pragma once
 
-#include "common/status.h"
 #include "vec/columns/column_const.h"
-#include "vec/columns/column_string.h"
 #include "vec/columns/column_varbinary.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_varbinary.h"
-#include "vec/functions/function.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_avoid_begin.h"
-
-template <typename Impl>
-class FunctionBinaryUnary : public IFunction {
-public:
-    static constexpr auto name = Impl::name;
-    static FunctionPtr create() { return std::make_shared<FunctionBinaryUnary<Impl>>(); }
-    String get_name() const override { return name; }
-    size_t get_number_of_arguments() const override { return 1; }
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        auto res = std::make_shared<typename Impl::ReturnType>();
-        return Impl::is_nullable ? make_nullable(res) : res;
-    }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
-        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
-    }
-};
 
 struct SubBinaryUtil {
     static void sub_binary_execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
@@ -114,78 +92,6 @@ private:
 
             res->insert_data(binary.data + fixed_pos, fixed_len);
         }
-    }
-};
-
-template <typename Impl>
-class FunctionSubBinary : public IFunction {
-public:
-    static constexpr auto name = "sub_binary";
-    static FunctionPtr create() { return std::make_shared<FunctionSubBinary<Impl>>(); }
-    String get_name() const override { return name; }
-    DataTypes get_variadic_argument_types_impl() const override {
-        return Impl::get_variadic_argument_types();
-    }
-    size_t get_number_of_arguments() const override {
-        return get_variadic_argument_types_impl().size();
-    }
-
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeVarbinary>();
-    }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
-        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
-    }
-};
-
-struct SubBinary3Impl {
-    static DataTypes get_variadic_argument_types() {
-        return DataTypes {std::make_shared<DataTypeVarbinary>(), std::make_shared<DataTypeInt32>(),
-                          std::make_shared<DataTypeInt32>()};
-    }
-
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count) {
-        SubBinaryUtil::sub_binary_execute(block, arguments, result, input_rows_count);
-        return Status::OK();
-    }
-};
-
-struct SubBinary2Impl {
-    static DataTypes get_variadic_argument_types() {
-        return DataTypes {std::make_shared<DataTypeVarbinary>(), std::make_shared<DataTypeInt32>()};
-    }
-
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count) {
-        auto col_len = ColumnInt32::create(input_rows_count);
-        auto& strlen_data = col_len->get_data();
-
-        ColumnPtr binary_col;
-        bool binary_const;
-        std::tie(binary_col, binary_const) =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-
-        const auto& binarys = assert_cast<const ColumnVarbinary*>(binary_col.get());
-
-        if (binary_const) {
-            std::fill(strlen_data.begin(), strlen_data.end(), binarys->get_data()[0].size());
-        } else {
-            for (int i = 0; i < input_rows_count; ++i) {
-                strlen_data[i] = binarys->get_data()[i].size();
-            }
-        }
-
-        // we complete the column2(strlen) with the default value - each row's strlen.
-        block.insert({std::move(col_len), std::make_shared<DataTypeInt32>(), "strlen"});
-        ColumnNumbers temp_arguments = {arguments[0], arguments[1], block.columns() - 1};
-
-        SubBinaryUtil::sub_binary_execute(block, temp_arguments, result, input_rows_count);
-        return Status::OK();
     }
 };
 

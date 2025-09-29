@@ -22,6 +22,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_varbinary.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_bitmap.h"
@@ -118,6 +119,13 @@ private:
         } else if constexpr (is_complex_v<Impl::PrimitiveTypeImpl>) {
             if (const auto* col = check_and_get_column<ColumnComplexType<Impl::PrimitiveTypeImpl>>(
                         column.get())) {
+                auto col_res = Impl::ReturnColumnType::create();
+                RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_data()));
+                block.replace_by_position(result, std::move(col_res));
+                return Status::OK();
+            }
+        } else if constexpr (Impl::PrimitiveTypeImpl == PrimitiveType::TYPE_VARBINARY) {
+            if (const auto* col = check_and_get_column<ColumnVarbinary>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
                 RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_data()));
                 block.replace_by_position(result, std::move(col_res));

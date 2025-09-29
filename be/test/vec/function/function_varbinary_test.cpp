@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/functions/function_binary.h"
+#include "vec/functions/function_varbinary.h"
 
 #include "function_test_util.h"
 #include "vec/data_types/data_type_varbinary.h"
@@ -67,7 +67,7 @@ TEST(function_binary_test, function_binary_length_test) {
 }
 
 TEST(function_binary_test, function_to_base64_test) {
-    std::string func_name = "to_base64";
+    std::string func_name = "to_base64_binary";
     InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY};
 
     DataSet data_set = {
@@ -92,7 +92,7 @@ TEST(function_binary_test, function_to_base64_test) {
 }
 
 TEST(function_binary_test, function_from_base64_test) {
-    std::string func_name = "from_base64";
+    std::string func_name = "from_base64_binary";
     InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
