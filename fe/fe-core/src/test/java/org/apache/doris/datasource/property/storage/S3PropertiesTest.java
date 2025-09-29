@@ -199,8 +199,7 @@ public class S3PropertiesTest {
         s3EndpointProps.put("oss.secret_key", "myCOSSecretKey");
         s3EndpointProps.put("oss.region", "cn-hangzhou");
         origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
-        // not support
-        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class, "Endpoint must be set.", () -> StorageProperties.createPrimary(s3EndpointProps));
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class, "Endpoint is not set. Please specify it explicitly.", () -> StorageProperties.createPrimary(s3EndpointProps));
     }
 
     @Test
@@ -310,7 +309,7 @@ public class S3PropertiesTest {
         String invalidEndpoint1 = "s3.amazonaws.com";
         origProps.put("s3.endpoint", invalidEndpoint1);
         ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Region must be set.", () -> StorageProperties.createPrimary(origProps));
+                "Region is not set. If you are using a standard endpoint, the region will be detected automatically. Otherwise, please specify it explicitly.", () -> StorageProperties.createPrimary(origProps));
         origProps.put("s3.region", "us-west-2");
         Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
         // Fails because it contains 'amazonaws.com' but doesn't match the strict S3 endpoint pattern (invalid subdomain).
@@ -319,6 +318,15 @@ public class S3PropertiesTest {
         Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
         String invalidEndpoint3 = "http://s3.us-west-2.amazonaws.com.cn";
         origProps.put("s3.endpoint", invalidEndpoint3);
+        StorageProperties storageProperties = StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-west-2", storageProperties.getHadoopStorageConfig().get("fs.s3a.endpoint.region"));
+        Assertions.assertEquals("http://s3.us-west-2.amazonaws.com.cn", storageProperties.getHadoopStorageConfig().get("fs.s3a.endpoint"));
+        origProps.remove("s3.endpoint");
+        storageProperties = StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-west-2", storageProperties.getHadoopStorageConfig().get("fs.s3a.endpoint.region"));
+        Assertions.assertEquals("https://s3.us-west-2.amazonaws.com", storageProperties.getHadoopStorageConfig().get("fs.s3a.endpoint"));
+        origProps.put("s3.endpoint", "s3.us-west-2.supervise.com");
+        origProps.put("s3.region", "us-west-2");
         Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
     }
 

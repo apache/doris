@@ -19,6 +19,7 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -138,10 +139,13 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
             throw new IllegalArgumentException("Both the access key and the secret key must be set.");
         }
         if (StringUtils.isBlank(getRegion())) {
-            throw new IllegalArgumentException("Region must be set.");
+            throw new IllegalArgumentException("Region is not set. If you are using a standard endpoint, the region "
+                    + "will be detected automatically. Otherwise, please specify it explicitly."
+            );
         }
-        if (isEndpointCheckRequired() && StringUtils.isBlank(getEndpoint())) {
-            throw new IllegalArgumentException("Endpoint must be set.");
+        if (StringUtils.isBlank(getEndpoint())) {
+            throw new IllegalArgumentException("Endpoint is not set. Please specify it explicitly."
+            );
         }
     }
 
@@ -254,12 +258,11 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     private void appendS3HdfsProperties(Configuration hadoopStorageConfig) {
         hadoopStorageConfig.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         hadoopStorageConfig.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        if (StringUtils.isNotBlank(getEndpoint())) {
-            hadoopStorageConfig.set("fs.s3a.endpoint", getEndpoint());
-        }
-        if (StringUtils.isNotBlank(getRegion())) {
-            hadoopStorageConfig.set("fs.s3a.endpoint.region", getRegion());
-        }
+        // use google assert not null
+        Preconditions.checkNotNull(getEndpoint(), "endpoint is null");
+        hadoopStorageConfig.set("fs.s3a.endpoint", getEndpoint());
+        Preconditions.checkNotNull(getRegion(), "region is null");
+        hadoopStorageConfig.set("fs.s3a.endpoint.region", getRegion());
         hadoopStorageConfig.set("fs.s3.impl.disable.cache", "true");
         hadoopStorageConfig.set("fs.s3a.impl.disable.cache", "true");
         if (StringUtils.isNotBlank(getAccessKey())) {
