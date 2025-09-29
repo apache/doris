@@ -89,7 +89,7 @@ suite("test_tz_load", "nonConcurrent") {
     def max_try_time1 = 60000
     while (max_try_time1 > 0) {
         def result = sql "select * from ${table1}"
-        if (result.size() == 4) {
+        if (result.size() == 6) {
             break;
         }
         Thread.sleep(1000)
