@@ -199,6 +199,10 @@ public class BaseViewInfo {
             if (!colSets.add(col.getName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col.getName());
             }
+            if (col.getType().isVarbinaryType()) {
+                throw new org.apache.doris.common.AnalysisException(
+                        "View does not support VARBINARY type: " + col.getName());
+            }
             try {
                 FeNameFormat.checkColumnName(col.getName());
             } catch (org.apache.doris.common.AnalysisException e) {

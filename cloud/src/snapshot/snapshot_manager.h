@@ -48,8 +48,7 @@ public:
                                 CloneInstanceResponse* response);
 
     virtual std::pair<MetaServiceCode, std::string> set_multi_version_status(
-            std::string_view instance_id, std::string_view cloud_unique_id,
-            MultiVersionStatus multi_version_status);
+            std::string_view instance_id, MultiVersionStatus multi_version_status);
 
     virtual int check_snapshots(InstanceChecker* checker);
 
@@ -65,6 +64,13 @@ public:
                                                StorageVaultAccessor* accessor,
                                                Versionstamp snapshot_version,
                                                const SnapshotPB& snapshot_pb);
+
+    // Serialize snapshot versionstamp to string (snapshot id) for external use.
+    static std::string serialize_snapshot_id(Versionstamp snapshot_versionstamp);
+
+    // Parse the serialized snapshot id to versionstamp.
+    static bool parse_snapshot_versionstamp(std::string_view snapshot_id,
+                                            Versionstamp* versionstamp);
 
 private:
     SnapshotManager(const SnapshotManager&) = delete;

@@ -154,11 +154,11 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT, 1);
 
     _file_read_bytes_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
-                                                      "FileReadBytes", TUnit::BYTES, 1);
+                                                      FileReadBytesProfile, TUnit::BYTES, 1);
     _file_read_calls_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
                                                       "FileReadCalls", TUnit::UNIT, 1);
     _file_read_time_counter =
-            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileReadTime", 1);
+            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), FileReadTimeProfile, 1);
 
     _runtime_filter_partition_pruned_range_counter =
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
@@ -1427,6 +1427,10 @@ Status FileScanner::prepare_for_read_lines(const TFileRangeDesc& range) {
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _file_reader_stats.reset(new io::FileReaderStats());
 
+    _file_read_bytes_counter =
+            ADD_COUNTER_WITH_LEVEL(_profile, FileReadBytesProfile, TUnit::BYTES, 1);
+    _file_read_time_counter = ADD_TIMER_WITH_LEVEL(_profile, FileReadTimeProfile, 1);
+
     RETURN_IF_ERROR(_init_io_ctx());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->file_reader_stats = _file_reader_stats.get();
@@ -1508,6 +1512,9 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
 
     _cur_reader->collect_profile_before_close();
     RETURN_IF_ERROR(_cur_reader->close());
+
+    COUNTER_UPDATE(_file_read_bytes_counter, _file_reader_stats->read_bytes);
+    COUNTER_UPDATE(_file_read_time_counter, _file_reader_stats->read_time_ns);
     return Status::OK();
 }
 

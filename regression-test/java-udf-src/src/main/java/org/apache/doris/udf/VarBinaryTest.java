@@ -15,11 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions.generator;
+package org.apache.doris.udf;
 
-/**
- * interface for all functions need to be rewritten.
- */
-public interface RewriteWhenAnalyze {
-    TableGeneratingFunction rewrite();
+public class VarBinaryTest {
+    public byte[] evaluate(byte[] input) {
+        if (input == null) {
+            return null;
+        }
+        byte[] out = new byte[input.length];
+        for (int i = 0, j = input.length - 1; i < input.length; i++, j--) {
+            out[i] = input[j];
+        }
+        return out;
+    }
 }

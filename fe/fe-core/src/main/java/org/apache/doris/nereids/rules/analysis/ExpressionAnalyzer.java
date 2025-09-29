@@ -70,6 +70,7 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
@@ -487,6 +488,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             return buildResult.first;
         } else {
             Expression castFunction = TypeCoercionUtils.processBoundFunction((BoundFunction) buildResult.first);
+            if (castFunction instanceof RewriteWhenAnalyze) {
+                castFunction = ((RewriteWhenAnalyze) castFunction).rewriteWhenAnalyze();
+            }
             return castFunction;
         }
     }

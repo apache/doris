@@ -2035,7 +2035,7 @@ Status CloudMetaMgr::fill_version_holes(CloudTablet* tablet, int64_t max_version
     }
 
     Versions existing_versions;
-    for (const auto& rs : tablet->tablet_meta()->all_rs_metas()) {
+    for (const auto& [_, rs] : tablet->tablet_meta()->all_rs_metas()) {
         existing_versions.emplace_back(rs->version());
     }
 
@@ -2184,7 +2184,7 @@ Status CloudMetaMgr::list_snapshot(std::vector<SnapshotInfoPB>& snapshots) {
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_include_aborted(true);
     RETURN_IF_ERROR(retry_rpc("list snapshot", req, &res, &MetaService_Stub::list_snapshot));
-    for (auto& snapshot : snapshots) {
+    for (auto& snapshot : res.snapshots()) {
         snapshots.emplace_back(snapshot);
     }
     return Status::OK();
