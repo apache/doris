@@ -47,6 +47,7 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
+#include "vec/data_types/data_type_varbinary.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/cast/cast_base.h"
 #include "vec/functions/cast/cast_to_time_impl.hpp"
@@ -87,6 +88,10 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
     case PrimitiveType::TYPE_CHAR:
     case PrimitiveType::TYPE_STRING:
         type = std::make_shared<DataTypeString>();
+        desc = type;
+        return 1;
+    case PrimitiveType::TYPE_VARBINARY:
+        type = std::make_shared<DataTypeVarbinary>();
         desc = type;
         return 1;
     case PrimitiveType::TYPE_JSONB:
@@ -372,6 +377,11 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
         case PrimitiveType::TYPE_STRING:
         case PrimitiveType::TYPE_CHAR:
         case PrimitiveType::TYPE_VARCHAR: {
+            auto str = any_cast<ut_type::STRING>(cell);
+            column->insert_data(str.c_str(), str.size());
+            break;
+        }
+        case PrimitiveType::TYPE_VARBINARY: {
             auto str = any_cast<ut_type::STRING>(cell);
             column->insert_data(str.c_str(), str.size());
             break;

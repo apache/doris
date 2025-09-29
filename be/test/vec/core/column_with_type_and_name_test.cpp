@@ -37,6 +37,7 @@ TEST(ColumnWithTypeAndNameTest, get_nested_test) {
     column_with_type_and_name.name = "column_with_type_and_name";
     auto result = column_with_type_and_name.unnest_nullable(true);
     EXPECT_TRUE(is_column_const(*result.column));
+    EXPECT_EQ(result.column->size(), 3);
 }
 
 } // namespace doris::vectorized

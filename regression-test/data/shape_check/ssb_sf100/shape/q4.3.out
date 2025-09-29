@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF3 lo_custkey->[c_custkey]
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF3 lo_custkey->[c_custkey]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[customer] apply RFs: RF3
 ------------------PhysicalProject

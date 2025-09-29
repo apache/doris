@@ -147,6 +147,14 @@ public class EnvFactory {
         return new Coordinator(context, planner, statsErrorEstimator);
     }
 
+    public Coordinator createCoordinator(ConnectContext context, Planner planner,
+                                         StatsErrorEstimator statsErrorEstimator, long jobId) {
+        if (planner instanceof NereidsPlanner && SessionVariable.canUseNereidsDistributePlanner()) {
+            return new NereidsCoordinator(context, (NereidsPlanner) planner, statsErrorEstimator, jobId);
+        }
+        return new Coordinator(context, planner, statsErrorEstimator);
+    }
+
     // Used for broker load task/export task/update coordinator
     public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
                                          List<PlanFragment> fragments, List<ScanNode> scanNodes,

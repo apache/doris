@@ -61,16 +61,13 @@ PhysicalResultSink
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF11 ws_bill_addr_sk->[ca_address_sk]
-----------------------------PhysicalProject
-------------------------------filter((customer_address.ca_gmt_offset = -7.00))
---------------------------------PhysicalOlapScan[customer_address] apply RFs: RF11
+--------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF11 ca_address_sk->[ws_bill_addr_sk]
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF10 i_item_sk->[ws_item_sk]
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF9 d_date_sk->[ws_sold_date_sk]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF9 RF10
+--------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF9 RF10 RF11
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_moy = 8) and (date_dim.d_year = 2000))
 ----------------------------------------PhysicalOlapScan[date_dim]
@@ -80,4 +77,7 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------filter((item.i_category = 'Children'))
 --------------------------------------PhysicalOlapScan[item]
+----------------------------PhysicalProject
+------------------------------filter((customer_address.ca_gmt_offset = -7.00))
+--------------------------------PhysicalOlapScan[customer_address]
 

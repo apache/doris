@@ -106,8 +106,8 @@ ColumnWithTypeAndName ColumnWithTypeAndName::unnest_nullable(
                     assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                             column_ptr.get());
             if (is_const) {
-                nested_column = ColumnConst::create(source_column->get_nested_column_ptr(),
-                                                    source_column->size());
+                nested_column =
+                        ColumnConst::create(source_column->get_nested_column_ptr(), column->size());
             } else {
                 nested_column = source_column->get_nested_column_ptr();
             }
