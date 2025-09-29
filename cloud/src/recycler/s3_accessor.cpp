@@ -486,6 +486,18 @@ int S3Accessor::exists(const std::string& path) {
     return obj_client_->head_object({.bucket = conf_.bucket, .key = get_key(path)}, &obj_meta).ret;
 }
 
+int S3Accessor::abort_multipart_upload(const std::string& path, const std::string& upload_id) {
+    int ret = obj_client_
+                      ->abort_multipart_upload({.bucket = conf_.bucket, .key = get_key(path)},
+                                               upload_id)
+                      .ret;
+    static_assert(ObjectStorageResponse::OK == 0);
+    if (ret == ObjectStorageResponse::OK || ret == ObjectStorageResponse::NOT_FOUND) {
+        return 0;
+    }
+    return ret;
+}
+
 int S3Accessor::get_life_cycle(int64_t* expiration_days) {
     return obj_client_->get_life_cycle(conf_.bucket, expiration_days).ret;
 }
