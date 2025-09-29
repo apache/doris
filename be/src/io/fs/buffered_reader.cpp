@@ -106,7 +106,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
 
     // merge small IO
     size_t merge_start = offset + has_read;
-    const size_t merge_end = merge_start + READ_SLICE_SIZE;
+    const size_t merge_end = merge_start + _merged_read_slice_size;
     // <slice_size, is_content>
     std::vector<std::pair<size_t, bool>> merged_slice;
     size_t content_size = 0;
@@ -315,7 +315,7 @@ void MergeRangeFileReader::_read_in_box(RangeCachedData& cached_data, size_t off
 Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, size_t to_read,
                                        size_t* bytes_read, const IOContext* io_ctx) {
     if (!_read_slice) {
-        _read_slice = std::make_unique<OwnedSlice>(READ_SLICE_SIZE);
+        _read_slice = std::make_unique<OwnedSlice>(_merged_read_slice_size);
     }
 
     *bytes_read = 0;
