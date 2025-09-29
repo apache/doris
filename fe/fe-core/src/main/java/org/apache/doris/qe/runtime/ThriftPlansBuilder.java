@@ -131,6 +131,11 @@ public class ThriftPlansBuilder {
             }
         }
 
+        if (runtimeFiltersThriftBuilder.getMatchMergeInstanceNum() != 1) {
+            throw new RuntimeException("Runtime filter merge instance does not match exactly once, "
+                    + "but match " + runtimeFiltersThriftBuilder.getMatchMergeInstanceNum() + " times");
+        }
+
         // backend should initialize fragment from target to source in backend, then
         // it can bind the receiver fragment for the sender fragment, but frontend
         // compute thrift message from source to fragment, so we need to reverse fragments.
