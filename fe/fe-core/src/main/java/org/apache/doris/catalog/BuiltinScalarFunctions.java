@@ -717,11 +717,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(FormatNumber.class, "format_number"),
             scalar(Fpow.class, "fpow"),
             scalar(FromBase64.class, "from_base64"),
-<<<<<<< HEAD
             scalar(FromBase64Binary.class, "from_base64_binary"),
-=======
             scalar(FromBinary.class, "from_binary", "from_hex"),
->>>>>>> 9ef11f02f11e9bdc1f45b53d8f3e92753c9c9c86
             scalar(FromDays.class, "from_days"),
             scalar(FromIso8601Date.class, "from_iso8601_date"),
             scalar(FromUnixtime.class, "from_unixtime"),
@@ -986,11 +983,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(TimeToSec.class, "time_to_sec"),
             scalar(Timestamp.class, "timestamp"),
             scalar(ToBase64.class, "to_base64"),
-<<<<<<< HEAD
             scalar(ToBase64Binary.class, "to_base64_binary"),
-=======
             scalar(ToBinary.class, "to_binary", "to_hex"),
->>>>>>> 9ef11f02f11e9bdc1f45b53d8f3e92753c9c9c86
             scalar(ToBitmap.class, "to_bitmap"),
             scalar(ToBitmapWithCheck.class, "to_bitmap_with_check"),
             scalar(ToDate.class, "to_date"),

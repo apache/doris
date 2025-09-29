@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/functions/function_varbinary.h"
+
 #include <glog/logging.h>
 
 #include <cstddef>
