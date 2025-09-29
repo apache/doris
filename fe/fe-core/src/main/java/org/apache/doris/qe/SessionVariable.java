@@ -1505,7 +1505,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = "topn_lazy_materialization_threshold", needForward = true,
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL)
-    public int topNLazyMaterializationThreshold = 512 * 1024;
+    public int topNLazyMaterializationThreshold = 1024;
 
     public boolean enableTopnLazyMaterialization() {
         return ConnectContext.get() != null
