@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -304,6 +305,20 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 }
             }
         }
+        // check all windowExpression's order key is empty or is the same as chosenWindowFunc's order key
+        for (NamedExpression windowExpr : windowExpressions) {
+            if (windowExpr != null && windowExpr instanceof Alias
+                    && windowExpr.child(0) instanceof WindowExpression) {
+                WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
+                if (windowFunc.getOrderKeys().isEmpty()
+                        || windowFunc.getOrderKeys().equals(chosenWindowFunc.getOrderKeys())) {
+                    continue;
+                } else {
+                    return null;
+                }
+            }
+        }
+
         if (chosenWindowFunc == null || (chosenPartitionLimit == Long.MAX_VALUE
                 && chosenRowNumberPartitionLimit == Long.MAX_VALUE)) {
             return null;
