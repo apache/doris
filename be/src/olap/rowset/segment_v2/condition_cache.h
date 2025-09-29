@@ -45,6 +45,7 @@ class ConditionCacheHandle;
 class ConditionCache : public LRUCachePolicy {
 public:
     using LRUCachePolicy::insert;
+
     // The cache key or segment lru cache
     struct CacheKey {
         CacheKey(RowsetId rowset_id_, int64_t segment_id_, uint64_t digest_)

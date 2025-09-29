@@ -43,8 +43,10 @@ void ConditionCache::insert(const CacheKey& key, std::shared_ptr<std::vector<boo
             std::make_unique<ConditionCache::CacheValue>();
     cache_value_ptr->filter_result = result;
 
-    LRUCachePolicy::insert(key.encode(), (void*)cache_value_ptr.release(), result->capacity(),
-                           result->capacity(), CachePriority::NORMAL);
+    ConditionCacheHandle(
+            this,
+            LRUCachePolicy::insert(key.encode(), (void*)cache_value_ptr.release(),
+                                   result->capacity(), result->capacity(), CachePriority::NORMAL));
 }
 
 } // namespace doris::segment_v2
