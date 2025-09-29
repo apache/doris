@@ -369,5 +369,11 @@ CONF_Int64(prune_aborted_snapshot_seconds, "3600"); // 1h
 // Snapshot configuration limits
 CONF_Int32(snapshot_min_interval_seconds, "3600"); // 1h min interval limit
 CONF_Int32(snapshot_max_reserved_num, "35");       // max reserved snapshots limit
+// New instance enable multi version status by default.
+// The new instance multi version status will be set to MULTI_VERSION_READ_WRITE.
+CONF_Bool(enable_multi_version_status, "false");
+// New instance enable cluster snapshot, it only works when enable_multi_version_status is true.
+// The new instance snapshot switch status will be set to SNAPSHOT_SWITCH_ON, and the auto snapshot will be open.
+CONF_Bool(enable_cluster_snapshot, "false");
 
 } // namespace doris::cloud::config
