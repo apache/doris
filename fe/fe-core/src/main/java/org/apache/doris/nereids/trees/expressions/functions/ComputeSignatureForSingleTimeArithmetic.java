@@ -44,8 +44,8 @@ public interface ComputeSignatureForSingleTimeArithmetic extends ComputeSignatur
                 String s = ((StringLikeLiteral) child(0)).getStringValue().trim();
                 if (isTimeFormat(s)) {
                     new TimeV2Literal(s); // check legality
-                    TimeV2Type t1 = TimeV2Type.forTypeFromString(s);
-                    int scale = t1.getScale();
+                    TimeV2Type t = TimeV2Type.forTypeFromString(s);
+                    int scale = t.getScale();
                     return FunctionSignature.ret(IntegerType.INSTANCE).args(TimeV2Type.of(scale));
                 }
 
