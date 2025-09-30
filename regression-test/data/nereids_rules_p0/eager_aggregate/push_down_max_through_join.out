@@ -4,8 +4,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_left_join --
@@ -13,8 +12,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_right_join --
@@ -22,8 +20,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_full_join --
@@ -31,8 +28,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_left_semi_join --
@@ -40,8 +36,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_left_anti_join --
@@ -49,8 +44,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_complex_conditions --
@@ -58,8 +52,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=((t1.name < t2.name))
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_with_aggregate --
@@ -67,8 +60,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_subquery --
@@ -77,17 +69,15 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalOlapScan[max_t]
---------hashAgg[GLOBAL]
-----------filter((max_t.score > 10))
-------------PhysicalOlapScan[max_t]
+--------filter((max_t.score > 10))
+----------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_outer_join --
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_deep_subquery --
@@ -96,9 +86,8 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalOlapScan[max_t]
---------hashAgg[GLOBAL]
-----------filter((max_t.score > 10))
-------------PhysicalOlapScan[max_t]
+--------filter((max_t.score > 10))
+----------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_having --
 PhysicalResultSink
@@ -106,9 +95,8 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalOlapScan[max_t]
---------hashAgg[GLOBAL]
-----------filter((t1.score > 100))
-------------PhysicalOlapScan[max_t]
+--------filter((t1.score > 100))
+----------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_mixed_aggregates --
 PhysicalResultSink
@@ -124,8 +112,7 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.name = t3.name)) otherCondition=()
 --------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------hashAgg[GLOBAL]
-------------PhysicalOlapScan[max_t]
+----------PhysicalOlapScan[max_t]
 ----------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
@@ -136,8 +123,7 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------hashAgg[GLOBAL]
---------------PhysicalOlapScan[max_t]
+------------PhysicalOlapScan[max_t]
 ------------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_multiple_equal_conditions --
@@ -145,8 +131,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_equal_conditions_with_aggregate --
@@ -162,8 +147,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_equal_conditions_non_aggregate_selection_with_aggregate --
@@ -180,9 +164,8 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalOlapScan[max_t]
---------hashAgg[GLOBAL]
-----------filter((t1.score > 50))
-------------PhysicalOlapScan[max_t]
+--------filter((t1.score > 50))
+----------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_varied_aggregates --
 PhysicalResultSink
@@ -199,8 +182,7 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------hashAgg[GLOBAL]
---------------PhysicalOlapScan[max_t]
+------------PhysicalOlapScan[max_t]
 ------------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_alias_multiple_equal_conditions --
@@ -208,8 +190,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1_alias.id = t2_alias.id) and (t1_alias.name = t2_alias.name)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_complex_join_condition --
@@ -217,8 +198,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.score = t2.score)) otherCondition=(( not (name = name)))
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_function_processed_columns --
@@ -226,8 +206,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 -- !groupby_pushdown_nested_queries --
@@ -237,9 +216,8 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((max_t.id < 100))
 ----------PhysicalOlapScan[max_t]
---------hashAgg[GLOBAL]
-----------filter((max_t.score > 20) and (t1.id < 100))
-------------PhysicalOlapScan[max_t]
+--------filter((max_t.score > 20) and (t1.id < 100))
+----------PhysicalOlapScan[max_t]
 
 -- !with_hint_groupby_pushdown_basic --
 PhysicalResultSink
@@ -251,8 +229,8 @@ PhysicalResultSink
 --------PhysicalOlapScan[max_t]
 
 Hint log:
-Used:
-UnUsed: use_push_down_agg_through_join_one_side
+Used: use_push_down_agg_through_join_one_side
+UnUsed:
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_left_join --
@@ -260,8 +238,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 Hint log:
@@ -274,8 +251,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 Hint log:
@@ -288,8 +264,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 Hint log:
@@ -307,8 +282,8 @@ PhysicalResultSink
 --------PhysicalOlapScan[max_t]
 
 Hint log:
-Used:
-UnUsed: use_push_down_agg_through_join_one_side
+Used: use_push_down_agg_through_join_one_side
+UnUsed:
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_left_anti_join --
@@ -316,8 +291,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 Hint log:
@@ -335,8 +309,8 @@ PhysicalResultSink
 --------PhysicalOlapScan[max_t]
 
 Hint log:
-Used:
-UnUsed: use_push_down_agg_through_join_one_side
+Used: use_push_down_agg_through_join_one_side
+UnUsed:
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_with_aggregate --
@@ -344,8 +318,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 Hint log:
@@ -364,8 +337,8 @@ PhysicalResultSink
 ------------PhysicalOlapScan[max_t]
 
 Hint log:
-Used:
-UnUsed: use_push_down_agg_through_join_one_side
+Used: use_push_down_agg_through_join_one_side
+UnUsed:
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_outer_join --
@@ -373,8 +346,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 Hint log:
@@ -393,8 +365,8 @@ PhysicalResultSink
 ------------PhysicalOlapScan[max_t]
 
 Hint log:
-Used:
-UnUsed: use_push_down_agg_through_join_one_side
+Used: use_push_down_agg_through_join_one_side
+UnUsed:
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_having --
@@ -408,8 +380,8 @@ PhysicalResultSink
 ------------PhysicalOlapScan[max_t]
 
 Hint log:
-Used:
-UnUsed: use_push_down_agg_through_join_one_side
+Used: use_push_down_agg_through_join_one_side
+UnUsed:
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_mixed_aggregates --
@@ -455,8 +427,8 @@ PhysicalResultSink
 ------------PhysicalOlapScan[max_t]
 
 Hint log:
-Used:
-UnUsed: use_push_down_agg_through_join_one_side
+Used: use_push_down_agg_through_join_one_side
+UnUsed:
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_multiple_equal_conditions --
@@ -469,8 +441,8 @@ PhysicalResultSink
 --------PhysicalOlapScan[max_t]
 
 Hint log:
-Used:
-UnUsed: use_push_down_agg_through_join_one_side
+Used: use_push_down_agg_through_join_one_side
+UnUsed:
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_equal_conditions_with_aggregate --
@@ -498,8 +470,8 @@ PhysicalResultSink
 --------PhysicalOlapScan[max_t]
 
 Hint log:
-Used:
-UnUsed: use_push_down_agg_through_join_one_side
+Used: use_push_down_agg_through_join_one_side
+UnUsed:
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_equal_conditions_non_aggregate_selection_with_aggregate --
@@ -528,8 +500,8 @@ PhysicalResultSink
 ------------PhysicalOlapScan[max_t]
 
 Hint log:
-Used:
-UnUsed: use_push_down_agg_through_join_one_side
+Used: use_push_down_agg_through_join_one_side
+UnUsed:
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_varied_aggregates --
@@ -557,8 +529,8 @@ PhysicalResultSink
 ------------PhysicalOlapScan[max_t]
 
 Hint log:
-Used:
-UnUsed: use_push_down_agg_through_join_one_side
+Used: use_push_down_agg_through_join_one_side
+UnUsed:
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_alias_multiple_equal_conditions --
@@ -571,8 +543,8 @@ PhysicalResultSink
 --------PhysicalOlapScan[max_t]
 
 Hint log:
-Used:
-UnUsed: use_push_down_agg_through_join_one_side
+Used: use_push_down_agg_through_join_one_side
+UnUsed:
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_complex_join_condition --
@@ -585,8 +557,8 @@ PhysicalResultSink
 --------PhysicalOlapScan[max_t]
 
 Hint log:
-Used:
-UnUsed: use_push_down_agg_through_join_one_side
+Used: use_push_down_agg_through_join_one_side
+UnUsed:
 SyntaxError:
 
 -- !with_hint_groupby_pushdown_function_processed_columns --
@@ -594,8 +566,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashAgg[GLOBAL]
-----------PhysicalOlapScan[max_t]
+--------PhysicalOlapScan[max_t]
 --------PhysicalOlapScan[max_t]
 
 Hint log:
@@ -615,7 +586,7 @@ PhysicalResultSink
 ------------PhysicalOlapScan[max_t]
 
 Hint log:
-Used:
-UnUsed: use_push_down_agg_through_join_one_side
+Used: use_push_down_agg_through_join_one_side
+UnUsed:
 SyntaxError:
 

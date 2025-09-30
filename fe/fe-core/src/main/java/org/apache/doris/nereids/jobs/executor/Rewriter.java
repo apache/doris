@@ -665,6 +665,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                LogicalAggregate.class, LogicalJoin.class
                         ),
                         custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
+                        topDown(new NormalizeAggregate()),
                         costBased(topDown(
                                 new PushDownAggWithDistinctThroughJoinOneSide(),
                                 new PushDownAggThroughJoinOneSide()
