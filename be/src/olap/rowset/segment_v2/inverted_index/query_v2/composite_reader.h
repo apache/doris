@@ -20,7 +20,10 @@
 #include <CLucene.h>
 #include <CLucene/index/IndexReader.h>
 
+#include <algorithm>
 #include <ranges>
+#include <unordered_map>
+#include <vector>
 
 #include "common/exception.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
@@ -54,6 +57,26 @@ public:
         for (auto* reader : std::views::values(_field_readers)) {
             reader->close();
         }
+    }
+
+    [[nodiscard]] uint32_t max_doc() const {
+        if (_field_readers.empty()) {
+            throw Exception(ErrorCode::INDEX_INVALID_PARAMETERS, "CompositeReader has no readers");
+        }
+        uint32_t max_doc = 0;
+        for (auto* reader : std::views::values(_field_readers)) {
+            max_doc = std::max(max_doc, static_cast<uint32_t>(reader->maxDoc()));
+        }
+        return max_doc;
+    }
+
+    [[nodiscard]] std::vector<lucene::index::IndexReader*> readers() const {
+        std::vector<lucene::index::IndexReader*> readers;
+        readers.reserve(_field_readers.size());
+        for (auto* reader : std::views::values(_field_readers)) {
+            readers.push_back(reader);
+        }
+        return readers;
     }
 
 private:

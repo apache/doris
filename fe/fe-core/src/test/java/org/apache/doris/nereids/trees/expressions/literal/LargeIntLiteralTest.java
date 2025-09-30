@@ -17,14 +17,18 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.TinyIntType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
 
 public class LargeIntLiteralTest {
@@ -46,5 +50,40 @@ public class LargeIntLiteralTest {
         d1 = new LargeIntLiteral(new BigInteger("9223372036854775808"));
         LargeIntLiteral finalD1 = d1;
         Assertions.assertThrows(CastException.class, () -> finalD1.checkedCastTo(BigIntType.INSTANCE));
+    }
+
+    @Test
+    void testOverflow() throws org.apache.doris.common.AnalysisException {
+        LargeIntLiteral value = new LargeIntLiteral(LargeIntType.MIN_VALUE);
+        Assertions.assertEquals("-170141183460469231731687303715884105728", value.getValue().toString());
+        value = new LargeIntLiteral(LargeIntType.MAX_VALUE);
+        Assertions.assertEquals("170141183460469231731687303715884105727", value.getValue().toString());
+        Assertions.assertThrows(AnalysisException.class, () -> new LargeIntLiteral(LargeIntType.MAX_VALUE.add(new BigInteger("1"))));
+        Assertions.assertThrows(AnalysisException.class, () -> new LargeIntLiteral(LargeIntType.MIN_VALUE.subtract(new BigInteger("1"))));
+
+        Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+                () -> new org.apache.doris.analysis.LargeIntLiteral("170141183460469231731687303715884105728"));
+        Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+                () -> new org.apache.doris.analysis.LargeIntLiteral("-170141183460469231731687303715884105729"));
+        Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+                () -> new org.apache.doris.analysis.LargeIntLiteral(new BigDecimal("170141183460469231731687303715884105728")));
+        Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+                () -> new org.apache.doris.analysis.LargeIntLiteral(new BigDecimal("-170141183460469231731687303715884105729")));
+        org.apache.doris.analysis.LargeIntLiteral largeIntLiteral = new org.apache.doris.analysis.LargeIntLiteral(
+                "170141183460469231731687303715884105727");
+        Assertions.assertEquals("170141183460469231731687303715884105727", largeIntLiteral.toString());
+        largeIntLiteral = new org.apache.doris.analysis.LargeIntLiteral(
+                "-170141183460469231731687303715884105728");
+        Assertions.assertEquals("-170141183460469231731687303715884105728", largeIntLiteral.toString());
+    }
+
+    @Test
+    void testToLegacyLiteral() {
+        LargeIntLiteral value = new LargeIntLiteral(LargeIntType.MIN_VALUE);
+        LiteralExpr literalExpr = value.toLegacyLiteral();
+        Assertions.assertEquals("-170141183460469231731687303715884105728", literalExpr.toString());
+        value = new LargeIntLiteral(LargeIntType.MAX_VALUE);
+        literalExpr = value.toLegacyLiteral();
+        Assertions.assertEquals("170141183460469231731687303715884105727", literalExpr.toString());
     }
 }

@@ -274,6 +274,28 @@ public abstract class BaseExecutor {
                     return result;
                 };
             }
+            case VARBINARY: {
+                // Support Byte[] parameter for VARBINARY by boxing from byte[]
+                if (Byte[].class.equals(clz)) {
+                    return (Object[] columnData) -> {
+                        Byte[][] result = new Byte[columnData.length][];
+                        for (int i = 0; i < columnData.length; ++i) {
+                            if (columnData[i] != null) {
+                                byte[] v = (byte[]) columnData[i];
+                                Byte[] boxed = new Byte[v.length];
+                                for (int k = 0; k < v.length; ++k) {
+                                    boxed[k] = v[k];
+                                }
+                                result[i] = boxed;
+                            }
+                        }
+                        return result;
+                    };
+                } else if (!byte[].class.equals(clz)) {
+                    throw new UdfRuntimeException("Unsupported varbinary type: " + clz.getCanonicalName());
+                }
+                break;
+            }
             default:
                 break;
         }
@@ -361,6 +383,28 @@ public abstract class BaseExecutor {
                     }
                     return result;
                 };
+            }
+            case VARBINARY: {
+                // Support Byte[] return for VARBINARY by unboxing to byte[] for storage
+                if (Byte[].class.equals(clz)) {
+                    return (Object[] columnData) -> {
+                        byte[][] result = new byte[columnData.length][];
+                        for (int i = 0; i < columnData.length; ++i) {
+                            if (columnData[i] != null) {
+                                Byte[] v = (Byte[]) columnData[i];
+                                byte[] unboxed = new byte[v.length];
+                                for (int k = 0; k < v.length; ++k) {
+                                    unboxed[k] = v[k];
+                                }
+                                result[i] = unboxed;
+                            }
+                        }
+                        return result;
+                    };
+                } else if (!byte[].class.equals(clz)) {
+                    throw new UdfRuntimeException("Unsupported varbinary type: " + clz.getCanonicalName());
+                }
+                break;
             }
             default:
                 break;

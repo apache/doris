@@ -22,7 +22,6 @@ import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -154,8 +153,6 @@ public class ExportJob implements Writable {
     private String compressType;
     @SerializedName("whereStr")
     private String whereStr;
-
-    private TableRef tableRef;
 
     // when fe restart, job will be cancel, so whereExpression not need persist
     private Optional<Expression> whereExpression;

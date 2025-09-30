@@ -23,8 +23,8 @@ import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
 import java.util.List;
 import java.util.Map;

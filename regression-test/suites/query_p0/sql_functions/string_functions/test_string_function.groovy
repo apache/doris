@@ -288,6 +288,41 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select substr('abcdef',3,-1);"
     qt_sql "select substr('abcdef',-3,-1);"
 
+    qt_mid_1 "select mid('a',0,1);"
+    qt_mid_2 "select mid('a',-1,1);"
+    qt_mid_3 "select mid('a',1,1);"
+    qt_mid_4 "select mid('a',-2,1);"
+    qt_mid_5 "select mid('a',2,1);"
+    qt_mid_6 "select mid('a',-3,1);"
+    qt_mid_7 "select mid('a',3,1);"
+    qt_mid_8 "select mid('abcdef',-3,-1);"
+    qt_mid_9 "select mid('abcdef',3,-1);"
+    qt_mid_10 "select mid('',3,-1);"
+    qt_mid_11 "select mid('abcdef',3,10);"
+    qt_mid_12 "select mid('abcdef',-3);"
+    qt_mid_13 "select mid('abcdef',3);"
+    qt_mid_14 "select mid('',3);"
+    qt_mid_15 "select mid('a' FROM 0 FOR 1);"
+    qt_mid_16 "select mid('a' FROM -1 FOR 1);"
+    qt_mid_17 "select mid('a' FROM 1 FOR 1);"
+    qt_mid_18 "select mid('a' FROM -2 FOR 1);"
+    qt_mid_19 "select mid('a' FROM 2 FOR 1);"
+    qt_mid_20 "select mid('a' FROM -3 FOR 1);"
+    qt_mid_21 "select mid('a' FROM 3 FOR 1);"
+    qt_mid_22 "select mid('abcdef' FROM -3 FOR -1);"
+    qt_mid_23 "select mid('abcdef' FROM 3 FOR -1);"
+    qt_mid_24 "select mid('' FROM 3 FOR -1);"
+    qt_mid_25 "select mid('abcdef' FROM 3 FOR 10);"
+    qt_mid_26 "select mid('abcdef' FROM -3);"
+    qt_mid_27 "select mid('abcdef' FROM 3);"
+    qt_mid_28 "select mid('' FROM 3);"
+    qt_mid_29 "select mid(NULL, 2);"
+    qt_mid_30 "select mid(NULL, 2, 3)"
+    qt_mid_31 "select mid(NULL FROM 2);"
+    qt_mid_32 "select mid(NULL FROM 2 FOR 3);"
+    qt_mid_33 "select mid('hello', NULL);"
+    qt_mid_34 "select mid('hello', 2, NULL);"
+
     qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
     qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
 
@@ -429,4 +464,55 @@ suite("test_string_function", "arrow_flight_sql") {
         sql("""select/*+SET_VAR(enable_fold_constant_by_be=true)*/ random(10) from numbers("number" = "10");""")
         contains "final projections: random(10)"
     }
+
+    sql "DROP TABLE IF EXISTS test_make_set;"
+    sql"""CREATE TABLE test_make_set (
+        id int,
+        bit_num BIGINT,
+        vc1 VARCHAR(50),
+        vc2 VARCHAR(50),
+        vc3 VARCHAR(50)
+    )
+    DUPLICATE KEY(id)
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ( 'replication_num' = '1' );"""
+
+    sql"""INSERT INTO test_make_set (id, bit_num, vc1, vc2, vc3) VALUES
+    (1, 1, 'apple', 'orange', NULL),
+    (2, 2, 'red', 'blue', NULL),
+    (3, 3, 'dog', 'cat', 'bird'),
+    (4, 4, 'small', 'medium', 'large'),
+    (5, 5, 'hot', 'warm', NULL),
+    (6, 6, 'monday', 'tuesday', 'wednesday'),
+    (7, 7, 'one', 'two', 'three'),
+    (8, 0, 'hello', 'world', NULL),
+    (9, -2, 'test1', 'test2', 'test3'),
+    (10, -3, '汽车', '自行车', '火车'),
+    (11, NULL, 'a', 'b', 'c'),
+    (12, 7, NULL, NULL, NULL),
+    (13, 3, '', 'should after ,', 'useless'),
+    (14, BIT_SHIFT_LEFT(1, 50) - 3, 'first', 'second', 'third');"""
+
+    qt_mask_set_1"""SELECT MAKE_SET(bit_num, vc1, vc2, vc3) FROM test_make_set;"""
+    qt_mask_set_2"""SELECT MAKE_SET(id, vc1, vc2, vc3) FROM test_make_set;"""
+    qt_mask_set_3"""SELECT MAKE_SET(BIT_SHIFT_LEFT(1, 63) + BIT_SHIFT_LEFT(1, 62) + BIT_SHIFT_LEFT(1, 61) + BIT_SHIFT_LEFT(1, 50) + BIT_SHIFT_LEFT(1, 25) + BIT_SHIFT_LEFT(1, 3) + BIT_SHIFT_LEFT(1, 1), 'x1','x2','x3','x4','x5','x6','x7','x8','x9','x10','x11','x12','x13','x14','x15','x16','x17','x18','x19','x20','x21','x22','x23','x24','x25','x26','x27','x28','x29','x30','x31','x32','x33','x34','x35','x36','x37','x38','x39','x40','x41','x42','x43','x44','x45','x46','x47','x48','x49','x50','x51','x52','x53','x54','x55','x56','x57','x58','x59','x60','x61','x62','x63','x64','x65','x66','x67','x68','x69','x70');"""
+    qt_mask_set_4"""SELECT MAKE_SET(BIT_SHIFT_LEFT(1, 62) + BIT_SHIFT_LEFT(1, 60) + BIT_SHIFT_LEFT(1, 58) + BIT_SHIFT_LEFT(1, 45) + BIT_SHIFT_LEFT(1, 5) + BIT_SHIFT_LEFT(1, 2), 'y1', NULL, '', 'y4','y5','y6','y7','y8','y9','y10', 'y11','y12','y13','y14','y15','y16','y17','y18','y19','y20', 'y21','y22','y23','y24','y25','y26','y27','y28','y29','y30', 'y31','y32','y33','y34','y35','y36','y37','y38','y39','y40', 'y41','y42','y43','y44','y45',NULL,'y47','y48');"""
+
+    testFoldConst("SELECT MAKE_SET(1, 'Doris', 'Apache', 'Database');")
+    testFoldConst("SELECT MAKE_SET(2, 'hello', 'goodbye', 'world');")
+    testFoldConst("SELECT MAKE_SET(3, NULL, '你好', '世界');")
+    testFoldConst("SELECT MAKE_SET(-2, 'a', 'b', 'c');")
+    testFoldConst("SELECT MAKE_SET(NULL, 'a', 'b', 'c');")
+    testFoldConst("SELECT MAKE_SET(4, 'a', 'b', NULL);")
+    testFoldConst("SELECT MAKE_SET(4611686018427387903, 'a', 'b', 'c');")
+    testFoldConst("SELECT MAKE_SET(BIT_SHIFT_LEFT(1, 50) - 3, 'first', 'second', 'third');")
+    testFoldConst("SELECT MAKE_SET(3, '', 'a');")
+
+    test {
+        sql"""SELECT MAKE_SET(184467440737095516156, 'a', 'b', 'c');"""
+        exception "Can not find the compatibility function signature"
+    }
+
+    sql """DROP TABLE IF EXISTS test_make_set;"""
+
 }

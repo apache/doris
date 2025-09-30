@@ -69,18 +69,19 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMaterializedViewCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
@@ -339,6 +340,14 @@ public class Alter {
         if (needChangeMTMVState(alterClauses)) {
             Env.getCurrentEnv().getMtmvService()
                     .alterTable(oldBaseTableInfo, newBaseTableInfo, currentAlterOps.hasReplaceTableOp());
+        }
+
+        olapTable.writeLock();
+        try {
+            NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
+            sqlCacheManager.invalidateAboutTable(olapTable);
+        } finally {
+            olapTable.writeUnlock();
         }
         return needProcessOutsideTableLock;
     }

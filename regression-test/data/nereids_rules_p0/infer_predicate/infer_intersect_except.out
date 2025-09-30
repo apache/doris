@@ -60,18 +60,18 @@ PhysicalResultSink
 ----PhysicalIntersect
 ------filter((infer_intersect_except2.a < 10) and (infer_intersect_except2.a > 0) and (infer_intersect_except2.b > 'ab'))
 --------PhysicalOlapScan[infer_intersect_except2]
-------filter((infer_intersect_except3.a < 10) and (infer_intersect_except3.a > 0) and (infer_intersect_except3.b = 'abc'))
+------filter((cast(b as TEXT) = 'abc') and (infer_intersect_except3.a < 10) and (infer_intersect_except3.a > 0))
 --------PhysicalOlapScan[infer_intersect_except3]
 
 -- !intersect_and_except --
 PhysicalResultSink
 --PhysicalExcept
 ----PhysicalIntersect
-------filter((infer_intersect_except1.a = 1) and (infer_intersect_except1.b = 'abc'))
+------filter((cast(b as TEXT) = 'abc') and (infer_intersect_except1.a = 1))
 --------PhysicalOlapScan[infer_intersect_except1]
 ------filter((infer_intersect_except2.b > 'ab'))
 --------PhysicalOlapScan[infer_intersect_except2]
-----filter((infer_intersect_except3.a = 1) and (infer_intersect_except3.b = 'abc'))
+----filter((cast(b as TEXT) = 'abc') and (infer_intersect_except3.a = 1))
 ------PhysicalOlapScan[infer_intersect_except3]
 
 -- !function_intersect --

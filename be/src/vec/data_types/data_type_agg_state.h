@@ -72,19 +72,6 @@ public:
         return doris::FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     }
 
-    std::string to_string(const IColumn& column, size_t row_num) const override {
-        std::string res = "binary(";
-        StringRef str = column.get_data_at(row_num);
-        for (auto c : str.to_string()) {
-            for (int i = 0; i < 8; i++) {
-                res += (c & (1 << (7 - i))) ? "1" : "0";
-            }
-            res += ' ';
-        }
-        res += ")";
-        return res;
-    }
-
     const DataTypes& get_sub_types() const { return _sub_types; }
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override {

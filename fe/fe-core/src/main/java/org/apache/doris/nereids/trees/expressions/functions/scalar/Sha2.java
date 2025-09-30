@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -42,7 +43,9 @@ public class Sha2 extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT, IntegerType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(StringType.INSTANCE, IntegerType.INSTANCE));
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(StringType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarBinaryType.INSTANCE, IntegerType.INSTANCE)
+    );
 
     private static final List<Integer> validDigest = Lists.newArrayList(224, 256, 384, 512);
 

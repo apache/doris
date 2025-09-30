@@ -56,7 +56,6 @@ private:
 };
 
 // Note: the cache_lock is scoped, so do not add do...while(0) here.
-#ifdef ENABLE_CACHE_LOCK_DEBUG
 #define SCOPED_CACHE_LOCK(MUTEX, cache)                                                           \
     std::chrono::time_point<std::chrono::steady_clock> start_time =                               \
             std::chrono::steady_clock::now();                                                     \
@@ -71,9 +70,6 @@ private:
                      << get_stack_trace() << std::endl;                                           \
     }                                                                                             \
     LockScopedTimer cache_lock_timer;
-#else
-#define SCOPED_CACHE_LOCK(MUTEX, cache) std::lock_guard cache_lock(MUTEX);
-#endif
 
 class FSFileCacheStorage;
 
@@ -210,6 +206,8 @@ public:
     /// For debug and UT
     std::string dump_structure(const UInt128Wrapper& hash);
     std::string dump_single_cache_type(const UInt128Wrapper& hash, size_t offset);
+
+    void dump_lru_queues(bool force);
 
     [[nodiscard]] size_t get_used_cache_size(FileCacheType type) const;
 
@@ -453,6 +451,8 @@ private:
                                size_t& offset, size_t& size);
     void remove_lru_dump_files();
 
+    void clear_need_update_lru_blocks();
+
     // info
     std::string _cache_base_path;
     size_t _capacity = 0;
@@ -532,9 +532,20 @@ private:
     std::shared_ptr<bvar::Adder<size_t>> _num_hit_blocks;
     std::shared_ptr<bvar::Adder<size_t>> _num_removed_blocks;
 
+    std::shared_ptr<bvar::Adder<size_t>> _no_warmup_num_read_blocks;
+    std::shared_ptr<bvar::Adder<size_t>> _no_warmup_num_hit_blocks;
+
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _no_warmup_num_hit_blocks_5m;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _no_warmup_num_read_blocks_5m;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _no_warmup_num_hit_blocks_1h;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _no_warmup_num_read_blocks_1h;
+
     std::shared_ptr<bvar::Status<double>> _hit_ratio;
     std::shared_ptr<bvar::Status<double>> _hit_ratio_5m;
     std::shared_ptr<bvar::Status<double>> _hit_ratio_1h;
+    std::shared_ptr<bvar::Status<double>> _no_warmup_hit_ratio;
+    std::shared_ptr<bvar::Status<double>> _no_warmup_hit_ratio_5m;
+    std::shared_ptr<bvar::Status<double>> _no_warmup_hit_ratio_1h;
     std::shared_ptr<bvar::Status<size_t>> _disk_limit_mode_metrics;
     std::shared_ptr<bvar::Status<size_t>> _need_evict_cache_in_advance_metrics;
 
@@ -556,7 +567,7 @@ private:
     // so join this async load thread first
     std::unique_ptr<FileCacheStorage> _storage;
     std::shared_ptr<bvar::LatencyRecorder> _lru_dump_latency_us;
-
+    std::mutex _dump_lru_queues_mtx;
     moodycamel::ConcurrentQueue<FileBlockSPtr> _need_update_lru_blocks;
 };
 

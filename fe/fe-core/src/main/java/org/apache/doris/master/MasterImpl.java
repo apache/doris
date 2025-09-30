@@ -143,7 +143,13 @@ public class MasterImpl {
                 errorMsgs.add(errMsg);
                 tStatus.setErrorMsgs(errorMsgs);
             } else {
-                LOG.warn("Finish task rpc got null task for request={}", request);
+                // drop task is not in AgentTaskQueue
+                if (taskType != TTaskType.DROP) {
+                    LOG.warn("Finish task rpc got null task for request={}", request);
+                } else {
+                    // drop task is not in AgentTaskQueue
+                    LOG.info("Finish task rpc for request={}", request);
+                }
             }
             return result;
         } else {

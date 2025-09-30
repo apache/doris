@@ -181,6 +181,13 @@ public:
         return Status::OK();
     }
 
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override {
+        const auto& data = assert_cast<const ColumnQuantileState&>(column).get_element(row_num);
+        std::string result(data.get_serialized_size(), '0');
+        data.serialize((uint8_t*)result.data());
+        bw.write(result.data(), result.size());
+    }
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

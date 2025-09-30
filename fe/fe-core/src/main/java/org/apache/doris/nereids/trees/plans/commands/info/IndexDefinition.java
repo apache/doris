@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -298,8 +299,7 @@ public class IndexDefinition {
      */
     public IndexDef translateToLegacyIndexDef() {
         if (isBuildDeferred) {
-            return new IndexDef(name, partitionNames != null ? partitionNames.translateToLegacyPartitionNames() : null,
-                    indexType, true);
+            return new IndexDef(name, partitionNames, indexType, true);
         } else {
             return new IndexDef(name, ifNotExists, cols, indexType, properties, comment);
         }

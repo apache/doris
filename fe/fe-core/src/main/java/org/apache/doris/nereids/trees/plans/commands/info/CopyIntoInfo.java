@@ -45,9 +45,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.S3PropertyUtils;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -366,7 +367,7 @@ public class CopyIntoInfo {
         brokerProperties.put(S3_BUCKET, objInfo.getBucket());
         brokerProperties.put(S3_PREFIX, objInfo.getPrefix());
         // S3 Provider properties should be case insensitive.
-        brokerProperties.put(S3Properties.PROVIDER, objInfo.getProvider().toString().toUpperCase());
+        brokerProperties.put(StorageProperties.FS_PROVIDER_KEY, objInfo.getProvider().toString().toUpperCase());
         StageProperties stageProperties = new StageProperties(stagePB.getPropertiesMap());
         this.copyIntoProperties.mergeProperties(stageProperties);
         this.copyIntoProperties.analyze();

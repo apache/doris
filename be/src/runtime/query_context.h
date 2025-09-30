@@ -63,6 +63,7 @@ struct ReportStatusRequest {
     int backend_num;
     RuntimeState* runtime_state;
     std::string load_error_url;
+    std::string first_error_msg;
     std::function<void(const Status&)> cancel_fn;
 };
 
@@ -291,6 +292,8 @@ public:
 
     void set_load_error_url(std::string error_url);
     std::string get_load_error_url();
+    void set_first_error_msg(std::string error_msg);
+    std::string get_first_error_msg();
 
 private:
     friend class QueryTaskController;
@@ -368,6 +371,7 @@ private:
 
     std::mutex _error_url_lock;
     std::string _load_error_url;
+    std::string _first_error_msg;
 
     // file cache context holders
     std::vector<io::BlockFileCache::QueryFileCacheContextHolderPtr>

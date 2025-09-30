@@ -64,6 +64,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.proto.InternalService;
@@ -372,7 +373,7 @@ public class InsertUtils {
         Optional<ExpressionAnalyzer> analyzer = analyzeContext.map(
                 cascadesContext -> buildExprAnalyzer(plan, cascadesContext)
         );
-
+        boolean strictCast = SessionVariable.enableStrictCast();
         for (List<NamedExpression> values : unboundInlineTable.getConstantExprsList()) {
             ImmutableList.Builder<NamedExpression> optimizedRowConstructor = ImmutableList.builder();
             if (values.isEmpty()) {
@@ -382,7 +383,8 @@ public class InsertUtils {
                 for (int i = 0; i < columns.size(); i++) {
                     Column column = columns.get(i);
                     NamedExpression defaultExpression = generateDefaultExpression(column);
-                    addColumnValue(analyzer, optimizedRowConstructor, defaultExpression, null, rewriteContext);
+                    addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
+                            null, rewriteContext, strictCast);
                 }
             } else {
                 if (CollectionUtils.isNotEmpty(unboundLogicalSink.getColNames())) {
@@ -409,14 +411,12 @@ public class InsertUtils {
                         }
                         if (values.get(i) instanceof DefaultValueSlot) {
                             NamedExpression defaultExpression = generateDefaultExpression(sameNameColumn);
-                            addColumnValue(
-                                    analyzer, optimizedRowConstructor, defaultExpression, null, rewriteContext
-                            );
+                            addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
+                                    null, rewriteContext, strictCast);
                         } else {
                             DataType targetType = DataType.fromCatalogType(sameNameColumn.getType());
-                            addColumnValue(
-                                    analyzer, optimizedRowConstructor, values.get(i), targetType, rewriteContext
-                            );
+                            addColumnValue(analyzer, optimizedRowConstructor, values.get(i),
+                                    targetType, rewriteContext, strictCast);
                         }
                     }
                 } else {
@@ -432,14 +432,12 @@ public class InsertUtils {
                         }
                         if (values.get(i) instanceof DefaultValueSlot) {
                             NamedExpression defaultExpression = generateDefaultExpression(columns.get(i));
-                            addColumnValue(
-                                    analyzer, optimizedRowConstructor, defaultExpression, null, rewriteContext
-                            );
+                            addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
+                                    null, rewriteContext, strictCast);
                         } else {
                             DataType targetType = DataType.fromCatalogType(columns.get(i).getType());
-                            addColumnValue(
-                                    analyzer, optimizedRowConstructor, values.get(i), targetType, rewriteContext
-                            );
+                            addColumnValue(analyzer, optimizedRowConstructor, values.get(i), targetType,
+                                    rewriteContext, strictCast);
                         }
                     }
                 }
@@ -519,9 +517,16 @@ public class InsertUtils {
     private static void addColumnValue(
             Optional<ExpressionAnalyzer> analyzer,
             ImmutableList.Builder<NamedExpression> optimizedRowConstructor,
-            NamedExpression value, DataType targetType, ExpressionRewriteContext rewriteContext) {
+            NamedExpression value, DataType targetType, ExpressionRewriteContext rewriteContext,
+            boolean strictCast) {
         if (targetType != null) {
-            value = castValue(value, targetType);
+            // In strict cast/insert mode, we don't cast to target varchar type here,
+            // we cast to varchar max here and do substring accordingly in BindSink.
+            if (strictCast && (targetType.isVarcharType() || targetType.isCharType())) {
+                value = castValue(value, VarcharType.MAX_VARCHAR_TYPE);
+            } else {
+                value = castValue(value, targetType);
+            }
         }
         if (analyzer.isPresent() && !(value instanceof Alias && value.child(0) instanceof Literal)) {
             ExpressionAnalyzer expressionAnalyzer = analyzer.get();

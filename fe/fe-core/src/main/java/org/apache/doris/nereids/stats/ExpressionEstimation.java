@@ -93,6 +93,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -113,6 +114,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Used to estimate for expressions that not producing boolean value.
@@ -243,6 +245,20 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     convertSuccess = false;
                 }
             }
+            if (convertSuccess && colStats.getHotValues() != null) {
+                try {
+                    Map<Literal, Float> newHotValues = new HashMap<>();
+                    for (Literal oneHot : colStats.hotValues.keySet()) {
+                        DateTimeLiteral oneHotDate = new DateTimeLiteral(oneHot.getStringValue());
+                        newHotValues.put(oneHotDate,
+                                colStats.hotValues.get(oneHot));
+                    }
+                    builder.setHotValues(newHotValues.isEmpty() ? null : newHotValues);
+                } catch (Exception e) {
+                    convertSuccess = false;
+                }
+            }
+
             if (convertSuccess) {
                 return builder.build();
             }
@@ -257,7 +273,8 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         // cast other date types, set min/max infinity
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
         builder.setMinExpr(null).setMinValue(Double.NEGATIVE_INFINITY)
-                .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY);
+                .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY)
+                .setHotValues(null);
         return builder.build();
     }
 

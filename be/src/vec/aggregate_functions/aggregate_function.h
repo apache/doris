@@ -193,6 +193,8 @@ public:
 
     /** Contains a loop with calls to "add" function. You can collect arguments into array "places"
       *  and do a single call to "add_batch" for devirtualization and inlining.
+      * This function distributes inputs row to their corresponding aggregation states,
+      *  used in handling cases with `GROUP BY`, each place corresponds to a specific grouping key.
       */
     virtual void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                            const IColumn** columns, Arena&, bool agg_many = false) const = 0;
@@ -202,6 +204,7 @@ public:
                                     size_t place_offset, const IColumn** columns, Arena&) const = 0;
 
     /** The same for single place.
+      * Used in cases without `GROUP BY`, means all rows are aggregated into a single state.
       */
     virtual void add_batch_single_place(size_t batch_size, AggregateDataPtr place,
                                         const IColumn** columns, Arena&) const = 0;

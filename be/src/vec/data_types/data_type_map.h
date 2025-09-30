@@ -86,8 +86,6 @@ public:
                             int be_exec_version) const override;
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     using SerDeType = DataTypeMapSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(key_type->get_serde(nesting_level + 1),

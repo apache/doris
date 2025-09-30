@@ -116,10 +116,17 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
-    bool has_value() const { return _predicate->has_value(); }
+    // only used in external table (for min-max filter). get `slot > xxx`, not `function(slot) > xxx`.
+    bool get_binary_expr(VExprSPtr& new_root) const {
+        if (!get_child(0)->is_slot_ref()) {
+            // top rf maybe is `xxx order by abs(column) limit xxx`.
+            return false;
+        }
 
-    VExprSPtr get_binary_expr() const {
-        VExprSPtr root;
+        if (!_predicate->has_value()) {
+            return false;
+        }
+
         auto* slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
         auto slot_data_type = remove_nullable(slot_ref->data_type());
         {
@@ -148,12 +155,12 @@ public:
             texpr_node.__set_fn(fn);
             texpr_node.__set_num_children(2);
             texpr_node.__set_is_nullable(is_nullable());
-            root = VectorizedFnCall::create_shared(texpr_node);
+            new_root = VectorizedFnCall::create_shared(texpr_node);
         }
 
         {
             // add slot
-            root->add_child(children().at(0));
+            new_root->add_child(children().at(0));
         }
         // add Literal
         {
@@ -161,9 +168,54 @@ public:
             TExprNode node = create_texpr_node_from(field, slot_data_type->get_primitive_type(),
                                                     slot_data_type->get_precision(),
                                                     slot_data_type->get_scale());
-            root->add_child(VLiteral::create_shared(node));
+            new_root->add_child(VLiteral::create_shared(node));
         }
-        return root;
+
+        // Since the normal greater than or less than relationship does not consider the relationship of null values, the generated `col >=/<= xxx OR col is null.`
+        if (_predicate->nulls_first()) {
+            VExprSPtr col_is_null_node;
+            {
+                TFunction fn;
+                TFunctionName fn_name;
+                fn_name.__set_db_name("");
+                fn_name.__set_function_name("is_null_pred");
+                fn.__set_name(fn_name);
+                fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+                std::vector<TTypeDesc> arg_types;
+                arg_types.push_back(create_type_desc(slot_data_type->get_primitive_type(),
+                                                     slot_data_type->get_precision(),
+                                                     slot_data_type->get_scale()));
+                fn.__set_arg_types(arg_types);
+                fn.__set_ret_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+                fn.__set_has_var_args(false);
+
+                TExprNode texpr_node;
+                texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+                texpr_node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+                texpr_node.__set_fn(fn);
+                texpr_node.__set_num_children(1);
+                col_is_null_node = VectorizedFnCall::create_shared(texpr_node);
+
+                // add slot.
+                col_is_null_node->add_child(children().at(0));
+            }
+
+            VExprSPtr or_node;
+            {
+                TExprNode texpr_node;
+                texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+                texpr_node.__set_node_type(TExprNodeType::COMPOUND_PRED);
+                texpr_node.__set_opcode(TExprOpcode::COMPOUND_OR);
+                texpr_node.__set_num_children(2);
+                or_node = VectorizedFnCall::create_shared(texpr_node);
+            }
+
+            or_node->add_child(col_is_null_node);
+            or_node->add_child(new_root);
+            new_root = or_node;
+        }
+
+        return true;
     }
 
 private:

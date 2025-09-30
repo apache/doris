@@ -70,6 +70,7 @@ import com.google.common.collect.Sets;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -800,6 +801,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         }
         // comment
         jobInfo.add(comment);
+        // first error message
+        jobInfo.add(StringUtils.abbreviate(loadingStatus.getFirstErrorMsg(), Config.first_error_msg_max_length));
         return jobInfo;
     }
 

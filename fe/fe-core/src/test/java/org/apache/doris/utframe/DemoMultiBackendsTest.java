@@ -209,13 +209,13 @@ public class DemoMultiBackendsTest {
         ProcResult result = dir.fetchResult();
         Assert.assertEquals(BackendsProcDir.TITLE_NAMES.size(), result.getColumnNames().size());
         Assert.assertEquals("{\"location\" : \"default\"}",
-                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 9));
+                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 10));
         Assert.assertEquals(
                 "{\"lastSuccessReportTabletsTime\":\"N/A\",\"lastStreamLoadTime\":-1,\"isQueryDisabled\":false,"
                         + "\"isLoadDisabled\":false,\"isActive\":true,\"currentFragmentNum\":0,\"lastFragmentUpdateTime\":0}",
-                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 6));
-        Assert.assertEquals("0", result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 5));
-        Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 4));
+                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 7));
+        Assert.assertEquals("0", result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 6));
+        Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 5));
     }
 
     protected void alterTable(String sql, ConnectContext connectContext) throws Exception {

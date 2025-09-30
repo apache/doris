@@ -467,10 +467,12 @@ public class HiveScanNode extends FileQueryScanNode {
                 }
                 transactionalHiveDesc.setDeleteDeltas(deleteDeltaDescs);
                 tableFormatFileDesc.setTransactionalHiveParams(transactionalHiveDesc);
+                tableFormatFileDesc.setTableLevelRowCount(-1);
                 rangeDesc.setTableFormatParams(tableFormatFileDesc);
             } else {
                 TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
                 tableFormatFileDesc.setTableFormatType(TableFormatType.HIVE.value());
+                tableFormatFileDesc.setTableLevelRowCount(-1);
                 rangeDesc.setTableFormatParams(tableFormatFileDesc);
             }
         }
@@ -592,4 +594,5 @@ public class HiveScanNode extends FileQueryScanNode {
         return compressType;
     }
 }
+
 

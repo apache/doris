@@ -74,7 +74,7 @@ public class HMSGlueMetaStorePropertiesTest {
         incompleteConfig.remove("aws.glue.secret-key");
         HMSGlueMetaStoreProperties props = new HMSGlueMetaStoreProperties(incompleteConfig);
         Exception exception = Assertions.assertThrows(IllegalArgumentException.class, props::initNormalizeAndCheckProps);
-        Assertions.assertTrue(exception.getMessage().contains("glue.secret_key is required"));
+        Assertions.assertTrue(exception.getMessage().contains("glue.access_key and glue.secret_key must be set together"));
     }
 
     @Test

@@ -83,7 +83,7 @@ Status CloudSnapshotMgr::make_snapshot(int64_t target_tablet_id, StorageResource
         if (tablet_meta.all_rs_metas().size() > 0) {
             tablet_meta_pb.mutable_inc_rs_metas()->Reserve(
                     cast_set<int>(tablet_meta.all_rs_metas().size()));
-            for (auto& rs : tablet_meta.all_rs_metas()) {
+            for (auto& [_, rs] : tablet_meta.all_rs_metas()) {
                 rs->to_rowset_pb(tablet_meta_pb.add_rs_metas());
             }
         }

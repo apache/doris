@@ -22,6 +22,7 @@
 #include <glog/logging.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -368,6 +369,22 @@ public:
 
     int64_t newest_write_timestamp() const { return _rowset_meta_pb.newest_write_timestamp(); }
 
+    // for cloud only
+    bool has_visible_ts_ms() const { return _rowset_meta_pb.has_visible_ts_ms(); }
+    int64_t visible_ts_ms() const { return _rowset_meta_pb.visible_ts_ms(); }
+    std::chrono::time_point<std::chrono::system_clock> visible_timestamp() const {
+        using namespace std::chrono;
+        if (has_visible_ts_ms()) {
+            return time_point<system_clock>(milliseconds(visible_ts_ms()));
+        }
+        return system_clock::from_time_t(newest_write_timestamp());
+    }
+#ifdef BE_TEST
+    void set_visible_ts_ms(int64_t visible_ts_ms) {
+        _rowset_meta_pb.set_visible_ts_ms(visible_ts_ms);
+    }
+#endif
+
     void set_tablet_schema(const TabletSchemaSPtr& tablet_schema);
     void set_tablet_schema(const TabletSchemaPB& tablet_schema);
 
@@ -429,8 +446,9 @@ private:
     std::atomic<int64_t> _stale_at_s {0};
 };
 
-#include "common/compile_check_end.h"
+using RowsetMetaMapContainer = std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion>;
 
+#include "common/compile_check_end.h"
 } // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H

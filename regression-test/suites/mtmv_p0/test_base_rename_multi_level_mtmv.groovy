@@ -137,5 +137,5 @@ suite("test_base_rename_multi_level_mtmv","mtmv") {
     mv_rewrite_success_without_check_chosen(querySql, mvName2)
     mv_not_part_in(querySql, mvName1)
     mv_not_part_in(querySql, mvName3)
-    mv_not_part_in(querySql, mvName4)
+    mv_rewrite_fail(querySql, mvName4)
 }

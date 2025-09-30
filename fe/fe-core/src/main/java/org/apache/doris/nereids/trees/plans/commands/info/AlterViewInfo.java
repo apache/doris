@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -43,7 +44,7 @@ public class AlterViewInfo extends BaseViewInfo {
 
     /** constructor*/
     public AlterViewInfo(TableNameInfo viewName, String comment,
-            String querySql, List<SimpleColumnDefinition> simpleColumnDefinitions) {
+                         String querySql, List<SimpleColumnDefinition> simpleColumnDefinitions) {
         super(viewName, querySql, simpleColumnDefinitions);
         this.comment = comment;
     }

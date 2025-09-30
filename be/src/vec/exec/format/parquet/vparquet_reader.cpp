@@ -126,11 +126,13 @@ ParquetReader::~ParquetReader() {
     _close_internal();
 }
 
+#ifdef BE_TEST
 // for unit test
 void ParquetReader::set_file_reader(io::FileReaderSPtr file_reader) {
     _file_reader = file_reader;
     _tracing_file_reader = file_reader;
 }
+#endif
 
 void ParquetReader::_init_profile() {
     if (_profile != nullptr) {
@@ -422,7 +424,7 @@ bool ParquetReader::_check_slot_can_push_down(const VExprSPtr& expr) {
         return false;
     }
 
-    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+    const auto* slot_ref = assert_cast<const VSlotRef*>(expr->children()[0].get());
     // check if the slot exists in parquet file.
     if (!_table_info_node_ptr->children_column_exists(slot_ref->expr_name())) {
         return false;
@@ -564,6 +566,7 @@ Status ParquetReader::set_fill_columns(
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
+    // visit_slot for lazy mat.
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (expr->is_slot_ref()) {
             VSlotRef* slot_ref = static_cast<VSlotRef*>(expr);
@@ -623,8 +626,10 @@ Status ParquetReader::set_fill_columns(
             DCHECK(topn_pred->children().size() > 0);
             visit_slot(topn_pred->children()[0].get());
 
-            if (topn_pred->has_value()) {
-                expr = topn_pred->get_binary_expr();
+            VExprSPtr binary_expr;
+            if (topn_pred->get_binary_expr(binary_expr)) {
+                // for min-max filter.
+                expr = binary_expr;
             } else {
                 continue;
             }
@@ -861,12 +866,17 @@ Status ParquetReader::_next_row_group_reader() {
         size_t avg_io_size = 0;
         const std::vector<io::PrefetchRange> io_ranges =
                 _generate_random_access_ranges(row_group_index, &avg_io_size);
+        int64_t merged_read_slice_size = -1;
+        if (_state != nullptr && _state->query_options().__isset.merge_read_slice_size) {
+            merged_read_slice_size = _state->query_options().merge_read_slice_size;
+        }
         // The underlying page reader will prefetch data in column.
         // Using both MergeRangeFileReader and BufferedStreamReader simultaneously would waste a lot of memory.
-        group_file_reader = avg_io_size < io::MergeRangeFileReader::SMALL_IO
-                                    ? std::make_shared<io::MergeRangeFileReader>(
-                                              _profile, _file_reader, io_ranges)
-                                    : _file_reader;
+        group_file_reader =
+                avg_io_size < io::MergeRangeFileReader::SMALL_IO
+                        ? std::make_shared<io::MergeRangeFileReader>(
+                                  _profile, _file_reader, io_ranges, merged_read_slice_size)
+                        : _file_reader;
     }
     _current_group_reader.reset(
             new RowGroupReader(_io_ctx ? std::make_shared<io::TracingFileReader>(
@@ -1015,7 +1025,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         return Status::EndOfFile("stop");
     }
 
-    if (_read_line_mode_mode) {
+    if (_read_by_rows) {
         candidate_row_ranges = _read_line_mode_row_ranges[row_group_index.row_group_id];
         return Status::OK();
     }
@@ -1030,7 +1040,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         }
     };
 
-    if ((!_enable_filter_by_min_max) || _lazy_read_ctx.has_complex_type ||
+    if (!_enable_filter_by_min_max || _lazy_read_ctx.has_complex_type ||
         _lazy_read_ctx.conjuncts.empty()) {
         read_whole_row_group();
         return Status::OK();
@@ -1173,16 +1183,16 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
 Status ParquetReader::_process_row_group_filter(
         const RowGroupReader::RowGroupIndex& row_group_index, const tparquet::RowGroup& row_group,
         bool* filter_group) {
-    if (_read_line_mode_mode) {
+    if (_read_by_rows) {
         auto group_start = row_group_index.first_row;
         auto group_end = row_group_index.last_row;
 
-        while (!_read_lines.empty()) {
-            auto v = _read_lines.front();
+        while (!_row_ids.empty()) {
+            auto v = _row_ids.front();
             if (v >= group_start && v < group_end) {
                 _read_line_mode_row_ranges[row_group_index.row_group_id].emplace_back(
                         RowRange {v - group_start, v - group_start + 1});
-                _read_lines.pop_front();
+                _row_ids.pop_front();
             } else {
                 break;
             }

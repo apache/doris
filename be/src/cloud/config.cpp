@@ -81,6 +81,13 @@ DEFINE_mInt64(delete_bitmap_store_v2_max_bytes_in_fdb, "1024"); // TODO change d
 DEFINE_Int32(sync_delete_bitmap_task_max_thread, "32");
 DEFINE_mBool(enable_agg_delta_delete_bitmap_for_store_v2, "true");
 
+DEFINE_mBool(enable_batch_get_delete_bitmap, "false");
+// used in get_delete_bitmap rpc
+// The MS will return the current results to BE immediately when the size of delete bitmap
+// in memory fetched from fdb reached this theshold the first time, and BE will make subsequent RPCs
+// to get the remaining rowsets' results.
+DEFINE_mInt64(get_delete_bitmap_bytes_threshold, "524288000"); // 500MB
+
 DEFINE_Bool(enable_cloud_txn_lazy_commit, "false");
 
 DEFINE_mInt32(remove_expired_tablet_txn_info_interval_seconds, "300");
@@ -104,6 +111,8 @@ DEFINE_mBool(skip_writing_empty_rowset_metadata, "false");
 DEFINE_mInt64(cloud_index_change_task_timeout_second, "3600");
 
 DEFINE_mInt64(warmup_tablet_replica_info_cache_ttl_sec, "600");
+
+DEFINE_mInt32(warm_up_manager_thread_pool_size, "4");
 
 DEFINE_mInt64(warm_up_rowset_slow_log_ms, "1000");
 

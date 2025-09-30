@@ -63,6 +63,7 @@ public class CopyFromDesc {
 
     public CopyFromDesc(StageAndPattern stageAndPattern) {
         this.stageAndPattern = stageAndPattern;
+        this.fileFilterExpr = Optional.empty();
     }
 
     public CopyFromDesc(StageAndPattern stageAndPattern, List<NamedExpression> exprList,
@@ -105,7 +106,7 @@ public class CopyFromDesc {
      */
     public void validate(String fullDbName, TableName tableName, boolean useDeleteSign, String fileType)
             throws AnalysisException {
-        if (exprList == null && fileFilterExpr == null && !useDeleteSign) {
+        if (exprList == null && !fileFilterExpr.isPresent() && !useDeleteSign) {
             return;
         }
         this.fileColumns = new ArrayList<>();
@@ -240,7 +241,7 @@ public class CopyFromDesc {
                     exprList.stream().map(expr -> (Expression) expr).collect(Collectors.toList()));
             maxId = maxId > maxFileColumnId ? maxId : maxFileColumnId;
         }
-        if (fileFilterExpr != null) {
+        if (fileFilterExpr.isPresent()) {
             int maxFileColumnId = getMaxFileFilterColumnId(Lists.newArrayList(fileFilterExpr.get()));
             maxId = maxId > maxFileColumnId ? maxId : maxFileColumnId;
         }

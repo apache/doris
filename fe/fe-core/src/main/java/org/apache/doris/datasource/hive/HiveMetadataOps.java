@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.PartitionDesc;
@@ -286,122 +285,6 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         }
     }
 
-    @Override
-    public boolean createTableImpl(CreateTableStmt stmt) throws UserException {
-        String dbName = stmt.getDbName();
-        String tblName = stmt.getTableName();
-        ExternalDatabase<?> db = catalog.getDbNullable(dbName);
-        if (db == null) {
-            throw new UserException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
-        }
-        if (tableExist(db.getRemoteName(), tblName)) {
-            if (stmt.isSetIfNotExists()) {
-                LOG.info("create table[{}] which already exists", tblName);
-                return true;
-            } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tblName);
-            }
-        }
-        try {
-            Map<String, String> props = stmt.getProperties();
-            // set default owner
-            if (!props.containsKey("owner")) {
-                if (ConnectContext.get() != null) {
-                    props.put("owner", ConnectContext.get().getCurrentUserIdentity().getUser());
-                }
-            }
-
-            if (props.containsKey("transactional") && props.get("transactional").equalsIgnoreCase("true")) {
-                throw new UserException("Not support create hive transactional table.");
-                /*
-                    CREATE TABLE trans6(
-                      `col1` int,
-                      `col2` int
-                    )  ENGINE=hive
-                    PROPERTIES (
-                      'file_format'='orc',
-                      'compression'='zlib',
-                      'bucketing_version'='2',
-                      'transactional'='true',
-                      'transactional_properties'='default'
-                    );
-                    In hive, this table only can insert not update(not report error,but not actually updated).
-                 */
-            }
-
-            String fileFormat = props.getOrDefault(FILE_FORMAT_KEY, Config.hive_default_file_format);
-            Map<String, String> ddlProps = new HashMap<>();
-            for (Map.Entry<String, String> entry : props.entrySet()) {
-                String key = entry.getKey().toLowerCase();
-                if (DORIS_HIVE_KEYS.contains(entry.getKey().toLowerCase())) {
-                    ddlProps.put("doris." + key, entry.getValue());
-                } else {
-                    ddlProps.put(key, entry.getValue());
-                }
-            }
-            List<String> partitionColNames = new ArrayList<>();
-            if (stmt.getPartitionDesc() != null) {
-                PartitionDesc partitionDesc = stmt.getPartitionDesc();
-                if (partitionDesc.getType() == PartitionType.RANGE) {
-                    throw new UserException("Only support 'LIST' partition type in hive catalog.");
-                }
-                partitionColNames.addAll(partitionDesc.getPartitionColNames());
-                if (!partitionDesc.getSinglePartitionDescs().isEmpty()) {
-                    throw new UserException("Partition values expressions is not supported in hive catalog.");
-                }
-
-            }
-            Map<String, String> properties = catalog.getProperties();
-            if (properties.containsKey(HMSBaseProperties.HIVE_METASTORE_TYPE)
-                    && properties.get(HMSBaseProperties.HIVE_METASTORE_TYPE).equals(HMSBaseProperties.DLF_TYPE)) {
-                for (Column column : stmt.getColumns()) {
-                    if (column.hasDefaultValue()) {
-                        throw new UserException("Default values are not supported with `DLF` catalog.");
-                    }
-                }
-            }
-            String comment = stmt.getComment();
-            Optional<String> location = Optional.ofNullable(props.getOrDefault(LOCATION_URI_KEY, null));
-            HiveTableMetadata hiveTableMeta;
-            DistributionDesc bucketInfo = stmt.getDistributionDesc();
-            if (bucketInfo != null) {
-                if (Config.enable_create_hive_bucket_table) {
-                    if (bucketInfo instanceof HashDistributionDesc) {
-                        hiveTableMeta = HiveTableMetadata.of(db.getRemoteName(),
-                                tblName,
-                                location,
-                                stmt.getColumns(),
-                                partitionColNames,
-                                bucketInfo.getDistributionColumnNames(),
-                                bucketInfo.getBuckets(),
-                                ddlProps,
-                                fileFormat,
-                                comment);
-                    } else {
-                        throw new UserException("External hive table only supports hash bucketing");
-                    }
-                } else {
-                    throw new UserException("Create hive bucket table need"
-                            + " set enable_create_hive_bucket_table to true");
-                }
-            } else {
-                hiveTableMeta = HiveTableMetadata.of(db.getRemoteName(),
-                        tblName,
-                        location,
-                        stmt.getColumns(),
-                        partitionColNames,
-                        ddlProps,
-                        fileFormat,
-                        comment);
-            }
-            client.createTable(hiveTableMeta, stmt.isSetIfNotExists());
-            return false;
-        } catch (Exception e) {
-            throw new UserException(e.getMessage(), e);
-        }
-    }
-
-    @Override
     public void afterCreateTable(String dbName, String tblName) {
         Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
         if (db.isPresent()) {

@@ -82,6 +82,11 @@ TEST_F(FunctionCastTest, string_to_datetime6_valid_case_strict_mode) {
             {{std::string("00-01-01")}, std::string("2000-01-01")},
             {{std::string("12010203040506.999")}, std::string("1201-02-03 04:05:06.999000")},
             {{std::string("12010203040506.")}, std::string("1201-02-03 04:05:06")},
+
+            {{std::string("2024/05/01")}, std::string("2024-05-01")},
+            {{std::string("2024/05-01T12:30:45")}, std::string("2024-05-01 12:30:45")},
+            {{std::string("2025/06/15T00:00:00.99999999999999")},
+             std::string("2025-06-15 00:00:01")},
     };
     check_function_for_cast_strict_mode<DataTypeDateTimeV2>(input_types, data_set, "", 6);
 }
@@ -93,7 +98,6 @@ TEST_F(FunctionCastTest, string_to_datetime6_invalid_cases_in_strict_mode) {
             {{std::string("abc")}, Null()},
             {{std::string("2020-05-05 12:30:60")}, Null()},
             {{std::string("2023-07-16T19.123+08:00")}, Null()},
-            {{std::string("2024/05/01")}, Null()},
             {{std::string("24012")}, Null()},
             {{std::string("2411 123")}, Null()},
             {{std::string("2024-05-01 01:030:02")}, Null()},
@@ -134,9 +138,7 @@ TEST_F(FunctionCastTest, string_to_datetime6_invalid_cases_in_strict_mode) {
             {{std::string("2024-05-01  12:00:00")}, Null()},
             {{std::string("2024.05.01")}, Null()},
             {{std::string("2024.05.01 12.30.45")}, Null()},
-            {{std::string("2024/05-01T12:30:45")}, Null()},
             {{std::string("2024-05/01 12.30.45")}, Null()},
-            {{std::string("2025/06/15T00:00:00.99999999999999")}, Null()},
             {{std::string("-1")}, Null()},
             {{std::string("-12")}, Null()},
             {{std::string("-1234")}, Null()},

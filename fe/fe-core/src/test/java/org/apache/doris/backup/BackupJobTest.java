@@ -17,8 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.BackupJob.BackupJobState;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -34,6 +32,8 @@ import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentBatchTask;
@@ -68,6 +68,7 @@ import java.io.IOException;
 import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -240,10 +241,16 @@ public class BackupJobTest {
         };
 
         // Only include first table to ensure other tests are not affected
-        List<TableRef> tableRefs = Lists.newArrayList();
-        tableRefs.add(new TableRef(
-                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME),
-                null));
+        List<TableRefInfo> tableRefs = Lists.newArrayList();
+        tableRefs.add(new TableRefInfo(
+                new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME),
+                null,
+                null,
+                null,
+                new ArrayList<>(),
+                null,
+                null,
+                new ArrayList<>()));
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupCommand.BackupContent.ALL,
                 env, repo.getId(), 0);
     }
@@ -396,10 +403,16 @@ public class BackupJobTest {
         // 1. pending
         AgentTaskQueue.clearAllTasks();
 
-        List<TableRef> tableRefs = Lists.newArrayList();
-        tableRefs.add(
-                new TableRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, "unknown_tbl"),
-                        null));
+        List<TableRefInfo> tableRefs = Lists.newArrayList();
+        tableRefs.add(new TableRefInfo(
+                new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, "unknown_tbl"),
+                null,
+                null,
+                null,
+                new ArrayList<>(),
+                null,
+                null,
+                new ArrayList<>()));
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupCommand.BackupContent.ALL,
                 env, repo.getId(), 0);
         job.run();
@@ -423,15 +436,27 @@ public class BackupJobTest {
         // Verify backup succeeds, backs up the normal table, and skips the non-existent table
         AgentTaskQueue.clearAllTasks();
 
-        List<TableRef> tableRefs = Lists.newArrayList();
+        List<TableRefInfo> tableRefs = Lists.newArrayList();
         // Add normal table
-        tableRefs.add(new TableRef(
-                new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME),
-                null));
+        tableRefs.add(new TableRefInfo(
+                new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME),
+                null,
+                null,
+                null,
+                new ArrayList<>(),
+                null,
+                null,
+                new ArrayList<>()));
         // Add non-existent table
-        tableRefs.add(
-                new TableRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, "unknown_tbl"),
-                        null));
+        tableRefs.add(new TableRefInfo(
+                new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, "unknown_tbl"),
+                null,
+                null,
+                null,
+                new ArrayList<>(),
+                null,
+                null,
+                new ArrayList<>()));
 
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupCommand.BackupContent.ALL,
                 env, repo.getId(), 0);
@@ -477,13 +502,25 @@ public class BackupJobTest {
         try {
             AgentTaskQueue.clearAllTasks();
 
-            List<TableRef> tableRefs = Lists.newArrayList();
-            tableRefs.add(new TableRef(
-                    new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME),
-                    null));
-            tableRefs.add(new TableRef(
-                    new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, table2Name),
-                    null));
+            List<TableRefInfo> tableRefs = Lists.newArrayList();
+            tableRefs.add(new TableRefInfo(
+                    new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME),
+                    null,
+                    null,
+                    null,
+                    new ArrayList<>(),
+                    null,
+                    null,
+                    new ArrayList<>()));
+            tableRefs.add(new TableRefInfo(
+                    new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, table2Name),
+                    null,
+                    null,
+                    null,
+                    new ArrayList<>(),
+                    null,
+                    null,
+                    new ArrayList<>()));
 
             job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupCommand.BackupContent.ALL,
                     env, repo.getId(), 0);
@@ -595,10 +632,17 @@ public class BackupJobTest {
         final Path path = Files.createTempFile("backupJob", "tmp");
         DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
-        List<TableRef> tableRefs = Lists.newArrayList();
+        List<TableRefInfo> tableRefs = Lists.newArrayList();
         tableRefs.add(
-                new TableRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME),
-                        null));
+                new TableRefInfo(
+                        new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME),
+                        null,
+                        null,
+                        null,
+                        new ArrayList<>(),
+                        null,
+                        null,
+                        new ArrayList<>()));
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupCommand.BackupContent.ALL,
             env, repo.getId(), 123);
 

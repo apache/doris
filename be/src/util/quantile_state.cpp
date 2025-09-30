@@ -40,7 +40,7 @@ QuantileState::QuantileState(const Slice& slice) {
     }
 }
 
-size_t QuantileState::get_serialized_size() {
+size_t QuantileState::get_serialized_size() const {
     size_t size = 1 + sizeof(float); // type(QuantileStateType) + compression(float)
     switch (_type) {
     case EMPTY:

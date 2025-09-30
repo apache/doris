@@ -50,6 +50,7 @@
 #include "vec/data_types/data_type_ipv6.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/functions/function.h"
 
 namespace doris {
@@ -547,7 +548,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         const auto* origin_value = reinterpret_cast<const IPv6*>(data);
         (*node).__set_node_type(TExprNodeType::IPV6_LITERAL);
         TIPv6Literal literal;
-        literal.__set_value(vectorized::DataTypeIPv6::to_string(*origin_value));
+        literal.__set_value(vectorized::CastToString::from_ip(*origin_value));
         (*node).__set_ipv6_literal(literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
     } else if constexpr (T == TYPE_TIMEV2) {
