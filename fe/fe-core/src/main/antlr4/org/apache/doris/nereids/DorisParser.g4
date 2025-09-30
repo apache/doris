@@ -1599,6 +1599,8 @@ primaryExpression
         (ORDER BY sortItem (COMMA sortItem)*)?
         (SEPARATOR sep=expression)? RIGHT_PAREN
         (OVER windowSpec)?                                                                     #groupConcat
+    | GET_FORMAT LEFT_PAREN
+        getFormatCategory COMMA expression RIGHT_PAREN                                  #getFormatFunction
     | TRIM LEFT_PAREN
         ((BOTH | LEADING | TRAILING) expression? | expression) FROM expression RIGHT_PAREN     #trim
     | (SUBSTR | SUBSTRING) LEFT_PAREN
@@ -1618,6 +1620,16 @@ primaryExpression
     | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
       source=valueExpression RIGHT_PAREN                                                       #extract
     | primaryExpression COLLATE (identifier | STRING_LITERAL | DEFAULT)                        #collate
+    ;
+
+getFormatCategory
+    : DATE
+    | DATETIME
+    | TIME
+    | ident=identifier
+        { $ident.text.equalsIgnoreCase("date")
+            || $ident.text.equalsIgnoreCase("datetime")
+            || $ident.text.equalsIgnoreCase("time") }?
     ;
 
 exceptOrReplace
