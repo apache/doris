@@ -160,8 +160,6 @@ private:
     RuntimeProfile::Counter* _memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
 
-    // Number of rows received
-    RuntimeProfile::Counter* _rows_produced_counter = nullptr;
     // Number of blocks received
     RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
