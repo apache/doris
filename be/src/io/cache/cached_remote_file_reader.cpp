@@ -34,7 +34,7 @@
 #include <thread>
 #include <vector>
 
-#include "cloud/balance_warm_up_cache_mgr.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "cpp/sync_point.h"
@@ -151,23 +151,8 @@ std::pair<size_t, size_t> CachedRemoteFileReader::s_align_size(size_t offset, si
 }
 
 namespace {
-// Helper functions for remote read operations
-
-// Extract actual file path from S3 URL format
-std::string extract_actual_path(const std::string& file_path) {
-    if (!file_path.starts_with("s3://")) {
-        return file_path; // Not an S3 URL, return as is
-    }
-
-    // Find '/' after "s3://" to locate bucket end
-    size_t bucket_end = file_path.find('/', 5);
-    if (bucket_end == std::string::npos || bucket_end + 1 >= file_path.length()) {
-        LOG_WARNING("Invalid S3 path format - missing path after bucket")
-                .tag("file_path", file_path);
-        return "";
-    }
-
-    return file_path.substr(bucket_end + 1); // Remove "s3://bucket/"
+std::optional<int64_t> extract_tablet_id(const std::string& file_path) {
+    return StorageResource::parse_tablet_id_from_path(file_path);
 }
 
 // Get peer connection info from tablet_id
@@ -175,29 +160,21 @@ std::pair<std::string, int> get_peer_connection_info(const std::string& file_pat
     std::string host = "";
     int port = 0;
 
-    // Extract actual path from S3 URL format: s3://bucket/path -> path
-    std::string actual_path = extract_actual_path(file_path);
-    if (actual_path.empty()) {
-        return {host, port};
-    }
-
     // Try to get tablet_id from actual path and lookup tablet info
-    if (auto tablet_id = StorageResource::parse_tablet_id_from_path(actual_path)) {
-        if (auto tablet_info =
-                    cloud::BalanceWarmUpCacheMgr::instance().get_tablet_info(*tablet_id)) {
-            host = tablet_info->host;
-            port = tablet_info->brpc_port;
+    if (auto tablet_id = extract_tablet_id(file_path)) {
+        auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+        if (auto tablet_info = manager.get_balanced_tablet_info(*tablet_id)) {
+            host = tablet_info->first;
+            port = tablet_info->second;
         } else {
             LOG_WARNING("get peer connection info not found")
                     .tag("tablet_id", *tablet_id)
-                    .tag("file_path", file_path)
-                    .tag("actual_path", actual_path);
+                    .tag("file_path", file_path);
         }
     } else {
         LOG_WARNING("parse tablet id from path failed")
                 .tag("tablet_id", "null")
-                .tag("file_path", file_path)
-                .tag("actual_path", actual_path);
+                .tag("file_path", file_path);
     }
 
     DBUG_EXECUTE_IF("PeerFileCacheReader::_fetch_from_peer_cache_blocks", {
@@ -275,19 +252,20 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
         }
     });
 
-    // first try peer read, if peer failed, fallback to S3
-    // peer timeout is 5 seconds
-    // TODO(dx): here peer and s3 reader need to get data in parallel, and take the one that is correct and returns first
-    auto st = execute_peer_read(empty_blocks, empty_start, size, buffer, path().native(),
-                                _is_doris_table, stats, io_ctx);
-    if (!st.ok()) {
-        // Fallback to S3
-        s3_read_counter << 1;
-        buffer.reset(new char[size]);
-        SCOPED_RAW_TIMER(&stats.remote_read_timer);
-        return _remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
+    if (!_is_doris_table || !doris::config::enable_cache_read_from_peer) {
+        return execute_s3_read(empty_start, size, buffer, stats, io_ctx, _remote_file_reader);
+    } else {
+        // first try peer read, if peer failed, fallback to S3
+        // peer timeout is 5 seconds
+        // TODO(dx): here peer and s3 reader need to get data in parallel, and take the one that is correct and returns first
+        auto st = execute_peer_read(empty_blocks, empty_start, size, buffer, path().native(),
+                                    _is_doris_table, stats, io_ctx);
+        if (!st.ok()) {
+            // Fallback to S3
+            return execute_s3_read(empty_start, size, buffer, stats, io_ctx, _remote_file_reader);
+        }
+        return st;
     }
-    return st;
 }
 
 Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,

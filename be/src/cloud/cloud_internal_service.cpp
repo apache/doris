@@ -182,7 +182,7 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
         return;
     }
     int64_t begin_ts = std::chrono::duration_cast<std::chrono::microseconds>(
-                               std::chrono::system_clock::now().time_since_epoch())
+                               std::chrono::steady_clock::now().time_since_epoch())
                                .count();
     const auto type = request->type();
     const auto& path = request->path();
@@ -212,8 +212,16 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
             size_t size = static_cast<size_t>(std::max<int64_t>(0, cb_req.block_size()));
             auto holder = cache->get_or_set(hash, offset, size, ctx);
             for (auto& fb : holder.file_blocks) {
+                auto state = fb->state();
+                if (state != io::FileBlock::State::DOWNLOADED) {
+                    g_file_cache_get_by_peer_failed_num << 1;
+                    LOG(WARNING) << "read cache block failed, state=" << state;
+                    response->mutable_status()->add_error_msgs("read cache file error");
+                    response->mutable_status()->set_status_code(TStatusCode::INTERNAL_ERROR);
+                    return;
+                }
                 g_file_cache_get_by_peer_blocks_num << 1;
-                doris::CacheBlock* out = response->add_datas();
+                doris::CacheBlockPB* out = response->add_datas();
                 out->set_block_offset(static_cast<int64_t>(fb->offset()));
                 out->set_block_size(static_cast<int64_t>(fb->range().size()));
                 std::string data;
@@ -223,7 +231,7 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
                 // due to file_reader.cpp:33] Check failed: bthread_self() == 0
                 int64_t begin_read_file_ts =
                         std::chrono::duration_cast<std::chrono::microseconds>(
-                                std::chrono::system_clock::now().time_since_epoch())
+                                std::chrono::steady_clock::now().time_since_epoch())
                                 .count();
                 auto task = [&] {
                     // Current thread not exist ThreadContext, usually after the thread is started, using SCOPED_ATTACH_TASK macro to create a ThreadContext and bind a Task.
@@ -234,7 +242,7 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
                 AsyncIO::run_task(task, io::FileSystemType::LOCAL);
                 int64_t end_read_file_ts =
                         std::chrono::duration_cast<std::chrono::microseconds>(
-                                std::chrono::system_clock::now().time_since_epoch())
+                                std::chrono::steady_clock::now().time_since_epoch())
                                 .count();
                 g_file_cache_get_by_peer_read_cache_file_latency
                         << (end_read_file_ts - begin_read_file_ts);
@@ -258,7 +266,7 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
     });
 
     int64_t end_ts = std::chrono::duration_cast<std::chrono::microseconds>(
-                             std::chrono::system_clock::now().time_since_epoch())
+                             std::chrono::steady_clock::now().time_since_epoch())
                              .count();
     g_file_cache_get_by_peer_server_latency << (end_ts - begin_ts);
     g_file_cache_get_by_peer_success_num << 1;

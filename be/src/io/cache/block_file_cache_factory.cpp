@@ -120,21 +120,21 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
     return Status::OK();
 }
 
-std::vector<doris::CacheBlock> FileCacheFactory::get_cache_data_by_path(const std::string& path) {
+std::vector<doris::CacheBlockPB> FileCacheFactory::get_cache_data_by_path(const std::string& path) {
     auto cache_hash = BlockFileCache::hash(path);
     return get_cache_data_by_path(cache_hash);
 }
 
-std::vector<doris::CacheBlock> FileCacheFactory::get_cache_data_by_path(
+std::vector<doris::CacheBlockPB> FileCacheFactory::get_cache_data_by_path(
         const UInt128Wrapper& hash) {
-    std::vector<doris::CacheBlock> ret;
+    std::vector<doris::CacheBlockPB> ret;
     BlockFileCache* cache = FileCacheFactory::instance()->get_by_path(hash);
     if (cache == nullptr) {
         return ret;
     }
     auto blocks = cache->get_blocks_by_key(hash);
     for (auto& [offset, fb] : blocks) {
-        doris::CacheBlock cb;
+        doris::CacheBlockPB cb;
         cb.set_block_offset(static_cast<int64_t>(offset));
         cb.set_block_size(static_cast<int64_t>(fb->range().size()));
         // try to read data into bytes

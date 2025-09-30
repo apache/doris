@@ -1104,7 +1104,7 @@ message PFetchPeerDataRequest {
     repeated CacheBlockReqest cache_req = 5;
 }
 
-message CacheBlock {
+message CacheBlockPB {
     optional int64 block_offset = 1;
     optional int64 block_size = 2;
     optional bytes data = 3;
@@ -1112,7 +1112,7 @@ message CacheBlock {
 
 message PFetchPeerDataResponse {
     optional PStatus status = 1;
-    repeated CacheBlock datas = 2;
+    repeated CacheBlockPB datas = 2;
 }
 
 service PBackendService {
