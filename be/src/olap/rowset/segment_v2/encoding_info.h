@@ -103,6 +103,18 @@ public:
     EncodingTypePB get_default_encoding(FieldType type, bool optimize_value_seek) const {
         if (!optimize_value_seek) {
             if (config::all_use_plain_encoding) {
+                if (config::use_plain_binary_v2 &&
+                    (type == FieldType::OLAP_FIELD_TYPE_CHAR ||
+                     type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+                     type == FieldType::OLAP_FIELD_TYPE_STRING ||
+                     type == FieldType::OLAP_FIELD_TYPE_HLL ||
+                     type == FieldType::OLAP_FIELD_TYPE_BITMAP ||
+                     type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE ||
+                     type == FieldType::OLAP_FIELD_TYPE_AGG_STATE ||
+                     type == FieldType::OLAP_FIELD_TYPE_JSONB ||
+                     type == FieldType::OLAP_FIELD_TYPE_VARIANT)) {
+                    return PLAIN_ENCODING_V2;
+                }
                 return PLAIN_ENCODING;
             }
         }
