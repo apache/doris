@@ -520,15 +520,16 @@ TEST_F(BooleanQueryTest, test_boolean_query_bitmap_and_term) {
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
-    auto* reader = IndexReader::open(dir, true);
+    auto* reader = lucene::index::IndexReader::open(dir, true);
     ASSERT_TRUE(reader != nullptr);
 
-    auto reader_holder = std::shared_ptr<IndexReader>(reader, [](IndexReader* r) {
-        if (r != nullptr) {
-            r->close();
-            _CLLDELETE(r);
-        }
-    });
+    auto reader_holder =
+            std::shared_ptr<lucene::index::IndexReader>(reader, [](lucene::index::IndexReader* r) {
+                if (r != nullptr) {
+                    r->close();
+                    _CLLDELETE(r);
+                }
+            });
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = static_cast<uint32_t>(reader_holder->numDocs());
@@ -570,15 +571,16 @@ TEST_F(BooleanQueryTest, test_boolean_query_bitmap_or_term) {
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
-    auto* reader = IndexReader::open(dir, true);
+    auto* reader = lucene::index::IndexReader::open(dir, true);
     ASSERT_TRUE(reader != nullptr);
 
-    auto reader_holder = std::shared_ptr<IndexReader>(reader, [](IndexReader* r) {
-        if (r != nullptr) {
-            r->close();
-            _CLLDELETE(r);
-        }
-    });
+    auto reader_holder =
+            std::shared_ptr<lucene::index::IndexReader>(reader, [](lucene::index::IndexReader* r) {
+                if (r != nullptr) {
+                    r->close();
+                    _CLLDELETE(r);
+                }
+            });
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = static_cast<uint32_t>(reader_holder->numDocs());
