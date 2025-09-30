@@ -42,7 +42,6 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
-import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
@@ -63,6 +62,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.dictionary.LayoutType;
+import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableRefInfo;
+import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -943,7 +946,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.ModifyTableCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition.MaxValue;
-import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
@@ -967,8 +969,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.SetVarOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ShowCreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.WarmUpItem;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
@@ -7771,13 +7771,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String alias = visitTableAlias(ctx.tableAlias());
         Map<String, String> params = visitPropertyItemList(ctx.properties);
 
-        TableValuedFunctionRef tableValuedFunctionRef = null;
+        TableValuedFunctionRefInfo tableValuedFunctionRefInfo = null;
         try {
-            tableValuedFunctionRef = new TableValuedFunctionRef(tvfName, alias, params);
+            tableValuedFunctionRefInfo = new TableValuedFunctionRefInfo(tvfName, alias, params);
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getDetailMessage());
         }
-        return new DescribeCommand(tableValuedFunctionRef);
+        return new DescribeCommand(tableValuedFunctionRefInfo);
     }
 
     @Override
