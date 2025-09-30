@@ -65,7 +65,7 @@ class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
                 + " then (case when false then null else null end) "
                 + " else null end";
 
-        assertRewrite(sql, expectedSql);
+        assertRewriteAfterTypeCoercion(sql, expectedSql);
 
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(replaceCaseThenInstance)
@@ -80,7 +80,7 @@ class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
                 + " then (case when false then false else false end) "
                 + " else false end";
 
-        assertRewrite(sql, expectedSql);
+        assertRewriteAfterTypeCoercion(sql, expectedSql);
     }
 
     @Test
@@ -90,13 +90,13 @@ class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
         ));
 
         String sql = "if("
-                + " null and not(null) and if(null and not(null), null, null),"
+                + " null and not(null) and if(null and not(null), null and true, null),"
                 + " null and not(null),"
                 + " if(a = 1 and null, null, null)"
                 + ")";
 
         String expectedSql = "if("
-                + " false and not(null) and if(false and not(null), false, false),"
+                + " false and not(null) and if(false and not(null), false and true, false),"
                 + " null and not(null),"
                 + " if(a = 1 and false, null, null)"
                 + ")";
@@ -108,12 +108,12 @@ class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
         ));
 
         expectedSql = "if("
-                + " false and not(null) and if(false and not(null), false, false),"
+                + " false and not(null) and if(false and not(null), false and true, false),"
                 + " false and not(null),"
                 + " if(a = 1 and false, false, false)"
                 + ")";
 
-        assertRewrite(sql, expectedSql);
+        assertRewriteAfterTypeCoercion(sql, expectedSql);
     }
 
     @Override
