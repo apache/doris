@@ -57,15 +57,6 @@ int main(int argc, char** argv) {
 
     ::testing::InitGoogleTest(&argc, argv);
 
-    // Setup syncpoint to disable notify_refresh_instance for all tests
-    // This MUST be done before any test runs to prevent race conditions
-    auto* sp = doris::SyncPoint::get_instance();
-    sp->enable_processing();
-    sp->set_call_back("notify_refresh_instance_return", [](auto&& args) {
-        auto* pred = doris::try_any_cast<bool*>(args.back());
-        *pred = true;
-    });
-
     return RUN_ALL_TESTS();
 }
 
