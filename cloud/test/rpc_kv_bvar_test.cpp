@@ -524,7 +524,7 @@ void clear_memkv_count_bytes(MemTxnKv* memkv) {
     memkv->get_bytes_ = memkv->put_bytes_ = memkv->del_bytes_ = 0;
 }
 
-// RAII guard to setup and cleanup notify_refresh_instance syncpoint
+// setup and cleanup notify_refresh_instance syncpoint
 class NotifyRefreshSyncpointGuard {
 public:
     NotifyRefreshSyncpointGuard() {
