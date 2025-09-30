@@ -54,6 +54,8 @@ public:
 
     bool equals(const VExpr& other) override;
 
+    const std::string& column_name() const { return *_column_name; }
+
 private:
     int _slot_id;
     int _column_id;

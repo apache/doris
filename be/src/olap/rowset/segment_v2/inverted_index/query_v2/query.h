@@ -26,7 +26,7 @@ public:
     Query() = default;
     virtual ~Query() = default;
 
-    virtual WeightPtr weight(bool enable_scoring) = 0;
+    virtual WeightPtr weight() = 0;
 };
 using QueryPtr = std::shared_ptr<Query>;
 

@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToN
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -252,6 +253,11 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         // Match need give more info rather then as left child a NULL, in
         // match_phrase_prefix/MATCH_PHRASE/MATCH_PHRASE/MATCH_ANY
         if (expr instanceof Match) {
+            return true;
+        }
+
+        // Search function should always not be folded to constant.
+        if (expr instanceof Search) {
             return true;
         }
 

@@ -141,6 +141,7 @@ public:
     virtual void close(VExprContext* context, FunctionContext::FunctionStateScope scope);
 
     DataTypePtr& data_type() { return _data_type; }
+    const DataTypePtr& data_type() const { return _data_type; }
 
     TypeDescriptor type() { return _type; }
 

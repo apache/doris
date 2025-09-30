@@ -19,34 +19,29 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_weight.h"
-#include "olap/rowset/segment_v2/inverted_index/similarity/bm25_similarity.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 class TermQuery : public Query {
 public:
-    TermQuery(IndexQueryContextPtr context, std::wstring field, std::wstring term)
-            : _context(std::move(context)), _field(std::move(field)), _term(std::move(term)) {}
+    TermQuery(IndexQueryContextPtr context, std::wstring field, std::wstring term,
+              std::string logical_field = {})
+            : _context(std::move(context)),
+              _field(std::move(field)),
+              _term(std::move(term)),
+              _logical_field(std::move(logical_field)) {}
     ~TermQuery() override = default;
 
-    WeightPtr weight(bool enable_scoring) override {
-        SimilarityPtr bm25_similarity;
-        if (enable_scoring) {
-            bm25_similarity = std::make_shared<BM25Similarity>();
-            bm25_similarity->for_one_term(_context, _field, _term);
-        } else {
-            bm25_similarity = std::make_shared<BM25Similarity>(1.0F, 1.0F);
-        }
+    WeightPtr weight() override {
         return std::make_shared<TermWeight>(std::move(_context), std::move(_field),
-                                            std::move(_term), std::move(bm25_similarity),
-                                            enable_scoring);
+                                            std::move(_term), _logical_field);
     }
 
 private:
     IndexQueryContextPtr _context;
-
     std::wstring _field;
     std::wstring _term;
+    std::string _logical_field;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

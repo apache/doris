@@ -73,6 +73,16 @@ class InvertedIndexIterator;
 class InvertedIndexQueryCacheHandle;
 class InvertedIndexFileReader;
 struct InvertedIndexQueryInfo;
+
+struct InvertedIndexParam {
+    std::string column_name;
+    vectorized::DataTypePtr column_type;
+    const void* query_value;
+    InvertedIndexQueryType query_type;
+    uint32_t num_rows;
+    std::shared_ptr<roaring::Roaring> roaring;
+    bool skip_try = false;
+};
 class InvertedIndexResultBitmap {
 private:
     std::shared_ptr<roaring::Roaring> _data_bitmap = nullptr;
@@ -235,6 +245,10 @@ public:
     static Status create_index_searcher(IndexSearcherBuilder* index_searcher_builder,
                                         lucene::store::Directory* dir, IndexSearcherPtr* searcher,
                                         size_t& reader_size);
+    std::shared_ptr<InvertedIndexFileReader> get_index_file_reader() const {
+        return _inverted_index_file_reader;
+    }
+    const TabletIndex& get_index_meta() const { return _index_meta; }
 
 protected:
     Status match_index_search(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
@@ -509,11 +523,11 @@ public:
 
     InvertedIndexReaderPtr get_reader(InvertedIndexReaderType type);
 
-private:
-    Result<InvertedIndexReaderPtr> _select_best_reader(const vectorized::DataTypePtr& column_type,
-                                                       InvertedIndexQueryType query_type);
-    Result<InvertedIndexReaderPtr> _select_best_reader();
+    Result<InvertedIndexReaderPtr> select_best_reader(const vectorized::DataTypePtr& column_type,
+                                                      InvertedIndexQueryType query_type);
+    Result<InvertedIndexReaderPtr> select_best_reader();
 
+private:
     io::IOContext _io_ctx;
     OlapReaderStatistics* _stats = nullptr;
     RuntimeState* _runtime_state = nullptr;

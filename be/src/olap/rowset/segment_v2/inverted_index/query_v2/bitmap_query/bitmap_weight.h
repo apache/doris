@@ -27,18 +27,21 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 
 class BitmapWeight final : public Weight {
 public:
-    explicit BitmapWeight(std::shared_ptr<roaring::Roaring> bitmap) : _bitmap(std::move(bitmap)) {}
+    BitmapWeight(std::shared_ptr<roaring::Roaring> bitmap,
+                 std::shared_ptr<roaring::Roaring> null_bitmap = nullptr)
+            : _bitmap(std::move(bitmap)), _null_bitmap(std::move(null_bitmap)) {}
     ~BitmapWeight() override = default;
 
-    ScorerPtr scorer(const CompositeReaderPtr& /*composite_reader*/) override {
+    ScorerPtr scorer(const QueryExecutionContext& /*context*/) override {
         if (_bitmap == nullptr || _bitmap->isEmpty()) {
             return std::make_shared<EmptyScorer>();
         }
-        return std::make_shared<BitmapScorer>(_bitmap);
+        return std::make_shared<BitmapScorer>(_bitmap, _null_bitmap);
     }
 
 private:
     std::shared_ptr<roaring::Roaring> _bitmap;
+    std::shared_ptr<roaring::Roaring> _null_bitmap;
 };
 
 using BitmapWeightPtr = std::shared_ptr<BitmapWeight>;
