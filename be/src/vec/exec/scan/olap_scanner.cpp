@@ -642,8 +642,8 @@ void OlapScanner::update_realtime_counters() {
     _tablet_reader->mutable_stats()->uncompressed_bytes_read = 0;
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
 
-    _bytes_read_from_local = _tablet_reader->stats()->file_cache_stats.bytes_read_from_local;
-    _bytes_read_from_remote = _tablet_reader->stats()->file_cache_stats.bytes_read_from_remote;
+    _bytes_read_from_local = _tablet_reader->stats().file_cache_stats.bytes_read_from_local;
+    _bytes_read_from_remote = _tablet_reader->stats().file_cache_stats.bytes_read_from_remote;
 }
 
 void OlapScanner::_collect_profile_before_close() {
