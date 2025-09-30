@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForSingleTimeArithmetic;
-import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
