@@ -432,7 +432,7 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
 void RuntimeFilterMergeControllerEntity::release_undone_filters(QueryContext* query_ctx) {
     std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
     for (auto& [filter_id, ctx] : _filter_map) {
-        if (!ctx.done) {
+        if (!ctx.done && !ctx.targetv2_info.empty()) {
             auto st = _send_rf_to_target(ctx, std::weak_ptr<QueryContext> {}, 0,
                                          UniqueId(query_ctx->query_id()).to_proto(),
                                          query_ctx->execution_timeout());
