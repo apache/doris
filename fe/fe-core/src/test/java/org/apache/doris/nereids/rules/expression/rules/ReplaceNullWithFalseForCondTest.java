@@ -93,7 +93,7 @@ class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
                 + " if(a = 1 and false, null, null)"
                 + ")";
 
-        assertRewrite(sql, expectedSql);
+        assertRewriteAfterTypeCoercion(sql, expectedSql);
 
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(replaceCaseThenInstance, SimplifyCastRule.INSTANCE)
