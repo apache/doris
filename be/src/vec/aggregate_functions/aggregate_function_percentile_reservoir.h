@@ -58,6 +58,8 @@ struct QuantileReservoirSampler {
     }
 
     double get() const {
+        // The caller is a ConstAggregateDataPtr, but it itself is an AggregateDataPtr.
+        // To call a non-const method here, a const_cast is required.
         return const_cast<ReservoirSampler&>(data).quantileInterpolated(this->level);
     }
 
