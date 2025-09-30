@@ -3116,26 +3116,28 @@ public class SessionVariable implements Serializable, Writable {
         this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
 
         // for spill to disk
-        switch (randomInt % 4) {
-            case 0:
-                this.spillMinRevocableMem = 0;
-                break;
-            case 1:
-                this.spillMinRevocableMem = 1;
-                break;
-            case 2:
-                this.spillMinRevocableMem = 1024 * 1024;
-                break;
-            case 3:
-            default:
-                this.spillMinRevocableMem = 100L * 1024 * 1024;
-                break;
-        }
+        if (Config.fuzzy_test_type.equals("p0")) {
+            switch (randomInt % 4) {
+                case 0:
+                    this.spillMinRevocableMem = 0;
+                    break;
+                case 1:
+                    this.spillMinRevocableMem = 1;
+                    break;
+                case 2:
+                    this.spillMinRevocableMem = 1024 * 1024;
+                    break;
+                case 3:
+                default:
+                    this.spillMinRevocableMem = 100L * 1024 * 1024;
+                    break;
+            }
 
-        randomInt = random.nextInt(99);
-        this.enableSpill = randomInt % 4 != 0;
-        this.enableForceSpill = randomInt % 3 == 0;
-        this.enableReserveMemory = randomInt % 5 != 0;
+            randomInt = random.nextInt(99);
+            this.enableSpill = randomInt % 4 != 0;
+            this.enableForceSpill = randomInt % 3 == 0;
+            this.enableReserveMemory = randomInt % 5 != 0;
+        }
 
         // random pre materialized view rewrite strategy
         randomInt = random.nextInt(3);
