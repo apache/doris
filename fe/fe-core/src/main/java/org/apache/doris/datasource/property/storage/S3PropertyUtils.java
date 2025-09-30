@@ -21,7 +21,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
-import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -30,18 +29,11 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 public class S3PropertyUtils {
     private static final Logger LOG = LogManager.getLogger(S3PropertyUtils.class);
 
     private static final String URI_KEY = "uri";
-
-    private static final Set<String> URI_CONFLICT_KEYS = ImmutableSet.of(
-            "hive.metastore.type",
-            "paimon.catalog.type",
-            "iceberg.catalog.type"
-    );
 
     /**
      * Constructs the S3 endpoint from a given URI in the props map.
@@ -58,13 +50,6 @@ public class S3PropertyUtils {
     public static String constructEndpointFromUrl(Map<String, String> props,
                                                   String stringUsePathStyle,
                                                   String stringForceParsingByStandardUri) {
-        // Check for conflicting keys and ignore case-insensitively
-        for (String conflictKey : URI_CONFLICT_KEYS) {
-            if (props.keySet().stream().anyMatch(k -> k.equalsIgnoreCase(conflictKey))) {
-                return null;
-            }
-        }
-
         Optional<String> uriOptional = props.entrySet().stream()
                 .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
                 .map(Map.Entry::getValue)
