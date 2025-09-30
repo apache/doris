@@ -33,11 +33,9 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * For nested CaseWhen/IF expression, replace the inner CaseWhen/IF condition with TRUE/FALSE literal
@@ -130,14 +128,8 @@ public class NestedCaseWhenCondToLiteral implements ExpressionPatternRuleFactory
             ImmutableList.Builder<WhenClause> newWhenClausesBuilder
                     = ImmutableList.builderWithExpectedSize(caseWhen.arity());
             List<Expression> firstOccurConds = Lists.newArrayListWithExpectedSize(caseWhen.arity());
-            Set<Expression> uniqueConditions = Sets.newHashSet();
             for (WhenClause whenClause : caseWhen.getWhenClauses()) {
                 Expression oldCondition = whenClause.getOperand();
-                if (!uniqueConditions.add(oldCondition)) {
-                    // the later same condition will rewrite to FALSE,
-                    // but we can skip it directly for effective.
-                    continue;
-                }
                 Pair<Expression, Boolean> replaceResult = replaceCondition(oldCondition, context);
                 Expression newCondition = replaceResult.first;
                 boolean condFirstOccur = replaceResult.second;
