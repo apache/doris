@@ -89,6 +89,13 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         this.olapTable = (OlapTable) table;
     }
 
+    public OlapInsertExecutor(ConnectContext ctx, Table table,
+            String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert,
+            long jobId) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
+        this.olapTable = (OlapTable) table;
+    }
+
     @Override
     public void beginTransaction() {
         if (isGroupCommitHttpStream()) {

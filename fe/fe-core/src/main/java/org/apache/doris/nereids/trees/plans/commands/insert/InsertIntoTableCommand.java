@@ -377,7 +377,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                             planner,
                             dataSink,
                             physicalSink,
-                            () -> new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert)
+                            () -> new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert, jobId)
                     );
                 }
 
