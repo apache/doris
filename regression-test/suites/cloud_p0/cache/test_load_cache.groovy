@@ -32,7 +32,7 @@ Explanation: The query phase caches the compressed file, so the Disposable queue
 changes to statistics are possible, only a reasonable range is required.
 */
 
-suite('test_load_cache_size', 'docker') {
+suite('test_load_cache', 'docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
