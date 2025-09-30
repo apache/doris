@@ -165,12 +165,12 @@ suite("test_date_function_v2") {
     qt_sql_addtime2 "select add_time('2023-10-14 00:00:00.12', '22:35:22.123456');"
     testFoldConst("select add_time('2023-10-14 00:00:00.12', '22:35:22.123456');")
     qt_sql_addtime3 "select add_time(dt, '122:35:22.123456') from ${tableName};"
-    qt_sql_addtime4 "select add_time(cast('822:35:22.123456' as time), cast('421:01:01' as time));"
-    qt_sql_addtime5 "select add_time(cast('-82:35:22.123456' as time), cast('-421:01:01' as time));"
-    
+    qt_sql_addtime4 "select add_time(cast('822:35:22.123456' as time(6)), cast('421:01:01' as time(6)));"
+    qt_sql_addtime5 "select add_time(cast('-82:35:22.123456' as time(6)), cast('-421:01:01' as time(6)));"
+
     // test time string and datetime type in table
     qt_sql_addtime6 "select add_time(datetime_val, time_str) from ${tableName} order by id;"
-    qt_sql_addtime7 "select add_time(cast(time_str as time), cast('02:00:00.123' as time)) from ${tableName} order by id;"
+    qt_sql_addtime7 "select add_time(cast(time_str as time), cast('02:00:00.123' as time(3))) from ${tableName} order by id;"
     qt_sql_addtime8 "select add_time(datetime_val, cast('01:30:00' as time)) from ${tableName} order by id;"
 
     test{
@@ -183,12 +183,12 @@ suite("test_date_function_v2") {
     qt_sql_subtime2("select sub_time('2023-10-14 00:00:00.12', '22:35:22.123456');")
     testFoldConst("select sub_time('2023-10-14 00:00:00.12', '22:35:22.123456');")
     qt_sql_subtime3("select sub_time(dt, '22:35:22.123456') from ${tableName};")
-    qt_sql_subtime4("select sub_time(cast('-421:01:01' as time), cast('822:35:22' as time));")
-    qt_sql_subtime5("select sub_time(cast('421:01:01' as time), cast('-82:35:22.123456' as time));")
+    qt_sql_subtime4("select sub_time('-421:01:01', '822:35:22');")
+    qt_sql_subtime5("select sub_time('421:01:01', '-82:35:22.123456');")
     
     // test time string and datetime type in table
     qt_sql_subtime6("select sub_time(datetime_val, time_str) from ${tableName} order by id;")
-    qt_sql_subtime7("select sub_time(cast(time_str as time), cast('02:00:00.123' as time)) from ${tableName} order by id;")
+    qt_sql_subtime7("select sub_time(cast(time_str as time), cast('02:00:00.123' as time(3))) from ${tableName} order by id;")
     qt_sql_subtime8("select sub_time(datetime_val, cast('01:30:00' as time)) from ${tableName} order by id;")
 
     test{
