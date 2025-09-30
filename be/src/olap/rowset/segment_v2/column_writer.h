@@ -236,6 +236,8 @@ public:
     // Get the total size of data pages for this column
     uint64_t get_data_page_size() const override { return _data_page_size; }
 
+    uint64_t get_uncompressed_data_page_size() const { return _uncompressed_data_page_size; }
+
     void register_flush_page_callback(FlushPageCallback* flush_page_callback) {
         _new_page_callback = flush_page_callback;
     }
@@ -294,6 +296,7 @@ private:
     uint64_t _data_size;
 
     uint64_t _data_page_size {0};
+    uint64_t _uncompressed_data_page_size {0};
 
     // cached generated pages,
     std::vector<std::unique_ptr<Page>> _pages;
