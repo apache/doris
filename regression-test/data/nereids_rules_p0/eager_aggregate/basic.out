@@ -44,14 +44,13 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
 --------hashAgg[GLOBAL]
-----------hashAgg[GLOBAL]
-------------PhysicalOlapScan[com_dd_library]
+----------PhysicalOlapScan[com_dd_library]
 --------filter((cast(experiment_id as DECIMALV3(38, 6)) = 37.000000))
 ----------PhysicalOlapScan[shunt_log_com_dd_library]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed: use_push_down_agg_through_join
+Used:
+UnUsed: use_push_down_agg_through_join use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_2 --
@@ -60,14 +59,13 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
 --------hashAgg[GLOBAL]
-----------hashAgg[GLOBAL]
-------------PhysicalOlapScan[com_dd_library]
+----------PhysicalOlapScan[com_dd_library]
 --------filter((cast(experiment_id as DECIMALV3(38, 6)) = 73.000000))
 ----------PhysicalOlapScan[shunt_log_com_dd_library]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed: use_push_down_agg_through_join
+Used:
+UnUsed: use_push_down_agg_through_join use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_3 --
@@ -76,14 +74,13 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
 --------hashAgg[GLOBAL]
-----------hashAgg[GLOBAL]
-------------PhysicalOlapScan[com_dd_library]
+----------PhysicalOlapScan[com_dd_library]
 --------filter((cast(experiment_id as DECIMALV3(38, 6)) = 73.000000))
 ----------PhysicalOlapScan[shunt_log_com_dd_library]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed: use_push_down_agg_through_join
+Used:
+UnUsed: use_push_down_agg_through_join use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_4 --
@@ -92,12 +89,11 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
 --------hashAgg[GLOBAL]
-----------hashAgg[GLOBAL]
-------------PhysicalOlapScan[com_dd_library]
+----------PhysicalOlapScan[com_dd_library]
 --------PhysicalOlapScan[shunt_log_com_dd_library]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed: use_push_down_agg_through_join
+Used:
+UnUsed: use_push_down_agg_through_join use_push_down_agg_through_join_one_side
 SyntaxError:
 

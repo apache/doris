@@ -17,7 +17,7 @@
  * under the License.
  */
 
-suite("ai19") {
+suite("ai16") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     if (isCloudMode()) {
         return
@@ -34,7 +34,7 @@ suite("ai19") {
     sql 'set enable_runtime_filter_prune=false'
     sql 'set runtime_filter_type=8'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
-
+    sql "set enable_bucket_shuffle_join=false;"
     qt_shape """
     explain shape plan
     SELECT

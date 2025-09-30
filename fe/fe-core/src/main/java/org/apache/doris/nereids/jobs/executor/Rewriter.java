@@ -163,7 +163,6 @@ import org.apache.doris.nereids.rules.rewrite.batch.ApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateApply;
 import org.apache.doris.nereids.rules.rewrite.batch.EliminateUselessPlanUnderApply;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushDownAggThroughJoinOnPkFk;
-import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushDownAggThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushDownAggWithDistinctThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushDownAggregation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
@@ -667,8 +666,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
                         topDown(new NormalizeAggregate()),
                         costBased(topDown(
-                                new PushDownAggWithDistinctThroughJoinOneSide(),
-                                new PushDownAggThroughJoinOneSide()
+                                new PushDownAggWithDistinctThroughJoinOneSide()
                                 )),
                         costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
                         topDown(new PushCountIntoUnionAll())
