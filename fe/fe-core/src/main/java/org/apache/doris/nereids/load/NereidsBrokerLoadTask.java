@@ -225,4 +225,9 @@ public class NereidsBrokerLoadTask implements NereidsLoadTaskInfo {
     public byte getEscape() {
         return 0;
     }
+
+    @Override
+    public boolean getEmptyFieldAsNull() {
+        return false;
+    }
 }

@@ -119,6 +119,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         initBackendConfigProperties();
         this.hadoopStorageConfig = new Configuration();
         this.backendConfigProperties.forEach(hadoopStorageConfig::set);
+        HdfsPropertiesUtils.checkHaConfig(backendConfigProperties);
         hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(hadoopStorageConfig);
     }
 

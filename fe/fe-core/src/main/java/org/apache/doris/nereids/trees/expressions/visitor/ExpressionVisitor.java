@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Any;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
+import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
@@ -75,6 +76,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryOperator;
 import org.apache.doris.nereids.trees.expressions.Variable;
@@ -116,6 +118,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 /**
@@ -257,6 +260,10 @@ public abstract class ExpressionVisitor<R, C>
         return visitLiteral(varcharLiteral, context);
     }
 
+    public R visitVarBinaryLiteral(VarBinaryLiteral varBinaryLiteral, C context) {
+        return visitLiteral(varBinaryLiteral, context);
+    }
+
     public R visitStringLiteral(StringLiteral stringLiteral, C context) {
         return visitLiteral(stringLiteral, context);
     }
@@ -337,6 +344,10 @@ public abstract class ExpressionVisitor<R, C>
         return visitLiteral(structLiteral, context);
     }
 
+    public R visitBetween(Between between, C context) {
+        return visit(between, context);
+    }
+
     public R visitCompoundPredicate(CompoundPredicate compoundPredicate, C context) {
         return visit(compoundPredicate, context);
     }
@@ -351,6 +362,11 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitCast(Cast cast, C context) {
         return visit(cast, context);
+    }
+
+    // By default, use visitCast for TryCast.
+    public R visitTryCast(TryCast tryCast, C context) {
+        return visitCast(tryCast, context);
     }
 
     public R visitUnaryArithmetic(UnaryArithmetic unaryArithmetic, C context) {

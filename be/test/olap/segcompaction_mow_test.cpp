@@ -281,7 +281,8 @@ protected:
             EXPECT_EQ(num_rows_read, expect_total_rows - rows_mark_deleted);
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             std::vector<uint32_t> segment_num_rows;
-            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows).ok());
+            OlapReaderStatistics stats;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, &stats).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;
@@ -314,7 +315,7 @@ TEST_P(SegCompactionMoWTest, SegCompactionThenRead) {
         RowsetWriterContext writer_context;
         int raw_rsid = rand();
         create_rowset_writer_context(raw_rsid, tablet_schema, &writer_context);
-        RowsetIdUnorderedSet rsids;
+        std::shared_ptr<RowsetIdUnorderedSet> rsids {std::make_shared<RowsetIdUnorderedSet>()};
         std::vector<RowsetSharedPtr> rowset_ptrs;
         writer_context.mow_context =
                 std::make_shared<MowContext>(1, 1, rsids, rowset_ptrs, delete_bitmap);
@@ -419,7 +420,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
         create_rowset_writer_context(20048, tablet_schema, &writer_context);
-        RowsetIdUnorderedSet rsids;
+        std::shared_ptr<RowsetIdUnorderedSet> rsids {std::make_shared<RowsetIdUnorderedSet>()};
         std::vector<RowsetSharedPtr> rowset_ptrs;
         writer_context.mow_context =
                 std::make_shared<MowContext>(1, 1, rsids, rowset_ptrs, delete_bitmap);
@@ -660,7 +661,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
         create_rowset_writer_context(20049, tablet_schema, &writer_context);
-        RowsetIdUnorderedSet rsids;
+        std::shared_ptr<RowsetIdUnorderedSet> rsids {std::make_shared<RowsetIdUnorderedSet>()};
         std::vector<RowsetSharedPtr> rowset_ptrs;
         writer_context.mow_context =
                 std::make_shared<MowContext>(1, 1, rsids, rowset_ptrs, delete_bitmap);
@@ -854,7 +855,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionNotTrigger) {
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
         create_rowset_writer_context(20050, tablet_schema, &writer_context);
-        RowsetIdUnorderedSet rsids;
+        std::shared_ptr<RowsetIdUnorderedSet> rsids {std::make_shared<RowsetIdUnorderedSet>()};
         std::vector<RowsetSharedPtr> rowset_ptrs;
         writer_context.mow_context =
                 std::make_shared<MowContext>(1, 1, rsids, rowset_ptrs, delete_bitmap);

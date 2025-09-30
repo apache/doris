@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalTopN[LOCAL_SORT]
-----------------hashAgg[LOCAL]
+----------------hashAgg[GLOBAL]
 ------------------PhysicalOlapScan[table_join]
 ------------PhysicalOlapScan[table_join]
 
@@ -31,7 +31,7 @@ PhysicalResultSink
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalTopN[LOCAL_SORT]
-----------------hashAgg[LOCAL]
+----------------hashAgg[GLOBAL]
 ------------------PhysicalOlapScan[table_join]
 ------------PhysicalStorageLayerAggregate[table_join]
 

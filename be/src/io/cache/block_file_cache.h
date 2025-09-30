@@ -56,7 +56,6 @@ private:
 };
 
 // Note: the cache_lock is scoped, so do not add do...while(0) here.
-#ifdef ENABLE_CACHE_LOCK_DEBUG
 #define SCOPED_CACHE_LOCK(MUTEX, cache)                                                           \
     std::chrono::time_point<std::chrono::steady_clock> start_time =                               \
             std::chrono::steady_clock::now();                                                     \
@@ -71,14 +70,48 @@ private:
                      << get_stack_trace() << std::endl;                                           \
     }                                                                                             \
     LockScopedTimer cache_lock_timer;
-#else
-#define SCOPED_CACHE_LOCK(MUTEX, cache) std::lock_guard cache_lock(MUTEX);
-#endif
 
 class FSFileCacheStorage;
 
 // The BlockFileCache is responsible for the management of the blocks
 // The current strategies are lru and ttl.
+
+struct FileBlockCell {
+    friend class FileBlock;
+
+    FileBlockSPtr file_block;
+    /// Iterator is put here on first reservation attempt, if successful.
+    std::optional<LRUQueue::Iterator> queue_iterator;
+
+    mutable int64_t atime {0};
+    void update_atime() const {
+        atime = std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::steady_clock::now().time_since_epoch())
+                        .count();
+    }
+
+    /// Pointer to file block is always hold by the cache itself.
+    /// Apart from pointer in cache, it can be hold by cache users, when they call
+    /// getorSet(), but cache users always hold it via FileBlocksHolder.
+    bool releasable() const {
+        return (file_block.use_count() == 1 ||
+                (file_block.use_count() == 2 && file_block->_owned_by_cached_reader));
+    }
+
+    size_t size() const { return file_block->_block_range.size(); }
+
+    FileBlockCell(FileBlockSPtr file_block, std::lock_guard<std::mutex>& cache_lock);
+    FileBlockCell(FileBlockCell&& other) noexcept
+            : file_block(std::move(other.file_block)),
+              queue_iterator(other.queue_iterator),
+              atime(other.atime) {
+        file_block->cell = this;
+    }
+
+    FileBlockCell& operator=(const FileBlockCell&) = delete;
+    FileBlockCell(const FileBlockCell&) = delete;
+};
+
 class BlockFileCache {
     friend class FSFileCacheStorage;
     friend class MemFileCacheStorage;
@@ -86,6 +119,7 @@ class BlockFileCache {
     friend struct FileBlocksHolder;
     friend class CacheLRUDumper;
     friend class LRUQueueRecorder;
+    friend struct FileBlockCell;
 
 public:
     // hash the file_name to uint128
@@ -117,6 +151,9 @@ public:
         if (_cache_background_lru_log_replay_thread.joinable()) {
             _cache_background_lru_log_replay_thread.join();
         }
+        if (_cache_background_block_lru_update_thread.joinable()) {
+            _cache_background_block_lru_update_thread.join();
+        }
     }
 
     /// Restore cache from local filesystem.
@@ -146,6 +183,11 @@ public:
                                 CacheContext& context);
 
     /**
+     * record blocks read directly by CachedRemoteFileReader
+     */
+    void add_need_update_lru_block(FileBlockSPtr block);
+
+    /**
      * Clear all cached data for this cache instance async
      *
      * @returns summary message
@@ -164,6 +206,8 @@ public:
     /// For debug and UT
     std::string dump_structure(const UInt128Wrapper& hash);
     std::string dump_single_cache_type(const UInt128Wrapper& hash, size_t offset);
+
+    void dump_lru_queues(bool force);
 
     [[nodiscard]] size_t get_used_cache_size(FileCacheType type) const;
 
@@ -290,35 +334,6 @@ public:
     }
 
 private:
-    struct FileBlockCell {
-        FileBlockSPtr file_block;
-        /// Iterator is put here on first reservation attempt, if successful.
-        std::optional<LRUQueue::Iterator> queue_iterator;
-
-        mutable int64_t atime {0};
-        void update_atime() const {
-            atime = std::chrono::duration_cast<std::chrono::seconds>(
-                            std::chrono::steady_clock::now().time_since_epoch())
-                            .count();
-        }
-
-        /// Pointer to file block is always hold by the cache itself.
-        /// Apart from pointer in cache, it can be hold by cache users, when they call
-        /// getorSet(), but cache users always hold it via FileBlocksHolder.
-        bool releasable() const { return file_block.use_count() == 1; }
-
-        size_t size() const { return file_block->_block_range.size(); }
-
-        FileBlockCell(FileBlockSPtr file_block, std::lock_guard<std::mutex>& cache_lock);
-        FileBlockCell(FileBlockCell&& other) noexcept
-                : file_block(std::move(other.file_block)),
-                  queue_iterator(other.queue_iterator),
-                  atime(other.atime) {}
-
-        FileBlockCell& operator=(const FileBlockCell&) = delete;
-        FileBlockCell(const FileBlockCell&) = delete;
-    };
-
     LRUQueue& get_queue(FileCacheType type);
     const LRUQueue& get_queue(FileCacheType type) const;
 
@@ -338,6 +353,8 @@ private:
                                     std::lock_guard<std::mutex>& cache_lock);
 
     Status initialize_unlocked(std::lock_guard<std::mutex>& cache_lock);
+
+    void update_block_lru(FileBlockSPtr block, std::lock_guard<std::mutex>& cache_lock);
 
     void use_cell(const FileBlockCell& cell, FileBlocks* result, bool not_need_move,
                   std::lock_guard<std::mutex>& cache_lock);
@@ -397,6 +414,7 @@ private:
     void run_background_lru_dump();
     void restore_lru_queues_from_disk(std::lock_guard<std::mutex>& cache_lock);
     void run_background_evict_in_advance();
+    void run_background_block_lru_update();
 
     bool try_reserve_from_other_queue_by_time_interval(FileCacheType cur_type,
                                                        std::vector<FileCacheType> other_cache_types,
@@ -433,6 +451,8 @@ private:
                                size_t& offset, size_t& size);
     void remove_lru_dump_files();
 
+    void clear_need_update_lru_blocks();
+
     // info
     std::string _cache_base_path;
     size_t _capacity = 0;
@@ -449,6 +469,7 @@ private:
     std::thread _cache_background_evict_in_advance_thread;
     std::thread _cache_background_lru_dump_thread;
     std::thread _cache_background_lru_log_replay_thread;
+    std::thread _cache_background_block_lru_update_thread;
     std::atomic_bool _async_open_done {false};
     // disk space or inode is less than the specified value
     bool _disk_resource_limit_mode {false};
@@ -513,9 +534,20 @@ private:
     std::shared_ptr<bvar::Adder<size_t>> _num_hit_blocks;
     std::shared_ptr<bvar::Adder<size_t>> _num_removed_blocks;
 
+    std::shared_ptr<bvar::Adder<size_t>> _no_warmup_num_read_blocks;
+    std::shared_ptr<bvar::Adder<size_t>> _no_warmup_num_hit_blocks;
+
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _no_warmup_num_hit_blocks_5m;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _no_warmup_num_read_blocks_5m;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _no_warmup_num_hit_blocks_1h;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _no_warmup_num_read_blocks_1h;
+
     std::shared_ptr<bvar::Status<double>> _hit_ratio;
     std::shared_ptr<bvar::Status<double>> _hit_ratio_5m;
     std::shared_ptr<bvar::Status<double>> _hit_ratio_1h;
+    std::shared_ptr<bvar::Status<double>> _no_warmup_hit_ratio;
+    std::shared_ptr<bvar::Status<double>> _no_warmup_hit_ratio_5m;
+    std::shared_ptr<bvar::Status<double>> _no_warmup_hit_ratio_1h;
     std::shared_ptr<bvar::Status<size_t>> _disk_limit_mode_metrics;
     std::shared_ptr<bvar::Status<size_t>> _need_evict_cache_in_advance_metrics;
 
@@ -526,6 +558,8 @@ private:
     std::shared_ptr<bvar::LatencyRecorder> _storage_async_remove_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _evict_in_advance_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _recycle_keys_length_recorder;
+    std::shared_ptr<bvar::LatencyRecorder> _update_lru_blocks_latency_us;
+    std::shared_ptr<bvar::LatencyRecorder> _need_update_lru_blocks_length_recorder;
     std::shared_ptr<bvar::LatencyRecorder> _ttl_gc_latency_us;
 
     std::shared_ptr<bvar::LatencyRecorder> _shadow_queue_levenshtein_distance;
@@ -535,6 +569,8 @@ private:
     // so join this async load thread first
     std::unique_ptr<FileCacheStorage> _storage;
     std::shared_ptr<bvar::LatencyRecorder> _lru_dump_latency_us;
+    std::mutex _dump_lru_queues_mtx;
+    moodycamel::ConcurrentQueue<FileBlockSPtr> _need_update_lru_blocks;
 };
 
 } // namespace doris::io

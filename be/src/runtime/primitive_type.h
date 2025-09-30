@@ -28,6 +28,7 @@
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
 #include "runtime/define_primitive_type.h"
+#include "vec/common/string_view.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -42,6 +43,7 @@ class IColumnDummy;
 class ColumnMap;
 class ColumnVariant;
 class ColumnStruct;
+class ColumnVarbinary;
 using ColumnString = ColumnStr<UInt32>;
 class JsonbField;
 template <typename T>
@@ -81,6 +83,7 @@ using DataTypeDecimal256 = DataTypeDecimal<TYPE_DECIMAL256>;
 class DataTypeIPv4;
 class DataTypeIPv6;
 class DataTypeString;
+class DataTypeVarbinary;
 class DataTypeHLL;
 class DataTypeJsonb;
 class DataTypeArray;
@@ -144,6 +147,7 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_STRUCT:
     case TYPE_MAP:
     case TYPE_HLL:
+    case TYPE_VARBINARY:
         return false;
     case TYPE_TINYINT:
     case TYPE_SMALLINT:
@@ -183,6 +187,10 @@ constexpr bool is_date_v2_or_datetime_v2(PrimitiveType type) {
 
 constexpr bool is_ip(PrimitiveType type) {
     return type == TYPE_IPV4 || type == TYPE_IPV6;
+}
+
+constexpr bool is_varbinary(PrimitiveType type) {
+    return type == TYPE_VARBINARY;
 }
 
 constexpr bool is_string_type(PrimitiveType type) {
@@ -623,6 +631,21 @@ struct PrimitiveTypeTraits<TYPE_STRING> {
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_STRING;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_STRING;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_STRING;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_VARBINARY> {
+    using CppType = doris::StringView;
+    using StorageFieldType = CppType;
+    using CppNativeType = doris::StringView;
+    using ColumnItemType = doris::StringView;
+    using DataType = vectorized::DataTypeVarbinary;
+    using ColumnType = vectorized::ColumnVarbinary;
+    using NearestFieldType = doris::StringView;
+    using AvgNearestFieldType = doris::StringView;
+    using AvgNearestFieldType256 = doris::StringView;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_VARBINARY;
+    static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_VARBINARY;
+    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_VARBINARY;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_HLL> {

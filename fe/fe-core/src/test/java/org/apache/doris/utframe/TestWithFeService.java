@@ -35,6 +35,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -66,7 +67,6 @@ import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.persist.CreateTableInfo;
@@ -566,6 +566,24 @@ public abstract class TestWithFeService {
     public void executeSql(String queryStr) throws Exception {
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
+        stmtExecutor.execute();
+        if (connectContext.getState().getStateType() == QueryState.MysqlStateType.ERR
+                || connectContext.getState().getErrorCode() != null) {
+            throw new IllegalStateException(connectContext.getState().getErrorMessage());
+        }
+    }
+
+    public void executeNereidsSql(String queryStr) throws Exception {
+        connectContext.getState().reset();
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(queryStr, 0));
+        connectContext.setStatementContext(statementContext);
+        statementContext.setConnectContext(connectContext);
+
+        LogicalPlan plan = new NereidsParser().parseSingle(queryStr);
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(plan, statementContext);
+        logicalPlanAdapter.setOrigStmt(statementContext.getOriginStatement());
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, logicalPlanAdapter);
         stmtExecutor.execute();
         if (connectContext.getState().getStateType() == QueryState.MysqlStateType.ERR
                 || connectContext.getState().getErrorCode() != null) {

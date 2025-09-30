@@ -100,9 +100,7 @@ Status VTabletWriterV2::_incremental_open_streams(
                     tablet.set_partition_id(partition->id);
                     tablet.set_index_id(index.index_id);
                     tablet.set_tablet_id(tablet_id);
-                    if (!_load_stream_map->contains(node)) {
-                        new_backends.insert(node);
-                    }
+                    new_backends.insert(node);
                     _tablets_for_node[node].emplace(tablet_id, tablet);
                     if (known_indexes.contains(index.index_id)) [[likely]] {
                         continue;
@@ -484,7 +482,6 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     DorisMetrics::instance()->load_rows->increment(input_rows);
     DorisMetrics::instance()->load_bytes->increment(input_bytes);
 
-    bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
 
     SCOPED_RAW_TIMER(&_send_data_ns);
@@ -493,8 +490,7 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
 
     std::shared_ptr<vectorized::Block> block;
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
-            input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
-            _number_input_rows));
+            input_block, block, filtered_rows, _row_part_tablet_ids, _number_input_rows));
     RowsForTablet rows_for_tablet;
     _generate_rows_for_tablet(_row_part_tablet_ids, rows_for_tablet);
 

@@ -51,17 +51,6 @@ public:
     std::string do_get_name() const override { return "IPv6"; }
 
     bool equals(const IDataType& rhs) const override;
-    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<PrimitiveType::TYPE_IPV6>::template to_string_batch_impl<DataTypeIPv6>(
-                column, column_to);
-    }
-
-    size_t number_length() const;
-    void push_number(ColumnString::Chars& chars, const IPv6& num) const;
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    static std::string to_string(const IPv6& value);
-
     Field get_field(const TExprNode& node) const override {
         IPv6 value;
         if (!IPv6Value::from_string(value, node.ipv6_literal.value)) {

@@ -34,15 +34,16 @@ suite ("single_slot") {
             properties("replication_num" = "1");
         """
 
-    sql "insert into single_slot select 1,1,1,'a';"
-    sql "insert into single_slot select 2,2,2,'b';"
-    sql "insert into single_slot select 3,-3,null,'c';"
+    sql "insert into single_slot select 1,2,1,'a';"
+    sql "insert into single_slot select 1,3,2,'b';"
+    sql "insert into single_slot select 2,5,null,'c';"
 
     createMV("create materialized view k1ap2spa as select abs(k1)+1,sum(abs(k2+1)) from single_slot group by abs(k1)+1;")
 
     sleep(3000)
 
-    sql "insert into single_slot select -4,-4,-4,'d';"
+    sql "insert into single_slot select 2,-4,-4,'d';"
+
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 

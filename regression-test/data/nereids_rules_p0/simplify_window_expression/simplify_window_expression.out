@@ -260,7 +260,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------PhysicalProject
 ----------filter((mal_test_simplify_window.__DORIS_DELETE_SIGN__ = 0))
 ------------PhysicalOlapScan[mal_test_simplify_window]

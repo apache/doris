@@ -22,6 +22,8 @@ import org.apache.doris.common.UserException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -41,7 +43,7 @@ public class OSSPropertiesTest {
         origProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
         Map<String, String> finalOrigProps = origProps;
         ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Invalid endpoint: https://oss.aliyuncs.com", () -> StorageProperties.createPrimary(finalOrigProps));
+                "Region is not set. If you are using a standard endpoint, the region will be detected automatically. Otherwise, please specify it explicitly.", () -> StorageProperties.createPrimary(finalOrigProps));
         origProps.put("oss.endpoint", "oss-cn-shenzhen-finance-1-internal.aliyuncs.com");
         Map<String, String> finalOrigProps1 = origProps;
         OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(finalOrigProps1);
@@ -118,6 +120,12 @@ public class OSSPropertiesTest {
         Assertions.assertEquals("cn-hongkong", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
         origProps.put("oss.endpoint", "https://dlf.cn-beijing.aliyuncs.com");
         Assertions.assertEquals("cn-beijing", ((OSSProperties) StorageProperties.createAll(origProps).get(1)).getRegion());
+        origProps.put("oss.endpoint", "datalake-vpc.cn-shenzhen.aliyuncs.com");
+        Assertions.assertEquals("cn-shenzhen", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
+        origProps.put("oss.endpoint", "https://datalake-vpc.cn-shenzhen.aliyuncs.com");
+        Assertions.assertEquals("cn-shenzhen", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
+        origProps.put("oss.endpoint", "http://datalake-vpc.eu-central-1.aliyuncs.com");
+        Assertions.assertEquals("eu-central-1", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
     }
 
     @Test
@@ -137,7 +145,7 @@ public class OSSPropertiesTest {
         ossNoEndpointProps.put("oss.region", "cn-hangzhou");
         origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
         // oss support without endpoint
-        ExceptionChecker.expectThrowsNoException(() -> StorageProperties.createPrimary(ossNoEndpointProps));
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class, "Endpoint is not set. Please specify it explicitly.", () -> StorageProperties.createPrimary(ossNoEndpointProps));
     }
 
     @Test
@@ -175,6 +183,32 @@ public class OSSPropertiesTest {
     }
 
     @Test
+    public void testDlfPropertiesEndpoint() {
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put("type", "iceberg");
+        origProps.put("warehouse", "oss://bucket/hive-dlf-oss-warehouse/iceberg/dlf-oss/");
+        origProps.put("dlf.region", "cn-beijing");
+        origProps.put("dlf.endpoint", "datalake-vpc.cn-beijing.aliyuncs.com");
+        origProps.put("dlf.uid", "12345");
+        origProps.put("dlf.catalog.id", "p2_regression_case");
+        origProps.put("dlf.access_key", "ACCESS_KEY");
+        origProps.put("dlf.secret_key", "SECERT_KET");
+        origProps.put("dlf.access.public", "true");
+        OSSProperties ossProperties = OSSProperties.of(origProps);
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", ossProperties.getEndpoint());
+        origProps.remove("dlf.access.public");
+        ossProperties = OSSProperties.of(origProps);
+        Assertions.assertEquals("oss-cn-beijing-internal.aliyuncs.com", ossProperties.getEndpoint());
+        origProps.put("oss.endpoint", "dlf.cn-beijing.aliyuncs.com");
+        ossProperties = OSSProperties.of(origProps);
+        Assertions.assertEquals("oss-cn-beijing-internal.aliyuncs.com", ossProperties.getEndpoint());
+        origProps.put("oss.endpoint", "dlf-vpc.cn-beijing.aliyuncs.com");
+        ossProperties = OSSProperties.of(origProps);
+        Assertions.assertEquals("oss-cn-beijing-internal.aliyuncs.com", ossProperties.getEndpoint());
+    }
+
+
+    @Test
     public void testNotEndpoint() throws UserException {
         Map<String, String> origProps = new HashMap<>();
         origProps.put("uri", "oss://examplebucket-1250000000/test/file.txt");
@@ -201,6 +235,19 @@ public class OSSPropertiesTest {
         origProps.put("paimon.rest.dlf.access-key-id", "XXXXXX");
         origProps.put("paimon.catalog.type", "rest");
         Assertions.assertEquals(1, StorageProperties.createAll(origProps).size());
+    }
+
+    @Test
+    public void testAwsCredentialsProvider() throws Exception {
+        Map<String, String> ossProps = new HashMap<>();
+        ossProps.put("fs.oss.support", "true");
+        ossProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        OSSProperties ossStorageProperties = (OSSProperties) StorageProperties.createPrimary(ossProps);
+        Assertions.assertEquals(AnonymousCredentialsProvider.class, ossStorageProperties.getAwsCredentialsProvider().getClass());
+        ossProps.put("oss.access_key", "myAccessKey");
+        ossProps.put("oss.secret_key", "mySecretKey");
+        ossStorageProperties = (OSSProperties) StorageProperties.createPrimary(ossProps);
+        Assertions.assertEquals(StaticCredentialsProvider.class, ossStorageProperties.getAwsCredentialsProvider().getClass());
     }
 
 }

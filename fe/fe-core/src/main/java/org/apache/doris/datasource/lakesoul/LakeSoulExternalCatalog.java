@@ -21,7 +21,6 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.property.PropertyConverter;
 
 import com.dmetasoul.lakesoul.meta.DBManager;
 import com.dmetasoul.lakesoul.meta.DBUtil;
@@ -45,7 +44,7 @@ public class LakeSoulExternalCatalog extends ExternalCatalog {
     public LakeSoulExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
                                    String comment) {
         super(catalogId, name, InitCatalogLog.Type.LAKESOUL, comment);
-        this.props = PropertyConverter.convertToMetaProperties(props);
+        this.props = props;
         catalogProperty = new CatalogProperty(resource, props);
         initLocalObjectsImpl();
     }

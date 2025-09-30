@@ -275,6 +275,7 @@ private:
     bool _trim_double_quotes = false;
     bool _trim_tailing_spaces = false;
     bool _keep_cr = false;
+    bool _empty_field_as_null = false;
 
     io::IOContext* _io_ctx = nullptr;
     // save source text which have been splitted.

@@ -21,8 +21,7 @@ suite("regression_test_variant_predefine_delete_and_update", "variant_type"){
     // MOR
     def table_name = "var_delete_update"
     sql "DROP TABLE IF EXISTS ${table_name}"
-    int max_subcolumns_count = Math.floor(Math.random() * 5) + 1
-    def var = "variant <'a' : largeint, 'b' : array<int>, 'c' : double, 'd' : text, properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\")>"
+    def var = "variant <'a' : largeint, 'b' : array<int>, 'c' : double, 'd' : text>"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,

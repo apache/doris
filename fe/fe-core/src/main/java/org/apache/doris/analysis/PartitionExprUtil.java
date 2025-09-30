@@ -45,6 +45,7 @@ public class PartitionExprUtil {
     public static final String DATETIME_NAME_FORMATTER = "%04d%02d%02d%02d%02d%02d";
     private static final Logger LOG = LogManager.getLogger(PartitionExprUtil.class);
     private static final PartitionExprUtil partitionExprUtil = new PartitionExprUtil();
+    private static final int MAX_PARTITION_NAME_LENGTH = 50;
 
     public static FunctionIntervalInfo getFunctionIntervalInfo(ArrayList<Expr> partitionExprs,
             PartitionType partitionType) throws AnalysisException {
@@ -176,8 +177,9 @@ public class PartitionExprUtil {
                 partitionKeyDesc = PartitionKeyDesc.createIn(listValues);
                 partitionName += getFormatPartitionValue(filterStr);
                 if (hasStringType) {
-                    if (partitionName.length() > 50) {
-                        throw new AnalysisException("Partition name's length is over limit of 50. abort to create.");
+                    if (partitionName.length() > MAX_PARTITION_NAME_LENGTH) {
+                        partitionName = partitionName.substring(0, MAX_PARTITION_NAME_LENGTH)
+                                + "_" + Integer.toHexString(partitionName.hashCode());
                     }
                 }
             } else {

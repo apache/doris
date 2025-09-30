@@ -115,7 +115,7 @@ PhysicalResultSink
 --------PhysicalAssertNumRows
 ----------PhysicalDistribute[DistributionSpecGather]
 ------------PhysicalProject[count(x)]
---------------hashAgg[LOCAL]
+--------------hashAgg[GLOBAL]
 ----------------PhysicalProject[test_subquery_nullable_t2.x]
 ------------------filter((test_subquery_nullable_t2.x > 1000))
 --------------------PhysicalOlapScan[test_subquery_nullable_t2]
@@ -135,7 +135,7 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject[cast(x as BIGINT) AS `cast(x as BIGINT)`, count(x)]
-----------------hashAgg[LOCAL]
+----------------hashAgg[GLOBAL]
 ------------------PhysicalProject[test_subquery_nullable_t2.x]
 --------------------filter((test_subquery_nullable_t2.x > 1000))
 ----------------------PhysicalOlapScan[test_subquery_nullable_t2]

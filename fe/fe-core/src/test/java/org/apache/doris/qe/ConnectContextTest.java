@@ -119,7 +119,7 @@ public class ConnectContextTest {
         Assert.assertEquals("", row.get(11));
 
         // Start time
-        Assert.assertEquals(-1, ctx.getStartTime());
+        Assert.assertEquals(0, ctx.getStartTime());
         ctx.setStartTime();
         Assert.assertNotSame(0, ctx.getStartTime());
 

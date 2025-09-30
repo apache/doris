@@ -31,6 +31,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertTask;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -62,6 +63,7 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -188,6 +190,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     protected void onComplete() throws UserException {
+        setTxnCallbackId();
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             try {
                 String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
@@ -223,6 +226,18 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         }
     }
 
+    private void setTxnCallbackId() {
+        TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(database.getId(), txnId);
+        if (state == null) {
+            throw new AnalysisException("txn does not exist: " + txnId);
+        }
+        StreamingInsertTask streamingInsertTask =
+                Env.getCurrentEnv().getJobManager().getStreamingTaskManager().getStreamingInsertTaskById(jobId);
+        if (streamingInsertTask != null) {
+            state.setCallbackId(streamingInsertTask.getJobId());
+        }
+    }
+
     @Override
     protected void onFail(Throwable t) {
         errMsg = t.getMessage() == null ? "unknown reason" : t.getMessage();
@@ -245,6 +260,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             return;
         }
         StringBuilder sb = new StringBuilder(t.getMessage());
+        if (!Strings.isNullOrEmpty(coordinator.getFirstErrorMsg())) {
+            sb.append(". first_error_msg: ").append(
+                    StringUtils.abbreviate(coordinator.getFirstErrorMsg(), Config.first_error_msg_max_length));
+        }
         if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
             sb.append(". url: ").append(coordinator.getTrackingUrl());
         }
@@ -277,7 +296,9 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                         .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
                                 table.getId(),
                                 etlJobType, createTime, errMsg,
-                                coordinator.getTrackingUrl(), userIdentity, jobId);
+                                coordinator.getTrackingUrl(),
+                                coordinator.getFirstErrorMsg(),
+                                userIdentity, insertLoadJob.getId());
             }
         } catch (MetaNotFoundException e) {
             LOG.warn("Record info of insert load with error {}", e.getMessage(), e);

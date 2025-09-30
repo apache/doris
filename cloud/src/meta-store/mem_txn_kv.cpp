@@ -23,13 +23,11 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
-#include <numeric>
 #include <optional>
 #include <ostream>
 #include <ranges>
 #include <string>
 
-#include "common/defer.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-store/txn_kv_error.h"
@@ -197,7 +195,9 @@ TxnErrorCode MemTxnKv::update(const std::set<std::string>& read_set,
         if (iter != log_kv_.end()) {
             auto log_item = iter->second;
             if (log_item.front().commit_version_ > read_version) {
-                LOG(WARNING) << "commit conflict";
+                LOG(WARNING) << "commit conflict, key: " << k
+                             << ", log_version: " << log_item.front().commit_version_
+                             << ", read_version: " << read_version;
                 //keep the same behaviour with fdb.
                 return TxnErrorCode::TXN_CONFLICT;
             }
@@ -646,6 +646,14 @@ TxnErrorCode Transaction::commit() {
         return code;
     }
     commited_ = true;
+
+    // Generate versionstamp if enabled
+    if (versionstamp_enabled_) {
+        // For MemTxnKv, generate a fake versionstamp based on committed_version_
+        // In real FDB, this would be the actual 10-byte versionstamp
+        versionstamp_result_ = Versionstamp(static_cast<uint64_t>(committed_version_), 0);
+    }
+
     op_list_.clear();
     read_set_.clear();
     writes_.clear();
@@ -669,6 +677,25 @@ TxnErrorCode Transaction::get_committed_version(int64_t* version) {
 }
 
 TxnErrorCode Transaction::abort() {
+    return TxnErrorCode::TXN_OK;
+}
+
+void Transaction::enable_get_versionstamp() {
+    versionstamp_enabled_ = true;
+}
+
+TxnErrorCode Transaction::get_versionstamp(Versionstamp* versionstamp) {
+    if (!versionstamp_enabled_) {
+        LOG(WARNING) << "get_versionstamp called but versionstamp not enabled";
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+
+    if (versionstamp_result_ == Versionstamp()) {
+        LOG(WARNING) << "versionstamp not available, commit may not have been called or failed";
+        return TxnErrorCode::TXN_KEY_NOT_FOUND;
+    }
+
+    *versionstamp = versionstamp_result_;
     return TxnErrorCode::TXN_OK;
 }
 
@@ -697,39 +724,27 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
 
 TxnErrorCode Transaction::batch_scan(
         std::vector<std::optional<std::pair<std::string, std::string>>>* res,
-        const std::vector<std::string>& keys, const BatchGetOptions& opts) {
-    if (keys.empty()) {
+        const std::vector<std::pair<std::string, std::string>>& ranges,
+        const BatchGetOptions& opts) {
+    if (ranges.empty()) {
         return TxnErrorCode::TXN_OK;
     }
     std::lock_guard<std::mutex> l(lock_);
-    res->reserve(keys.size());
+    res->reserve(ranges.size());
 
-    for (const auto& key : keys) {
-        if (unreadable_keys_.count(key) != 0) {
+    for (const auto& [start_key, end_key] : ranges) {
+        if (unreadable_keys_.count(start_key) != 0) {
             aborted_ = true;
             LOG(WARNING) << "read unreadable key, abort";
             return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
-        }
-
-        RangeKeySelector begin_selector, end_selector;
-        std::string start_key, end_key;
-        if (opts.reverse) {
-            end_key = key;
-            begin_selector = RangeKeySelector::FIRST_GREATER_THAN;
-            end_selector = RangeKeySelector::FIRST_GREATER_THAN;
-        } else {
-            start_key = key;
-            end_key = "\xFF";
-            begin_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
-            end_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
         }
 
         RangeGetOptions range_opts;
         range_opts.snapshot = opts.snapshot;
         range_opts.batch_limit = 1;
         range_opts.reverse = opts.reverse;
-        range_opts.begin_key_selector = begin_selector;
-        range_opts.end_key_selector = end_selector;
+        range_opts.begin_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+        range_opts.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
 
         std::unique_ptr<cloud::RangeGetIterator> iter;
         auto ret = inner_get(start_key, end_key, &iter, range_opts);
@@ -745,8 +760,8 @@ TxnErrorCode Transaction::batch_scan(
         }
     }
 
-    kv_->get_count_ += keys.size();
-    num_get_keys_ += keys.size();
+    kv_->get_count_ += ranges.size();
+    num_get_keys_ += ranges.size();
     return TxnErrorCode::TXN_OK;
 }
 

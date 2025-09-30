@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCondition;
 import org.apache.doris.thrift.TDescriptorTable;
+import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushReq;
 import org.apache.doris.thrift.TPushType;
@@ -76,6 +77,7 @@ public class PushTask extends AgentTask {
     // for light schema change
     private int schemaVersion;
     private List<TColumn> columnsDesc = null;
+    private List<TOlapTableIndex> indexList = null;
 
     private String vaultId;
     private Map<String, TColumn> colNameToColDesc;
@@ -84,7 +86,8 @@ public class PushTask extends AgentTask {
             long tabletId, long replicaId, int schemaHash, long version, String filePath, long fileSize,
             int timeoutSecond, long loadJobId, TPushType pushType, List<Predicate> conditions, boolean needDecompress,
             TPriority priority, TTaskType taskType, long transactionId, long signature, List<TColumn> columnsDesc,
-            Map<String, TColumn> colNameToColDesc, String vaultId, int schemaVersion) {
+            Map<String, TColumn> colNameToColDesc, String vaultId, int schemaVersion,
+            List<TOlapTableIndex> tIndexList) {
         super(resourceInfo, backendId, taskType, dbId, tableId, partitionId, indexId, tabletId, signature);
         this.replicaId = replicaId;
         this.schemaHash = schemaHash;
@@ -107,6 +110,7 @@ public class PushTask extends AgentTask {
         this.colNameToColDesc = colNameToColDesc;
         this.vaultId = vaultId;
         this.schemaVersion = schemaVersion;
+        this.indexList = tIndexList;
     }
 
     // for load v2 (SparkLoadJob)
@@ -116,7 +120,7 @@ public class PushTask extends AgentTask {
             List<TColumn> columnsDesc, Map<String, TColumn> colNameToColDesc, String vaultId, int schemaVersion) {
         this(null, backendId, dbId, tableId, partitionId, indexId, tabletId, replicaId, schemaHash, -1, null, 0,
                 timeoutSecond, loadJobId, pushType, null, false, priority, TTaskType.REALTIME_PUSH, transactionId,
-                signature, columnsDesc, colNameToColDesc, vaultId, schemaVersion);
+                signature, columnsDesc, colNameToColDesc, vaultId, schemaVersion, null);
         this.tBrokerScanRange = tBrokerScanRange;
         this.tDescriptorTable = tDescriptorTable;
     }
@@ -189,6 +193,7 @@ public class PushTask extends AgentTask {
         request.setColumnsDesc(columnsDesc);
         request.setStorageVaultId(this.vaultId);
         request.setSchemaVersion(schemaVersion);
+        request.setIndexList(indexList);
         return request;
     }
 

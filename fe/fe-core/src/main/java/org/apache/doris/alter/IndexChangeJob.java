@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -27,6 +28,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -35,12 +37,12 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterInvertedIndexTask;
-import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTaskType;
 
@@ -48,6 +50,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -110,18 +113,19 @@ public class IndexChangeJob implements Writable {
     AgentBatchTask invertedIndexBatchTask = new AgentBatchTask();
     @SerializedName(value = "timeoutMs")
     protected long timeoutMs = -1;
+    @SerializedName(value = "clsname")
+    private String cloudClusterName = "";
+    // in cloud mode, schemaVersion/colList/idxList is used for rebuilding a full tablet schema in BE.
+    @SerializedName(value = "sv")
+    private int schemaVersion;
+    @SerializedName(value = "cols")
+    private List<Column> colList = null;
+    @SerializedName(value = "idxs")
+    private List<Index> idxList = null;
 
-    public IndexChangeJob() {
-        this.jobId = -1;
-        this.dbId = -1;
-        this.tableId = -1;
-        this.tableName = "";
-
-        this.createTimeMs = System.currentTimeMillis();
-        this.jobState = JobState.WAITING_TXN;
-    }
-
-    public IndexChangeJob(long jobId, long dbId, long tableId, String tableName, long timeoutMs) throws Exception {
+    public IndexChangeJob(long jobId, long dbId, long tableId, String tableName, long timeoutMs, int schemaVersion,
+            List<Column> colList, List<Index> indexList)
+            throws Exception {
         this.jobId = jobId;
         this.dbId = dbId;
         this.tableId = tableId;
@@ -131,6 +135,9 @@ public class IndexChangeJob implements Writable {
         this.jobState = JobState.WAITING_TXN;
         this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
         this.timeoutMs = timeoutMs;
+        this.schemaVersion = schemaVersion;
+        this.colList = colList;
+        this.idxList = indexList;
     }
 
     public long getJobId() {
@@ -177,6 +184,10 @@ public class IndexChangeJob implements Writable {
             }
         }
         return false;
+    }
+
+    public void setCloudClusterName(String cloudClusterName) {
+        this.cloudClusterName = cloudClusterName;
     }
 
     public long getDbId() {
@@ -226,6 +237,8 @@ public class IndexChangeJob implements Writable {
      *      db lock
      */
     public synchronized void run() {
+        setCloudCluster();
+
         if (isTimeout()) {
             cancelImpl("Timeout");
             return;
@@ -246,6 +259,15 @@ public class IndexChangeJob implements Writable {
         }
     }
 
+    private void setCloudCluster() {
+        if (!StringUtils.isEmpty(cloudClusterName)) {
+            ConnectContext ctx = new ConnectContext();
+            ctx.setThreadLocalInfo();
+            ctx.setCloudCluster(cloudClusterName);
+            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+        }
+    }
+
     public final synchronized boolean cancel(String errMsg) {
         return cancelImpl(errMsg);
     }
@@ -255,6 +277,10 @@ public class IndexChangeJob implements Writable {
      * return false if table is not stable.
      */
     protected boolean checkTableStable(OlapTable tbl) throws AlterCancelException {
+        // cloud mode need not check tablet stable
+        if (Config.isCloudMode()) {
+            return true;
+        }
         tbl.writeLockOrAlterCancelException();
         try {
             boolean isStable = tbl.isStable(Env.getCurrentSystemInfo(),
@@ -283,9 +309,16 @@ public class IndexChangeJob implements Writable {
 
     protected void runWaitingTxnJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.WAITING_TXN, jobState);
+        // NOTE: Cloud mode using compaction to alter index, so it won't conflict with load job.
+        // but previous load is the load job begins before create index,their output rowset not carries index.
+        // we need to wait them finish then begin alter index; otherwise they may finish after alter index job
+        // finish, so there could be some rowset without index in BE.
+        // TODO: record a exact transaction id before create index, this requires visit table index meta and get global
+        // transaction id is a atomic operator.
         try {
             if (!isPreviousLoadFinished()) {
-                LOG.info("wait transactions before {} to be finished, inverted index job: {}", watershedTxnId, jobId);
+                LOG.info("wait transactions before {} to be finished, inverted index job: {}", watershedTxnId,
+                        jobId);
                 return;
             }
         } catch (AnalysisException e) {
@@ -309,11 +342,6 @@ public class IndexChangeJob implements Writable {
 
         olapTable.readLock();
         try {
-            List<Column> originSchemaColumns = olapTable.getSchemaByIndexId(originIndexId, true);
-            for (Column col : originSchemaColumns) {
-                TColumn tColumn = col.toThrift();
-                col.setIndexFlag(tColumn, olapTable);
-            }
             int originSchemaHash = olapTable.getSchemaHashByIndexId(originIndexId);
             Partition partition = olapTable.getPartition(partitionId);
             MaterializedIndex origIdx = partition.getIndex(originIndexId);
@@ -328,12 +356,13 @@ public class IndexChangeJob implements Writable {
                         throw new AlterCancelException("originReplica:" + originReplica.getId()
                                 + " backendId < 0");
                     }
+
                     AlterInvertedIndexTask alterInvertedIndexTask = new AlterInvertedIndexTask(
                             originReplica.getBackendIdWithoutException(), db.getId(), olapTable.getId(),
                             partitionId, originIndexId, originTabletId,
-                            originSchemaHash, olapTable.getIndexes(),
-                            alterInvertedIndexes, originSchemaColumns,
-                            isDropOp, taskSignature, jobId);
+                            originSchemaHash, idxList,
+                            alterInvertedIndexes, colList,
+                            isDropOp, taskSignature, jobId, schemaVersion);
                     invertedIndexBatchTask.addTask(alterInvertedIndexTask);
                 }
             } // end for tablet
@@ -349,6 +378,29 @@ public class IndexChangeJob implements Writable {
         this.jobState = JobState.RUNNING;
         // DO NOT write edit log here, tasks will be sent again if FE restart or master changed.
         LOG.info("transfer inverted index job {} state to {}", jobId, this.jobState);
+    }
+
+    // if cloud cluster is removed, we should cancel task early and release resource
+    private void ensureCloudClusterExist(List<AgentTask> tasks) throws AlterCancelException {
+        if (Config.isNotCloudMode()) {
+            return;
+        }
+        CloudSystemInfoService systemInfoService = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+        if (StringUtils.isEmpty(systemInfoService.getCloudClusterIdByName(cloudClusterName))) {
+            // actually agenttask could be removed in cancelInternal()
+            // remove task here just for code robust
+            for (AgentTask task : tasks) {
+                task.setFinished(true);
+                AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
+            }
+            StringBuilder sb = new StringBuilder("cloud cluster(");
+            sb.append(cloudClusterName);
+            sb.append(") has been removed, jobId=");
+            sb.append(jobId);
+            String msg = sb.toString();
+            LOG.warn(msg);
+            throw new AlterCancelException(msg);
+        }
     }
 
     protected void runRunningJob() throws AlterCancelException {
@@ -367,6 +419,7 @@ public class IndexChangeJob implements Writable {
         if (!invertedIndexBatchTask.isFinished()) {
             LOG.info("inverted index tasks not finished. job: {}, partitionId: {}", jobId, partitionId);
             List<AgentTask> tasks = invertedIndexBatchTask.getUnfinishedTasks(2000);
+            ensureCloudClusterExist(tasks);
             for (AgentTask task : tasks) {
                 if (task.getFailedTimes() >= MIN_FAILED_NUM) {
                     LOG.warn("alter inverted index task failed: " + task.getErrorMsg());

@@ -22,6 +22,7 @@
 #include "common/status.h"
 #include "io/io_common.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/column_reader_cache.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_map.h"
@@ -39,46 +40,33 @@ namespace doris::segment_v2 {
 
 #include "common/compile_check_begin.h"
 
-Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, vectorized::PathInData path,
-                                        const SubcolumnColumnReaders::Node* node,
-                                        const SubcolumnColumnReaders::Node* root,
-                                        ReadType read_type,
-                                        std::unique_ptr<ColumnIterator>&& sparse_reader) {
+Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_uid,
+                                        vectorized::PathInData path,
+                                        const SubcolumnColumnMetaInfo::Node* node,
+                                        std::unique_ptr<SubstreamIterator>&& sparse_reader,
+                                        std::unique_ptr<SubstreamIterator>&& root_column_reader,
+                                        ColumnReaderCache* column_reader_cache,
+                                        OlapReaderStatistics* stats) {
     // None leave node need merge with root
-    auto stream_iter = std::make_unique<HierarchicalDataIterator>(path);
+    std::unique_ptr<HierarchicalDataIterator> stream_iter(new HierarchicalDataIterator(path));
     if (node != nullptr) {
-        std::vector<const SubcolumnColumnReaders::Node*> leaves;
+        std::vector<const SubcolumnColumnMetaInfo::Node*> leaves;
         vectorized::PathsInData leaves_paths;
-        SubcolumnColumnReaders::get_leaves_of_node(node, leaves, leaves_paths);
+        SubcolumnColumnMetaInfo::get_leaves_of_node(node, leaves, leaves_paths);
         for (size_t i = 0; i < leaves_paths.size(); ++i) {
             if (leaves_paths[i].empty()) {
                 // use set_root to share instead
                 continue;
             }
-            RETURN_IF_ERROR(stream_iter->add_stream(leaves[i]));
-        }
-        // Make sure the root node is in strem_cache, so that child can merge data with root
-        // Eg. {"a" : "b" : {"c" : 1}}, access the `a.b` path and merge with root path so that
-        // we could make sure the data could be fully merged, since some column may not be extracted but remains in root
-        // like {"a" : "b" : {"e" : 1.1}} in jsonb format
-        if (read_type == ReadType::MERGE_ROOT) {
-            // ColumnIterator* it;
-            // RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
-            stream_iter->set_root(std::make_unique<SubstreamIterator>(
-                    root->data.file_column_type->create_column(),
-                    std::unique_ptr<ColumnIterator>(
-                            new FileColumnIterator(root->data.reader.get())),
-                    root->data.file_column_type));
+            RETURN_IF_ERROR(
+                    stream_iter->add_stream(col_uid, leaves[i], column_reader_cache, stats));
         }
     }
-
-    // need read from sparse column
-    if (sparse_reader) {
-        vectorized::MutableColumnPtr sparse_column =
-                vectorized::ColumnVariant::create_sparse_column_fn();
-        stream_iter->_sparse_column_reader = std::make_unique<SubstreamIterator>(
-                std::move(sparse_column), std::move(sparse_reader), nullptr);
-    };
+    // need read from root column if not null
+    stream_iter->_root_reader = std::move(root_column_reader);
+    // need read from sparse column if not null
+    stream_iter->_sparse_column_reader = std::move(sparse_reader);
+    stream_iter->_stats = stats;
     *reader = std::move(stream_iter);
 
     return Status::OK();
@@ -147,16 +135,21 @@ Status HierarchicalDataIterator::read_by_rowids(const rowid_t* rowids, const siz
             dst, count);
 }
 
-Status HierarchicalDataIterator::add_stream(const SubcolumnColumnReaders::Node* node) {
+Status HierarchicalDataIterator::add_stream(int32_t col_uid,
+                                            const SubcolumnColumnMetaInfo::Node* node,
+                                            ColumnReaderCache* column_reader_cache,
+                                            OlapReaderStatistics* stats) {
     if (_substream_reader.find_leaf(node->path)) {
         VLOG_DEBUG << "Already exist sub column " << node->path.get_path();
         return Status::OK();
     }
     CHECK(node);
-    ColumnIteratorUPtr it_ptr;
-    RETURN_IF_ERROR(node->data.reader->new_iterator(&it_ptr, nullptr));
-
-    SubstreamIterator reader(node->data.file_column_type->create_column(), std::move(it_ptr),
+    ColumnIteratorUPtr it;
+    std::shared_ptr<ColumnReader> column_reader;
+    RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(col_uid, node->path, &column_reader,
+                                                                stats, node));
+    RETURN_IF_ERROR(column_reader->new_iterator(&it, nullptr));
+    SubstreamIterator reader(node->data.file_column_type->create_column(), std::move(it),
                              node->data.file_column_type);
     bool added = _substream_reader.add(node->path, std::move(reader));
     if (!added) {
@@ -261,8 +254,11 @@ Status HierarchicalDataIterator::_init_container(vectorized::MutableColumnPtr& c
         MutableColumnPtr column = _root_reader->column->get_ptr();
         // container_variant.add_sub_column({}, std::move(column), _root_reader->type);
         DCHECK(column->size() == nrows);
-        container =
-                ColumnVariant::create(max_subcolumns_count, _root_reader->type, std::move(column));
+        auto nullable_column = make_nullable(column->get_ptr());
+        auto type = make_nullable(_root_reader->type);
+        // make sure the root type is nullable
+        container = ColumnVariant::create(max_subcolumns_count, type,
+                                          nullable_column->assume_mutable());
     } else {
         DataTypePtr root_type = std::make_shared<vectorized::DataTypeNothing>();
         auto column = vectorized::ColumnNothing::create(nrows);
@@ -297,8 +293,11 @@ Status HierarchicalDataIterator::_init_container(vectorized::MutableColumnPtr& c
     RETURN_IF_ERROR(_process_sub_columns(container_variant, non_nested_subcolumns));
 
     RETURN_IF_ERROR(_process_nested_columns(container_variant, nested_subcolumns, nrows));
+    {
+        SCOPED_RAW_TIMER(&_stats->variant_fill_path_from_sparse_column_timer_ns);
+        RETURN_IF_ERROR(_process_sparse_column(container_variant, nrows));
+    }
 
-    RETURN_IF_ERROR(_process_sparse_column(container_variant, nrows));
     container_variant.set_num_rows(nrows);
     return Status::OK();
 }
@@ -492,6 +491,26 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(
             ColumnUInt8& dst_null_map = assert_cast<ColumnNullable&>(*dst).get_null_map_column();
             auto fake_nullable_column = ColumnUInt8::create(nrows, 0);
             dst_null_map.insert_range_from(*fake_nullable_column, 0, nrows);
+        }
+    }
+    // root column nullmap need to be reset, for example, the src_null_map is from the whole
+    // variant column, but the root column rows should reset to null when empty
+    ColumnVariant* variant = nullptr;
+    if (dst->is_nullable()) {
+        variant = &assert_cast<ColumnVariant&>(
+                assert_cast<ColumnNullable&>(*dst).get_nested_column());
+    } else {
+        variant = &assert_cast<ColumnVariant&>(*dst);
+    }
+    if (_path.get_parts().empty()) {
+        // update nullmap for root column, since the original nullmap is from the whole variant column
+        auto& dst_map_data =
+                assert_cast<ColumnNullable&>(*variant->get_root()).get_null_map_column().get_data();
+        for (size_t i = 0; i < variant->get_root()->size(); ++i) {
+            StringRef ref = variant->get_root()->get_data_at(i);
+            if (ref.size == 0) {
+                dst_map_data[i] = 1; // mark null when root jsonb is empty
+            }
         }
     }
     return Status::OK();

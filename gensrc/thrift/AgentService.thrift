@@ -287,6 +287,7 @@ struct TAlterInvertedIndexReq {
     8: optional list<Descriptors.TColumn> columns
     9: optional i64 job_id
     10: optional i64 expiration
+    11: optional i32 schema_version
 }
 
 struct TTabletGcBinlogInfo {
@@ -334,6 +335,7 @@ struct TPushReq {
     16: optional list<Descriptors.TColumn> columns_desc
     17: optional string storage_vault_id
     18: optional i32 schema_version
+    19: optional list<Descriptors.TOlapTableIndex> index_list;
 }
 
 struct TCloneReq {

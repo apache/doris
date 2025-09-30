@@ -107,27 +107,15 @@ void RecyclerServiceImpl::statistics_recycle(StatisticsRecycleRequest& req, Meta
              [](InstanceRecycler& instance_recycler) {
                  instance_recycler.scan_and_statistics_stage();
              }},
-            {"recycle_expired_stage_objects",
-             [](InstanceRecycler& instance_recycler) {
+            {"recycle_expired_stage_objects", [](InstanceRecycler& instance_recycler) {
                  instance_recycler.scan_and_statistics_expired_stage_objects();
-             }},
-            {"recycle_tablet",
-             [](InstanceRecycler& instance_recycler) {
-                 instance_recycler.scan_and_statistics_partitions();
-                 instance_recycler.scan_and_statistics_indexes();
-             }},
-            {"recycle_segment", [](InstanceRecycler& instance_recycler) {
-                 instance_recycler.scan_and_statistics_partitions();
-                 instance_recycler.scan_and_statistics_indexes();
-                 instance_recycler.scan_and_statistics_rowsets();
-                 instance_recycler.scan_and_statistics_tmp_rowsets();
              }}};
 
     std::set<std::string> resource_types;
     for (const auto& resource_type : req.resource_type()) {
         if (resource_type == "*") {
-            std::for_each(resource_handlers.begin(), resource_handlers.end(),
-                          [&](const auto& it) { resource_types.emplace(it.first); });
+            std::ranges::for_each(resource_handlers,
+                                  [&](const auto& it) { resource_types.emplace(it.first); });
             break;
         } else {
             if (!resource_handlers.contains(resource_type)) {
@@ -152,15 +140,14 @@ void RecyclerServiceImpl::statistics_recycle(StatisticsRecycleRequest& req, Meta
 
     for (const auto& instance_id : req.instance_ids()) {
         if (instance_id == "*") {
-            std::for_each(instances.begin(), instances.end(), [&](const InstanceInfoPB& instance) {
+            std::ranges::for_each(instances, [&](const InstanceInfoPB& instance) {
                 instance_ids.emplace(instance.instance_id());
             });
             break;
         } else {
-            if (std::find_if(instances.begin(), instances.end(),
-                             [&](const InstanceInfoPB& instance) {
-                                 return instance.instance_id() == instance_id;
-                             }) == instances.end()) {
+            if (std::ranges::find_if(instances, [&](const InstanceInfoPB& instance) {
+                    return instance.instance_id() == instance_id;
+                }) == instances.end()) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = fmt::format("invalid instance id: {}", instance_id);
                 LOG_WARNING(msg);
@@ -225,24 +212,32 @@ void RecyclerServiceImpl::statistics_recycle(StatisticsRecycleRequest& req, Meta
 
     worker_pool->stop();
     std::stringstream ss;
-    for_each(instance_ids.begin(), instance_ids.end(), [&](const std::string& id) {
+    std::ranges::for_each(instance_ids, [&](const std::string& id) {
         ss << "Instance ID: " << id << "\n";
         ss << "----------------------------------------\n";
 
-        for_each(resource_types.begin(), resource_types.end(), [&](const auto& resource_type) {
-            int64_t to_recycle_num = 0;
-            int64_t to_recycle_bytes = 0;
-            if (resource_type == "recycle_segment" || resource_type == "recycle_tablet") {
-                to_recycle_num = g_bvar_recycler_instance_last_round_to_recycle_num.get(
-                        {"global_recycler", resource_type});
-                to_recycle_bytes = g_bvar_recycler_instance_last_round_to_recycle_bytes.get(
-                        {"global_recycler", resource_type});
-            } else {
-                to_recycle_num =
-                        g_bvar_recycler_instance_last_round_to_recycle_num.get({id, resource_type});
-                to_recycle_bytes = g_bvar_recycler_instance_last_round_to_recycle_bytes.get(
-                        {id, resource_type});
-            }
+        // tablet and segment statistics
+        int64_t tablet_num = g_bvar_recycler_instance_last_round_to_recycle_num.get(
+                {"global_recycler", "recycle_tablet"});
+        int64_t tablet_bytes = g_bvar_recycler_instance_last_round_to_recycle_num.get(
+                {"global_recycler", "recycle_tablet"});
+        int64_t segment_num = g_bvar_recycler_instance_last_round_to_recycle_num.get(
+                {"global_recycler", "recycle_segment"});
+        int64_t segment_bytes = g_bvar_recycler_instance_last_round_to_recycle_num.get(
+                {"global_recycler", "recycle_segment"});
+        // clang-format off
+        ss << "Global recycler: " << "tablet and segment" << "\n";
+        ss << "  • Need to recycle tablet count: " << tablet_num << " items\n";
+        ss << "  • Need to recycle tablet size: " << tablet_bytes << " bytes\n";
+        ss << "  • Need to recycle segment count: " << segment_num << " items\n";
+        ss << "  • Need to recycle segment size: " << segment_bytes << " bytes\n";
+        // clang-format on
+
+        std::ranges::for_each(resource_types, [&](const auto& resource_type) {
+            int64_t to_recycle_num =
+                    g_bvar_recycler_instance_last_round_to_recycle_num.get({id, resource_type});
+            int64_t to_recycle_bytes = to_recycle_bytes =
+                    g_bvar_recycler_instance_last_round_to_recycle_bytes.get({id, resource_type});
 
             ss << "Task Type: " << resource_type << "\n";
 

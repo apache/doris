@@ -374,7 +374,8 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
             return replaceOrConstants((Or) expression, useInnerInfer, context, parentEqualSet, parentConstants);
         } else if (!parentConstants.isEmpty()
                 && expression.anyMatch(e -> e instanceof Slot && parentConstants.containsKey(e))) {
-            Expression newExpr = ExpressionUtils.replaceIf(expression, parentConstants, this::canReplaceExpression);
+            Expression newExpr = ExpressionUtils.replaceIf(
+                    expression, parentConstants, this::canReplaceExpression, true);
             if (!newExpr.equals(expression)) {
                 newExpr = FoldConstantRule.evaluate(newExpr, context);
             }

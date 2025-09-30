@@ -50,6 +50,7 @@
 #include "vec/data_types/data_type_ipv6.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/functions/function.h"
 
 namespace doris {
@@ -130,6 +131,11 @@ public:
     }
 
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
+    // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
+    [[nodiscard]] virtual bool is_blockable() const {
+        return std::any_of(_children.begin(), _children.end(),
+                           [](VExprSPtr child) { return child->is_blockable(); });
+    }
 
     // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
     virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
@@ -156,6 +162,8 @@ public:
     virtual void close(VExprContext* context, FunctionContext::FunctionStateScope scope);
 
     DataTypePtr& data_type() { return _data_type; }
+
+    const DataTypePtr& data_type() const { return _data_type; }
 
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
 
@@ -195,6 +203,11 @@ public:
 
     static Status clone_if_not_exists(const VExprContextSPtrs& ctxs, RuntimeState* state,
                                       VExprContextSPtrs& new_ctxs);
+
+    static bool contains_blockable_function(const VExprContextSPtrs& ctxs) {
+        return std::any_of(ctxs.begin(), ctxs.end(),
+                           [](const VExprContextSPtr& ctx) { return ctx->root()->is_blockable(); });
+    }
 
     bool is_nullable() const { return _data_type->is_nullable(); }
 
@@ -305,6 +318,7 @@ protected:
         return out.str();
     }
 
+    // used in expr name
     std::string get_child_names() {
         std::string res;
         for (auto child : _children) {
@@ -312,6 +326,18 @@ protected:
                 res += ", ";
             }
             res += child->expr_name();
+        }
+        return res;
+    }
+
+    // only for errmsg now
+    std::string get_child_type_names() {
+        std::string res;
+        for (auto child : _children) {
+            if (!res.empty()) {
+                res += ", ";
+            }
+            res += child->expr_name() + ": " + child->data_type()->get_name();
         }
         return res;
     }
@@ -522,7 +548,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         const auto* origin_value = reinterpret_cast<const IPv6*>(data);
         (*node).__set_node_type(TExprNodeType::IPV6_LITERAL);
         TIPv6Literal literal;
-        literal.__set_value(vectorized::DataTypeIPv6::to_string(*origin_value));
+        literal.__set_value(vectorized::CastToString::from_ip(*origin_value));
         (*node).__set_ipv6_literal(literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
     } else if constexpr (T == TYPE_TIMEV2) {
