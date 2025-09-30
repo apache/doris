@@ -47,7 +47,6 @@ public class RuntimeFiltersThriftBuilder {
     private final Set<Integer> broadcastRuntimeFilterIds;
     private final Map<RuntimeFilterId, List<RuntimeFilterTarget>> ridToTargets;
     private final Map<RuntimeFilterId, Integer> ridToBuilderNum;
-    private int matchMergeInstance = 0;
 
     private RuntimeFiltersThriftBuilder(
             TNetworkAddress mergeAddress, List<RuntimeFilter> runtimeFilters,
@@ -62,14 +61,7 @@ public class RuntimeFiltersThriftBuilder {
         this.ridToBuilderNum = ridToBuilderNum;
     }
 
-    int getMatchMergeInstanceNum() {
-        return matchMergeInstance;
-    }
-
     public boolean isMergeRuntimeFilterInstance(AssignedJob instance) {
-        if (mergeInstance == instance) {
-            matchMergeInstance++;
-        }
         return mergeInstance == instance;
     }
 
