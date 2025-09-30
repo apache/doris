@@ -20,7 +20,9 @@ package org.apache.doris.common.profile;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.stats.HboPlanInfoProvider;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
@@ -336,12 +338,24 @@ public class Profile {
     }
 
     public String getProfileByLevel() {
-        StringBuilder builder = new StringBuilder();
+        SafeStringBuilder builder = new SafeStringBuilder();
+        if (DebugPointUtil.isEnable("Profile.profileSizeLimit")) {
+            DebugPointUtil.DebugPoint debugPoint = DebugPointUtil.getDebugPoint("Profile.profileSizeLimit");
+            int maxProfileSize = debugPoint.param("profileSizeLimit", 0);
+            builder = new SafeStringBuilder(maxProfileSize);
+            LOG.info("DebugPoint:Profile.profileSizeLimit, MAX_PROFILE_SIZE = {}", maxProfileSize);
+        }
         // add summary to builder
         summaryProfile.prettyPrint(builder);
-        getChangedSessionVars(builder);
-        getExecutionProfileContent(builder);
-        getOnStorageProfile(builder);
+        if (!builder.isTruncated()) {
+            getChangedSessionVars(builder);
+        }
+        if (!builder.isTruncated()) {
+            getExecutionProfileContent(builder);
+        }
+        if (!builder.isTruncated()) {
+            getOnStorageProfile(builder);
+        }
 
         return builder.toString();
     }
@@ -460,9 +474,9 @@ public class Profile {
     }
 
     // Return if profile has been stored to storage
-    public void getExecutionProfileContent(StringBuilder builder) {
+    public void getExecutionProfileContent(SafeStringBuilder builder) {
         if (builder == null) {
-            builder = new StringBuilder();
+            builder = new SafeStringBuilder();
         }
 
         if (profileHasBeenStored()) {
@@ -516,8 +530,6 @@ public class Profile {
                 String queryId = DebugUtil.printId(this.executionProfiles.get(0).getQueryId());
                 publishHboPlanStatistics(queryId, planNodeRuntimeStatsItems);
             }
-            builder.append("\nHBOStatics \n");
-            builder.append(DebugUtil.prettyPrintPlanNodeRuntimeStatsItems(planNodeRuntimeStatsItems));
         }
         if (physicalPlan != null) {
             builder.append("\nPhysicalPlan:\n");
@@ -655,7 +667,7 @@ public class Profile {
             // Write summary profile and execution profile content to memory
             this.summaryProfile.write(memoryDataStream);
 
-            StringBuilder builder = new StringBuilder();
+            SafeStringBuilder builder = new SafeStringBuilder();
             getChangedSessionVars(builder);
             getExecutionProfileContent(builder);
             byte[] executionProfileBytes = builder.toString().getBytes(StandardCharsets.UTF_8);
@@ -760,9 +772,9 @@ public class Profile {
         this.changedSessionVarCache = changedSessionVar;
     }
 
-    private void getChangedSessionVars(StringBuilder builder) {
+    private void getChangedSessionVars(SafeStringBuilder builder) {
         if (builder == null) {
-            builder = new StringBuilder();
+            builder = new SafeStringBuilder();
         }
         if (profileHasBeenStored()) {
             return;
@@ -794,7 +806,7 @@ public class Profile {
         return durationMs > Config.qe_slow_log_ms;
     }
 
-    void getOnStorageProfile(StringBuilder builder) {
+    void getOnStorageProfile(SafeStringBuilder builder) {
         if (!profileHasBeenStored()) {
             return;
         }
@@ -876,7 +888,7 @@ public class Profile {
     }
 
     public String toString() {
-        StringBuilder stringBuilder = new StringBuilder();
+        SafeStringBuilder stringBuilder = new SafeStringBuilder();
         getExecutionProfileContent(stringBuilder);
         return stringBuilder.toString();
     }

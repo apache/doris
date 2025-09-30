@@ -1022,7 +1022,10 @@ public:
 
     size_t max_compressed_len(size_t len) override {
         // TODO: make sure the max_compressed_len for bzip2
-        return len * 2;
+        // 50 is an estimate fix overhead for bzip2
+        // in case the input len is small and BZ2_bzBuffToBuffCompress will return
+        // BZ_OUTBUFF_FULL
+        return len * 2 + 50;
     }
 };
 

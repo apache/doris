@@ -373,7 +373,7 @@ void* Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator,
           bool check_and_tracking_memory>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator,
-               check_and_tracking_memory>::free(void* buf, size_t size) {
+               check_and_tracking_memory>::free(void* buf, size_t size) const {
     if (use_mmap && size >= doris::config::mmap_threshold) {
         if (0 != munmap(buf, size)) {
             throw_bad_alloc(fmt::format("Allocator: Cannot munmap {}.", size));

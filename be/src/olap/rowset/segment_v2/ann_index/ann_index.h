@@ -38,6 +38,7 @@
 #include <roaring/roaring.hh>
 
 #include "common/status.h"
+#include "vec/core/types.h"
 
 namespace lucene::store {
 class Directory;
@@ -73,7 +74,10 @@ AnnIndexType string_to_ann_index_type(const std::string& type);
  */
 class VectorIndex {
 public:
-    virtual ~VectorIndex() = default;
+    VectorIndex();
+    virtual ~VectorIndex();
+
+    virtual void train(vectorized::Int64 n, const float* x) = 0;
 
     /** Add n vectors of dimension d vectors to the index.
      *
@@ -83,7 +87,7 @@ public:
      * @param n      number of vectors
      * @param x      input matrix, size n * d
      */
-    virtual doris::Status add(int n, const float* x) = 0;
+    virtual doris::Status add(vectorized::Int64 n, const float* x) = 0;
 
     /** Return approximate nearest neighbors of a query vector.
      * The result is stored in the result object.

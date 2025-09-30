@@ -18,8 +18,8 @@
 package org.apache.doris.fs.obj;
 
 import org.apache.doris.backup.Status;
-import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.storage.AzureProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.RemoteFile;
 

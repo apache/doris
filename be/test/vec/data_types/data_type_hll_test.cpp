@@ -112,55 +112,6 @@ void insert_data_hll(MutableColumns* hll_cols, DataTypePtr datetype_hll, int row
     std::cout << "finish insert data" << std::endl;
 }
 
-// test to_string | to_string_batch | from_string
-TEST_P(DataTypeHLLTest, FromAndToStringTest) {
-    MutableColumns hll_cols;
-    std::vector<std::string> data_strs;
-    insert_data_hll(&hll_cols, dt_hll, rows_value, &data_strs);
-
-    {
-        // to_string_batch | from_string
-        auto col_to = ColumnString::create();
-        dt_hll->to_string_batch(*hll_cols[0]->get_ptr(), *col_to);
-        ASSERT_EQ(col_to->size(), hll_cols[0]->get_ptr()->size());
-        // from_string assert col_to to assert_column and check same with mutableColumn
-        auto assert_column = dt_hll->create_column();
-        for (int i = 0; i < col_to->size(); ++i) {
-            std::string s = col_to->get_data_at(i).to_string();
-            StringRef rb(s.data(), s.size());
-            ASSERT_EQ(Status::OK(), dt_hll->from_string(rb, assert_column.get()));
-            ASSERT_EQ(assert_column->operator[](i), hll_cols[0]->get_ptr()->operator[](i))
-                    << "i: " << i << " s: " << s << " datatype: " << dt_hll->get_name()
-                    << " assert_column: " << assert_column->get_name()
-                    << " mutableColumn:" << hll_cols[0]->get_ptr()->get_name() << std::endl;
-        }
-        std::cout << "finish to_string_batch | from_string test" << std::endl;
-    }
-
-    {
-        // to_string | from_string
-        auto ser_col = ColumnString::create();
-        ser_col->reserve(hll_cols[0]->get_ptr()->size());
-        VectorBufferWriter buffer_writer(*ser_col.get());
-        for (int i = 0; i < hll_cols[0]->get_ptr()->size(); ++i) {
-            dt_hll->to_string(*hll_cols[0]->get_ptr(), i, buffer_writer);
-            std::string res = dt_hll->to_string(*hll_cols[0]->get_ptr(), i);
-            buffer_writer.commit();
-            EXPECT_EQ(res, "HLL()"); // HLL to_string is not implemented
-        }
-        // check ser_col to assert_column and check same with mutableColumn
-        auto assert_column_1 = dt_hll->create_column();
-        for (int i = 0; i < ser_col->size(); ++i) {
-            std::string s = ser_col->get_data_at(i).to_string();
-            StringRef rb(s.data(), s.size());
-            ASSERT_EQ(Status::OK(), dt_hll->from_string(rb, assert_column_1.get()));
-            auto aaa = assert_column_1->operator[](i);
-            ASSERT_EQ(assert_column_1->operator[](i), hll_cols[0]->get_ptr()->operator[](i));
-        }
-        std::cout << "finish to_string | from_string test" << std::endl;
-    }
-}
-
 // serialize / deserialize
 TEST_P(DataTypeHLLTest, SerializeDeserializeTest) {
     MutableColumns hll_cols;

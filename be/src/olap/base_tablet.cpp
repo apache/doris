@@ -131,11 +131,14 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move
     // Before doris 1.2 version, rowset metas don't have tablet schema.
     // And when upgrade to doris 1.2 version,
     // all rowset metas will be set the tablet schmea from tablet meta.
-    if (_tablet_meta->all_rs_metas().empty() || !_tablet_meta->all_rs_metas()[0]->tablet_schema()) {
+    if (_tablet_meta->all_rs_metas().empty() ||
+        !_tablet_meta->all_rs_metas().begin()->second->tablet_schema()) {
         _max_version_schema = _tablet_meta->tablet_schema();
     } else {
-        _max_version_schema =
-                tablet_schema_with_merged_max_schema_version(_tablet_meta->all_rs_metas());
+        std::vector<RowsetMetaSharedPtr> rowset_metas(_tablet_meta->all_rs_metas().size());
+        std::transform(_tablet_meta->all_rs_metas().begin(), _tablet_meta->all_rs_metas().end(),
+                       rowset_metas.begin(), [](const auto& it) { return it.second; });
+        _max_version_schema = tablet_schema_with_merged_max_schema_version(rowset_metas);
     }
     DCHECK(_max_version_schema);
     g_total_tablet_num << 1;
@@ -149,8 +152,7 @@ BaseTablet::~BaseTablet() {
 TabletSchemaSPtr BaseTablet::tablet_schema_with_merged_max_schema_version(
         const std::vector<RowsetMetaSharedPtr>& rowset_metas) {
     RowsetMetaSharedPtr max_schema_version_rs = *std::max_element(
-            rowset_metas.begin(), rowset_metas.end(),
-            [](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
+            rowset_metas.begin(), rowset_metas.end(), [](const auto& a, const auto& b) -> bool {
                 return !a->tablet_schema()
                                ? true
                                : (!b->tablet_schema()
@@ -182,10 +184,9 @@ void BaseTablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema
 uint32_t BaseTablet::get_real_compaction_score() const {
     std::shared_lock l(_meta_lock);
     const auto& rs_metas = _tablet_meta->all_rs_metas();
-    return std::accumulate(rs_metas.begin(), rs_metas.end(), 0,
-                           [](uint32_t score, const RowsetMetaSharedPtr& rs_meta) {
-                               return score + rs_meta->get_compaction_score();
-                           });
+    return std::accumulate(rs_metas.begin(), rs_metas.end(), 0, [](uint32_t score, const auto& it) {
+        return score + it.second->get_compaction_score();
+    });
 }
 
 Status BaseTablet::capture_rs_readers_unlocked(const Versions& version_path,
@@ -291,8 +292,8 @@ Versions BaseTablet::get_missed_versions(int64_t spec_version) const {
     Versions existing_versions;
     {
         std::shared_lock rdlock(_meta_lock);
-        for (const auto& rs : _tablet_meta->all_rs_metas()) {
-            existing_versions.emplace_back(rs->version());
+        for (const auto& [ver, _] : _tablet_meta->all_rs_metas()) {
+            existing_versions.emplace_back(ver);
         }
     }
     return calc_missed_versions(spec_version, std::move(existing_versions));
@@ -302,8 +303,8 @@ Versions BaseTablet::get_missed_versions_unlocked(int64_t spec_version) const {
     DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
 
     Versions existing_versions;
-    for (const auto& rs : _tablet_meta->all_rs_metas()) {
-        existing_versions.emplace_back(rs->version());
+    for (const auto& [ver, _] : _tablet_meta->all_rs_metas()) {
+        existing_versions.emplace_back(ver);
     }
     return calc_missed_versions(spec_version, std::move(existing_versions));
 }
@@ -1542,6 +1543,8 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
                     "BaseTablet::update_delete_bitmap.block");
             if (block_dp) {
                 auto wait_token = block_dp->param<std::string>("wait_token", "");
+                LOG(INFO) << "BaseTablet::update_delete_bitmap.enable_spin_wait, wait_token: "
+                          << wait_token << ", token: " << token;
                 if (wait_token != token) {
                     break;
                 }

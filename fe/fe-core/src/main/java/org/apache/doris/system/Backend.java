@@ -21,6 +21,7 @@ import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
@@ -101,6 +102,8 @@ public class Backend implements Writable {
     private volatile ImmutableMap<String, DiskInfo> disksRef;
 
     private Long lastPublishTaskAccumulatedNum = 0L;
+
+    private Long runningTasks = 0L;
 
     private String heartbeatErrMsg = "";
 
@@ -200,6 +203,10 @@ public class Backend implements Writable {
 
     public String getCloudClusterName() {
         return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_NAME, "");
+    }
+
+    public boolean isInStandbyCluster() {
+        return (((CloudSystemInfoService) Env.getCurrentSystemInfo()).isStandByComputeGroup(getCloudClusterName()));
     }
 
     public void setCloudClusterName(final String clusterName) {
@@ -954,6 +961,14 @@ public class Backend implements Writable {
 
     private int getDiskNum() {
         return disksRef.size();
+    }
+
+    public Long getRunningTasks() {
+        return runningTasks;
+    }
+
+    public void setRunningTasks(Long runningTasks) {
+        this.runningTasks = runningTasks;
     }
 
     /**

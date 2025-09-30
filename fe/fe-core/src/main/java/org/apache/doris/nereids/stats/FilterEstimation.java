@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -427,11 +428,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         filterKeyColStatsBuilder.setNdv(ndv);
 
         // compute selectivity
-        double matchedHotValueRatio = matchedHotValues.values().stream().mapToDouble(x -> x).sum()
-                / ColumnStatistic.ONE_HUNDRED;
+        double matchedHotValueRatio = matchedHotValues.values().stream().mapToDouble(x -> x).sum();
         double nonHotValueRatio = 1.0 - matchedHotValueRatio
-                - missMatchedHotValues.values().stream().mapToDouble(x -> x).sum()
-                / ColumnStatistic.ONE_HUNDRED;
+                - missMatchedHotValues.values().stream().mapToDouble(x -> x).sum();
 
         if (matchedHotValues.isEmpty()) {
             selectivity = nonHotValueRatio * selectivity;
@@ -540,6 +539,15 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             builder.setMaxExpr(null)
                     .setMaxValue(Double.POSITIVE_INFINITY);
         }
+        if (colStats.hotValues != null) {
+            Map<Literal, Float> newHotValues = new HashMap<>();
+            for (Literal hot : colStats.hotValues.keySet()) {
+                org.apache.doris.nereids.trees.expressions.literal.StringLiteral newHot =
+                        new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(hot.getStringValue());
+                newHotValues.put(newHot, colStats.hotValues.get(hot));
+            }
+            builder.setHotValues(newHotValues);
+        }
         return builder.build();
     }
 
@@ -565,11 +573,25 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         literalMap.put(newMinExpr.get(), (StringLiteral) colStats.minExpr);
         literalMap.put(newMaxExpr.get(), (StringLiteral) colStats.maxExpr);
 
+        Map<Literal, Float> newHotValues = new HashMap<>();
+        if (colStats.hotValues != null) {
+            for (Literal oneHot : colStats.hotValues.keySet()) {
+                try {
+                    DateTimeLiteral oneHotDate = new DateTimeLiteral(oneHot.getStringValue());
+                    newHotValues.put(oneHotDate,
+                                colStats.hotValues.get(oneHot));
+                } catch (Exception e) {
+                    return Optional.empty();
+                }
+            }
+        }
+
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
         return Optional.of(builder.setMinValue(newMinExpr.get().getDoubleValueAsDateTime())
                 .setMinExpr(newMinExpr.get())
                 .setMaxValue(newMaxExpr.get().getDoubleValueAsDateTime())
                 .setMaxExpr(newMaxExpr.get())
+                .setHotValues(newHotValues.isEmpty() ? null : newHotValues)
                 .build());
     }
 
@@ -621,7 +643,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                                 // stats-derive may be applied before type coercion. so we need to try to catch
                                 // comparison exception. for example: boolean compare with int
                                 if (((ComparableLiteral) hot).compareTo((ComparableLiteral) constHand) == 0) {
-                                    selectivity = statsForLeft.getHotValues().get(hot) / ColumnStatistic.ONE_HUNDRED;
+                                    selectivity = statsForLeft.getHotValues().get(hot);
                                     break;
                                 }
                             } catch (Exception e) {
@@ -793,14 +815,12 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                         Math.min(StatsMathUtil.divide(newCompareExprStats.ndv, compareExprStats.ndv), 1));
             } else {
                 double nonHotRatio = 1
-                        - compareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum()
-                        / ColumnStatistic.ONE_HUNDRED;
+                        - compareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();
                 if (nonHotRatio > 0) {
                     double nonHotSel = nonHotRatio
                             * (newCompareExprStats.ndv - newCompareExprStats.getHotValues().size())
                             / (compareExprStats.ndv - compareExprStats.getHotValues().size());
-                    double hotSel = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum()
-                            / ColumnStatistic.ONE_HUNDRED;
+                    double hotSel = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();
                     selectivity = nonHotSel + hotSel;
                 } else {
                     selectivity = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();

@@ -24,9 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 
 import com.google.common.base.Preconditions;
@@ -42,10 +40,7 @@ public class LastDay extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE),
-            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE),
-            FunctionSignature.ret(DateType.INSTANCE).args(DateTimeType.INSTANCE)
-    );
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT));
 
     /**
      * constructor with 1 argument.

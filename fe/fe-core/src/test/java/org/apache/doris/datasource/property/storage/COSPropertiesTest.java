@@ -23,6 +23,8 @@ import org.apache.doris.datasource.property.storage.exception.StoragePropertiesE
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -51,7 +53,7 @@ public class COSPropertiesTest {
         origProps.put("cos.use_path_style", "true");
         origProps.put(StorageProperties.FS_COS_SUPPORT, "true");
         origProps.put("test_non_storage_param", "6000");
-        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps), "Invalid endpoint format: https://cos.example.com");
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createAll(origProps));
         origProps.put("cos.endpoint", "cos.ap-beijing-1.myqcloud.com");
         COSProperties cosProperties = (COSProperties) StorageProperties.createAll(origProps).get(0);
         Map<String, String> cosConfig = cosProperties.getMatchedProperties();
@@ -149,7 +151,7 @@ public class COSPropertiesTest {
         origProps.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
         origProps.put("cos.secret_key", "myCOSSecretKey");
         Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createPrimary(origProps),
-                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+                "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
     }
 
     @Test
@@ -157,8 +159,21 @@ public class COSPropertiesTest {
         origProps.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
         origProps.put("cos.access_key", "myCOSAccessKey");
         Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createPrimary(origProps),
-                 "Both the access key and the secret key must be set.");
+                "Both the access key and the secret key must be set.");
         origProps.remove("cos.access_key");
         Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
+    }
+
+    @Test
+    public void testAwsCredentialsProvider() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("fs.cos.support", "true");
+        props.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
+        COSProperties obsStorageProperties = (COSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals(AnonymousCredentialsProvider.class, obsStorageProperties.getAwsCredentialsProvider().getClass());
+        props.put("cos.access_key", "myAccessKey");
+        props.put("cos.secret_key", "mySecretKey");
+        obsStorageProperties = (COSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals(StaticCredentialsProvider.class, obsStorageProperties.getAwsCredentialsProvider().getClass());
     }
 }

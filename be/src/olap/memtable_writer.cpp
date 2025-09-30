@@ -266,13 +266,12 @@ Status MemTableWriter::_do_close_wait() {
         return Status::InternalError("rows number written by delta writer dosen't match");
     }
 
-    // const FlushStatistic& stat = _flush_token->get_stats();
     // print slow log if wait more than 1s
-    /*if (_wait_flush_timer->elapsed_time() > 1000UL * 1000 * 1000) {
-        LOG(INFO) << "close delta writer for tablet: " << req.tablet_id
+    if (_wait_flush_time_ns > 1000UL * 1000 * 1000) {
+        LOG(INFO) << "close delta writer for tablet: " << _req.tablet_id
                   << ", load id: " << print_id(_req.load_id) << ", wait close for "
-                  << _wait_flush_timer->elapsed_time() << "(ns), stats: " << stat;
-    }*/
+                  << _wait_flush_time_ns << "(ns), stats: " << _flush_token->get_stats();
+    }
 
     return Status::OK();
 }

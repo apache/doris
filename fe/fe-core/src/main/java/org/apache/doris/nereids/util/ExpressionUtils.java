@@ -574,22 +574,6 @@ public class ExpressionUtils {
         return result.build();
     }
 
-    private static class ExpressionReplacer
-            extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
-        public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
-
-        private ExpressionReplacer() {
-        }
-
-        @Override
-        public Expression visit(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
-            if (replaceMap.containsKey(expr)) {
-                return replaceMap.get(expr);
-            }
-            return super.visit(expr, replaceMap);
-        }
-    }
-
     /**
      * merge arguments into an expression array
      *

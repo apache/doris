@@ -227,18 +227,6 @@ const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* colu
     return buf;
 }
 
-std::string DataTypeVariant::to_string(const IColumn& column, size_t row_num) const {
-    const auto& variant = assert_cast<const ColumnVariant&>(column);
-    std::string res;
-    variant.serialize_one_row_to_string(cast_set<Int64>(row_num), &res);
-    return res;
-}
-
-void DataTypeVariant::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    const auto& variant = assert_cast<const ColumnVariant&>(column);
-    variant.serialize_one_row_to_string(cast_set<Int64>(row_num), ostr);
-}
-
 void DataTypeVariant::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
     col_meta->set_variant_max_subcolumns_count(_max_subcolumns_count);

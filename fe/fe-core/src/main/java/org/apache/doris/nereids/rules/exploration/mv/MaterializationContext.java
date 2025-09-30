@@ -39,6 +39,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -413,6 +415,17 @@ public abstract class MaterializationContext {
         physicalPlan.accept(new DefaultPlanVisitor<Void, Void>() {
             @Override
             public Void visitPhysicalRelation(PhysicalRelation physicalRelation, Void context) {
+                for (MaterializationContext rewrittenContext : rewrittenSuccessMaterializationSet) {
+                    if (rewrittenContext.isFinalChosen(physicalRelation)) {
+                        chosenMaterializationQualifiers.add(rewrittenContext.generateMaterializationIdentifier());
+                    }
+                }
+                return null;
+            }
+
+            @Override
+            public Void visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan lazyScan, Void context) {
+                PhysicalOlapScan physicalRelation = lazyScan.getScan();
                 for (MaterializationContext rewrittenContext : rewrittenSuccessMaterializationSet) {
                     if (rewrittenContext.isFinalChosen(physicalRelation)) {
                         chosenMaterializationQualifiers.add(rewrittenContext.generateMaterializationIdentifier());

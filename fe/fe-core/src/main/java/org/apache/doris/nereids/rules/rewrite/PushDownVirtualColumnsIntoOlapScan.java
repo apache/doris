@@ -21,7 +21,6 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -33,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DecodeAsVarchar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpAddressInRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
@@ -41,9 +41,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
@@ -55,21 +53,16 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
-import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.IPv4Type;
 import org.apache.doris.nereids.types.IPv6Type;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
-import org.apache.doris.nereids.types.MapType;
-import org.apache.doris.nereids.types.QuantileStateType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
-import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -120,8 +113,9 @@ import java.util.Set;
  * 3. CAST Expressions: CAST operations are lightweight and creating virtual columns for them
  *    may not provide significant benefit while adding complexity.
  *
- * 4. Lambda-containing Expressions: Expressions with lambda functions have complex evaluation
- *    contexts that make virtual column optimization problematic.
+ * 4. Lambda-containing Expressions: Expression trees that contain lambda functions anywhere
+ *    are completely skipped from optimization. Lambda functions have complex evaluation contexts
+ *    that make virtual column optimization problematic.
  */
 public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
 
@@ -152,17 +146,9 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
             DateTimeV2Type.class,
             FloatType.class,
             DoubleType.class,
-            QuantileStateType.class,
-            BitmapType.class,
             CharType.class,
             VarcharType.class,
-            HllType.class,
             StringType.class,
-            VariantType.class,
-            JsonType.class,
-            StructType.class,
-            ArrayType.class,
-            MapType.class,
             DecimalV2Type.class,
             DecimalV3Type.class
     );
@@ -172,6 +158,11 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         return ImmutableList.of(
                 logicalProject(logicalFilter(logicalOlapScan()
                         .when(s -> {
+                            // Only apply when session variable experimental_enable_virtual_slot_for_cse is enabled
+                            if (ConnectContext.get() == null
+                                    || !ConnectContext.get().getSessionVariable().experimentalEnableVirtualSlotForCse) {
+                                return false;
+                            }
                             boolean dupTblOrMOW = s.getTable().getKeysType() == KeysType.DUP_KEYS
                                     || s.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite();
                             return dupTblOrMOW && s.getVirtualColumns().isEmpty();
@@ -183,6 +174,11 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
                         }).toRule(RuleType.PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN),
                 logicalFilter(logicalOlapScan()
                         .when(s -> {
+                            // Only apply when session variable experimental_enable_virtual_slot_for_cse is enabled
+                            if (ConnectContext.get() == null
+                                    || !ConnectContext.get().getSessionVariable().experimentalEnableVirtualSlotForCse) {
+                                return false;
+                            }
                             boolean dupTblOrMOW = s.getTable().getKeysType() == KeysType.DUP_KEYS
                                     || s.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite();
                             return dupTblOrMOW && s.getVirtualColumns().isEmpty();
@@ -282,6 +278,14 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         Map<Expression, Integer> expressionCounts = new HashMap<>();
 
         for (Expression expr : allExpressions) {
+            // Skip expressions that contain lambda functions anywhere in the tree
+            if (expr.anyMatch(e -> e instanceof Lambda)
+                    || expr.anyMatch(e -> e instanceof GroupingScalarFunction)) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Skipping expression containing lambda/grouping: {}", expr.toSql());
+                }
+                continue;
+            }
             collectSubExpressions(expr, expressionCounts);
         }
 
@@ -320,22 +324,11 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
      * Recursively collect all sub-expressions and count their occurrences
      */
     private void collectSubExpressions(Expression expr, Map<Expression, Integer> expressionCounts) {
-        collectSubExpressions(expr, expressionCounts, false);
-    }
-
-    /**
-     * Recursively collect all sub-expressions and count their occurrences
-     * @param expr the expression to analyze
-     * @param expressionCounts map to store expression occurrence counts
-     * @param insideLambda whether we are currently inside a lambda function
-     */
-    private void collectSubExpressions(Expression expr, Map<Expression, Integer> expressionCounts,
-                                    boolean insideLambda) {
         // Check if we should skip this expression and how to handle it
-        SkipResult skipResult = shouldSkipExpression(expr, insideLambda);
+        SkipResult skipResult = shouldSkipExpression(expr);
 
         if (skipResult.shouldTerminate()) {
-            // Examples: x (slot), 10 (constant), expressions inside lambda functions
+            // Examples: x (slot), 10 (constant)
             // These expressions are completely skipped - no counting, no recursion
             return;
         }
@@ -357,9 +350,7 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
 
         // Recursively process children
         for (Expression child : expr.children()) {
-            // Check if we're entering a lambda function
-            boolean enteringLambda = insideLambda || (expr instanceof Lambda);
-            collectSubExpressions(child, expressionCounts, enteringLambda);
+            collectSubExpressions(child, expressionCounts);
         }
     }
 
@@ -367,17 +358,14 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
      * Determine how to handle an expression during sub-expression collection
      * This method consolidates ALL skip logic in one place
      * @param expr the expression to check
-     * @param insideLambda whether we are currently inside a lambda function
      * @return SkipResult indicating how to handle this expression
      */
-    private SkipResult shouldSkipExpression(Expression expr, boolean insideLambda) {
-        // Skip expressions inside lambda functions - they shouldn't be optimized
-        if (insideLambda) {
-            if (expr.containsType(ArrayItemReference.class)) {
-                return SkipResult.SKIP_NOT_BENEFICIAL;
-            }
+    private SkipResult shouldSkipExpression(Expression expr) {
+        // Grouping scalar functions can't be materialized into project/virtual columns.
+        // If an expression tree contains any grouping function, skip it entirely.
+        if (expr.anyMatch(e -> e instanceof GroupingScalarFunction)) {
+            return SkipResult.TERMINATE;
         }
-
         // Skip simple slots and literals as they don't benefit from being pushed down
         if (expr instanceof Slot || expr.isConstant()) {
             return SkipResult.TERMINATE;
@@ -391,11 +379,6 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
 
         // Skip expressions with decode_as_varchar or encode_as_bigint as root
         if (expr instanceof DecodeAsVarchar || expr instanceof EncodeString) {
-            return SkipResult.SKIP_NOT_BENEFICIAL;
-        }
-
-        // Skip expressions that contain lambda functions anywhere in the tree
-        if (expr instanceof Lambda) {
             return SkipResult.SKIP_NOT_BENEFICIAL;
         }
 
@@ -427,11 +410,10 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         //   - encode_as_bigint(x), decode_as_varchar(x) - encoding/decoding functions
         //   - x > 10, x IN (1,2,3) - ColumnPredicate convertible expressions
         //   - is_ip_address_in_range(ip, '192.168.1.0/24') - index pushdown functions
-        //   - expressions containing lambda functions
         SKIP_NOT_BENEFICIAL,
 
         // Stop processing entirely (don't count, don't recurse)
-        // Examples: x (slot), 10 (constant), expressions inside lambda functions
+        // Examples: x (slot), 10 (constant)
         TERMINATE;
 
         public boolean shouldTerminate() {

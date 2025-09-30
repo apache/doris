@@ -72,7 +72,8 @@ public class LargeIntLiteral extends NumericLiteralExpr {
             // ATTN: value from 'sql_parser.y' is always be positive. for example: '-256' will to be
             // 256, and for int8_t, 256 is invalid, while -256 is valid. So we check the right border
             // is LARGE_INT_MAX_ABS
-            if (bigInt.compareTo(LARGE_INT_MIN) < 0 || bigInt.compareTo(LARGE_INT_MAX_ABS) > 0) {
+            // if (bigInt.compareTo(LARGE_INT_MIN) < 0 || bigInt.compareTo(LARGE_INT_MAX_ABS) > 0) {
+            if (bigInt.compareTo(LARGE_INT_MIN) < 0 || bigInt.compareTo(LARGE_INT_MAX) > 0) {
                 throw new AnalysisException("Large int literal is out of range: " + value);
             }
         } catch (NumberFormatException e) {
@@ -91,7 +92,8 @@ public class LargeIntLiteral extends NumericLiteralExpr {
             // ATTN: value from 'sql_parser.y' is always be positive. for example: '-256' will to be
             // 256, and for int8_t, 256 is invalid, while -256 is valid. So we check the right border
             // is LARGE_INT_MAX_ABS
-            if (bigInt.compareTo(LARGE_INT_MIN) < 0 || bigInt.compareTo(LARGE_INT_MAX_ABS) > 0) {
+            // if (bigInt.compareTo(LARGE_INT_MIN) < 0 || bigInt.compareTo(LARGE_INT_MAX_ABS) > 0) {
+            if (bigInt.compareTo(LARGE_INT_MIN) < 0 || bigInt.compareTo(LARGE_INT_MAX) > 0) {
                 throw new AnalysisException("Large int literal is out of range: " + value);
             }
         } catch (NumberFormatException e) {

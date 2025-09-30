@@ -18,8 +18,6 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.SetUserPropertyVar;
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
@@ -27,6 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.nereids.trees.plans.commands.info.SetUserPropertyVarOp;
 import org.apache.doris.resource.Tag;
 
 import com.google.common.base.Joiner;
@@ -75,6 +74,9 @@ public class UserProperty {
     public static final String DEFAULT_CLOUD_CLUSTER = "default_cloud_cluster";
     public static final String DEFAULT_COMPUTE_GROUP = "default_compute_group";
 
+    public static final String PROP_ENABLE_PREFER_CACHED_ROWSET = "enable_prefer_cached_rowset";
+    public static final String PROP_QUERY_FRESHNESS_TOLERANCE = "query_freshness_tolerance_ms";
+
     // for system user
     public static final Set<Pattern> ADVANCED_PROPERTIES = Sets.newHashSet();
     // for normal user
@@ -114,6 +116,8 @@ public class UserProperty {
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_WORKLOAD_GROUP + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_CLOUD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_COMPUTE_GROUP + "$", Pattern.CASE_INSENSITIVE));
+        COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUERY_FRESHNESS_TOLERANCE + "$", Pattern.CASE_INSENSITIVE));
+        COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_ENABLE_PREFER_CACHED_ROWSET + "$", Pattern.CASE_INSENSITIVE));
     }
 
     public UserProperty() {
@@ -171,6 +175,14 @@ public class UserProperty {
         return commonProperties.getExecMemLimit();
     }
 
+    public long getQueryFreshnessToleranceMs() {
+        return commonProperties.getQueryFreshnessToleranceMs();
+    }
+
+    public boolean getEnablePreferCachedRowset() {
+        return commonProperties.getEnablePreferCachedRowset();
+    }
+
     public void update(List<Pair<String, String>> properties) throws UserException {
         update(properties, false);
     }
@@ -188,6 +200,8 @@ public class UserProperty {
         int insertTimeout = this.commonProperties.getInsertTimeout();
         String initCatalog = this.commonProperties.getInitCatalog();
         String workloadGroup = this.commonProperties.getWorkloadGroup();
+        long queryFreshnessToleranceMs = this.commonProperties.getQueryFreshnessToleranceMs();
+        boolean enablePreferCachedRowset = this.commonProperties.getEnablePreferCachedRowset();
 
         String newDefaultCloudCluster = defaultCloudCluster;
 
@@ -196,7 +210,7 @@ public class UserProperty {
             String key = entry.first;
             String value = entry.second;
 
-            String[] keyArr = key.split("\\" + SetUserPropertyVar.DOT_SEPARATOR);
+            String[] keyArr = key.split("\\" + SetUserPropertyVarOp.DOT_SEPARATOR);
             if (keyArr[0].equalsIgnoreCase(PROP_MAX_USER_CONNECTIONS)) {
                 // set property "max_user_connections" = "1000"
                 if (keyArr.length != 1) {
@@ -320,6 +334,21 @@ public class UserProperty {
                     throw new DdlException("workload group " + value + " not exists");
                 }
                 workloadGroup = value;
+            } else if (keyArr[0].equalsIgnoreCase(PROP_QUERY_FRESHNESS_TOLERANCE)) {
+                // set property "query_freshness_tolerance" = "1000";
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_QUERY_FRESHNESS_TOLERANCE + " format error");
+                }
+                queryFreshnessToleranceMs = getLongProperty(key, value, keyArr, PROP_QUERY_FRESHNESS_TOLERANCE);
+            } else if (keyArr[0].equalsIgnoreCase(PROP_ENABLE_PREFER_CACHED_ROWSET)) {
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_ENABLE_PREFER_CACHED_ROWSET + " format error");
+                }
+                try {
+                    enablePreferCachedRowset = Boolean.parseBoolean(value);
+                } catch (NumberFormatException e) {
+                    throw new DdlException(PROP_ENABLE_PREFER_CACHED_ROWSET + " is not boolean");
+                }
             } else {
                 if (isReplay) {
                     // After using SET PROPERTY to modify the user property, if FE rolls back to a version without
@@ -344,6 +373,8 @@ public class UserProperty {
         this.commonProperties.setInsertTimeout(insertTimeout);
         this.commonProperties.setInitCatalog(initCatalog);
         this.commonProperties.setWorkloadGroup(workloadGroup);
+        this.commonProperties.setQueryFreshnessToleranceMs(queryFreshnessToleranceMs);
+        this.commonProperties.setEnablePreferCachedRowset(enablePreferCachedRowset);
         defaultCloudCluster = newDefaultCloudCluster;
     }
 
@@ -354,12 +385,23 @@ public class UserProperty {
             return value;
         }
         // check cluster auth
-        if (!Strings.isNullOrEmpty(value) && !Env.getCurrentEnv().getAccessManager().checkCloudPriv(
-            new UserIdentity(qualifiedUser, "%"), value, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+        // get all users with same name but different host
+        AccessControllerManager am = Env.getCurrentEnv().getAccessManager();
+        List<User> users = am.getAuth()
+                .getUserManager().getUserByName(qualifiedUser);
+        boolean pass = false;
+        for (User user : users) {
+            if (!Strings.isNullOrEmpty(value) && am.checkCloudPriv(
+                    user.getUserIdentity(), value, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+                pass = true;
+            }
+        }
+        if (!pass && !Strings.isNullOrEmpty(value)) {
             throw new ComputeGroupException(String.format("set default compute group failed, "
-                + "user %s has no permission to use compute group '%s', please grant use privilege first ",
+                    + "user %s has no permission to use compute group '%s', please grant use privilege first ",
                 qualifiedUser, value),
                 ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_COMPUTE_GROUP);
+
         }
         // set property "DEFAULT_CLOUD_CLUSTER" = "cluster1"
         if (keyArr.length != 1) {
@@ -440,6 +482,11 @@ public class UserProperty {
         result.add(Lists.newArrayList(PROP_DEFAULT_INIT_CATALOG, String.valueOf(commonProperties.getInitCatalog())));
 
         result.add(Lists.newArrayList(PROP_WORKLOAD_GROUP, String.valueOf(commonProperties.getWorkloadGroup())));
+
+        result.add(Lists.newArrayList(PROP_ENABLE_PREFER_CACHED_ROWSET,
+                String.valueOf(commonProperties.getEnablePreferCachedRowset())));
+        result.add(Lists.newArrayList(PROP_QUERY_FRESHNESS_TOLERANCE,
+                String.valueOf(commonProperties.getQueryFreshnessToleranceMs())));
 
         // default cloud cluster
         if (defaultCloudCluster != null) {
