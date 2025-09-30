@@ -21,7 +21,7 @@ suite("push_down_count_through_join") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "set be_number_for_test=1"
-    sql "set eager_aggregation_mode=1"
+    sql "set eager_aggregation_mode=1;"
 
     sql """
         DROP TABLE IF EXISTS count_t;

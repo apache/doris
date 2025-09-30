@@ -20,6 +20,8 @@ suite("push_down_min_distinct_through_join_one_side") {
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "set be_number_for_test=1"
+    sql "set eager_aggregation_mode=1;"
+
     sql """
         DROP TABLE IF EXISTS min_with_distinct_t;
     """

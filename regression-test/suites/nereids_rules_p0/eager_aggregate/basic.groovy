@@ -23,6 +23,8 @@ suite("basic") {
     
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql "set disable_join_reorder=true;"
+    sql "set eager_aggregation_mode=1;"
+
     sql """
         DROP TABLE IF EXISTS shunt_log_com_dd_library;
     """

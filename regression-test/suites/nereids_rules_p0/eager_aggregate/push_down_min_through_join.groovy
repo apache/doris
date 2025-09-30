@@ -22,6 +22,8 @@ suite("push_down_min_through_join") {
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "set be_number_for_test=1"
     sql "set disable_join_reorder=true"
+    sql "set eager_aggregation_mode=1;"
+
 
     sql """
         DROP TABLE IF EXISTS min_t;
