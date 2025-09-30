@@ -21,10 +21,11 @@ suite("basic_one_side") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
 
-    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
-    sql "set disable_join_reorder=true"
-
-    sql "set eager_aggregation_mode=1;"
+    sql """
+        set disable_nereids_rules=PRUNE_EMPTY_PARTITION;
+        set disable_join_reorder=true;
+        set eager_aggregation_mode=1;
+        """
     sql """
         DROP TABLE IF EXISTS shunt_log_com_dd_library_one_side;
     """
