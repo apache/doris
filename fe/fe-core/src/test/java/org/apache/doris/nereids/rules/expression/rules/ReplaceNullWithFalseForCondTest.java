@@ -17,20 +17,12 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.analyzer.Scope;
-import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Or;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
-
-import java.util.function.Function;
 
 class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
 
@@ -114,33 +106,5 @@ class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
                 + ")";
 
         assertRewriteAfterTypeCoercion(sql, expectedSql);
-    }
-
-    @Override
-    protected void assertRewrite(String sql, String expectedSql) {
-        Function<Expression, Expression> converter = expr -> new ExpressionAnalyzer(
-                null, new Scope(ImmutableList.of()), null, false, false
-        ) {
-            // ExpressionAnalyzer will rewrite 'false and xxx' to 'false', but we want to keep the structure of the expression,
-            @Override
-            public Expression visitAnd(And and, ExpressionRewriteContext context) {
-                return new And(
-                        ExpressionUtils.extractConjunction(and)
-                                .stream()
-                                .map(e -> e.accept(this, context))
-                                .collect(ImmutableList.toImmutableList()));
-            }
-
-            @Override
-            public Expression visitOr(Or or, ExpressionRewriteContext context) {
-                return new Or(
-                        ExpressionUtils.extractDisjunction(or)
-                                .stream()
-                                .map(e -> e.accept(this, context))
-                                .collect(ImmutableList.toImmutableList()));
-            }
-        }.analyze(expr, null);
-
-        assertRewriteAfterConvert(sql, expectedSql, converter);
     }
 }
