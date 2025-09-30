@@ -41,7 +41,7 @@ final String INITIAL_TOTAL_READ_COUNTS_NOT_GREATER_THAN_0_MSG = HIT_AND_READ_COU
 final String TOTAL_HIT_COUNTS_DID_NOT_INCREASE_MSG = HIT_AND_READ_COUNTS_CHECK_FAILED_PREFIX + "total_hit_counts did not increase after cache operation"
 final String TOTAL_READ_COUNTS_DID_NOT_INCREASE_MSG = HIT_AND_READ_COUNTS_CHECK_FAILED_PREFIX + "total_read_counts did not increase after cache operation"
 
-suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p0,external") {
+suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p0,external,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")

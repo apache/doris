@@ -30,7 +30,7 @@ final String INITIAL_VALUES_NOT_ZERO_CHECK_FAILED_MSG = FILE_CACHE_FEATURES_CHEC
 final String DISK_RESOURCE_LIMIT_MODE_TEST_FAILED_MSG = "Disk resource limit mode test failed"
 final String NEED_EVICT_CACHE_IN_ADVANCE_TEST_FAILED_MSG = "Need evict cache in advance test failed"
 
-suite("test_file_cache_features", "external_docker,hive,external_docker_hive,p0,external") {
+suite("test_file_cache_features", "external_docker,hive,external_docker_hive,p0,external,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
