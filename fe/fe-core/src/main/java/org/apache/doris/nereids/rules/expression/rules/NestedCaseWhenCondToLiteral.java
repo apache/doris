@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
+import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
@@ -93,10 +94,10 @@ public class NestedCaseWhenCondToLiteral implements ExpressionPatternRuleFactory
     }
 
     private Expression rewrite(Expression expression, ExpressionRewriteContext context) {
-        return expression.accept(new NestedCondReplacer(), context);
+        return expression.accept(new NestedCondReplacer(), null);
     }
 
-    private static class NestedCondReplacer extends DefaultExpressionRewriter<ExpressionRewriteContext> {
+    private static class NestedCondReplacer extends DefaultExpressionRewriter<Void> {
 
         // condition literals is used to record the boolean literal for a condition expression,
         // 1. if a condition, if it exists in outer case/if conditions, it will be replaced with the literal.
@@ -107,7 +108,7 @@ public class NestedCaseWhenCondToLiteral implements ExpressionPatternRuleFactory
         private final Map<Expression, BooleanLiteral> conditionLiterals = Maps.newHashMap();
 
         @Override
-        public Expression visit(Expression expr, ExpressionRewriteContext context) {
+        public Expression visit(Expression expr, Void context) {
             if (!INSTANCE.needRewrite(expr)) {
                 return expr;
             }
@@ -125,7 +126,7 @@ public class NestedCaseWhenCondToLiteral implements ExpressionPatternRuleFactory
         }
 
         @Override
-        public Expression visitCaseWhen(CaseWhen caseWhen, ExpressionRewriteContext context) {
+        public Expression visitCaseWhen(CaseWhen caseWhen, Void context) {
             ImmutableList.Builder<WhenClause> newWhenClausesBuilder
                     = ImmutableList.builderWithExpectedSize(caseWhen.arity());
             List<Expression> firstOccurConds = Lists.newArrayListWithExpectedSize(caseWhen.arity());
@@ -187,7 +188,7 @@ public class NestedCaseWhenCondToLiteral implements ExpressionPatternRuleFactory
         }
 
         @Override
-        public Expression visitIf(If ifExpr, ExpressionRewriteContext context) {
+        public Expression visitIf(If ifExpr, Void context) {
             Expression oldCondition = ifExpr.getCondition();
             Pair<Expression, Boolean> replaceResult = replaceCondition(oldCondition, context);
             Expression newCondition = replaceResult.first;
@@ -213,12 +214,24 @@ public class NestedCaseWhenCondToLiteral implements ExpressionPatternRuleFactory
         }
 
         // return newCondition + condition first occur flag
-        private Pair<Expression, Boolean> replaceCondition(Expression condition, ExpressionRewriteContext context) {
+        private Pair<Expression, Boolean> replaceCondition(Expression condition, Void context) {
             if (condition.isLiteral()) {
                 // literal condition do not need to replace, and do not record it
                 return Pair.of(condition, false);
             } else if (conditionLiterals.containsKey(condition)) {
                 return Pair.of(conditionLiterals.get(condition), false);
+            } else if (condition instanceof CompoundPredicate) {
+                ImmutableList.Builder<Expression> newChildrenBuilder
+                        = ImmutableList.builderWithExpectedSize(condition.arity());
+                boolean hasNewChildren = false;
+                for (Expression child : condition.children()) {
+                    Expression newChild = replaceCondition(child, context).first;
+                    hasNewChildren = hasNewChildren || newChild != child;
+                    newChildrenBuilder.add(newChild);
+                }
+                Expression newCondition = hasNewChildren
+                        ? condition.withChildren(newChildrenBuilder.build()) : condition;
+                return Pair.of(newCondition, true);
             } else {
                 return Pair.of(condition.accept(this, context), true);
             }
