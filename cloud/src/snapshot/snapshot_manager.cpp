@@ -76,6 +76,13 @@ void SnapshotManager::begin_snapshot(std::string_view instance_id,
     response->mutable_status()->set_msg("Not implemented");
 }
 
+void SnapshotManager::update_snapshot(std::string_view instance_id,
+                                      const UpdateSnapshotRequest& request,
+                                      UpdateSnapshotResponse* response) {
+    response->mutable_status()->set_code(MetaServiceCode::UNDEFINED_ERR);
+    response->mutable_status()->set_msg("Not implemented");
+}
+
 void SnapshotManager::commit_snapshot(std::string_view instance_id,
                                       const CommitSnapshotRequest& request,
                                       CommitSnapshotResponse* response) {
