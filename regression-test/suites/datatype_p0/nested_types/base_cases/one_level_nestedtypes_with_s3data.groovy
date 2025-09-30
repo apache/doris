@@ -26,7 +26,7 @@ suite("one_level_nestedtypes_with_s3data") {
     sql """ set enable_nereids_timeout=false; """
     sql """ set max_scan_key_num = 48 """
     sql """ set max_pushdown_conditions_per_column=1024 """
-
+    sql """ set enable_insert_strict=false """ 
     def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/regression/datalake"
     def table_names = ["test_array_one_level", "test_map_one_level", "test_struct_one_level"]
 
