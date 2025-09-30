@@ -19,6 +19,7 @@ package org.apache.doris.cloud.storage;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 
 import com.azure.core.credential.AccessToken;
@@ -60,6 +61,7 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 
 public class AzureRemote extends RemoteBase {
 

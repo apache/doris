@@ -17,7 +17,10 @@
 
 package org.apache.doris.cloud.storage;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.ThreadPoolManager;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -32,6 +35,13 @@ import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
@@ -45,6 +55,8 @@ import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Error;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -52,7 +64,14 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 
 /**
  * Default implementation of {@link RemoteBase} use {@link S3Client}.
@@ -61,6 +80,8 @@ import java.util.List;
 public class DefaultRemote extends RemoteBase {
     private static final Logger LOG = LogManager.getLogger(DefaultRemote.class);
     private S3Client s3Client;
+    private static int MULTI_PART_UPLOAD_MAX_PART_NUM = 10000;
+    private static ThreadPoolExecutor POOL = null;
 
     public DefaultRemote(ObjectInfo obj) {
         super(obj);
@@ -321,6 +342,20 @@ public class DefaultRemote extends RemoteBase {
         } catch (SdkException e) {
             LOG.warn("Failed to get object for S3", e);
             throw new DdlException("Failed to get object for S3, Error message=" + e.getMessage());
+        }
+    }
+
+    private void initPool() {
+        if (POOL == null) {
+            synchronized (DefaultRemote.class) {
+                if (POOL == null) {
+                    POOL = ThreadPoolManager.newDaemonThreadPool(Config.multi_part_upload_pool_size,
+                            Config.multi_part_upload_pool_size, 5, TimeUnit.SECONDS,
+                            new LinkedBlockingQueue<Runnable>(MULTI_PART_UPLOAD_MAX_PART_NUM),
+                            new ThreadPoolExecutor.DiscardPolicy(), "multi-part-upload", false);
+                    POOL.allowCoreThreadTimeOut(true);
+                }
+            }
         }
     }
 }
