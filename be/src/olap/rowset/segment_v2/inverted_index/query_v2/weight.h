@@ -36,6 +36,7 @@ struct QueryExecutionContext {
     std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>> reader_bindings;
     std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>>
             field_reader_bindings;
+    const NullBitmapResolver* null_resolver = nullptr;
 };
 
 class Weight {

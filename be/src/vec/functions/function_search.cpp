@@ -48,71 +48,6 @@
 
 namespace doris::vectorized {
 
-namespace {
-
-struct NullSafetyAnalysisResult {
-    std::unordered_set<std::string> referenced_fields;
-    bool contains_not = false;
-    bool requires_mask = false;
-};
-
-NullSafetyAnalysisResult analyze_null_safety(const TSearchClause& clause) {
-    NullSafetyAnalysisResult result;
-
-    if (clause.__isset.field_name) {
-        result.referenced_fields.insert(clause.field_name);
-    }
-
-    if (clause.clause_type == "NOT") {
-        result.contains_not = true;
-    }
-
-    if (clause.__isset.children) {
-        std::vector<NullSafetyAnalysisResult> child_results;
-        child_results.reserve(clause.children.size());
-        for (const auto& child : clause.children) {
-            auto child_result = analyze_null_safety(child);
-            if (child_result.contains_not) {
-                result.contains_not = true;
-            }
-            if (child_result.requires_mask) {
-                result.requires_mask = true;
-            }
-            result.referenced_fields.insert(child_result.referenced_fields.begin(),
-                                            child_result.referenced_fields.end());
-            child_results.emplace_back(std::move(child_result));
-        }
-
-        if (clause.clause_type == "OR") {
-            bool is_safe = true;
-            std::unordered_set<std::string> seen_fields;
-            for (const auto& child_result : child_results) {
-                if (child_result.contains_not || child_result.requires_mask) {
-                    is_safe = false;
-                    break;
-                }
-                for (const auto& field : child_result.referenced_fields) {
-                    if (!seen_fields.insert(field).second) {
-                        is_safe = false;
-                        break;
-                    }
-                }
-                if (!is_safe) {
-                    break;
-                }
-            }
-
-            if (!is_safe) {
-                result.requires_mask = true;
-            }
-        }
-    }
-
-    return result;
-}
-
-} // namespace
-
 Status FieldReaderResolver::resolve(const std::string& field_name,
                                     InvertedIndexQueryType query_type,
                                     FieldReaderBinding* binding) {
@@ -236,9 +171,9 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
                 data_type_with_names,
         std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
         InvertedIndexResultBitmap& bitmap_result) const {
-    LOG(INFO) << "search: Processing structured query with DSL: " << search_param.original_dsl
-              << ", available " << data_type_with_names.size() << " indexed columns, "
-              << iterators.size() << " iterators";
+    VLOG_DEBUG << "search: Processing DSL '" << search_param.original_dsl << "' with "
+               << data_type_with_names.size() << " indexed columns and " << iterators.size()
+               << " iterators";
 
     if (iterators.empty() || data_type_with_names.empty()) {
         LOG(INFO) << "No indexed columns or iterators available, returning empty result";
@@ -260,33 +195,48 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         return Status::OK();
     }
 
-    std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
-    std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-
-    // Collect NULL bitmaps for fields referenced in the query
-    // Apply proper NULL semantics based on query structure
-    RETURN_IF_ERROR(collect_query_null_bitmap(search_param.root, iterators, null_bitmap));
-
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = num_rows;
     exec_ctx.readers = resolver.readers();
     exec_ctx.reader_bindings = resolver.reader_bindings();
     exec_ctx.field_reader_bindings = resolver.field_readers();
 
+    class ResolverAdapter final : public query_v2::NullBitmapResolver {
+    public:
+        explicit ResolverAdapter(const FieldReaderResolver& resolver) : _resolver(resolver) {}
+
+        segment_v2::IndexIterator* iterator_for(const query_v2::Scorer& /*scorer*/,
+                                                const std::string& logical_field) const override {
+            if (logical_field.empty()) {
+                return nullptr;
+            }
+            return _resolver.get_iterator(logical_field);
+        }
+
+    private:
+        const FieldReaderResolver& _resolver;
+    };
+
+    ResolverAdapter null_resolver(resolver);
+    exec_ctx.null_resolver = &null_resolver;
+
     auto weight = root_query->weight(false);
     if (!weight) {
         LOG(WARNING) << "search: Failed to build query weight";
-        bitmap_result = InvertedIndexResultBitmap(std::move(roaring), std::move(null_bitmap));
+        bitmap_result = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
+                                                  std::make_shared<roaring::Roaring>());
         return Status::OK();
     }
 
     auto scorer = weight->scorer(exec_ctx);
     if (!scorer) {
         LOG(WARNING) << "search: Failed to build scorer";
-        bitmap_result = InvertedIndexResultBitmap(std::move(roaring), std::move(null_bitmap));
+        bitmap_result = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
+                                                  std::make_shared<roaring::Roaring>());
         return Status::OK();
     }
 
+    std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
     uint32_t doc = scorer->doc();
     uint32_t matched_docs = 0;
     while (doc != query_v2::TERMINATED) {
@@ -295,13 +245,31 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         doc = scorer->advance();
     }
 
-    LOG(INFO) << "search: Query completed, matched " << matched_docs << " documents";
+    VLOG_DEBUG << "search: Query completed, matched " << matched_docs << " documents";
 
-    bitmap_result = InvertedIndexResultBitmap(std::move(roaring), std::move(null_bitmap));
-    // Apply SQL NULL semantics: only mask out NULL when query doesn't handle them properly
-    if (should_mask_null_values(search_param.root)) {
-        bitmap_result.mask_out_null();
+    // Extract NULL bitmap from three-valued logic scorer
+    // The scorer correctly computes which documents evaluate to NULL based on query logic
+    // For example: TRUE OR NULL = TRUE (not NULL), FALSE OR NULL = NULL
+    std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+    if (scorer->has_null_bitmap(exec_ctx.null_resolver)) {
+        const auto* bitmap = scorer->get_null_bitmap(exec_ctx.null_resolver);
+        if (bitmap != nullptr) {
+            *null_bitmap = *bitmap;
+            VLOG_TRACE << "search: Extracted NULL bitmap with " << null_bitmap->cardinality()
+                       << " NULL documents";
+        }
     }
+
+    VLOG_TRACE << "search: Before mask - true_bitmap=" << roaring->cardinality()
+               << ", null_bitmap=" << null_bitmap->cardinality();
+
+    // Create result and mask out NULLs (SQL WHERE clause semantics: only TRUE rows)
+    bitmap_result = InvertedIndexResultBitmap(std::move(roaring), std::move(null_bitmap));
+    bitmap_result.mask_out_null();
+
+    VLOG_TRACE << "search: After mask - result_bitmap="
+               << bitmap_result.get_data_bitmap()->cardinality();
+
     return Status::OK();
 }
 
@@ -466,8 +434,7 @@ Status FunctionSearch::build_leaf_query(const FunctionSearch& function, const TS
     std::wstring value_wstr = StringHelper::to_wstring(value);
 
     auto make_term_query = [&](const std::wstring& term) -> query_v2::QueryPtr {
-        return std::static_pointer_cast<query_v2::Query>(
-                std::make_shared<query_v2::TermQuery>(context, field_wstr, term));
+        return std::make_shared<query_v2::TermQuery>(context, field_wstr, term, field_name);
     };
 
     if (clause_type == "TERM") {
@@ -512,12 +479,12 @@ Status FunctionSearch::build_leaf_query(const FunctionSearch& function, const TS
 
     if (category == FunctionSearch::ClauseTypeCategory::TOKENIZED) {
         if (clause_type == "PHRASE") {
-            LOG(INFO) << "search: PHRASE query not implemented, fall back to TERM";
+            VLOG_DEBUG << "search: PHRASE clause not implemented, fallback to TERM";
             *out = make_term_query(value_wstr);
             return Status::OK();
         }
         if (clause_type == "MATCH") {
-            LOG(INFO) << "search: MATCH query not implemented, fall back to TERM";
+            VLOG_DEBUG << "search: MATCH clause not implemented, fallback to TERM";
             *out = make_term_query(value_wstr);
             return Status::OK();
         }
@@ -567,8 +534,8 @@ Status FunctionSearch::build_leaf_query(const FunctionSearch& function, const TS
     if (category == FunctionSearch::ClauseTypeCategory::NON_TOKENIZED) {
         if (clause_type == "PREFIX" || clause_type == "WILDCARD" || clause_type == "REGEXP" ||
             clause_type == "RANGE" || clause_type == "LIST") {
-            LOG(INFO) << "search: clause type '" << clause_type
-                      << "' not implemented, fall back to TERM";
+            VLOG_DEBUG << "search: clause type '" << clause_type
+                       << "' not implemented, fallback to TERM";
         }
         *out = make_term_query(value_wstr);
         return Status::OK();
@@ -579,40 +546,12 @@ Status FunctionSearch::build_leaf_query(const FunctionSearch& function, const TS
     return Status::OK();
 }
 
-Status FunctionSearch::collect_query_null_bitmap(
+Status FunctionSearch::collect_all_field_nulls(
         const TSearchClause& clause,
         const std::unordered_map<std::string, IndexIterator*>& iterators,
         std::shared_ptr<roaring::Roaring>& null_bitmap) const {
-    bool collect_nulls = should_mask_null_values(clause);
-    return collect_query_null_bitmap_internal(clause, iterators, null_bitmap, collect_nulls);
-}
-
-Status FunctionSearch::collect_query_null_bitmap_internal(
-        const TSearchClause& clause,
-        const std::unordered_map<std::string, IndexIterator*>& iterators,
-        std::shared_ptr<roaring::Roaring>& null_bitmap, bool collect_nulls) const {
-    const std::string& clause_type = clause.clause_type;
-    bool next_collect = collect_nulls;
-
-    if (!collect_nulls && clause_type == "OR") {
-        if (!is_or_clause_null_safe(clause)) {
-            next_collect = true;
-        }
-    } else if (!collect_nulls && clause_type == "NOT") {
-        next_collect = true;
-    }
-
-    if (clause_type == "AND" || clause_type == "OR" || clause_type == "NOT") {
-        if (clause.__isset.children) {
-            for (const auto& child_clause : clause.children) {
-                RETURN_IF_ERROR(collect_query_null_bitmap_internal(child_clause, iterators,
-                                                                   null_bitmap, next_collect));
-            }
-        }
-        return Status::OK();
-    }
-
-    if (next_collect && clause.__isset.field_name) {
+    // Recursively collect NULL bitmaps from all fields referenced in the query
+    if (clause.__isset.field_name) {
         const std::string& field_name = clause.field_name;
         auto it = iterators.find(field_name);
         if (it != iterators.end() && it->second) {
@@ -628,26 +567,14 @@ Status FunctionSearch::collect_query_null_bitmap_internal(
         }
     }
 
+    // Recurse into child clauses
+    if (clause.__isset.children) {
+        for (const auto& child_clause : clause.children) {
+            RETURN_IF_ERROR(collect_all_field_nulls(child_clause, iterators, null_bitmap));
+        }
+    }
+
     return Status::OK();
-}
-
-bool FunctionSearch::is_or_clause_null_safe(const TSearchClause& clause) const {
-    if (clause.clause_type != "OR") {
-        return false;
-    }
-
-    auto analysis = analyze_null_safety(clause);
-    return !analysis.contains_not && !analysis.requires_mask;
-}
-
-bool FunctionSearch::should_mask_null_values(const TSearchClause& clause) const {
-    const std::string& clause_type = clause.clause_type;
-
-    if (clause_type == "OR") {
-        return !is_or_clause_null_safe(clause);
-    }
-
-    return true;
 }
 
 void register_function_search(SimpleFunctionFactory& factory) {

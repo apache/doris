@@ -1562,17 +1562,20 @@ TEST_F(FunctionSearchTest, TestOrCrossFieldMatchesMatchAnyRows) {
     left_clause.clause_type = "TERM";
     left_clause.field_name = "title";
     left_clause.value = "foo";
+    left_clause.__isset.field_name = true;
+    left_clause.__isset.value = true;
 
     TSearchClause right_clause;
     right_clause.clause_type = "TERM";
     right_clause.field_name = "content";
     right_clause.value = "bar";
+    right_clause.__isset.field_name = true;
+    right_clause.__isset.value = true;
 
     TSearchClause root_clause;
     root_clause.clause_type = "OR";
     root_clause.children = {left_clause, right_clause};
-
-    EXPECT_FALSE(function_search->should_mask_null_values(root_clause));
+    root_clause.__isset.children = true;
 
     auto left_iterator = std::make_unique<TrackingIndexIterator>(true);
     auto right_iterator = std::make_unique<TrackingIndexIterator>(true);
@@ -1581,12 +1584,12 @@ TEST_F(FunctionSearchTest, TestOrCrossFieldMatchesMatchAnyRows) {
             {"title", left_iterator.get()}, {"content", right_iterator.get()}};
 
     auto null_bitmap = std::make_shared<roaring::Roaring>();
-    auto status = function_search->collect_query_null_bitmap(root_clause, iterators_map, null_bitmap);
+    auto status = function_search->collect_all_field_nulls(root_clause, iterators_map, null_bitmap);
     EXPECT_TRUE(status.ok());
-    EXPECT_EQ(0, left_iterator->has_null_checks());
-    EXPECT_EQ(0, right_iterator->has_null_checks());
-    EXPECT_EQ(0, left_iterator->read_null_bitmap_calls());
-    EXPECT_EQ(0, right_iterator->read_null_bitmap_calls());
+    EXPECT_GE(left_iterator->has_null_checks(), 1);
+    EXPECT_GE(right_iterator->has_null_checks(), 1);
+    EXPECT_GE(left_iterator->read_null_bitmap_calls(), 1);
+    EXPECT_GE(right_iterator->read_null_bitmap_calls(), 1);
     EXPECT_TRUE(null_bitmap->isEmpty());
 
     auto data_bitmap = std::make_shared<roaring::Roaring>();
@@ -1596,9 +1599,7 @@ TEST_F(FunctionSearchTest, TestOrCrossFieldMatchesMatchAnyRows) {
     search_null_bitmap->add(2);
 
     InvertedIndexResultBitmap search_bitmap(data_bitmap, search_null_bitmap);
-    if (function_search->should_mask_null_values(root_clause)) {
-        search_bitmap.mask_out_null();
-    }
+    search_bitmap.mask_out_null();
 
     auto result_bitmap = search_bitmap.get_data_bitmap();
     ASSERT_NE(nullptr, result_bitmap);
@@ -1622,11 +1623,15 @@ TEST_F(FunctionSearchTest, TestOrWithNotSameFieldMatchesMatchAllRows) {
     include_clause.clause_type = "TERM";
     include_clause.field_name = "title";
     include_clause.value = "foo";
+    include_clause.__isset.field_name = true;
+    include_clause.__isset.value = true;
 
     TSearchClause exclude_child;
     exclude_child.clause_type = "TERM";
     exclude_child.field_name = "title";
     exclude_child.value = "bar";
+    exclude_child.__isset.field_name = true;
+    exclude_child.__isset.value = true;
 
     TSearchClause exclude_clause;
     exclude_clause.clause_type = "NOT";
@@ -1635,14 +1640,13 @@ TEST_F(FunctionSearchTest, TestOrWithNotSameFieldMatchesMatchAllRows) {
     TSearchClause root_clause;
     root_clause.clause_type = "OR";
     root_clause.children = {include_clause, exclude_clause};
-
-    EXPECT_TRUE(function_search->should_mask_null_values(root_clause));
+    root_clause.__isset.children = true;
 
     auto iterator = std::make_unique<TrackingIndexIterator>(true);
     std::unordered_map<std::string, IndexIterator*> iterators_map = {{"title", iterator.get()}};
 
     auto null_bitmap = std::make_shared<roaring::Roaring>();
-    auto status = function_search->collect_query_null_bitmap(root_clause, iterators_map, null_bitmap);
+    auto status = function_search->collect_all_field_nulls(root_clause, iterators_map, null_bitmap);
     EXPECT_TRUE(status.ok());
     EXPECT_GE(iterator->has_null_checks(), 1);
     EXPECT_GE(iterator->read_null_bitmap_calls(), 1);
@@ -1655,9 +1659,7 @@ TEST_F(FunctionSearchTest, TestOrWithNotSameFieldMatchesMatchAllRows) {
     search_null_bitmap->add(3);
 
     InvertedIndexResultBitmap search_bitmap(data_bitmap, search_null_bitmap);
-    if (function_search->should_mask_null_values(root_clause)) {
-        search_bitmap.mask_out_null();
-    }
+    search_bitmap.mask_out_null();
 
     auto result_bitmap = search_bitmap.get_data_bitmap();
     ASSERT_NE(nullptr, result_bitmap);

@@ -523,8 +523,17 @@ TEST_F(BooleanQueryTest, test_boolean_query_bitmap_and_term) {
     auto* reader = IndexReader::open(dir, true);
     ASSERT_TRUE(reader != nullptr);
 
-    auto composite_reader = std::make_unique<query_v2::CompositeReader>();
-    composite_reader->set_reader(field, reader);
+    auto reader_holder = std::shared_ptr<IndexReader>(reader, [](IndexReader* r) {
+        if (r != nullptr) {
+            r->close();
+            _CLLDELETE(r);
+        }
+    });
+
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = static_cast<uint32_t>(reader_holder->numDocs());
+    exec_ctx.readers.push_back(reader_holder);
+    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
 
     roaring::Roaring bm;
     for (uint32_t d = 0; d < static_cast<uint32_t>(reader->numDocs()); ++d) {
@@ -540,7 +549,7 @@ TEST_F(BooleanQueryTest, test_boolean_query_bitmap_and_term) {
     auto q = builder.build();
 
     auto w = q->weight(false);
-    auto s = w->scorer(composite_reader);
+    auto s = w->scorer(exec_ctx);
 
     uint32_t doc = s->doc();
     uint32_t count = 0;
@@ -550,9 +559,6 @@ TEST_F(BooleanQueryTest, test_boolean_query_bitmap_and_term) {
         doc = s->advance();
     }
     EXPECT_EQ(count, 20);
-
-    reader->close();
-    _CLLDELETE(reader);
     _CLDECDELETE(dir);
 }
 
@@ -567,8 +573,17 @@ TEST_F(BooleanQueryTest, test_boolean_query_bitmap_or_term) {
     auto* reader = IndexReader::open(dir, true);
     ASSERT_TRUE(reader != nullptr);
 
-    auto composite_reader = std::make_unique<query_v2::CompositeReader>();
-    composite_reader->set_reader(field, reader);
+    auto reader_holder = std::shared_ptr<IndexReader>(reader, [](IndexReader* r) {
+        if (r != nullptr) {
+            r->close();
+            _CLLDELETE(r);
+        }
+    });
+
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = static_cast<uint32_t>(reader_holder->numDocs());
+    exec_ctx.readers.push_back(reader_holder);
+    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
 
     roaring::Roaring bm;
     for (uint32_t d = 0; d < static_cast<uint32_t>(reader->numDocs()); ++d) {
@@ -584,7 +599,7 @@ TEST_F(BooleanQueryTest, test_boolean_query_bitmap_or_term) {
     auto q = builder.build();
 
     auto w = q->weight(false);
-    auto s = w->scorer(composite_reader);
+    auto s = w->scorer(exec_ctx);
 
     uint32_t doc = s->doc();
     uint32_t count = 0;
@@ -593,9 +608,6 @@ TEST_F(BooleanQueryTest, test_boolean_query_bitmap_or_term) {
         doc = s->advance();
     }
     EXPECT_EQ(count, 60);
-
-    reader->close();
-    _CLLDELETE(reader);
     _CLDECDELETE(dir);
 }
 

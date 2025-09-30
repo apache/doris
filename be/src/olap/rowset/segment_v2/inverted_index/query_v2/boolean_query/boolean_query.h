@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <string>
-
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_weight.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
@@ -40,7 +38,6 @@ public:
 
     WeightPtr weight(bool enable_scoring) override {
         std::vector<WeightPtr> sub_weights;
-        sub_weights.reserve(_sub_queries.size());
         for (const auto& query : _sub_queries) {
             sub_weights.emplace_back(query->weight(enable_scoring));
         }

@@ -30,10 +30,10 @@
 9
 
 -- !test_2_3_internal_not --
-9
+11
 
 -- !test_2_3_external_not --
-9
+11
 
 -- !test_3_1_or_with_null --
 1	Ronald Reagan Biography	Detailed biography of Ronald Reagan
@@ -58,11 +58,148 @@
 7
 
 -- !test_5_2_complex_nested --
-3
+5
 
 -- !test_6_1_large_or_search --
 11
 
 -- !test_6_1_large_or_match --
 11
+
+-- !man_pat_1_search --
+11
+
+-- !man_pat_1_match --
+11
+
+-- !man_pat_1_search_rows --
+1	Mandy Patinkin Career	Biography of the talented actor Mandy Patinkin	NOT_NULL	NOT_NULL
+3	\N	Article about Mandy Patinkin Broadway performances	NULL	NOT_NULL
+6	Mandy Biography	Complete story of Mandy Patinkin life and career	NOT_NULL	NOT_NULL
+8	Theater Arts	Mandy Patinkin theatrical performances analysis	NOT_NULL	NOT_NULL
+12		Empty title with Mandy Patinkin content	NOT_NULL	NOT_NULL
+13	Valid Title		NOT_NULL	NOT_NULL
+14	Mandy Kesha Collaboration	Fictional collaboration between Mandy Patinkin and Kesha	NOT_NULL	NOT_NULL
+15	\N	Content with both Mandy Patinkin and Kesha references	NULL	NOT_NULL
+16	Comprehensive Bio	Mandy Patinkin full biography with career details	NOT_NULL	NOT_NULL
+18	\N	Theater review mentioning Mandy Patinkin outstanding performance	NULL	NOT_NULL
+20	Celebrity News	Latest news about Kesha tour and Mandy Patinkin Broadway show	NOT_NULL	NOT_NULL
+
+-- !man_pat_1_match_rows --
+1	Mandy Patinkin Career	Biography of the talented actor Mandy Patinkin	NOT_NULL	NOT_NULL
+3	\N	Article about Mandy Patinkin Broadway performances	NULL	NOT_NULL
+6	Mandy Biography	Complete story of Mandy Patinkin life and career	NOT_NULL	NOT_NULL
+8	Theater Arts	Mandy Patinkin theatrical performances analysis	NOT_NULL	NOT_NULL
+12		Empty title with Mandy Patinkin content	NOT_NULL	NOT_NULL
+13	Valid Title		NOT_NULL	NOT_NULL
+14	Mandy Kesha Collaboration	Fictional collaboration between Mandy Patinkin and Kesha	NOT_NULL	NOT_NULL
+15	\N	Content with both Mandy Patinkin and Kesha references	NULL	NOT_NULL
+16	Comprehensive Bio	Mandy Patinkin full biography with career details	NOT_NULL	NOT_NULL
+18	\N	Theater review mentioning Mandy Patinkin outstanding performance	NULL	NOT_NULL
+20	Celebrity News	Latest news about Kesha tour and Mandy Patinkin Broadway show	NOT_NULL	NOT_NULL
+
+-- !man_pat_2_search_or --
+11
+
+-- !man_pat_2_match_or --
+11
+
+-- !man_pat_2_search_or_ids --
+1
+2
+5
+6
+7
+9
+11
+14
+15
+17
+20
+
+-- !man_pat_2_match_or_ids --
+1
+2
+5
+6
+7
+9
+11
+14
+15
+17
+20
+
+-- !man_pat_3_search_and --
+1
+
+-- !man_pat_3_match_and --
+1
+
+-- !man_pat_4_search_not --
+8
+
+-- !man_pat_4_match_not --
+8
+
+-- !man_pat_5_search_nested --
+5
+
+-- !man_pat_5_match_nested --
+5
+
+-- !fred_1_search --
+9
+
+-- !fred_1_match --
+9
+
+-- !fred_1_search_rows --
+1	Fred Smith	Article about Rahul Gandhi politics
+2	John Doe	Technology article about software
+4	Fred Wilson	\N
+7	Another Fred	Some other content without the target name
+9	Fred Thompson	Mixed article about Rahul Gandhi and others
+10		Clean article without target names
+12	\N	Technology review without political content
+13	Fred Frederick	Biography of Rahul Gandhi family
+15		
+
+-- !fred_1_match_rows --
+1	Fred Smith	Article about Rahul Gandhi politics
+2	John Doe	Technology article about software
+4	Fred Wilson	\N
+7	Another Fred	Some other content without the target name
+9	Fred Thompson	Mixed article about Rahul Gandhi and others
+10		Clean article without target names
+12	\N	Technology review without political content
+13	Fred Frederick	Biography of Rahul Gandhi family
+15		
+
+-- !fred_2_title_only --
+5
+
+-- !fred_2_content_any --
+6
+
+-- !fred_2_not_content --
+5
+
+-- !fred_3_or_not --
+11
+
+-- !fred_3_or_not_match --
+11
+
+-- !fred_4_and_not --
+1
+
+-- !fred_4_and_not_match --
+1
+
+-- !fred_5_nested --
+9
+
+-- !fred_5_nested_match --
+9
 

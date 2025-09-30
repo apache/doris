@@ -79,6 +79,11 @@ public:
         return _field_readers;
     }
 
+    IndexIterator* get_iterator(const std::string& field_name) const {
+        auto it = _iterators.find(field_name);
+        return (it != _iterators.end()) ? it->second : nullptr;
+    }
+
 private:
     std::string binding_key_for(const std::string& stored_field_name,
                                 InvertedIndexQueryType query_type) const {
@@ -163,20 +168,9 @@ public:
                             FieldReaderResolver& resolver, inverted_index::query_v2::QueryPtr* out,
                             std::string* binding_key) const;
 
-    Status collect_query_null_bitmap(
-            const TSearchClause& clause,
-            const std::unordered_map<std::string, IndexIterator*>& iterators,
-            std::shared_ptr<roaring::Roaring>& null_bitmap) const;
-
-    bool should_mask_null_values(const TSearchClause& clause) const;
-
-private:
-    Status collect_query_null_bitmap_internal(
-            const TSearchClause& clause,
-            const std::unordered_map<std::string, IndexIterator*>& iterators,
-            std::shared_ptr<roaring::Roaring>& null_bitmap, bool collect_nulls) const;
-
-    bool is_or_clause_null_safe(const TSearchClause& clause) const;
+    Status collect_all_field_nulls(const TSearchClause& clause,
+                                   const std::unordered_map<std::string, IndexIterator*>& iterators,
+                                   std::shared_ptr<roaring::Roaring>& null_bitmap) const;
 };
 
 } // namespace doris::vectorized

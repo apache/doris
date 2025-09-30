@@ -29,8 +29,8 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 class MatchAllDocsScorer : public Scorer {
 public:
     MatchAllDocsScorer(uint32_t max_doc,
-                       std::vector<std::shared_ptr<lucene::index::IndexReader>> readers)
-            : _max_doc(max_doc), _readers(std::move(readers)) {
+                       const std::vector<std::shared_ptr<lucene::index::IndexReader>>& readers)
+            : _max_doc(max_doc), _readers(readers) {
         if (_max_doc == 0) {
             _doc = TERMINATED;
         } else {

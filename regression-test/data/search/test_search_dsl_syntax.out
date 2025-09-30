@@ -108,7 +108,9 @@
 8	Cloud Computing AWS
 9	Kubernetes Orchestration
 10	Microservices Architecture
+11	Test with null content
 12	Test with null title
+13	Test with null category
 14	Test with null tags
 15	Test with null author
 16	Test with null status
@@ -125,10 +127,12 @@
 8	Cloud Computing AWS
 9	Kubernetes Orchestration
 10	Microservices Architecture
+11	Test with null content
 12	Test with null title
 13	Test with null category
 14	Test with null tags
 15	Test with null author
+16	Test with null status
 17	Message about success
 18	Error message details
 19	Warning message content

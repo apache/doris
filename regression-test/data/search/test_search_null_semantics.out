@@ -37,3 +37,115 @@
 -- !test_case_8_all_null --
 0
 
+-- !nested_1_search --
+19
+
+-- !nested_1_match --
+19
+
+-- !nested_1_rows --
+1	alpha	beta	gamma	delta
+2	alpha	\N	gamma	delta
+3	\N	beta	gamma	delta
+4	alpha	beta	\N	delta
+5	alpha	beta	gamma	\N
+8	\N	beta	\N	delta
+9	alpha	\N	gamma	\N
+11	exclude	beta	gamma	delta
+12	alpha	exclude	gamma	delta
+13	\N	beta	gamma	delta
+14	alpha	\N	gamma	delta
+16	other	beta	gamma	any
+17	other	beta	any	delta
+18	\N	beta	gamma	any
+19	\N	beta	\N	delta
+27		beta	gamma	delta
+28	alpha		gamma	delta
+29	alpha	beta		delta
+30	alpha	beta	gamma	
+
+-- !nested_2_search --
+15
+
+-- !nested_2_match --
+15
+
+-- !nested_3_search --
+14
+
+-- !nested_3_match --
+14
+
+-- !nested_4_search --
+14
+
+-- !nested_4_match --
+14
+
+-- !nested_5_search --
+22
+
+-- !nested_5_match --
+22
+
+-- !nested_6_search --
+10
+
+-- !nested_6_match --
+10
+
+-- !ternary_1_search --
+6
+
+-- !ternary_1_match --
+6
+
+-- !ternary_1_search_rows --
+1	Ronald Reagan Biography	A detailed biography of the 40th president	biography
+2	Movie Reviews	Selma Blair gives outstanding performance in this film	entertainment
+5	Biography Collection	The life story of Selma Blair, talented actress	biography
+6	Ronald Reagan	The president who changed America	politics
+14	Mixed Content	Ronald Reagan met with Selma representatives	politics
+18	Ronald Article	Content about Selma Blair movie	entertainment
+
+-- !ternary_1_match_rows --
+1	Ronald Reagan Biography	A detailed biography of the 40th president	biography
+2	Movie Reviews	Selma Blair gives outstanding performance in this film	entertainment
+5	Biography Collection	The life story of Selma Blair, talented actress	biography
+6	Ronald Reagan	The president who changed America	politics
+14	Mixed Content	Ronald Reagan met with Selma representatives	politics
+18	Ronald Article	Content about Selma Blair movie	entertainment
+
+-- !ternary_2_search --
+1
+
+-- !ternary_2_match --
+1
+
+-- !ternary_3_search --
+14
+
+-- !ternary_3_external --
+14
+
+-- !ternary_4_search --
+6
+
+-- !ternary_4_match --
+6
+
+-- !ternary_5_search --
+2
+
+-- !ternary_5_match --
+2
+
+-- !ternary_6_search --
+14
+
+-- !ternary_6_match --
+14
+
+-- !ternary_7_all_null --
+0
+

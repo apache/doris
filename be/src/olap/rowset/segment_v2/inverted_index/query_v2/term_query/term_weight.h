@@ -17,38 +17,35 @@
 
 #pragma once
 
-#include <glog/logging.h>
-
-#include <memory>
-#include <string>
-
 #include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
 #include "olap/rowset/segment_v2/inverted_index/similarity/similarity.h"
-#include "olap/rowset/segment_v2/inverted_index_reader.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 class TermWeight : public Weight {
 public:
     TermWeight(IndexQueryContextPtr context, std::wstring field, std::wstring term,
-               SimilarityPtr similarity, bool enable_scoring)
+               SimilarityPtr similarity, bool enable_scoring, std::string logical_field = {})
             : _context(std::move(context)),
               _field(std::move(field)),
               _term(std::move(term)),
               _similarity(std::move(similarity)),
-              _enable_scoring(enable_scoring) {}
+              _enable_scoring(enable_scoring),
+              _logical_field(std::move(logical_field)) {}
     ~TermWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& ctx) override { return scorer(ctx, {}); }
 
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
         auto reader = lookup_reader(ctx, binding_key);
-        auto make_scorer = [this](auto segment_postings) -> ScorerPtr {
+        auto field_name =
+                _logical_field.empty() ? std::string(_field.begin(), _field.end()) : _logical_field;
+        auto make_scorer = [&](auto segment_postings) -> ScorerPtr {
             using PostingsT = decltype(segment_postings);
-            return std::make_shared<TermScorer<PostingsT>>(std::move(segment_postings),
-                                                           _similarity);
+            return std::make_shared<TermScorer<PostingsT>>(std::move(segment_postings), _similarity,
+                                                           field_name);
         };
 
         if (!reader) {
@@ -64,11 +61,10 @@ public:
                 auto segment_postings =
                         std::make_shared<SegmentPostings<TermDocsPtr>>(std::move(iter));
                 return make_scorer(std::move(segment_postings));
-            } else {
-                auto segment_postings =
-                        std::make_shared<NoScoreSegmentPosting<TermDocsPtr>>(std::move(iter));
-                return make_scorer(std::move(segment_postings));
             }
+            auto segment_postings =
+                    std::make_shared<NoScoreSegmentPosting<TermDocsPtr>>(std::move(iter));
+            return make_scorer(std::move(segment_postings));
         }
 
         auto segment_postings = std::make_shared<EmptySegmentPosting<TermDocsPtr>>();
@@ -99,6 +95,7 @@ private:
     std::wstring _term;
     SimilarityPtr _similarity;
     bool _enable_scoring = false;
+    std::string _logical_field;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

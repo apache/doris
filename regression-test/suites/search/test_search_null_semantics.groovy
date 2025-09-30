@@ -130,4 +130,268 @@ suite("test_search_null_semantics") {
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('title:NonExistent or content:NonExistent or category:NonExistent')
     """
+
+    // ------------------------------------------------------------------
+    // Additional coverage: nested boolean logic with explicit NULL checks
+    // ------------------------------------------------------------------
+
+    def nestedTable = "search_nested_null_logic"
+
+    sql "DROP TABLE IF EXISTS ${nestedTable}"
+
+    sql """
+        CREATE TABLE ${nestedTable} (
+            id INT,
+            field_a VARCHAR(100),
+            field_b VARCHAR(100),
+            field_c VARCHAR(100),
+            field_d VARCHAR(100),
+            INDEX idx_a (field_a) USING INVERTED PROPERTIES("parser" = "standard"),
+            INDEX idx_b (field_b) USING INVERTED PROPERTIES("parser" = "standard"),
+            INDEX idx_c (field_c) USING INVERTED PROPERTIES("parser" = "standard"),
+            INDEX idx_d (field_d) USING INVERTED PROPERTIES("parser" = "standard")
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        )
+    """
+
+    sql """
+        INSERT INTO ${nestedTable} VALUES
+        (1,  'alpha', 'beta',  'gamma', 'delta'),
+        (2,  'alpha', NULL,    'gamma', 'delta'),
+        (3,  NULL,    'beta',  'gamma', 'delta'),
+        (4,  'alpha', 'beta',  NULL,    'delta'),
+        (5,  'alpha', 'beta',  'gamma', NULL),
+        (6,  NULL,    NULL,    'gamma', 'delta'),
+        (7,  'alpha', 'beta',  NULL,    NULL),
+        (8,  NULL,    'beta',  NULL,    'delta'),
+        (9,  'alpha', NULL,    'gamma', NULL),
+        (10, NULL,    NULL,    NULL,    NULL),
+        (11, 'exclude', 'beta',   'gamma', 'delta'),
+        (12, 'alpha',   'exclude','gamma', 'delta'),
+        (13, NULL,      'beta',   'gamma', 'delta'),
+        (14, 'alpha',   NULL,     'gamma', 'delta'),
+        (15, 'target',  'any',    'any',   'any'),
+        (16, 'other',   'beta',   'gamma', 'any'),
+        (17, 'other',   'beta',   'any',   'delta'),
+        (18, NULL,      'beta',   'gamma', 'any'),
+        (19, NULL,      'beta',   NULL,    'delta'),
+        (20, NULL,      NULL,     'gamma', 'delta'),
+        (21, 'forbidden', 'safe',      'any', 'any'),
+        (22, 'safe',      'forbidden', 'any', 'any'),
+        (23, 'safe',      'safe',      'any', 'any'),
+        (24, NULL,        'safe',      'any', 'any'),
+        (25, 'safe',      NULL,        'any', 'any'),
+        (26, NULL,        NULL,        'any', 'any'),
+        (27, '',          'beta',   'gamma', 'delta'),
+        (28, 'alpha',     '',       'gamma', 'delta'),
+        (29, 'alpha',     'beta',   '',      'delta'),
+        (30, 'alpha',     'beta',   'gamma', '')
+    """
+
+    Thread.sleep(10000)
+
+    qt_nested_1_search """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        WHERE search('(field_a:alpha OR field_b:beta) AND (field_c:gamma OR field_d:delta)')
+    """
+
+    qt_nested_1_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        WHERE (field_a match "alpha" OR field_b match "beta") AND (field_c match "gamma" OR field_d match "delta")
+    """
+
+    qt_nested_1_rows """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, field_a, field_b, field_c, field_d
+        FROM ${nestedTable}
+        WHERE search('(field_a:alpha OR field_b:beta) AND (field_c:gamma OR field_d:delta)')
+        ORDER BY id
+    """
+
+    qt_nested_2_search """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        WHERE search('field_a:target OR (field_b:beta AND (field_c:gamma OR field_d:delta))')
+    """
+
+    qt_nested_2_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        WHERE field_a match "target" OR (field_b match "beta" AND (field_c match "gamma" OR field_d match "delta"))
+    """
+
+    qt_nested_3_search """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        WHERE search('NOT (field_a:forbidden OR field_b:forbidden)')
+    """
+
+    qt_nested_3_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        WHERE NOT (field_a match "forbidden" OR field_b match "forbidden")
+    """
+
+    qt_nested_4_search """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        WHERE search('(field_a:alpha OR field_b:beta) AND NOT (field_c:exclude OR field_d:exclude)')
+    """
+
+    qt_nested_4_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        WHERE (field_a match "alpha" OR field_b match "beta") AND NOT (field_c match "exclude" OR field_d match "exclude")
+    """
+
+    qt_nested_5_search """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        WHERE search('field_a:alpha OR field_b:beta OR field_c:gamma OR field_d:delta')
+    """
+
+    qt_nested_5_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        WHERE field_a match "alpha" OR field_b match "beta" OR field_c match "gamma" OR field_d match "delta"
+    """
+
+    qt_nested_6_search """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        WHERE search('field_a:alpha AND (field_b:beta OR (field_c:gamma AND field_d:delta))')
+    """
+
+    qt_nested_6_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${nestedTable}
+        WHERE field_a match "alpha" AND (field_b match "beta" OR (field_c match "gamma" AND field_d match "delta"))
+    """
+
+    sql "DROP TABLE IF EXISTS ${nestedTable}"
+
+    // ------------------------------------------------------------------
+    // Additional coverage: general ternary logic scenarios with articles
+    // ------------------------------------------------------------------
+
+    def ternaryTable = "search_three_value_logic"
+
+    sql "DROP TABLE IF EXISTS ${ternaryTable}"
+
+    sql """
+        CREATE TABLE ${ternaryTable} (
+            id INT,
+            title VARCHAR(500),
+            content TEXT,
+            category VARCHAR(100),
+            author VARCHAR(100),
+            INDEX idx_title (title) USING INVERTED PROPERTIES("parser" = "english"),
+            INDEX idx_content (content) USING INVERTED PROPERTIES("parser" = "english"),
+            INDEX idx_category (category) USING INVERTED PROPERTIES("parser" = "english"),
+            INDEX idx_author (author) USING INVERTED PROPERTIES("parser" = "english")
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        )
+    """
+
+    sql """
+        INSERT INTO ${ternaryTable} VALUES
+        (1,  'Ronald Reagan Biography', 'A detailed biography of the 40th president', 'biography', 'John Smith'),
+        (2,  'Movie Reviews', 'Selma Blair gives outstanding performance in this film', 'entertainment', 'Jane Doe'),
+        (3,  NULL, 'A story about Ronald McDonald and his adventures', 'fiction', 'Bob Wilson'),
+        (4,  'Selma Montgomery Story', NULL, 'history', 'Alice Brown'),
+        (5,  'Biography Collection', 'The life story of Selma Blair, talented actress', 'biography', 'Carol White'),
+        (6,  'Ronald Reagan', 'The president who changed America', 'politics', 'David Green'),
+        (7,  'Reagan Era', 'Ronald Reagan policies shaped the decade', NULL, 'Eva Black'),
+        (8,  NULL, 'Political analysis of Reagan administration', 'politics', 'Frank Blue'),
+        (9,  'Random Title', 'Unrelated content about technology', 'tech', NULL),
+        (10, 'Clean Article', 'Technology advances in modern times', 'tech', 'Grace Red'),
+        (11, NULL, 'Article without spam content', 'news', 'Henry Yellow'),
+        (12, 'News Report', NULL, 'news', 'Iris Purple'),
+        (13, 'Spam Article', 'This contains spam keywords', 'spam', 'Jack Orange'),
+        (14, 'Mixed Content', 'Ronald Reagan met with Selma representatives', 'politics', 'Kate Pink'),
+        (15, NULL, NULL, 'unknown', 'Leo Cyan'),
+        (16, '', 'Empty title but valid content', 'misc', ''),
+        (17, 'Valid Title', '', 'misc', 'Mary Gray'),
+        (18, 'Ronald Article', 'Content about Selma Blair movie', 'entertainment', 'Nick Violet'),
+        (19, 'Selma Documentary', 'Ronald Reagan historical documentary', 'history', NULL),
+        (20, NULL, NULL, NULL, NULL)
+    """
+
+    Thread.sleep(10000)
+
+    qt_ternary_1_search """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        WHERE search('title:Ronald OR content:Selma')
+    """
+
+    qt_ternary_1_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        WHERE title match "Ronald" OR content match "Selma"
+    """
+
+    qt_ternary_1_search_rows """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content, category FROM ${ternaryTable}
+        WHERE search('title:Ronald OR content:Selma')
+        ORDER BY id
+    """
+
+    qt_ternary_1_match_rows """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content, category FROM ${ternaryTable}
+        WHERE title match "Ronald" OR content match "Selma"
+        ORDER BY id
+    """
+
+    qt_ternary_2_search """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        WHERE search('title:Ronald AND category:politics')
+    """
+
+    qt_ternary_2_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        WHERE title match "Ronald" AND category match "politics"
+    """
+
+    qt_ternary_3_search """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        WHERE search('NOT content:spam')
+    """
+
+    qt_ternary_3_external """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        WHERE NOT search('content:spam')
+    """
+
+    qt_ternary_4_search """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        WHERE search('title:Ronald OR content:Selma OR category:biography')
+    """
+
+    qt_ternary_4_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        WHERE title match "Ronald" OR content match "Selma" OR category match "biography"
+    """
+
+    qt_ternary_5_search """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        WHERE search('(title:Ronald OR content:Selma) AND category:politics')
+    """
+
+    qt_ternary_5_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        WHERE (title match "Ronald" OR content match "Selma") AND category match "politics"
+    """
+
+    qt_ternary_6_search """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        WHERE search('title:Ronald OR NOT content:spam')
+    """
+
+    qt_ternary_6_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        WHERE title match "Ronald" OR NOT content match "spam"
+    """
+
+    qt_ternary_7_all_null """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${ternaryTable}
+        WHERE search('title:NonExistent OR content:NonExistent OR category:NonExistent')
+    """
+
+    sql "DROP TABLE IF EXISTS ${ternaryTable}"
 }

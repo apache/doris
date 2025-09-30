@@ -181,4 +181,254 @@ suite("test_search_vs_match_consistency") {
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
         WHERE title match "Ronald" or title match "Selma" or content match "Round" or content match "biography" or author match "Smith" or tags match "history"
     """
+
+    // ------------------------------------------------------------------
+    // Additional regression coverage: Mandy Patinkin / Kesha consistency
+    // ------------------------------------------------------------------
+
+    def mandyTable = "search_match_issue_mandy_kesha"
+
+    sql "DROP TABLE IF EXISTS ${mandyTable}"
+
+    sql """
+        CREATE TABLE ${mandyTable} (
+            id INT,
+            title VARCHAR(500),
+            content TEXT,
+            category VARCHAR(100),
+            tags VARCHAR(200),
+            INDEX idx_title (title) USING INVERTED PROPERTIES("parser" = "english"),
+            INDEX idx_content (content) USING INVERTED PROPERTIES("parser" = "english"),
+            INDEX idx_category (category) USING INVERTED PROPERTIES("parser" = "standard"),
+            INDEX idx_tags (tags) USING INVERTED PROPERTIES("parser" = "standard")
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        )
+    """
+
+    sql """
+        INSERT INTO ${mandyTable} VALUES
+        (1,  'Mandy Patinkin Career', 'Biography of the talented actor Mandy Patinkin', 'entertainment', 'actor,biography'),
+        (2,  'Movie Reviews', 'Kesha music video review and analysis', 'music', 'review,kesha'),
+        (3,  NULL, 'Article about Mandy Patinkin Broadway performances', 'theater', 'broadway,performance'),
+        (4,  'Music Industry', NULL, 'music', 'industry,analysis'),
+        (5,  'Entertainment Weekly', 'Kesha new album release covered by major publications', 'music', 'album,release'),
+        (6,  'Mandy Biography', 'Complete story of Mandy Patinkin life and career', 'biography', NULL),
+        (7,  NULL, 'Kesha concert review from last summer tour', 'music', 'concert,tour'),
+        (8,  'Theater Arts', 'Mandy Patinkin theatrical performances analysis', NULL, 'theater,analysis'),
+        (9,  'Pop Music', 'Kesha influence on modern pop music industry', 'music', 'pop,influence'),
+        (10, NULL, NULL, 'unknown', 'misc'),
+        (11, 'Random Title', 'Neither Mandy nor Kesha mentioned here', 'misc', 'random'),
+        (12, '', 'Empty title with Mandy Patinkin content', 'biography', ''),
+        (13, 'Valid Title', '', 'misc', 'empty_content'),
+        (14, 'Mandy Kesha Collaboration', 'Fictional collaboration between Mandy Patinkin and Kesha', 'fantasy', 'collaboration'),
+        (15, NULL, 'Content with both Mandy Patinkin and Kesha references', NULL, NULL),
+        (16, 'Comprehensive Bio', 'Mandy Patinkin full biography with career details', 'biography', 'complete,detailed'),
+        (17, 'Music Analysis', 'Kesha musical style and artistic evolution', 'music', 'style,evolution'),
+        (18, NULL, 'Theater review mentioning Mandy Patinkin outstanding performance', 'theater', 'review,outstanding'),
+        (19, 'Pop Culture', NULL, 'culture', 'pop,trends'),
+        (20, 'Celebrity News', 'Latest news about Kesha tour and Mandy Patinkin Broadway show', 'news', 'celebrity,latest')
+    """
+
+    Thread.sleep(10000)
+
+    // Mandy/Kesha consistency checks
+    qt_man_pat_1_search """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        WHERE search('content:ALL("Mandy Patinkin") or not (content:ANY("Kesha"))')
+    """
+
+    qt_man_pat_1_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        WHERE content match_all "Mandy Patinkin" or not (content match_any "Kesha")
+    """
+
+    qt_man_pat_1_search_rows """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content,
+               CASE WHEN title IS NULL THEN 'NULL' ELSE 'NOT_NULL' END AS title_status,
+               CASE WHEN content IS NULL THEN 'NULL' ELSE 'NOT_NULL' END AS content_status
+        FROM ${mandyTable}
+        WHERE search('content:ALL("Mandy Patinkin") or not (content:ANY("Kesha"))')
+        ORDER BY id
+    """
+
+    qt_man_pat_1_match_rows """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content,
+               CASE WHEN title IS NULL THEN 'NULL' ELSE 'NOT_NULL' END AS title_status,
+               CASE WHEN content IS NULL THEN 'NULL' ELSE 'NOT_NULL' END AS content_status
+        FROM ${mandyTable}
+        WHERE content match_all "Mandy Patinkin" or not (content match_any "Kesha")
+        ORDER BY id
+    """
+
+    qt_man_pat_2_search_or """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        WHERE search('title:Mandy OR content:Kesha')
+    """
+
+    qt_man_pat_2_match_or """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        WHERE title match "Mandy" OR content match "Kesha"
+    """
+
+    qt_man_pat_2_search_or_ids """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${mandyTable}
+        WHERE search('title:Mandy OR content:Kesha')
+        ORDER BY id
+    """
+
+    qt_man_pat_2_match_or_ids """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${mandyTable}
+        WHERE title match "Mandy" OR content match "Kesha"
+        ORDER BY id
+    """
+
+    qt_man_pat_3_search_and """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        WHERE search('title:Mandy AND category:biography')
+    """
+
+    qt_man_pat_3_match_and """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        WHERE title match "Mandy" AND category match "biography"
+    """
+
+    qt_man_pat_4_search_not """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        WHERE search('NOT content:Kesha')
+    """
+
+    qt_man_pat_4_match_not """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        WHERE NOT content match "Kesha"
+    """
+
+    qt_man_pat_5_search_nested """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        WHERE search('(title:Mandy OR content:Kesha) AND category:music')
+    """
+
+    qt_man_pat_5_match_nested """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${mandyTable}
+        WHERE (title match "Mandy" OR content match "Kesha") AND category match "music"
+    """
+
+    // ------------------------------------------------------------------
+    // Regression coverage: title:Fred OR NOT content:ANY(Rahul Gandhi)
+    // ------------------------------------------------------------------
+
+    def fredTable = "search_not_or_consistency"
+
+    sql "DROP TABLE IF EXISTS ${fredTable}"
+
+    sql """
+        CREATE TABLE ${fredTable} (
+            id INT,
+            title VARCHAR(500),
+            content TEXT,
+            remark VARCHAR(100),
+            INDEX idx_title (title) USING INVERTED PROPERTIES("parser" = "english"),
+            INDEX idx_content (content) USING INVERTED PROPERTIES("parser" = "english")
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        )
+    """
+
+    sql """
+        INSERT INTO ${fredTable} VALUES
+        (1,  'Fred Smith', 'Article about Rahul Gandhi politics', 'news'),
+        (2,  'John Doe', 'Technology article about software', 'tech'),
+        (3,  NULL, 'Article mentioning Rahul Gandhi campaign', 'politics'),
+        (4,  'Fred Wilson', NULL, 'biography'),
+        (5,  'Mary Johnson', NULL, 'lifestyle'),
+        (6,  NULL, NULL, 'unknown'),
+        (7,  'Another Fred', 'Some other content without the target name', 'misc'),
+        (8,  'Random Person', 'Discussion about Rahul Gandhi leadership', 'politics'),
+        (9,  'Fred Thompson', 'Mixed article about Rahul Gandhi and others', 'mixed'),
+        (10, '', 'Clean article without target names', 'clean'),
+        (11, 'Different Name', 'Article with neither Fred nor Rahul Gandhi', 'general'),
+        (12, NULL, 'Technology review without political content', 'tech'),
+        (13, 'Fred Frederick', 'Biography of Rahul Gandhi family', 'biography'),
+        (14, 'News Reporter', NULL, 'news'),
+        (15, '', '', 'empty')
+    """
+
+    Thread.sleep(10000)
+
+    qt_fred_1_search """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        WHERE search('title:Fred OR NOT content:ANY("Rahul Gandhi")')
+    """
+
+    qt_fred_1_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        WHERE title match "Fred" OR NOT (content match_any "Rahul Gandhi")
+    """
+
+    qt_fred_1_search_rows """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${fredTable}
+        WHERE search('title:Fred OR NOT content:ANY("Rahul Gandhi")')
+        ORDER BY id
+    """
+
+    qt_fred_1_match_rows """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${fredTable}
+        WHERE title match "Fred" OR NOT (content match_any "Rahul Gandhi")
+        ORDER BY id
+    """
+
+    qt_fred_2_title_only """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        WHERE search('title:Fred')
+    """
+
+    qt_fred_2_content_any """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        WHERE search('content:ANY("Rahul Gandhi")')
+    """
+
+    qt_fred_2_not_content """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        WHERE search('NOT content:ANY("Rahul Gandhi")')
+    """
+
+    qt_fred_3_or_not """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        WHERE search('title:Fred OR NOT title:Random')
+    """
+
+    qt_fred_3_or_not_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        WHERE title match "Fred" OR NOT title match "Random"
+    """
+
+    qt_fred_4_and_not """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        WHERE search('title:Fred AND NOT content:ANY("Rahul Gandhi")')
+    """
+
+    qt_fred_4_and_not_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        WHERE title match "Fred" AND NOT (content match_any "Rahul Gandhi")
+    """
+
+    qt_fred_5_nested """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        WHERE search('(title:Fred OR title:John) OR NOT (content:ANY("Rahul Gandhi") OR content:ANY("politics"))')
+    """
+
+    qt_fred_5_nested_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${fredTable}
+        WHERE (title match "Fred" OR title match "John") OR NOT (content match_any "Rahul Gandhi" OR content match_any "politics")
+    """
+
+    // Clean up auxiliary tables created in this suite
+    sql "DROP TABLE IF EXISTS ${mandyTable}"
+    sql "DROP TABLE IF EXISTS ${fredTable}"
 }
