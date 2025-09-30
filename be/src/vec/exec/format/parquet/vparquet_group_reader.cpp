@@ -82,7 +82,8 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
                                const int32_t row_group_id, const tparquet::RowGroup& row_group,
                                cctz::time_zone* ctz, io::IOContext* io_ctx,
                                const PositionDeleteContext& position_delete_ctx,
-                               const LazyReadContext& lazy_read_ctx, RuntimeState* state)
+                               const LazyReadContext& lazy_read_ctx, RuntimeState* state,
+                               const std::set<uint64_t>& column_ids)
         : _file_reader(file_reader),
           _read_table_columns(read_columns),
           _row_group_id(row_group_id),
@@ -93,7 +94,8 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
           _position_delete_ctx(position_delete_ctx),
           _lazy_read_ctx(lazy_read_ctx),
           _state(state),
-          _obj_pool(new ObjectPool()) {}
+          _obj_pool(new ObjectPool()),
+          _column_ids(column_ids) {}
 
 RowGroupReader::~RowGroupReader() {
     _column_readers.clear();
@@ -132,7 +134,7 @@ Status RowGroupReader::init(
                                                                       : nullptr;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
                                                     _read_ranges, _ctz, _io_ctx, reader,
-                                                    max_buf_size, offset_index));
+                                                    max_buf_size, offset_index, _column_ids));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");

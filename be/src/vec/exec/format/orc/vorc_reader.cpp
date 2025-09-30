@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <list>
 
 #include "vec/exprs/vdirect_in_predicate.h"
 #include "vec/exprs/vexpr.h"
@@ -355,8 +356,10 @@ Status OrcReader::init_reader(
         const RowDescriptor* row_descriptor,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
-        std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr) {
+        std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr,
+        const std::set<uint64_t>& column_ids) {
     _table_column_names = column_names;
+    _column_ids = column_ids;
     _colname_to_value_range = colname_to_value_range;
     _lazy_read_ctx.conjuncts = conjuncts;
     _is_acid = is_acid;
@@ -1158,7 +1161,14 @@ Status OrcReader::set_fill_columns(
     try {
         _row_reader_options.range(_range_start_offset, _range_size);
         _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
-        _row_reader_options.include(_read_file_cols);
+        if (!_column_ids.empty()) {
+            // Convert std::set to std::list for includeTypes
+            // std::list<uint64_t> column_ids_list(_column_ids.begin(), _column_ids.end());
+
+            _row_reader_options.includeTypes({2, 8, 9, 11, 18});
+        } else {
+            _row_reader_options.include(_read_file_cols);
+        }
         _row_reader_options.setEnableLazyDecoding(true);
 
         //orc reader should not use the tiny stripe optimization when reading by row id.
@@ -1243,6 +1253,26 @@ Status OrcReader::set_fill_columns(
         } else {
             for (int i = 0; i < selected_type.getSubtypeCount(); ++i) {
                 _colname_to_idx[selected_type.getFieldName(i)] = idx++;
+            }
+        }
+
+        _type_map.clear();
+        if (_is_acid) {
+            for (uint64_t i = 0; i < selected_type.getSubtypeCount(); ++i) {
+                if (selected_type.getSubtype(i)->getKind() == orc::TypeKind::STRUCT) {
+                    auto row_orc_type = selected_type.getSubtype(i);
+                    for (uint64_t j = 0; j < row_orc_type->getSubtypeCount(); j++) {
+                        _type_map.emplace(
+                                TransactionalHive::ROW + "." + row_orc_type->getFieldName(j),
+                                row_orc_type->getSubtype(j));
+                    }
+                } else {
+                    _type_map.emplace(selected_type.getFieldName(i), selected_type.getSubtype(i));
+                }
+            }
+        } else {
+            for (int i = 0; i < selected_type.getSubtypeCount(); ++i) {
+                _type_map.emplace(selected_type.getFieldName(i), selected_type.getSubtype(i));
             }
         }
 
@@ -1786,6 +1816,13 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
             const auto& file_column_name = root_node->children_file_column_name(table_column_name);
             for (int j = 0; j < orc_column_type->getSubtypeCount(); ++j) {
                 if (boost::iequals(orc_column_type->getFieldName(j), file_column_name)) {
+                    // Check if this column ID is in our selected column IDs set for optimization
+                    // const orc::Type* sub_type = orc_column_type->getSubtype(j);
+                    // uint64_t column_id = sub_type->getColumnId();
+                    // if (!_column_ids.empty() && _column_ids.find(column_id) == _column_ids.end()) {
+                    //     // Skip reading this column if it's not in the selected column IDs
+                    //     continue;
+                    // }
                     read_fields[i] = j;
                 }
             }

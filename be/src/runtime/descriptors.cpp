@@ -63,6 +63,8 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _is_materialized(tdesc.isMaterialized && tdesc.need_materialize),
           _is_key(tdesc.is_key),
           _column_paths(tdesc.column_paths),
+          _column_access_paths(tdesc.__isset.column_access_paths ? tdesc.column_access_paths
+                                                                 : TColumnAccessPaths()),
           _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false),
           _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {
     if (tdesc.__isset.virtual_column_expr) {

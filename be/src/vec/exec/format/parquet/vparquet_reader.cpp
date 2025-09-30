@@ -319,7 +319,8 @@ Status ParquetReader::init_reader(
         const std::unordered_map<std::string, int>* colname_to_slot_id,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
-        std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr, bool filter_groups) {
+        std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr, bool filter_groups,
+        const std::set<uint64_t>& column_ids) {
     _tuple_descriptor = tuple_descriptor;
     _row_descriptor = row_descriptor;
     _colname_to_slot_id = colname_to_slot_id;
@@ -328,6 +329,7 @@ Status ParquetReader::init_reader(
     _colname_to_value_range = colname_to_value_range;
     _table_info_node_ptr = table_info_node_ptr;
     _filter_groups = filter_groups;
+    _column_ids = column_ids;
 
     RETURN_IF_ERROR(_open_file());
     _t_metadata = &(_file_metadata->to_thrift());
@@ -883,7 +885,7 @@ Status ParquetReader::_next_row_group_reader() {
                                                  group_file_reader, _io_ctx->file_reader_stats)
                                        : group_file_reader,
                                _read_table_columns, row_group_index.row_group_id, row_group, _ctz,
-                               _io_ctx, position_delete_ctx, _lazy_read_ctx, _state));
+                               _io_ctx, position_delete_ctx, _lazy_read_ctx, _state, _column_ids));
     _row_group_eof = false;
 
     _current_group_reader->set_current_row_group_idx(row_group_index);

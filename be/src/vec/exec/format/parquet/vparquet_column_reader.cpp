@@ -108,11 +108,25 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                    const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                                    io::IOContext* io_ctx,
                                    std::unique_ptr<ParquetColumnReader>& reader,
-                                   size_t max_buf_size, const tparquet::OffsetIndex* offset_index) {
+                                   size_t max_buf_size, const tparquet::OffsetIndex* offset_index,
+                                   const std::set<uint64_t>& column_ids) {
+    // Check if this column should be created based on column_ids filter
+    if (!column_ids.empty()) {
+        uint64_t field_column_id = field->get_column_id();
+        if (column_ids.find(field_column_id) == column_ids.end()) {
+            VLOG_DEBUG << "Skip creating ParquetColumnReader for field " << field->name
+                       << " with column_id " << field_column_id << " (not in required column_ids)";
+            reader = nullptr; // Don't create reader for this column
+            return Status::OK();
+        }
+
+        VLOG_DEBUG << "Creating ParquetColumnReader for field " << field->name << " with column_id "
+                   << field_column_id;
+    }
     if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
         std::unique_ptr<ParquetColumnReader> element_reader;
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
-                               element_reader, max_buf_size));
+                               element_reader, max_buf_size, nullptr, column_ids));
         element_reader->set_nested_column();
         auto array_reader = ArrayColumnReader::create_unique(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
@@ -121,9 +135,9 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         std::unique_ptr<ParquetColumnReader> key_reader;
         std::unique_ptr<ParquetColumnReader> value_reader;
         RETURN_IF_ERROR(create(file, &field->children[0].children[0], row_group, row_ranges, ctz,
-                               io_ctx, key_reader, max_buf_size));
+                               io_ctx, key_reader, max_buf_size, nullptr, column_ids));
         RETURN_IF_ERROR(create(file, &field->children[0].children[1], row_group, row_ranges, ctz,
-                               io_ctx, value_reader, max_buf_size));
+                               io_ctx, value_reader, max_buf_size, nullptr, column_ids));
         key_reader->set_nested_column();
         value_reader->set_nested_column();
         auto map_reader = MapColumnReader::create_unique(row_ranges, ctz, io_ctx);
@@ -133,12 +147,25 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> child_readers;
         child_readers.reserve(field->children.size());
         for (int i = 0; i < field->children.size(); ++i) {
+            if (column_ids.find(field->children[i].get_column_id()) == column_ids.end()) {
+                VLOG_DEBUG << "Skip creating Struct child reader for field "
+                           << field->children[i].name << " with column_id "
+                           << field->children[i].get_column_id() << " (not in required column_ids)";
+                continue; // Skip this child as it's not in the required column_ids
+            }
             std::unique_ptr<ParquetColumnReader> child_reader;
             RETURN_IF_ERROR(create(file, &field->children[i], row_group, row_ranges, ctz, io_ctx,
-                                   child_reader, max_buf_size));
-            child_reader->set_nested_column();
-            child_readers[field->children[i].name] = std::move(child_reader);
+                                   child_reader, max_buf_size, nullptr, column_ids));
+            if (child_reader != nullptr) {
+                child_reader->set_nested_column();
+                child_readers[field->children[i].name] = std::move(child_reader);
+            }
         }
+        if (child_readers.empty()) {
+            reader = nullptr;
+            return Status::OK();
+        }
+
         auto struct_reader = StructColumnReader::create_unique(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(struct_reader->init(std::move(child_readers), field));
         reader.reset(struct_reader.release());
@@ -858,6 +885,11 @@ Status StructColumnReader::read_column_data(
             continue;
         }
         auto file_name = root_node->children_file_column_name(doris_name);
+
+        if (_child_readers.find(file_name) == _child_readers.end()) {
+            // TODO: add null column
+            continue;
+        }
 
         _read_column_names.emplace_back(file_name);
 

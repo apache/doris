@@ -138,7 +138,8 @@ public:
                          const tparquet::RowGroup& row_group,
                          const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                          io::IOContext* io_ctx, std::unique_ptr<ParquetColumnReader>& reader,
-                         size_t max_buf_size, const tparquet::OffsetIndex* offset_index = nullptr);
+                         size_t max_buf_size, const tparquet::OffsetIndex* offset_index = nullptr,
+                         const std::set<uint64_t>& column_ids = {});
     void set_nested_column() { _nested_column = true; }
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;

@@ -158,7 +158,8 @@ public:
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
             std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr =
-                    TableSchemaChangeHelper::ConstNode::get_instance());
+                    TableSchemaChangeHelper::ConstNode::get_instance(),
+            const std::set<uint64_t>& column_ids = {});
 
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
@@ -630,7 +631,8 @@ private:
     size_t _batch_size;
     int64_t _range_start_offset;
     int64_t _range_size;
-    const std::string& _ctz;
+    // const std::string& _ctz;
+    std::string _ctz;
 
     int32_t _offset_days = 0;
     cctz::time_zone _time_zone;
@@ -673,6 +675,7 @@ private:
     std::vector<DecimalScaleParams> _decimal_scale_params;
     size_t _decimal_scale_params_index;
 
+    std::set<uint64_t> _column_ids;
     const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     bool _is_acid = false;
     std::unique_ptr<IColumn::Filter> _filter;
