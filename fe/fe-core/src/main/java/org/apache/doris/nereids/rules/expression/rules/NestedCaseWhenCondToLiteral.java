@@ -110,20 +110,11 @@ public class NestedCaseWhenCondToLiteral implements ExpressionPatternRuleFactory
 
         @Override
         public Expression visit(Expression expr, Void context) {
-            if (!INSTANCE.needRewrite(expr)) {
+            if (INSTANCE.needRewrite(expr)) {
+                return super.visit(expr, context);
+            } else {
                 return expr;
             }
-            ImmutableList.Builder<Expression> newChildren
-                    = ImmutableList.builderWithExpectedSize(expr.arity());
-            boolean hasNewChildren = false;
-            for (Expression child : expr.children()) {
-                Expression newChild = child.accept(this, context);
-                if (newChild != child) {
-                    hasNewChildren = true;
-                }
-                newChildren.add(newChild);
-            }
-            return hasNewChildren ? expr.withChildren(newChildren.build()) : expr;
         }
 
         @Override
