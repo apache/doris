@@ -124,8 +124,12 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                     DataType targetType = aggFunction.getDataType();
                     Sum sum = new Sum(aggFunction.child(0));
                     Count count = new Count(aggFunction.child(0));
-                    aggFunctions.add(sum);
-                    aggFunctions.add(count);
+                    if (!aggFunctions.contains(sum)) {
+                        aggFunctions.add(sum);
+                    }
+                    if (!aggFunctions.contains(count)) {
+                        aggFunctions.add(count);
+                    }
                     Expression castSum = targetType.equals(sum.getDataType()) ? sum : new Cast(sum, targetType);
                     Expression castCount = targetType.equals(count.getDataType()) ? count : new Cast(count, targetType);
                     avgToSumCountMap.put((Avg) aggFunction,
