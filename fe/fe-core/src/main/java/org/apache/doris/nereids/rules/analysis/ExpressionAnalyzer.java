@@ -404,6 +404,23 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     newChildrenBuilder.add(unboundFunction.child(i));
                 }
                 unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
+            } else if (StringUtils.isEmpty(unboundFunction.getDbName())
+                    && "get_format".equalsIgnoreCase(unboundFunction.getName())
+                    && unboundFunction.arity() == 2
+                    && unboundFunction.child(0) instanceof UnboundSlot) {
+                UnboundSlot fmtType = (UnboundSlot) unboundFunction.child(0);
+                String name = fmtType.getName().toUpperCase();
+                if (name.equals("DATE") || name.equals("DATETIME") || name.equals("TIME")) {
+                    StringLiteral fmtTypeLiteral = new StringLiteral(name);
+                    ImmutableList.Builder<Expression> newChildrenBuilder = ImmutableList.builder();
+                    newChildrenBuilder.add(fmtTypeLiteral);
+                    for (int i = 1; i < unboundFunction.arity(); i++) {
+                        newChildrenBuilder.add(unboundFunction.child(i));
+                    }
+                    unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
+                } else {
+                    throw new AnalysisException("Format type only support DATE, DATETIME and TIME, but get: " + name);
+                }
             }
             unboundFunction = (UnboundFunction) super.visit(unboundFunction, context);
         }

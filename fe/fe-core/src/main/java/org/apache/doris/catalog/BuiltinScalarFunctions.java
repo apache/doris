@@ -219,6 +219,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GetFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
@@ -1061,7 +1062,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Embed.class, "embed"),
             scalar(Uniform.class, "uniform"),
             scalar(MakeSet.class, "make_set"),
-            scalar(ExportSet.class, "export_set"));
+            scalar(ExportSet.class, "export_set"),
+            scalar(GetFormat.class, "get_format"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 
