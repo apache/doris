@@ -25,6 +25,7 @@
 #include <numeric>
 
 #include "common/status.h"
+#include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -298,7 +299,9 @@ bool FunctionBuilderImpl::is_date_or_datetime_or_decimal(
            (is_date_or_datetime(return_type->get_primitive_type()) &&
             is_date_v2_or_datetime_v2(func_return_type->get_primitive_type())) ||
            (is_decimal(return_type->get_primitive_type()) &&
-            is_decimal(func_return_type->get_primitive_type()));
+            is_decimal(func_return_type->get_primitive_type())) ||
+           (is_time_type(return_type->get_primitive_type()) &&
+            is_time_type(func_return_type->get_primitive_type()));
 }
 
 bool FunctionBuilderImpl::is_array_nested_type_date_or_datetime_or_decimal(

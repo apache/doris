@@ -17,13 +17,17 @@
 
 #include "common/bvars.h"
 
+#include <bvar/latency_recorder.h>
 #include <bvar/multi_dimension.h>
+#include <bvar/passive_status.h>
 #include <bvar/reducer.h>
 #include <bvar/status.h>
 #include <bvar/window.h>
 
 #include <cstdint>
 #include <stdexcept>
+
+#include "meta-store/txn_kv.h"
 
 // clang-format off
 
@@ -85,6 +89,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap("ms", "remove_delete_b
 BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap_update_lock("ms", "remove_delete_bitmap_update_lock");
 BvarLatencyRecorderWithTag g_bvar_ms_get_instance("ms", "get_instance");
 BvarLatencyRecorderWithTag g_bvar_ms_get_rl_task_commit_attach("ms", "get_rl_task_commit_attach");
+BvarLatencyRecorderWithTag g_bvar_ms_get_streaming_task_commit_attach("ms", "get_streaming_task_commit_attach");
 BvarLatencyRecorderWithTag g_bvar_ms_reset_rl_progress("ms", "reset_rl_progress");
 BvarLatencyRecorderWithTag g_bvar_ms_get_txn_id("ms", "get_txn_id");
 BvarLatencyRecorderWithTag g_bvar_ms_start_tablet_job("ms", "start_tablet_job");
@@ -94,6 +99,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_set_cluster_status("ms", "set_cluster_statu
 BvarLatencyRecorderWithTag g_bvar_ms_check_kv("ms", "check_kv");
 BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict("ms", "get_schema_dict");
 BvarLatencyRecorderWithTag g_bvar_ms_begin_snapshot("ms", "begin_snapshot");
+BvarLatencyRecorderWithTag g_bvar_ms_update_snapshot("ms", "update_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_commit_snapshot("ms", "commit_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_abort_snapshot("ms", "abort_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_drop_snapshot("ms", "drop_snapshot");
@@ -103,6 +109,12 @@ bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_update_delete_bitmap_fail_counter_minute("ms", "update_delete_bitmap_fail", &g_bvar_update_delete_bitmap_fail_counter, 60);
 bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_get_delete_bitmap_fail_counter_minute("ms", "get_delete_bitmap_fail", &g_bvar_get_delete_bitmap_fail_counter, 60);
+BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_partition_count("ms", "txn_commit_with_partition_count");
+BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_tablet_count("ms", "txn_commit_with_tablet_count");
+
+MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_partition_count("instance", "txn_commit_with_partition_count", {"instance_id"});
+MBvarLatencyRecorderWithStatus<60> g_bvar_instance_txn_commit_with_tablet_count("instance", "txn_commit_with_tablet_count", {"instance_id"});
+
 
 // recycler's bvars
 // TODO: use mbvar for per instance, https://github.com/apache/brpc/blob/master/docs/cn/mbvar_c++.md
@@ -370,6 +382,8 @@ mBvarInt64Adder g_bvar_rpc_kv_precommit_txn_get_counter("rpc_kv_precommit_txn_ge
 mBvarInt64Adder g_bvar_rpc_kv_precommit_txn_put_counter("rpc_kv_precommit_txn_put_counter",{"instance_id"});
 // get_rl_task_commit_attach
 mBvarInt64Adder g_bvar_rpc_kv_get_rl_task_commit_attach_get_counter("rpc_kv_get_rl_task_commit_attach_get_counter",{"instance_id"});
+// get_streaming_task_commit_attach
+mBvarInt64Adder g_bvar_rpc_kv_get_streaming_task_commit_attach_get_counter("rpc_kv_get_streaming_task_commit_attach_get_counter",{"instance_id"});
 // reset_rl_progress
 mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_get_counter("rpc_kv_reset_rl_progress_get_counter",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_put_counter("rpc_kv_reset_rl_progress_put_counter",{"instance_id"});
@@ -407,6 +421,10 @@ mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_counter("rpc_kv_get_txn_id_get_coun
 mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_get_counter("rpc_kv_begin_snapshot_get_counter",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_put_counter("rpc_kv_begin_snapshot_put_counter",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_del_counter("rpc_kv_begin_snapshot_del_counter",{"instance_id"});
+// update snapshot
+mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_get_counter("rpc_kv_update_snapshot_get_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_put_counter("rpc_kv_update_snapshot_put_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_del_counter("rpc_kv_update_snapshot_del_counter",{"instance_id"});
 // commit_snapshot
 mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_get_counter("rpc_kv_commit_snapshot_get_counter",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_put_counter("rpc_kv_commit_snapshot_put_counter",{"instance_id"});
@@ -558,6 +576,8 @@ mBvarInt64Adder g_bvar_rpc_kv_precommit_txn_get_bytes("rpc_kv_precommit_txn_get_
 mBvarInt64Adder g_bvar_rpc_kv_precommit_txn_put_bytes("rpc_kv_precommit_txn_put_bytes",{"instance_id"});
 // get_rl_task_commit_attach
 mBvarInt64Adder g_bvar_rpc_kv_get_rl_task_commit_attach_get_bytes("rpc_kv_get_rl_task_commit_attach_get_bytes",{"instance_id"});
+// get_streaming_task_commit_attach
+mBvarInt64Adder g_bvar_rpc_kv_get_streaming_task_commit_attach_get_bytes("rpc_kv_get_streaming_task_commit_attach_get_bytes",{"instance_id"});
 // reset_rl_progress
 mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_get_bytes("rpc_kv_reset_rl_progress_get_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_put_bytes("rpc_kv_reset_rl_progress_put_bytes",{"instance_id"});
@@ -598,6 +618,10 @@ mBvarStatus<int64_t> g_bvar_fdb_kv_ranges_count("fdb_kv_ranges_count", {"categor
 mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_get_bytes("rpc_kv_begin_snapshot_get_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_put_bytes("rpc_kv_begin_snapshot_put_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_del_bytes("rpc_kv_begin_snapshot_del_bytes",{"instance_id"});
+// update snapshot
+mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_get_bytes("rpc_kv_update_snapshot_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_put_bytes("rpc_kv_update_snapshot_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_del_bytes("rpc_kv_update_snapshot_del_bytes",{"instance_id"});
 // commit_snapshot
 mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_get_bytes("rpc_kv_commit_snapshot_get_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_put_bytes("rpc_kv_commit_snapshot_put_bytes",{"instance_id"});

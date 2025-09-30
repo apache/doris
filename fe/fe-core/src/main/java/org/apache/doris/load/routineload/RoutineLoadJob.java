@@ -673,10 +673,6 @@ public abstract class RoutineLoadJob
         return maxBatchSizeBytes;
     }
 
-    public boolean getStrictMode() {
-        return isStrictMode();
-    }
-
     public String getFormat() {
         String value = jobProperties.get(FileFormatProperties.PROP_FORMAT);
         if (value == null) {

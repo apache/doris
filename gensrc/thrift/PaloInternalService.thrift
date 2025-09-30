@@ -406,6 +406,7 @@ struct TQueryOptions {
 
   172: optional bool enable_prefer_cached_rowset
   173: optional i64 query_freshness_tolerance_ms
+  174: optional i64 merge_read_slice_size = 8388608;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.

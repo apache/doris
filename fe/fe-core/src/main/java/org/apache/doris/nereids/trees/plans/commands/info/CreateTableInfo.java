@@ -48,6 +48,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -444,6 +445,9 @@ public class CreateTableInfo {
             if (columnNameUpperCase.startsWith("__DORIS_")) {
                 throw new AnalysisException(
                         "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
+            }
+            if (columnDef.getType().isVarBinaryType()) {
+                throw new AnalysisException("doris do not support varbinary create table, could use it by catalog");
             }
             if (columnDef.getType().isVariantType()) {
                 if (columnNameUpperCase.indexOf('.') != -1) {

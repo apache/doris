@@ -32,31 +32,6 @@ namespace doris::vectorized {
 bool DataTypeIPv6::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
-size_t DataTypeIPv6::number_length() const {
-    //ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
-    return 40;
-}
-void DataTypeIPv6::push_number(ColumnString::Chars& chars, const IPv6& num) const {
-    auto ipv6_str = CastToString::from_ip(num);
-    chars.insert(ipv6_str.begin(), ipv6_str.end());
-}
-std::string DataTypeIPv6::to_string(const IColumn& column, size_t row_num) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-    IPv6 ipv6_val = assert_cast<const ColumnIPv6&>(*ptr).get_element(row_num);
-    auto value = IPv6Value(ipv6_val);
-    return value.to_string();
-}
-
-std::string DataTypeIPv6::to_string(const IPv6& ipv6_val) {
-    auto value = IPv6Value(ipv6_val);
-    return value.to_string();
-}
-void DataTypeIPv6::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    std::string value = to_string(column, row_num);
-    ostr.write(value.data(), value.size());
-}
 
 MutableColumnPtr DataTypeIPv6::create_column() const {
     return ColumnIPv6::create();

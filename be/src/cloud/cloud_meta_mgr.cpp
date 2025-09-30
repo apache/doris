@@ -351,7 +351,8 @@ static std::string debug_info(const Request& req) {
         return fmt::format(" table_id={}, lock_id={}", req.table_id(), req.lock_id());
     } else if constexpr (is_any_v<Request, GetTabletRequest>) {
         return fmt::format(" tablet_id={}", req.tablet_id());
-    } else if constexpr (is_any_v<Request, GetObjStoreInfoRequest>) {
+    } else if constexpr (is_any_v<Request, GetObjStoreInfoRequest, ListSnapshotRequest,
+                                  GetInstanceRequest>) {
         return "";
     } else if constexpr (is_any_v<Request, CreateRowsetRequest>) {
         return fmt::format(" tablet_id={}", req.rowset_meta().tablet_id());
@@ -2034,7 +2035,7 @@ Status CloudMetaMgr::fill_version_holes(CloudTablet* tablet, int64_t max_version
     }
 
     Versions existing_versions;
-    for (const auto& rs : tablet->tablet_meta()->all_rs_metas()) {
+    for (const auto& [_, rs] : tablet->tablet_meta()->all_rs_metas()) {
         existing_versions.emplace_back(rs->version());
     }
 
@@ -2174,6 +2175,37 @@ Status CloudMetaMgr::create_empty_rowset_for_hole(CloudTablet* tablet, int64_t v
     }
     (*rowset)->set_hole_rowset(true);
 
+    return Status::OK();
+}
+
+Status CloudMetaMgr::list_snapshot(std::vector<SnapshotInfoPB>& snapshots) {
+    ListSnapshotRequest req;
+    ListSnapshotResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_include_aborted(true);
+    RETURN_IF_ERROR(retry_rpc("list snapshot", req, &res, &MetaService_Stub::list_snapshot));
+    for (auto& snapshot : res.snapshots()) {
+        snapshots.emplace_back(snapshot);
+    }
+    return Status::OK();
+}
+
+Status CloudMetaMgr::get_snapshot_properties(SnapshotSwitchStatus& switch_status,
+                                             int64_t& max_reserved_snapshots,
+                                             int64_t& snapshot_interval_seconds) {
+    GetInstanceRequest req;
+    GetInstanceResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    RETURN_IF_ERROR(
+            retry_rpc("get snapshot properties", req, &res, &MetaService_Stub::get_instance));
+    switch_status = res.instance().has_snapshot_switch_status()
+                            ? res.instance().snapshot_switch_status()
+                            : SnapshotSwitchStatus::SNAPSHOT_SWITCH_DISABLED;
+    max_reserved_snapshots =
+            res.instance().has_max_reserved_snapshot() ? res.instance().max_reserved_snapshot() : 0;
+    snapshot_interval_seconds = res.instance().has_snapshot_interval_seconds()
+                                        ? res.instance().snapshot_interval_seconds()
+                                        : 3600;
     return Status::OK();
 }
 #include "common/compile_check_end.h"

@@ -112,6 +112,8 @@ DEFINE_mInt64(cloud_index_change_task_timeout_second, "3600");
 
 DEFINE_mInt64(warmup_tablet_replica_info_cache_ttl_sec, "600");
 
+DEFINE_mInt32(warm_up_manager_thread_pool_size, "4");
+
 DEFINE_mInt64(warm_up_rowset_slow_log_ms, "1000");
 
 DEFINE_mBool(enable_compaction_delay_commit_for_warm_up, "false");

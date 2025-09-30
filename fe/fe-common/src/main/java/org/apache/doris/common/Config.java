@@ -1970,6 +1970,11 @@ public class Config extends ConfigBase {
                     + " greater than 0, otherwise it defaults to 3." })
     public static int job_dictionary_task_consumer_thread_num = 3;
 
+    @ConfField(masterOnly = true, description = {"最大的 Streaming 作业数量,值应该大于0，否则默认为1024",
+            "The maximum number of Streaming jobs, "
+                    + "the value should be greater than 0, if it is <=0, default is 1024."})
+    public static int max_streaming_job_num = 1024;
+
     /* job test config */
     /**
      * If set to true, we will allow the interval unit to be set to second, when creating a recurring job.
@@ -3625,4 +3630,10 @@ public class Config extends ConfigBase {
     public static long cloud_auto_snapshot_max_reversed_num = 35;
     @ConfField(mutable = true)
     public static long cloud_auto_snapshot_min_interval_seconds = 3600;
+    @ConfField(mutable = true)
+    public static long multi_part_upload_part_size_in_bytes = 512 * 1024 * 1024L; // 512MB
+    @ConfField(mutable = true)
+    public static int multi_part_upload_max_seconds = 3600; // 1 hour
+    @ConfField(mutable = true)
+    public static int multi_part_upload_pool_size = 10;
 }

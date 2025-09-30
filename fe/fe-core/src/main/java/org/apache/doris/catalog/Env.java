@@ -122,6 +122,8 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
+import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -193,8 +195,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -6242,12 +6242,7 @@ public class Env {
 
     // Switch catalog of this session
     public void changeCatalog(ConnectContext ctx, String catalogName) throws DdlException {
-        CatalogIf catalogIf = catalogMgr.getCatalog(catalogName);
-        if (catalogIf == null) {
-            throw new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalogName),
-                    ErrorCode.ERR_UNKNOWN_CATALOG);
-        }
-
+        CatalogIf catalogIf = catalogMgr.getCatalogOrDdlException(catalogName);
         String currentDB = ctx.getDatabase();
         if (StringUtils.isNotEmpty(currentDB)) {
             // When dropped the current catalog in current context, the current catalog will be null.

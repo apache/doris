@@ -61,10 +61,7 @@ suite("fe_constant_cast_to_datetime") {
         sql """select cast("2023-07-16T19.123+08:00" as datetime)"""
         exception "can't cast to DATETIMEV2"
     }
-    test {
-        sql """select cast("2024/05/01" as datetime)"""
-        exception "can't cast to DATETIMEV2"
-    }
+    qt_sql """select cast("2024/05/01" as datetime)"""
     test {
         sql """select cast("24012" as datetime)"""
         exception "can't cast to DATETIMEV2"

@@ -358,6 +358,6 @@ TEST_F(FunctionCastToStringTest, from_map) {
     // {"123":null,"456":"def"}
     ColumnString tmp_col;
     serde->to_string_batch(*column, tmp_col);
-    EXPECT_EQ(tmp_col.get_data_at(0).to_string(), "{\"123\":NULL, NULL:\"def\"}");
+    EXPECT_EQ(tmp_col.get_data_at(0).to_string(), "{\"123\":null, null:\"def\"}");
 }
 } // namespace doris::vectorized

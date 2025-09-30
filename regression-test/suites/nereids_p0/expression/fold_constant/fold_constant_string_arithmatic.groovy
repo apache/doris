@@ -644,12 +644,12 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select PARSE_URL('http://user:pwd@example.com/path/to/resource', 'USERINFO')")
     testFoldConst("select PARSE_URL('http://user:pwd@example.com/path/to/resource', 'userinfo')")
     testFoldConst("select PARSE_URL('http://user:pwd@example.com/path/to/resource', 'UserInfo')")
-//    testFoldConst("select PARSE_URL('http://user:pwd@example.com:8080/path/to/resource', 'PORT')")
-//    testFoldConst("select PARSE_URL('http://user:pwd@example.com:8080/path/to/resource', 'port')")
-//    testFoldConst("select PARSE_URL('http://user:pwd@example.com:8080/path/to/resource', 'Port')")
+    testFoldConst("select PARSE_URL('http://user:pwd@example.com:8080/path/to/resource', 'PORT')")
+    testFoldConst("select PARSE_URL('http://user:pwd@example.com:8080/path/to/resource', 'port')")
+    testFoldConst("select PARSE_URL('http://user:pwd@example.com:8080/path/to/resource', 'Port')")
     testFoldConst("select PARSE_URL('invalid-url', 'PROTOCOL')")
     testFoldConst("select PARSE_URL('invalid-url', 'HOST')")
-//    testFoldConst("select PARSE_URL('invalid-url', 'PATH')")
+    testFoldConst("select PARSE_URL('invalid-url', 'PATH')")
     testFoldConst("select PARSE_URL('', 'PROTOCOL')")
     testFoldConst("select PARSE_URL(null, 'PROTOCOL')")
     testFoldConst("select PARSE_URL('https://example.com', 'PROTOCOL')")
@@ -658,7 +658,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select PARSE_URL('http://user:pwd@example.com/path/to/resource', 'AUTHORITY')")
     testFoldConst("select PARSE_URL('http://user:pwd@example.com/path/to/resource', 'FILE')")
     testFoldConst("select PARSE_URL('http://user:pwd@example.com/path/to/resource', 'USERINFO')")
-//    testFoldConst("select PARSE_URL('http://user:pwd@example.com:8080/path/to/resource', 'PORT')")
+    testFoldConst("select PARSE_URL('http://user:pwd@example.com:8080/path/to/resource', 'PORT')")
     testFoldConst("select PARSE_URL('http://example.com/path/to/resource?query=string&another=param', 'QUERY')")
     testFoldConst("select PARSE_URL('http://example.com/path/to/resource?query=string&another=param', 'QUERY')")
     testFoldConst("select PARSE_URL('http://example.com/path/to/resource?query=string&another=param', 'QUERY')")
@@ -671,9 +671,9 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select PARSE_URL('http://user:pwd@www.baidu.com/path/to/resource?query=string', 'QUERY')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.baidu.com/path/to/resource?query=string', 'query')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.baidu.com/path/to/resource?query=string', 'Query')")
-//    testFoldConst("select PARSE_URL('http://user:pwd@www.baidu.com:8080/path/to/resource', 'PORT')")
-//    testFoldConst("select PARSE_URL('http://user:pwd@www.baidu.com:8080/path/to/resource', 'port')")
-//    testFoldConst("select PARSE_URL('http://user:pwd@www.baidu.com:8080/path/to/resource', 'Port')")
+    testFoldConst("select PARSE_URL('http://user:pwd@www.baidu.com:8080/path/to/resource', 'PORT')")
+    testFoldConst("select PARSE_URL('http://user:pwd@www.baidu.com:8080/path/to/resource', 'port')")
+    testFoldConst("select PARSE_URL('http://user:pwd@www.baidu.com:8080/path/to/resource', 'Port')")
     testFoldConst("select PARSE_URL('http://example.com/path/to/resource#fragment', 'PATH')")
     testFoldConst("select PARSE_URL('http://example.com/path/to/resource#fragment', 'path')")
     testFoldConst("select PARSE_URL('http://example.com/path/to/resource#fragment', 'Path')")
@@ -697,7 +697,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com/path?query=string#frag', 'AUTHORITY')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com/path?query=string#frag', 'file')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com/path?query=string#frag', 'USERINFO')")
-//    testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path?query=string#frag', 'port')")
+    testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path?query=string#frag', 'port')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com/path?query=string#frag', 'QUERY')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com/path?query=string#frag', 'Protocol')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com/path?query=string#frag', 'host')")
@@ -706,7 +706,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com/path?query=string#frag', 'Authority')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com/path?query=string#frag', 'File')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com/path?query=string#frag', 'Userinfo')")
-//    testFoldConst("select PARSE_URL('http://user:pwd@www.test.com/path?query=string#frag', 'Port')")
+    testFoldConst("select PARSE_URL('http://user:pwd@www.test.com/path?query=string#frag', 'Port')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com/path?query=string#frag', 'Query')")
     testFoldConst("select PARSE_URL('', 'HOST')")
     testFoldConst("select PARSE_URL(null, 'HOST')")
@@ -714,7 +714,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select PARSE_URL('http://www.test.com', 'HOST')")
     testFoldConst("select PARSE_URL('https://www.test.com', 'protocol')")
     testFoldConst("select PARSE_URL('ftp://username:password@hostname/path/to/file', 'userinfo')")
-//    testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file', 'port')")
+    testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file', 'port')")
     testFoldConst("select PARSE_URL('http://www.test.com/path/to/file?query=string', 'query')")
     testFoldConst("select PARSE_URL('http://www.test.com/path/to/file#fragment', 'ref')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com/path/to/file', 'authority')")
@@ -727,7 +727,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file?query=string#fragment', 'authority')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file?query=string#fragment', 'file')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file?query=string#fragment', 'userinfo')")
-//    testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file?query=string#fragment', 'port')")
+    testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file?query=string#fragment', 'port')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file?query=string#fragment', 'query')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file?query=string#fragment', 'PROTOcol')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file?query=string#fragment', 'HOST')")
@@ -736,8 +736,77 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file?query=string#fragment', 'AUTHORITY')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file?query=string#fragment', 'FILE')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file?query=string#fragment', 'USERINFO')")
-//    testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file?query=string#fragment', 'PORT')")
+    testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file?query=string#fragment', 'PORT')")
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file?query=string#fragment', 'QUERY')")
+
+    // position
+    qt_sql "select position('北京' in '上海天津北京杭州')"
+    qt_sql "select position('上海天津北京杭州' in '北京')"
+    qt_sql "select position('bar' in 'foobarbar')"
+    qt_sql "select position(cast('北京' as string) in cast('上海天津北京杭州' as string))"
+    qt_sql "select position(cast('' as string) in cast('foobar' as string))"
+    qt_sql "select position(cast('bar' as string) in cast('foobarbar' as string))"
+    qt_sql "select position(cast('World' as string) in cast('Hello' as string))"
+    qt_sql "select position(cast('World' as string) in cast('Hello World' as string))"
+    qt_sql "select position(cast('xbar' as string) in cast('foobar' as string))"
+    qt_sql "select position('' in 'foobar')"
+    qt_sql "select position('World' in 'Hello')"
+    qt_sql "select position('World' in 'Hello World')"
+    qt_sql "select position('xbar' in 'foobar')"
+    qt_sql "select position('北京' in '上海天津北京杭州')"
+    qt_sql "select position('2' in '   123  ')"
+    qt_sql "select position('bc' in 'abcbcbc')"
+    qt_sql "select position('a' in 'a')"
+    qt_sql "select position('' in '')"
+    qt_sql "select position('abc' in 'abcd')"
+    qt_sql "select position('' in 'hello')"
+    qt_sql "select position('' in '哈哈😊😂🤣🤣😄')"
+    qt_sql "select position('🤣🤣' in '哈哈😊😂🤣🤣😄')"
+    qt_sql "select position('🤣🤣🤣' in '哈哈😊😂🤣🤣😄')"
+    qt_sql "select position('🤣' in '哈哈😊😂🤣🤣😄')"
+    qt_sql "select position('😅' in '哈哈😊😂🤣🤣😄')"
+    qt_sql "select position('안녕' in '哈哈こんにち안녕하세')"
+    qt_sql "select position('하세' in '哈哈こんにち안녕하세')"
+    qt_sql "select position('세' in '哈哈こんにち안녕하세')"
+    qt_sql "select position('' in '你好世界')"
+    qt_sql "select position('北京', '上海天津北京杭州')"
+    qt_sql "select position('上海天津北京杭州', '北京')"
+    qt_sql "select position('bar', 'foobarbar')"
+    qt_sql "select position(cast('北京' as string), cast('上海天津北京杭州' as string))"
+    qt_sql "select position(cast('' as string), cast('foobar' as string))"
+    qt_sql "select position(cast('bar' as string), cast('foobarbar' as string))"
+    qt_sql "select position(cast('World' as string), cast('Hello' as string))"
+    qt_sql "select position(cast('World' as string), cast('Hello World' as string))"
+    qt_sql "select position(cast('xbar' as string), cast('foobar' as string))"
+    qt_sql "select position('', 'foobar')"
+    qt_sql "select position('World', 'Hello')"
+    qt_sql "select position('World', 'Hello World')"
+    qt_sql "select position('xbar', 'foobar')"
+    qt_sql "select position('北京', '上海天津北京杭州', 4)"
+    qt_sql "select position('北京', '上海天津北京杭州', 5)"
+    qt_sql "select position('北京', '上海天津北京杭州', -4)"
+    qt_sql "select position('北京', '上海天津北京杭州', -5)"
+    qt_sql "select position('2', '   123  ', 1)"
+    qt_sql "select position('bc', 'abcbcbc', 4)"
+    qt_sql "select position('a', 'a')"
+    qt_sql "select position('', '')"
+    qt_sql "select position('', '', 2)"
+    qt_sql "select position('abc', 'abcd')"
+    qt_sql "select position('', 'hello', 5)"
+    qt_sql "select position('', 'hello', 6)"
+    qt_sql "select position('', '哈哈😊😂🤣🤣😄')"
+    qt_sql "select position('', '哈哈😊😂🤣🤣😄', 26)"
+    qt_sql "select position('', '哈哈😊😂🤣🤣😄', 27)"
+    qt_sql "select position('🤣🤣', '哈哈😊😂🤣🤣😄', 5)"
+    qt_sql "select position('🤣🤣🤣', '哈哈😊😂🤣🤣😄', 5)"
+    qt_sql "select position('🤣', '哈哈😊😂🤣🤣😄', 6)"
+    qt_sql "select position('😅', '哈哈😊😂🤣🤣😄', 6)"
+    qt_sql "select position('안녕', '哈哈こんにち안녕하세', 6)"
+    qt_sql "select position('하세', '哈哈こんにち안녕하세', 9)"
+    qt_sql "select position('세', '哈哈こんにち안녕하세', 11)"
+    qt_sql "select position('', '', 1)"
+    qt_sql "select position('', '你好世界', 1)"
+    qt_sql "select position('', '你好世界', 5)"
 
     // repeat
     testFoldConst("select repeat('a', 0)")
@@ -1198,6 +1267,20 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select substr('abcdef',-3)")
     testFoldConst("select substr('abcdef',3)")
     testFoldConst("select substr('',3)")
+    testFoldConst("select substr('a' FROM 0 FOR 1)")
+    testFoldConst("select substr('a' FROM -1 FOR 1)")
+    testFoldConst("select substr('a' FROM 1 FOR 1)")
+    testFoldConst("select substr('a' FROM -2 FOR 1)")
+    testFoldConst("select substr('a' FROM 2 FOR 1)")
+    testFoldConst("select substr('a' FROM -3 FOR 1)")
+    testFoldConst("select substr('a' FROM 3 FOR 1)")
+    testFoldConst("select substr('abcdef' FROM -3 FOR -1)")
+    testFoldConst("select substr('abcdef' FROM 3 FOR -1)")
+    testFoldConst("select substr('' FROM 3 FOR -1)")
+    testFoldConst("select substr('abcdef' FROM 3 FOR 10)")
+    testFoldConst("select substr('abcdef' FROM -3)")
+    testFoldConst("select substr('abcdef' FROM 3)")
+    testFoldConst("select substr('' FROM 3)")
 
     // substring
     testFoldConst("select substring('1', 1, 1)")
@@ -1227,6 +1310,63 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select substring('abcdef',-3)")
     testFoldConst("select substring('abcdef',3)")
     testFoldConst("select substring('',3)")
+    testFoldConst("select substring('1' FROM 1 FOR 1)")
+    testFoldConst("select substring('abc1' FROM -2)")
+    testFoldConst("select substring('abc1' FROM 2)")
+    testFoldConst("select substring('abc1' FROM 5)")
+    testFoldConst("select substring('abc1def' FROM 2 FOR 2)")
+    testFoldConst("select substring('abcdef' FROM 10 FOR 1)")
+    testFoldConst("select substring('abcdef' FROM -3 FOR -1)")
+    testFoldConst("select substring('abcdef' FROM 3 FOR -1)")
+    testFoldConst("select substring(cast('1' as string) FROM 1 FOR 1)")
+    testFoldConst("select substring(CAST('abc1' AS STRING) FROM -2)")
+    testFoldConst("select substring(CAST('abc1' AS STRING) FROM 2)")
+    testFoldConst("select substring(CAST('abc1' AS STRING) FROM 5)")
+    testFoldConst("select substring(CAST('abc1def' AS STRING) FROM 2 FOR 2)")
+    testFoldConst("select substring(CAST('abcdef' AS STRING) FROM 10 FOR 1)")
+    testFoldConst("select substring(CAST('abcdef' AS STRING) FROM -3 FOR -1)")
+    testFoldConst("select substring(CAST('abcdef' AS STRING) FROM 3 FOR -1)")
+    testFoldConst("select substring(cast('Hello' as string) FROM 1 FOR 10)")
+    testFoldConst("select substring(cast('Hello World' as string) FROM -1 FOR 5)")
+    testFoldConst("select substring(cast('Hello World' as string) FROM 1 FOR 5)")
+    testFoldConst("select substring('Hello' FROM 1 FOR 10)")
+    testFoldConst("select substring('Hello World' FROM -1 FOR 5)")
+    testFoldConst("select substring('Hello World' FROM 1 FOR 5)")
+    testFoldConst("select substring('' FROM 1 FOR 5)")
+    testFoldConst("select substring('Hello World' FROM 1 FOR 50)")
+    testFoldConst("select substring('abcdef' FROM -3)")
+    testFoldConst("select substring('abcdef' FROM 3)")
+    testFoldConst("select substring('' FROM 3)")
+
+    // mid
+    testFoldConst("select mid('a',0,1)")
+    testFoldConst("select mid('a',-1,1)")
+    testFoldConst("select mid('a',1,1)")
+    testFoldConst("select mid('a',-2,1)")
+    testFoldConst("select mid('a',2,1)")
+    testFoldConst("select mid('a',-3,1)")
+    testFoldConst("select mid('a',3,1)")
+    testFoldConst("select mid('abcdef',-3,-1)")
+    testFoldConst("select mid('abcdef',3,-1)")
+    testFoldConst("select mid('',3,-1)")
+    testFoldConst("select mid('abcdef',3,10)")
+    testFoldConst("select mid('abcdef',-3)")
+    testFoldConst("select mid('abcdef',3)")
+    testFoldConst("select mid('',3)")
+    testFoldConst("select mid('a' FROM 0 FOR 1)")
+    testFoldConst("select mid('a' FROM -1 FOR 1)")
+    testFoldConst("select mid('a' FROM 1 FOR 1)")
+    testFoldConst("select mid('a' FROM -2 FOR 1)")
+    testFoldConst("select mid('a' FROM 2 FOR 1)")
+    testFoldConst("select mid('a' FROM -3 FOR 1)")
+    testFoldConst("select mid('a' FROM 3 FOR 1)")
+    testFoldConst("select mid('abcdef' FROM -3 FOR -1)")
+    testFoldConst("select mid('abcdef' FROM 3 FOR -1)")
+    testFoldConst("select mid('' FROM 3 FOR -1)")
+    testFoldConst("select mid('abcdef' FROM 3 FOR 10)")
+    testFoldConst("select mid('abcdef' FROM -3)")
+    testFoldConst("select mid('abcdef' FROM 3)")
+    testFoldConst("select mid('' FROM 3)")
 
     // substring_index
     testFoldConst("select substring_index('a,b,c', ',', 2)")

@@ -32,6 +32,8 @@
 #include "exec/schema_scanner/schema_backend_kerberos_ticket_cache.h"
 #include "exec/schema_scanner/schema_catalog_meta_cache_stats_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
+#include "exec/schema_scanner/schema_cluster_snapshot_properties_scanner.h"
+#include "exec/schema_scanner/schema_cluster_snapshots_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
 #include "exec/schema_scanner/schema_dummy_scanner.h"
@@ -245,6 +247,10 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaSqlBlockRuleStatusScanner::create_unique();
     case TSchemaTableType::SCH_ENCRYPTION_KEYS:
         return SchemaEncryptionKeysScanner::create_unique();
+    case TSchemaTableType::SCH_CLUSTER_SNAPSHOTS:
+        return SchemaClusterSnapshotsScanner::create_unique();
+    case TSchemaTableType::SCH_CLUSTER_SNAPSHOT_PROPERTIES:
+        return SchemaClusterSnapshotPropertiesScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

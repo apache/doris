@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("agg_strategy") {
+suite("load") {
     sql "set global enable_auto_analyze=false"
     // ndv is high
     sql "drop table if exists t_gbykey_10_dstkey_10_1000_id"

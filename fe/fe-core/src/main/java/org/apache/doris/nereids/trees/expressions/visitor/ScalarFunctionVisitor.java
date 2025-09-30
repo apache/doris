@@ -219,6 +219,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FormatNumber;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FormatRound;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fpow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromIso8601Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
@@ -311,6 +312,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
@@ -467,6 +469,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Time;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Timestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithCheck;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDate;
@@ -1304,6 +1307,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitFromBase64(FromBase64 fromBase64, C context) {
         return visitScalarFunction(fromBase64, context);
+    }
+
+    default R visitFromBinary(FromBinary fromBinary, C context) {
+        return visitScalarFunction(fromBinary, context);
     }
 
     default R visitFromDays(FromDays fromDays, C context) {
@@ -2234,6 +2241,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(toBase64, context);
     }
 
+    default R visitToBinary(ToBinary toBinary, C context) {
+        return visitScalarFunction(toBinary, context);
+    }
+
     default R visitToBitmap(ToBitmap toBitmap, C context) {
         return visitScalarFunction(toBitmap, context);
     }
@@ -2564,5 +2575,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitUniform(Uniform uniform, C context) {
         return visitScalarFunction(uniform, context);
+    }
+
+    default R visitMakeSet(MakeSet makeSet, C context) {
+        return visitScalarFunction(makeSet, context);
     }
 }

@@ -212,6 +212,10 @@ public:
     int32_t get_scale() const { return _scale; }
     const TabletColumn& get_desc() const { return _desc; }
 
+    int32_t get_unique_id() const {
+        return is_extracted_column() ? parent_unique_id() : unique_id();
+    }
+
 protected:
     TypeInfoPtr _type_info;
     TabletColumn _desc;
