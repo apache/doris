@@ -921,6 +921,9 @@ public class ScalarType extends Type {
             Preconditions.checkState(!isWildcardTimeV2());
             return true;
         }
+        if (isTimeV2() && scalarType.isTimeV2()) {
+            return true;
+        }
         if (isVariantType() && scalarType.isVariantType()) {
             return true;
         }
