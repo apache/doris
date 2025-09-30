@@ -55,6 +55,8 @@ public:
                          shared_state_map,
                  int task_idx);
 
+    ~PipelineTask();
+
     Status prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
                    const TDataSink& tsink);
 
@@ -72,7 +74,9 @@ public:
 
     PipelineTask& set_thread_id(int thread_id) {
         _thread_id = thread_id;
-        COUNTER_UPDATE(_core_change_times, 1);
+        if (thread_id != _thread_id) {
+            COUNTER_UPDATE(_core_change_times, 1);
+        }
         return *this;
     }
 
@@ -259,6 +263,8 @@ private:
     std::atomic<bool> _running {false};
     std::atomic<bool> _eos {false};
     std::atomic<bool> _wake_up_early {false};
+    // PipelineTask maybe hold by TaskQueue
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
 
     /**
          *

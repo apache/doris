@@ -212,7 +212,7 @@ public class FunctionRegistry {
         return candidateBuilders.get(0);
     }
 
-    private List<FunctionBuilder> findBuiltinFunctionBuilder(String name, List<?> arguments) {
+    public List<FunctionBuilder> findBuiltinFunctionBuilder(String name, List<?> arguments) {
         List<FunctionBuilder> functionBuilders;
         // search internal function only if dbName is empty
         functionBuilders = name2BuiltinBuilders.get(name.toLowerCase());

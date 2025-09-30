@@ -17,11 +17,29 @@
 
 package org.apache.doris.encryption;
 
+import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
+import org.apache.doris.proto.OlapFile.EncryptionKeyPB;
+import org.apache.doris.proto.OlapFile.EncryptionKeyPB.Builder;
+import org.apache.doris.proto.OlapFile.EncryptionKeyTypePB;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
+import org.apache.doris.thrift.TEncryptionKey;
+
 import com.google.gson.annotations.SerializedName;
+import com.google.protobuf.ByteString;
 
 public class EncryptionKey {
     public enum Algorithm {
         AES256, SM4;
+        public TEncryptionAlgorithm toThrift() {
+            switch (this) {
+                case AES256:
+                    return TEncryptionAlgorithm.AES256;
+                case SM4:
+                    return TEncryptionAlgorithm.SM4;
+                default:
+                    throw new RuntimeException("invalid algorithm: " + this);
+            }
+        }
     }
 
     public enum KeyType {
@@ -60,6 +78,50 @@ public class EncryptionKey {
 
     @SerializedName(value = "mtime")
     public long mtime;
+
+    public boolean isDecrypted() {
+        return plaintext != null && plaintext.length > 0;
+    }
+
+    public TEncryptionKey toThrift() {
+        Builder builder = EncryptionKeyPB.newBuilder();
+        builder.setId(id);
+        builder.setVersion(version);
+        builder.setParentId(parentId);
+        builder.setParentVersion(parentVersion);
+        switch (algorithm) {
+            case AES256:
+                builder.setAlgorithm(EncryptionAlgorithmPB.AES_256_CTR);
+                break;
+            case SM4:
+                builder.setAlgorithm(EncryptionAlgorithmPB.SM4_128_CTR);
+                break;
+            default:
+                // do nothing
+        }
+        switch (type) {
+            case DATA_KEY:
+                builder.setType(EncryptionKeyTypePB.DATA_KEY);
+                break;
+            case MASTER_KEY:
+                builder.setType(EncryptionKeyTypePB.MASTER_KEY);
+                break;
+            default:
+                // do nothing
+        }
+        builder.setCiphertextBase64(ciphertext);
+        if (isDecrypted()) {
+            builder.setPlaintext(ByteString.copyFrom(plaintext));
+        }
+        builder.setCrc32(crc);
+        builder.setCtime(ctime);
+        builder.setMtime(mtime);
+        EncryptionKeyPB keyPB = builder.build();
+
+        TEncryptionKey tk = new TEncryptionKey();
+        tk.setKeyPb(keyPB.toByteArray());
+        return tk;
+    }
 
     @Override
     public String toString() {

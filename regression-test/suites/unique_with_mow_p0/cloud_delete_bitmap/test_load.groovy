@@ -20,8 +20,10 @@ import org.apache.doris.regression.suite.ClusterOptions
 suite("test_load", "docker") {
     def options = new ClusterOptions()
     options.beConfigs += [
-        'delete_bitmap_store_version=2',
-        'delete_bitmap_max_bytes_store_in_fdb=-1',
+        'delete_bitmap_store_write_version=2',
+        'delete_bitmap_store_read_version=2',
+        'delete_bitmap_store_v2_max_bytes_in_fdb=-1',
+        'enable_sync_tablet_delete_bitmap_by_cache=false',
         'enable_delete_bitmap_store_v2_check_correctness=true',
         'enable_java_support=false'
     ]
@@ -46,8 +48,8 @@ suite("test_load", "docker") {
         sql """ insert into test_load values(3, 3), (4, 4); """
         sql """ insert into test_load values(1, 10), (3, 30); """
         order_qt_select_1 "SELECT * FROM test_load;"
-        // change be config: delete_bitmap_max_bytes_store_in_fdb=0
-        update_all_be_config("delete_bitmap_max_bytes_store_in_fdb", "0")
+        // change be config: delete_bitmap_store_v2_max_bytes_in_fdb=0
+        update_all_be_config("delete_bitmap_store_v2_max_bytes_in_fdb", "0")
         sql """ insert into test_load values(2, 20), (4, 40); """
         order_qt_select_2 "SELECT * FROM test_load;"
 

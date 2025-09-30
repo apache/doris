@@ -54,51 +54,6 @@ Field DataTypeMap::get_default() const {
     return Field::create_field<TYPE_MAP>(m);
 };
 
-std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    const ColumnMap& map_column = assert_cast<const ColumnMap&>(*ptr);
-    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
-
-    size_t offset = offsets[row_num - 1];
-    size_t next_offset = offsets[row_num];
-
-    const IColumn& nested_keys_column = map_column.get_keys();
-    const IColumn& nested_values_column = map_column.get_values();
-
-    std::string str;
-    str += "{";
-    for (size_t i = offset; i < next_offset; ++i) {
-        if (i != offset) {
-            str += ", ";
-        }
-        if (nested_keys_column.is_null_at(i)) {
-            str += "null";
-        } else if (is_string_type(key_type->get_primitive_type())) {
-            str += "\"" + key_type->to_string(nested_keys_column, i) + "\"";
-        } else {
-            str += key_type->to_string(nested_keys_column, i);
-        }
-        str += ":";
-        if (nested_values_column.is_null_at(i)) {
-            str += "null";
-        } else if (is_string_type(value_type->get_primitive_type())) {
-            str += "\"" + value_type->to_string(nested_values_column, i) + "\"";
-        } else {
-            str += value_type->to_string(nested_values_column, i);
-        }
-    }
-    str += "}";
-    return str;
-}
-
-void DataTypeMap::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    std::string str = to_string(column, row_num);
-    ostr.write(str.c_str(), str.size());
-}
-
 MutableColumnPtr DataTypeMap::create_column() const {
     return ColumnMap::create(key_type->create_column(), value_type->create_column(),
                              ColumnArray::ColumnOffsets::create());

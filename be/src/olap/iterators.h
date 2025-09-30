@@ -96,7 +96,7 @@ public:
     // REQUIRED (null is not allowed)
     OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
-    int block_row_max = 4096 - 32; // see https://github.com/apache/doris/pull/11816
+    uint32_t block_row_max = 4096 - 32; // see https://github.com/apache/doris/pull/11816
 
     TabletSchemaSPtr tablet_schema = nullptr;
     bool enable_unique_key_merge_on_write = false;
@@ -129,10 +129,6 @@ public:
 
     std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
     CollectionStatisticsPtr collection_statistics;
-
-    // Cache for sparse column data to avoid redundant reads
-    // col_unique_id -> cached column_ptr
-    std::unordered_map<int32_t, vectorized::ColumnPtr> sparse_column_cache;
 };
 
 struct CompactionSampleInfo {
@@ -188,9 +184,6 @@ public:
 
     // return schema for this Iterator
     virtual const Schema& schema() const = 0;
-
-    // Only used by UT. Whether lazy-materialization-read is used by this iterator or not.
-    virtual bool is_lazy_materialization_read() const { return false; }
 
     // Return the data id such as segment id, used for keep the insert order when do
     // merge sort in priority queue

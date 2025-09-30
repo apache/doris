@@ -62,7 +62,7 @@ void FileCacheMetrics::update_metrics_callback() {
 
 FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) {
     static const char* cache_profile = "FileCache";
-    ADD_TIMER_WITH_LEVEL(profile, cache_profile, 1);
+    ADD_TIMER_WITH_LEVEL(profile, cache_profile, 2);
     num_local_io_total =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
     num_remote_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumRemoteIOTotal", TUnit::UNIT,

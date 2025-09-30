@@ -99,6 +99,10 @@ public:
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;
 
+    Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
+                                                const ColumnString& from_column,
+                                                CastParameters& castParms) const override;
+
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
@@ -123,6 +127,10 @@ public:
 
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
+
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
+
+    void to_string_batch(const IColumn& column, ColumnString& column_to) const override;
 
 private:
     template <bool is_binary_format>

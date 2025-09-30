@@ -204,12 +204,38 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_num_read_blocks_1h", _num_read_blocks.get(),
             3600);
 
+    _no_warmup_num_read_blocks = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_no_warmup_num_read_blocks");
+    _no_warmup_num_hit_blocks = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_no_warmup_num_hit_blocks");
+
+    _no_warmup_num_hit_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
+            _cache_base_path.c_str(), "file_cache_no_warmup_num_hit_blocks_5m",
+            _no_warmup_num_hit_blocks.get(), 300);
+    _no_warmup_num_read_blocks_5m = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
+            _cache_base_path.c_str(), "file_cache_no_warmup_num_read_blocks_5m",
+            _no_warmup_num_read_blocks.get(), 300);
+    _no_warmup_num_hit_blocks_1h = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
+            _cache_base_path.c_str(), "file_cache_no_warmup_num_hit_blocks_1h",
+            _no_warmup_num_hit_blocks.get(), 3600);
+    _no_warmup_num_read_blocks_1h = std::make_shared<bvar::Window<bvar::Adder<size_t>>>(
+            _cache_base_path.c_str(), "file_cache_no_warmup_num_read_blocks_1h",
+            _no_warmup_num_read_blocks.get(), 3600);
+
     _hit_ratio = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
                                                         "file_cache_hit_ratio", 0.0);
     _hit_ratio_5m = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
                                                            "file_cache_hit_ratio_5m", 0.0);
     _hit_ratio_1h = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
                                                            "file_cache_hit_ratio_1h", 0.0);
+
+    _no_warmup_hit_ratio = std::make_shared<bvar::Status<double>>(
+            _cache_base_path.c_str(), "file_cache_no_warmup_hit_ratio", 0.0);
+    _no_warmup_hit_ratio_5m = std::make_shared<bvar::Status<double>>(
+            _cache_base_path.c_str(), "file_cache_no_warmup_hit_ratio_5m", 0.0);
+    _no_warmup_hit_ratio_1h = std::make_shared<bvar::Status<double>>(
+            _cache_base_path.c_str(), "file_cache_no_warmup_hit_ratio_1h", 0.0);
+
     _disk_limit_mode_metrics = std::make_shared<bvar::Status<size_t>>(
             _cache_base_path.c_str(), "file_cache_disk_limit_mode", 0);
     _need_evict_cache_in_advance_metrics = std::make_shared<bvar::Status<size_t>>(
@@ -637,7 +663,9 @@ std::string BlockFileCache::clear_file_cache_async() {
                 ++num_cells_to_delete;
             }
         }
+        clear_need_update_lru_blocks();
     }
+
     std::stringstream ss;
     ss << "finish clear_file_cache_async, path=" << _cache_base_path
        << " num_files_all=" << num_files_all << " num_cells_all=" << num_cells_all
@@ -795,9 +823,15 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
         }
         DCHECK(!file_blocks.empty());
         *_num_read_blocks << file_blocks.size();
+        if (!context.is_warmup) {
+            *_no_warmup_num_read_blocks << file_blocks.size();
+        }
         for (auto& block : file_blocks) {
             if (block->state_unsafe() == FileBlock::State::DOWNLOADED) {
                 *_num_hit_blocks << 1;
+                if (!context.is_warmup) {
+                    *_no_warmup_num_hit_blocks << 1;
+                }
             }
         }
     }
@@ -1940,6 +1974,21 @@ void BlockFileCache::run_background_monitor() {
                 _hit_ratio_1h->set_value((double)_num_hit_blocks_1h->get_value() /
                                          (double)_num_read_blocks_1h->get_value());
             }
+
+            if (_no_warmup_num_hit_blocks->get_value() > 0) {
+                _no_warmup_hit_ratio->set_value((double)_no_warmup_num_hit_blocks->get_value() /
+                                                (double)_no_warmup_num_read_blocks->get_value());
+            }
+            if (_no_warmup_num_hit_blocks_5m->get_value() > 0) {
+                _no_warmup_hit_ratio_5m->set_value(
+                        (double)_no_warmup_num_hit_blocks_5m->get_value() /
+                        (double)_no_warmup_num_read_blocks_5m->get_value());
+            }
+            if (_no_warmup_num_hit_blocks_1h->get_value() > 0) {
+                _no_warmup_hit_ratio_1h->set_value(
+                        (double)_no_warmup_num_hit_blocks_1h->get_value() /
+                        (double)_no_warmup_num_read_blocks_1h->get_value());
+            }
         }
     }
 }
@@ -2211,6 +2260,13 @@ bool BlockFileCache::try_reserve_during_async_load(size_t size,
     return !_disk_resource_limit_mode || removed_size >= size;
 }
 
+void BlockFileCache::clear_need_update_lru_blocks() {
+    std::vector<FileBlockSPtr> buffer;
+    buffer.reserve(1024);
+    while (_need_update_lru_blocks.try_dequeue_bulk(buffer.data(), buffer.capacity())) {
+    }
+}
+
 std::string BlockFileCache::clear_file_cache_directly() {
     _lru_dumper->remove_lru_dump_files();
     using namespace std::chrono;
@@ -2253,6 +2309,9 @@ std::string BlockFileCache::clear_file_cache_directly() {
     _normal_queue.clear(cache_lock);
     _disposable_queue.clear(cache_lock);
     _ttl_queue.clear(cache_lock);
+
+    clear_need_update_lru_blocks();
+
     ss << "finish clear_file_cache_directly"
        << " path=" << _cache_base_path
        << " time_elapsed_ms=" << duration_cast<milliseconds>(steady_clock::now() - start).count()
@@ -2316,6 +2375,18 @@ void BlockFileCache::run_background_lru_log_replay() {
     }
 }
 
+void BlockFileCache::dump_lru_queues(bool force) {
+    std::unique_lock dump_lock(_dump_lru_queues_mtx);
+    if (config::file_cache_background_lru_dump_tail_record_num > 0 &&
+        !ExecEnv::GetInstance()->get_is_upgrading()) {
+        _lru_dumper->dump_queue("disposable", force);
+        _lru_dumper->dump_queue("normal", force);
+        _lru_dumper->dump_queue("index", force);
+        _lru_dumper->dump_queue("ttl", force);
+        _lru_dumper->set_first_dump_done();
+    }
+}
+
 void BlockFileCache::run_background_lru_dump() {
     Thread::set_self_name("run_background_lru_dump");
     while (!_close) {
@@ -2327,14 +2398,7 @@ void BlockFileCache::run_background_lru_dump() {
                 break;
             }
         }
-
-        if (config::file_cache_background_lru_dump_tail_record_num > 0 &&
-            !ExecEnv::GetInstance()->get_is_upgrading()) {
-            _lru_dumper->dump_queue("disposable");
-            _lru_dumper->dump_queue("normal");
-            _lru_dumper->dump_queue("index");
-            _lru_dumper->dump_queue("ttl");
-        }
+        dump_lru_queues(false);
     }
 }
 

@@ -53,32 +53,27 @@ public class InsertLoadJob extends LoadJob {
         super(EtlJobType.INSERT);
     }
 
-    public InsertLoadJob(String label, long transactionId, long dbId, long tableId,
-            long createTimestamp, String failMsg, String trackingUrl,
-            UserIdentity userInfo) throws MetaNotFoundException {
+    public InsertLoadJob(long dbId, String label) {
         super(EtlJobType.INSERT, dbId, label);
-        this.tableId = tableId;
-        this.transactionId = transactionId;
-        this.createTimestamp = createTimestamp;
-        this.loadStartTimestamp = createTimestamp;
-        this.finishTimestamp = System.currentTimeMillis();
-        if (Strings.isNullOrEmpty(failMsg)) {
-            this.state = JobState.FINISHED;
-            this.progress = 100;
-        } else {
-            this.state = JobState.CANCELLED;
-            this.failMsg = new FailMsg(CancelType.LOAD_RUN_FAIL, failMsg);
-            this.progress = 0;
-        }
-        this.authorizationInfo = gatherAuthInfo();
-        this.loadingStatus.setTrackingUrl(trackingUrl);
-        this.userInfo = userInfo;
     }
 
     public InsertLoadJob(String label, long transactionId, long dbId, long tableId,
-                         long createTimestamp, String failMsg, String trackingUrl,
+            long createTimestamp, String failMsg, String trackingUrl, String firstErrorMsg,
+            UserIdentity userInfo) throws MetaNotFoundException {
+        super(EtlJobType.INSERT, dbId, label);
+        setJobProperties(transactionId, tableId, createTimestamp, failMsg, trackingUrl, firstErrorMsg, userInfo);
+    }
+
+    public InsertLoadJob(String label, long transactionId, long dbId, long tableId,
+                         long createTimestamp, String failMsg, String trackingUrl, String firstErrorMsg,
                          UserIdentity userInfo, Long jobId) throws MetaNotFoundException {
         super(EtlJobType.INSERT_JOB, dbId, label, jobId);
+        setJobProperties(transactionId, tableId, createTimestamp, failMsg, trackingUrl, firstErrorMsg, userInfo);
+    }
+
+    public void setJobProperties(long transactionId, long tableId, long createTimestamp,
+                                        String failMsg, String trackingUrl, String firstErrorMsg,
+                                        UserIdentity userInfo) throws MetaNotFoundException {
         this.tableId = tableId;
         this.transactionId = transactionId;
         this.createTimestamp = createTimestamp;
@@ -94,6 +89,7 @@ public class InsertLoadJob extends LoadJob {
         }
         this.authorizationInfo = gatherAuthInfo();
         this.loadingStatus.setTrackingUrl(trackingUrl);
+        this.loadingStatus.setFirstErrorMsg(firstErrorMsg);
         this.userInfo = userInfo;
     }
 

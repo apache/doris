@@ -31,7 +31,7 @@ DeleteBitmapFileWriter::~DeleteBitmapFileWriter() {}
 
 Status DeleteBitmapFileWriter::init() {
 #ifdef BE_TEST
-    _path = "./log/" + _rowset_id + "_delete_bitmap.dat";
+    _path = "./log/" + _rowset_id + "_delete_bitmap.db";
     io::Path path = _path;
     auto parent_path = path.parent_path();
     bool exists = false;

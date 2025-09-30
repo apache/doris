@@ -342,10 +342,12 @@ suite("test_point_query") {
 
     // skip delete sign
     sql """set skip_delete_bitmap=true; set skip_delete_sign=true;"""
-    qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    qt_sql "select col1, col2, loc3, 'value' from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
     sql """set skip_delete_bitmap=false; set skip_delete_sign=false;"""
 
+    sql "set enable_insert_strict = false;"
     sql "update table_3821461 set value = 'update value' where col1 = -10 or col1 = 20;"
+    sql "set enable_insert_strict = true;"
     qt_sql """select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'"""
 
     sql "DROP TABLE IF EXISTS test_partial_prepared_statement"
@@ -402,7 +404,9 @@ suite("test_point_query") {
         partial_prepared_stmt.setString(2, "feature")
         qe_point_select partial_prepared_stmt
         qe_point_select partial_prepared_stmt
-
+        
+        sql "set skip_delete_sign=false"
+        trigger_and_wait_compaction("regression_test_point_query_p0.table_3821461", "full")
         partial_prepared_stmt = prepareStatement " select * from regression_test_point_query_p0.table_3821461 where col1 = ? and col2 = ? and loc3 = 'aabc'"
         partial_prepared_stmt.setInt(1, 10)
         partial_prepared_stmt.setInt(2, 20)

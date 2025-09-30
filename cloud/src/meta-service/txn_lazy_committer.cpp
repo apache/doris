@@ -34,6 +34,7 @@
 #include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
+#include "resource-manager/resource_manager.h"
 
 using namespace std::chrono;
 
@@ -128,7 +129,7 @@ void convert_tmp_rowsets(
         MetaServiceCode& code, std::string& msg, int64_t db_id,
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
         std::map<int64_t, TabletIndexPB>& tablet_ids, bool is_versioned_write,
-        bool is_versioned_read, Versionstamp versionstamp) {
+        bool is_versioned_read, Versionstamp versionstamp, ResourceManager* resource_mgr) {
     std::stringstream ss;
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -140,12 +141,15 @@ void convert_tmp_rowsets(
         return;
     }
 
-    MetaReader meta_reader(instance_id, txn_kv.get());
+    CloneChainReader meta_reader(instance_id, txn_kv.get(), resource_mgr);
 
     // partition_id -> VersionPB
     std::unordered_map<int64_t, VersionPB> partition_versions;
     // tablet_id -> stats
     std::unordered_map<int64_t, TabletStats> tablet_stats;
+
+    int64_t rowsets_visible_ts_ms =
+            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
     for (auto& [tmp_rowset_key, tmp_rowset_pb] : tmp_rowsets_meta) {
         std::string tmp_rowst_data;
@@ -309,6 +313,7 @@ void convert_tmp_rowsets(
 
         tmp_rowset_pb.set_start_version(version);
         tmp_rowset_pb.set_end_version(version);
+        tmp_rowset_pb.set_visible_ts_ms(rowsets_visible_ts_ms);
 
         rowset_val.clear();
         if (!tmp_rowset_pb.SerializeToString(&rowset_val)) {
@@ -530,7 +535,8 @@ void TxnLazyCommitTask::commit() {
 
     bool is_versioned_write = txn_info.versioned_write();
     bool is_versioned_read = txn_info.versioned_read();
-    MetaReader meta_reader(instance_id_, txn_kv_.get());
+    CloneChainReader meta_reader(instance_id_, txn_kv_.get(),
+                                 txn_lazy_committer_->resource_manager().get());
 
     std::stringstream ss;
     int retry_times = 0;
@@ -608,7 +614,8 @@ void TxnLazyCommitTask::commit() {
                                                            tmp_rowset_metas.begin() + end);
                     convert_tmp_rowsets(instance_id_, txn_id_, txn_kv_, code_, msg_, db_id,
                                         sub_partition_tmp_rowset_metas, tablet_ids,
-                                        is_versioned_write, is_versioned_read, versionstamp);
+                                        is_versioned_write, is_versioned_read, versionstamp,
+                                        txn_lazy_committer_->resource_manager().get());
                     if (code_ != MetaServiceCode::OK) break;
                 }
                 if (code_ != MetaServiceCode::OK) break;
@@ -797,7 +804,12 @@ std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::wait() {
     return std::make_pair(this->code_, this->msg_);
 }
 
-TxnLazyCommitter::TxnLazyCommitter(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(txn_kv) {
+TxnLazyCommitter::TxnLazyCommitter(std::shared_ptr<TxnKv> txn_kv)
+        : TxnLazyCommitter(txn_kv, std::make_shared<ResourceManager>(txn_kv)) {}
+
+TxnLazyCommitter::TxnLazyCommitter(std::shared_ptr<TxnKv> txn_kv,
+                                   std::shared_ptr<ResourceManager> resource_mgr)
+        : txn_kv_(txn_kv), resource_mgr_(std::move(resource_mgr)) {
     worker_pool_ = std::make_unique<SimpleThreadPool>(config::txn_lazy_commit_num_threads,
                                                       "txn_lazy_commiter");
     worker_pool_->start();

@@ -994,6 +994,7 @@ Status OrcReader::set_fill_columns(
 
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_table_columns;
+    // visit_slot for lazy mat.
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (expr->is_slot_ref()) {
             VSlotRef* slot_ref = static_cast<VSlotRef*>(expr);
@@ -1053,8 +1054,10 @@ Status OrcReader::set_fill_columns(
             DCHECK(topn_pred->children().size() > 0);
             visit_slot(topn_pred->children()[0].get());
 
-            if (topn_pred->has_value()) {
-                expr = topn_pred->get_binary_expr();
+            VExprSPtr binary_expr;
+            if (topn_pred->get_binary_expr(binary_expr)) {
+                // for min-max filter.
+                expr = binary_expr;
             } else {
                 continue;
             }
@@ -1153,7 +1156,7 @@ Status OrcReader::set_fill_columns(
         _row_reader_options.setEnableLazyDecoding(true);
 
         //orc reader should not use the tiny stripe optimization when reading by row id.
-        if (!_read_line_mode_mode) {
+        if (!_read_by_rows) {
             uint64_t number_of_stripes = _reader->getNumberOfStripes();
             auto all_stripes_needed = _reader->getNeedReadStripes(_row_reader_options);
 
@@ -1780,13 +1783,15 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         ColumnPtr& doris_value_column = doris_map.get_values_ptr();
         std::string key_col_name = col_name + ".key";
         std::string value_col_name = col_name + ".value";
+
         RETURN_IF_ERROR(_orc_column_to_doris_column<false>(
                 key_col_name, doris_key_column, doris_key_type, root_node->get_key_node(),
 
                 orc_key_type, orc_map->keys.get(), element_size));
-        return _orc_column_to_doris_column<false>(
+        RETURN_IF_ERROR(_orc_column_to_doris_column<false>(
                 value_col_name, doris_value_column, doris_value_type, root_node->get_value_node(),
-                orc_value_type, orc_map->elements.get(), element_size);
+                orc_value_type, orc_map->elements.get(), element_size));
+        return doris_map.deduplicate_keys();
     }
     case PrimitiveType::TYPE_STRUCT: {
         if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {
@@ -1922,7 +1927,7 @@ std::string OrcReader::get_field_name_lower_case(const orc::Type* orc_type, int 
 }
 
 Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(get_next_block_impl(block, read_rows, eof));
+    RETURN_IF_ERROR(_get_next_block_impl(block, read_rows, eof));
     if (*eof) {
         COUNTER_UPDATE(_orc_profile.selected_row_group_count,
                        _reader_metrics.SelectedRowGroupCount);
@@ -1941,7 +1946,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     return Status::OK();
 }
 
-Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof) {
+Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eof) {
     if (_io_ctx && _io_ctx->should_stop) {
         *eof = true;
         *read_rows = 0;

@@ -56,12 +56,12 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
@@ -1278,7 +1278,8 @@ public class StatisticsUtil {
             for (String oneRow : stringValues.split(" ;")) {
                 String[] oneRowSplit = oneRow.split(" :");
                 float value = Float.parseFloat(oneRowSplit[1]);
-                if (value >= avgOccurrences * SessionVariable.getHotValueThreshold()) {
+                if (value >= avgOccurrences * SessionVariable.getSkewValueThreshold()
+                        || value >= SessionVariable.getHotValueThreshold()) {
                     org.apache.doris.nereids.trees.expressions.literal.StringLiteral stringLiteral =
                             new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(
                                     oneRowSplit[0].replaceAll("\\\\:", ":")

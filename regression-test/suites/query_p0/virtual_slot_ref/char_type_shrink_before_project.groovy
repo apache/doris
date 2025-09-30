@@ -16,6 +16,7 @@
 // under the License.
 
 suite("char_type_shrink_before_projec") {
+    sql "set experimental_enable_virtual_slot_for_cse=true;"
     sql """drop table if exists char_type_shrink_before_projec"""
     sql """
         CREATE TABLE `char_type_shrink_before_projec` (
