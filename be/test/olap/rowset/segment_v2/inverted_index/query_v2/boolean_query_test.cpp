@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/custom_analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/bitmap_query/bitmap_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_query.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
@@ -472,6 +473,93 @@ TEST_F(BooleanQueryTest, test_boolean_query_cross_fields_with_composite_reader) 
     _CLLDELETE(ir2);
     _CLDECDELETE(dir1);
     _CLDECDELETE(dir2);
+}
+
+TEST_F(BooleanQueryTest, test_boolean_query_bitmap_and_term) {
+    std::wstring field = StringHelper::to_wstring("name1");
+
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
+    auto* reader = IndexReader::open(dir, true);
+    ASSERT_TRUE(reader != nullptr);
+
+    auto composite_reader = std::make_unique<query_v2::CompositeReader>();
+    composite_reader->set_reader(field, reader);
+
+    roaring::Roaring bm;
+    for (uint32_t d = 0; d < static_cast<uint32_t>(reader->numDocs()); ++d) {
+        if (d % 8 == 0 || d % 8 == 1) {
+            bm.add(d);
+        }
+    }
+
+    query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_AND);
+    builder.add(std::make_shared<query_v2::TermQuery>(context, field,
+                                                      StringHelper::to_wstring("apple")));
+    builder.add(std::make_shared<query_v2::BitmapQuery>(bm));
+    auto q = builder.build();
+
+    auto w = q->weight(false);
+    auto s = w->scorer(composite_reader);
+
+    uint32_t doc = s->doc();
+    uint32_t count = 0;
+    while (doc != query_v2::TERMINATED) {
+        EXPECT_TRUE(doc % 8 == 0 || doc % 8 == 1);
+        ++count;
+        doc = s->advance();
+    }
+    EXPECT_EQ(count, 20);
+
+    reader->close();
+    _CLLDELETE(reader);
+    _CLDECDELETE(dir);
+}
+
+TEST_F(BooleanQueryTest, test_boolean_query_bitmap_or_term) {
+    std::wstring field = StringHelper::to_wstring("name1");
+
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
+    auto* reader = IndexReader::open(dir, true);
+    ASSERT_TRUE(reader != nullptr);
+
+    auto composite_reader = std::make_unique<query_v2::CompositeReader>();
+    composite_reader->set_reader(field, reader);
+
+    roaring::Roaring bm;
+    for (uint32_t d = 0; d < static_cast<uint32_t>(reader->numDocs()); ++d) {
+        if (d % 8 == 2 || d % 8 == 3) {
+            bm.add(d);
+        }
+    }
+
+    query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_OR);
+    builder.add(std::make_shared<query_v2::TermQuery>(context, field,
+                                                      StringHelper::to_wstring("apple")));
+    builder.add(std::make_shared<query_v2::BitmapQuery>(bm));
+    auto q = builder.build();
+
+    auto w = q->weight(false);
+    auto s = w->scorer(composite_reader);
+
+    uint32_t doc = s->doc();
+    uint32_t count = 0;
+    while (doc != query_v2::TERMINATED) {
+        ++count;
+        doc = s->advance();
+    }
+    EXPECT_EQ(count, 60);
+
+    reader->close();
+    _CLLDELETE(reader);
+    _CLDECDELETE(dir);
 }
 
 } // namespace doris::segment_v2
