@@ -23,6 +23,13 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
 
 file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS *.cpp)
 
+# Remove all cpp files from vector_search subdirectory
+# Since cpp files in vector search subdirs use header files from faiss.
+# The compile check used by doris can not be applied to faiss headers.
+# So vector_search cpp files are compiled in a separate library using different compile options.
+file(GLOB_RECURSE VECTOR_FILES CONFIGURE_DEPENDS olap/vector_search/*.cpp)
+list(REMOVE_ITEM UT_FILES ${VECTOR_FILES})
+
 if(NOT DEFINED DORIS_WITH_LZO)
     list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exec/plain_text_line_reader_lzop_test.cpp)
 endif()
@@ -98,9 +105,13 @@ include_directories(
   ${CMAKE_BINARY_DIR}/apache-orc/c++/include
 )
 
+# Removed test files are added back using separate compile arguments.
+add_subdirectory(olap/vector_search)
+
 add_executable(doris_be_test ${UT_FILES})
 
-target_link_libraries(doris_be_test ${TEST_LINK_LIBS})
+target_link_libraries(doris_be_test ${TEST_LINK_LIBS} 
+    -Wl,--whole-archive vector_search_test -Wl,--no-whole-archive)
 set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
 
 if (OS_MACOSX AND ARCH_ARM)

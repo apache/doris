@@ -30,7 +30,6 @@
 #include <functional>
 #include <iterator>
 #include <memory>
-#include <ostream>
 #include <stack>
 #include <string>
 #include <tuple>
@@ -129,6 +128,7 @@ public:
         conditions_met |= other.conditions_met;
     }
 
+    // todo: rethink the sort method.
     void sort() {
         if (sorted) return;
 
@@ -650,7 +650,9 @@ private:
 
 template <PrimitiveType T>
 class AggregateFunctionSequenceMatch final
-        : public AggregateFunctionSequenceBase<T, AggregateFunctionSequenceMatch<T>> {
+        : public AggregateFunctionSequenceBase<T, AggregateFunctionSequenceMatch<T>>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionSequenceMatch(const DataTypes& arguments, const String& pattern_)
             : AggregateFunctionSequenceBase<T, AggregateFunctionSequenceMatch<T>>(arguments,
@@ -675,6 +677,7 @@ public:
             output.push_back(false);
             return;
         }
+        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         this->data(const_cast<AggregateDataPtr>(place)).sort();
 
         const auto& data_ref = this->data(place);
@@ -694,7 +697,9 @@ public:
 
 template <PrimitiveType T>
 class AggregateFunctionSequenceCount final
-        : public AggregateFunctionSequenceBase<T, AggregateFunctionSequenceCount<T>> {
+        : public AggregateFunctionSequenceBase<T, AggregateFunctionSequenceCount<T>>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
 public:
     AggregateFunctionSequenceCount(const DataTypes& arguments, const String& pattern_)
             : AggregateFunctionSequenceBase<T, AggregateFunctionSequenceCount<T>>(arguments,
@@ -719,6 +724,7 @@ public:
             output.push_back(0);
             return;
         }
+        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         this->data(const_cast<AggregateDataPtr>(place)).sort();
         output.push_back(count(place));
     }

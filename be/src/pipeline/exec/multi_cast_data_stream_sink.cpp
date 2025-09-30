@@ -40,12 +40,6 @@ std::shared_ptr<BasicSharedState> MultiCastDataStreamSinkOperatorX::create_share
     return ss;
 }
 
-std::vector<Dependency*> MultiCastDataStreamSinkLocalState::dependencies() const {
-    auto dependencies = Base::dependencies();
-    dependencies.emplace_back(_shared_state->multi_cast_data_streamer->get_spill_dependency());
-    return dependencies;
-}
-
 Status MultiCastDataStreamSinkLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     _shared_state->multi_cast_data_streamer->set_sink_profile(operator_profile());

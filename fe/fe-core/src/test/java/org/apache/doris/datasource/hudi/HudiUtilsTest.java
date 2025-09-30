@@ -26,8 +26,6 @@ import mockit.Mock;
 import mockit.MockUp;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
-import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
-import org.apache.hudi.common.table.timeline.HoodieInstantTimeGenerator;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -196,100 +194,5 @@ public class HudiUtilsTest {
         Assert.assertTrue(prop.delete());
         Assert.assertTrue(meta.delete());
         Files.delete(hudiTable);
-    }
-
-    @Test
-    public void testFormatQueryInstantThreadSafety() throws Exception {
-        // Mock HoodieActiveTimeline and HoodieInstantTimeGenerator methods
-        new MockUp<HoodieInstantTimeGenerator>() {
-            @Mock
-            public String getInstantForDateString(String dateString) {
-                return "mocked_" + dateString.replace(" ", "_").replace(":", "_").replace(".", "_");
-            }
-        };
-
-        new MockUp<HoodieActiveTimeline>() {
-            @Mock
-            public void parseDateFromInstantTime(String instantTime) {
-                // Just a validation method, no return value needed
-            }
-
-            @Mock
-            public String formatDate(java.util.Date date) {
-                return "formatted_" + date.getTime();
-            }
-        };
-
-        // Test different date formats
-        String[] dateFormats = {
-                "2023-01-15",                 // yyyy-MM-dd format
-                "2023-01-15 14:30:25",        // yyyy-MM-dd HH:mm:ss format
-                "2023-01-15 14:30:25.123",    // yyyy-MM-dd HH:mm:ss.SSS format
-                "20230115143025",             // yyyyMMddHHmmss format
-                "20230115143025123"           // yyyyMMddHHmmssSSS format
-        };
-
-        // Single thread test for basic functionality
-        for (String dateFormat : dateFormats) {
-            String result = HudiUtils.formatQueryInstant(dateFormat);
-            Assert.assertNotNull(result);
-
-            // Verify expected format based on input length
-            if (dateFormat.length() == 10) { // yyyy-MM-dd
-                Assert.assertTrue(result.startsWith("formatted_"));
-            } else if (dateFormat.length() == 19 || dateFormat.length() == 23) { // yyyy-MM-dd HH:mm:ss[.SSS]
-                Assert.assertTrue(result.startsWith("mocked_"));
-            } else {
-                // yyyyMMddHHmmss[SSS] passes through
-                Assert.assertEquals(dateFormat, result);
-            }
-        }
-
-        // Multi-thread test for thread safety
-        int threadCount = 10;
-        int iterationsPerThread = 100;
-
-        Thread[] threads = new Thread[threadCount];
-        Exception[] threadExceptions = new Exception[threadCount];
-
-        // Create a map to store expected results for each date format
-        final java.util.Map<String, String> expectedResults = new java.util.HashMap<>();
-        for (String dateFormat : dateFormats) {
-            expectedResults.put(dateFormat, HudiUtils.formatQueryInstant(dateFormat));
-        }
-
-        for (int i = 0; i < threadCount; i++) {
-            final int threadId = i;
-            threads[i] = new Thread(() -> {
-                try {
-                    for (int j = 0; j < iterationsPerThread; j++) {
-                        // Each thread cycles through all date formats
-                        String dateFormat = dateFormats[j % dateFormats.length];
-                        String result = HudiUtils.formatQueryInstant(dateFormat);
-
-                        // Verify the result matches the expected value for this date format
-                        String expected = expectedResults.get(dateFormat);
-                        Assert.assertEquals("Thread " + threadId + " iteration " + j
-                                        + " got incorrect result for format " + dateFormat,
-                                expected, result);
-                    }
-                } catch (Exception e) {
-                    threadExceptions[threadId] = e;
-                }
-            });
-            threads[i].start();
-        }
-
-        // Wait for all threads to complete
-        for (Thread thread : threads) {
-            thread.join(5000); // Timeout after 5 seconds to ensure test doesn't run too long
-        }
-
-        // Check if any thread encountered exceptions
-        for (int i = 0; i < threadCount; i++) {
-            if (threadExceptions[i] != null) {
-                throw new AssertionError("Thread " + i + " failed with exception", threadExceptions[i]);
-            }
-        }
     }
 }

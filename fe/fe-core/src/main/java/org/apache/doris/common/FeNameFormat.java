@@ -18,7 +18,6 @@
 package org.apache.doris.common;
 
 import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.InternalCatalog;
@@ -106,8 +105,6 @@ public class FeNameFormat {
                     columnName, getColumnNameRegex());
         }
         checkColumnNamePrefix(columnName, SchemaChangeHandler.SHADOW_NAME_PREFIX);
-        checkColumnNamePrefix(columnName, CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX);
-        checkColumnNamePrefix(columnName, CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
     }
 
     private static void checkColumnNamePrefix(String columnName, String prefix) throws AnalysisException {

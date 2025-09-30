@@ -23,9 +23,9 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.nereids.trees.expressions.literal.format.FractionalFormat;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TFloatLiteral;
@@ -147,7 +147,7 @@ public class FloatLiteral extends NumericLiteralExpr {
     public String getStringValue() {
         // TODO: Here is weird use float to represent TIME type
         // rethink whether it is reasonable to use this way
-        if (type.equals(Type.TIME) || type.equals(Type.TIMEV2)) {
+        if (type.equals(Type.TIMEV2)) {
             return timeStrFromFloat(value);
         }
         NumberFormat nf = NumberFormat.getInstance();
@@ -162,41 +162,33 @@ public class FloatLiteral extends NumericLiteralExpr {
 
     @Override
     public String getStringValueForQuery(FormatOptions options) {
-        if (type == Type.TIME || type == Type.TIMEV2) {
+        if (type == Type.TIMEV2) {
             // FloatLiteral used to represent TIME type, here we need to remove apostrophe from timeStr
             // for example '11:22:33' -> 11:22:33
             String timeStr = getStringValue();
             return timeStr.substring(1, timeStr.length() - 1);
         } else {
-            if (Double.isInfinite(getValue()) || Double.isNaN(getValue())) {
-                return Double.toString(getValue());
+            if (type == Type.FLOAT) {
+                Float fValue = (float) value;
+                if (fValue.equals(Float.POSITIVE_INFINITY)) {
+                    value = Double.POSITIVE_INFINITY;
+                }
+                if (fValue.equals(Float.NEGATIVE_INFINITY)) {
+                    value = Double.NEGATIVE_INFINITY;
+                }
             }
-            return BigDecimal.valueOf(getValue()).stripTrailingZeros().toPlainString();
+            return FractionalFormat.getFormatStringValue(value, type == Type.DOUBLE ? 16 : 7,
+                    type == Type.DOUBLE ? "%.15E" : "%.6E");
         }
     }
 
     @Override
     protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
         String ret = this.getStringValueForQuery(options);
-        if (type == Type.TIME || type == Type.TIMEV2) {
+        if (type == Type.TIMEV2) {
             ret = options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();
         }
         return ret;
-    }
-
-    public static Type getDefaultTimeType(Type type) throws AnalysisException {
-        switch (type.getPrimitiveType()) {
-            case TIME:
-                if (Config.enable_date_conversion) {
-                    return Type.TIMEV2;
-                } else {
-                    return Type.TIME;
-                }
-            case TIMEV2:
-                return type;
-            default:
-                throw new AnalysisException("Invalid time type: " + type);
-        }
     }
 
     @Override

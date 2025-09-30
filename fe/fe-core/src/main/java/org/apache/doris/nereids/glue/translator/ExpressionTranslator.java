@@ -31,7 +31,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
-import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LambdaFunctionCallExpr;
 import org.apache.doris.analysis.LambdaFunctionExpr;
@@ -39,6 +38,7 @@ import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
+import org.apache.doris.analysis.TryCastExpr;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function;
@@ -76,6 +76,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
@@ -211,7 +212,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitMatch(Match match, PlanTranslatorContext context) {
-        Index invertedIndex = null;
         // Get the first slot from match's left expr
         SlotReference slot = match.getInputSlots().stream()
                         .findFirst()
@@ -229,18 +229,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             throw new AnalysisException("SlotReference in Match failed to get OlapTable, SQL is " + match.toSql());
         }
 
-        List<Index> indexes = olapTbl.getIndexes();
-        if (indexes != null) {
-            for (Index index : indexes) {
-                if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
-                    List<String> columns = index.getColumns();
-                    if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))) {
-                        invertedIndex = index;
-                        break;
-                    }
-                }
-            }
-        }
+        Index invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath());
 
         MatchPredicate.Operator op = match.op();
         MatchPredicate matchPredicate = new MatchPredicate(op, match.left().accept(this, context),
@@ -345,6 +334,15 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         }
     }
 
+    private boolean computeCompoundPredicateNullable(CompoundPredicate cp) {
+        Expr left = cp.getChild(0);
+        Expr right = cp.getChild(1);
+        return left.getNullableFromNereids().isPresent() && left.getNullableFromNereids().get()
+                || !left.getNullableFromNereids().isPresent() && left.isNullable()
+                || right.getNullableFromNereids().isPresent() && right.getNullableFromNereids().get()
+                || !right.getNullableFromNereids().isPresent() && right.isNullable();
+    }
+
     private Expr toBalancedTree(int low, int high, List<Expr> children,
             CompoundPredicate.Operator op) {
         Deque<Frame> stack = new ArrayDeque<>();
@@ -367,6 +365,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     Expr left = children.get(l);
                     Expr right = children.get(h);
                     CompoundPredicate cp = new CompoundPredicate(op, left, right);
+                    cp.setNullableFromNereids(computeCompoundPredicateNullable(cp));
                     results.push(cp);
                     stack.pop();
                 } else {
@@ -383,6 +382,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                     Expr right = results.pop();
                     Expr left = results.pop();
                     CompoundPredicate cp = new CompoundPredicate(currentFrame.op, left, right);
+                    cp.setNullableFromNereids(computeCompoundPredicateNullable(cp));
                     results.push(cp);
                 }
             }
@@ -440,6 +440,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 cast.child().accept(this, context), null);
         castExpr.setNullableFromNereids(cast.nullable());
         return castExpr;
+    }
+
+    @Override
+    public Expr visitTryCast(TryCast cast, PlanTranslatorContext context) {
+        // left child of cast is expression, right child of cast is target type
+        TryCastExpr tryCastExpr = new TryCastExpr(cast.getDataType().toCatalogDataType(),
+                cast.child().accept(this, context), null);
+        tryCastExpr.setNullableFromNereids(cast.nullable());
+        tryCastExpr.setOriginCastNullable(cast.parentNullable());
+        return tryCastExpr;
     }
 
     @Override

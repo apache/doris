@@ -53,13 +53,13 @@ public enum PrimitiveType {
     // Aligning to 8 bytes so 16 total.
     VARCHAR("VARCHAR", 16, TPrimitiveType.VARCHAR, true),
     JSONB("JSON", 16, TPrimitiveType.JSONB, true),
+    VARBINARY("VARBINARY", 16, TPrimitiveType.VARBINARY, true),
 
     DECIMALV2("DECIMALV2", 16, TPrimitiveType.DECIMALV2, true),
     DECIMAL32("DECIMAL32", 4, TPrimitiveType.DECIMAL32, true),
     DECIMAL64("DECIMAL64", 8, TPrimitiveType.DECIMAL64, true),
     DECIMAL128("DECIMAL128", 16, TPrimitiveType.DECIMAL128I, true),
     DECIMAL256("DECIMAL256", 32, TPrimitiveType.DECIMAL256, false),
-    TIME("TIME", 8, TPrimitiveType.TIME, false),
     // these following types are stored as object binary in BE.
     HLL("HLL", 16, TPrimitiveType.HLL, true),
     BITMAP("BITMAP", 16, TPrimitiveType.BITMAP, true),
@@ -138,7 +138,6 @@ public enum PrimitiveType {
         builder.put(NULL_TYPE, JSONB);
         builder.put(NULL_TYPE, VARIANT);
         builder.put(NULL_TYPE, BITMAP); //TODO(weixiang):why null type can cast to bitmap?
-        builder.put(NULL_TYPE, TIME);
         builder.put(NULL_TYPE, TIMEV2);
         // Boolean
         builder.put(BOOLEAN, BOOLEAN);
@@ -184,7 +183,6 @@ public enum PrimitiveType {
         builder.put(TINYINT, DECIMAL256);
         builder.put(TINYINT, VARCHAR);
         builder.put(TINYINT, STRING);
-        builder.put(TINYINT, TIME);
         builder.put(TINYINT, TIMEV2);
         // Smallint
         builder.put(SMALLINT, BOOLEAN);
@@ -208,7 +206,6 @@ public enum PrimitiveType {
         builder.put(SMALLINT, DECIMAL256);
         builder.put(SMALLINT, VARCHAR);
         builder.put(SMALLINT, STRING);
-        builder.put(SMALLINT, TIME);
         builder.put(SMALLINT, TIMEV2);
         // Int
         builder.put(INT, BOOLEAN);
@@ -232,7 +229,6 @@ public enum PrimitiveType {
         builder.put(INT, DECIMAL256);
         builder.put(INT, VARCHAR);
         builder.put(INT, STRING);
-        builder.put(INT, TIME);
         builder.put(INT, TIMEV2);
         // Bigint
         builder.put(BIGINT, BOOLEAN);
@@ -256,7 +252,6 @@ public enum PrimitiveType {
         builder.put(BIGINT, DECIMAL256);
         builder.put(BIGINT, VARCHAR);
         builder.put(BIGINT, STRING);
-        builder.put(BIGINT, TIME);
         builder.put(BIGINT, TIMEV2);
         // Largeint
         builder.put(LARGEINT, BOOLEAN);
@@ -280,7 +275,6 @@ public enum PrimitiveType {
         builder.put(LARGEINT, DECIMAL256);
         builder.put(LARGEINT, VARCHAR);
         builder.put(LARGEINT, STRING);
-        builder.put(LARGEINT, TIME);
         builder.put(LARGEINT, TIMEV2);
         // Float
         builder.put(FLOAT, BOOLEAN);
@@ -304,7 +298,6 @@ public enum PrimitiveType {
         builder.put(FLOAT, DECIMAL256);
         builder.put(FLOAT, VARCHAR);
         builder.put(FLOAT, STRING);
-        builder.put(FLOAT, TIME);
         builder.put(FLOAT, TIMEV2);
         // Double
         builder.put(DOUBLE, BOOLEAN);
@@ -328,7 +321,6 @@ public enum PrimitiveType {
         builder.put(DOUBLE, DECIMAL256);
         builder.put(DOUBLE, VARCHAR);
         builder.put(DOUBLE, STRING);
-        builder.put(DOUBLE, TIME);
         builder.put(DOUBLE, TIMEV2);
         // Date
         builder.put(DATE, BOOLEAN);
@@ -434,7 +426,6 @@ public enum PrimitiveType {
         builder.put(CHAR, DECIMAL256);
         builder.put(CHAR, VARCHAR);
         builder.put(CHAR, STRING);
-        builder.put(CHAR, TIME);
         builder.put(CHAR, TIMEV2);
         // Varchar
         builder.put(VARCHAR, BOOLEAN);
@@ -460,7 +451,6 @@ public enum PrimitiveType {
         builder.put(VARCHAR, JSONB);
         builder.put(VARCHAR, VARIANT);
         builder.put(VARCHAR, STRING);
-        builder.put(VARCHAR, TIME);
         builder.put(VARCHAR, TIMEV2);
 
         // String
@@ -487,7 +477,6 @@ public enum PrimitiveType {
         builder.put(STRING, JSONB);
         builder.put(STRING, VARIANT);
         builder.put(STRING, STRING);
-        builder.put(STRING, TIME);
         builder.put(STRING, TIMEV2);
 
         // DecimalV2
@@ -623,7 +612,6 @@ public enum PrimitiveType {
         builder.put(AGG_STATE, VARCHAR);
 
         // TIMEV2
-        builder.put(TIMEV2, TIME);
         builder.put(TIMEV2, TIMEV2);
         builder.put(TIMEV2, DOUBLE);
         builder.put(TIMEV2, VARCHAR);
@@ -632,6 +620,9 @@ public enum PrimitiveType {
         builder.put(TIMEV2, DATETIME);
         builder.put(TIMEV2, DATEV2);
         builder.put(TIMEV2, DATETIMEV2);
+
+        // VARBINARY
+        builder.put(VARBINARY, VARBINARY);
 
         implicitCastMap = builder.build();
     }
@@ -680,7 +671,6 @@ public enum PrimitiveType {
         supportedTypes.add(CHAR);
         supportedTypes.add(DATE);
         supportedTypes.add(DATETIME);
-        supportedTypes.add(TIME);
         supportedTypes.add(DATEV2);
         supportedTypes.add(DATETIMEV2);
         supportedTypes.add(TIMEV2);
@@ -785,8 +775,6 @@ public enum PrimitiveType {
                 return DECIMAL128;
             case DECIMAL256:
                 return DECIMAL256;
-            case TIME:
-                return TIME;
             case TIMEV2:
                 return TIMEV2;
             case VARCHAR:
@@ -815,6 +803,8 @@ public enum PrimitiveType {
                 return ALL;
             case VARIANT:
                 return VARIANT;
+            case VARBINARY:
+                return VARBINARY;
             default:
                 return INVALID_TYPE;
         }
@@ -951,6 +941,10 @@ public enum PrimitiveType {
         return (this == IPV6);
     }
 
+    public boolean isVarbinaryType() {
+        return (this == VARBINARY);
+    }
+
     // TODO(zhaochun): Add Mysql Type to it's private field
     public MysqlColType toMysqlType() {
         switch (this) {
@@ -974,7 +968,6 @@ public enum PrimitiveType {
                 return MysqlColType.MYSQL_TYPE_FLOAT;
             case DOUBLE:
                 return MysqlColType.MYSQL_TYPE_DOUBLE;
-            case TIME:
             case TIMEV2:
                 return MysqlColType.MYSQL_TYPE_TIME;
             case DATE:
@@ -999,6 +992,8 @@ public enum PrimitiveType {
             case JSONB:
             case VARIANT:
                 return MysqlColType.MYSQL_TYPE_JSON;
+            case VARBINARY:
+                return MysqlColType.MYSQL_TYPE_VARSTRING;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
         }

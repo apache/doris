@@ -77,6 +77,7 @@
 #include "olap/task/engine_batch_load_task.h"
 #include "olap/task/engine_checksum_task.h"
 #include "olap/task/engine_clone_task.h"
+#include "olap/task/engine_cloud_index_change_task.h"
 #include "olap/task/engine_index_change_task.h"
 #include "olap/task/engine_publish_version_task.h"
 #include "olap/task/engine_storage_migration_task.h"
@@ -95,7 +96,6 @@
 #include "util/mem_info.h"
 #include "util/random.h"
 #include "util/s3_util.h"
-#include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
 #include "util/time.h"
@@ -297,7 +297,7 @@ void alter_cloud_tablet(CloudStorageEngine& engine, const TAgentTaskRequest& age
                 job.process_alter_tablet(agent_task_req.alter_tablet_req_v2),
                 [&](const doris::Exception& ex) {
                     DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
-                    job.clean_up_on_failed();
+                    job.clean_up_on_failure();
                 });
         return Status::OK();
     }();
@@ -498,11 +498,14 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
     {
         ALTER_count << n;
         // cloud auto stop need sc jobs, a tablet's sc can also be considered a fragment
-        doris::g_fragment_executing_count << 1;
-        int64_t now = duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch())
-                            .count();
-        g_fragment_last_active_time.set_value(now);
+        if (n > 0) {
+            // only count fragment when task is actually starting
+            doris::g_fragment_executing_count << 1;
+            int64_t now = duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+            g_fragment_last_active_time.set_value(now);
+        }
         return;
     }
     default:
@@ -779,6 +782,40 @@ void ReportWorker::stop() {
     }
 }
 
+void alter_cloud_index_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+    const auto& alter_inverted_index_rq = req.alter_inverted_index_req;
+    LOG(INFO) << "[index_change]get alter index task. signature=" << req.signature
+              << ", tablet_id=" << alter_inverted_index_rq.tablet_id
+              << ", job_id=" << alter_inverted_index_rq.job_id;
+
+    Status status = Status::OK();
+    auto tablet_ptr = engine.tablet_mgr().get_tablet(alter_inverted_index_rq.tablet_id);
+    if (tablet_ptr != nullptr) {
+        EngineCloudIndexChangeTask engine_task(engine, req.alter_inverted_index_req);
+        status = engine_task.execute();
+    } else {
+        status = Status::NotFound("could not find tablet {}", alter_inverted_index_rq.tablet_id);
+    }
+
+    // Return result to fe
+    TFinishTaskRequest finish_task_request;
+    finish_task_request.__set_backend(BackendOptions::get_local_backend());
+    finish_task_request.__set_task_type(req.task_type);
+    finish_task_request.__set_signature(req.signature);
+    if (!status.ok()) {
+        LOG(WARNING) << "[index_change]failed to alter inverted index task, signature="
+                     << req.signature << ", tablet_id=" << alter_inverted_index_rq.tablet_id
+                     << ", job_id=" << alter_inverted_index_rq.job_id << ", error=" << status;
+    } else {
+        LOG(INFO) << "[index_change]successfully alter inverted index task, signature="
+                  << req.signature << ", tablet_id=" << alter_inverted_index_rq.tablet_id
+                  << ", job_id=" << alter_inverted_index_rq.job_id;
+    }
+    finish_task_request.__set_task_status(status.to_thrift());
+    finish_task(finish_task_request);
+    remove_task_info(req.task_type, req.signature);
+}
+
 void alter_inverted_index_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     const auto& alter_inverted_index_rq = req.alter_inverted_index_req;
     LOG(INFO) << "get alter inverted index task. signature=" << req.signature
@@ -861,7 +898,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             tablet->tablet_meta()->mutable_tablet_schema()->set_is_in_memory(
                     tablet_meta_info.is_in_memory);
             std::shared_lock rlock(tablet->get_header_lock());
-            for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
                 rowset_meta->tablet_schema()->set_is_in_memory(tablet_meta_info.is_in_memory);
             }
             tablet->tablet_schema_unlocked()->set_is_in_memory(tablet_meta_info.is_in_memory);
@@ -959,7 +996,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             std::shared_lock rlock(tablet->get_header_lock());
             tablet->tablet_meta()->mutable_tablet_schema()->set_enable_single_replica_compaction(
                     tablet_meta_info.enable_single_replica_compaction);
-            for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
                 rowset_meta->tablet_schema()->set_enable_single_replica_compaction(
                         tablet_meta_info.enable_single_replica_compaction);
             }
@@ -971,7 +1008,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             std::shared_lock rlock(tablet->get_header_lock());
             tablet->tablet_meta()->mutable_tablet_schema()->set_disable_auto_compaction(
                     tablet_meta_info.disable_auto_compaction);
-            for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
                 rowset_meta->tablet_schema()->set_disable_auto_compaction(
                         tablet_meta_info.disable_auto_compaction);
             }
@@ -984,7 +1021,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             std::shared_lock rlock(tablet->get_header_lock());
             tablet->tablet_meta()->mutable_tablet_schema()->set_skip_write_index_on_load(
                     tablet_meta_info.skip_write_index_on_load);
-            for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+            for (auto& [_, rowset_meta] : tablet->tablet_meta()->all_mutable_rs_metas()) {
                 rowset_meta->tablet_schema()->set_skip_write_index_on_load(
                         tablet_meta_info.skip_write_index_on_load);
             }
@@ -1059,6 +1096,7 @@ void report_task_callback(const ClusterInfo* cluster_info) {
         }
     }
     request.__set_backend(BackendOptions::get_local_backend());
+    request.__set_running_tasks(ExecEnv::GetInstance()->fragment_mgr()->running_query_num());
     bool succ = handle_report(request, cluster_info, "task");
     report_task_total << 1;
     if (!succ) [[unlikely]] {
@@ -1455,17 +1493,20 @@ void release_snapshot_callback(CloudStorageEngine& engine, const TAgentTaskReque
 
     LOG(INFO) << "get release snapshot task. signature=" << req.signature;
 
-    Status status =
-            engine.cloud_snapshot_mgr().release_snapshot(release_snapshot_request.tablet_id);
+    Status status = engine.cloud_snapshot_mgr().release_snapshot(
+            release_snapshot_request.tablet_id, release_snapshot_request.is_job_completed);
+
     if (!status.ok()) {
         LOG_WARNING("failed to release snapshot")
                 .tag("signature", req.signature)
                 .tag("tablet_id", release_snapshot_request.tablet_id)
+                .tag("is_job_completed", release_snapshot_request.is_job_completed)
                 .error(status);
     } else {
         LOG_INFO("successfully release snapshot")
                 .tag("signature", req.signature)
-                .tag("tablet_id", release_snapshot_request.tablet_id);
+                .tag("tablet_id", release_snapshot_request.tablet_id)
+                .tag("is_job_completed", release_snapshot_request.is_job_completed);
     }
 
     TFinishTaskRequest finish_task_request;
@@ -1721,7 +1762,7 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
     RuntimeProfile* profile = &runtime_profile;
     MonotonicStopWatch watch;
     watch.start();
-    SCOPED_CLEANUP({
+    Defer defer = [&] {
         auto elapsed_time = static_cast<double>(watch.elapsed_time());
         if (elapsed_time / 1e9 > config::agent_task_trace_threshold_sec) {
             COUNTER_UPDATE(profile->total_time_counter(), elapsed_time);
@@ -1729,7 +1770,7 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
             profile->pretty_print(&ss);
             LOG(WARNING) << "create tablet cost(s) " << elapsed_time / 1e9 << std::endl << ss.str();
         }
-    });
+    };
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
     VLOG_NOTICE << "start to create tablet " << create_tablet_req.tablet_id;
 
@@ -1752,7 +1793,7 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
         }
         DCHECK(tablet != nullptr);
         TTabletInfo tablet_info;
-        tablet_info.tablet_id = tablet->table_id();
+        tablet_info.tablet_id = tablet->tablet_id();
         tablet_info.schema_hash = tablet->schema_hash();
         tablet_info.version = create_tablet_req.version;
         // Useless but it is a required field in TTabletInfo
@@ -1810,6 +1851,20 @@ void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     finish_task_request.__set_task_type(req.task_type);
     finish_task_request.__set_signature(req.signature);
     finish_task_request.__set_task_status(status.to_thrift());
+
+    TTabletInfo tablet_info;
+    tablet_info.tablet_id = drop_tablet_req.tablet_id;
+    tablet_info.schema_hash = drop_tablet_req.schema_hash;
+    tablet_info.version = 0;
+    // Useless but it is a required field in TTabletInfo
+    tablet_info.version_hash = 0;
+    tablet_info.row_count = 0;
+    tablet_info.data_size = 0;
+
+    finish_task_request.__set_finish_tablet_infos({tablet_info});
+    LOG_INFO("successfully drop tablet")
+            .tag("signature", req.signature)
+            .tag("tablet_id", drop_tablet_req.tablet_id);
 
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);

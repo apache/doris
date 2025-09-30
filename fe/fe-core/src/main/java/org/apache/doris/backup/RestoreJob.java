@@ -155,6 +155,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     @SerializedName("st")
     protected volatile RestoreJobState state;
 
+    // For show restore command, master fe change the job state to FINISHED before writing edit log.
+    // We set showState to FINISHED after writing edit log. otherwise, query to non master fe may read
+    // data before restore finished.
+    protected volatile RestoreJobState showState;
+
     @SerializedName("meta")
     private BackupMeta backupMeta;
 
@@ -240,7 +245,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         this.jobInfo = jobInfo;
         this.allowLoad = allowLoad;
         this.replicaAlloc = replicaAlloc;
-        this.state = RestoreJobState.PENDING;
+        setState(RestoreJobState.PENDING);
         this.metaVersion = metaVersion;
         this.reserveReplica = reserveReplica;
         this.reserveColocate = reserveColocate;
@@ -285,6 +290,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     public RestoreJobState getState() {
         return state;
+    }
+
+    private void setState(RestoreJobState state) {
+        this.state = state;
+        this.showState = state;
     }
 
     public int getMetaVersion() {
@@ -1022,7 +1032,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
 
         // No log here, PENDING state restore job will redo this method
-        state = RestoreJobState.CREATING;
+        setState(RestoreJobState.CREATING);
     }
 
     protected void doCreateReplicas() {
@@ -1045,7 +1055,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
 
         // No log here, PENDING state restore job will redo this method
-        state = RestoreJobState.CREATING;
+        setState(RestoreJobState.CREATING);
         createReplicasTimeStamp = System.currentTimeMillis();
         batchTaskPerTable.clear();
     }
@@ -1164,7 +1174,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
 
         metaPreparedTime = System.currentTimeMillis();
-        state = RestoreJobState.SNAPSHOTING;
+        setState(RestoreJobState.SNAPSHOTING);
         // No log here, PENDING state restore job will redo this method
     }
 
@@ -1440,7 +1450,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             objectPool,
                             localTbl.rowStorePageSize(),
                             localTbl.variantEnableFlattenNested(),
-                            localTbl.storagePageSize(),
+                            localTbl.storagePageSize(), localTbl.getTDEAlgorithm(),
                             localTbl.storageDictPageSize());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
@@ -1729,7 +1739,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     protected void waitingAllSnapshotsFinished() {
         if (unfinishedSignatureToId.isEmpty()) {
             snapshotFinishedTime = System.currentTimeMillis();
-            state = RestoreJobState.DOWNLOAD;
+            setState(RestoreJobState.DOWNLOAD);
 
             env.getEditLog().logRestoreJob(this);
             for (ColocatePersistInfo info : colocatePersistInfos) {
@@ -1852,7 +1862,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         AgentTaskExecutor.submit(batchTask);
 
-        state = RestoreJobState.DOWNLOADING;
+        setState(RestoreJobState.DOWNLOADING);
 
         // No edit log here
         LOG.info("finished to send download tasks to BE. num: {}. {}", batchTask.getTaskNum(), this);
@@ -1977,7 +1987,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         AgentTaskExecutor.submit(batchTask);
 
-        state = RestoreJobState.DOWNLOADING;
+        setState(RestoreJobState.DOWNLOADING);
 
         // No edit log here
         LOG.info("finished to send download tasks to BE. num: {}. {}", batchTask.getTaskNum(), this);
@@ -2037,7 +2047,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private void waitingAllDownloadFinished() {
         if (unfinishedSignatureToId.isEmpty()) {
             downloadFinishedTime = System.currentTimeMillis();
-            state = RestoreJobState.COMMIT;
+            setState(RestoreJobState.COMMIT);
 
             // backupMeta is useless now
             backupMeta = null;
@@ -2069,7 +2079,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         AgentTaskExecutor.submit(batchTask);
 
-        state = RestoreJobState.COMMITTING;
+        setState(RestoreJobState.COMMITTING);
 
         // No log here
         LOG.info("finished to send move dir tasks. num: {}. {}", batchTask.getTaskNum(), this);
@@ -2154,6 +2164,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
 
+        updateOlapTablesVersion(db);
+
         if (!isReplay) {
             restoredPartitions.clear();
             restoredTbls.clear();
@@ -2168,15 +2180,43 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
             finishedTime = System.currentTimeMillis();
             state = RestoreJobState.FINISHED;
-
             env.getEditLog().logRestoreJob(this);
 
             // Only send release snapshot tasks after the job is finished.
-            releaseSnapshots(savedSnapshotInfos);
+            releaseSnapshots(savedSnapshotInfos, true);
         }
+        showState = RestoreJobState.FINISHED;
 
         LOG.info("job is finished. is replay: {}. {}", isReplay, this);
         return Status.OK;
+    }
+
+    private void updateOlapTablesVersion(Database db) {
+        if (Env.getCurrentEnv().invalidCacheForCloud()) {
+            return;
+        }
+
+        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
+            Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
+            if (tbl == null) {
+                continue;
+            }
+
+            if (tbl.getType() != TableType.OLAP) {
+                continue;
+            }
+
+            OlapTable olapTbl = (OlapTable) tbl;
+            if (!tbl.writeLockIfExist()) {
+                continue;
+            }
+            try {
+                long nextVersion = olapTbl.getNextVersion();
+                olapTbl.updateVisibleVersionAndTime(nextVersion, System.currentTimeMillis());
+            } finally {
+                olapTbl.writeUnlock();
+            }
+        }
     }
 
     private Status dropAllNonRestoredTableAndPartitions(Database db) {
@@ -2240,7 +2280,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
     }
 
-    private void releaseSnapshots(com.google.common.collect.Table<Long, Long, SnapshotInfo> snapshotInfos) {
+    private void releaseSnapshots(com.google.common.collect.Table<Long, Long, SnapshotInfo> snapshotInfos,
+                                  boolean isJobCompleted) {
         if (snapshotInfos.isEmpty()) {
             return;
         }
@@ -2249,7 +2290,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (SnapshotInfo info : snapshotInfos.values()) {
             ReleaseSnapshotTask releaseTask = new ReleaseSnapshotTask(null, info.getBeId(), info.getDbId(),
-                    info.getTabletId(), info.getPath());
+                    info.getTabletId(), info.getPath(), isJobCompleted);
             batchTask.addTask(releaseTask);
         }
         AgentTaskExecutor.submit(batchTask);
@@ -2279,7 +2320,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         info.add(label);
         info.add(backupTimestamp);
         info.add(dbName);
-        info.add(state.name());
+        info.add(showState.name());
         info.add(String.valueOf(allowLoad));
         info.add(String.valueOf(replicaAlloc.getTotalReplicaNum()));
         info.add(replicaAlloc.toCreateStmt());
@@ -2367,6 +2408,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         cleanMetaObjects(isReplay);
 
         if (!isReplay) {
+            restoredPartitions.clear();
+            restoredTbls.clear();
+            restoredResources.clear();
+
             // backupMeta is useless
             backupMeta = null;
 
@@ -2378,7 +2423,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
             RestoreJobState curState = state;
             finishedTime = System.currentTimeMillis();
-            state = RestoreJobState.CANCELLED;
+            setState(RestoreJobState.CANCELLED);
             // log
             env.getEditLog().logRestoreJob(this);
             for (ColocatePersistInfo info : colocatePersistInfos) {
@@ -2392,7 +2437,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
             // Send release snapshot tasks after log restore job, so that the snapshot won't be released
             // before the cancelled restore job is persisted.
-            releaseSnapshots(savedSnapshotInfos);
+            releaseSnapshots(savedSnapshotInfos, false);
             return;
         }
 
@@ -2712,6 +2757,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         isCleanPartitions = Boolean.parseBoolean(properties.get(PROP_CLEAN_PARTITIONS));
         isAtomicRestore = Boolean.parseBoolean(properties.get(PROP_ATOMIC_RESTORE));
         isForceReplace = Boolean.parseBoolean(properties.get(PROP_FORCE_REPLACE));
+        showState = state;
     }
 
     @Override

@@ -16,6 +16,9 @@
 // under the License.
 
 suite ("test_mv_mor") {
+
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ drop table if exists u_table; """
 
     sql """
@@ -34,7 +37,7 @@ suite ("test_mv_mor") {
         """
     sql "insert into u_table select 1,1,1,1;"
     sql "insert into u_table select 1,2,1,1;"
-    createMV("create materialized view k123p as select k1,k2,k3,k2+k3 from u_table;")
+    createMV("create materialized view k123p as select k1 as a1,k2 as a2,k3 as a3,k2+k3 from u_table;")
 
     sql "insert into u_table select 1,1,1,2;"
     sql "insert into u_table select 1,2,1,2;"
@@ -46,6 +49,6 @@ suite ("test_mv_mor") {
     qt_select_mv "select k1,k2+k3 from u_table order by k1;"
 
     qt_select_mv "select * from `u_table` index `k123p` order by 1,2;"
-    qt_select_mv "select mv_k1 from `u_table` index `k123p` order by 1;"
-    qt_select_mv "select `mv_(CAST(k2 AS bigint) + k3)` from `u_table` index `k123p` order by 1;"
+    qt_select_mv "select a1 from `u_table` index `k123p` order by 1;"
+    qt_select_mv "select `__add_3` from `u_table` index `k123p` order by 1;"
 }

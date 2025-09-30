@@ -47,7 +47,7 @@ public class MetaServiceProxy {
 
     static {
         if (Config.isCloudMode() && (Config.meta_service_endpoint == null || Config.meta_service_endpoint.isEmpty())) {
-            throw new RuntimeException("in cloud mode, please configure cloud_unique_id and meta_service_endpoint");
+            throw new RuntimeException("in cloud mode, please configure meta_service_endpoint in fe.conf");
         }
     }
 
@@ -431,5 +431,42 @@ public class MetaServiceProxy {
 
     public Cloud.CreateInstanceResponse createInstance(Cloud.CreateInstanceRequest request) throws RpcException {
         return w.executeRequest((client) -> client.createInstance(request));
+    }
+
+    public Cloud.GetStreamingTaskCommitAttachResponse getStreamingTaskCommitAttach(
+            Cloud.GetStreamingTaskCommitAttachRequest request) throws RpcException {
+        return w.executeRequest((client) -> client.getStreamingTaskCommitAttach(request));
+    }
+
+    public Cloud.AlterInstanceResponse alterInstance(Cloud.AlterInstanceRequest request) throws RpcException {
+        return w.executeRequest((client) -> client.alterInstance(request));
+    }
+
+    public Cloud.BeginSnapshotResponse beginSnapshot(Cloud.BeginSnapshotRequest request) throws RpcException {
+        return w.executeRequest((client) -> client.beginSnapshot(request));
+    }
+
+    public Cloud.UpdateSnapshotResponse updateSnapshot(Cloud.UpdateSnapshotRequest request) throws RpcException {
+        return w.executeRequest((client) -> client.updateSnapshot(request));
+    }
+
+    public Cloud.CommitSnapshotResponse commitSnapshot(Cloud.CommitSnapshotRequest request) throws RpcException {
+        return w.executeRequest((client) -> client.commitSnapshot(request));
+    }
+
+    public Cloud.AbortSnapshotResponse abortSnapshot(Cloud.AbortSnapshotRequest request) throws RpcException {
+        return w.executeRequest((client) -> client.abortSnapshot(request));
+    }
+
+    public Cloud.ListSnapshotResponse listSnapshot(Cloud.ListSnapshotRequest request) throws RpcException {
+        return w.executeRequest((client) -> client.listSnapshot(request));
+    }
+
+    public Cloud.DropSnapshotResponse dropSnapshot(Cloud.DropSnapshotRequest request) throws RpcException {
+        return w.executeRequest((client) -> client.dropSnapshot(request));
+    }
+
+    public Cloud.CloneInstanceResponse cloneInstance(Cloud.CloneInstanceRequest request) throws RpcException {
+        return w.executeRequest((client) -> client.cloneInstance(request));
     }
 }

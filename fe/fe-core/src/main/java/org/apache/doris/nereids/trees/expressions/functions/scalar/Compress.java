@@ -48,13 +48,18 @@ public class Compress extends ScalarFunction
         super("compress", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Compress(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Compress withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Compress(children.get(0));
+        return new Compress(getFunctionParams(children));
     }
 
     @Override

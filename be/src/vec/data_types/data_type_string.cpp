@@ -31,6 +31,7 @@
 #include "common/cast_set.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
@@ -39,34 +40,9 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-std::string DataTypeString::to_string(const IColumn& column, size_t row_num) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
-    return value.to_string();
-}
-
-void DataTypeString::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
-                               class doris::vectorized::BufferWritable& ostr) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
-    ostr.write(value.data, value.size);
-}
-
-Status DataTypeString::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnString*>(column);
-    column_data->insert_data(rb.position(), rb.count());
-    return Status::OK();
-}
 
 Field DataTypeString::get_default() const {
     return Field::create_field<TYPE_STRING>(String());
@@ -307,4 +283,13 @@ const char* DataTypeString::deserialize(const char* buf, MutableColumnPtr* colum
         return buf;
     }
 }
+
+FieldWithDataType DataTypeString::get_field_with_data_type(const IColumn& column,
+                                                           size_t row_num) const {
+    const auto& column_data = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column);
+    return FieldWithDataType {
+            .field = Field::create_field<TYPE_STRING>(column_data.get_data_at(row_num).to_string()),
+            .base_scalar_type_id = get_primitive_type()};
+}
+
 } // namespace doris::vectorized

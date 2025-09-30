@@ -91,7 +91,19 @@ public class NereidsCoordinator extends Coordinator {
         super(context, planner, statsErrorEstimator);
 
         this.coordinatorContext = CoordinatorContext.buildForSql(planner, this);
-        this.coordinatorContext.setJobProcessor(buildJobProcessor(coordinatorContext));
+        this.coordinatorContext.setJobProcessor(buildJobProcessor(coordinatorContext, -1L));
+        this.needEnqueue = true;
+
+        Preconditions.checkState(!planner.getFragments().isEmpty()
+                && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
+    }
+
+    public NereidsCoordinator(ConnectContext context,
+            NereidsPlanner planner, StatsErrorEstimator statsErrorEstimator, long jobId) {
+        super(context, planner, statsErrorEstimator);
+
+        this.coordinatorContext = CoordinatorContext.buildForSql(planner, this);
+        this.coordinatorContext.setJobProcessor(buildJobProcessor(coordinatorContext, jobId));
         this.needEnqueue = true;
 
         Preconditions.checkState(!planner.getFragments().isEmpty()
@@ -322,6 +334,11 @@ public class NereidsCoordinator extends Coordinator {
     }
 
     @Override
+    public String getFirstErrorMsg() {
+        return coordinatorContext.asLoadProcessor().loadContext.getFirstErrorMsg();
+    }
+
+    @Override
     public List<TErrorTabletInfo> getErrorTabletInfos() {
         return coordinatorContext.asLoadProcessor().loadContext.getErrorTabletInfos();
     }
@@ -392,7 +409,7 @@ public class NereidsCoordinator extends Coordinator {
             for (MultiFragmentsPipelineTask beTasks : executionTask.getChildrenTasks().values()) {
                 TNetworkAddress brpcAddress = beTasks.getBackend().getBrpcAddress();
                 String brpcAddrString = brpcAddress.hostname.concat(":").concat("" + brpcAddress.port);
-                result.put(brpcAddrString, beTasks.getChildrenTasks().size());
+                result.put(brpcAddrString, beTasks.getInstanceNum());
             }
         }
         return result;
@@ -511,13 +528,12 @@ public class NereidsCoordinator extends Coordinator {
         return false;
     }
 
-    private JobProcessor buildJobProcessor(CoordinatorContext coordinatorContext) {
+    private JobProcessor buildJobProcessor(CoordinatorContext coordinatorContext, long jobId) {
         DataSink dataSink = coordinatorContext.dataSink;
         if ((dataSink instanceof ResultSink || dataSink instanceof ResultFileSink)) {
             return QueryProcessor.build(coordinatorContext);
         } else {
-            // insert statement has jobId == -1
-            return new LoadProcessor(coordinatorContext, -1L);
+            return new LoadProcessor(coordinatorContext, jobId);
         }
     }
 

@@ -187,11 +187,15 @@ true	\N
 -- !sql --
 123
 
--- !test --
-\N	{"name": "John", "age": 30, "city": "New York", "hobbies": ["reading", "travelling"]}	\N	\N
-{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 4}}	\N	\N
-{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 5}}	\N	\N
-{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 6}}	\N	\N
+-- !test2 --
+\N	{"name": "John", "age": 30, "city": "New York", "hobbies": ["reading", "travelling"]}	\N	$	\N	\N
+{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 4}}	$	$	true	true
+{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 5}}	\N	$	\N	false
+{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 5}}	\N	$.c.d	\N	false
+{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 6}}	$	$	false	false
+{"name": "John", "age": 30, "address": {"city": "New York", "country": "USA"}}	"USA"	$.address.country	$.address.country	true	true
+{"name": "John", "age": 30, "city": "New York", "hobbies": ["reading", "travelling"]}	"reading"	$.hobbies[0]	$.hobbies[0]	true	true
+{"name": "John", "age": 30, "projects": [{"name": "Project A", "year": 2020}, {"name": "Project B", "year": 2021}]}	{"name": "Project B", "year": 2021}	$.projects[1]	$.projects[1]	true	true
 
 -- !json_contains1 --
 false
@@ -210,4 +214,87 @@ false
 
 -- !json_contains6 --
 \N
+
+-- !json_keys --
+["name", "age", "city"]
+
+-- !json_keys2 --
+\N
+
+-- !json_keys3 --
+\N
+["d"]
+["d"]
+["d"]
+["d"]
+["d"]
+\N
+\N
+\N
+
+-- !json_remove1 --
+{"a":1,"c":3}
+
+-- !json_remove2 --
+{"Name":"Homer","Gender":"Male"}
+
+-- !json_remove3 --
+{"Name":"Homer","Age":39}
+
+-- !json_remove4 --
+[2,3]
+
+-- !json_remove5 --
+[1,2,[3,5]]
+
+-- !json_remove6 --
+[1,3,4]
+
+-- !json_remove7 --
+[1,2,3,5]
+
+-- !json_remove8 --
+[2,[3,5]]
+
+-- !json_remove9 --
+[2,[3,5]]
+
+-- !json_remove10 --
+{"Person":{"Name":"Homer","Hobbies":["Eating","Sleeping"]}}
+
+-- !json_remove11 --
+\N
+
+-- !json_remove12 --
+\N
+
+-- !json_remove13 --
+\N
+
+-- !json_remove14 --
+\N
+
+-- !json_remove15 --
+{"name":"Alice","skills":["Java","Python","SQL"]}
+{"product":"laptop","specs":{"cpu":"Intel","ram":"16GB"}}
+{"users":[{"name":"Bob"},{"id":2,"name":"Charlie"}]}
+{}
+
+-- !json_remove16 --
+{"name":"Alice","skills":["Java","SQL"]}
+{"product":"laptop","specs":{"cpu":"Intel"}}
+{"users":[{"name":"Bob"}]}
+{}
+
+-- !json_remove17 --
+{}
+
+-- !json_remove18 --
+[]
+
+-- !json_remove19 --
+123
+
+-- !json_remove20 --
+true
 

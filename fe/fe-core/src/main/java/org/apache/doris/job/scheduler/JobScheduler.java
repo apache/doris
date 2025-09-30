@@ -109,7 +109,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
     }
 
     public void scheduleOneJob(T job) throws JobException {
-        if (!job.getJobStatus().equals(JobStatus.RUNNING)) {
+        if (!job.isJobRunning()) {
             return;
         }
         // not-schedule task
@@ -144,7 +144,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
     }
 
     public void cycleTimerJobScheduler(T job) {
-        if (!job.getJobStatus().equals(JobStatus.RUNNING)) {
+        if (!job.isJobRunning()) {
             return;
         }
         if (!JobExecuteType.RECURRING.equals(job.getJobConfig().getExecuteType())) {
@@ -225,7 +225,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
                 clearEndJob(job);
                 continue;
             }
-            if (job.getJobStatus().equals(JobStatus.RUNNING) && job.getJobConfig().checkIsTimerJob()) {
+            if (job.isJobRunning() && job.getJobConfig().checkIsTimerJob()) {
                 cycleTimerJobScheduler(job, lastTimeWindowMs);
             }
         }

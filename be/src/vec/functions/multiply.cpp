@@ -49,7 +49,8 @@ struct MultiplyIntegralImpl {
                 std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>()};
     }
 
-    static inline typename PrimitiveTypeTraits<Type>::CppNativeType apply(Arg a, Arg b) {
+    NO_SANITIZE_UNDEFINED static inline typename PrimitiveTypeTraits<Type>::CppNativeType apply(
+            Arg a, Arg b) {
         return a * b;
     }
 
@@ -233,9 +234,10 @@ struct MultiplyDecimalImpl {
     999999999999999999999999998000000000.000000000000000001 54 digits
     */
     template <bool check_overflow>
-    static void vector_vector(const ColumnDecimal128V2::Container::value_type* __restrict a,
-                              const ColumnDecimal128V2::Container::value_type* __restrict b,
-                              ColumnDecimal128V2::Container::value_type* c, size_t size) {
+    NO_SANITIZE_UNDEFINED static void vector_vector(
+            const ColumnDecimal128V2::Container::value_type* __restrict a,
+            const ColumnDecimal128V2::Container::value_type* __restrict b,
+            ColumnDecimal128V2::Container::value_type* c, size_t size) {
         auto sng_uptr = std::unique_ptr<int8_t[]>(new int8_t[size]);
         int8_t* sgn = sng_uptr.get();
         auto max = DecimalV2Value::get_max_decimal();

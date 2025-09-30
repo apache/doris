@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -201,38 +200,6 @@ public class RoutineLoadManager implements Writable {
         routineLoadJob.setComment(info.getComment());
         addRoutineLoadJob(routineLoadJob, info.getDBName(),
                 info.getTableName());
-    }
-
-    // cloud override
-    public void createRoutineLoadJob(CreateRoutineLoadStmt createRoutineLoadStmt)
-            throws UserException {
-        // check load auth
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
-                InternalCatalog.INTERNAL_CATALOG_NAME,
-                createRoutineLoadStmt.getDBName(),
-                createRoutineLoadStmt.getTableName(),
-                PrivPredicate.LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(),
-                    createRoutineLoadStmt.getDBName(),
-                    createRoutineLoadStmt.getDBName() + ": " + createRoutineLoadStmt.getTableName());
-        }
-
-        RoutineLoadJob routineLoadJob = null;
-        LoadDataSourceType type = LoadDataSourceType.valueOf(createRoutineLoadStmt.getTypeName());
-        switch (type) {
-            case KAFKA:
-                routineLoadJob = KafkaRoutineLoadJob.fromCreateStmt(createRoutineLoadStmt);
-                break;
-            default:
-                throw new UserException("Unknown data source type: " + type);
-        }
-
-        routineLoadJob.setOrigStmt(createRoutineLoadStmt.getOrigStmt());
-        routineLoadJob.setComment(createRoutineLoadStmt.getComment());
-        addRoutineLoadJob(routineLoadJob, createRoutineLoadStmt.getDBName(),
-                    createRoutineLoadStmt.getTableName());
     }
 
     public void addRoutineLoadJob(RoutineLoadJob routineLoadJob, String dbName, String tableName)
@@ -949,6 +916,7 @@ public class RoutineLoadManager implements Writable {
                 + command.getDataSourceProperties().getDataSourceType());
         }
         job.modifyProperties(command);
+        job.setRoutineLoadDesc(command.getRoutineLoadDesc());
     }
 
     public void replayAlterRoutineLoadJob(AlterRoutineLoadJobOperationLog log) {

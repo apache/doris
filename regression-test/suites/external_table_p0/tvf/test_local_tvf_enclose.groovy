@@ -46,16 +46,6 @@ suite("test_local_tvf_enclose", "p0,tvf,external,external_docker") {
                         "enclose" = "\\\"") order by id;            
                 """
 
-    qt_enclose_2 """
-                    select * from local(
-                        "file_path" = "${filename}",
-                        "backend_id" = "${be_id}",
-                        "format" = "csv_with_names",
-                        "column_separator" = ", ",
-                        "enclose" = "\\\"",
-                        "trim_double_quotes" = "true") order by id;            
-                """
-
     // test error case
     test {
         sql """

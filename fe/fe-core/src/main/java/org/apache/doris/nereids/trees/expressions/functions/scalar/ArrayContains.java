@@ -54,13 +54,18 @@ public class ArrayContains extends ScalarFunction
         super("array_contains", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayContains(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayContains withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ArrayContains(children.get(0), children.get(1));
+        return new ArrayContains(getFunctionParams(children));
     }
 
     @Override

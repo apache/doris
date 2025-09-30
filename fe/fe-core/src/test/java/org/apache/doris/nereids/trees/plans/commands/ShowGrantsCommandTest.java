@@ -86,4 +86,21 @@ public class ShowGrantsCommandTest extends TestWithFeService {
         int size = results.size();
         Assertions.assertEquals("'zzz'@'%'", results.get(size - 1).get(0));
     }
+
+    @Test
+    void testNonExistUser() {
+        ConnectContext ctx = ConnectContext.get();
+        UserIdentity nonExistUser = UserIdentity.createAnalyzedUserIdentWithIp("non_exist_user", "%");
+        Assertions.assertThrows(AnalysisException.class, () -> {
+            ShowGrantsCommand sg = new ShowGrantsCommand(nonExistUser, false);
+            sg.doRun(ctx, null);
+        });
+
+        ctx.setIsTempUser(true);
+        ctx.setCurrentUserIdentity(nonExistUser);
+        Assertions.assertDoesNotThrow(() -> {
+            ShowGrantsCommand sg = new ShowGrantsCommand(null, false);
+            sg.doRun(ctx, null);
+        });
+    }
 }

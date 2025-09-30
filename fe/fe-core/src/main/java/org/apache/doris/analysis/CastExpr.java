@@ -55,18 +55,18 @@ public class CastExpr extends Expr {
 
     // Only set for explicit casts. Null for implicit casts.
     @SerializedName("ttd")
-    private TypeDef targetTypeDef;
+    protected TypeDef targetTypeDef;
 
     // True if this is a "pre-analyzed" implicit cast.
     @SerializedName("ii")
-    private boolean isImplicit;
+    protected boolean isImplicit;
 
     // True if this cast does not change the type.
-    private boolean noOp = false;
+    protected boolean noOp = false;
 
-    private boolean notFold = false;
+    protected boolean notFold = false;
 
-    private static final Map<Pair<Type, Type>, Function.NullableMode> TYPE_NULLABLE_MODE;
+    protected static final Map<Pair<Type, Type>, Function.NullableMode> TYPE_NULLABLE_MODE;
 
     static {
         TYPE_NULLABLE_MODE = Maps.newHashMap();
@@ -159,8 +159,6 @@ public class CastExpr extends Expr {
             if (from.isComplexType() && type.isJsonbType()) {
                 nullableMode = Function.NullableMode.ALWAYS_NULLABLE;
             }
-            Preconditions.checkState(nullableMode != null,
-                    "cannot find nullable node for cast from " + from + " to " + to);
             fn = new Function(new FunctionName(getFnName(type)), Lists.newArrayList(e.type), type,
                     false, true, nullableMode);
         } else {
@@ -186,7 +184,6 @@ public class CastExpr extends Expr {
         targetTypeDef = other.targetTypeDef;
         isImplicit = other.isImplicit;
         noOp = other.noOp;
-        nullableFromNereids = other.nullableFromNereids;
     }
 
     private static String getFnName(Type targetType) {

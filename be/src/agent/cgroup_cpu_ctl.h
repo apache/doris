@@ -69,7 +69,8 @@ protected:
 
 protected:
     inline static uint64_t _cpu_core_num;
-    const static uint64_t _cpu_cfs_period_us = 100000;
+    // TODO (yiguolei): Should echo this period to cpu.cfs_period_us???
+    inline const static uint64_t _cpu_cfs_period_us = 100000;
     inline static std::string _doris_cgroup_cpu_path = "";
     inline static std::string _doris_cgroup_cpu_query_path = "";
     inline static bool _is_enable_cgroup_v1_in_env = false;

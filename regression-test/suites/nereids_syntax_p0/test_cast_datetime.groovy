@@ -48,7 +48,9 @@ suite("test_cast_datetime") {
 //currently, if we rewrite expr to CAST(mydatetime AS DATE) < date '2019-06-01', BE returns 0 tuple. 
     qt_1 "select count(1) from casttbl where CAST(CAST(mydatetime AS DATE) AS DATETIME) < date '2019-06-01';"
 
+    sql "set enable_insert_strict = false"
     sql "insert into casttbl values(2, '', '', '', ''), (3, '2020', '2020', '2020', '2020')"
+    sql "set enable_insert_strict = true"
     qt_2 "select * from casttbl"
     qt_3 "select a, '' = mydate, '' = mydatev2, '' = mydatetime, '' = mydatetimev2 from casttbl"
 

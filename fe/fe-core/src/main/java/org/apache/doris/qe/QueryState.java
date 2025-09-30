@@ -49,7 +49,7 @@ public class QueryState {
     private int warningRows = 0;
     // make it public for easy to use
     public int serverStatus = 0;
-    private boolean isNereids = false;
+    private boolean isNereids = true;
     private boolean isInternal = false;
     private ShowResultSet rs = null;
 

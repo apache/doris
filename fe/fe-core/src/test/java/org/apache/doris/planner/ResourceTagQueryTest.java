@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
@@ -40,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -194,8 +194,9 @@ public class ResourceTagQueryTest {
     }
 
     private static void setProperty(String sql) throws Exception {
-        SetUserPropertyStmt setUserPropertyStmt = (SetUserPropertyStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().getAuth().updateUserProperty(setUserPropertyStmt);
+        SetUserPropertiesCommand setUserPropertyStmt
+                = (SetUserPropertiesCommand) UtFrameUtils.parseStmt(sql, connectContext);
+        setUserPropertyStmt.run(connectContext, null);
     }
 
     @Test
@@ -306,7 +307,7 @@ public class ResourceTagQueryTest {
         Assert.assertEquals(1000000, execMemLimit);
 
         List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(Auth.ROOT_USER);
-        Assert.assertEquals(13, userProps.size());
+        Assert.assertEquals(15, userProps.size());
 
         // now :
         // be1 be2 be3 ==>tag1;

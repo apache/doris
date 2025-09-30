@@ -36,10 +36,6 @@ fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 
-TARGET_SYSTEM="$(uname -s)"
-TARGET_ARCH="$(uname -m)"
-echo "Target system: ${TARGET_SYSTEM}; Target arch: ${TARGET_ARCH}"
-
 . "${DORIS_HOME}/env.sh"
 
 # Check args
@@ -400,26 +396,9 @@ elif [[ -z "${USE_JEMALLOC}" ]]; then
         USE_JEMALLOC='OFF'
     fi
 fi
-if [[ -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
-    # compatible with old thirdparty
-    rm -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
-    rm -rf "${TP_LIB_DIR}/libjemalloc_doris.a"
-    rm -rf "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
-    rm -rf "${TP_INCLUDE_DIR}/rocksdb"
-    rm -rf "${TP_LIB_DIR}/librocksdb.a"
 
-    mv "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
-    mv "${TP_LIB_DIR}/libjemalloc_doris_with_prefix.a" "${TP_LIB_DIR}/libjemalloc_doris.a"
-    mv "${TP_LIB_DIR}/libjemalloc_doris_with_prefix_pic.a" "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
-    mv "${TP_LIB_DIR}/librocksdb_jemalloc_with_prefix.a" "${TP_LIB_DIR}/librocksdb.a"
-    mv -f "${TP_INCLUDE_DIR}/rocksdb_jemalloc_with_prefix" "${TP_INCLUDE_DIR}/rocksdb"
-fi
 if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
     USE_BTHREAD_SCANNER='OFF'
-fi
-
-if [[ -z "${USE_DWARF}" ]]; then
-    USE_DWARF='OFF'
 fi
 
 if [[ -z "${USE_UNWIND}" ]]; then
@@ -462,16 +441,12 @@ if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
     DISABLE_JAVA_CHECK_STYLE='OFF'
 fi
 
-if [[ -n "${DISABLE_BUILD_AZURE}" || "${TARGET_SYSTEM}" == 'Darwin' ]]; then
+if [[ "$(echo "${DISABLE_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
     BUILD_AZURE='OFF'
 fi
 
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='OFF'
-fi
-
-if [[ -z "${ENABLE_CACHE_LOCK_DEBUG}" ]]; then
-    ENABLE_CACHE_LOCK_DEBUG='ON'
 fi
 
 if [[ -z "${BUILD_BENCHMARK}" ]]; then
@@ -501,6 +476,10 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "${TARGET_SYSTEM}" == 'Darwin' ]]; 
     fi
 fi
 
+if [[ -z "${WITH_TDE_DIR}" ]]; then
+    WITH_TDE_DIR=''
+fi
+
 echo "Get params:
     BUILD_FE                            -- ${BUILD_FE}
     BUILD_BE                            -- ${BUILD_BE}
@@ -518,16 +497,15 @@ echo "Get params:
     GLIBC_COMPATIBILITY                 -- ${GLIBC_COMPATIBILITY}
     USE_AVX2                            -- ${USE_AVX2}
     USE_LIBCPP                          -- ${USE_LIBCPP}
-    USE_DWARF                           -- ${USE_DWARF}
     USE_UNWIND                          -- ${USE_UNWIND}
     STRIP_DEBUG_INFO                    -- ${STRIP_DEBUG_INFO}
     USE_JEMALLOC                        -- ${USE_JEMALLOC}
     USE_BTHREAD_SCANNER                 -- ${USE_BTHREAD_SCANNER}
     ENABLE_INJECTION_POINT              -- ${ENABLE_INJECTION_POINT}
-    ENABLE_CACHE_LOCK_DEBUG             -- ${ENABLE_CACHE_LOCK_DEBUG}
     DENABLE_CLANG_COVERAGE              -- ${DENABLE_CLANG_COVERAGE}
     DISPLAY_BUILD_TIME                  -- ${DISPLAY_BUILD_TIME}
     ENABLE_PCH                          -- ${ENABLE_PCH}
+    WITH_TDE_DIR                        -- ${WITH_TDE_DIR}
 "
 
 # Clean and build generated code
@@ -542,6 +520,9 @@ modules=("")
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-common")
     modules+=("fe-core")
+    if [[ "${WITH_TDE_DIR}" != "" ]]; then
+        modules+=("fe-${WITH_TDE_DIR}")
+    fi
 fi
 if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
     modules+=("fe-common")
@@ -578,6 +559,8 @@ FE_MODULES="$(
 if [[ "${BUILD_BE}" -eq 1 ]]; then
     update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
     update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
+    update_submodule "contrib/openblas" "openblas" "https://github.com/apache/doris-thirdparty/archive/refs/heads/openblas.tar.gz"
+    update_submodule "contrib/faiss" "faiss" "https://github.com/apache/doris-thirdparty/archive/refs/heads/faiss.tar.gz"
     if [[ -e "${DORIS_HOME}/gensrc/build/gen_cpp/version.h" ]]; then
         rm -f "${DORIS_HOME}/gensrc/build/gen_cpp/version.h"
     fi
@@ -597,11 +580,16 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         BUILD_TASK_EXECUTOR_SIMULATOR=OFF
     fi
 
+    if [[ -z "${BUILD_FILE_CACHE_LRU_TOOL}" ]]; then
+        BUILD_FILE_CACHE_LRU_TOOL=OFF
+    fi
+
     echo "-- Make program: ${MAKE_PROGRAM}"
     echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
     echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
     echo "-- Build fs benchmark tool: ${BUILD_FS_BENCHMARK}"
     echo "-- Build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
+    echo "-- Build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}"
 
     mkdir -p "${CMAKE_BUILD_DIR}"
     cd "${CMAKE_BUILD_DIR}"
@@ -610,18 +598,17 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
         -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
         -DENABLE_INJECTION_POINT="${ENABLE_INJECTION_POINT}" \
-        -DENABLE_CACHE_LOCK_DEBUG="${ENABLE_CACHE_LOCK_DEBUG}" \
         -DMAKE_TEST=OFF \
         -DBUILD_BENCHMARK="${BUILD_BENCHMARK}" \
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
         -DBUILD_TASK_EXECUTOR_SIMULATOR="${BUILD_TASK_EXECUTOR_SIMULATOR}" \
+        -DBUILD_FILE_CACHE_LRU_TOOL="${BUILD_FILE_CACHE_LRU_TOOL}" \
         ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
         -DBUILD_FILE_CACHE_MICROBENCH_TOOL="${BUILD_FILE_CACHE_MICROBENCH_TOOL}" \
         -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
-        -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_UNWIND="${USE_UNWIND}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
@@ -633,6 +620,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
+        -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
@@ -668,8 +656,8 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DMAKE_TEST=OFF \
         "${CMAKE_USE_CCACHE}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
+        -DENABLE_HDFS_STORAGE_VAULT=${ENABLE_HDFS_STORAGE_VAULT:-ON} \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
-        -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
@@ -758,6 +746,10 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/fe/lib/jindofs"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
+    if [[ "${WITH_TDE_DIR}" != "" ]]; then
+        cp -r -p "${DORIS_HOME}/fe/fe-${WITH_TDE_DIR}/target/fe-${WITH_TDE_DIR}-1.2-SNAPSHOT.jar" "${DORIS_OUTPUT}/fe/lib"/
+    fi
+
     #cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
 
     # copy jindofs jars, only support for Linux x64 or arm

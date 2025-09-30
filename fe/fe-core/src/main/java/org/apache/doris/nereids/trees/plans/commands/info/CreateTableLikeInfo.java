@@ -23,6 +23,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -54,7 +55,7 @@ public class CreateTableLikeInfo {
     public void validate(ConnectContext ctx) throws AnalysisException {
         existedTableName.analyze(ctx);
         // disallow external catalog
-        Util.prohibitExternalCatalog(existedTableName.getCtl(), "CreateTableLikeStmt");
+        Util.prohibitExternalCatalog(existedTableName.getCtl(), "CreateTableLikeCommand");
         //check privilege
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ctx, existedTableName.getCtl(), existedTableName.getDb(),
@@ -64,7 +65,7 @@ public class CreateTableLikeInfo {
 
         tableName.analyze(ctx);
         // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), "CreateTableLikeStmt");
+        Util.prohibitExternalCatalog(tableName.getCtl(), "CreateTableLikeCommand");
         FeNameFormat.checkTableName(tableName.getTbl());
         //check privilege
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, tableName.getCtl(), tableName.getDb(),

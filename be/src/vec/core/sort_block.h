@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/compare.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
@@ -381,7 +382,7 @@ private:
                           !std::is_same_v<ColumnType, ColumnStruct>) {
                 auto value_a = column.get_data()[a];
                 auto value_b = column.get_data()[b];
-                return value_a > value_b ? 1 : (value_a < value_b ? -1 : 0);
+                return Compare::compare(value_a, value_b);
             } else {
                 return column.compare_at(a, b, column, _nulls_direction);
             }
@@ -444,8 +445,7 @@ private:
         auto comparator = [&](const PermutationWithInlineValue<InlineType>& a,
                               const PermutationWithInlineValue<InlineType>& b) {
             if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
-                return a.inline_value > b.inline_value ? 1
-                                                       : (a.inline_value < b.inline_value ? -1 : 0);
+                return Compare::compare(a.inline_value, b.inline_value);
             } else {
                 return memcmp_small_allow_overflow15(
                         reinterpret_cast<const UInt8*>(a.inline_value.data), a.inline_value.size,

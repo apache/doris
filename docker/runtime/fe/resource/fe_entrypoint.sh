@@ -294,6 +294,7 @@ probe_master()
 
 function add_fqdn_config()
 {
+    echo "" >>${DORIS_HOME}/conf/fe.conf
     # TODO(user):since selectdb/doris.fe-ubuntu:2.0.2 , `enable_fqdn_mode` is forced to set `true` for starting doris. (enable_fqdn_mode = true).
     local enable_fqdn=`parse_confval_from_fe_conf "enable_fqdn_mode"`
     log_stderr "enable_fqdn is : $enable_fqdn"
@@ -405,7 +406,7 @@ start_fe_with_meta()
 print_vlsn()
 {
     local doris_meta_path=`parse_confval_from_fe_conf "meta_dir"`
-    if [[ "xdoris_meta_path" == "x" ]] ; then
+    if [[ "x$doris_meta_path" == "x" ]] ; then
         doris_meta_path="/opt/apache-doris/fe/doris-meta"
     fi
 

@@ -33,8 +33,8 @@ suite("test_routine_load","p0") {
         forComputeGroupStr = " for  $validCluster "
     }
 
-    sql "create workload group if not exists create_routine_load_group $forComputeGroupStr properties ( 'cpu_share'='123');"
-    sql "create workload group if not exists alter_routine_load_group $forComputeGroupStr properties ( 'cpu_share'='123');"
+    sql "create workload group if not exists create_routine_load_group $forComputeGroupStr properties ( 'min_cpu_percent'='0');"
+    sql "create workload group if not exists alter_routine_load_group $forComputeGroupStr properties ( 'min_cpu_percent'='0');"
     Thread.sleep(5000) // wait publish workload group to be
 
     def tables = [

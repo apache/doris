@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -97,6 +98,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -168,6 +170,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(ConnectionId.class, this::visitConnectionId),
                 matches(And.class, this::visitAnd),
                 matches(Or.class, this::visitOr),
+                matches(TryCast.class, this::visitTryCast),
                 matches(Cast.class, this::visitCast),
                 matches(BoundFunction.class, this::visitBoundFunction),
                 matches(BinaryArithmetic.class, this::visitBinaryArithmetic),
@@ -182,7 +185,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(Version.class, this::visitVersion),
                 matches(SessionUser.class, this::visitSessionUser),
                 matches(LastQueryId.class, this::visitLastQueryId),
-                matches(Nvl.class, this::visitNvl)
+                matches(Nvl.class, this::visitNvl),
+                matches(Match.class, this::visitMatch)
         );
     }
 
@@ -516,19 +520,32 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         //     }
         // }
         try {
+            // TODO: support no throw exception in `checkedCastTo` and return Optional<Expression>
+            if (cast.child().getDataType().isStringLikeType() && dataType.isComplexType()) {
+                return cast;
+            }
             Expression castResult = child.checkedCastTo(dataType);
             if (!Objects.equals(castResult, cast) && !Objects.equals(castResult, child)) {
                 castResult = rewrite(castResult, context);
             }
             return castResult;
         } catch (CastException c) {
-            if (ConnectContext.get().getSessionVariable().enableStrictCast()) {
+            if (SessionVariable.enableStrictCast()) {
                 throw c;
             } else {
                 return new NullLiteral(dataType);
             }
         } catch (Throwable t) {
             return cast;
+        }
+    }
+
+    @Override
+    public Expression visitTryCast(TryCast cast, ExpressionRewriteContext context) {
+        try {
+            return visitCast(cast, context);
+        } catch (CastException c) {
+            return new NullLiteral(cast.getDataType());
         }
     }
 

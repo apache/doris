@@ -107,4 +107,38 @@ suite("test_translate") {
     order_qt_7 "select translate('中文', '中', '文');"
     order_qt_8 "select translate('中文', '中', 'ab');"
     order_qt_9 "select translate('\tt\tt\tt', '\t', 't');"
+
+
+    sql " drop table if exists test_translate_all_ascii"
+
+    sql """
+        create table test_translate_all_ascii (
+            k0 int,
+            a varchar not null,
+            b varchar null,
+        )
+        DISTRIBUTED BY HASH(k0)
+        PROPERTIES
+        (
+            "replication_num" = "1"
+        );
+    """
+
+    sql """ insert into test_translate_all_ascii values (1, "", ""),  (2, "123123", "123123"), 
+            (3, "1234567890", "1234567890") , 
+            (4, "\\\\a\\\\b\\\\c\\\\d", "\\\\a\\\\b\\\\c\\\\d"),
+            (5, "!@#@#\$#^\$%%\$^", "!@#@#\$#^\$%%\$^"), (6, "   ", "   "),
+            (7, "", NULL);   
+    """
+
+    order_qt_all_ascii_nullable "select a , translate(a, '123', '456') from test_translate_all_ascii"
+    order_qt_all_ascii_not_nullable "select b , translate(b,'123', '456') from test_translate_all_ascii"
+
+
+    order_qt_all_ascii_nullable "select a , translate(a, '12345', '67') from test_translate_all_ascii"
+    order_qt_all_ascii_not_nullable "select b , translate(b,'12345', '67') from test_translate_all_ascii"
+
+    order_qt_all_ascii_nullable "select a , translate(a, '1', '234') from test_translate_all_ascii"
+    order_qt_all_ascii_not_nullable "select b , translate(b,'1', '234') from test_translate_all_ascii"
+
 }

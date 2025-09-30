@@ -43,7 +43,6 @@ namespace doris::vectorized {
 
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 
 /** Implements part of the IDataType interface, common to all numbers and for Date and DateTime.
   */
@@ -57,9 +56,11 @@ public:
     static constexpr PrimitiveType PType = T;
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
     using FieldType = typename PrimitiveTypeTraits<T>::ColumnItemType;
-
+#ifdef BE_TEST
+    /// TODO: remove this in the future
+    using IDataType::to_string;
     static std::string to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType& value);
-
+#endif
     const std::string get_family_name() const override { return type_to_string(T); }
     PrimitiveType get_primitive_type() const override {
         // Doris does not support uint8 at present, use uint8 as boolean type
@@ -128,23 +129,10 @@ public:
     MutableColumnPtr create_column() const override;
     Status check_column(const IColumn& column) const override;
 
-    bool have_subtypes() const override { return false; }
-    bool should_align_right_in_pretty_formats() const override { return true; }
-    bool text_can_contain_only_valid_utf8() const override { return true; }
-    bool is_comparable() const override { return true; }
-    bool is_value_represented_by_number() const override { return true; }
-    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
-        return true;
-    }
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override {
         return sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType);
     }
-    bool can_be_inside_low_cardinality() const override { return true; }
-
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
     bool is_null_literal() const override { return _is_null_literal; }
     void set_null_literal(bool flag) { _is_null_literal = flag; }
     using SerDeType = DataTypeNumberSerDe<T>;
@@ -152,35 +140,10 @@ public:
         return std::make_shared<SerDeType>(nesting_level);
     };
 
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
+
 protected:
-    template <typename Derived>
-    void to_string_batch_impl(const IColumn& column, ColumnString& column_to) const {
-        // column may be column const
-        const auto& col_ptr = column.get_ptr();
-        const auto& [column_ptr, is_const] = unpack_if_const(col_ptr);
-        if (is_const) {
-            _to_string_batch_impl<Derived, true>(column_ptr, column_to);
-        } else {
-            _to_string_batch_impl<Derived, false>(column_ptr, column_to);
-        }
-    }
-
-    template <typename Derived, bool is_const>
-    void _to_string_batch_impl(const ColumnPtr& column_ptr, ColumnString& column_to) const {
-        auto& col_vec = assert_cast<const ColumnType&>(*column_ptr);
-        const auto size = col_vec.size();
-        auto& chars = column_to.get_chars();
-        auto& offsets = column_to.get_offsets();
-        offsets.resize(size);
-        chars.reserve(static_cast<const Derived*>(this)->number_length() * size);
-        for (int row_num = 0; row_num < size; row_num++) {
-            auto num = is_const ? col_vec.get_element(0) : col_vec.get_element(row_num);
-            static_cast<const Derived*>(this)->push_number(chars, num);
-            // push_number can check the chars is over uint32 so use static_cast here.
-            offsets[row_num] = static_cast<UInt32>(chars.size());
-        }
-    }
-
 private:
     bool _is_null_literal = false;
 };

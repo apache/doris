@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_dlf_catalog", "p2,external,paimon,external_remote,external_remote_paimon") {
+suite("test_paimon_dlf_catalog", "p2,external,paimon,external_remote,external_remote_paimon,new_catalog_property") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return
@@ -44,14 +44,24 @@ suite("test_paimon_dlf_catalog", "p2,external,paimon,external_remote,external_re
             "dlf.secret_key" = "${secret_key}"
             );
         """
-
+        sql """ switch ${catalog} """
+        sql """ show databases """
         sql """ use ${catalog}.regression_paimon """
+        sql """ show tables"""
 
         sql """set force_jni_scanner=false"""
         qt_c1 """ select * from tb_simple order by id """
         sql """set force_jni_scanner=true"""
         qt_c2 """ select * from tb_simple order by id """
-
+        // 3.1 new features
+        // batch incremental
+        sql """SELECT * FROM tb_simple @incr('startTimestamp'='876488912')"""
+        // time travel
+        sql """SELECT * FROM tb_simple FOR VERSION AS OF 1;"""
+        // branch/tag
+        // TODO(zgx): add branch/tag
+        // system table
+        sql """SELECT * FROM tb_simple\$snapshots;"""
     } finally {
         sql """set force_jni_scanner=false"""
     }

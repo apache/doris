@@ -279,7 +279,6 @@ private:
 
         const auto& offsets = map_column.get_offsets();
         const size_t rows = offsets.size();
-
         if (rows <= 0) {
             return nullptr;
         }

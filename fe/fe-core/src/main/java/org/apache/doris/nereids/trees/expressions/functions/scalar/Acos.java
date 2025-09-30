@@ -48,13 +48,18 @@ public class Acos extends ScalarFunction
         super("acos", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Acos(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Acos withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Acos(children.get(0));
+        return new Acos(getFunctionParams(children));
     }
 
     @Override

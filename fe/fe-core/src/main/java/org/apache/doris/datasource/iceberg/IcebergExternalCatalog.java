@@ -17,24 +17,19 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
-import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.iceberg.catalog.Catalog;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
@@ -58,19 +53,22 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     // Create catalog based on catalog type
     protected void initCatalog() {
         try {
-            msProperties = (AbstractIcebergProperties) MetastoreProperties
-                    .create(getProperties());
+            msProperties = (AbstractIcebergProperties) catalogProperty.getMetastoreProperties();
             this.catalog = msProperties.initializeCatalog(getName(), new ArrayList<>(catalogProperty
                     .getStoragePropertiesMap().values()));
 
             this.icebergCatalogType = msProperties.getIcebergCatalogType();
-        } catch (UserException e) {
-            throw new RuntimeException("Failed to initialize Iceberg catalog: " + e.getMessage(), e);
         } catch (ClassCastException e) {
             throw new RuntimeException("Invalid properties for Iceberg catalog: " + getProperties(), e);
         } catch (Exception e) {
             throw new RuntimeException("Unexpected error while initializing Iceberg catalog: " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public void checkProperties() throws DdlException {
+        super.checkProperties();
+        catalogProperty.checkMetaStoreAndStorageProperties(AbstractIcebergProperties.class);
     }
 
     @Override
@@ -140,11 +138,6 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         if (null != catalog) {
             catalog = null;
         }
-    }
-
-    protected void initS3Param(Configuration conf) {
-        Map<String, String> properties = catalogProperty.getHadoopProperties();
-        conf.set(Constants.AWS_CREDENTIALS_PROVIDER, PropertyConverter.getAWSCredentialsProviders(properties));
     }
 
     @Override

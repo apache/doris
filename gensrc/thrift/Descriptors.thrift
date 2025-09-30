@@ -22,6 +22,11 @@ include "Types.thrift"
 include "Exprs.thrift"
 include "Partitions.thrift"
 
+enum TPatternType {
+  MATCH_NAME = 1,
+  MATCH_NAME_GLOB = 2
+}
+
 struct TColumn {
     1: required string column_name
     2: required Types.TColumnType column_type
@@ -43,7 +48,10 @@ struct TColumn {
     18: optional bool is_auto_increment = false;
     19: optional i32 cluster_key_id = -1
     20: optional i32 be_exec_version = -1
-    21: optional bool is_on_update_current_timestamp = false
+    21: optional TPatternType pattern_type
+    22: optional bool variant_enable_typed_paths_to_sparse = false
+    23: optional bool is_on_update_current_timestamp = false
+    24: optional i32 variant_max_sparse_column_statistics_size = 10000
 }
 
 struct TSlotDescriptor {
@@ -145,7 +153,11 @@ enum TSchemaTableType {
     SCH_ROUTINE_LOAD_JOBS = 54,
     SCH_BACKEND_CONFIGURATION=55,
     SCH_BACKEND_TABLETS = 56,
-    SCH_VIEW_DEPENDENCY = 57;
+    SCH_VIEW_DEPENDENCY = 57,
+    SCH_ENCRYPTION_KEYS = 58,
+    SCH_SQL_BLOCK_RULE_STATUS = 59;
+    SCH_CLUSTER_SNAPSHOTS = 60;
+    SCH_CLUSTER_SNAPSHOT_PROPERTIES = 61;
 }
 
 enum THdfsCompression {
@@ -162,7 +174,8 @@ enum TIndexType {
   BITMAP = 0,
   INVERTED = 1,
   BLOOMFILTER = 2,
-  NGRAM_BF = 3
+  NGRAM_BF = 3,
+  ANN = 4
 }
 
 enum TPartialUpdateNewRowPolicy {

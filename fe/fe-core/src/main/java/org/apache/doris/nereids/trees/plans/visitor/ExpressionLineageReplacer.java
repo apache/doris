@@ -17,12 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.visitor;
 
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -33,8 +31,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.BitSet;
-import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -52,19 +50,26 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
 
     @Override
     public Expression visit(Plan plan, ExpressionReplaceContext context) {
-        List<? extends Expression> expressions = plan.getExpressions();
-        Map<ExprId, Expression> targetExpressionMap = context.getExprIdExpressionMap();
-        // Filter the namedExpression used by target and collect the namedExpression
-        expressions.stream()
-                .filter(expression -> expression instanceof NamedExpression
-                        && targetExpressionMap.containsKey(((NamedExpression) expression).getExprId()))
-                .forEach(expression -> expression.accept(NamedExpressionCollector.INSTANCE, context));
+        Set<ExprId> usedExprIdSet = context.getUsedExprIdSet();
+        // Filter the namedExpression used by target and collect the alias and used named expression
+        for (Expression expression : plan.getExpressions()) {
+            if (!(expression instanceof NamedExpression)) {
+                continue;
+            }
+            if (!usedExprIdSet.contains(((NamedExpression) expression).getExprId())) {
+                continue;
+            }
+            // Get used named expression by used expr id set
+            expression.accept(NamedExpressionCollector.INSTANCE, context);
+        }
         return super.visit(plan, context);
     }
 
     @Override
     public Expression visitGroupPlan(GroupPlan groupPlan, ExpressionReplaceContext context) {
-        LOG.error("ExpressionLineageReplacer should not meet groupPlan, plan is {}", groupPlan.toString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("ExpressionLineageReplacer should not meet groupPlan, plan is {}", groupPlan.toString());
+        }
         return null;
     }
 
@@ -78,8 +83,10 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         @Override
         public Expression visitNamedExpression(NamedExpression namedExpression,
                 Map<ExprId, Expression> exprIdExpressionMap) {
-            if (exprIdExpressionMap.containsKey(namedExpression.getExprId())) {
-                return visit(exprIdExpressionMap.get(namedExpression.getExprId()), exprIdExpressionMap);
+            Expression childExpr = exprIdExpressionMap.get(namedExpression.getExprId());
+            if (childExpr != null) {
+                // remove alias
+                return visit(childExpr, exprIdExpressionMap);
             }
             return visit(namedExpression, exprIdExpressionMap);
         }
@@ -107,7 +114,6 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
     /**
      * The Collector for named expressions in the whole plan, and will be used to
      * replace the target expression later
-     * TODO Collect named expression by targetTypes, tableIdentifiers
      */
     public static class NamedExpressionCollector
             extends DefaultExpressionVisitor<Void, ExpressionReplaceContext> {
@@ -115,15 +121,15 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         public static final NamedExpressionCollector INSTANCE = new NamedExpressionCollector();
 
         @Override
-        public Void visitSlot(Slot slot, ExpressionReplaceContext context) {
-            context.getExprIdExpressionMap().put(slot.getExprId(), slot);
-            return super.visit(slot, context);
+        public Void visitNamedExpression(NamedExpression namedExpression, ExpressionReplaceContext context) {
+            context.getUsedExprIdSet().add(namedExpression.getExprId());
+            return super.visitNamedExpression(namedExpression, context);
         }
 
         @Override
         public Void visitAlias(Alias alias, ExpressionReplaceContext context) {
             // remove the alias
-            if (context.getExprIdExpressionMap().containsKey(alias.getExprId())) {
+            if (context.getUsedExprIdSet().contains(alias.getExprId())) {
                 context.getExprIdExpressionMap().put(alias.getExprId(), alias.child());
             }
             return super.visitAlias(alias, context);
@@ -134,57 +140,37 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
      * The context for replacing the expression with lineage
      */
     public static class ExpressionReplaceContext {
-        private final List<Expression> targetExpressions;
-        private final Set<TableType> targetTypes;
-        private final Set<String> tableIdentifiers;
-        private final Map<ExprId, Expression> exprIdExpressionMap;
-        private final BitSet tableBitSet;
+        private final List<? extends Expression> targetExpressions;
+        private final Set<ExprId> usedExprIdSet = new HashSet<>();
+        // The key is alias exprId, the value is alias child
+        private final Map<ExprId, Expression> exprIdExpressionMap = new HashMap<>();
         private List<Expression> replacedExpressions;
 
         /**
          * ExpressionReplaceContext
          */
-        public ExpressionReplaceContext(List<Expression> targetExpressions,
-                Set<TableType> targetTypes,
-                Set<String> tableIdentifiers,
-                BitSet tableBitSet) {
+        public ExpressionReplaceContext(List<? extends Expression> targetExpressions) {
             this.targetExpressions = targetExpressions;
-            this.targetTypes = targetTypes;
-            this.tableIdentifiers = tableIdentifiers;
-            this.tableBitSet = tableBitSet;
             // collect the named expressions used in target expression and will be replaced later
-            this.exprIdExpressionMap = targetExpressions.stream()
-                    .map(each -> each.collectToList(NamedExpression.class::isInstance))
-                    .flatMap(Collection::stream)
-                    .map(NamedExpression.class::cast)
-                    .distinct()
-                    .collect(Collectors.toMap(NamedExpression::getExprId, expr -> expr));
-        }
-
-        public List<Expression> getTargetExpressions() {
-            return targetExpressions;
-        }
-
-        public Set<TableType> getTargetTypes() {
-            return targetTypes;
-        }
-
-        public Set<String> getTableIdentifiers() {
-            return tableIdentifiers;
+            for (Expression expression : targetExpressions) {
+                for (Object namedExpression : expression.collectToList(NamedExpression.class::isInstance)) {
+                    this.usedExprIdSet.add(((NamedExpression) namedExpression).getExprId());
+                }
+            }
         }
 
         public Map<ExprId, Expression> getExprIdExpressionMap() {
             return exprIdExpressionMap;
         }
 
-        public BitSet getTableBitSet() {
-            return tableBitSet;
+        public Set<ExprId> getUsedExprIdSet() {
+            return usedExprIdSet;
         }
 
         /**
          * getReplacedExpressions
          */
-        public List<Expression> getReplacedExpressions() {
+        public List<? extends Expression> getReplacedExpressions() {
             if (this.replacedExpressions == null) {
                 this.replacedExpressions = targetExpressions.stream()
                         .map(original -> original.accept(ExpressionReplacer.INSTANCE, getExprIdExpressionMap()))

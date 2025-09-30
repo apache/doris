@@ -66,23 +66,40 @@ suite("test_config_prune_delete_sign", "nonConcurrent") {
         qt_sql "select count() from ${table1};"
         getDeleteSignCnt()
 
-        (31..60).each {
+        (31..59).each {
             sql "insert into ${table1} values($it,$it,$it);"
         }
         trigger_and_wait_compaction(table1, "cumulative")
 
-        trigger_and_wait_compaction(table1, "base")
-        qt_sql "select count() from ${table1};"
-        getDeleteSignCnt()
+        // cloud base compaction does not include [0,1], after last cumulative compaction,
+        // the base compacton would report -808, which means the base compaction is not triggered.
+        // so we need to insert a row to make sure the base compaction happens.
+        sql "insert into ${table1} values(60,60,60);"
 
         def tablets = sql_return_maparray """ show tablets from ${table1}; """
         logger.info("tablets: ${tablets}")
         String compactionUrl = tablets[0]["CompactionStatus"]
         def (code, out, err) = curl("GET", compactionUrl)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
+
+        trigger_and_wait_compaction(table1, "base")
+        qt_sql "select count() from ${table1};"
+        getDeleteSignCnt()
+
+        tablets = sql_return_maparray """ show tablets from ${table1}; """
+        logger.info("tablets: ${tablets}")
+        compactionUrl = tablets[0]["CompactionStatus"]
+        (code, out, err) = curl("GET", compactionUrl)
+        logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
         assert code == 0
         def tabletJson = parseJson(out.trim())
-        assert tabletJson.rowsets.size() == 1
-        assert tabletJson.rowsets[0].contains("[0-62]")
+        if (isCloudMode()) {
+            assert tabletJson.rowsets.size() == 2
+            assert tabletJson.rowsets[0].contains("[0-1]")
+            assert tabletJson.rowsets[1].contains("[2-62]")
+        } else {
+            assert tabletJson.rowsets.size() == 2
+            assert tabletJson.rowsets[0].contains("[0-61]")
+        }
     }
 }

@@ -117,7 +117,6 @@ suite("test_multi_table_load_restart","docker") {
                         producer.send(record)
                     }
                 }
-                producer.close()
 
                 def count = 0
                 def maxWaitCount = 60

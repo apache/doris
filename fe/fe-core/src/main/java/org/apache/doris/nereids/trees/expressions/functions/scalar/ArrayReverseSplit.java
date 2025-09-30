@@ -61,14 +61,15 @@ public class ArrayReverseSplit extends ScalarFunction implements PropagateNullab
         }
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayReverseSplit(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public ArrayReverseSplit withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
-        if (children.size() == 1) {
-            return new ArrayReverseSplit(children.get(0));
-        } else {
-            return new ArrayReverseSplit(children.get(0), children.get(1));
-        }
+        return new ArrayReverseSplit(getFunctionParams(children));
     }
 
     @Override

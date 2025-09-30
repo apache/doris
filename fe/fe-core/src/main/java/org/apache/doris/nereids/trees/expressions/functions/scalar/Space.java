@@ -48,13 +48,18 @@ public class Space extends ScalarFunction
         super("space", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Space(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Space withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Space(children.get(0));
+        return new Space(getFunctionParams(children));
     }
 
     @Override

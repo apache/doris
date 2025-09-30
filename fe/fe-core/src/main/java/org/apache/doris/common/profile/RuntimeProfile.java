@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
@@ -205,7 +206,6 @@ public class RuntimeProfile {
     public Map<String, TreeSet<String>> getChildCounterMap() {
         return childCounterMap;
     }
-
 
 
     public Counter addCounter(String name, TUnit type, String parentCounterName) {
@@ -405,14 +405,15 @@ public class RuntimeProfile {
     // 2. Info Strings
     // 3. Counters
     // 4. Children
-    public void prettyPrint(StringBuilder builder, String prefix) {
+    public void prettyPrint(SafeStringBuilder builder, String prefix) {
         // 1. profile name
-        builder.append(prefix).append(name).append(":");
-
-        builder.append("\n");
+        builder.append(prefix).append(name).append(":").append("\n");
 
         // plan node info
         printPlanNodeInfo(prefix + "   ", builder);
+        if (builder.isTruncated()) {
+            return;
+        }
 
         // 2. info String
         infoStringsLock.readLock().lock();
@@ -430,6 +431,9 @@ public class RuntimeProfile {
         } finally {
             infoStringsLock.readLock().unlock();
         }
+        if (builder.isTruncated()) {
+            return;
+        }
 
         // 3. counters
         try {
@@ -437,12 +441,18 @@ public class RuntimeProfile {
         } catch (Exception e) {
             builder.append("print child counters error: ").append(e.getMessage());
         }
+        if (builder.isTruncated()) {
+            return;
+        }
 
 
         // 4. children
         childLock.readLock().lock();
         try {
             for (int i = 0; i < childList.size(); i++) {
+                if (builder.isTruncated()) {
+                    return;
+                }
                 Pair<RuntimeProfile, Boolean> pair = childList.get(i);
                 boolean indent = pair.second;
                 RuntimeProfile profile = pair.first;
@@ -453,7 +463,7 @@ public class RuntimeProfile {
         }
     }
 
-    private void printPlanNodeInfo(String prefix, StringBuilder builder) {
+    private void printPlanNodeInfo(String prefix, SafeStringBuilder builder) {
         if (planNodeInfos.isEmpty()) {
             return;
         }
@@ -480,7 +490,7 @@ public class RuntimeProfile {
     }
 
     public String toString() {
-        StringBuilder builder = new StringBuilder();
+        SafeStringBuilder builder = new SafeStringBuilder();
         prettyPrint(builder, "");
         return builder.toString();
     }
@@ -490,6 +500,28 @@ public class RuntimeProfile {
             return true;
         } else {
             return this.name.matches(".*Pipeline.*") || this.name.matches(".*_OPERATOR.*");
+        }
+    }
+
+    private static void collectActualRowCount(RuntimeProfile mergedProfile) {
+        Pattern pattern = Pattern.compile("nereids_id=(\\d+)");
+        Matcher matcher = pattern.matcher(mergedProfile.getName());
+        if (matcher.find()) {
+            String nereidsId = matcher.group(1);
+            if (nereidsId != null) {
+                if (!mergedProfile.childList.isEmpty()) {
+                    RuntimeProfile commonProfile = mergedProfile.childList.get(0).first;
+                    if (commonProfile.counterMap.get("RowsProduced") != null) {
+                        AggCounter rows = (AggCounter) commonProfile.counterMap.get("RowsProduced");
+                        mergedProfile.rowsProducedMap.put(nereidsId,
+                                 rows.sum.getValue());
+                    }
+                }
+                if (mergedProfile.counterMap.get("RowsProduced") != null) {
+                    mergedProfile.rowsProducedMap.put(nereidsId,
+                            mergedProfile.counterMap.get("RowsProduced").getValue());
+                }
+            }
         }
     }
 
@@ -508,6 +540,7 @@ public class RuntimeProfile {
             RuntimeProfile newCreatedMergedChildProfile = new RuntimeProfile(templateChildProfile.name,
                     templateChildProfile.nodeId());
             mergeProfiles(allChilds, newCreatedMergedChildProfile, planNodeMap);
+            collectActualRowCount(newCreatedMergedChildProfile);
             if (newCreatedMergedChildProfile.shouldBeIncluded()) {
                 resultProfile.addChildWithCheck(newCreatedMergedChildProfile, planNodeMap,
                                             templateProfile.childList.get(i).second);
@@ -523,12 +556,7 @@ public class RuntimeProfile {
         }
         RuntimeProfile templateProfile = profiles.get(0);
         Map<String, Counter> templateCounterMap = templateProfile.counterMap;
-        Pattern pattern = Pattern.compile("nereids_id=(\\d+)");
-        Matcher matcher = pattern.matcher(templateProfile.getName());
-        String nereidsId = null;
-        if (matcher.find()) {
-            nereidsId = matcher.group(1);
-        }
+
         Set<String> childCounterSet = templateProfile.childCounterMap.get(parentCounterName);
         if (childCounterSet == null) {
             return;
@@ -552,9 +580,6 @@ public class RuntimeProfile {
                     Counter orgCounter = profile.counterMap.get(childCounterName);
                     aggCounter.addCounter(orgCounter);
                 }
-                if (nereidsId != null && childCounterName.equals("RowsProduced")) {
-                    simpleProfile.rowsProducedMap.put(nereidsId, aggCounter.sum.getValue());
-                }
                 if (simpleProfile.counterMap.containsKey(parentCounterName)) {
                     simpleProfile.addCounter(childCounterName, aggCounter, parentCounterName);
                 } else {
@@ -565,7 +590,7 @@ public class RuntimeProfile {
         }
     }
 
-    private void printChildCounters(String prefix, String counterName, StringBuilder builder) {
+    private void printChildCounters(String prefix, String counterName, SafeStringBuilder builder) {
         Set<String> childCounterSet = childCounterMap.get(counterName);
         if (childCounterSet == null) {
             return;
@@ -574,6 +599,9 @@ public class RuntimeProfile {
         counterLock.readLock().lock();
         try {
             for (String childCounterName : childCounterSet) {
+                if (builder.isTruncated()) {
+                    return;
+                }
                 Counter counter = this.counterMap.get(childCounterName);
                 if (counter != null) {
                     builder.append(prefix).append("   - ").append(childCounterName).append(": ")
@@ -933,15 +961,6 @@ public class RuntimeProfile {
         }
         // Add stats for current node
         itemsFromParent.add(profile.toTPlanNodeRuntimeStatsItem());
-
-        if (LOG.isDebugEnabled()) {
-            List<TPlanNodeRuntimeStatsItem> currentItem = new ArrayList<TPlanNodeRuntimeStatsItem>();
-            currentItem.add(profile.toTPlanNodeRuntimeStatsItem());
-            LOG.debug("Current node {}({}) hbo items\n{},\nparent\n{}",
-                    profile.getName(), profile.nodeid,
-                    DebugUtil.prettyPrintPlanNodeRuntimeStatsItems(currentItem),
-                    DebugUtil.prettyPrintPlanNodeRuntimeStatsItems(itemsFromParent));
-        }
 
         return itemsFromParent;
     }

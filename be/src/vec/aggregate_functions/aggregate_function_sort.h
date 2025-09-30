@@ -23,9 +23,6 @@
 #include <glog/logging.h>
 #include <stddef.h>
 
-#include <memory>
-#include <new>
-#include <ostream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -38,7 +35,6 @@
 #include "vec/core/sort_block.h"
 #include "vec/core/sort_description.h"
 #include "vec/core/types.h"
-#include "vec/io/io_helper.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -168,6 +164,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr targetplace, IColumn& to) const override {
+        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         auto* place = const_cast<AggregateDataPtr>(targetplace);
         Arena arena;
         if (!this->data(place).block.is_empty_column()) {

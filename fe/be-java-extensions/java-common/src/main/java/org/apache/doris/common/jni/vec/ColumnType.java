@@ -59,6 +59,7 @@ public class ColumnType {
         IPV4(4),
         IPV6(16),
         STRING(-1),
+        VARBINARY(-1),
         ARRAY(-1),
         MAP(-1),
         STRUCT(-1);
@@ -146,7 +147,11 @@ public class ColumnType {
     }
 
     public boolean isStringType() {
-        return type == Type.STRING || type == Type.BINARY || type == Type.CHAR || type == Type.VARCHAR;
+        return type == Type.STRING || type == Type.CHAR || type == Type.VARCHAR;
+    }
+
+    public boolean isVarbinaryType() {
+        return type == Type.BINARY || type == Type.VARBINARY;
     }
 
     public boolean isComplexType() {
@@ -237,7 +242,6 @@ public class ColumnType {
                 }
                 return size;
             case STRING:
-            case BINARY:
             case CHAR:
             case VARCHAR:
                 // [const | nullMap | offsets | data ]
@@ -324,6 +328,9 @@ public class ColumnType {
             case "string":
                 type = Type.STRING;
                 break;
+            case "varbinary":
+                type = Type.VARBINARY;
+                break;
             default:
                 if (lowerCaseType.startsWith("timestamp")
                         || lowerCaseType.startsWith("datetime")
@@ -344,6 +351,12 @@ public class ColumnType {
                     Matcher match = digitPattern.matcher(lowerCaseType);
                     if (match.find()) {
                         type = Type.VARCHAR;
+                        length = Integer.parseInt(match.group(1).trim());
+                    }
+                } else if (lowerCaseType.startsWith("varbinary")) {
+                    Matcher match = digitPattern.matcher(lowerCaseType);
+                    if (match.find()) {
+                        type = Type.VARBINARY;
                         length = Integer.parseInt(match.group(1).trim());
                     }
                 } else if (lowerCaseType.startsWith("decimal")) {

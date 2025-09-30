@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -39,7 +40,8 @@ public class Md5Sum extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(StringType.INSTANCE)
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(StringType.INSTANCE),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarBinaryType.INSTANCE)
     );
 
     /**
@@ -49,14 +51,18 @@ public class Md5Sum extends ScalarFunction
         super("md5sum", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Md5Sum(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Md5Sum withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new Md5Sum(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new Md5Sum(getFunctionParams(children));
     }
 
     @Override

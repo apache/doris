@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "olap/inverted_index_parser.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 

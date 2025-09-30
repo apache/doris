@@ -818,14 +818,6 @@ TEST(MathFunctionTest, lcm_test) {
     std::string func_name = "lcm";
 
     {
-        InputTypeSet input_types = {PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_TINYINT};
-
-        DataSet data_set = {{{TINYINT(2), TINYINT(4)}, TINYINT(4)}, {{TINYINT(2), Null()}, Null()}};
-
-        static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
-    }
-
-    {
         InputTypeSet input_types = {PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_SMALLINT};
 
         DataSet data_set = {{{SMALLINT(2), SMALLINT(4)}, SMALLINT(4)},
@@ -860,6 +852,62 @@ TEST(MathFunctionTest, lcm_test) {
                             {{LARGEINT(2), Null()}, Null()}};
 
         static_cast<void>(check_function<DataTypeInt128, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(MathFunctionTest, isnan_test) {
+    std::string func_name = "isnan";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+        DataSet data_set = {{{Null()}, Null()},
+                            {{DOUBLE(0.0)}, uint8_t {0}},
+                            {{DOUBLE(-1.0)}, uint8_t {0}},
+                            {{DOUBLE(1.0)}, uint8_t {0}},
+                            {{DOUBLE(NAN)}, uint8_t {1}},
+                            {{DOUBLE(INFINITY)}, uint8_t {0}},
+                            {{DOUBLE(-INFINITY)}, uint8_t {0}}};
+        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_FLOAT};
+        DataSet data_set = {{{Null()}, Null()},
+                            {{FLOAT(0.0)}, uint8_t {0}},
+                            {{FLOAT(-1.0)}, uint8_t {0}},
+                            {{FLOAT(1.0)}, uint8_t {0}},
+                            {{FLOAT(NAN)}, uint8_t {1}},
+                            {{FLOAT(INFINITY)}, uint8_t {0}},
+                            {{FLOAT(-INFINITY)}, uint8_t {0}}};
+        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
+    }
+}
+
+TEST(MathFunctionTest, isinf_test) {
+    std::string func_name = "isinf";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+        DataSet data_set = {{{Null()}, Null()},
+                            {{DOUBLE(0.0)}, uint8_t {0}},
+                            {{DOUBLE(-1.0)}, uint8_t {0}},
+                            {{DOUBLE(1.0)}, uint8_t {0}},
+                            {{DOUBLE(NAN)}, uint8_t {0}},
+                            {{DOUBLE(INFINITY)}, uint8_t {1}},
+                            {{DOUBLE(-INFINITY)}, uint8_t {1}}};
+        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_FLOAT};
+        DataSet data_set = {{{Null()}, Null()},
+                            {{FLOAT(0.0)}, uint8_t {0}},
+                            {{FLOAT(-1.0)}, uint8_t {0}},
+                            {{FLOAT(1.0)}, uint8_t {0}},
+                            {{FLOAT(NAN)}, uint8_t {0}},
+                            {{FLOAT(INFINITY)}, uint8_t {1}},
+                            {{FLOAT(-INFINITY)}, uint8_t {1}}};
+        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
     }
 }
 

@@ -47,13 +47,18 @@ public class Sin extends ScalarFunction
         super("sin", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Sin(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Sin withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Sin(children.get(0));
+        return new Sin(getFunctionParams(children));
     }
 
     @Override

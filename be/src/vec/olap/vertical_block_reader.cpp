@@ -41,6 +41,7 @@
 #include "vec/olap/vertical_merge_iterator.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 uint64_t VerticalBlockReader::nextId = 1;
@@ -161,7 +162,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
     StorageReadOptions opts;
     opts.record_rowids = read_params.record_rowids;
     if (read_params.batch_size > 0) {
-        opts.block_row_max = read_params.batch_size;
+        opts.block_row_max = cast_set<int>(read_params.batch_size);
     }
     RETURN_IF_ERROR(_vcollect_iter->init(opts, sample_info));
 
@@ -218,7 +219,7 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
                                  CompactionSampleInfo* sample_info) {
     StorageReadOptions opts;
     if (read_params.batch_size > 0) {
-        _reader_context.batch_size = read_params.batch_size;
+        _reader_context.batch_size = cast_set<int>(read_params.batch_size);
     } else {
         _reader_context.batch_size = opts.block_row_max;
     }
@@ -293,7 +294,7 @@ void VerticalBlockReader::_update_agg_data(MutableColumns& columns) {
 
     // calculate has_null_tag
     for (size_t idx = 0; idx < _return_columns.size(); ++idx) {
-        _stored_has_null_tag[idx] = _stored_data_columns[idx]->has_null(copy_size);
+        _stored_has_null_tag[idx] = _stored_data_columns[idx]->has_null(0, copy_size);
     }
 
     // calculate aggregate and insert
@@ -565,4 +566,5 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

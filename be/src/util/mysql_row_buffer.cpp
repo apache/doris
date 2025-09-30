@@ -25,7 +25,6 @@
 
 #include <algorithm>
 #include <new>
-#include <ostream>
 #include <string>
 
 #include "common/logging.h"
@@ -34,7 +33,7 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/large_int_value.h"
 #include "util/mysql_global.h"
-#include "util/to_string.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h" // IWYU pragma: keep
@@ -179,10 +178,8 @@ static char* add_largeint(int128_t data, char* pos, bool dynamic_mode) {
 
 template <typename T>
 char* add_float(T data, char* pos, bool dynamic_mode) {
-    int length = 0;
-    if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
-        length = fast_to_buffer(data, pos + !dynamic_mode);
-    }
+    static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>);
+    int length = vectorized::CastToString::from_number(data, pos + !dynamic_mode);
     if (!dynamic_mode) {
         int1store(pos++, length);
     }
@@ -190,12 +187,13 @@ char* add_float(T data, char* pos, bool dynamic_mode) {
 }
 
 static char* add_timev2(double data, char* pos, bool dynamic_mode, int scale) {
-    int length = timev2_to_buffer_from_double(data, pos + !dynamic_mode, scale);
+    uint8_t length = timev2_to_buffer_from_double(data, pos + !dynamic_mode, scale);
     if (!dynamic_mode) {
         int1store(pos++, length);
     }
     return pos + length;
 }
+
 template <typename DateType>
 static char* add_datetime(const DateType& data, char* pos, bool dynamic_mode) {
     int length = data.to_buffer(pos + !dynamic_mode);
@@ -368,10 +366,8 @@ static int encode_binary_timev2(char* buff, double time, int scale) {
     const int64_t MAX_TIME_MICROSECONDS = (838 * 3600 + 59 * 60 + 59) * 1000000LL;
 
     // Convert time into microseconds and enforce range limit
-    int64_t total_microseconds = static_cast<int64_t>(abs_time); // Total microseconds
-    if (total_microseconds > MAX_TIME_MICROSECONDS) {
-        total_microseconds = MAX_TIME_MICROSECONDS; // Cap at max time
-    }
+    auto total_microseconds = static_cast<int64_t>(abs_time); // Total microseconds
+    total_microseconds = std::min(total_microseconds, MAX_TIME_MICROSECONDS);
 
     // Adjust microseconds precision based on scale
     total_microseconds /= static_cast<int64_t>(std::pow(10, 6 - scale)); // Scale adjustment
@@ -537,7 +533,7 @@ int MysqlRowBuffer<is_binary_format>::push_null() {
         uint offset = (_field_pos + 2) / 8 + 1;
         uint bit = (1 << ((_field_pos + 2) & 7));
         /* Room for this as it's allocated start_binary_row*/
-        char* to = (char*)_buf + offset;
+        char* to = _buf + offset;
         *to = (char)((uchar)*to | (uchar)bit);
         _field_pos++;
         return 0;

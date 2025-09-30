@@ -77,6 +77,10 @@ public class DropDatabaseCommand extends Command implements ForwardWithSync {
                     dropDatabaseInfo.isIfExists(), dropDatabaseInfo.isForce());
     }
 
+    public DropDatabaseInfo getDropDatabaseInfo() {
+        return dropDatabaseInfo;
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitDropDatabaseCommand(this, context);

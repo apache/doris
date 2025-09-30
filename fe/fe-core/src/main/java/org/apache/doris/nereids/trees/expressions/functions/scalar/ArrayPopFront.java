@@ -48,13 +48,18 @@ public class ArrayPopFront extends ScalarFunction
         super("array_popfront", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayPopFront(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayPopFront withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayPopFront(children.get(0));
+        return new ArrayPopFront(getFunctionParams(children));
     }
 
     @Override

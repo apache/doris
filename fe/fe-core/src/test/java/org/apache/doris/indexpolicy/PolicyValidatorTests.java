@@ -200,4 +200,24 @@ public class PolicyValidatorTests {
                 () -> validator.validate(props));
         Assertions.assertTrue(exception.getMessage().contains("does not support parameter"));
     }
+
+    @Test
+    public void testCharGroupTokenizer_ValidProperties() throws Exception {
+        CharGroupTokenizerValidator validator = new CharGroupTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("max_token_length", "255");
+        props.put("tokenize_on_chars", "[whitespace], [punctuation]");
+        validator.validate(props); // Should not throw
+    }
+
+    @Test
+    public void testCharGroupTokenizer_InvalidTokenizeOnChars_NoBrackets() {
+        CharGroupTokenizerValidator validator = new CharGroupTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("tokenize_on_chars", "[whitespace], punctuation"); // second item missing brackets
+
+        Exception exception = Assertions.assertThrows(DdlException.class,
+                () -> validator.validate(props));
+        Assertions.assertTrue(exception.getMessage().contains("enclosed in square brackets"));
+    }
 }

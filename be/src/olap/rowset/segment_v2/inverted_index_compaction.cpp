@@ -25,12 +25,12 @@
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
-Status compact_column(int64_t index_id,
-                      std::vector<std::unique_ptr<DorisCompoundReader>>& src_index_dirs,
-                      std::vector<lucene::store::Directory*>& dest_index_dirs,
-                      std::string_view tmp_path,
-                      const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& trans_vec,
-                      const std::vector<uint32_t>& dest_segment_num_rows) {
+Status compact_column(
+        int64_t index_id,
+        std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>>& src_index_dirs,
+        std::vector<lucene::store::Directory*>& dest_index_dirs, std::string_view tmp_path,
+        const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& trans_vec,
+        const std::vector<uint32_t>& dest_segment_num_rows) {
     DBUG_EXECUTE_IF("index_compaction_compact_column_throw_error", {
         if (index_id % 2 == 0) {
             _CLTHROWA(CL_ERR_IO, "debug point: test throw error in index compaction");

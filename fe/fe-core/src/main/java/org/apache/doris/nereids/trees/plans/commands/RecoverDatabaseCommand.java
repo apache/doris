@@ -69,4 +69,16 @@ public class RecoverDatabaseCommand extends RecoverCommand {
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitRecoverDatabaseCommand(this, context);
     }
+
+    public String getDbName() {
+        return dbName;
+    }
+
+    public long getDbId() {
+        return dbId;
+    }
+
+    public String getNewDbName() {
+        return newDbName;
+    }
 }

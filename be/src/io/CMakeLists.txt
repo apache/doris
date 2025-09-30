@@ -25,6 +25,13 @@ file(GLOB_RECURSE IO_FILES CONFIGURE_DEPENDS *.cpp)
 if(BUILD_AZURE STREQUAL "OFF")
     list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/azure_obj_storage_client.cpp")
 endif()
+
+if(NOT "${WITH_TDE_DIR}" STREQUAL "")
+    list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/encrypted_fs_factory.cpp")
+    file(GLOB_RECURSE EXTRA_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../${WITH_TDE_DIR}/*.cpp")
+    list(APPEND IO_FILES ${EXTRA_SOURCES})
+endif()
+
 list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/benchmark/fs_benchmark_tool.cpp")
 
 add_library(IO STATIC ${IO_FILES})
@@ -46,6 +53,13 @@ if (${BUILD_FS_BENCHMARK} STREQUAL "ON")
         benchmark
     )
 
+    if (COMPILER_CLANG)
+        target_compile_options(fs_benchmark_tool PRIVATE
+        -Wno-implicit-int-conversion
+        -Wno-shorten-64-to-32
+        )
+    endif()
+
     install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
     install(TARGETS fs_benchmark_tool DESTINATION ${OUTPUT_DIR}/lib/)
 
@@ -53,6 +67,31 @@ if (${BUILD_FS_BENCHMARK} STREQUAL "ON")
         COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:fs_benchmark_tool> $<TARGET_FILE:fs_benchmark_tool>.dbg
         COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:fs_benchmark_tool>
         COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:fs_benchmark_tool>.dbg $<TARGET_FILE:fs_benchmark_tool>
+        )
+
+endif()
+
+if (${BUILD_FILE_CACHE_LRU_TOOL} STREQUAL "ON")
+    add_executable(file_cache_lru_tool
+	cache/file_cache_lru_tool.cpp
+    )
+
+    pch_reuse(file_cache_lru_tool)
+
+    # This permits libraries loaded by dlopen to link to the symbols in the program.
+    set_target_properties(file_cache_lru_tool PROPERTIES ENABLE_EXPORTS 1)
+
+    target_link_libraries(file_cache_lru_tool
+        ${DORIS_LINK_LIBS}
+    )
+
+    install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
+    install(TARGETS file_cache_lru_tool DESTINATION ${OUTPUT_DIR}/lib/)
+
+    add_custom_command(TARGET file_cache_lru_tool POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:file_cache_lru_tool> $<TARGET_FILE:file_cache_lru_tool>.dbg
+        COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:file_cache_lru_tool>
+        COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:file_cache_lru_tool>.dbg $<TARGET_FILE:file_cache_lru_tool>
         )
 
 endif()

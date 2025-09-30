@@ -322,15 +322,17 @@ public class ProfileManager extends MasterDaemon {
         List<QueryIdAndAddress> involvedBackends = Lists.newArrayList();
 
         if (queryId != null) {
-            CoordInterface coor = QeProcessorImpl.INSTANCE.getCoordinator(queryId);
-
-            if (coor != null) {
-                for (TNetworkAddress addr : coor.getInvolvedBackends()) {
+            CoordInterface coord = QeProcessorImpl.INSTANCE.getCoordinator(queryId);
+            if (coord != null) {
+                for (TNetworkAddress addr : coord.getInvolvedBackends()) {
                     QueryIdAndAddress tmp = new QueryIdAndAddress();
                     tmp.id = queryId;
                     tmp.beAddress = addr;
                     involvedBackends.add(tmp);
                 }
+            } else {
+                LOG.warn("Coordinator is null, query id {}", id);
+                return futures;
             }
         } else {
             Long loadJobId = (long) -1;
@@ -351,10 +353,10 @@ public class ProfileManager extends MasterDaemon {
             }
 
             for (TUniqueId taskId : loadJob.getLoadTaskIds()) {
-                CoordInterface coor = QeProcessorImpl.INSTANCE.getCoordinator(taskId);
-                if (coor != null) {
-                    if (coor.getInvolvedBackends() != null) {
-                        for (TNetworkAddress beAddress : coor.getInvolvedBackends()) {
+                CoordInterface coord = QeProcessorImpl.INSTANCE.getCoordinator(taskId);
+                if (coord != null) {
+                    if (coord.getInvolvedBackends() != null) {
+                        for (TNetworkAddress beAddress : coord.getInvolvedBackends()) {
                             QueryIdAndAddress tmp = new QueryIdAndAddress();
                             tmp.id = taskId;
                             tmp.beAddress = beAddress;
@@ -363,6 +365,8 @@ public class ProfileManager extends MasterDaemon {
                     } else {
                         LOG.warn("Involved backends is null, load job {}, task {}", id, DebugUtil.printId(taskId));
                     }
+                } else {
+                    LOG.warn("Coordinator is null, load job {}, task {}", id, DebugUtil.printId(taskId));
                 }
             }
         }
@@ -372,6 +376,9 @@ public class ProfileManager extends MasterDaemon {
                     reqType, idAndAddress.beAddress);
             Future<TGetRealtimeExecStatusResponse> future = fetchRealTimeProfileExecutor.submit(task);
             futures.add(future);
+        }
+        if (futures.isEmpty()) {
+            LOG.warn("No involved backend found for query id {}", id);
         }
 
         return futures;
@@ -396,7 +403,7 @@ public class ProfileManager extends MasterDaemon {
                 throw new Exception("Failed to get realtime query stats: " + e.getMessage());
             }
         }
-        Preconditions.checkState(!queryStatisticsList.isEmpty() && queryStatisticsList.size() == futures.size(),
+        Preconditions.checkState(queryStatisticsList.size() == futures.size(),
                 String.format("Failed to get real-time stats, id %s, "
                                 + "queryStatisticsList size %d != futures size %d",
                         queryId, queryStatisticsList.size(), futures.size()));

@@ -24,11 +24,11 @@ suite("regression_test_variant_nested", "p0"){
 
         def table_name = "var_nested"
         sql "DROP TABLE IF EXISTS ${table_name}"
-        sql "set disable_variant_flatten_nested = false"
+        sql "set enable_variant_flatten_nested = true"
         sql """
                 CREATE TABLE IF NOT EXISTS ${table_name} (
                     k bigint,
-                    v variant
+                    v variant <properties("variant_max_subcolumns_count" = "3")>
                 )
                 DUPLICATE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 4
@@ -110,7 +110,7 @@ parallel_pipeline_task_num=7,profile_level=1,enable_pipeline_engine=true,enable_
         sql """
                 CREATE TABLE IF NOT EXISTS var_nested2 (
                     k bigint,
-                    v variant
+                    v variant <properties("variant_max_subcolumns_count" = "3")>
                 )
                 UNIQUE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -132,7 +132,7 @@ where phone_numbers['type'] = 'GSM' OR phone_numbers['type'] = 'HOME' and phone_
         sql """
                 CREATE TABLE IF NOT EXISTS var_nested_array_agg(
                     k bigint,
-                    v variant
+                    v variant <properties("variant_max_subcolumns_count" = "3")>
                 )
                 UNIQUE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -149,7 +149,7 @@ where phone_numbers['type'] = 'GSM' OR phone_numbers['type'] = 'HOME' and phone_
         sql """
                 CREATE TABLE IF NOT EXISTS var_nested_explode_variant_with_abnomal(
                     k bigint,
-                    v variant
+                    v variant <properties("variant_max_subcolumns_count" = "3")>
                 )
                 UNIQUE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 1

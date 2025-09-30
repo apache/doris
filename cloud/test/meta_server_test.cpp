@@ -73,8 +73,9 @@ TEST(MetaServerTest, FQDNRefreshInstance) {
     public:
         MockMetaService(std::shared_ptr<TxnKv> txn_kv,
                         std::shared_ptr<ResourceManager> resource_mgr,
-                        std::shared_ptr<RateLimiter> rate_controller)
-                : MetaServiceImpl(txn_kv, resource_mgr, rate_controller) {}
+                        std::shared_ptr<RateLimiter> rate_controller,
+                        std::shared_ptr<SnapshotManager> snapshot_mgr)
+                : MetaServiceImpl(txn_kv, resource_mgr, rate_controller, snapshot_mgr) {}
         ~MockMetaService() override = default;
 
         void alter_instance(google::protobuf::RpcController* controller,
@@ -104,7 +105,9 @@ TEST(MetaServerTest, FQDNRefreshInstance) {
     std::shared_ptr<cloud::TxnKv> txn_kv = std::make_shared<cloud::MemTxnKv>();
     auto resource_mgr = std::make_shared<MockResourceManager>(txn_kv);
     auto rate_limiter = std::make_shared<cloud::RateLimiter>();
-    auto mock_service = std::make_unique<MockMetaService>(txn_kv, resource_mgr, rate_limiter);
+    auto snapshot_mgr = std::make_shared<cloud::SnapshotManager>(txn_kv);
+    auto mock_service =
+            std::make_unique<MockMetaService>(txn_kv, resource_mgr, rate_limiter, snapshot_mgr);
     MockMetaService* mock_service_ptr = mock_service.get();
     MetaServiceProxy meta_service(std::move(mock_service));
 
@@ -168,10 +171,9 @@ TEST(MetaServerTest, StartAndStop) {
 
     auto sp = SyncPoint::get_instance();
 
-    std::array<std::string, 3> sps {"MetaServer::start:1", "MetaServer::start:2",
-                                    "MetaServer::start:3"};
+    std::array<std::string, 2> sps {"MetaServer::start:1", "MetaServer::start:2"};
     // use structured binding for point alias (avoid multi lines of declaration)
-    auto [meta_server_start_1, meta_server_start_2, meta_server_start_3] = sps;
+    auto [meta_server_start_1, meta_server_start_2] = sps;
     sp->enable_processing();
     DORIS_CLOUD_DEFER {
         for (auto& i : sps) {
@@ -194,11 +196,6 @@ TEST(MetaServerTest, StartAndStop) {
     sp->set_call_back(meta_server_start_2, foo);
     ASSERT_EQ(server->start(&brpc_server), -1);
     sp->clear_call_back(meta_server_start_2);
-
-    // failed to start fdb metrics exporter
-    sp->set_call_back(meta_server_start_3, foo);
-    ASSERT_EQ(server->start(&brpc_server), -2);
-    sp->clear_call_back(meta_server_start_3);
 
     ASSERT_EQ(server->start(&brpc_server), 0);
     ASSERT_EQ(brpc_server.Start(0, &options), 0);

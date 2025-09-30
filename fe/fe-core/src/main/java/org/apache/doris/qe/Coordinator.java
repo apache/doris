@@ -241,6 +241,7 @@ public class Coordinator implements CoordInterface {
     private List<String> deltaUrls;
     private Map<String, String> loadCounters;
     private String trackingUrl;
+    private String firstErrorMsg;
     // related txnId and label of group commit
     private long txnId;
     private String label;
@@ -464,6 +465,10 @@ public class Coordinator implements CoordInterface {
 
     public String getTrackingUrl() {
         return trackingUrl;
+    }
+
+    public String getFirstErrorMsg() {
+        return firstErrorMsg;
     }
 
     public long getTxnId() {
@@ -2392,8 +2397,28 @@ public class Coordinator implements CoordInterface {
 
     // update job progress from BE
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
+        if (params.isSetLoadedRows() && jobId != -1) {
+            if (params.isSetFragmentInstanceReports()) {
+                for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
+                    Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                            jobId, params.getBackendId(), params.getQueryId(), report.getFragmentInstanceId(),
+                            report.getLoadedRows(), report.getLoadedBytes(), params.isDone());
+                    Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                            params.getQueryId(), report.getFragmentInstanceId(), report.getNumFinishedRange());
+                }
+            } else {
+                Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                        jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
+                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                        params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
+            }
+        }
+
         PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
         if (ctx == null || !ctx.updatePipelineStatus(params)) {
+            LOG.debug("Fragment {} is not done, ignore report status: {}",
+                    params.getFragmentId(), params.toString());
             return;
         }
 
@@ -2428,6 +2453,10 @@ public class Coordinator implements CoordInterface {
             LOG.info("query_id={} tracking_url: {}", DebugUtil.printId(queryId), params.getTrackingUrl());
             trackingUrl = params.getTrackingUrl();
         }
+        if (params.isSetFirstErrorMsg()) {
+            LOG.info("query_id={} first_error_msg: {}", DebugUtil.printId(queryId), params.getFirstErrorMsg());
+            firstErrorMsg = params.getFirstErrorMsg();
+        }
         if (params.isSetTxnId()) {
             txnId = params.getTxnId();
         }
@@ -2458,24 +2487,6 @@ public class Coordinator implements CoordInterface {
                         DebugUtil.printId(queryId), ctx.fragmentId);
             }
             fragmentsDoneLatch.markedCountDown(params.getFragmentId(), params.getBackendId());
-        }
-
-        if (params.isSetLoadedRows() && jobId != -1) {
-            if (params.isSetFragmentInstanceReports()) {
-                for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
-                    Env.getCurrentEnv().getLoadManager().updateJobProgress(
-                            jobId, params.getBackendId(), params.getQueryId(), report.getFragmentInstanceId(),
-                            report.getLoadedRows(), report.getLoadedBytes(), params.isDone());
-                    Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
-                            params.getQueryId(), report.getFragmentInstanceId(), report.getNumFinishedRange());
-                }
-            } else {
-                Env.getCurrentEnv().getLoadManager().updateJobProgress(
-                        jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
-                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
-                Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
-                        params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
-            }
         }
     }
 

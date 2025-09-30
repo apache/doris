@@ -19,6 +19,9 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("multi_slot_k1p2ap3p") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -47,9 +50,9 @@ suite ("multi_slot_k1p2ap3p") {
 
     qt_select_star "select * from d_table order by k1;"
 
-    mv_rewrite_success("select k1+1,abs(k2+2)+k3+3 from d_table order by k1+1;", "k1p2ap3p")
+    mv_rewrite_success_without_check_chosen("select k1+1,abs(k2+2)+k3+3 from d_table order by k1+1;", "k1p2ap3p")
     qt_select_mv "select k1+1,abs(k2+2)+k3+3 from d_table order by k1+1;"
 
     sql """set enable_stats=true;"""
-    mv_rewrite_success("select k1+1,abs(k2+2)+k3+3 from d_table order by k1+1;", "k1p2ap3p")
+    mv_rewrite_success_without_check_chosen("select k1+1,abs(k2+2)+k3+3 from d_table order by k1+1;", "k1p2ap3p")
 }

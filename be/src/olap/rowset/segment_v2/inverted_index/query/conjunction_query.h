@@ -18,16 +18,14 @@
 #pragma once
 
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
-
-CL_NS_USE(index)
-CL_NS_USE(search)
+#include "olap/rowset/segment_v2/inverted_index/query/term_query.h"
 
 namespace doris::segment_v2 {
 
 class ConjunctionQuery : public Query {
 public:
-    ConjunctionQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                     const TQueryOptions& query_options, const io::IOContext* io_ctx);
+    ConjunctionQuery() = default;
+    ConjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context);
     ~ConjunctionQuery() override = default;
 
     void add(const InvertedIndexQueryInfo& query_info) override;
@@ -39,17 +37,23 @@ private:
 
     int32_t do_next(int32_t doc);
 
-public:
-    std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+    SearcherPtr _searcher;
+    IndexQueryContextPtr _context;
+
+    TermQuery _term_query;
 
     IndexVersion _index_version = IndexVersion::kV0;
     int32_t _conjunction_ratio = 1000;
-    const io::IOContext* _io_ctx = nullptr;
     bool _use_skip = false;
 
     TermIterPtr _lead1;
     TermIterPtr _lead2;
     std::vector<TermIterPtr> _others;
+    std::vector<TermIterPtr> _iterators;
+
+    std::vector<SimilarityPtr> _similarities;
+
+    friend class ConjunctionQueryTest;
 };
 
 } // namespace doris::segment_v2

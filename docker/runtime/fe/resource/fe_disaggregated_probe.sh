@@ -31,6 +31,14 @@ function parse_config_file_with_key()
     echo $value
 }
 
+parse_tls_connection_variables()
+{
+    ENABLE_TLS=$(parse_config_file_with_key "enable_tls")
+    TLS_PRIVATE_KEY_PATH=$(parse_config_file_with_key "tls_private_key_path")
+    TLS_CERTIFICATE_PATH=$(parse_config_file_with_key "tls_certificate_path")
+    TLS_CA_CERTIFICATE_PATH=$(parse_config_file_with_key "tls_ca_certificate_path")
+}
+
 function alive_probe()
 {
     local query_port=$(parse_config_file_with_key "query_port")
@@ -42,7 +50,7 @@ function alive_probe()
     fi
 }
 
-function ready_probe()
+ready_probe_with_no_tls()
 {
     local http_port=$(parse_config_file_with_key "http_port")
     http_port=${http_port:=$DEFAULT_HTTP_PORT}
@@ -57,6 +65,31 @@ function ready_probe()
     fi
 }
 
+ready_probe_with_tls()
+{
+    local http_port=$(parse_config_file_with_key "http_port")
+    http_port=${http_port:=$DEFAULT_HTTP_PORT}
+    local host=`hostname -f`
+    local url="https://${host}:${http_port}/api/health"
+    local res=$(curl --tlsv1.2 --cert $TLS_CERTIFICATE_PATH --cacert $TLS_CA_CERTIFICATE_PATH --key $TLS_PRIVATE_KEY_PATH -s $url)
+    local code=$(jq -r ".code" <<< $res)
+    if [[ "x$code" == "x0" ]]; then
+        exit 0
+    else
+        exit 1
+    fi
+}
+
+function ready_probe()
+{
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        ready_probe_with_tls
+    else
+        ready_probe_with_no_tls
+    fi
+}
+
+parse_tls_connection_variables
 if [[ "$PROBE_TYPE" == "ready" ]]; then
     ready_probe
 else

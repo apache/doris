@@ -101,8 +101,9 @@ Status AggSinkLocalState::open(RuntimeState* state) {
     }
 
     if (Base::_shared_state->probe_expr_ctxs.empty()) {
-        _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
-                _agg_profile_arena.alloc(p._total_size_of_aggregate_states));
+        _agg_data->without_key =
+                reinterpret_cast<vectorized::AggregateDataPtr>(_agg_profile_arena.aligned_alloc(
+                        p._total_size_of_aggregate_states, p._align_aggregate_states));
 
         if (p._is_merge) {
             _executor = std::make_unique<Executor<true, true>>();
@@ -224,6 +225,13 @@ size_t AggSinkLocalState::_memory_usage() const {
     return usage;
 }
 
+bool AggSinkLocalState::is_blockable() const {
+    return std::any_of(
+            Base::_shared_state->aggregate_evaluators.begin(),
+            Base::_shared_state->aggregate_evaluators.end(),
+            [](const vectorized::AggFnEvaluator* evaluator) { return evaluator->is_blockable(); });
+}
+
 void AggSinkLocalState::_update_memusage_with_serialized_key() {
     std::visit(vectorized::Overload {
                        [&](std::monostate& arg) -> void {
@@ -277,6 +285,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
             block->replace_by_position_if_const(result_column_id);
             key_columns[i] = block->get_by_position(result_column_id).column.get();
         }
+        key_columns[i]->assume_mutable()->replace_float_special_values();
     }
 
     size_t rows = block->rows();
@@ -459,6 +468,7 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
                     block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
             key_columns[i] = block->get_by_position(result_column_id).column.get();
+            key_columns[i]->assume_mutable()->replace_float_special_values();
         }
     }
 
@@ -618,6 +628,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                 try {
                                     HashMethodType::try_presis_key_and_origin(key, origin,
                                                                               _agg_arena_pool);
+                                    _shared_state->refresh_top_limit(i, key_columns);
                                     auto mapped =
                                             _shared_state->aggregate_data_container->append_data(
                                                     origin);
@@ -626,7 +637,6 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                         throw Exception(st.code(), st.to_string());
                                     }
                                     ctor(key, mapped);
-                                    _shared_state->refresh_top_limit(i, key_columns);
                                 } catch (...) {
                                     // Exception-safety - if it can not allocate memory or create status,
                                     // the destructors will not be called.
@@ -746,7 +756,7 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::create(
                 _pool, tnode.agg_node.aggregate_functions[i],
                 tnode.agg_node.__isset.agg_sort_infos ? tnode.agg_node.agg_sort_infos[i] : dummy,
-                tnode.agg_node.grouping_exprs.empty(), &evaluator));
+                tnode.agg_node.grouping_exprs.empty(), false, &evaluator));
         _aggregate_evaluators.push_back(evaluator);
     }
 

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.JsonType;
@@ -32,13 +33,18 @@ import java.util.List;
 /**
  * ScalarFunction 'json_array'.
  */
-public class JsonArray extends ScalarFunction implements CustomSignature, AlwaysNotNullable {
+public class JsonArray extends ScalarFunction implements CustomSignature, AlwaysNotNullable, RewriteWhenAnalyze {
 
     /**
      * constructor with 0 or more arguments.
      */
     public JsonArray(Expression... varArgs) {
         super("json_array", ExpressionUtils.mergeArguments(varArgs));
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private JsonArray(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
@@ -56,11 +62,24 @@ public class JsonArray extends ScalarFunction implements CustomSignature, Always
      */
     @Override
     public JsonArray withChildren(List<Expression> children) {
-        return new JsonArray(children.toArray(new Expression[0]));
+        return new JsonArray(getFunctionParams(children));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitJsonArray(this, context);
+    }
+
+    @Override
+    public Expression rewriteWhenAnalyze() {
+        List<Expression> convectedChildren = new ArrayList<>();
+        for (Expression child : children()) {
+            if (child.getDataType() instanceof JsonType) {
+                convectedChildren.add(child);
+            } else {
+                convectedChildren.add(new ToJson(child));
+            }
+        }
+        return withChildren(convectedChildren);
     }
 }

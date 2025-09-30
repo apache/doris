@@ -60,9 +60,14 @@ public class ArraySplit extends ScalarFunction implements PropagateNullable, Hig
         }
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArraySplit(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public ArraySplit withChildren(List<Expression> children) {
-        return new ArraySplit(children.get(0), children.get(1));
+        return new ArraySplit(getFunctionParams(children));
     }
 
     @Override

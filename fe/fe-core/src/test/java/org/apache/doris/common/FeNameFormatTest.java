@@ -140,6 +140,8 @@ public class FeNameFormatTest {
                 "__id",
                 "___id",
                 "___id_",
+                "mv_",
+                "mva_",
                 "@timestamp",
                 "@timestamp#",
                 "timestamp*",
@@ -158,8 +160,6 @@ public class FeNameFormatTest {
 
         List<String> alwaysInvalid = Lists.newArrayList(
                 // inner column prefix
-                "mv_",
-                "mva_",
                 "__doris_shadow_",
                 "",
                 " ",

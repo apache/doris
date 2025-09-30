@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.amazonaws.ClientConfiguration;
+import com.amazonaws.glue.catalog.util.AWSGlueConfig;
 import org.apache.hadoop.hive.conf.HiveConf;
 
 import java.util.Map;
@@ -41,6 +42,8 @@ public class HMSGlueMetaStoreProperties extends AbstractHMSProperties {
     public static final int DEFAULT_MAX_RETRY = 5;
     public static final String AWS_GLUE_SOCKET_TIMEOUT_KEY = "aws.glue.socket-timeout";
     public static final int DEFAULT_SOCKET_TIMEOUT = ClientConfiguration.DEFAULT_SOCKET_TIMEOUT;
+    public static final String AWS_CATALOG_CREDENTIALS_PROVIDER_FACTORY_CLASS_KEY =
+            "aws.catalog.credentials.provider.factory.class";
 
     // ========== Fields ==========
     private AWSGlueMetaStoreBaseProperties baseProperties;
@@ -71,6 +74,7 @@ public class HMSGlueMetaStoreProperties extends AbstractHMSProperties {
     protected String awsGlueCatalogSeparator = "";
 
     // ========== Constructor ==========
+
     /**
      * Constructs an instance with the given metastore type and original properties.
      *
@@ -86,7 +90,6 @@ public class HMSGlueMetaStoreProperties extends AbstractHMSProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         baseProperties = AWSGlueMetaStoreBaseProperties.of(origProps);
-        baseProperties.checkAndInit();
         initHiveConf();
     }
 
@@ -97,15 +100,25 @@ public class HMSGlueMetaStoreProperties extends AbstractHMSProperties {
         hiveConf = new HiveConf();
         hiveConf.set(AWS_GLUE_ENDPOINT_KEY, baseProperties.glueEndpoint);
         hiveConf.set(AWS_REGION_KEY, baseProperties.glueRegion);
-        hiveConf.set(AWS_GLUE_SESSION_TOKEN_KEY, baseProperties.glueSessionToken);
-        hiveConf.set(AWS_GLUE_ACCESS_KEY_KEY, baseProperties.glueAccessKey);
-        hiveConf.set(AWS_GLUE_SECRET_KEY_KEY, baseProperties.glueSecretKey);
         hiveConf.set(AWS_GLUE_MAX_RETRY_KEY, String.valueOf(awsGlueMaxErrorRetries));
         hiveConf.set(AWS_GLUE_MAX_CONNECTIONS_KEY, String.valueOf(awsGlueMaxConnections));
         hiveConf.set(AWS_GLUE_CONNECTION_TIMEOUT_KEY, String.valueOf(awsGlueConnectionTimeout));
         hiveConf.set(AWS_GLUE_SOCKET_TIMEOUT_KEY, String.valueOf(awsGlueSocketTimeout));
         hiveConf.set(AWS_GLUE_CATALOG_SEPARATOR_KEY, awsGlueCatalogSeparator);
+        hiveConf.set(AWS_CATALOG_CREDENTIALS_PROVIDER_FACTORY_CLASS_KEY,
+                "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProviderFactory");
         hiveConf.set("hive.metastore.type", "glue");
+        setHiveConfPropertiesIfNotNull(hiveConf, AWSGlueConfig.AWS_GLUE_ACCESS_KEY, baseProperties.glueAccessKey);
+        setHiveConfPropertiesIfNotNull(hiveConf, AWSGlueConfig.AWS_GLUE_SECRET_KEY, baseProperties.glueSecretKey);
+        setHiveConfPropertiesIfNotNull(hiveConf, AWSGlueConfig.AWS_GLUE_SESSION_TOKEN, baseProperties.glueSessionToken);
+        setHiveConfPropertiesIfNotNull(hiveConf, AWSGlueConfig.AWS_GLUE_ROLE_ARN, baseProperties.glueIAMRole);
+        setHiveConfPropertiesIfNotNull(hiveConf, AWSGlueConfig.AWS_GLUE_EXTERNAL_ID, baseProperties.glueExternalId);
+    }
+
+    private static void setHiveConfPropertiesIfNotNull(HiveConf hiveConf, String key, String value) {
+        if (value != null) {
+            hiveConf.set(key, value);
+        }
     }
 
     public HMSGlueMetaStoreProperties(Map<String, String> origProps) {

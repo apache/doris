@@ -26,7 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -42,10 +42,13 @@ import com.google.common.collect.ImmutableList;
 public class ShowWarmUpCommand extends ShowCommand {
     private static final ImmutableList<String> WARM_UP_JOB_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JobId")
-            .add("ComputeGroup")
+            .add("SrcComputeGroup")
+            .add("DstComputeGroup")
             .add("Status")
             .add("Type")
+            .add("SyncMode")
             .add("CreateTime")
+            .add("StartTime")
             .add("FinishBatch")
             .add("AllBatch")
             .add("FinishTime")
@@ -103,8 +106,8 @@ public class ShowWarmUpCommand extends ShowCommand {
         }
 
         String leftKey = ((UnboundSlot) expr.child(0)).getName();
-        if (leftKey.equalsIgnoreCase("id") && (expr.child(1) instanceof IntegerLiteral)) {
-            jobId = ((IntegerLiteral) expr.child(1)).getLongValue();
+        if (leftKey.equalsIgnoreCase("id") && (expr.child(1) instanceof IntegerLikeLiteral)) {
+            jobId = ((IntegerLikeLiteral) expr.child(1)).getLongValue();
             return true;
         } else {
             return false;
