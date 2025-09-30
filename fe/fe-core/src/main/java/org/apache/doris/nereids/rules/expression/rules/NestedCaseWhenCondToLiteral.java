@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -95,7 +96,9 @@ public class NestedCaseWhenCondToLiteral implements ExpressionPatternRuleFactory
         return expression.accept(new NestedCondReplacer(), null);
     }
 
-    private static class NestedCondReplacer extends DefaultExpressionRewriter<Void> {
+    /** NestedCondReplacer */
+    @VisibleForTesting
+    public static class NestedCondReplacer extends DefaultExpressionRewriter<Void> {
 
         // condition literals is used to record the boolean literal for a condition expression,
         // 1. if a condition, if it exists in outer case/if conditions, it will be replaced with the literal.
@@ -103,7 +106,7 @@ public class NestedCaseWhenCondToLiteral implements ExpressionPatternRuleFactory
         //    a) when enter a case/if branch, set this condition to TRUE literal
         //    b) when leave a case/if branch, set this condition to FALSE literal
         //    c) when leave the whole case/if statement, remove this condition literal
-        private final Map<Expression, BooleanLiteral> conditionLiterals = Maps.newHashMap();
+        protected final Map<Expression, BooleanLiteral> conditionLiterals = Maps.newHashMap();
 
         @Override
         public Expression visit(Expression expr, Void context) {

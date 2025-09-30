@@ -592,14 +592,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             }
         }
         List<WhenClause> newWhenClauses = whenClausesBuilder.build();
-        Expression realTypeCoercionDefault = newDefault == null
-                ? new NullLiteral(caseWhen.getDataType())
-                : TypeCoercionUtils.ensureSameResultType(originCaseWhen, newDefault, context);
+        Expression realTypeCoercionDefault = newDefault != null ? newDefault : new NullLiteral(caseWhen.getDataType());
         boolean allThenEqualsDefault = true;
         for (WhenClause whenClause : newWhenClauses) {
-            Expression typeCoercionThen = TypeCoercionUtils.ensureSameResultType(
-                    originCaseWhen, whenClause.getResult(), context);
-            if (!typeCoercionThen.equals(realTypeCoercionDefault)) {
+            if (!whenClause.getResult().equals(realTypeCoercionDefault)) {
                 allThenEqualsDefault = false;
                 break;
             }
