@@ -26,6 +26,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -57,6 +58,7 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TColumn;
+import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TTaskType;
@@ -74,6 +76,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -310,8 +313,9 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                 int schemaHash = indexMeta.getSchemaHash();
                 List<TColumn> columnsDesc = Lists.newArrayList();
                 Map<String, TColumn> colNameToColDesc = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+                List<Column> columns = indexMeta.getSchema(true);
                 // using to update schema of the rowset, so full columns should be included
-                for (Column column : indexMeta.getSchema(true)) {
+                for (Column column : columns) {
                     TColumn tCol = column.toThrift();
                     columnsDesc.add(tCol);
                     String colName = column.tryGetBaseColumnName();
@@ -330,6 +334,13 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                         throw new AnalysisException(
                                 "condition's column not founded in index, column=" + columnName + " , index=" + index);
                     }
+                }
+
+                List<Index> indexList = indexMeta.getIndexes();
+                List<TOlapTableIndex> tIndexList = new ArrayList<TOlapTableIndex>();
+                for (Index idx : indexList) {
+                    TOlapTableIndex tIndex = idx.toThrift(idx.getColumnUniqueIds(columns));
+                    tIndexList.add(tIndex);
                 }
 
                 for (Tablet tablet : index.getTablets()) {
@@ -358,7 +369,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                                 transactionId,
                                 Env.getCurrentEnv().getNextId() + 10000000000L,
                                 columnsDesc, colNameToColDesc,
-                                vaultId, schemaVersion);
+                                vaultId, schemaVersion, tIndexList);
                         pushTask.setIsSchemaChanging(false);
                         pushTask.setCountDownLatch(countDownLatch);
 

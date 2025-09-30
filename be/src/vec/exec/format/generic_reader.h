@@ -75,9 +75,9 @@ public:
 
     virtual Status close() { return Status::OK(); }
 
-    Status set_read_lines_mode(const std::list<int64_t>& read_lines) {
-        _read_line_mode_mode = true;
-        _read_lines = read_lines;
+    Status read_by_rows(const std::list<int64_t>& row_ids) {
+        _read_by_rows = true;
+        _row_ids = row_ids;
         return _set_read_one_line_impl();
     }
 
@@ -88,7 +88,7 @@ public:
 
 protected:
     virtual Status _set_read_one_line_impl() {
-        return Status::NotSupported("set_read_lines_mode is not implemented for this reader.");
+        return Status::NotSupported("read_by_rows is not implemented for this reader.");
     }
 
     const size_t _MIN_BATCH_SIZE = 4064; // 4094 - 32(padding)
@@ -97,8 +97,13 @@ protected:
     bool _fill_all_columns = false;
     TPushAggOp::type _push_down_agg_type {};
 
-    bool _read_line_mode_mode = false;
-    std::list<int64_t> _read_lines;
+    // For TopN queries, rows will be read according to row ids produced by TopN result.
+    bool _read_by_rows = false;
+    std::list<int64_t> _row_ids;
+
+    // Cache to save some common part such as file footer.
+    // Maybe null if not used
+    FileMetaCache* _meta_cache = nullptr;
 };
 
 #include "common/compile_check_end.h"

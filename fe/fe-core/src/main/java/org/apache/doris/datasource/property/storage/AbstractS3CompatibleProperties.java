@@ -19,6 +19,7 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -131,15 +132,25 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         setEndpointIfPossible();
-        if (!isValidEndpoint(getEndpoint())) {
-            throw new IllegalArgumentException("Invalid endpoint: " + getEndpoint());
-        }
         setRegionIfPossible();
         //Allow anonymous access if both access_key and secret_key are empty
         //But not recommended for production use.
         if (StringUtils.isBlank(getAccessKey()) != StringUtils.isBlank(getSecretKey())) {
             throw new IllegalArgumentException("Both the access key and the secret key must be set.");
         }
+        if (StringUtils.isBlank(getRegion())) {
+            throw new IllegalArgumentException("Region is not set. If you are using a standard endpoint, the region "
+                    + "will be detected automatically. Otherwise, please specify it explicitly."
+            );
+        }
+        if (StringUtils.isBlank(getEndpoint())) {
+            throw new IllegalArgumentException("Endpoint is not set. Please specify it explicitly."
+            );
+        }
+    }
+
+    boolean isEndpointCheckRequired() {
+        return true;
     }
 
     /**
@@ -217,20 +228,6 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
 
     protected abstract Set<Pattern> endpointPatterns();
 
-    private boolean isValidEndpoint(String endpoint) {
-        if (StringUtils.isBlank(endpoint)) {
-            // Endpoint is not required, so we consider it valid if empty.
-            return true;
-        }
-        for (Pattern pattern : endpointPatterns()) {
-            Matcher matcher = pattern.matcher(endpoint.toLowerCase());
-            if (matcher.matches()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     // This method should be overridden by subclasses to provide a default endpoint based on the region.
     // Because for aws s3, only region is needed, the endpoint can be constructed from the region.
     // But for other s3 compatible storage, the endpoint may need to be specified explicitly.
@@ -261,10 +258,20 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     private void appendS3HdfsProperties(Configuration hadoopStorageConfig) {
         hadoopStorageConfig.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         hadoopStorageConfig.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        // use google assert not null
+        Preconditions.checkNotNull(getEndpoint(), "endpoint is null");
         hadoopStorageConfig.set("fs.s3a.endpoint", getEndpoint());
+        Preconditions.checkNotNull(getRegion(), "region is null");
         hadoopStorageConfig.set("fs.s3a.endpoint.region", getRegion());
-        hadoopStorageConfig.set("fs.s3a.access.key", getAccessKey());
-        hadoopStorageConfig.set("fs.s3a.secret.key", getSecretKey());
+        hadoopStorageConfig.set("fs.s3.impl.disable.cache", "true");
+        hadoopStorageConfig.set("fs.s3a.impl.disable.cache", "true");
+        if (StringUtils.isNotBlank(getAccessKey())) {
+            hadoopStorageConfig.set("fs.s3a.access.key", getAccessKey());
+            hadoopStorageConfig.set("fs.s3a.secret.key", getSecretKey());
+            if (StringUtils.isNotBlank(getSessionToken())) {
+                hadoopStorageConfig.set("fs.s3a.session.token", getSessionToken());
+            }
+        }
         hadoopStorageConfig.set("fs.s3a.connection.maximum", getMaxConnections());
         hadoopStorageConfig.set("fs.s3a.connection.request.timeout", getRequestTimeoutS());
         hadoopStorageConfig.set("fs.s3a.connection.timeout", getConnectionTimeoutS());

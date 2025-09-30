@@ -59,14 +59,15 @@ public:
 
     AnnIndexMetric get_metric_type() const { return _metric_type; }
 
+    size_t get_dimension() const;
+
 private:
     TabletIndex _index_meta;
     std::shared_ptr<IndexFileReader> _index_file_reader;
     std::unique_ptr<VectorIndex> _vector_index;
-    // TODO: Use integer.
-    std::string _index_type;
+    AnnIndexType _index_type;
     AnnIndexMetric _metric_type;
-
+    size_t _dim;
     DorisCallOnce<Status> _load_index_once;
 };
 

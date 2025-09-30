@@ -435,6 +435,8 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         LOG(INFO) << "delete_expired_stale_rowsets for tablet=" << _tablet->tablet_id();
         _engine.tablet_mgr().vacuum_stale_rowsets(CountDownLatch(1));
     });
+
+    _tablet->prefill_dbm_agg_cache_after_compaction(_output_rowset);
     return Status::OK();
 }
 

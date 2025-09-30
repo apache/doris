@@ -40,7 +40,7 @@
 #include "vec/common/endian.h"
 
 namespace doris::util_hash {
-
+#include "common/compile_check_begin.h"
 // Some primes between 2^63 and 2^64 for various uses.
 static const uint64_t k0 = 0xa5b85c5e198ed849ULL;
 static const uint64_t k1 = 0x8d58ac26afe12e47ULL;
@@ -85,7 +85,7 @@ static uint64_t HashLen0to16(const char* s, size_t len) {
     if (len > 8) {
         uint64_t a = LittleEndian::Load64(s);
         uint64_t b = LittleEndian::Load64(s + len - 8);
-        return HashLen16(a, RotateByAtLeast1(b + len, len)) ^ b;
+        return HashLen16(a, RotateByAtLeast1(b + len, int(len))) ^ b;
     }
     if (len >= 4) {
         uint64_t a = LittleEndian::Load32(s);
@@ -96,7 +96,7 @@ static uint64_t HashLen0to16(const char* s, size_t len) {
         uint8_t b = s[len >> 1];
         uint8_t c = s[len - 1];
         uint32_t y = static_cast<uint32_t>(a) + (static_cast<uint32_t>(b) << 8);
-        uint32_t z = len + (static_cast<uint32_t>(c) << 2);
+        uint32_t z = static_cast<uint32_t>(len) + (static_cast<uint32_t>(c) << 2);
         return ShiftMix(y * k2 ^ z * k3) * k2;
     }
     return k2;

@@ -284,8 +284,6 @@ public:
         p_reader->_ctz = &ctz;
     }
 
-    void TearDown() override { delete doris_file_metadata; }
-
     static void create_table_desc(TDescriptorTable& t_desc_table, TTableDescriptor& t_table_desc,
                                   std::vector<std::string> table_column_names,
                                   std::vector<TPrimitiveType::type> types) {
@@ -352,7 +350,7 @@ public:
     DescriptorTbl* desc_tbl;
     ObjectPool obj_pool;
     std::vector<SlotDescriptor*> slot_descs;
-    FileMetaData* doris_file_metadata;
+    std::unique_ptr<FileMetaData> doris_file_metadata;
     tparquet::FileMetaData doris_metadata;
     cctz::time_zone ctz = cctz::utc_time_zone();
     std::unordered_map<std::string, int> colname_to_slot_id;

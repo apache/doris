@@ -38,6 +38,8 @@ public:
     MetaReader(std::string_view instance_id) : MetaReader(instance_id, nullptr) {}
     MetaReader(std::string_view instance_id, TxnKv* txn_kv)
             : MetaReader(instance_id, txn_kv, Versionstamp::max()) {}
+    MetaReader(std::string_view instance_id, Versionstamp snapshot_version)
+            : MetaReader(instance_id, nullptr, snapshot_version) {}
     MetaReader(std::string_view instance_id, TxnKv* txn_kv, Versionstamp snapshot_version)
             : instance_id_(instance_id),
               snapshot_version_(snapshot_version),
@@ -115,6 +117,17 @@ public:
                                           TabletStatsPB* tablet_stats, Versionstamp* versionstamp,
                                           bool snapshot = false);
 
+    // Get the tablet compact stats for the given tablet_ids.
+    // If a tablet_id does not exist, then it will not be included in the respective map.
+    TxnErrorCode get_tablet_compact_stats(const std::vector<int64_t>& tablet_ids,
+                                          std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
+                                          std::unordered_map<int64_t, Versionstamp>* versionstamps,
+                                          bool snapshot = false);
+    TxnErrorCode get_tablet_compact_stats(Transaction* txn, const std::vector<int64_t>& tablet_ids,
+                                          std::unordered_map<int64_t, TabletStatsPB>* tablet_stats,
+                                          std::unordered_map<int64_t, Versionstamp>* versionstamps,
+                                          bool snapshot = false);
+
     // Get the merged (load, compact) tablet stats for the given tablet.
     //
     // The `tablet_stats` will be filled with the merged TabletStatsPB.
@@ -141,7 +154,7 @@ public:
                                     std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes,
                                     bool snapshot = false);
 
-    // Get the rowset meta for the given tablet_id and version range.
+    // Get the rowset meta for the given tablet_id and version range [start_version, end_version].
     //
     // The `rowset_metas` will be filled with the RowsetMetaCloudPB for each version in the range,
     // in ascending order.
@@ -152,11 +165,74 @@ public:
                                   int64_t end_version, std::vector<RowsetMetaCloudPB>* rowset_metas,
                                   bool snapshot = false);
 
+    // Get all tablet rowset metas for the given rowset version range [start_version, end_version].
+    //
+    // The `rowset_metas` will be filled with the RowsetMetaCloudPB for each version at versionstamp in the range,
+    // in ascending order.
+    TxnErrorCode get_all_tablet_rowset_metas(int64_t start_version, int64_t end_version,
+                                             std::vector<RowsetMetaCloudPB>* rowset_metas,
+                                             bool snapshot);
+    TxnErrorCode get_all_tablet_rowset_metas(Transaction* txn, int64_t start_version,
+                                             int64_t end_version,
+                                             std::vector<RowsetMetaCloudPB>* rowset_metas,
+                                             bool snapshot);
+
     // Get the load rowset meta for the given tablet_id and version.
     TxnErrorCode get_load_rowset_meta(int64_t tablet_id, int64_t version,
-                                      RowsetMetaCloudPB* rowset_meta, bool snapshot = false);
+                                      RowsetMetaCloudPB* rowset_meta, bool snapshot = false) {
+        Versionstamp versionstamp;
+        return get_load_rowset_meta(tablet_id, version, rowset_meta, &versionstamp, snapshot);
+    }
     TxnErrorCode get_load_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
-                                      RowsetMetaCloudPB* rowset_meta, bool snapshot = false);
+                                      RowsetMetaCloudPB* rowset_meta, bool snapshot = false) {
+        Versionstamp versionstamp;
+        return get_load_rowset_meta(txn, tablet_id, version, rowset_meta, &versionstamp, snapshot);
+    }
+    TxnErrorCode get_load_rowset_meta(int64_t tablet_id, int64_t version,
+                                      RowsetMetaCloudPB* rowset_meta, Versionstamp* versionstamp,
+                                      bool snapshot = false);
+    TxnErrorCode get_load_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                      RowsetMetaCloudPB* rowset_meta, Versionstamp* versionstamp,
+                                      bool snapshot = false);
+
+    // Get the compact rowset meta for the given tablet_id and version.
+    TxnErrorCode get_compact_rowset_meta(int64_t tablet_id, int64_t version,
+                                         RowsetMetaCloudPB* rowset_meta, bool snapshot = false) {
+        Versionstamp versionstamp;
+        return get_compact_rowset_meta(tablet_id, version, rowset_meta, &versionstamp, snapshot);
+    }
+    TxnErrorCode get_compact_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                         RowsetMetaCloudPB* rowset_meta, bool snapshot = false) {
+        Versionstamp versionstamp;
+        return get_compact_rowset_meta(txn, tablet_id, version, rowset_meta, &versionstamp,
+                                       snapshot);
+    }
+    TxnErrorCode get_compact_rowset_meta(int64_t tablet_id, int64_t version,
+                                         RowsetMetaCloudPB* rowset_meta, Versionstamp* versionstamp,
+                                         bool snapshot = false);
+    TxnErrorCode get_compact_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                         RowsetMetaCloudPB* rowset_meta, Versionstamp* versionstamp,
+                                         bool snapshot = false);
+
+    // Get the load rowset metas for the given tablet_id.
+    TxnErrorCode get_load_rowset_metas(
+            int64_t tablet_id,
+            std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas,
+            bool snapshot = false);
+    TxnErrorCode get_load_rowset_metas(
+            Transaction* txn, int64_t tablet_id,
+            std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas,
+            bool snapshot = false);
+
+    // Get the compact rowset metas for the given tablet_id.
+    TxnErrorCode get_compact_rowset_metas(
+            int64_t tablet_id,
+            std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas,
+            bool snapshot = false);
+    TxnErrorCode get_compact_rowset_metas(
+            Transaction* txn, int64_t tablet_id,
+            std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas,
+            bool snapshot = false);
 
     // Get the tablet meta keys.
     TxnErrorCode get_tablet_meta(int64_t tablet_id, TabletMetaCloudPB* tablet_meta,
@@ -175,9 +251,22 @@ public:
     //
     // The first pending txn id is stored in `first_txn_id`. Sets -1 if no pending transactions exist.
     TxnErrorCode get_partition_pending_txn_id(int64_t partition_id, int64_t* first_txn_id,
-                                              bool snapshot = false);
+                                              bool snapshot = false) {
+        int64_t partition_version;
+        return get_partition_pending_txn_id(partition_id, first_txn_id, &partition_version,
+                                            snapshot);
+    }
     TxnErrorCode get_partition_pending_txn_id(Transaction* txn, int64_t partition_id,
-                                              int64_t* first_txn_id, bool snapshot = false);
+                                              int64_t* first_txn_id, bool snapshot = false) {
+        int64_t partition_version;
+        return get_partition_pending_txn_id(txn, partition_id, first_txn_id, &partition_version,
+                                            snapshot);
+    }
+    TxnErrorCode get_partition_pending_txn_id(int64_t partition_id, int64_t* first_txn_id,
+                                              int64_t* partition_version, bool snapshot = false);
+    TxnErrorCode get_partition_pending_txn_id(Transaction* txn, int64_t partition_id,
+                                              int64_t* first_txn_id, int64_t* partition_version,
+                                              bool snapshot = false);
 
     // Get the index of the given index id.
     TxnErrorCode get_index_index(int64_t index_id, IndexIndexPB* index, bool snapshot = false);
@@ -199,6 +288,26 @@ public:
     // Returns TXN_OK if the partition exists, or TXN_KEY_NOT_FOUND if it does not.
     TxnErrorCode is_partition_exists(int64_t partition_id, bool snapshot = false);
     TxnErrorCode is_partition_exists(Transaction* txn, int64_t partition_id, bool snapshot = false);
+
+    // Get the snapshots.
+    TxnErrorCode get_snapshots(Transaction* txn,
+                               std::vector<std::pair<SnapshotPB, Versionstamp>>* snapshots);
+    TxnErrorCode get_snapshots(std::vector<std::pair<SnapshotPB, Versionstamp>>* snapshots);
+
+    // Whether the snapshot has references.
+    TxnErrorCode has_snapshot_references(Versionstamp snapshot_version, bool* has_references,
+                                         bool snapshot = false);
+    TxnErrorCode has_snapshot_references(Transaction* txn, Versionstamp snapshot_version,
+                                         bool* has_references, bool snapshot = false);
+
+    // Whether the table has no indexes.
+    TxnErrorCode has_no_indexes(int64_t db_id, int64_t table_id, bool* no_indexes,
+                                bool snapshot = false);
+    TxnErrorCode has_no_indexes(Transaction* txn, int64_t db_id, int64_t table_id, bool* no_indexes,
+                                bool snapshot = false);
+
+    static void merge_tablet_stats(const TabletStatsPB& load_stats,
+                                   const TabletStatsPB& compact_stats, TabletStatsPB* merged_stats);
 
 private:
     const std::string_view instance_id_;

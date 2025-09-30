@@ -136,6 +136,8 @@ public class NereidsLoadUtils {
 
         // add prefilter if it exists
         if (context.fileGroup.getPrecedingFilterExpr() != null) {
+            // build phase don't extract AND, because Set(conjunctions) will wrong remove duplicated
+            // unique functions, like 'random() > 0.5 and random() > 0.5' => 'random() > 0.5'
             Set<Expression> conjuncts = new HashSet<>();
             conjuncts.add(context.fileGroup.getPrecedingFilterExpr());
             currentRootPlan = new LogicalPreFilter<>(conjuncts, currentRootPlan);

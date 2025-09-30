@@ -101,41 +101,6 @@ std::string DataTypeStruct::do_get_name() const {
     return s.str();
 }
 
-std::string DataTypeStruct::to_string(const IColumn& column, size_t row_num) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    auto& struct_column = assert_cast<const ColumnStruct&>(*ptr);
-
-    std::string str;
-    str += "{";
-    for (size_t idx = 0; idx < elems.size(); idx++) {
-        if (idx != 0) {
-            str += ", ";
-        }
-        str += elems[idx]->to_string(struct_column.get_column(idx), row_num);
-    }
-    str += "}";
-    return str;
-}
-
-void DataTypeStruct::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    auto& struct_column = assert_cast<const ColumnStruct&>(*ptr);
-    ostr.write("{", 1);
-    for (size_t idx = 0; idx < elems.size(); idx++) {
-        if (idx != 0) {
-            ostr.write(", ", 2);
-        }
-        elems[idx]->to_string(struct_column.get_column(idx), row_num, ostr);
-    }
-    ostr.write("}", 1);
-}
-
 MutableColumnPtr DataTypeStruct::create_column() const {
     size_t size = elems.size();
     MutableColumns tuple_columns(size);
@@ -308,19 +273,9 @@ void DataTypeStruct::to_pb_column_meta(PColumnMeta* col_meta) const {
     }
 }
 
-bool DataTypeStruct::text_can_contain_only_valid_utf8() const {
-    return std::all_of(elems.begin(), elems.end(),
-                       [](auto&& elem) { return elem->text_can_contain_only_valid_utf8(); });
-}
-
 bool DataTypeStruct::have_maximum_size_of_value() const {
     return std::all_of(elems.begin(), elems.end(),
                        [](auto&& elem) { return elem->have_maximum_size_of_value(); });
-}
-
-bool DataTypeStruct::is_comparable() const {
-    return std::all_of(elems.begin(), elems.end(),
-                       [](auto&& elem) { return elem->is_comparable(); });
 }
 
 size_t DataTypeStruct::get_size_of_value_in_memory() const {

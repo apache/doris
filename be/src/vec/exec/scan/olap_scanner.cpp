@@ -63,6 +63,7 @@
 #include "vec/olap/block_reader.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_avoid_begin.h"
 
 using ReadSource = TabletReader::ReadSource;
 
@@ -154,6 +155,7 @@ Status OlapScanner::prepare() {
     _score_runtime = local_state->_score_runtime;
 
     _score_runtime = local_state->_score_runtime;
+    // All scanners share the same ann_topn_runtime.
     _ann_topn_runtime = local_state->_ann_topn_runtime;
 
     // set limit to reduce end of rowset and segment mem use
@@ -216,9 +218,15 @@ Status OlapScanner::prepare() {
                 ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
             }
 
+            CaptureRsReaderOptions opts {
+                    .skip_missing_version = _state->skip_missing_version(),
+                    .enable_prefer_cached_rowset =
+                            config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
+                    .query_freshness_tolerance_ms =
+                            config::is_cloud_mode() ? _state->query_freshness_tolerance_ms() : -1,
+            };
             auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
-                                                 &read_source.rs_splits,
-                                                 _state->skip_missing_version());
+                                                 &read_source.rs_splits, opts);
             if (!st.ok()) {
                 LOG(WARNING) << "fail to init reader.res=" << st;
                 return st;
@@ -269,11 +277,10 @@ Status OlapScanner::open(RuntimeState* state) {
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
-        std::stringstream ss;
-        ss << "failed to initialize storage reader. tablet="
-           << _tablet_reader_params.tablet->tablet_id() << ", res=" << res
-           << ", backend=" << BackendOptions::get_localhost();
-        return Status::InternalError(ss.str());
+        res.append("failed to initialize storage reader. tablet=" +
+                   std::to_string(_tablet_reader_params.tablet->tablet_id()) +
+                   ", backend=" + BackendOptions::get_localhost());
+        return res;
     }
 
     // Do not hold rs_splits any more to release memory.
@@ -623,6 +630,8 @@ void OlapScanner::update_realtime_counters() {
                 ->io_context()
                 ->update_scan_bytes_from_remote_storage(
                         stats.file_cache_stats.bytes_read_from_remote);
+        io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
+        cache_profile.update(&stats.file_cache_stats);
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
                 stats.file_cache_stats.bytes_read_from_local);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
@@ -737,6 +746,20 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_inverted_index_analyzer_timer,
                    stats.inverted_index_analyzer_timer);
     COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);
+    COUNTER_UPDATE(local_state->_variant_scan_sparse_column_timer,
+                   stats.variant_scan_sparse_column_timer_ns);
+    COUNTER_UPDATE(local_state->_variant_scan_sparse_column_bytes,
+                   stats.variant_scan_sparse_column_bytes);
+    COUNTER_UPDATE(local_state->_variant_fill_path_from_sparse_column_timer,
+                   stats.variant_fill_path_from_sparse_column_timer_ns);
+    COUNTER_UPDATE(local_state->_variant_subtree_default_iter_count,
+                   stats.variant_subtree_default_iter_count);
+    COUNTER_UPDATE(local_state->_variant_subtree_leaf_iter_count,
+                   stats.variant_subtree_leaf_iter_count);
+    COUNTER_UPDATE(local_state->_variant_subtree_hierarchical_iter_count,
+                   stats.variant_subtree_hierarchical_iter_count);
+    COUNTER_UPDATE(local_state->_variant_subtree_sparse_iter_count,
+                   stats.variant_subtree_sparse_iter_count);
 
     InvertedIndexProfileReporter inverted_index_profile;
     inverted_index_profile.update(local_state->_index_filter_profile.get(),
@@ -843,4 +866,5 @@ void OlapScanner::_collect_profile_before_close() {
     // Overhead counter removed; precise instrumentation is reported via engine_prepare above.
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

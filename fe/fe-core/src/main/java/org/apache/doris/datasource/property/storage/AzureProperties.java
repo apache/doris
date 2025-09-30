@@ -70,6 +70,7 @@ public class AzureProperties extends StorageProperties {
 
     @Getter
     @ConnectorProperty(names = {"azure.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key"},
+            sensitive = true,
             description = "The secret key of S3.")
     protected String secretKey = "";
 
@@ -93,7 +94,6 @@ public class AzureProperties extends StorageProperties {
     @Getter
     protected String forceParsingByStandardUrl = "false";
 
-
     public AzureProperties(Map<String, String> origProps) {
         super(Type.AZURE, origProps);
     }
@@ -108,7 +108,7 @@ public class AzureProperties extends StorageProperties {
             throw new IllegalArgumentException(String.format("Endpoint '%s' is not valid. It should end with '%s'.",
                     endpoint, AZURE_ENDPOINT_SUFFIX));
         }
-        this.endpoint = formatAzureEndpoint(endpoint);
+        this.endpoint = formatAzureEndpoint(endpoint, accessKey);
     }
 
     public static boolean guessIsMe(Map<String, String> origProps) {
@@ -143,7 +143,7 @@ public class AzureProperties extends StorageProperties {
 
     public static final String AZURE_ENDPOINT_TEMPLATE = "https://%s.blob.core.windows.net";
 
-    private String formatAzureEndpoint(String endpoint) {
+    public static String formatAzureEndpoint(String endpoint, String accessKey) {
         if (Config.force_azure_blob_global_endpoint) {
             return String.format(AZURE_ENDPOINT_TEMPLATE, accessKey);
         }

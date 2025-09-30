@@ -336,7 +336,7 @@ function install_fdb() {
     wget -c -t3 -q https://github.com/apple/foundationdb/releases/download/7.1.23/foundationdb-server_7.1.23-1_amd64.deb
     sudo dpkg -i foundationdb-clients_7.1.23-1_amd64.deb foundationdb-server_7.1.23-1_amd64.deb
     # /usr/lib/foundationdb/fdbmonitor --daemonize
-    # fdbcli --exec 'configure new single ssd'
+    fdbcli --exec 'configure storage_migration_type=aggressive; configure ssd'
     if fdbcli --exec 'status'; then
         echo "INFO: foundationdb installed."
     else

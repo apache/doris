@@ -325,54 +325,6 @@ TEST_F(TabletSchemaTest, test_tablet_schema_append_index) {
     EXPECT_EQ(201, indexes[0]->index_id());
 }
 
-TEST_F(TabletSchemaTest, test_tablet_schema_update_indexs) {
-    TabletSchema schema;
-
-    TabletColumn col;
-    col.set_unique_id(5001);
-    col.set_name("update_col");
-    col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
-    schema.append_column(col);
-
-    std::vector<TabletIndex> indexes;
-    for (int i = 0; i < 3; ++i) {
-        TabletIndex index;
-        TabletIndexPB index_pb;
-        index_pb.set_index_id(300 + i);
-        index_pb.set_index_name("update_idx_" + std::to_string(i));
-        index_pb.set_index_type(IndexType::INVERTED);
-        index_pb.add_col_unique_id(5001);
-        index.init_from_pb(index_pb);
-        schema.append_index(std::move(index));
-    }
-
-    std::vector<TabletIndex> new_indexes;
-
-    for (int i = 0; i < 3; ++i) {
-        TabletIndex index;
-        TabletIndexPB index_pb;
-        index_pb.set_index_id(300 + i);
-        index_pb.set_index_name("update_idx_" + std::to_string(i));
-        index_pb.set_index_type(IndexType::INVERTED);
-        index_pb.add_col_unique_id(5001);
-        index.init_from_pb(index_pb);
-        new_indexes.push_back(std::move(index));
-    }
-
-    schema.update_index(col, IndexType::INVERTED, std::move(indexes));
-
-    EXPECT_TRUE(schema.has_inverted_index());
-    auto all_indexes = schema.inverted_indexs(5001);
-    EXPECT_EQ(3, all_indexes.size());
-
-    std::set<std::string> expected_names = {"update_idx_0", "update_idx_1", "update_idx_2"};
-    std::set<std::string> actual_names;
-    for (const auto* index : all_indexes) {
-        actual_names.insert(index->index_name());
-    }
-    EXPECT_EQ(expected_names, actual_names);
-}
-
 TEST_F(TabletSchemaTest, test_tablet_column_protobuf_roundtrip) {
     TabletColumn original;
     original.set_unique_id(6001);

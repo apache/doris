@@ -61,7 +61,7 @@ struct PercentileApproxState {
     PercentileApproxState() = default;
     ~PercentileApproxState() = default;
 
-    void init(double quantile, double compression = 10000) {
+    void init(double quantile, float compression = 10000) {
         if (!init_flag) {
             //https://doris.apache.org/zh-CN/sql-reference/sql-functions/aggregate-functions/percentile_approx.html#description
             //The compression parameter setting range is [2048, 10000].
@@ -152,7 +152,7 @@ struct PercentileApproxState {
     bool init_flag = false;
     std::unique_ptr<TDigest> digest;
     double target_quantile = INIT_QUANTILE;
-    double compressions = 10000;
+    float compressions = 10000;
 };
 
 class AggregateFunctionPercentileApprox
@@ -230,7 +230,8 @@ public:
         const auto& compression =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[2]);
 
-        this->data(place).init(quantile.get_element(0), compression.get_element(0));
+        this->data(place).init(quantile.get_element(0),
+                               static_cast<float>(compression.get_element(0)));
         this->data(place).add(sources.get_element(row_num));
     }
 
@@ -302,7 +303,8 @@ public:
         const auto& compression =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[3]);
 
-        this->data(place).init(quantile.get_element(0), compression.get_element(0));
+        this->data(place).init(quantile.get_element(0),
+                               static_cast<float>(compression.get_element(0)));
         this->data(place).add_with_weight(sources.get_element(row_num),
                                           weight.get_element(row_num));
     }

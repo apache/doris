@@ -119,9 +119,9 @@ exit_flag=0
     echo
     cold_run_time_threshold=${cold_run_time_threshold_master:-120000} # ms
     hot_run_time_threshold=${hot_run_time_threshold_master:-42000}    # ms
-    if [[ "${target_branch}" == "branch-2.0" ]]; then
-        cold_run_time_threshold=${cold_run_time_threshold_branch20:-130000} # ms
-        hot_run_time_threshold=${hot_run_time_threshold_branch20:-55000}    # ms
+    if [[ "${target_branch}" == "branch-4.0" ]]; then
+        cold_run_time_threshold=${cold_run_time_threshold_branch40:-120000} # ms
+        hot_run_time_threshold=${hot_run_time_threshold_branch40:-42000}    # ms
     elif [[ "${target_branch}" == "branch-3.1" ]]; then
         cold_run_time_threshold=${cold_run_time_threshold_branch31:-120000} # ms
         hot_run_time_threshold=${hot_run_time_threshold_branch31:-42000}    # ms

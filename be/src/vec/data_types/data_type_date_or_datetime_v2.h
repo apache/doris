@@ -78,16 +78,19 @@ public:
         }
     }
     bool equals(const IDataType& rhs) const override;
-    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<PrimitiveType::TYPE_DATEV2>::template to_string_batch_impl<
-                DataTypeDateV2>(column, column_to);
-    }
 
-    size_t number_length() const;
-    void push_number(ColumnString::Chars& chars, const UInt32& num) const;
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    std::string to_string(UInt32 int_val) const;
+#ifdef BE_TEST
+    /// TODO: remove this in the future
+    using IDataType::to_string;
+    std::string to_string(UInt32 int_val) const {
+        DateV2Value<DateV2ValueType> val =
+                binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
+
+        char buf[64];
+        val.to_string(buf); // DateTime to_string the end is /0
+        return std::string {buf};
+    }
+#endif
 
     MutableColumnPtr create_column() const override;
 
@@ -124,19 +127,26 @@ public:
         return doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
     }
     const std::string get_family_name() const override { return "DateTimeV2"; }
-    std::string do_get_name() const override { return "DateTimeV2"; }
-
-    bool equals(const IDataType& rhs) const override;
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<PrimitiveType::TYPE_DATETIMEV2>::template to_string_batch_impl<
-                DataTypeDateTimeV2>(column, column_to);
+    std::string do_get_name() const override {
+        return "DateTimeV2(" + std::to_string(_scale) + ")";
     }
 
-    size_t number_length() const;
-    void push_number(ColumnString::Chars& chars, const UInt64& num) const;
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    std::string to_string(UInt64 int_val) const;
+    bool equals(const IDataType& rhs) const override;
+    bool equals_ignore_precision(const IDataType& rhs) const override {
+        return rhs.get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2;
+    }
+#ifdef BE_TEST
+    /// TODO: remove this in the future
+    using IDataType::to_string;
+    std::string to_string(UInt64 int_val) const {
+        DateV2Value<DateTimeV2ValueType> val =
+                binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
+
+        char buf[64];
+        val.to_string(buf, _scale);
+        return buf; // DateTime to_string the end is /0
+    }
+#endif
     using SerDeType = DataTypeDateTimeV2SerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(_scale, nesting_level);

@@ -39,10 +39,10 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.Origin;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
+import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
@@ -53,9 +53,11 @@ import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -68,17 +70,16 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.PreparePlaceholder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -143,7 +144,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private final boolean enableExactMatch;
     private final boolean bindSlotInOuterScope;
     private final boolean wantToParseSqlFromSqlCache;
-    private boolean hasNondeterministic;
 
     /** ExpressionAnalyzer */
     public ExpressionAnalyzer(Plan currentPlan, Scope scope,
@@ -174,32 +174,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     /** analyze */
     public Expression analyze(Expression expression, ExpressionRewriteContext context) {
-        hasNondeterministic = false;
-        Expression analyzeResult = expression.accept(this, context);
-        if (wantToParseSqlFromSqlCache && hasNondeterministic
-                && context.cascadesContext.getStatementContext().getSqlCacheContext().isPresent()) {
-            hasNondeterministic = false;
-            StatementContext statementContext = context.cascadesContext.getStatementContext();
-            SqlCacheContext sqlCacheContext = statementContext.getSqlCacheContext().get();
-            Expression foldNondeterministic = new FoldConstantRuleOnFE(true) {
-                @Override
-                public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
-                    Expression fold = super.visitBoundFunction(boundFunction, context);
-                    boolean unfold = !fold.isDeterministic();
-                    if (unfold) {
-                        sqlCacheContext.setCannotProcessExpression(true);
-                    }
-                    if (!boundFunction.isDeterministic() && !unfold) {
-                        sqlCacheContext.addFoldNondeterministicPair(boundFunction, fold);
-                    }
-                    return fold;
-                }
-            }.rewrite(analyzeResult, context);
-
-            sqlCacheContext.addFoldFullNondeterministicPair(analyzeResult, foldNondeterministic);
-            return foldNondeterministic;
-        }
-        return analyzeResult;
+        return expression.accept(this, context);
     }
 
     @Override
@@ -491,11 +466,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             statementContext.setHasNondeterministic(true);
         }
         if (wantToParseSqlFromSqlCache) {
-            StatementContext statementContext = context.cascadesContext.getStatementContext();
-            if (!buildResult.second.isDeterministic()) {
-                hasNondeterministic = true;
-            }
-            sqlCacheContext = statementContext.getSqlCacheContext();
+            sqlCacheContext = context.cascadesContext.getStatementContext().getSqlCacheContext();
             if (builder instanceof AliasUdfBuilder
                     || buildResult.second instanceof JavaUdf || buildResult.second instanceof JavaUdaf) {
                 if (sqlCacheContext.isPresent()) {
@@ -517,6 +488,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             return buildResult.first;
         } else {
             Expression castFunction = TypeCoercionUtils.processBoundFunction((BoundFunction) buildResult.first);
+            if (castFunction instanceof RewriteWhenAnalyze) {
+                castFunction = ((RewriteWhenAnalyze) castFunction).rewriteWhenAnalyze();
+            }
             return castFunction;
         }
     }
@@ -680,7 +654,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         // In prepare stage, the realExpr has not been set, set it to StringLiteral so that we can plan the statement
         // and get the output slots in prepare stage, which is required by Mysql api definition.
         if (realExpr == null && context.cascadesContext.getStatementContext().isPrepareStage()) {
-            realExpr = new PreparePlaceholder(new IntegerLiteral(1));
+            realExpr = new StringLiteral(String.valueOf(placeholder.getPlaceholderId().asInt()));
         }
         return visit(realExpr, context);
     }
@@ -736,6 +710,21 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 .map(e -> e.accept(this, context)).collect(Collectors.toList());
         InPredicate newInPredicate = inPredicate.withChildren(rewrittenChildren);
         return TypeCoercionUtils.processInPredicate(newInPredicate);
+    }
+
+    @Override
+    public Expression visitBetween(Between between, ExpressionRewriteContext context) {
+        Expression compareExpr = between.getCompareExpr().accept(this, context);
+        Expression lowerBound = between.getLowerBound().accept(this, context);
+        Expression upperBound = between.getUpperBound().accept(this, context);
+        if (lowerBound.equals(upperBound)) {
+            // rewrite `x between a and a` to `x = a`
+            return TypeCoercionUtils.processComparisonPredicate(new EqualTo(compareExpr, lowerBound));
+        } else {
+            return new And(
+                    TypeCoercionUtils.processComparisonPredicate(new GreaterThanEqual(compareExpr, lowerBound)),
+                    TypeCoercionUtils.processComparisonPredicate(new LessThanEqual(compareExpr, upperBound)));
+        }
     }
 
     @Override

@@ -107,11 +107,6 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     }
 
-    if (!inverted_index_ctx->custom_analyzer.empty()) {
-        return Status::NotSupported(
-                "Custom analyzer is not supported for unindexed MATCH operations.");
-    }
-
     const ColumnPtr source_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
     const auto* values = check_and_get_column<ColumnString>(source_col.get());
@@ -184,7 +179,8 @@ std::vector<TermInfo> FunctionMatchBase::analyse_query_str_token(
     if (inverted_index_ctx == nullptr) {
         return query_tokens;
     }
-    if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
+    if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE &&
+        inverted_index_ctx->custom_analyzer.empty()) {
         query_tokens.emplace_back(match_query_str);
         return query_tokens;
     }
@@ -219,7 +215,8 @@ inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
         }
     } else {
         const auto& str_ref = string_col->get_data_at(current_block_row_idx);
-        if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
+        if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE &&
+            inverted_index_ctx->custom_analyzer.empty()) {
             data_tokens.emplace_back(str_ref.to_string());
         } else {
             auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(

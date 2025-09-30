@@ -35,6 +35,7 @@
 
 namespace doris {
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 // Same with definations in threadpool.cpp
 // Why use same name:
@@ -890,9 +891,9 @@ void TimeSharingTaskExecutor::_schedule_task_if_necessary(
 }
 
 void TimeSharingTaskExecutor::_add_new_entrants(std::unique_lock<std::mutex>& lock) {
-    int running = _all_splits.size() - _intermediate_splits.size();
+    size_t running = _all_splits.size() - _intermediate_splits.size();
     int max_loops = !_enable_concurrency_control ? std::numeric_limits<int>::max()
-                                                 : (_min_concurrency - running);
+                                                 : (_min_concurrency - static_cast<int>(running));
     for (int i = 0; i < max_loops; ++i) {
         auto split = _poll_next_split_worker(lock);
         if (!split) {

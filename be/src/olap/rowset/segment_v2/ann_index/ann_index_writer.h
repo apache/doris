@@ -43,6 +43,8 @@ public:
     static constexpr const char* METRIC_TYPE = "metric_type";
     static constexpr const char* DIM = "dim";
     static constexpr const char* MAX_DEGREE = "max_degree";
+    static constexpr const char* EF_CONSTRUCTION = "ef_construction";
+    static constexpr const char* QUANTIZER = "quantizer";
 
     explicit AnnIndexColumnWriter(IndexFileWriter* index_file_writer,
                                   const TabletIndex* index_meta);

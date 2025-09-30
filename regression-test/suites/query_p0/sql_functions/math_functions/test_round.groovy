@@ -313,4 +313,21 @@ suite("test_round") {
         sql ("select round_bankers(a, 1-2) from test_round_bankers_scale order by id")
         result([[new BigDecimal(40)]])
     }
+
+
+    sql """
+        DROP TABLE IF EXISTS test_dfloor_null;
+    """
+
+    sql """
+    CREATE TABLE test_dfloor_null (id INT, col1 DOUBLE, col2 DOUBLE, col3 DECIMAL(10,2), col4 VARCHAR(20), col5 DATETIME) DISTRIBUTED BY HASH(id) BUCKETS 4 PROPERTIES ("replication_num" = "1");
+    """
+
+    sql """
+    INSERT INTO test_dfloor_null (id, col1, col2, col3, col4, col5) VALUES (1, 10.5, 20.3, 100.25, 'test', '2023-01-01 10:00:00'), (2, 1.7976931348623157E308, -1.7976931348623157E308, 99999999.99, 'boundary', '9999-12-31 23:59:59'), (3, NULL, 0.0, -99999999.99, 'invalid', '1000-01-01 00:00:00'), (4, 15.75, 25.5, 50.00, 'special$char', '2023-06-15 14:30:45'), (5, 0.0, -0.0, 0.00, 'zero', '2023-03-20 08:15:30');
+    """
+
+    qt_sql """
+        SELECT dfloor(col1, col2) AS r FROM test_dfloor_null order by id;
+    """
 }

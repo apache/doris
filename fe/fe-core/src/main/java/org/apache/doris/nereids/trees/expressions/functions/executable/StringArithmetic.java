@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -876,6 +877,9 @@ public class StringArithmetic {
             throw new RuntimeException(e);
         }
         StringBuilder sb = new StringBuilder();
+        if (uri.getScheme() == null) {
+            return new NullLiteral(first.getDataType());
+        }
         switch (second.getValue().toUpperCase()) {
             case "PROTOCOL":
                 String scheme = uri.getScheme();
@@ -935,7 +939,11 @@ public class StringArithmetic {
                 sb.append(query);  // e.g., param1=value1&param2=value2
                 break;
             case "PORT":
-                sb.append(uri.getPort());
+                int port = uri.getPort();
+                if (port == -1) {
+                    return new NullLiteral(first.getDataType());
+                }
+                sb.append(port);
                 break;
             case "USERINFO":
                 String userInfo = uri.getUserInfo();
@@ -1058,5 +1066,79 @@ public class StringArithmetic {
             return castStringLikeLiteral(first, sb.toString());
         }
         return castStringLikeLiteral(first, first.getValue().replace(second.getValue(), third.getValue()));
+    }
+
+    /**
+     * Executable arithmetic functions soundex
+     */
+    @ExecFunction(name = "soundex")
+    public static Expression soundex(StringLikeLiteral first) {
+        char[] soundexTable = {
+            'V', '1', '2', '3', 'V', '1', '2', 'N', 'V',
+            '2', '2', '4', '5', '5', 'V', '1', '2', '6',
+            '2', '3', 'V', '1', 'N', '2', 'V', '2'
+        };
+
+        String result = "";
+        if (!first.getValue().isEmpty()) {
+            char preCode = '\0';
+
+            for (int i = 0; i < first.getValue().length(); i++) {
+                char c = first.getValue().charAt(i);
+
+                if (c > 0x7f) {
+                    throw new NotSupportedException("soundex only supports ASCII, but got: " + c);
+                }
+
+                if (!Character.isLetter(c)) {
+                    continue;
+                }
+
+                c = Character.toUpperCase(c);
+                if (result.isEmpty()) {
+                    result += c;
+                    preCode = (soundexTable[c - 'A'] == 'N') ? '\0' : soundexTable[c - 'A'];
+                } else {
+                    char code = soundexTable[c - 'A'];
+                    if (code != 'N') {
+                        if (code != 'V' && code != preCode) {
+                            result += code;
+                            if (result.length() == 4) {
+                                break;
+                            }
+                        }
+                        preCode = code;
+                    }
+                }
+            }
+
+            if (result.length() > 0) {
+                while (result.length() < 4) {
+                    result += '0';
+                }
+            }
+        }
+
+        return castStringLikeLiteral(first, result);
+    }
+
+    /**
+     * Executable arithmetic functions make_set
+     */
+    @ExecFunction(name = "make_set")
+    public static Expression make_set(BigIntLiteral bitLiteral, StringLikeLiteral... args) {
+        long bit = bitLiteral.getValue();
+        final StringBuilder sb = new StringBuilder();
+        int pos = Long.numberOfTrailingZeros(bit);
+        while (pos != 64 && pos < args.length && bit != 0) {
+            sb.append(args[pos].getValue());
+            sb.append(',');
+            bit &= ~(1 << pos);
+            pos = Long.numberOfTrailingZeros(bit);
+        }
+        if (sb.length() != 0) {
+            sb.deleteCharAt(sb.length() - 1);
+        }
+        return castStringLikeLiteral(args[0], sb.toString());
     }
 }

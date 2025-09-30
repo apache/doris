@@ -191,10 +191,10 @@ private:
     }
 
     template <bool str_const, bool start_const, bool len_const>
-    static void vectors_utf8(const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
-                             const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
-                             ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets,
-                             size_t size) {
+    NO_SANITIZE_UNDEFINED static void vectors_utf8(
+            const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
+            const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
+            ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets, size_t size) {
         std::array<std::byte, 128 * 1024> buf;
         PMR::monotonic_buffer_resource pool {buf.data(), buf.size()};
         PMR::vector<size_t> index {&pool};

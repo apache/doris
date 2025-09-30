@@ -21,6 +21,7 @@
 
 #include "vec/core/extended_types.h"
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 // Supported decimal number format:
 // <decimal> ::= <whitespace>* <value> <whitespace>*
 //
@@ -236,3 +237,4 @@ template wide::Int256 StringParser::string_to_decimal<PrimitiveType::TYPE_DECIMA
         const char* __restrict s, size_t len, int type_precision, int type_scale,
         ParseResult* result);
 } // end namespace doris
+#include "common/compile_check_avoid_end.h"

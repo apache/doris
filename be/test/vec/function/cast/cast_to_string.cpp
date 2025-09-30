@@ -22,6 +22,10 @@
 
 #include "cast_test.h"
 #include "util/to_string.h"
+#include "vec/columns/column_map.h"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
 using namespace ut_type;
@@ -336,5 +340,24 @@ TEST_F(FunctionCastToStringTest, from_double) {
         int len = CastToString::from_number(value_pair.first, buffer);
         EXPECT_EQ(std::string(buffer, len), std::string(value_pair.second));
     }
+}
+
+TEST_F(FunctionCastToStringTest, from_map) {
+    auto map_type = std::make_shared<DataTypeMap>(
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()));
+
+    auto serde = map_type->get_serde();
+
+    auto key_column = ColumnHelper::create_nullable_column<DataTypeString>({"123", "456"}, {0, 1});
+    auto value_column =
+            ColumnHelper::create_nullable_column<DataTypeString>({"abc", "def"}, {1, 0});
+    auto offset_column = ColumnArray::ColumnOffsets::create();
+    offset_column->insert_value(2);
+    auto column = ColumnMap::create(key_column, value_column, std::move(offset_column));
+    // {"123":null,"456":"def"}
+    ColumnString tmp_col;
+    serde->to_string_batch(*column, tmp_col);
+    EXPECT_EQ(tmp_col.get_data_at(0).to_string(), "{\"123\":null, null:\"def\"}");
 }
 } // namespace doris::vectorized

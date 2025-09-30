@@ -34,6 +34,9 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -130,6 +133,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     // from dbProperties;
     private BinlogConfig binlogConfig = new BinlogConfig();
 
+    // ATTN: This field is only used for compatible with old version
+    // Do not use it except for replaying OP_CREATE_DB
+    // it will be removed in version 4.0
+    @Deprecated
+    @SerializedName(value = "cn")
+    private String ctlName;
+
     public Database() {
         this(0, null);
     }
@@ -152,6 +162,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.dbEncryptKey = new DatabaseEncryptKey();
+    }
+
+    // DO NOT use it except for replaying OP_CREATE_DB
+    public String getCtlName() {
+        return ctlName;
     }
 
     public void markDropped() {
@@ -1021,5 +1036,31 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     public int getTableNum() {
         return idToTable.size();
+    }
+
+    /**
+     * get mtmv num
+     *
+     * @param trigger
+     * @param method
+     * @param partitionType
+     * @return
+     */
+    public int getMTMVNum(RefreshTrigger trigger, RefreshMethod method, MTMVPartitionType partitionType) {
+        if (trigger == null || method == null || partitionType == null) {
+            return 0;
+        }
+        int res = 0;
+        for (Table table : idToTable.values()) {
+            if (table instanceof MTMV) {
+                MTMV mtmv = (MTMV) table;
+                if (mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger().equals(trigger)
+                        && mtmv.getRefreshInfo().getRefreshMethod().equals(method) && mtmv.getMvPartitionInfo()
+                        .getPartitionType().equals(partitionType)) {
+                    res++;
+                }
+            }
+        }
+        return res;
     }
 }

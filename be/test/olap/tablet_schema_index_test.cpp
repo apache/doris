@@ -146,42 +146,6 @@ TEST_F(TabletSchemaIndexTest, TestClearIndexes) {
     EXPECT_TRUE(_tablet_schema->inverted_indexes().empty());
 }
 
-TEST_F(TabletSchemaIndexTest, TestUpdateIndexMethod) {
-    TabletColumn col;
-    col.set_parent_unique_id(100);
-    col.set_path_info(vectorized::PathInData("v2"));
-    _tablet_schema->append_column(col);
-
-    TabletIndex old_index = create_test_index(1, IndexType::INVERTED, {100}, "v2");
-    _tablet_schema->append_index(std::move(old_index));
-
-    TabletIndex new_index = create_test_index(1, IndexType::INVERTED, {100}, "v2");
-    new_index._properties["new_prop"] = "value";
-
-    _tablet_schema->update_index(col, IndexType::INVERTED, {std::move(new_index)});
-
-    auto updated_indexs = _tablet_schema->inverted_indexs(100, "v2");
-    ASSERT_FALSE(updated_indexs.empty());
-    EXPECT_EQ(updated_indexs[0]->index_id(), 1);
-    EXPECT_EQ(updated_indexs[0]->properties().at("new_prop"), "value");
-
-    auto key = std::make_tuple(IndexType::INVERTED, 100, "v2");
-    EXPECT_NE(_tablet_schema->_col_id_suffix_to_index.find(key),
-              _tablet_schema->_col_id_suffix_to_index.end());
-}
-
-TEST_F(TabletSchemaIndexTest, TestUpdateIndexAddNewWhenNotExist) {
-    // Not exist, return nullptr
-    TabletColumn col;
-    col.set_unique_id(200);
-
-    TabletIndex new_index = create_test_index(2, IndexType::INVERTED, {200}, "v3");
-    _tablet_schema->update_index(col, IndexType::INVERTED, {std::move(new_index)});
-
-    auto indexs = _tablet_schema->inverted_indexs(200, "v3");
-    ASSERT_TRUE(indexs.empty());
-}
-
 TEST_F(TabletSchemaIndexTest, TestUpdateIndexWithMultipleColumns) {
     TabletColumn col1, col2;
     col1.set_unique_id(300);
