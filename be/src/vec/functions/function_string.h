@@ -2976,35 +2976,34 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
 
 // Note string value must be valid decimal string which contains two digits after the decimal point
 static StringRef do_money_format(FunctionContext* context, const std::string& value) {
-    {
-        bool is_positive = (value[0] != '-');
-        int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
-        StringRef result = context->create_temp_string_val(result_len);
-        // Modify a string passed via stringref
-        char* result_data = const_cast<char*>(result.data);
-        if (!is_positive) {
-            *result_data = '-';
+    bool is_positive = (value[0] != '-');
+    int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
+    StringRef result = context->create_temp_string_val(result_len);
+    // Modify a string passed via stringref
+    char* result_data = const_cast<char*>(result.data);
+    if (!is_positive) {
+        *result_data = '-';
+    }
+    for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3) {
+        *(result_data + j) = *(value.data() + i);
+        if (i - 1 < 0) {
+            break;
         }
-        for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3) {
-            *(result_data + j) = *(value.data() + i);
-            if (i - 1 < 0) {
-                break;
-            }
-            *(result_data + j - 1) = *(value.data() + i - 1);
-            if (i - 2 < 0) {
-                break;
-            }
-            *(result_data + j - 2) = *(value.data() + i - 2);
-            if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
-                *(result_data + j - 3) = ',';
-                j -= 4;
-            } else {
-                j -= 3;
-            }
+        *(result_data + j - 1) = *(value.data() + i - 1);
+        if (i - 2 < 0) {
+            break;
         }
-        memcpy(result_data + result_len - 3, value.data() + value.size() - 3, 3);
-        return result;
-    };
+        *(result_data + j - 2) = *(value.data() + i - 2);
+        if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
+            *(result_data + j - 3) = ',';
+            j -= 4;
+        } else {
+            j -= 3;
+        }
+    }
+    memcpy(result_data + result_len - 3, value.data() + value.size() - 3, 3);
+    return result;
+};
 
 } // namespace MoneyFormat
 
