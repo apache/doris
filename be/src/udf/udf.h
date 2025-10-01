@@ -30,7 +30,6 @@
 
 #include "runtime/types.h"
 #include "util/runtime_profile.h"
-#include "util/slice.h"
 #include "vec/common/arena.h"
 
 namespace doris {
@@ -164,8 +163,8 @@ public:
     // Init() or Close() functions.
     doris::ColumnPtrWrapper* get_constant_col(int arg_idx) const;
 
-    // Creates a Slice, which memory is available when this function context is used next time
-    Slice create_temp_string_val(int64_t len);
+    // Creates a StringRef, which memory is available when this function context is used next time
+    StringRef create_temp_string_val(int64_t len);
 
     ~FunctionContext() = default;
 
