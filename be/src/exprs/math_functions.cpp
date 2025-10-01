@@ -125,6 +125,8 @@ StringRef MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, 
         buf[buf_index] = '-';
         ++result_len;
     }
+
+    // Modify a string passed via stringref
     StringRef result = ctx->create_temp_string_val(result_len);
     memcpy(const_cast<char*>(result.data), buf + max_digits - result_len, result_len);
     return result;
