@@ -108,7 +108,7 @@ class HttpCliAction implements SuiteAction {
                     .setRedirectStrategy(new LaxRedirectStrategy()) // allow redirect to fe master
                     .build()
                     .withCloseable { client -> 
-                uri = "http://$endpoint" + uri
+                uri = "\"" + "http://$endpoint" + uri + "\""
                 log.info("url : " + uri)
                 log.info("body: " + body)
                 log.info("op: " + op)
