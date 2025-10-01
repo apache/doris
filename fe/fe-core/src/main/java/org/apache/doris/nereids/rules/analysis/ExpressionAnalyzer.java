@@ -397,6 +397,21 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     newChildrenBuilder.add(unboundFunction.child(i));
                 }
                 unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
+            } else if (StringUtils.isEmpty(unboundFunction.getDbName())
+                    && "get_format".equalsIgnoreCase(unboundFunction.getName())
+                    && unboundFunction.arity() == 2
+                    && unboundFunction.child(0) instanceof UnboundSlot) {
+                UnboundSlot category = (UnboundSlot) unboundFunction.child(0);
+                List<String> nameParts = category.getNameParts();
+                if (nameParts.size() == 1 && isGetFormatCategory(nameParts.get(0))) {
+                    StringLiteral categoryLiteral = new StringLiteral(nameParts.get(0).toUpperCase(Locale.ROOT));
+                    ImmutableList.Builder<Expression> newChildrenBuilder = ImmutableList.builder();
+                    newChildrenBuilder.add(categoryLiteral);
+                    for (int i = 1; i < unboundFunction.arity(); i++) {
+                        newChildrenBuilder.add(unboundFunction.child(i));
+                    }
+                    unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
+                }
             }
             unboundFunction = (UnboundFunction) super.visit(unboundFunction, context);
         }
@@ -509,6 +524,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             return windowExpression.withFunction(((NullableAggregateFunction) function).withAlwaysNullable(true));
         }
         return windowExpression;
+    }
+
+    private boolean isGetFormatCategory(String name) {
+        return "DATE".equalsIgnoreCase(name)
+                || "DATETIME".equalsIgnoreCase(name)
+                || "TIME".equalsIgnoreCase(name);
     }
 
     /**

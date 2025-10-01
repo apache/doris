@@ -41,3 +41,27 @@
 -- !sql_diff14 --
 86400000000
 
+-- !get_format_date --
+%m.%d.%Y
+%Y-%m-%d
+%Y-%m-%d
+%d.%m.%Y
+%Y%m%d
+\N
+
+-- !get_format_datetime --
+%Y-%m-%d %H.%i.%s
+%Y-%m-%d %H:%i:%s
+%Y-%m-%d %H:%i:%s
+%Y-%m-%d %H.%i.%s
+%Y%m%d%H%i%s
+\N
+
+-- !get_format_time --
+%h:%i:%s %p
+%H:%i:%s
+%H:%i:%s
+%H.%i.%s
+%H%i%s
+\N
+
