@@ -101,6 +101,12 @@ public:
 
     void insert_default() override { _data.push_back(doris::StringView()); }
 
+    int compare_at(size_t n, size_t m, const IColumn& rhs_,
+                   int /*nan_direction_hint*/) const override {
+        const ColumnVarbinary& rhs = assert_cast<const ColumnVarbinary&>(rhs_);
+        return this->_data[n].compare(rhs.get_data()[m]);
+    }
+
     void pop_back(size_t n) override { resize(size() - n); }
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena,
