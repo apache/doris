@@ -279,19 +279,35 @@ void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t
 template <PrimitiveType T>
 void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                           const uint32_t* indices_end) {
+    const auto& src_concrete = static_cast<const ColumnVector<T>&>(src);
+    size_t src_size = src_concrete.size();
+    if (indices_begin == nullptr || indices_end == nullptr || indices_begin > indices_end) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "Invalid index range: begin={}, end={}",
+                        static_cast<const void*>(indices_begin),
+                        static_cast<const void*>(indices_end));
+    }
+                                            
     auto origin_size = size();
     auto new_size = indices_end - indices_begin;
+    if (new_size == 0) {
+        return;
+    }
     data.resize(origin_size + new_size);
 
     auto copy = [](const value_type* __restrict src, value_type* __restrict dest,
-                   const uint32_t* __restrict begin, const uint32_t* __restrict end) {
+                   const uint32_t* __restrict begin, const uint32_t* __restrict end, size_t src_size) {
         for (const auto* it = begin; it != end; ++it) {
+            if (*it >= src_size) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Index {} exceeds source column size {}", *it, src_size);
+            }
             *dest = src[*it];
             ++dest;
         }
     };
     copy(reinterpret_cast<const value_type*>(src.get_raw_data().data), data.data() + origin_size,
-         indices_begin, indices_end);
+         indices_begin, indices_end, src_size);
 }
 
 template <PrimitiveType T>
