@@ -25,6 +25,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.mysql.privilege.RoleManager;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.base.Strings;
@@ -53,6 +54,10 @@ public class FeNameFormat {
 
     public static final String TEMPORARY_TABLE_SIGN = "_#TEMP#_";
 
+    private static final String NESTED_DB_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9\\-_]*(\\.([a-zA-Z0-9\\-_]+))*$";
+    private static final String NESTED_UNICODE_DB_NAME_REGEX
+            = "^[a-zA-Z\\p{L}][a-zA-Z0-9\\-_\\p{L}]*(\\.([a-zA-Z0-9\\-_\\p{L}]+))*$";
+
     public static void checkCatalogName(String catalogName) throws AnalysisException {
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName) && (Strings.isNullOrEmpty(catalogName)
                 || !catalogName.matches(getCommonNameRegex()))) {
@@ -61,7 +66,10 @@ public class FeNameFormat {
     }
 
     public static void checkDbName(String dbName) throws AnalysisException {
-        if (Strings.isNullOrEmpty(dbName) || !dbName.matches(getCommonNameRegex())) {
+        if (Strings.isNullOrEmpty(dbName)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
+        }
+        if (!dbName.matches(getDbNameRegex())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
         }
     }
@@ -250,6 +258,22 @@ public class FeNameFormat {
             return UNICODE_COMMON_NAME_REGEX;
         } else {
             return COMMON_NAME_REGEX;
+        }
+    }
+
+    public static String getDbNameRegex() {
+        if (GlobalVariable.enableNestedNamespace) {
+            if (FeNameFormat.isEnableUnicodeNameSupport()) {
+                return NESTED_UNICODE_DB_NAME_REGEX;
+            } else {
+                return NESTED_DB_NAME_REGEX;
+            }
+        } else {
+            if (FeNameFormat.isEnableUnicodeNameSupport()) {
+                return UNICODE_COMMON_NAME_REGEX;
+            } else {
+                return COMMON_NAME_REGEX;
+            }
         }
     }
 
