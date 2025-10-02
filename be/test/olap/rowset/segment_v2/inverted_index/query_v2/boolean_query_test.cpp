@@ -19,19 +19,23 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <string>
+#include <unordered_map>
 
 #include "common/status.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/custom_analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/bitmap_query/bitmap_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_query.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
 
 CL_NS_USE(search)
 CL_NS_USE(store)
+CL_NS_USE(index)
 
 namespace doris::segment_v2 {
 
@@ -115,13 +119,12 @@ private:
 };
 
 static Status boolean_query_search(
-        const std::string& name, lucene::index::IndexReader* reader,
+        const std::string& name, const std::shared_ptr<lucene::index::IndexReader>& reader,
         const std::pair<std::vector<std::string>, std::vector<std::string>>& terms,
         query_v2::OperatorType op, roaring::Roaring& out_bitmap) {
     std::wstring field = StringHelper::to_wstring(name);
-
-    auto composite_reader = std::make_unique<query_v2::CompositeReader>();
-    composite_reader->set_reader(field, reader);
+    auto query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
+    std::string binding_key = name + "#" + std::to_string(static_cast<int>(query_type));
 
     auto context = std::make_shared<IndexQueryContext>();
     context->collection_statistics = std::make_shared<CollectionStatistics>();
@@ -133,24 +136,30 @@ static Status boolean_query_search(
         for (const auto& term : terms.first) {
             std::wstring t = StringHelper::to_wstring(term);
             auto clause = std::make_shared<query_v2::TermQuery>(context, field, t);
-            builder_child.add(clause);
+            builder_child.add(clause, binding_key);
         }
         auto boolean_query = builder_child.build();
-        builder.add(boolean_query);
+        builder.add(boolean_query, binding_key);
     }
     {
         query_v2::BooleanQuery::Builder builder_child(query_v2::OperatorType::OP_OR);
         for (const auto& term : terms.second) {
             std::wstring t = StringHelper::to_wstring(term);
             auto clause = std::make_shared<query_v2::TermQuery>(context, field, t);
-            builder_child.add(clause);
+            builder_child.add(clause, binding_key);
         }
         auto boolean_query = builder_child.build();
-        builder.add(boolean_query);
+        builder.add(boolean_query, binding_key);
     }
     auto boolean_query = builder.build();
     auto weight = boolean_query->weight(false);
-    auto scorer = weight->scorer(composite_reader);
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader->maxDoc();
+    exec_ctx.readers = {reader};
+    exec_ctx.reader_bindings.emplace(binding_key, reader);
+    exec_ctx.field_reader_bindings.emplace(field, reader);
+
+    auto scorer = weight->scorer(exec_ctx);
 
     uint32_t doc = scorer->doc();
     while (doc != query_v2::TERMINATED) {
@@ -159,6 +168,16 @@ static Status boolean_query_search(
     }
 
     return Status::OK();
+}
+
+static std::shared_ptr<lucene::index::IndexReader> make_shared_reader(
+        lucene::index::IndexReader* raw_reader) {
+    return {raw_reader, [](lucene::index::IndexReader* reader) {
+                if (reader != nullptr) {
+                    reader->close();
+                    _CLDELETE(reader);
+                }
+            }};
 }
 
 std::vector<std::string> tokenize(const CustomAnalyzerPtr& custom_analyzer,
@@ -188,10 +207,10 @@ TEST_F(BooleanQueryTest, test_boolean_query) {
             {{"apple", "banana"}, {"kiwi"}}};
 
     auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
-    auto* reader = IndexReader::open(dir, true);
+    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
 
-    ASSERT_TRUE(reader != nullptr) << "Failed to open index reader";
-    EXPECT_EQ(reader->numDocs(), 80) << "Index should contain 80 documents";
+    ASSERT_TRUE(reader_holder != nullptr) << "Failed to open index reader";
+    EXPECT_EQ(reader_holder->numDocs(), 80) << "Index should contain 80 documents";
 
     const std::vector<uint32_t> expected_cards = {10, 20, 0, 0};
 
@@ -200,7 +219,7 @@ TEST_F(BooleanQueryTest, test_boolean_query) {
         roaring::Roaring result;
 
         try {
-            Status res = boolean_query_search("name1", reader, terms,
+            Status res = boolean_query_search("name1", reader_holder, terms,
                                               query_v2::OperatorType::OP_AND, result);
             EXPECT_TRUE(res.ok()) << "Boolean query case " << i << " should execute successfully";
             EXPECT_EQ(result.cardinality(), expected_cards[i])
@@ -210,8 +229,6 @@ TEST_F(BooleanQueryTest, test_boolean_query) {
         }
     }
 
-    reader->close();
-    _CLLDELETE(reader);
     _CLDECDELETE(dir);
 }
 
@@ -225,7 +242,7 @@ TEST_F(BooleanQueryTest, test_boolean_query_or_operation) {
             {{"apple"}, {"banana"}}, {{"nonexistent"}, {"apple"}}};
 
     auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
-    auto* reader = IndexReader::open(dir, true);
+    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
 
     const std::vector<uint32_t> expected_cards = {70, 40};
 
@@ -234,8 +251,8 @@ TEST_F(BooleanQueryTest, test_boolean_query_or_operation) {
         roaring::Roaring result;
 
         try {
-            Status res = boolean_query_search("name1", reader, terms, query_v2::OperatorType::OP_OR,
-                                              result);
+            Status res = boolean_query_search("name1", reader_holder, terms,
+                                              query_v2::OperatorType::OP_OR, result);
             EXPECT_TRUE(res.ok()) << "Boolean OR query case " << i
                                   << " should execute successfully";
             EXPECT_EQ(result.cardinality(), expected_cards[i])
@@ -245,8 +262,6 @@ TEST_F(BooleanQueryTest, test_boolean_query_or_operation) {
         }
     }
 
-    reader->close();
-    _CLLDELETE(reader);
     _CLDECDELETE(dir);
 }
 
@@ -258,19 +273,27 @@ TEST_F(BooleanQueryTest, test_boolean_query_not_operation) {
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
-    auto* reader = IndexReader::open(dir, true);
-    ASSERT_TRUE(reader != nullptr);
+    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    ASSERT_TRUE(reader_holder != nullptr);
 
-    auto composite_reader = std::make_unique<query_v2::CompositeReader>();
-    composite_reader->set_reader(field, reader);
+    auto query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
+    std::string binding_key =
+            std::string("name1") + "#" + std::to_string(static_cast<int>(query_type));
 
     query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_NOT);
     builder.add(std::make_shared<query_v2::TermQuery>(context, field,
-                                                      StringHelper::to_wstring("apple")));
+                                                      StringHelper::to_wstring("apple")),
+                binding_key);
     auto query = builder.build();
 
     auto weight = query->weight(false);
-    auto scorer = weight->scorer(composite_reader);
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader_holder->maxDoc();
+    exec_ctx.readers = {reader_holder};
+    exec_ctx.reader_bindings.emplace(binding_key, reader_holder);
+    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+
+    auto scorer = weight->scorer(exec_ctx);
 
     uint32_t doc = scorer->doc();
     uint32_t count = 0;
@@ -281,8 +304,6 @@ TEST_F(BooleanQueryTest, test_boolean_query_not_operation) {
 
     EXPECT_EQ(count, 40);
 
-    reader->close();
-    _CLLDELETE(reader);
     _CLDECDELETE(dir);
 }
 
@@ -294,25 +315,33 @@ TEST_F(BooleanQueryTest, test_boolean_query_or_with_not_operation) {
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
-    auto* reader = IndexReader::open(dir, true);
-    ASSERT_TRUE(reader != nullptr);
-
-    auto composite_reader = std::make_unique<query_v2::CompositeReader>();
-    composite_reader->set_reader(field, reader);
+    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    ASSERT_TRUE(reader_holder != nullptr);
 
     query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_OR);
+    auto query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
+    std::string include_key =
+            std::string("name1") + "#" + std::to_string(static_cast<int>(query_type));
     builder.add(std::make_shared<query_v2::TermQuery>(context, field,
-                                                      StringHelper::to_wstring("apple")));
+                                                      StringHelper::to_wstring("apple")),
+                include_key);
     {
         query_v2::BooleanQuery::Builder not_builder(query_v2::OperatorType::OP_NOT);
         not_builder.add(std::make_shared<query_v2::TermQuery>(context, field,
-                                                              StringHelper::to_wstring("banana")));
-        builder.add(not_builder.build());
+                                                              StringHelper::to_wstring("banana")),
+                        include_key);
+        builder.add(not_builder.build(), include_key);
     }
     auto query = builder.build();
 
     auto weight = query->weight(false);
-    auto scorer = weight->scorer(composite_reader);
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader_holder->maxDoc();
+    exec_ctx.readers = {reader_holder};
+    exec_ctx.reader_bindings[include_key] = reader_holder;
+    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+
+    auto scorer = weight->scorer(exec_ctx);
 
     uint32_t doc = scorer->doc();
     uint32_t count = 0;
@@ -323,8 +352,6 @@ TEST_F(BooleanQueryTest, test_boolean_query_or_with_not_operation) {
 
     EXPECT_EQ(count, 50);
 
-    reader->close();
-    _CLLDELETE(reader);
     _CLDECDELETE(dir);
 }
 
@@ -351,32 +378,38 @@ TEST_F(BooleanQueryTest, test_boolean_query_scoring_or) {
     set_df("kiwi", 30);
     set_df("strawberry", 20);
 
+    auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
+    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    ASSERT_TRUE(reader_holder != nullptr);
+
     query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_OR);
+    auto query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
+    std::string binding_key =
+            std::string("name1") + "#" + std::to_string(static_cast<int>(query_type));
     {
         query_v2::BooleanQuery::Builder builder_child(query_v2::OperatorType::OP_AND);
         auto clause = std::make_shared<query_v2::TermQuery>(context, field,
                                                             StringHelper::to_wstring("apple"));
-        builder_child.add(clause);
-        builder.add(builder_child.build());
+        builder_child.add(clause, binding_key);
+        builder.add(builder_child.build(), binding_key);
     }
     {
         query_v2::BooleanQuery::Builder builder_child(query_v2::OperatorType::OP_OR);
         auto clause = std::make_shared<query_v2::TermQuery>(context, field,
                                                             StringHelper::to_wstring("kiwi"));
-        builder_child.add(clause);
-        builder.add(builder_child.build());
+        builder_child.add(clause, binding_key);
+        builder.add(builder_child.build(), binding_key);
     }
     auto boolean_query = builder.build();
 
-    auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
-    auto* reader = IndexReader::open(dir, true);
-    ASSERT_TRUE(reader != nullptr);
-
-    auto composite_reader = std::make_unique<query_v2::CompositeReader>();
-    composite_reader->set_reader(field, reader);
-
     auto weight = boolean_query->weight(true);
-    auto scorer = weight->scorer(composite_reader);
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader_holder->maxDoc();
+    exec_ctx.readers = {reader_holder};
+    exec_ctx.reader_bindings[binding_key] = reader_holder;
+    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+
+    auto scorer = weight->scorer(exec_ctx);
 
     uint32_t doc = scorer->doc();
     uint32_t count = 0;
@@ -400,8 +433,6 @@ TEST_F(BooleanQueryTest, test_boolean_query_scoring_or) {
     EXPECT_GT(score_both, 0.0F);
     EXPECT_GT(score_both, score_single);
 
-    reader->close();
-    _CLLDELETE(reader);
     _CLDECDELETE(dir);
 }
 
@@ -413,16 +444,23 @@ TEST_F(BooleanQueryTest, test_boolean_query_cross_fields_with_composite_reader) 
 
     auto* dir1 = FSDirectory::getDirectory(kTestDir1.c_str());
     auto* dir2 = FSDirectory::getDirectory(kTestDir2.c_str());
-    auto* ir1 = IndexReader::open(dir1, true);
-    auto* ir2 = IndexReader::open(dir2, true);
-    ASSERT_TRUE(ir1 != nullptr);
-    ASSERT_TRUE(ir2 != nullptr);
-    EXPECT_EQ(ir1->numDocs(), 80);
-    EXPECT_EQ(ir2->numDocs(), 80);
+    auto ir1_holder = make_shared_reader(lucene::index::IndexReader::open(dir1, true));
+    auto ir2_holder = make_shared_reader(lucene::index::IndexReader::open(dir2, true));
+    ASSERT_TRUE(ir1_holder != nullptr);
+    ASSERT_TRUE(ir2_holder != nullptr);
+    EXPECT_EQ(ir1_holder->numDocs(), 80);
+    EXPECT_EQ(ir2_holder->numDocs(), 80);
 
-    auto composite_reader = std::make_unique<query_v2::CompositeReader>();
-    composite_reader->set_reader(wfield1, ir1);
-    composite_reader->set_reader(wfield2, ir2);
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = std::max(ir1_holder->maxDoc(), ir2_holder->maxDoc());
+    exec_ctx.readers = {ir1_holder, ir2_holder};
+    auto query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
+    std::string binding1 = field_name1 + "#" + std::to_string(static_cast<int>(query_type));
+    std::string binding2 = field_name2 + "#" + std::to_string(static_cast<int>(query_type));
+    exec_ctx.reader_bindings[binding1] = ir1_holder;
+    exec_ctx.reader_bindings[binding2] = ir2_holder;
+    exec_ctx.field_reader_bindings.emplace(wfield1, ir1_holder);
+    exec_ctx.field_reader_bindings.emplace(wfield2, ir2_holder);
 
     auto context = std::make_shared<IndexQueryContext>();
     context->collection_statistics = std::make_shared<CollectionStatistics>();
@@ -431,12 +469,14 @@ TEST_F(BooleanQueryTest, test_boolean_query_cross_fields_with_composite_reader) 
     {
         query_v2::BooleanQuery::Builder b(query_v2::OperatorType::OP_AND);
         b.add(std::make_shared<query_v2::TermQuery>(context, wfield1,
-                                                    StringHelper::to_wstring("apple")));
+                                                    StringHelper::to_wstring("apple")),
+              binding1);
         b.add(std::make_shared<query_v2::TermQuery>(context, wfield2,
-                                                    StringHelper::to_wstring("banana")));
+                                                    StringHelper::to_wstring("banana")),
+              binding2);
         auto q = b.build();
         auto w = q->weight(false);
-        auto s = w->scorer(composite_reader);
+        auto s = w->scorer(exec_ctx);
 
         uint32_t doc = s->doc();
         uint32_t count = 0;
@@ -450,12 +490,14 @@ TEST_F(BooleanQueryTest, test_boolean_query_cross_fields_with_composite_reader) 
     {
         query_v2::BooleanQuery::Builder b(query_v2::OperatorType::OP_OR);
         b.add(std::make_shared<query_v2::TermQuery>(context, wfield1,
-                                                    StringHelper::to_wstring("apple")));
+                                                    StringHelper::to_wstring("apple")),
+              binding1);
         b.add(std::make_shared<query_v2::TermQuery>(context, wfield2,
-                                                    StringHelper::to_wstring("banana")));
+                                                    StringHelper::to_wstring("banana")),
+              binding2);
         auto q = b.build();
         auto w = q->weight(false);
-        auto s = w->scorer(composite_reader);
+        auto s = w->scorer(exec_ctx);
 
         uint32_t doc = s->doc();
         uint32_t count = 0;
@@ -466,12 +508,109 @@ TEST_F(BooleanQueryTest, test_boolean_query_cross_fields_with_composite_reader) 
         EXPECT_EQ(count, 70);
     }
 
-    ir1->close();
-    ir2->close();
-    _CLLDELETE(ir1);
-    _CLLDELETE(ir2);
     _CLDECDELETE(dir1);
     _CLDECDELETE(dir2);
+}
+
+TEST_F(BooleanQueryTest, test_boolean_query_bitmap_and_term) {
+    std::wstring field = StringHelper::to_wstring("name1");
+
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
+    auto* reader = lucene::index::IndexReader::open(dir, true);
+    ASSERT_TRUE(reader != nullptr);
+
+    auto reader_holder =
+            std::shared_ptr<lucene::index::IndexReader>(reader, [](lucene::index::IndexReader* r) {
+                if (r != nullptr) {
+                    r->close();
+                    _CLLDELETE(r);
+                }
+            });
+
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = static_cast<uint32_t>(reader_holder->numDocs());
+    exec_ctx.readers.push_back(reader_holder);
+    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+
+    roaring::Roaring bm;
+    for (uint32_t d = 0; d < static_cast<uint32_t>(reader->numDocs()); ++d) {
+        if (d % 8 == 0 || d % 8 == 1) {
+            bm.add(d);
+        }
+    }
+
+    query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_AND);
+    builder.add(std::make_shared<query_v2::TermQuery>(context, field,
+                                                      StringHelper::to_wstring("apple")));
+    builder.add(std::make_shared<query_v2::BitmapQuery>(bm));
+    auto q = builder.build();
+
+    auto w = q->weight(false);
+    auto s = w->scorer(exec_ctx);
+
+    uint32_t doc = s->doc();
+    uint32_t count = 0;
+    while (doc != query_v2::TERMINATED) {
+        EXPECT_TRUE(doc % 8 == 0 || doc % 8 == 1);
+        ++count;
+        doc = s->advance();
+    }
+    EXPECT_EQ(count, 20);
+    _CLDECDELETE(dir);
+}
+
+TEST_F(BooleanQueryTest, test_boolean_query_bitmap_or_term) {
+    std::wstring field = StringHelper::to_wstring("name1");
+
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
+    auto* reader = lucene::index::IndexReader::open(dir, true);
+    ASSERT_TRUE(reader != nullptr);
+
+    auto reader_holder =
+            std::shared_ptr<lucene::index::IndexReader>(reader, [](lucene::index::IndexReader* r) {
+                if (r != nullptr) {
+                    r->close();
+                    _CLLDELETE(r);
+                }
+            });
+
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = static_cast<uint32_t>(reader_holder->numDocs());
+    exec_ctx.readers.push_back(reader_holder);
+    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+
+    roaring::Roaring bm;
+    for (uint32_t d = 0; d < static_cast<uint32_t>(reader->numDocs()); ++d) {
+        if (d % 8 == 2 || d % 8 == 3) {
+            bm.add(d);
+        }
+    }
+
+    query_v2::BooleanQuery::Builder builder(query_v2::OperatorType::OP_OR);
+    builder.add(std::make_shared<query_v2::TermQuery>(context, field,
+                                                      StringHelper::to_wstring("apple")));
+    builder.add(std::make_shared<query_v2::BitmapQuery>(bm));
+    auto q = builder.build();
+
+    auto w = q->weight(false);
+    auto s = w->scorer(exec_ctx);
+
+    uint32_t doc = s->doc();
+    uint32_t count = 0;
+    while (doc != query_v2::TERMINATED) {
+        ++count;
+        doc = s->advance();
+    }
+    EXPECT_EQ(count, 60);
+    _CLDECDELETE(dir);
 }
 
 } // namespace doris::segment_v2
