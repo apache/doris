@@ -135,7 +135,13 @@ public:
     // Operator |=
     InvertedIndexResultBitmap& operator|=(const InvertedIndexResultBitmap& other) {
         if (_data_bitmap && _null_bitmap && other._data_bitmap && other._null_bitmap) {
-            auto new_null_bitmap = (*_null_bitmap | *other._null_bitmap) - *_data_bitmap;
+            // SQL three-valued logic for OR:
+            // - TRUE OR anything = TRUE (not NULL)
+            // - FALSE OR NULL = NULL
+            // - NULL OR NULL = NULL
+            // Result is NULL only when BOTH operands are NULL
+            // Therefore: use intersection (AND) for NULL bitmaps, not union (OR)
+            auto new_null_bitmap = (*_null_bitmap & *other._null_bitmap) - *_data_bitmap;
             *_data_bitmap |= *other._data_bitmap;
             *_null_bitmap = std::move(new_null_bitmap);
         }
