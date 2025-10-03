@@ -25,10 +25,15 @@
 #include "util/profile_collector.h"
 #include "vec/exprs/vexpr_fwd.h"
 
+namespace doris {
+struct TypeDetail;
+class ColumnPredicate;
+} // namespace doris
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 class Block;
+class VSlotRef;
 // This a reader interface for all file readers.
 // A GenericReader is responsible for reading a file and return
 // a set of blocks with specified schema,
@@ -106,5 +111,22 @@ protected:
     FileMetaCache* _meta_cache = nullptr;
 };
 
+class ExprPushDownHelper {
+public:
+    ExprPushDownHelper() = default;
+    virtual ~ExprPushDownHelper() = default;
+    bool check_expr_can_push_down(const VExprSPtr& expr) const;
+    Status convert_predicates(const VExprSPtrs& exprs, std::vector<ColumnPredicate*>& predicates,
+                              Arena& arena);
+
+protected:
+    virtual bool _exists_in_file(const VSlotRef*) const = 0;
+    virtual bool _type_matches(const VSlotRef*) const = 0;
+private:
+    bool _check_slot_can_push_down(const VExprSPtr& expr) const;
+    bool _check_other_children_is_literal(const VExprSPtr& expr) const;
+    Status _extract_predicates(const VExprSPtr& expr, int& cid, TypeDetail& detail,
+                               std::vector<Field>& values, bool& parsed) const;
+};
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

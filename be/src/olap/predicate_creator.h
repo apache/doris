@@ -36,10 +36,15 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
 template <typename ConditionType>
 class PredicateCreator {
 public:
+    // TODO(gabriel): maybe we do not need a TabletColumn for internal table
     virtual ColumnPredicate* create(const TabletColumn& column, int index,
+                                    const ConditionType& conditions, bool opposite,
+                                    vectorized::Arena& arena) = 0;
+    virtual ColumnPredicate* create(const TypeDetail detail, int index,
                                     const ConditionType& conditions, bool opposite,
                                     vectorized::Arena& arena) = 0;
     virtual ~PredicateCreator() = default;
@@ -54,6 +59,17 @@ public:
         if constexpr (PredicateTypeTraits::is_list(PT)) {
             return create_in_list_predicate<Type, PT, ConditionType, decltype(convert)>(
                     index, conditions, convert, opposite, &column, arena);
+        } else {
+            static_assert(PredicateTypeTraits::is_comparison(PT));
+            return new ComparisonPredicateBase<Type, PT>(index, convert(conditions), opposite);
+        }
+    }
+
+    ColumnPredicate* create(const TypeDetail detail, int index, const ConditionType& conditions,
+                            bool opposite, vectorized::Arena& arena) override {
+        if constexpr (PredicateTypeTraits::is_list(PT)) {
+            return create_in_list_predicate<Type, PT, ConditionType, decltype(convert)>(
+                    index, conditions, convert, opposite, detail, arena);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
             return new ComparisonPredicateBase<Type, PT>(index, convert(conditions), opposite);
@@ -82,22 +98,40 @@ public:
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, vectorized::Arena& arena) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
-            return create_in_list_predicate<Type, PT, ConditionType, decltype(convert)>(
-                    index, conditions, convert, opposite, &column, arena);
+            return create_in_list_predicate<Type, PT, ConditionType, decltype(convert_by_column)>(
+                    index, conditions, convert_by_column, opposite, &column, arena);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
-            return new ComparisonPredicateBase<Type, PT>(index, convert(column, conditions),
+            return new ComparisonPredicateBase<Type, PT>(
+                    index, convert_by_column(column, conditions), opposite);
+        }
+    }
+
+    ColumnPredicate* create(const TypeDetail detail, int index, const ConditionType& conditions,
+                            bool opposite, vectorized::Arena& arena) override {
+        if constexpr (PredicateTypeTraits::is_list(PT)) {
+            return create_in_list_predicate<Type, PT, ConditionType, decltype(convert_by_type)>(
+                    index, conditions, convert_by_type, opposite, detail, arena);
+        } else {
+            static_assert(PredicateTypeTraits::is_comparison(PT));
+            return new ComparisonPredicateBase<Type, PT>(index, convert_by_type(detail, conditions),
                                                          opposite);
         }
     }
 
 private:
-    static CppType convert(const TabletColumn& column, const std::string& condition) {
+    static CppType convert_by_column(const TabletColumn& column, const std::string& condition) {
         StringParser::ParseResult result = StringParser::ParseResult::PARSE_SUCCESS;
         // return CppType value cast from int128_t
         return CppType(
                 StringParser::string_to_decimal<Type>(condition.data(), (int)condition.size(),
                                                       column.precision(), column.frac(), &result));
+    }
+    static CppType convert_by_type(const TypeDetail detail, const std::string& condition) {
+        StringParser::ParseResult result = StringParser::ParseResult::PARSE_SUCCESS;
+        // return CppType value cast from int128_t
+        return CppType(StringParser::string_to_decimal<Type>(
+                condition.data(), (int)condition.size(), detail.precision, detail.scale, &result));
     }
 };
 
@@ -107,21 +141,46 @@ public:
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, vectorized::Arena& arena) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
-            return create_in_list_predicate<Type, PT, ConditionType, decltype(convert)>(
-                    index, conditions, convert, opposite, &column, arena);
+            return create_in_list_predicate<Type, PT, ConditionType, decltype(convert_by_column)>(
+                    index, conditions, convert_by_column, opposite, &column, arena);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
-            return new ComparisonPredicateBase<Type, PT>(index, convert(column, conditions, arena),
-                                                         opposite);
+            return new ComparisonPredicateBase<Type, PT>(
+                    index, convert_by_column(column, conditions, arena), opposite);
+        }
+    }
+
+    ColumnPredicate* create(const TypeDetail detail, int index, const ConditionType& conditions,
+                            bool opposite, vectorized::Arena& arena) override {
+        if constexpr (PredicateTypeTraits::is_list(PT)) {
+            return create_in_list_predicate<Type, PT, ConditionType, decltype(convert_by_type)>(
+                    index, conditions, convert_by_type, opposite, detail, arena);
+        } else {
+            static_assert(PredicateTypeTraits::is_comparison(PT));
+            return new ComparisonPredicateBase<Type, PT>(
+                    index, convert_by_type(detail, conditions, arena), opposite);
         }
     }
 
 private:
-    static StringRef convert(const TabletColumn& column, const std::string& condition,
-                             vectorized::Arena& arena) {
+    static StringRef convert_by_column(const TabletColumn& column, const std::string& condition,
+                                       vectorized::Arena& arena) {
         size_t length = condition.length();
         if constexpr (Type == TYPE_CHAR) {
             length = std::max(static_cast<size_t>(column.length()), length);
+        }
+
+        char* buffer = arena.alloc(length);
+        memset(buffer, 0, length);
+        memcpy(buffer, condition.data(), condition.length());
+
+        return {buffer, length};
+    }
+    static StringRef convert_by_type(const TypeDetail detail, const std::string& condition,
+                                     vectorized::Arena& arena) {
+        size_t length = condition.length();
+        if constexpr (Type == TYPE_CHAR) {
+            length = std::max(static_cast<size_t>(detail.len), length);
         }
 
         char* buffer = arena.alloc(length);
@@ -144,6 +203,17 @@ public:
         if constexpr (PredicateTypeTraits::is_list(PT)) {
             return create_in_list_predicate<Type, PT, ConditionType, decltype(_convert)>(
                     index, conditions, _convert, opposite, &column, arena);
+        } else {
+            static_assert(PredicateTypeTraits::is_comparison(PT));
+            return new ComparisonPredicateBase<Type, PT>(index, _convert(conditions), opposite);
+        }
+    }
+
+    ColumnPredicate* create(const TypeDetail detail, int index, const ConditionType& conditions,
+                            bool opposite, vectorized::Arena& arena) override {
+        if constexpr (PredicateTypeTraits::is_list(PT)) {
+            return create_in_list_predicate<Type, PT, ConditionType, decltype(_convert)>(
+                    index, conditions, _convert, opposite, detail, arena);
         } else {
             static_assert(PredicateTypeTraits::is_comparison(PT));
             return new ComparisonPredicateBase<Type, PT>(index, _convert(conditions), opposite);
@@ -263,6 +333,114 @@ std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& ty
 }
 
 template <PredicateType PT, typename ConditionType>
+std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const PrimitiveType& type) {
+    switch (type) {
+    case TYPE_TINYINT: {
+        return std::make_unique<IntegerPredicateCreator<TYPE_TINYINT, PT, ConditionType>>();
+    }
+    case TYPE_SMALLINT: {
+        return std::make_unique<IntegerPredicateCreator<TYPE_SMALLINT, PT, ConditionType>>();
+    }
+    case TYPE_INT: {
+        return std::make_unique<IntegerPredicateCreator<TYPE_INT, PT, ConditionType>>();
+    }
+    case TYPE_BIGINT: {
+        return std::make_unique<IntegerPredicateCreator<TYPE_BIGINT, PT, ConditionType>>();
+    }
+    case TYPE_LARGEINT: {
+        return std::make_unique<IntegerPredicateCreator<TYPE_LARGEINT, PT, ConditionType>>();
+    }
+    case TYPE_FLOAT: {
+        return std::make_unique<IntegerPredicateCreator<TYPE_FLOAT, PT, ConditionType>>();
+    }
+    case TYPE_DOUBLE: {
+        return std::make_unique<IntegerPredicateCreator<TYPE_DOUBLE, PT, ConditionType>>();
+    }
+    case TYPE_DECIMALV2: {
+        return std::make_unique<CustomPredicateCreator<TYPE_DECIMALV2, PT, ConditionType>>(
+                [](const std::string& condition) {
+                    decimal12_t value = {0, 0};
+                    static_cast<void>(value.from_string(condition));
+                    // Decimal12t is storage type, we need convert to compute type here to
+                    // do comparisons
+                    return DecimalV2Value(value.integer, value.fraction);
+                });
+    }
+    case TYPE_DECIMAL32: {
+        return std::make_unique<DecimalPredicateCreator<TYPE_DECIMAL32, PT, ConditionType>>();
+    }
+    case TYPE_DECIMAL64: {
+        return std::make_unique<DecimalPredicateCreator<TYPE_DECIMAL64, PT, ConditionType>>();
+    }
+    case TYPE_DECIMAL128I: {
+        return std::make_unique<DecimalPredicateCreator<TYPE_DECIMAL128I, PT, ConditionType>>();
+    }
+    case TYPE_DECIMAL256: {
+        return std::make_unique<DecimalPredicateCreator<TYPE_DECIMAL256, PT, ConditionType>>();
+    }
+    case TYPE_CHAR: {
+        return std::make_unique<StringPredicateCreator<TYPE_CHAR, PT, ConditionType>>();
+    }
+    case TYPE_STRING:
+    case TYPE_VARCHAR: {
+        return std::make_unique<StringPredicateCreator<TYPE_STRING, PT, ConditionType>>();
+    }
+    case TYPE_DATE: {
+        return std::make_unique<CustomPredicateCreator<TYPE_DATE, PT, ConditionType>>(
+                timestamp_from_date);
+    }
+    case TYPE_DATEV2: {
+        return std::make_unique<CustomPredicateCreator<TYPE_DATEV2, PT, ConditionType>>(
+                timestamp_from_date_v2);
+    }
+    case TYPE_DATETIME: {
+        return std::make_unique<CustomPredicateCreator<TYPE_DATETIME, PT, ConditionType>>(
+                timestamp_from_datetime);
+    }
+    case TYPE_DATETIMEV2: {
+        return std::make_unique<CustomPredicateCreator<TYPE_DATETIMEV2, PT, ConditionType>>(
+                timestamp_from_datetime_v2);
+    }
+    case TYPE_BOOLEAN: {
+        return std::make_unique<CustomPredicateCreator<TYPE_BOOLEAN, PT, ConditionType>>(
+                [](const std::string& condition) {
+                    int32_t ivalue = 0;
+                    auto result = std::from_chars(condition.data(),
+                                                  condition.data() + condition.size(), ivalue);
+                    if (result.ec == std::errc()) {
+                        return bool(ivalue);
+                    }
+
+                    StringParser::ParseResult parse_result;
+                    bool value = StringParser::string_to_bool(condition.data(), condition.size(),
+                                                              &parse_result);
+                    return value;
+                });
+    }
+    case TYPE_IPV4: {
+        return std::make_unique<CustomPredicateCreator<TYPE_IPV4, PT, ConditionType>>(
+                [](const std::string& condition) {
+                    IPv4 value;
+                    bool res = IPv4Value::from_string(value, condition);
+                    DCHECK(res);
+                    return value;
+                });
+    }
+    case TYPE_IPV6: {
+        return std::make_unique<CustomPredicateCreator<TYPE_IPV6, PT, ConditionType>>(
+                [](const std::string& condition) {
+                    IPv6 value;
+                    bool res = IPv6Value::from_string(value, condition);
+                    DCHECK(res);
+                    return value;
+                });
+    }
+    default:
+        return nullptr;
+    }
+}
+
+template <PredicateType PT, typename ConditionType>
 ColumnPredicate* create_predicate(const TabletColumn& column, int index,
                                   const ConditionType& conditions, bool opposite,
                                   vectorized::Arena& arena) {
@@ -285,6 +463,31 @@ ColumnPredicate* create_list_predicate(const TabletColumn& column, int index,
     static_assert(PredicateTypeTraits::is_list(PT));
     return create_predicate<PT, std::vector<std::string>>(column, index, conditions, opposite,
                                                           arena);
+}
+
+template <PredicateType PT, typename ConditionType>
+ColumnPredicate* create_predicate(const TypeDetail& detail, int index,
+                                  const ConditionType& conditions, bool opposite,
+                                  vectorized::Arena& arena) {
+    return get_creator<PT, ConditionType>(detail.type)
+            ->create(detail, index, conditions, opposite, arena);
+}
+
+template <PredicateType PT>
+ColumnPredicate* create_list_predicate_by_type(const TypeDetail& detail, int index,
+                                       const std::vector<std::string>& conditions, bool opposite,
+                                       vectorized::Arena& arena) {
+    static_assert(PredicateTypeTraits::is_list(PT));
+    return create_predicate<PT, std::vector<std::string>>(detail, index, conditions, opposite,
+                                                          arena);
+}
+
+template <PredicateType PT>
+ColumnPredicate* create_comparison_predicate_by_type(const TypeDetail& detail, int index,
+                                                     const std::string& condition, bool opposite,
+                                                     vectorized::Arena& arena) {
+    static_assert(PredicateTypeTraits::is_comparison(PT));
+    return create_predicate<PT, std::string>(detail, index, condition, opposite, arena);
 }
 
 // This method is called in reader and in deletehandler.
