@@ -25,21 +25,18 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConnectionException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
@@ -118,45 +115,10 @@ public abstract class ConnectProcessor {
 
     // change current database of this session.
     protected void handleInitDb(String fullDbName) {
-        String catalogName = null;
-        String dbName = null;
-        String[] dbNames = fullDbName.split("\\.");
-        if (dbNames.length == 1) {
-            dbName = fullDbName;
-        } else if (dbNames.length == 2) {
-            catalogName = dbNames[0];
-            dbName = dbNames[1];
-        } else if (dbNames.length > 2) {
-            ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + fullDbName);
-            return;
+        Optional<Pair<ErrorCode, String>> res = ConnectContextUtil.initCatalogAndDb(ctx, fullDbName);
+        if (res.isPresent()) {
+            ctx.getState().setError(res.get().first, res.get().second);
         }
-
-        //  mysql client
-        if (Config.isCloudMode()) {
-            try {
-                dbName = ((CloudEnv) ctx.getEnv()).analyzeCloudCluster(dbName, ctx);
-            } catch (DdlException e) {
-                ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-                return;
-            }
-            if (dbName == null || dbName.isEmpty()) {
-                return;
-            }
-        }
-
-        try {
-            if (catalogName != null) {
-                ctx.getEnv().changeCatalog(ctx, catalogName);
-            }
-            ctx.getEnv().changeDb(ctx, dbName);
-        } catch (DdlException e) {
-            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            return;
-        } catch (Throwable t) {
-            ctx.getState().setError(ErrorCode.ERR_INTERNAL_ERROR, Util.getRootCauseMessage(t));
-            return;
-        }
-        ctx.getState().setOk();
     }
 
     // set killed flag

@@ -218,6 +218,8 @@ public:
     static Status create_index_searcher(IndexSearcherBuilder* index_searcher_builder,
                                         lucene::store::Directory* dir, IndexSearcherPtr* searcher,
                                         size_t& reader_size);
+    std::shared_ptr<IndexFileReader> get_index_file_reader() const { return _index_file_reader; }
+    const TabletIndex& get_index_meta() const { return _index_meta; }
 
 protected:
     Status match_index_search(const IndexQueryContextPtr& context,

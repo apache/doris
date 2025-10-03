@@ -2513,6 +2513,11 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(multiMatch, context);
     }
 
+    default R visitSearch(org.apache.doris.nereids.trees.expressions.functions.scalar.Search search,
+            C context) {
+        return visitScalarFunction(search, context);
+    }
+
     default R visitLastQueryId(LastQueryId queryId, C context) {
         return visitScalarFunction(queryId, context);
     }

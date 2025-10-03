@@ -29,9 +29,12 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 
 class BitmapScorer final : public Scorer {
 public:
-    explicit BitmapScorer(std::shared_ptr<roaring::Roaring> bitmap)
-            : _bitmap(std::move(bitmap)), _it(_bitmap->begin()) {
-        _doc = *_it;
+    BitmapScorer(std::shared_ptr<roaring::Roaring> bitmap,
+                 std::shared_ptr<roaring::Roaring> null_bitmap = nullptr)
+            : _bitmap(std::move(bitmap)),
+              _null_bitmap(std::move(null_bitmap)),
+              _it(_bitmap->begin()) {
+        _doc = (_it.i.has_value) ? *_it : TERMINATED;
     }
     ~BitmapScorer() override = default;
 
@@ -74,8 +77,18 @@ public:
 
     float score() override { return 1.0F; }
 
+    bool has_null_bitmap(const NullBitmapResolver* /*resolver*/ = nullptr) override {
+        return _null_bitmap != nullptr && !_null_bitmap->isEmpty();
+    }
+
+    const roaring::Roaring* get_null_bitmap(
+            const NullBitmapResolver* /*resolver*/ = nullptr) override {
+        return _null_bitmap ? _null_bitmap.get() : nullptr;
+    }
+
 private:
     std::shared_ptr<roaring::Roaring> _bitmap;
+    std::shared_ptr<roaring::Roaring> _null_bitmap;
     roaring::Roaring::const_iterator _it;
     uint32_t _doc = TERMINATED;
 };
