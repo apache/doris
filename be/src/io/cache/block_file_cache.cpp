@@ -27,6 +27,7 @@
 #include "cpp/sync_point.h"
 #include "gen_cpp/file_cache.pb.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 
 #if defined(__APPLE__)
 #include <sys/mount.h>
@@ -285,6 +286,19 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     }
 
     LOG(INFO) << "file cache path= " << _cache_base_path << " " << cache_settings.to_string();
+
+    // Check file_cache_query_limit_bytes configuration
+    if (config::file_cache_query_limit_bytes != 0) {
+        if (_max_query_cache_size != 0) {
+            LOG(WARNING)
+                    << "query_limit(" << _max_query_cache_size
+                    << ")  in file_cache_path is ignored, because file_cache_query_limit_bytes ("
+                    << config::file_cache_query_limit_bytes << ") is already set";
+        }
+        LOG(INFO) << "_max_query_cache_size set to " << config::file_cache_query_limit_bytes
+                  << " from file_cache_query_limit_bytes configuration";
+        _max_query_cache_size = config::file_cache_query_limit_bytes;
+    }
 }
 
 UInt128Wrapper BlockFileCache::hash(const std::string& path) {
@@ -300,7 +314,7 @@ BlockFileCache::QueryFileCacheContextHolderPtr BlockFileCache::get_query_context
         return {};
     }
 
-    /// if enable_filesystem_query_cache_limit is true,
+    /// if enable_file_cache_query_limit is true,
     /// we create context query for current query.
     auto context = get_or_set_query_context(query_id, cache_lock);
     return std::make_unique<QueryFileCacheContextHolder>(query_id, this, context);
@@ -313,6 +327,7 @@ BlockFileCache::QueryFileCacheContextPtr BlockFileCache::get_query_context(
 }
 
 void BlockFileCache::remove_query_context(const TUniqueId& query_id) {
+    LOG(INFO) << "BlockFileCache::remove_query_context called for query_id: " << print_id(query_id);
     SCOPED_CACHE_LOCK(_mutex, this);
     const auto& query_iter = _query_map.find(query_id);
 
@@ -327,6 +342,8 @@ BlockFileCache::QueryFileCacheContextPtr BlockFileCache::get_or_set_query_contex
         return nullptr;
     }
 
+    LOG(INFO) << "BlockFileCache::get_or_set_query_context called for query_id: "
+              << print_id(query_id);
     auto context = get_query_context(query_id, cache_lock);
     if (context) {
         return context;
@@ -1052,73 +1069,19 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
     int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
                                std::chrono::steady_clock::now().time_since_epoch())
                                .count();
-    auto& queue = get_queue(context.cache_type);
-    size_t removed_size = 0;
-    size_t ghost_remove_size = 0;
-    size_t queue_size = queue.get_capacity(cache_lock);
-    size_t cur_cache_size = _cur_cache_size;
-    size_t query_context_cache_size = query_context->get_cache_size(cache_lock);
 
-    std::vector<LRUQueue::Iterator> ghost;
-    std::vector<FileBlockCell*> to_evict;
-
-    size_t max_size = queue.get_max_size();
-    auto is_overflow = [&] {
-        return _disk_resource_limit_mode ? removed_size < size
-                                         : cur_cache_size + size - removed_size > _capacity ||
-                                                   (queue_size + size - removed_size > max_size) ||
-                                                   (query_context_cache_size + size -
-                                                            (removed_size + ghost_remove_size) >
-                                                    query_context->get_max_cache_size());
-    };
-
-    /// Select the cache from the LRU queue held by query for expulsion.
-    for (auto iter = query_context->queue().begin(); iter != query_context->queue().end(); iter++) {
-        if (!is_overflow()) {
-            break;
-        }
-
-        auto* cell = get_cell(iter->hash, iter->offset, cache_lock);
-
-        if (!cell) {
-            /// The cache corresponding to this record may be swapped out by
-            /// other queries, so it has become invalid.
-            ghost.push_back(iter);
-            ghost_remove_size += iter->size;
-        } else {
-            size_t cell_size = cell->size();
-            DCHECK(iter->size == cell_size);
-
-            if (cell->releasable()) {
-                auto& file_block = cell->file_block;
-
-                std::lock_guard block_lock(file_block->_mutex);
-                DCHECK(file_block->_download_state == FileBlock::State::DOWNLOADED);
-                to_evict.push_back(cell);
-                removed_size += cell_size;
-            }
-        }
-    }
-
-    auto remove_file_block_if = [&](FileBlockCell* cell) {
-        FileBlockSPtr file_block = cell->file_block;
-        if (file_block) {
-            query_context->remove(file_block->get_hash_value(), file_block->offset(), cache_lock);
-            std::lock_guard block_lock(file_block->_mutex);
-            remove(file_block, cache_lock, block_lock);
-        }
-    };
-
-    for (auto& iter : ghost) {
-        query_context->remove(iter->hash, iter->offset, cache_lock);
-    }
-
-    std::for_each(to_evict.begin(), to_evict.end(), remove_file_block_if);
-
-    if (is_overflow() &&
-        !try_reserve_from_other_queue(context.cache_type, size, cur_time, cache_lock)) {
+    bool other_queue_success =
+            config::file_cache_query_limit_enable_evict_from_other_queue
+                    ? try_reserve_from_other_queue(context.cache_type, size, cur_time, cache_lock)
+                    : false;
+    if (!other_queue_success) {
+        LOG(WARNING) << "Failed to reserve space after exhausting all eviction strategies: "
+                     << "query_limit_enable_evict_from_other_queue="
+                     << config::file_cache_query_limit_enable_evict_from_other_queue
+                     << ", hash=" << hash.to_string() << ", offset=" << offset << ", size=" << size;
         return false;
     }
+
     query_context->reserve(hash, offset, size, cache_lock);
     return true;
 }
@@ -1990,6 +1953,13 @@ void BlockFileCache::run_background_monitor() {
                         (double)_no_warmup_num_read_blocks_1h->get_value());
             }
         }
+
+        if (config::file_cache_query_limit_bytes != 0 &&
+            config::file_cache_query_limit_bytes != _max_query_cache_size) {
+            LOG(INFO) << "file_cache_query_limit_bytes(" << config::file_cache_query_limit_bytes
+                      << ") has changed, original(" << _max_query_cache_size << ")";
+            _max_query_cache_size = config::file_cache_query_limit_bytes;
+        }
     }
 }
 
@@ -2476,6 +2446,13 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
     stats["disposable_queue_curr_size"] = (double)_disposable_queue.get_capacity_unsafe();
     stats["disposable_queue_max_elements"] = (double)_disposable_queue.get_max_element_size();
     stats["disposable_queue_curr_elements"] = (double)_disposable_queue.get_elements_num_unsafe();
+
+    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
+    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
+
+    stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
+    stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();
+    stats["total_read_counts"] = (double)_num_read_blocks->get_value();
 
     return stats;
 }
