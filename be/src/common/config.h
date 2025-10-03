@@ -1652,6 +1652,14 @@ DECLARE_mBool(print_stack_when_cache_miss);
 
 DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 
+DECLARE_mDouble(compression_min_space_saving);
+
+DECLARE_Bool(all_use_plain_encoding);
+
+DECLARE_Bool(use_plain_binary_v2);
+
+DECLARE_Bool(numeric_not_use_bitshuffle);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
