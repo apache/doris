@@ -157,7 +157,7 @@ ObjectStorageResponse S3ObjStorageClient::put_object(const ObjectStoragePathOpti
                                                      std::string_view stream) {
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(opts.bucket).WithKey(opts.key);
-    auto string_view_stream = std::make_shared<StringViewStream>(stream.data(), stream.size());
+    auto string_view_stream = std::make_shared<StringViewOutStream>(stream.data(), stream.size());
     Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));
     request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
     request.SetBody(string_view_stream);
@@ -198,7 +198,7 @@ ObjectStorageUploadResponse S3ObjStorageClient::upload_part(const ObjectStorageP
             .WithKey(opts.key)
             .WithPartNumber(part_num)
             .WithUploadId(*opts.upload_id);
-    auto string_view_stream = std::make_shared<StringViewStream>(stream.data(), stream.size());
+    auto string_view_stream = std::make_shared<StringViewOutStream>(stream.data(), stream.size());
 
     request.SetBody(string_view_stream);
 
