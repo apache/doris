@@ -139,10 +139,12 @@ public:
             // - TRUE OR anything = TRUE (not NULL)
             // - FALSE OR NULL = NULL
             // - NULL OR NULL = NULL
-            // Result is NULL only when BOTH operands are NULL
-            // Therefore: use intersection (AND) for NULL bitmaps, not union (OR)
-            auto new_null_bitmap = (*_null_bitmap & *other._null_bitmap) - *_data_bitmap;
+            // Result is NULL when the row is NULL on either side while the other side
+            // is not TRUE. Rows that become TRUE must be removed from the NULL bitmap.
             *_data_bitmap |= *other._data_bitmap;
+            auto new_null_bitmap =
+                    (*_null_bitmap - *other._data_bitmap) | (*other._null_bitmap - *_data_bitmap);
+            new_null_bitmap -= *_data_bitmap;
             *_null_bitmap = std::move(new_null_bitmap);
         }
         return *this;
