@@ -225,4 +225,12 @@ public class SqlModeHelper {
                 & MODE_PIPES_AS_CONCAT) != 0;
     }
 
+    public static boolean hasOnlyFullGroupBy() {
+        SessionVariable sessionVariable = ConnectContext.get() == null
+                ? VariableMgr.newSessionVariable()
+                : ConnectContext.get().getSessionVariable();
+        return ((sessionVariable.getSqlMode() & MODE_ALLOWED_MASK)
+                & MODE_ONLY_FULL_GROUP_BY) != 0;
+    }
+
 }
