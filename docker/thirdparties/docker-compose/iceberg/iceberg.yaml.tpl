@@ -131,7 +131,7 @@ services:
       - ./data:/mnt/data
     entrypoint: >
       /bin/sh -c "
-      until (/usr/bin/mc config host add minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
+      until (/usr/bin/mc alias set minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
       if /usr/bin/mc ls minio/warehouse > /dev/null 2>&1; then
         echo 'minio/warehouse already exists, skipping creation and copy.';
       else
