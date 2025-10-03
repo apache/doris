@@ -299,6 +299,7 @@ struct TOlapTableSink {
     23: optional double max_filter_ratio
 
     24: optional string storage_vault_id
+    25: optional i64 random_tablet_switching_threshold
 }
 
 struct THiveLocationParams {
@@ -345,7 +346,7 @@ struct THivePartition {
 struct THiveSerDeProperties {
     1: optional string field_delim
     2: optional string line_delim
-    3: optional string collection_delim // array ,map ,struct delimiter 
+    3: optional string collection_delim // array ,map ,struct delimiter
     4: optional string mapkv_delim
     5: optional string escape_char
     6: optional string null_format
@@ -400,7 +401,7 @@ struct TIcebergCommitData {
     2: optional i64 row_count
     3: optional i64 file_size
     4: optional TFileContent file_content
-    5: optional list<string> partition_values 
+    5: optional list<string> partition_values
     6: optional list<string> referenced_data_files
 }
 

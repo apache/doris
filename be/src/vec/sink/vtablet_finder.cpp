@@ -22,7 +22,9 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
 
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -33,6 +35,16 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+
+// External declarations for global tablet switching state (defined in vtablet_writer.cpp)
+struct TabletSwitchingState {
+    int64_t current_tablet_idx = 0;
+    int64_t current_tablet_rows = 0;
+    int64_t switching_threshold = 0;
+};
+
+extern std::unordered_map<int64_t, TabletSwitchingState> g_tablet_switching_states;
+extern std::mutex g_tablet_switching_mutex;
 Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int rows,
                                       std::vector<VOlapTablePartition*>& partitions,
                                       std::vector<uint32_t>& tablet_index, std::vector<bool>& skip,
@@ -88,10 +100,25 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
         _vpartition->find_tablets(block, qualified_rows, partitions, tablet_index,
                                   &_partition_to_tablet_map);
         if (_find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
+            std::lock_guard<std::mutex> lock(g_tablet_switching_mutex);
             for (auto it : _partition_to_tablet_map) {
-                // do round-robin for next batch
-                if (it.first->load_tablet_idx != -1) {
-                    it.first->load_tablet_idx++;
+                auto* partition = it.first;
+                if (partition->load_tablet_idx == -1) continue;
+
+                partition->current_tablet_rows += qualified_rows.size();
+                auto& global_state = g_tablet_switching_states[partition->id];
+
+                if (partition->switching_threshold > 0 &&
+                    partition->current_tablet_rows >= partition->switching_threshold) {
+                    partition->load_tablet_idx =
+                            (partition->load_tablet_idx + 1) % partition->num_buckets;
+                    partition->current_tablet_rows = 0;
+                    global_state.current_tablet_idx = partition->load_tablet_idx;
+                    global_state.current_tablet_rows = 0;
+                } else if (partition->switching_threshold == 0) {
+                    partition->load_tablet_idx++;
+                } else {
+                    global_state.current_tablet_rows = partition->current_tablet_rows;
                 }
             }
             _partition_to_tablet_map.clear();
