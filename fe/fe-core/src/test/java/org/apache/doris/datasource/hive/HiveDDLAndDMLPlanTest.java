@@ -87,6 +87,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
+        FeConstants.runningUnitTest = false;
         Config.enable_query_hive_views = false;
         // create test internal table
         createDatabase(mockedDbName);

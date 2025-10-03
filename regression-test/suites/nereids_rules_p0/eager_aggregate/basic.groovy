@@ -23,6 +23,8 @@ suite("basic") {
     
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql "set disable_join_reorder=true;"
+    sql "set eager_aggregation_mode=1;"
+
     sql """
         DROP TABLE IF EXISTS shunt_log_com_dd_library;
     """
@@ -138,8 +140,7 @@ suite("basic") {
     join shunt_log_com_dd_library b on
             a.device_id = b.device_id
     where
-            a.event_id = "ad_click"
-            and b.experiment_id = 37
+            b.experiment_id = 37
     group by
             b.group_id;
     """

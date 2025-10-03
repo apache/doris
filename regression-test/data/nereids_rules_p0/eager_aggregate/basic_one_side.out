@@ -14,7 +14,8 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
---------PhysicalOlapScan[com_dd_library_one_side]
+--------hashAgg[GLOBAL]
+----------PhysicalOlapScan[com_dd_library_one_side]
 --------filter((cast(experiment_id as DECIMALV3(38, 6)) = 73.000000))
 ----------PhysicalOlapScan[shunt_log_com_dd_library_one_side]
 
@@ -23,7 +24,8 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
---------PhysicalOlapScan[com_dd_library_one_side]
+--------hashAgg[GLOBAL]
+----------PhysicalOlapScan[com_dd_library_one_side]
 --------filter((cast(experiment_id as DECIMALV3(38, 6)) = 73.000000))
 ----------PhysicalOlapScan[shunt_log_com_dd_library_one_side]
 
@@ -32,7 +34,8 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
---------PhysicalOlapScan[com_dd_library_one_side]
+--------hashAgg[GLOBAL]
+----------PhysicalOlapScan[com_dd_library_one_side]
 --------PhysicalOlapScan[shunt_log_com_dd_library_one_side]
 
 -- !with_hint_1 --
@@ -41,15 +44,13 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((a.device_id = b.device_id)) otherCondition=()
 --------hashAgg[GLOBAL]
-----------filter((a.event_id = 'ad_click'))
-------------PhysicalOlapScan[com_dd_library_one_side]
---------hashAgg[GLOBAL]
-----------filter((cast(experiment_id as DECIMALV3(38, 6)) = 37.000000))
-------------PhysicalOlapScan[shunt_log_com_dd_library_one_side]
+----------PhysicalOlapScan[com_dd_library_one_side]
+--------filter((cast(experiment_id as DECIMALV3(38, 6)) = 37.000000))
+----------PhysicalOlapScan[shunt_log_com_dd_library_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_2 --
@@ -63,8 +64,8 @@ PhysicalResultSink
 ----------PhysicalOlapScan[shunt_log_com_dd_library_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_3 --
@@ -78,8 +79,8 @@ PhysicalResultSink
 ----------PhysicalOlapScan[shunt_log_com_dd_library_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 
 -- !with_hint_4 --
@@ -92,7 +93,7 @@ PhysicalResultSink
 --------PhysicalOlapScan[shunt_log_com_dd_library_one_side]
 
 Hint log:
-Used: use_push_down_agg_through_join_one_side
-UnUsed:
+Used:
+UnUsed: use_push_down_agg_through_join_one_side
 SyntaxError:
 

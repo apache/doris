@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -54,6 +55,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
 
     @Override
     public void runBeforeAll() throws Exception {
+        FeConstants.runningUnitTest = false;
         createDatabase("test_resolve_aggregate_functions");
         connectContext.setDatabase("test_resolve_aggregate_functions");
         createTables(
