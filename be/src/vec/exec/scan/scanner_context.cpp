@@ -45,6 +45,7 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
                                const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
                                int64_t limit_, bool ignore_data_distribution,
                                bool is_file_scan_operator,
+                               std::shared_ptr<doris::vectorized::TaskHandle> task_handle,
                                pipeline::ScanLocalStateBase* local_state)
         : HasTaskExecutionCtx(state),
           _state(state),
@@ -58,7 +59,8 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
           _scanner_scheduler_global(state->exec_env()->scanner_scheduler()),
           _all_scanners(scanners.begin(), scanners.end()),
           _ignore_data_distribution(ignore_data_distribution),
-          _is_file_scan_operator(is_file_scan_operator) {
+          _is_file_scan_operator(is_file_scan_operator),
+          _task_handle(task_handle) {
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
     _query_id = _state->get_query_ctx()->query_id();
@@ -83,9 +85,11 @@ ScannerContext::ScannerContext(doris::RuntimeState* state, doris::vectorized::VS
                                const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
                                int64_t limit_, bool ignore_data_distribution,
                                bool is_file_scan_operator,
+                               std::shared_ptr<doris::vectorized::TaskHandle> task_handle,
                                pipeline::ScanLocalStateBase* local_state)
         : ScannerContext(state, output_tuple_desc, output_row_descriptor, scanners, limit_,
-                         ignore_data_distribution, is_file_scan_operator, local_state) {
+                         ignore_data_distribution, is_file_scan_operator, task_handle,
+                         local_state) {
     _parent = parent;
 
     // No need to increase scanner_ctx_cnt here. Since other constructor has already done it.
@@ -165,12 +169,6 @@ Status ScannerContext::init() {
         }
     }
 
-    // _scannner_scheduler will be used to submit scan task.
-    if (_scanner_scheduler->get_queue_size() * 2 > config::doris_scanner_thread_pool_queue_size ||
-        _is_file_scan_operator) {
-        submit_many_scan_tasks_for_potential_performance_issue = false;
-    }
-
     // _max_thread_num controls how many scanners of this ScanOperator can be submitted to scheduler at a time.
     // The overall target of our system is to make full utilization of the resources.
     // At the same time, we dont want too many tasks are queued by scheduler, that is not necessary.
@@ -246,12 +244,8 @@ Status ScannerContext::init() {
 
     // submit `_max_thread_num` running scanners to `ScannerScheduler`
     // When a running scanners is finished, it will submit one of the remaining scanners.
-    for (int i = 0; i < _max_thread_num; ++i) {
-        std::weak_ptr<ScannerDelegate> next_scanner;
-        if (_scanners.try_dequeue(next_scanner)) {
-            RETURN_IF_ERROR(submit_scan_task(std::make_shared<ScanTask>(next_scanner)));
-            _num_running_scanners++;
-        }
+    for (const std::weak_ptr<ScannerDelegate>& scanner : _all_scanners) {
+        RETURN_IF_ERROR(submit_scan_task(scanner));
     }
 
     return Status::OK();
@@ -295,10 +289,11 @@ bool ScannerContext::empty_in_queue(int id) {
     return _blocks_queue.empty();
 }
 
-Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task) {
+//Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task) {
+Status ScannerContext::submit_scan_task(std::weak_ptr<ScannerDelegate> scanner) {
     _scanner_sched_counter->update(1);
     _num_scheduled_scanners++;
-    return _scanner_scheduler_global->submit(shared_from_this(), scan_task);
+    return _scanner_scheduler_global->submit(shared_from_this(), scanner);
 }
 
 void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) {
@@ -380,42 +375,11 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         if (scan_task->cached_blocks.empty()) {
             // This scan task do not have any cached blocks.
             _blocks_queue.pop_front();
-            // current scanner is finished, and no more data to read
+
             if (scan_task->is_eos()) {
                 _num_finished_scanners++;
-                std::weak_ptr<ScannerDelegate> next_scanner;
-                // submit one of the remaining scanners
-                if (_scanners.try_dequeue(next_scanner)) {
-                    auto submit_status = submit_scan_task(std::make_shared<ScanTask>(next_scanner));
-                    if (!submit_status.ok()) {
-                        _process_status = submit_status;
-                        _set_scanner_done();
-                        return _process_status;
-                    }
-                } else {
-                    // no more scanner to be scheduled
-                    // `_free_blocks` serve all running scanners, maybe it's too large for the remaining scanners
-                    int free_blocks_for_each = _free_blocks.size_approx() / _num_running_scanners;
-                    _num_running_scanners--;
-                    for (int i = 0; i < free_blocks_for_each; ++i) {
-                        vectorized::BlockUPtr removed_block;
-                        if (_free_blocks.try_dequeue(removed_block)) {
-                            _block_memory_usage -= block->allocated_bytes();
-                        }
-                    }
-                }
-            } else {
-                // resubmit current running scanner to read the next block
-                Status submit_status = submit_scan_task(scan_task);
-                if (!submit_status.ok()) {
-                    _process_status = submit_status;
-                    _set_scanner_done();
-                    return _process_status;
-                }
             }
         }
-        // scale up
-        RETURN_IF_ERROR(_try_to_scale_up());
     }
 
     if (_num_finished_scanners == _all_scanners.size() && _blocks_queue.empty()) {
@@ -461,7 +425,8 @@ Status ScannerContext::_try_to_scale_up() {
                 // Just return error to caller.
                 // Because _try_to_scale_up is called under _transfer_lock locked, if we add the scanner
                 // to the block queue, we will get a deadlock.
-                RETURN_IF_ERROR(submit_scan_task(std::make_shared<ScanTask>(scale_up_scanner)));
+                //RETURN_IF_ERROR(submit_scan_task(std::make_shared<ScanTask>(scale_up_scanner)));
+                RETURN_IF_ERROR(submit_scan_task(scale_up_scanner));
                 _num_running_scanners++;
                 _scale_up_scanners_counter->update(1);
                 is_scale_up = true;

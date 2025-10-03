@@ -711,6 +711,16 @@ using ResultError = unexpected<Status>;
         std::forward<T>(res).value();            \
     });
 
+#define TEST_TRY(stmt)                                                                          \
+    ({                                                                                          \
+        auto&& res = (stmt);                                                                    \
+        using T = std::decay_t<decltype(res)>;                                                  \
+        if (!res.has_value()) [[unlikely]] {                                                    \
+            ASSERT_TRUE(res.has_value()) << "Expected success, but got error: " << res.error(); \
+        }                                                                                       \
+        std::forward<T>(res).value();                                                           \
+    })
+
 } // namespace doris
 
 // specify formatter for Status
