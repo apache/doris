@@ -107,6 +107,7 @@ import java.util.function.Function;
 
 /**
  * Planner to do query plan in Nereids.
+ *
  */
 public class NereidsPlanner extends Planner {
     // private static final AtomicInteger executeCount = new AtomicInteger(0);
