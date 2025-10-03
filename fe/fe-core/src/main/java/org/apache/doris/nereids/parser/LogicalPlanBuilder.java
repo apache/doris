@@ -4110,6 +4110,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<OrderKey> orderKeys = Lists.newArrayList();
             LogicalPlan aggregate = withAggregate(filter, selectColumnCtx, aggClause, orderKeys);
             boolean isDistinct = (selectClause.DISTINCT() != null);
+            if (!isDistinct) {
+                if (aggregate instanceof LogicalRepeat) {
+                    ((LogicalRepeat) aggregate).setWithInProjection(false);
+                } else if (aggregate instanceof LogicalAggregate) {
+                    ((LogicalAggregate) aggregate).setWithInProjection(false);
+                }
+            }
             LogicalPlan selectPlan;
             if (!(aggregate instanceof Aggregate) && havingClause.isPresent()) {
                 // create a project node for pattern match of ProjectToGlobalAggregate rule
