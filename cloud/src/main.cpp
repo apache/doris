@@ -136,15 +136,17 @@ static void help() {
 
 static std::string build_info() {
     std::stringstream ss;
+// clang-format off
 #if defined(NDEBUG)
     ss << "version:{" DORIS_CLOUD_BUILD_VERSION "-release}"
 #else
     ss << "version:{" DORIS_CLOUD_BUILD_VERSION "-debug}"
 #endif
-       << " code_version:{commit=" DORIS_CLOUD_BUILD_HASH " time=" DORIS_CLOUD_BUILD_VERSION_TIME
-          "}"
+       << " code_version:{commit=" DORIS_CLOUD_BUILD_HASH " time=" DORIS_CLOUD_BUILD_VERSION_TIME "}"
+       << " features:{" DORIS_CLOUD_FEATURE_LIST "}"
        << " build_info:{initiator=" DORIS_CLOUD_BUILD_INITIATOR " build_at=" DORIS_CLOUD_BUILD_TIME
           " build_on=" DORIS_CLOUD_BUILD_OS_VERSION "}\n";
+    // clang-format on
     return ss.str();
 }
 
