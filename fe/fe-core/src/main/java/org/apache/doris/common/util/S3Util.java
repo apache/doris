@@ -284,16 +284,15 @@ public class S3Util {
         // Process each range pattern found
         while (matcher.find()) {
             List<String> expandedPaths = new ArrayList<>();
-            String rangeStr = matcher.group(0); // The full match, e.g., "{1..3}"
+            String rangeStr = matcher.group(0);
             int start = Integer.parseInt(matcher.group(1));
             int end = Integer.parseInt(matcher.group(2));
 
-            // Validate range
+            // {3..1} -> {1..3}
             if (start > end) {
-                // Invalid range, return original path
-                result.clear();
-                result.add(pathPattern);
-                return result;
+                int temp = start;
+                start = end;
+                end = temp;
             }
 
             // Expand each current path with the range

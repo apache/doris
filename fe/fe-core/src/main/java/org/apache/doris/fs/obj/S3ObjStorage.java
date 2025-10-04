@@ -562,7 +562,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         List<String> expandedPaths = S3Util.expandNumberRange(remotePath);
 
         // If multiple paths were expanded, process each one separately
-        if (expandedPaths.size() > 1) {
+        if (expandedPaths.size() >= 1) {
             GlobListResult finalResult = null;
             for (String expandedPath : expandedPaths) {
                 GlobListResult pathResult = globListInternalForSinglePath(expandedPath, result, fileNameOnly,

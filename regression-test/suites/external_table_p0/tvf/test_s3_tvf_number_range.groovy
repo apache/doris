@@ -56,7 +56,73 @@ suite("test_s3_tvf_number_range", "p0,external") {
     } finally {
     }
 
-    // Test 2: Multiple ranges in one path {1..2}_{1..2} - should load 4 files
+    // Test 2: Single range expansion {3..1} - should load 3 files
+    try {
+        sql """ TRUNCATE TABLE ${test_table} """
+        
+        sql """ INSERT INTO ${test_table}
+                SELECT a, b FROM S3
+                (
+                    "uri" = "s3://${bucket}/load/tvf_data/data_{3..1}.csv",
+                    "format" = "csv",
+                    "column_separator" = ",",
+                    "s3.endpoint" = "${s3_endpoint}",
+                    "s3.region" = "${region}",
+                    "s3.access_key" = "${ak}",
+                    "s3.secret_key" = "${sk}",
+                    "csv_schema" = "a:int;b:int"
+                );
+            """
+        qt_test2_data """ SELECT * FROM ${test_table} """
+        
+    } finally {
+    }
+
+    // Test 3: Single range expansion {2..2} - should load 1 files
+    try {
+        sql """ TRUNCATE TABLE ${test_table} """
+
+        sql """ INSERT INTO ${test_table}
+                SELECT a, b FROM S3
+                (
+                    "uri" = "s3://${bucket}/load/tvf_data/data_{2..2}.csv",
+                    "format" = "csv",
+                    "column_separator" = ",",
+                    "s3.endpoint" = "${s3_endpoint}",
+                    "s3.region" = "${region}",
+                    "s3.access_key" = "${ak}",
+                    "s3.secret_key" = "${sk}",
+                    "csv_schema" = "a:int;b:int"
+                );
+            """
+        qt_test3_data """ SELECT * FROM ${test_table} """
+        
+    } finally {
+    }
+
+    // Test 4: Single range expansion {-1..1} - should load 0 files
+    try {
+        sql """ TRUNCATE TABLE ${test_table} """
+
+        sql """ INSERT INTO ${test_table}
+                SELECT a, b FROM S3
+                (
+                    "uri" = "s3://${bucket}/load/tvf_data/data_{-1..1}.csv",
+                    "format" = "csv",
+                    "column_separator" = ",",
+                    "s3.endpoint" = "${s3_endpoint}",
+                    "s3.region" = "${region}",
+                    "s3.access_key" = "${ak}",
+                    "s3.secret_key" = "${sk}",
+                    "csv_schema" = "a:int;b:int"
+                );
+            """
+        qt_test4_data """ SELECT * FROM ${test_table} """
+        
+    } finally {
+    }
+
+    // Test 5: Multiple ranges in one path {1..2}_{1..2} - should load 4 files
     try {
         sql """ TRUNCATE TABLE ${test_table} """
         
@@ -73,9 +139,10 @@ suite("test_s3_tvf_number_range", "p0,external") {
                     "csv_schema" = "a:int;b:int"
                 );
             """
-        qt_test2_data """ SELECT * FROM ${test_table} """
+        qt_test5_data """ SELECT * FROM ${test_table} """
         
     } finally {
-        sql """ DROP TABLE IF EXISTS ${test_table} """
     }
+
+    sql """ DROP TABLE IF EXISTS ${test_table} """
 }
