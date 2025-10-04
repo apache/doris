@@ -62,6 +62,8 @@ public:
     const std::string& expr_name() const override;
     const VExprSPtrs& children() const override { return _impl->children(); }
 
+    uint64_t get_digest(uint64_t seed) const override { return _impl->get_digest(seed); }
+
     VExprSPtr get_impl() const override { return _impl; }
 
     void attach_profile_counter(std::shared_ptr<RuntimeProfile::Counter> rf_input_rows,
