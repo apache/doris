@@ -173,22 +173,23 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         if (StringUtils.isNotBlank(getEndpoint())) {
             return;
         }
-        String endpoint = null;
-        // 1. try getting endpoint from uri
+        // 1. try getting endpoint region
+        String endpoint = getEndpointFromRegion();
+        if (StringUtils.isNotBlank(endpoint)) {
+            setEndpoint(endpoint);
+            return;
+        }
+        // 2. try getting endpoint from uri
         try {
             endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, getUsePathStyle(),
                     getForceParsingByStandardUrl());
+            if (StringUtils.isNotBlank(endpoint)) {
+                setEndpoint(endpoint);
+            }
         } catch (Exception e) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Failed to construct endpoint from url: " + origProps, e);
+                LOG.debug("Failed to construct endpoint from url: {}", e.getMessage(), e);
             }
-        }
-        // 2. try getting endpoint region
-        if (StringUtils.isBlank(endpoint)) {
-            endpoint = getEndpointFromRegion();
-        }
-        if (!StringUtils.isBlank(endpoint)) {
-            setEndpoint(endpoint);
         }
     }
 

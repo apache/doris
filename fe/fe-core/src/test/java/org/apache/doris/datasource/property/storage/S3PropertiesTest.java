@@ -193,7 +193,7 @@ public class S3PropertiesTest {
         Assertions.assertEquals("us-west-2", s3Properties.getRegion());
         Assertions.assertEquals("myCOSAccessKey", s3Properties.getAccessKey());
         Assertions.assertEquals("myCOSSecretKey", s3Properties.getSecretKey());
-        Assertions.assertEquals("s3.us-west-2.amazonaws.com", s3Properties.getEndpoint());
+        Assertions.assertEquals("https://s3.us-west-2.amazonaws.com", s3Properties.getEndpoint());
         Map<String, String> s3EndpointProps = new HashMap<>();
         s3EndpointProps.put("oss.access_key", "myCOSAccessKey");
         s3EndpointProps.put("oss.secret_key", "myCOSSecretKey");
