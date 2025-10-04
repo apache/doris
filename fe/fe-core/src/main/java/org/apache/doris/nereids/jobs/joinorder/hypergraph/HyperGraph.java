@@ -35,9 +35,11 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.PlanUtils;
 
@@ -428,7 +430,9 @@ public class HyperGraph {
                 this.addFilter(filter, child);
                 return Pair.of(child.first, child.second);
             }
-
+            if (plan instanceof LogicalLimit && ((LogicalLimit<?>) plan).getPhase() == LimitPhase.LOCAL) {
+                return this.buildForMv(plan.child(0));
+            }
             // process Other Node
             int idx = this.addStructInfoNode(plan);
             return Pair.of(new BitSet(), LongBitmap.newBitmap(idx));
