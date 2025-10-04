@@ -624,7 +624,6 @@ public class Column implements GsonPostProcessable {
         tColumnType.setPrecision(this.getPrecision());
         tColumnType.setScale(this.getScale());
         tColumnType.setVariantMaxSubcolumnsCount(this.getVariantMaxSubcolumnsCount());
-
         tColumnType.setIndexLen(this.getOlapColumnIndexSize());
 
         tColumn.setColumnType(tColumnType);
@@ -657,6 +656,8 @@ public class Column implements GsonPostProcessable {
         tColumn.setClusterKeyId(this.clusterKeyId);
         tColumn.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
         tColumn.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
+        // set flatten keys for variant
+        tColumn.setVariantFlattenKeys(this.getFlattenKeys());
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -1301,6 +1302,10 @@ public class Column implements GsonPostProcessable {
 
     public int getVariantMaxSparseColumnStatisticsSize() {
         return type.isVariantType() ? ((ScalarType) type).getVariantMaxSparseColumnStatisticsSize() : -1;
+    }
+
+    public List<String> getFlattenKeys() {
+        return type.isVariantType() ? ((VariantType) type).getFlattenKeys() : Lists.newArrayList();
     }
 
     public void setFieldPatternType(TPatternType type) {

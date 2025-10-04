@@ -243,6 +243,12 @@ public:
         return _variant_max_sparse_column_statistics_size;
     }
 
+    const std::vector<std::string>& variant_flatten_keys() const { return _variant_flatten_keys; }
+
+    void set_variant_flatten_keys(const std::vector<std::string>& flatten_keys) {
+        _variant_flatten_keys = flatten_keys;
+    }
+
     bool is_decimal() const { return _is_decimal; }
 
 private:
@@ -292,6 +298,7 @@ private:
     // set variant_max_sparse_column_statistics_size
     int32_t _variant_max_sparse_column_statistics_size =
             BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
+    std::vector<std::string> _variant_flatten_keys;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -649,6 +656,7 @@ public:
     struct PathsSetInfo {
         std::unordered_map<std::string, SubColumnInfo> typed_path_set;    // typed columns
         std::unordered_map<std::string, TabletIndexes> subcolumn_indexes; // subcolumns indexes
+        std::unordered_set<std::string> nested_paths;                     // nested column paths
         PathSet sub_path_set;                                             // extracted columns
         PathSet sparse_path_set;                                          // sparse columns
     };
