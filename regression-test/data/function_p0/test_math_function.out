@@ -59,3 +59,24 @@ NaN	NaN	NaN
 -- !select_tanh --
 NaN	1.0	-1.0
 
+-- !select_ln --
+NaN	Infinity	\N
+
+-- !select_log --
+NaN	0.0	\N
+
+-- !select_log --
+NaN	Infinity	\N
+
+-- !select_log2 --
+NaN	Infinity	\N
+
+-- !select_log10 --
+NaN	Infinity	\N
+
+-- !select_sign --
+0	0
+
+-- !select_sign --
+false	true
+
