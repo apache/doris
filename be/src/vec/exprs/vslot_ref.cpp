@@ -93,6 +93,11 @@ Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column
                 "input block not contain slot column {}, column_id={}, block={}", *_column_name,
                 _column_id, block->dump_structure());
     }
+    if (!block->get_by_position(_column_id).type->equals(*_data_type)) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "slot ref type not match, slot={}, slot_type={}, block_type={}", *_column_name,
+                _data_type->get_name(), block->get_by_position(_column_id).type->get_name());
+    }
     *result_column_id = _column_id;
     return Status::OK();
 }
