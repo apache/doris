@@ -1924,6 +1924,17 @@ message GetStreamingTaskCommitAttachResponse {
     optional StreamingTaskCommitAttachmentPB commit_attach = 2;
 }
 
+message DeleteStreamingJobRequest {
+    optional string cloud_unique_id = 1;
+    optional int64 db_id = 2;
+    optional int64 job_id = 3;
+    optional string request_ip = 4;
+}
+
+message DeleteStreamingJobResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 message CheckKeyInfos {
     repeated int64 db_ids = 1;
     repeated int64 table_ids = 2;
@@ -2147,6 +2158,7 @@ service MetaService {
 
     // streaming job meta
     rpc get_streaming_task_commit_attach(GetStreamingTaskCommitAttachRequest) returns (GetStreamingTaskCommitAttachResponse);
+    rpc delete_streaming_job(DeleteStreamingJobRequest) returns (DeleteStreamingJobResponse);
 
     // check KV
     rpc check_kv(CheckKVRequest) returns (CheckKVResponse);
