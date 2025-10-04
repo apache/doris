@@ -41,9 +41,9 @@ import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewComma
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExecuteActionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
-import org.apache.doris.nereids.trees.plans.commands.OptimizeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -601,38 +601,104 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-    public void testOptimizeTable() {
+    public void testAlterTableExecute() {
         NereidsParser nereidsParser = new NereidsParser();
 
-        // Basic optimize table
-        String sql = "optimize table t1 properties('action' = 'compact')";
+        // Basic ALTER TABLE EXECUTE with rewrite_data_files action
+        String sql = "ALTER TABLE t1 EXECUTE rewrite_data_files(\"target-file-size-bytes\" = \"134217728\")";
         LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        ExecuteActionCommand cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("rewrite_data_files", cmd.getActionName());
+        Assertions.assertEquals("134217728", cmd.getProperties().get("target-file-size-bytes"));
 
-        // Optimize table with partition
-        sql = "optimize table t1 partition(p1, p2) properties('action' = 'compact')";
+        // ALTER TABLE EXECUTE with expire_snapshots multiple properties
+        sql = "ALTER TABLE t1 EXECUTE expire_snapshots(\"older_than\" = \"2024-01-01 00:00:00\", \"retain_last\" = \"5\")";
         logicalPlan = nereidsParser.parseSingle(sql);
-        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("expire_snapshots", cmd.getActionName());
+        Assertions.assertEquals("2024-01-01 00:00:00", cmd.getProperties().get("older_than"));
+        Assertions.assertEquals("5", cmd.getProperties().get("retain_last"));
 
-        // Optimize table with where clause
-        sql = "optimize table t1 where id > 100 properties('action' = 'compact')";
+        // ALTER TABLE EXECUTE with set_current_snapshot using ref parameter
+        sql = "ALTER TABLE t1 EXECUTE set_current_snapshot(\"ref\" = \"main\")";
         logicalPlan = nereidsParser.parseSingle(sql);
-        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("set_current_snapshot", cmd.getActionName());
+        Assertions.assertEquals("main", cmd.getProperties().get("ref"));
+        Assertions.assertFalse(cmd.getWhereCondition().isPresent());
 
-        // Optimize table with partition and where clause
-        sql = "optimize table t1 partition(p1) where id > 100 properties('action' = 'compact')";
+        // ALTER TABLE EXECUTE with WHERE clause - simple condition
+        sql = "ALTER TABLE t1 EXECUTE rewrite_data_files(\"target-file-size-bytes\" = \"134217728\") WHERE id > 100";
         logicalPlan = nereidsParser.parseSingle(sql);
-        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("rewrite_data_files", cmd.getActionName());
+        Assertions.assertEquals("134217728", cmd.getProperties().get("target-file-size-bytes"));
+        Assertions.assertTrue(cmd.getWhereCondition().isPresent());
 
-        // Optimize table with catalog and database
-        sql = "optimize table catalog1.db1.t1 properties('action' = 'compact')";
+        // ALTER TABLE EXECUTE with WHERE clause - complex condition
+        sql = "ALTER TABLE t1 EXECUTE expire_snapshots(\"older_than\" = \"2024-01-01 00:00:00\") WHERE partition_col = 'value' AND date_col < '2024-01-01'";
         logicalPlan = nereidsParser.parseSingle(sql);
-        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("expire_snapshots", cmd.getActionName());
+        Assertions.assertEquals("2024-01-01 00:00:00", cmd.getProperties().get("older_than"));
+        Assertions.assertTrue(cmd.getWhereCondition().isPresent());
 
-        // Optimize table with multiple properties
-        sql = "optimize table t1 properties('action' = 'compact', 'max_files' = '10')";
+        // ALTER TABLE EXECUTE with WHERE clause - no properties
+        sql = "ALTER TABLE t1 EXECUTE rollback_to_snapshot(\"snapshot_id\" = \"3051729675574597004\") WHERE status = 'active'";
         logicalPlan = nereidsParser.parseSingle(sql);
-        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("rollback_to_snapshot", cmd.getActionName());
+        Assertions.assertEquals("3051729675574597004", cmd.getProperties().get("snapshot_id"));
+        Assertions.assertTrue(cmd.getWhereCondition().isPresent());
+
+        // ALTER TABLE EXECUTE with partition specification - single partition
+        sql = "ALTER TABLE t1 EXECUTE rewrite_data_files(\"target-file-size-bytes\" = \"134217728\") PARTITION (p1)";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("rewrite_data_files", cmd.getActionName());
+        Assertions.assertEquals("134217728", cmd.getProperties().get("target-file-size-bytes"));
+        Assertions.assertTrue(cmd.getPartitionNamesInfo().isPresent());
+        Assertions.assertEquals(1, cmd.getPartitionNamesInfo().get().getPartitionNames().size());
+        Assertions.assertEquals("p1", cmd.getPartitionNamesInfo().get().getPartitionNames().get(0));
+        Assertions.assertFalse(cmd.getPartitionNamesInfo().get().isTemp());
+
+        // ALTER TABLE EXECUTE with partition specification - multiple partitions
+        sql = "ALTER TABLE t1 EXECUTE expire_snapshots(\"older_than\" = \"2024-01-01 00:00:00\") PARTITIONS (p1, p2, p3)";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("expire_snapshots", cmd.getActionName());
+        Assertions.assertEquals("2024-01-01 00:00:00", cmd.getProperties().get("older_than"));
+        Assertions.assertTrue(cmd.getPartitionNamesInfo().isPresent());
+        Assertions.assertEquals(3, cmd.getPartitionNamesInfo().get().getPartitionNames().size());
+        Assertions.assertFalse(cmd.getPartitionNamesInfo().get().isTemp());
+
+        // ALTER TABLE EXECUTE with temporary partition specification
+        sql = "ALTER TABLE t1 EXECUTE rewrite_data_files(\"target-file-size-bytes\" = \"134217728\") TEMPORARY PARTITION (temp_p1)";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("rewrite_data_files", cmd.getActionName());
+        Assertions.assertTrue(cmd.getPartitionNamesInfo().isPresent());
+        Assertions.assertTrue(cmd.getPartitionNamesInfo().get().isTemp());
+        Assertions.assertEquals("temp_p1", cmd.getPartitionNamesInfo().get().getPartitionNames().get(0));
+
+        // ALTER TABLE EXECUTE with partition and WHERE clause
+        sql = "ALTER TABLE t1 EXECUTE rewrite_data_files(\"target-file-size-bytes\" = \"134217728\") PARTITION (p1) WHERE id > 100";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("rewrite_data_files", cmd.getActionName());
+        Assertions.assertTrue(cmd.getPartitionNamesInfo().isPresent());
+        Assertions.assertEquals("p1", cmd.getPartitionNamesInfo().get().getPartitionNames().get(0));
+        Assertions.assertTrue(cmd.getWhereCondition().isPresent());
     }
 
     @Test
