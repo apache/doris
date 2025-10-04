@@ -452,8 +452,16 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
                 if (!path.IsString()) {
                     return Status::InvalidJsonPath("Invalid json path: {}", _jsonpaths);
                 }
+                std::string json_path = path.GetString();
+                // If json_path starts with $ but not $., add a dot after $
+                // e.g., $record[0].c1 -> $.record[0].c1
+                if (json_path.size() > 1 && json_path[0] == '$' && json_path[1] != '.') {
+                    json_path.insert(1, ".");
+                } else if (UNLIKELY(json_path.size() == 1 && json_path[0] == '$')) {
+                    json_path.insert(1, ".");
+                }
                 std::vector<JsonPath> parsed_paths;
-                JsonFunctions::parse_json_paths(path.GetString(), &parsed_paths);
+                JsonFunctions::parse_json_paths(json_path, &parsed_paths);
                 _parsed_jsonpaths.push_back(std::move(parsed_paths));
             }
 
@@ -464,7 +472,16 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
 
     // parse jsonroot
     if (!_json_root.empty()) {
-        JsonFunctions::parse_json_paths(_json_root, &_parsed_json_root);
+        std::string json_root = _json_root;
+        // eg:
+        //    $ -> $.
+        //    $text#abc.xyz -> $.text#abc.xyz
+        if (json_root.size() > 1 && json_root[0] == '$' && json_root[1] != '.') {
+            json_root.insert(1, ".");
+        } else if (json_root.size() == 1 && json_root[0] == '$') {
+            json_root.insert(1, ".");
+        }
+        JsonFunctions::parse_json_paths(json_root, &_parsed_json_root);
     }
     return Status::OK();
 }
@@ -1410,7 +1427,7 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
             }
         }
         if (i < _parsed_jsonpaths.size() && JsonFunctions::is_root_path(_parsed_jsonpaths[i])) {
-            // Indicate that the jsonpath is "$.", read the full root json object, insert the original doc directly
+            // Indicate that the jsonpath is "$" or "$.", read the full root json object, insert the original doc directly
             ColumnNullable* nullable_column = nullptr;
             IColumn* target_column_ptr = nullptr;
             if (slot_desc->is_nullable()) {
