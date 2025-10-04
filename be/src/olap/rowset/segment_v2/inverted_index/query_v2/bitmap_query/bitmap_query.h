@@ -32,9 +32,7 @@ public:
             : _bitmap(std::make_shared<roaring::Roaring>(bitmap)) {}
     ~BitmapQuery() override = default;
 
-    WeightPtr weight(bool /*enable_scoring*/) override {
-        return std::make_shared<BitmapWeight>(_bitmap);
-    }
+    WeightPtr weight() override { return std::make_shared<BitmapWeight>(_bitmap); }
 
 private:
     std::shared_ptr<roaring::Roaring> _bitmap;

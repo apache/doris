@@ -66,7 +66,7 @@ TEST(CompositeReaderTest, DuplicateSetThrowsIndexInvalidParameters) {
         cr.set_reader(field, reader);
         FAIL() << "Expected doris::Exception to be thrown";
     } catch (const doris::Exception& e) {
-        EXPECT_EQ(e.code(), doris::ErrorCode::INDEX_INVALID_PARAMETERS);
+        EXPECT_EQ(e.code(), doris::ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS);
     } catch (...) {
         FAIL() << "Unexpected exception type";
     }

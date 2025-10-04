@@ -39,7 +39,7 @@ public:
 
     void set_reader(const std::wstring& field, lucene::index::IndexReader* reader) {
         if (_field_readers.contains(field)) {
-            throw Exception(ErrorCode::INDEX_INVALID_PARAMETERS, "Field {} already exists",
+            throw Exception(ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS, "Field {} already exists",
                             StringHelper::to_string(field));
         }
         _field_readers[field] = reader;
@@ -61,7 +61,8 @@ public:
 
     [[nodiscard]] uint32_t max_doc() const {
         if (_field_readers.empty()) {
-            throw Exception(ErrorCode::INDEX_INVALID_PARAMETERS, "CompositeReader has no readers");
+            throw Exception(ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS,
+                            "CompositeReader has no readers");
         }
         uint32_t max_doc = 0;
         for (auto* reader : std::views::values(_field_readers)) {

@@ -25,7 +25,7 @@
 #include <unordered_map>
 
 #include "gen_cpp/Exprs_types.h"
-#include "olap/rowset/segment_v2/index_iterator.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/core/block.h"
 
 namespace doris::vectorized {
@@ -40,16 +40,23 @@ protected:
 
 class DummyIndexIterator : public segment_v2::InvertedIndexIterator {
 public:
-    segment_v2::IndexReaderPtr get_reader(
-            segment_v2::IndexReaderType /*reader_type*/) const override {
+    DummyIndexIterator() : segment_v2::InvertedIndexIterator(io::IOContext(), nullptr, nullptr) {}
+    segment_v2::InvertedIndexReaderPtr get_reader(
+            segment_v2::InvertedIndexReaderType /*reader_type*/) override {
         return nullptr;
     }
 
-    Status read_from_index(const segment_v2::IndexParam& /*param*/) override {
+    Status read_from_inverted_index(const vectorized::IndexFieldNameAndTypePair& name_with_type,
+                                    const void* query_value,
+                                    segment_v2::InvertedIndexQueryType query_type,
+                                    uint32_t segment_num_rows,
+                                    std::shared_ptr<roaring::Roaring>& bit_map,
+                                    bool skip_try = false) override {
         return Status::OK();
     }
 
-    Status read_null_bitmap(segment_v2::InvertedIndexQueryCacheHandle* /*cache_handle*/) override {
+    Status read_null_bitmap(segment_v2::InvertedIndexQueryCacheHandle* cache_handle,
+                            lucene::store::Directory* dir = nullptr) override {
         return Status::OK();
     }
 
@@ -58,18 +65,26 @@ public:
 
 class TrackingIndexIterator : public segment_v2::InvertedIndexIterator {
 public:
-    explicit TrackingIndexIterator(bool has_null) : _has_null(has_null) {}
+    explicit TrackingIndexIterator(bool has_null)
+            : segment_v2::InvertedIndexIterator(io::IOContext(), nullptr, nullptr),
+              _has_null(has_null) {}
 
-    segment_v2::IndexReaderPtr get_reader(
-            segment_v2::IndexReaderType /*reader_type*/) const override {
+    segment_v2::InvertedIndexReaderPtr get_reader(
+            segment_v2::InvertedIndexReaderType /*reader_type*/) override {
         return nullptr;
     }
 
-    Status read_from_index(const segment_v2::IndexParam& /*param*/) override {
+    Status read_from_inverted_index(const vectorized::IndexFieldNameAndTypePair& name_with_type,
+                                    const void* query_value,
+                                    segment_v2::InvertedIndexQueryType query_type,
+                                    uint32_t segment_num_rows,
+                                    std::shared_ptr<roaring::Roaring>& bit_map,
+                                    bool skip_try = false) override {
         return Status::OK();
     }
 
-    Status read_null_bitmap(segment_v2::InvertedIndexQueryCacheHandle* /*cache_handle*/) override {
+    Status read_null_bitmap(segment_v2::InvertedIndexQueryCacheHandle* cache_handle,
+                            lucene::store::Directory* dir = nullptr) override {
         ++_read_null_bitmap_calls;
         return Status::OK();
     }
@@ -1128,6 +1143,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithNonInvertedIndexIterator) 
 
     auto status = function_search->evaluate_inverted_index_with_search_param(
             search_param, data_types, iterators, num_rows, bitmap_result);
+    std::cout << status.to_string() << std::endl;
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
     EXPECT_NE(status.to_string().find("iterator for field 'title' is not InvertedIndexIterator"),

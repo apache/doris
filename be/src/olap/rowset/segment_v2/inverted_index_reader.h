@@ -141,8 +141,16 @@ public:
     // Operator |=
     InvertedIndexResultBitmap& operator|=(const InvertedIndexResultBitmap& other) {
         if (_data_bitmap && _null_bitmap && other._data_bitmap && other._null_bitmap) {
-            auto new_null_bitmap = (*_null_bitmap | *other._null_bitmap) - *_data_bitmap;
+            // SQL three-valued logic for OR:
+            // - TRUE OR anything = TRUE (not NULL)
+            // - FALSE OR NULL = NULL
+            // - NULL OR NULL = NULL
+            // Result is NULL when the row is NULL on either side while the other side
+            // is not TRUE. Rows that become TRUE must be removed from the NULL bitmap.
             *_data_bitmap |= *other._data_bitmap;
+            auto new_null_bitmap =
+                    (*_null_bitmap - *other._data_bitmap) | (*other._null_bitmap - *_data_bitmap);
+            new_null_bitmap -= *_data_bitmap;
             *_null_bitmap = std::move(new_null_bitmap);
         }
         return *this;
@@ -502,26 +510,26 @@ class InvertedIndexIterator {
 public:
     InvertedIndexIterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
                           RuntimeState* runtime_state);
+    virtual ~InvertedIndexIterator() = default;
 
     void add_reader(InvertedIndexReaderType type, const InvertedIndexReaderPtr& reader);
 
-    Status read_from_inverted_index(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                                    const void* query_value, InvertedIndexQueryType query_type,
-                                    uint32_t segment_num_rows,
+    virtual Status read_from_inverted_index(
+            const vectorized::IndexFieldNameAndTypePair& name_with_type, const void* query_value,
+            InvertedIndexQueryType query_type, uint32_t segment_num_rows,
 
-                                    std::shared_ptr<roaring::Roaring>& bit_map,
-                                    bool skip_try = false);
+            std::shared_ptr<roaring::Roaring>& bit_map, bool skip_try = false);
 
     Status try_read_from_inverted_index(const InvertedIndexReaderPtr& reader,
                                         const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, uint32_t* count);
 
-    Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
-                            lucene::store::Directory* dir = nullptr);
+    virtual Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
+                                    lucene::store::Directory* dir = nullptr);
 
-    [[nodiscard]] Result<bool> has_null();
+    [[nodiscard]] virtual Result<bool> has_null();
 
-    InvertedIndexReaderPtr get_reader(InvertedIndexReaderType type);
+    virtual InvertedIndexReaderPtr get_reader(InvertedIndexReaderType type);
 
     Result<InvertedIndexReaderPtr> select_best_reader(const vectorized::DataTypePtr& column_type,
                                                       InvertedIndexQueryType query_type);

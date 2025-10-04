@@ -24,7 +24,8 @@
 
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Types_types.h"
-#include "olap/rowset/segment_v2/index_iterator.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "runtime/descriptors.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_number.h"
@@ -50,11 +51,21 @@ namespace {
 
 class StubIndexIterator : public segment_v2::InvertedIndexIterator {
 public:
-    segment_v2::IndexReaderPtr get_reader(segment_v2::IndexReaderType) const override {
+    StubIndexIterator() : segment_v2::InvertedIndexIterator(io::IOContext(), nullptr, nullptr) {}
+    segment_v2::InvertedIndexReaderPtr get_reader(
+            segment_v2::InvertedIndexReaderType type) override {
         return nullptr;
     }
-    Status read_from_index(const segment_v2::IndexParam&) override { return Status::OK(); }
-    Status read_null_bitmap(segment_v2::InvertedIndexQueryCacheHandle*) override {
+    Status read_from_inverted_index(const vectorized::IndexFieldNameAndTypePair& name_with_type,
+                                    const void* query_value,
+                                    segment_v2::InvertedIndexQueryType query_type,
+                                    uint32_t segment_num_rows,
+                                    std::shared_ptr<roaring::Roaring>& bit_map,
+                                    bool skip_try = false) override {
+        return Status::OK();
+    }
+    Status read_null_bitmap(segment_v2::InvertedIndexQueryCacheHandle* cache_handle,
+                            lucene::store::Directory* dir = nullptr) override {
         return Status::OK();
     }
     Result<bool> has_null() override { return false; }
@@ -62,8 +73,6 @@ public:
 
 class DummyExpr : public VExpr {
 public:
-    DummyExpr() { set_node_type(TExprNodeType::COMPOUND_PRED); }
-
     const std::string& expr_name() const override {
         static const std::string kName = "DummyExpr";
         return kName;
@@ -79,12 +88,34 @@ const std::string& intern_column_name(const std::string& name) {
 }
 
 VExprSPtr create_slot_ref(int column_id, const std::string& column_name) {
-    auto slot = std::make_shared<VSlotRef>();
-    slot->set_node_type(TExprNodeType::SLOT_REF);
-    slot->set_slot_id(column_id);
-    slot->set_column_id(column_id);
+    // Create TExprNode for VSlotRef
+    TExprNode slot_node;
+    slot_node.node_type = TExprNodeType::SLOT_REF;
+
+    TSlotRef slot_ref;
+    slot_ref.slot_id = column_id;
+    slot_ref.tuple_id = 0;
+    slot_node.__set_slot_ref(slot_ref);
+
+    // Set type descriptor for string type
+    TTypeDesc type_desc;
+    TTypeNode type_node;
+    type_node.type = TTypeNodeType::SCALAR;
+    TScalarType scalar_type;
+    scalar_type.__set_type(TPrimitiveType::VARCHAR);
+    type_node.__set_scalar_type(scalar_type);
+    type_desc.types.push_back(type_node);
+    slot_node.__set_type(type_desc);
+
+    // Create VSlotRef using factory method
+    auto slot = VSlotRef::create_shared(slot_node);
+
+    // Directly set private members (allowed due to #define private public)
+    slot->_slot_id = column_id;
+    slot->_column_id = column_id;
     const std::string& stored_name = intern_column_name(column_name);
     slot->_column_name = &stored_name;
+
     return slot;
 }
 
@@ -94,7 +125,7 @@ std::shared_ptr<InvertedIndexContext> make_inverted_context(
         std::vector<IndexFieldNameAndTypePair>& storage_types,
         std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>& status_map) {
     return std::make_shared<InvertedIndexContext>(col_ids, index_iterators, storage_types,
-                                                  status_map, nullptr);
+                                                  status_map);
 }
 
 } // namespace
