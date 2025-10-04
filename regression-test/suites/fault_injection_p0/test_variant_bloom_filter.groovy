@@ -55,7 +55,7 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     int seed = Math.floor(Math.random() * 7) 
     def var_def = "variant"
     if (seed % 2 == 0) {
-        var_def = "variant<'repo.id' : int, 'repo.name' : string, 'repo.url' : string, 'repo.description' : string, 'repo.created_at' : string>"
+        var_def = "variant<'repo.id' : bigint, 'repo.name' : string, 'repo.url' : string, 'repo.description' : string, 'repo.created_at' : string>"
     } else {
         var_def = "variant<properties(\"variant_max_subcolumns_count\" = \"100\")>"
     }
@@ -121,7 +121,7 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
         GetDebugPoint().enableDebugPointForAllBEs("bloom_filter_must_filter_data")
 
         // number
-        qt_sql1 """ select cast(v['repo']['id'] as int) from ${index_table} where cast(v['repo']['id'] as int) = 20291263; """
+        qt_sql1 """ select cast(v['repo']['id'] as bigint) from ${index_table} where cast(v['repo']['id'] as bigint) = 20291263; """
 
         // string
         qt_sql2 """ select cast(v['repo']['name'] as text) from ${index_table} where cast(v['repo']['name'] as text) = "ridget/dotfiles"; """
