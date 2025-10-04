@@ -1325,26 +1325,6 @@ inline bool JsonbPath::seek(const char* key_path, size_t kp_len) {
     if (!key_path || kp_len == 0) {
         return false;
     }
-
-    // Convert JSON path formats for compatibility
-    // Support: $ -> $, $. -> $, $xxx -> $.xxx, $.xxx -> $.xxx
-    std::string normalized_path;
-
-    if (kp_len >= 1 && key_path[0] == '$') {
-        if (kp_len == 2 && key_path[1] == '.') {
-            // "$." -> convert to "$"
-            normalized_path = "$";
-            key_path = normalized_path.c_str();
-            kp_len = normalized_path.size();
-        } else if (kp_len > 1 && key_path[1] != '.' && key_path[1] != '[' && key_path[1] != '*') {
-            // "$xxx" -> "$.xxx" (but not "$[0]" or "$*")
-            normalized_path = "$." + std::string(key_path + 1, kp_len - 1);
-            key_path = normalized_path.c_str();
-            kp_len = normalized_path.size();
-        }
-        // "$.xxx", "$[0]", "$*" -> keep as is
-    }
-    LOG(INFO) << "Refrain 转化后: " << key_path << " + " << normalized_path;
     Stream stream(key_path, kp_len);
     stream.skip_whitespace();
     if (stream.exhausted() || stream.read() != SCOPE) {
@@ -1362,7 +1342,6 @@ inline bool JsonbPath::seek(const char* key_path, size_t kp_len) {
             return false;
         }
     }
-    LOG(INFO) << "成功解析";
     return true;
 }
 
