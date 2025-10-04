@@ -1325,8 +1325,21 @@ void VTabletWriter::_send_batch_process() {
     }
 }
 
-static void* periodic_send_batch(void* writer) {
-    auto* tablet_writer = (VTabletWriter*)(writer);
+struct SendBatchArg {
+    VTabletWriter* writer;
+    RuntimeState* state;
+};
+
+static void* periodic_send_batch(void* tmp_arg) {
+    auto* arg = (SendBatchArg*)tmp_arg;
+    auto* state = arg->state;
+    auto* tablet_writer = arg->writer;
+    delete arg;
+    auto task_ctx = state->get_task_execution_context();
+    auto task_lock = task_ctx.lock();
+    if (task_lock == nullptr) {
+        return nullptr;
+    }
     tablet_writer->_send_batch_process();
     return nullptr;
 }
@@ -1367,8 +1380,9 @@ Status VTabletWriter::open(doris::RuntimeState* state, doris::RuntimeProfile* pr
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, _send_batch_parallelism);
 
+    auto* arg = new SendBatchArg {.writer = this, .state = state};
     // start to send batch continually. this must be called after _init
-    if (bthread_start_background(&_sender_thread, nullptr, periodic_send_batch, (void*)this) != 0) {
+    if (bthread_start_background(&_sender_thread, nullptr, periodic_send_batch, (void*)arg) != 0) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>("bthread_start_backgroud failed");
     }
     return Status::OK();
