@@ -56,6 +56,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class S3Util {
     private static final Logger LOG = LogManager.getLogger(Util.class);
@@ -249,6 +251,64 @@ public class S3Util {
         }
 
         return globPattern.substring(0, earliestSpecialCharIndex);
+    }
+
+    /**
+     * Expand number range patterns in the path.
+     * For example: "path/file_{1..3}.csv" -> ["path/file_1.csv", "path/file_2.csv", "path/file_3.csv"]
+     * Supports multiple range patterns in a single path.
+     *
+     * @param pathPattern Path that may contain {start..end} patterns
+     * @return List of expanded paths. If no pattern found, returns a list with the original path.
+     */
+    public static List<String> expandNumberRange(String pathPattern) {
+        List<String> result = new ArrayList<>();
+
+        // Regular expression to match {number..number} pattern
+        Pattern rangePattern = Pattern.compile("\\{(\\d+)\\.\\.(\\d+)\\}");
+        Matcher matcher = rangePattern.matcher(pathPattern);
+
+        if (!matcher.find()) {
+            // No range pattern found, return original path
+            result.add(pathPattern);
+            return result;
+        }
+
+        // Reset matcher to process all occurrences
+        matcher.reset();
+
+        // Start with the original pattern
+        List<String> currentPaths = new ArrayList<>();
+        currentPaths.add(pathPattern);
+
+        // Process each range pattern found
+        while (matcher.find()) {
+            List<String> expandedPaths = new ArrayList<>();
+            String rangeStr = matcher.group(0); // The full match, e.g., "{1..3}"
+            int start = Integer.parseInt(matcher.group(1));
+            int end = Integer.parseInt(matcher.group(2));
+
+            // Validate range
+            if (start > end) {
+                // Invalid range, return original path
+                result.clear();
+                result.add(pathPattern);
+                return result;
+            }
+
+            // Expand each current path with the range
+            for (String currentPath : currentPaths) {
+                for (int i = start; i <= end; i++) {
+                    String expandedPath = currentPath.replaceFirst(
+                            Pattern.quote(rangeStr), String.valueOf(i));
+                    expandedPaths.add(expandedPath);
+                }
+            }
+
+            currentPaths = expandedPaths;
+        }
+
+        return currentPaths;
     }
 
     // Fast fail validation for S3 endpoint connectivity to avoid retries and long waits

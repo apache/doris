@@ -558,6 +558,36 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      */
     private GlobListResult globListInternal(String remotePath, List<RemoteFile> result, boolean fileNameOnly,
             String startFile, long fileSizeLimit, long fileNumLimit) {
+        // First, expand number ranges like {1..3} in the path
+        List<String> expandedPaths = S3Util.expandNumberRange(remotePath);
+
+        // If multiple paths were expanded, process each one separately
+        if (expandedPaths.size() > 1) {
+            GlobListResult finalResult = null;
+            for (String expandedPath : expandedPaths) {
+                GlobListResult pathResult = globListInternalForSinglePath(expandedPath, result, fileNameOnly,
+                        startFile, fileSizeLimit, fileNumLimit);
+                if (finalResult == null || !pathResult.getStatus().ok()) {
+                    finalResult = pathResult;
+                }
+                if (!pathResult.getStatus().ok()) {
+                    // Stop processing if there's an error
+                    return pathResult;
+                }
+            }
+            return finalResult != null ? finalResult : new GlobListResult(Status.OK, "", "", "");
+        }
+
+        // If no range expansion or single path, process normally
+        return globListInternalForSinglePath(remotePath, result, fileNameOnly, startFile, fileSizeLimit, fileNumLimit);
+    }
+
+    /**
+     * Process a single path for glob listing.
+     * This is the original logic separated into a method for reusability.
+     */
+    private GlobListResult globListInternalForSinglePath(String remotePath, List<RemoteFile> result,
+            boolean fileNameOnly, String startFile, long fileSizeLimit, long fileNumLimit) {
         long roundCnt = 0;
         long elementCnt = 0;
         long matchCnt = 0;
