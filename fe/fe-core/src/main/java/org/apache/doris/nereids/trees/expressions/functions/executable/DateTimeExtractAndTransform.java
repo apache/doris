@@ -238,11 +238,27 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
+     * Executable time extract second
+     */
+    @ExecFunction(name = "second")
+    public static Expression second(TimeV2Literal time) {
+        return new TinyIntLiteral(((byte) time.getSecond()));
+    }
+
+    /**
      * Executable datetime extract microsecond
      */
     @ExecFunction(name = "microsecond")
     public static Expression microsecond(DateTimeV2Literal date) {
         return new IntegerLiteral(((int) date.getMicroSecond()));
+    }
+
+    /**
+     * Executable time extract microsecond
+     */
+    @ExecFunction(name = "microsecond")
+    public static Expression microsecond(TimeV2Literal time) {
+        return new IntegerLiteral(((int) time.getMicroSecond()));
     }
 
     /**

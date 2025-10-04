@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForSingleTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
@@ -263,6 +264,37 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
             bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
         ));
 
+        // Test isTimeFormat function
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("12:12:12"));
+
+        // Test colon time format - valid cases
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("00:00:00"));
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("23:59:59"));
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("12:30:45.123456"));
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("01:02:03"));
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("800:00:00")); // Large hour value
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("12:30")); // HH:MM format
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("1:2:3")); // Short format
+
+        // Test numeric time format - valid cases
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("123456")); // HHMMSS
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("1234")); // HHMM
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("12")); // HH
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("123456.789")); // With microseconds
+
+        // Test signed time format - valid cases
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("+12:34:56"));
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("-12:34:56"));
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("+123456"));
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("-123456"));
+
+        // Test invalid cases - should return false
+        Assertions.assertFalse(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("2023-12-31")); // Date format
+        Assertions.assertFalse(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("2023-12-31 12:34:56")); // Datetime format
+        Assertions.assertFalse(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("12/34/56")); // Slash separator
+        Assertions.assertFalse(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("12T34:56")); // ISO format
+        Assertions.assertFalse(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("12345678")); // Too long numeric
+
         HoursAdd hoursAdd = new HoursAdd(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1), 0),
                 new IntegerLiteral(1));
         Expression rewritten = executor.rewrite(hoursAdd, context);
@@ -291,6 +323,10 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 new BigIntLiteral(-2));
         rewritten = executor.rewrite(minutesAdd, context);
         Assertions.assertEquals(minutesAdd, rewritten);
+
+        // Expression timeV2Literal = new TimeV2Literal(12, 10, 10, 123456, 6, false);
+        // Second second = new Second(new TimeV2Literal(12, 10, 10, 123456, 6, false));
+        // Assertions.assertEquals(new BigIntLiteral(10), second.getSecond());
 
         SecondsAdd secondsAdd = new SecondsAdd(
                         DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1), 0),
