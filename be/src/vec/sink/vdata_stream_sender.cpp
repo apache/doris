@@ -207,7 +207,7 @@ Status Channel::_send_local_block(bool eos) {
         _serializer.get_block()->set_mutable_columns(block.clone_empty_columns());
     }
 
-    if (!block.empty() || eos) {
+    if (!block.empty() || eos) { // if eos is true, we MUST to send an empty block
         RETURN_IF_ERROR(send_local_block(&block, eos, true));
     }
     return Status::OK();
