@@ -46,7 +46,10 @@ public interface ComputeSignatureForSingleTimeArithmetic extends ComputeSignatur
                     new TimeV2Literal(s); // check legality
                     TimeV2Type t = TimeV2Type.forTypeFromString(s);
                     int scale = t.getScale();
-                    return FunctionSignature.ret(IntegerType.INSTANCE).args(TimeV2Type.of(scale));
+                    FunctionSignature timeSignature = FunctionSignature.ret(IntegerType.INSTANCE)
+                            .args(TimeV2Type.of(scale));
+                    // Apply the same signature computation chain to the time signature
+                    return ComputeSignature.super.computeSignature(timeSignature);
                 }
 
             } catch (Exception e) {
@@ -60,7 +63,7 @@ public interface ComputeSignatureForSingleTimeArithmetic extends ComputeSignatur
     /**
      * Check if the string is in a valid time format.
      */
-    default boolean isTimeFormat(String s) {
+    static boolean isTimeFormat(String s) {
         if (s == null || s.isEmpty()) {
             return false;
         }
@@ -84,7 +87,7 @@ public interface ComputeSignatureForSingleTimeArithmetic extends ComputeSignatur
     /**
      * Check if the string is in HH:MM[:SS[.FFFFFF]] format.
      */
-    default boolean isColonTimeFormat(String s) {
+    static boolean isColonTimeFormat(String s) {
         String[] parts = s.split("\\.", 2);
         String timePart = parts[0];
 
@@ -105,7 +108,7 @@ public interface ComputeSignatureForSingleTimeArithmetic extends ComputeSignatur
     /**
      * Check if the string is in numeric format: continuous digits [ .FFFFFF ]
      */
-    default boolean isNumericTimeFormat(String s) {
+    static boolean isNumericTimeFormat(String s) {
         String[] parts = s.split("\\.", 2);
         String numberPart = parts[0];
 
