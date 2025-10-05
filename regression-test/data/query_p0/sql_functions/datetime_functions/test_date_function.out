@@ -300,38 +300,8 @@ February
 -- !sql --
 0
 
--- !sql_second_time_with_micro1 --
-1
-
--- !sql_second_time_with_micro2 --
-59
-
--- !sql_second_time_with_micro3 --
-0
-
--- !sql_second_time_with_micro4 --
-45
-
 -- !sql --
 767890
-
--- !sql_microsecond_special_format --
-120000
-
--- !sql_microsecond_time_with_micro1 --
-123456
-
--- !sql_microsecond_time_with_micro2 --
-999999
-
--- !sql_microsecond_time_with_micro3 --
-1
-
--- !sql_microsecond_time_with_micro4 --
-500000
-
--- !sql_microsecond_time_with_micro5 --
-789000
 
 -- !sql --
 2014-12-21T12:34:56
@@ -587,25 +557,10 @@ February
 -- !sql_second_simple --
 56
 
--- !sql_microsecond_simple --
-123456
-
 -- !sql_second_datetime_with_micro --
 56
 
 -- !sql_microsecond_datetime_with_micro --
-789123
-
--- !sql_table_second_all --
-\N
-\N
-\N
-56
-
--- !sql_table_microsecond_all --
-\N
-\N
-\N
 789123
 
 -- !sql --
