@@ -4578,7 +4578,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
         tResult.setPartitionTopnMaxPartitions(partitionTopNMaxPartitions);
         tResult.setPartitionTopnPrePartitionRows(partitionTopNPerPartitionRows);
-        tResult.setEnableConditionCache(enableConditionCache);
+        if (enableConditionCache) {
+            tResult.setConditionCacheDigest(getAffectQueryResultVariableHashCode());
+        }
 
         if (maxScanKeyNum > 0) {
             tResult.setMaxScanKeyNum(maxScanKeyNum);
@@ -5502,6 +5504,20 @@ public class SessionVariable implements Serializable, Writable {
                 throw new IllegalStateException("Can not access SessionVariable." + name, t);
             }
         }
+    }
+
+    public int getAffectQueryResultVariableHashCode() {
+        int hash = 0;
+        for (Field affectQueryResultField : affectQueryResultFields) {
+            String name = affectQueryResultField.getName();
+            try {
+                Object value = affectQueryResultField.get(this);
+                hash = 31 * hash + (value != null ? value.hashCode() : 0);
+            } catch (Throwable t) {
+                throw new IllegalStateException("Can not access SessionVariable." + name, t);
+            }
+        }
+        return hash;
     }
 
     public static boolean isFeDebug() {

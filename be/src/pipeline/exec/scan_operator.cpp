@@ -117,7 +117,8 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     RETURN_IF_ERROR(_helper.acquire_runtime_filter(state, _conjuncts, p.row_descriptor()));
 
     // Disable condition cache in topn filter valid. TODO:: Try to support the topn filter in condition cache
-    if (state->query_options().enable_condition_cache && p._topn_filter_source_node_ids.empty()) {
+    if (state->query_options().condition_cache_digest && p._topn_filter_source_node_ids.empty()) {
+        _condition_cache_digest = state->query_options().condition_cache_digest;
         for (auto& conjunt : _conjuncts) {
             _condition_cache_digest = conjunt->get_digest(_condition_cache_digest);
             if (!_condition_cache_digest) {
