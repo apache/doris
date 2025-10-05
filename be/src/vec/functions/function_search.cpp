@@ -279,7 +279,8 @@ FunctionSearch::ClauseTypeCategory FunctionSearch::get_clause_type_category(
     if (clause_type == "AND" || clause_type == "OR" || clause_type == "NOT") {
         return ClauseTypeCategory::COMPOUND;
     } else if (clause_type == "TERM" || clause_type == "PREFIX" || clause_type == "WILDCARD" ||
-               clause_type == "REGEXP" || clause_type == "RANGE" || clause_type == "LIST") {
+               clause_type == "REGEXP" || clause_type == "RANGE" || clause_type == "LIST" ||
+               clause_type == "EXACT") {
         // Non-tokenized queries: exact matching, pattern matching, range, list operations
         return ClauseTypeCategory::NON_TOKENIZED;
     } else if (clause_type == "PHRASE" || clause_type == "MATCH" || clause_type == "ANY" ||
@@ -349,6 +350,9 @@ InvertedIndexQueryType FunctionSearch::clause_type_to_query_type(
             {"MATCH", InvertedIndexQueryType::MATCH_ANY_QUERY},
             {"ANY", InvertedIndexQueryType::MATCH_ANY_QUERY},
             {"ALL", InvertedIndexQueryType::MATCH_ALL_QUERY},
+
+            // Exact match without tokenization
+            {"EXACT", InvertedIndexQueryType::EQUAL_QUERY},
     };
 
     auto it = clause_type_map.find(clause_type);
@@ -532,6 +536,17 @@ Status FunctionSearch::build_leaf_query(const FunctionSearch& function, const TS
     }
 
     if (category == FunctionSearch::ClauseTypeCategory::NON_TOKENIZED) {
+        if (clause_type == "EXACT") {
+            // EXACT match: exact string matching without tokenization
+            // Note: EXACT prefers untokenized index (STRING_TYPE) which doesn't support lowercase
+            // If only tokenized index exists, EXACT may return empty results because
+            // tokenized indexes store individual tokens, not complete strings
+            *out = make_term_query(value_wstr);
+            VLOG_DEBUG << "search: EXACT clause processed, field=" << field_name
+                       << ", value='" << value << "'";
+            return Status::OK();
+        }
+
         if (clause_type == "PREFIX" || clause_type == "WILDCARD" || clause_type == "REGEXP" ||
             clause_type == "RANGE" || clause_type == "LIST") {
             VLOG_DEBUG << "search: clause type '" << clause_type
