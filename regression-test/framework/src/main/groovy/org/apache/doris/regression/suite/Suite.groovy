@@ -1977,6 +1977,10 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean enableStoragevault() {
+        if (isCloudMode()) {
+            return false;
+        }
+
         if (Strings.isNullOrEmpty(context.config.metaServiceHttpAddress)
                 || Strings.isNullOrEmpty(context.config.instanceId)
                 || Strings.isNullOrEmpty(context.config.metaServiceToken)) {
