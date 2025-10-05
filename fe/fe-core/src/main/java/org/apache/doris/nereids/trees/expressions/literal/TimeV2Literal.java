@@ -315,6 +315,10 @@ public class TimeV2Literal extends Literal {
                     time.getSecond());
         } else if (targetType.isDateTimeV2Type()) {
             return time;
+        } else if (targetType.isTimeType()) {
+            // Handle TimeV2 to TimeV2 cast (precision conversion)
+            TimeV2Type targetTimeV2Type = (TimeV2Type) targetType;
+            return new TimeV2Literal(hour, minute, second, microsecond, targetTimeV2Type.getScale(), negative);
         }
         return super.uncheckedCastTo(targetType);
     }
