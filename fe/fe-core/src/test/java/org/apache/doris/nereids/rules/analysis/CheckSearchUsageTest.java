@@ -17,14 +17,9 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -93,9 +88,9 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
 
         Assertions.assertTrue(
                 exception.getMessage().contains("search()")
-                && (exception.getMessage().contains("GROUP BY")
-                    || exception.getMessage().contains("WHERE filters")
-                    || exception.getMessage().contains("single-table")),
+                        && (exception.getMessage().contains("GROUP BY")
+                        || exception.getMessage().contains("WHERE filters")
+                        || exception.getMessage().contains("single-table")),
                 "Expected error about search() usage restrictions, got: " + exception.getMessage());
     }
 
@@ -110,8 +105,8 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
 
         Assertions.assertTrue(
                 exception.getMessage().contains("search()")
-                && (exception.getMessage().contains("projection")
-                    || exception.getMessage().contains("WHERE")),
+                        && (exception.getMessage().contains("projection")
+                        || exception.getMessage().contains("WHERE")),
                 "Expected error about search() usage, got: " + exception.getMessage());
     }
 
@@ -126,8 +121,8 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
 
         Assertions.assertTrue(
                 exception.getMessage().contains("search()")
-                && (exception.getMessage().contains("projection")
-                    || exception.getMessage().contains("WHERE")),
+                        && (exception.getMessage().contains("projection")
+                        || exception.getMessage().contains("WHERE")),
                 "Expected error about search() in projection, got: " + exception.getMessage());
     }
 
@@ -143,7 +138,7 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
 
         Assertions.assertTrue(
                 exception.getMessage().contains("search()")
-                || exception.getMessage().contains("WHERE"),
+                        || exception.getMessage().contains("WHERE"),
                 "Expected error about search() usage, got: " + exception.getMessage());
     }
 
@@ -159,8 +154,8 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
 
         Assertions.assertTrue(
                 exception.getMessage().contains("search()")
-                || exception.getMessage().contains("WHERE")
-                || exception.getMessage().contains("HAVING"),
+                        || exception.getMessage().contains("WHERE")
+                        || exception.getMessage().contains("HAVING"),
                 "Expected error about search() usage, got: " + exception.getMessage());
     }
 
@@ -190,7 +185,7 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
 
         Assertions.assertTrue(
                 exception.getMessage().contains("search()")
-                && exception.getMessage().contains("single"),
+                        && exception.getMessage().contains("single"),
                 "Expected error about single table, got: " + exception.getMessage());
     }
 
@@ -200,8 +195,8 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
         String sql = "SELECT * FROM (SELECT id, title FROM test_search_table "
                 + "WHERE search('title:hello')) t WHERE id > 10";
 
-        // The search() in subquery's WHERE should be allowed, but when projected up it might fail
-        // Let's test if it works in subquery
+        // The search() function is allowed in the WHERE clause of a subquery over a single table.
+        // This test verifies that such usage does not throw an exception.
         Assertions.assertDoesNotThrow(() -> {
             PlanChecker.from(connectContext).analyze(sql);
         });
@@ -231,7 +226,7 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
 
         Assertions.assertTrue(
                 exception.getMessage().contains("search()")
-                || exception.getMessage().contains("WHERE"),
+                        || exception.getMessage().contains("WHERE"),
                 "Expected error about search() usage, got: " + exception.getMessage());
     }
 
@@ -246,7 +241,7 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
 
         Assertions.assertTrue(
                 exception.getMessage().contains("search()")
-                || exception.getMessage().contains("WHERE"),
+                        || exception.getMessage().contains("WHERE"),
                 "Expected error about search() usage, got: " + exception.getMessage());
     }
 

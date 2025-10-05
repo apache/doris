@@ -80,13 +80,8 @@ public class CheckSearchUsage implements AnalysisRuleFactory {
             for (Expression expr : project.getProjects()) {
                 if (containsSearchExpression(expr)) {
                     // Only allow if it's the project directly above a filter->scan pattern
-                    Plan child = plan.child(0);
-                    if (!(child instanceof LogicalFilter
-                            && child.child(0) instanceof LogicalOlapScan)) {
-                        throw new AnalysisException("search() can only appear in WHERE filters on OLAP scans; "
-                                + "projection of search() is not supported");
-                    }
-                    break;
+                    throw new AnalysisException("search() can only appear in WHERE filters on OLAP scans; "
+                            + "projection of search() is not supported");
                 }
             }
         }
