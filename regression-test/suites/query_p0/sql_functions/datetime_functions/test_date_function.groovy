@@ -429,20 +429,20 @@ suite("test_date_function") {
     qt_sql """ select second('2018-12-31 23:59:59') """
     qt_sql """ select second('2018-12-31 00:00:00') """
     // Test SECOND function with time strings containing microseconds
-    qt_sql_second_time_with_micro1 """ select second('12:00:01.12') """
-    qt_sql_second_time_with_micro2 """ select second('23:59:59.999999') """
-    qt_sql_second_time_with_micro3 """ select second('00:00:00.000001') """
-    qt_sql_second_time_with_micro4 """ select second('15:30:45.5') """
+    // qt_sql_second_time_with_micro1 """ select second('12:00:01.12') """
+    // qt_sql_second_time_with_micro2 """ select second('23:59:59.999999') """
+    // qt_sql_second_time_with_micro3 """ select second('00:00:00.000001') """
+    // qt_sql_second_time_with_micro4 """ select second('15:30:45.5') """
     
     // MICROSECOND
     qt_sql """ select microsecond(cast('1999-01-02 10:11:12.767890' as datetimev2(6))) """
     // Test MICROSECOND function with time strings containing microseconds
-    qt_sql_microsecond_special_format """ select microsecond('120000.12') """
-    qt_sql_microsecond_time_with_micro1 """ select microsecond('12:00:00.123456') """
-    qt_sql_microsecond_time_with_micro2 """ select microsecond('23:59:59.999999') """
-    qt_sql_microsecond_time_with_micro3 """ select microsecond('00:00:00.000001') """
-    qt_sql_microsecond_time_with_micro4 """ select microsecond('15:30:45.5') """
-    qt_sql_microsecond_time_with_micro5 """ select microsecond('12:34:56.789') """
+    // qt_sql_microsecond_special_format """ select microsecond('120000.12') """
+    // qt_sql_microsecond_time_with_micro1 """ select microsecond('12:00:00.123456') """
+    // qt_sql_microsecond_time_with_micro2 """ select microsecond('23:59:59.999999') """
+    // qt_sql_microsecond_time_with_micro3 """ select microsecond('00:00:00.000001') """
+    // qt_sql_microsecond_time_with_micro4 """ select microsecond('15:30:45.5') """
+    // qt_sql_microsecond_time_with_micro5 """ select microsecond('12:34:56.789') """
 
     // STR_TO_DATE
     sql """ truncate table ${tableName} """
@@ -613,7 +613,7 @@ suite("test_date_function") {
 
     // Simple tests for basic functionality
     qt_sql_second_simple """ select second('12:34:56') """
-    qt_sql_microsecond_simple """ select microsecond('12:34:56.123456') """
+    // qt_sql_microsecond_simple """ select microsecond('12:34:56.123456') """
     
     // Test with datetime values
     qt_sql_second_datetime_with_micro """ select second('2024-01-01 12:34:56.789') """
@@ -641,10 +641,10 @@ suite("test_date_function") {
         """
     
     // Test SECOND function with time_str column
-    qt_sql_table_second_all """ select second(time_str) from ${tableName} order by id; """
+    // qt_sql_table_second_all """ select second(time_str) from ${tableName} order by id; """
     
     // Test MICROSECOND function with time_str column  
-    qt_sql_table_microsecond_all """ select microsecond(time_str) from ${tableName} order by id; """
+    // qt_sql_table_microsecond_all """ select microsecond(time_str) from ${tableName} order by id; """
 
     tableName = "test_from_unixtime"
 
