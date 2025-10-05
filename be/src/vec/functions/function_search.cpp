@@ -542,8 +542,8 @@ Status FunctionSearch::build_leaf_query(const FunctionSearch& function, const TS
             // If only tokenized index exists, EXACT may return empty results because
             // tokenized indexes store individual tokens, not complete strings
             *out = make_term_query(value_wstr);
-            VLOG_DEBUG << "search: EXACT clause processed, field=" << field_name
-                       << ", value='" << value << "'";
+            VLOG_DEBUG << "search: EXACT clause processed, field=" << field_name << ", value='"
+                       << value << "'";
             return Status::OK();
         }
 
