@@ -287,7 +287,7 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* in
                         static_cast<const void*>(indices_begin),
                         static_cast<const void*>(indices_end));
     }
-                                            
+
     auto origin_size = size();
     auto new_size = indices_end - indices_begin;
     if (new_size == 0) {
