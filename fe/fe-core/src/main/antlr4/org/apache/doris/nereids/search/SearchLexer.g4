@@ -58,9 +58,10 @@ REGEXP   : '/' (~[/] | '\\/')* '/' ;
 LBRACKET : '[' -> pushMode(RANGE_MODE) ;
 LBRACE   : '{' -> pushMode(RANGE_MODE) ;
 
-IN_LPAREN  : [Ii][Nn] '(' -> pushMode(LIST_MODE) ;
-ANY_LPAREN : [Aa][Nn][Yy] '(' -> pushMode(STRING_MODE) ;
-ALL_LPAREN : [Aa][Ll][Ll] '(' -> pushMode(STRING_MODE) ;
+IN_LPAREN    : [Ii][Nn] '(' -> pushMode(LIST_MODE) ;
+ANY_LPAREN   : [Aa][Nn][Yy] '(' -> pushMode(STRING_MODE) ;
+ALL_LPAREN   : [Aa][Ll][Ll] '(' -> pushMode(STRING_MODE) ;
+EXACT_LPAREN : [Ee][Xx][Aa][Cc][Tt] '(' -> pushMode(STRING_MODE) ;
 
 WS : [ \t\r\n\u3000]+ -> skip ;
 
