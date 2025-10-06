@@ -57,18 +57,20 @@ TEST(VColumnVectorTest, insert_indices_from_uInt64_crash) {
     // Valid indices (should work)
     uint32_t valid_indices[] = {0, 2, 3};
     dest->insert_indices_from(*src, valid_indices, valid_indices + 3);
-    ASSERT_EQ(dest->size(), 5); // 2 original + 3 inserted
+    ASSERT_EQ(dest->size(), 5);        // 2 original + 3 inserted
     ASSERT_EQ(dest->get_int(2), 10LL); // Check inserted value
 
     // Invalid indices to trigger crash
-    uint32_t invalid_indices[] = {0, 2, 1000000000U, 2000000000U}; // Large indices to hit unmapped memory (src size = 4)
+    uint32_t invalid_indices[] = {
+            0, 2, 1000000000U, 2000000000U}; // Large indices to hit unmapped memory (src size = 4)
     try {
         dest->insert_indices_from(*src, invalid_indices, invalid_indices + 4);
         FAIL() << "Expected Exception for out-of-bounds indices";
     } catch (const Exception& e) {
         ASSERT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
-        ASSERT_TRUE(std::string(e.to_string()).find("Index 1000000000 exceeds source column size 4") !=
-                    std::string::npos);
+        ASSERT_TRUE(
+                std::string(e.to_string()).find("Index 1000000000 exceeds source column size 4") !=
+                std::string::npos);
     }
 }
 
