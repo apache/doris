@@ -281,7 +281,7 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* in
                                           const uint32_t* indices_end) {
     const auto& src_concrete = static_cast<const ColumnVector<T>&>(src);
     size_t src_size = src_concrete.size();
-    if (indices_begin == nullptr || indices_end == nullptr || 
+    if (indices_begin == nullptr || indices_end == nullptr ||
         (indices_begin != indices_end && indices_begin > indices_end)) {
         throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid index range: begin={}, end={}",
                         static_cast<const void*>(indices_begin),
@@ -300,7 +300,7 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* in
                    size_t src_size) {
         for (const auto* it = begin; it != end; ++it) {
             if (*it >= src_size) {
-                throw Exception(ErrorCode::INTERNAL_ERROR, "Index {} exceeds source column size {}", 
+                throw Exception(ErrorCode::INTERNAL_ERROR, "Index {} exceeds source column size {}",
                                 *it, src_size);
             }
             *dest = src[*it];
