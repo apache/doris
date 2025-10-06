@@ -125,6 +125,7 @@ public class SearchDslParser {
         LIST,       // field:IN(value1 value2)
         ANY,        // field:ANY(value) - any match
         ALL,        // field:ALL(value) - all match
+        EXACT,      // field:EXACT(value) - exact match without tokenization
         AND,        // clause1 AND clause2
         OR,         // clause1 OR clause2
         NOT         // NOT clause
@@ -298,6 +299,10 @@ public class SearchDslParser {
                 return createAnyAllNode(fieldName, ctx.anyAllValue().getText());
             }
 
+            if (ctx.exactValue() != null) {
+                return createExactNode(fieldName, ctx.exactValue().getText());
+            }
+
             // Fallback for unknown types
             return createTermNode(fieldName, ctx.getText());
         }
@@ -370,6 +375,12 @@ public class SearchDslParser {
 
             // Fallback to ANY for unknown cases
             return new QsNode(QsClauseType.ANY, fieldName, innerContent);
+        }
+
+        private QsNode createExactNode(String fieldName, String exactText) {
+            // Extract content between parentheses
+            String innerContent = extractParenthesesContent(exactText);
+            return new QsNode(QsClauseType.EXACT, fieldName, innerContent);
         }
 
         private String extractParenthesesContent(String text) {
