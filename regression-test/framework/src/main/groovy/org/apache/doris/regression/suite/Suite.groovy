@@ -1977,7 +1977,7 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean enableStoragevault() {
-        if (isCloudMode()) {
+        if (!isCloudMode()) {
             return false;
         }
 
