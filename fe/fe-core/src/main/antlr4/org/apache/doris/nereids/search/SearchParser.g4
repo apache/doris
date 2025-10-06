@@ -37,6 +37,7 @@ searchValue
     | rangeValue
     | listValue
     | anyAllValue
+    | exactValue
     ;
 
 rangeValue
@@ -48,3 +49,4 @@ rangeEndpoint : RANGE_NUMBER | RANGE_STAR ;
 
 listValue   : IN_LPAREN LIST_TERM* LIST_RPAREN ;
 anyAllValue : (ANY_LPAREN | ALL_LPAREN) STRING_CONTENT? STRING_RPAREN ;
+exactValue  : EXACT_LPAREN STRING_CONTENT? STRING_RPAREN ;
