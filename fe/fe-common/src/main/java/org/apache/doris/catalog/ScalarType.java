@@ -923,6 +923,9 @@ public class ScalarType extends Type {
         if (isDatetimeV2() && scalarType.isDatetimeV2()) {
             return true;
         }
+        if (isTimeV2() && scalarType.isTimeV2()) {
+            return true;
+        }
         if (isVariantType() && scalarType.isVariantType()) {
             return true;
         }
