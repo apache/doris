@@ -18,7 +18,7 @@
 import java.util.concurrent.TimeUnit;
 import org.awaitility.Awaitility;
 
-suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p0,external") {
+suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p0,external,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
@@ -56,4 +56,3 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
         return false;
     }
 }
-
