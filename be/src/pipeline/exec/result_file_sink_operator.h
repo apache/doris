@@ -37,6 +37,7 @@ public:
     ~ResultFileSinkLocalState() override;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
 
     [[nodiscard]] int sender_id() const { return _sender_id; }
