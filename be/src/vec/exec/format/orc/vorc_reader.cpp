@@ -1025,20 +1025,19 @@ Status OrcReader::set_fill_columns(
 
         if (expr->is_rf_wrapper()) {
             // REF: src/runtime_filter/runtime_filter_consumer.cpp
-            VRuntimeFilterWrapper* runtime_filter = assert_cast<VRuntimeFilterWrapper*>(expr.get());
+            auto* runtime_filter = static_cast<VRuntimeFilterWrapper*>(expr.get());
 
             auto filter_impl = runtime_filter->get_impl();
             visit_slot(filter_impl.get());
 
-            // only support push down for filter row group : MAX_FILTER, MAX_FILTER, MINMAX_FILTER,  IN_FILTER
+            // only support push down for filter row group : MAX_FILTER, MAX_FILTER, MINMAX_FILTER, IN_FILTER
             if ((runtime_filter->node_type() == TExprNodeType::BINARY_PRED) &&
                 (runtime_filter->op() == TExprOpcode::GE ||
                  runtime_filter->op() == TExprOpcode::LE)) {
                 expr = filter_impl;
             } else if (runtime_filter->node_type() == TExprNodeType::IN_PRED &&
                        runtime_filter->op() == TExprOpcode::FILTER_IN) {
-                VDirectInPredicate* direct_in_predicate =
-                        assert_cast<VDirectInPredicate*>(filter_impl.get());
+                auto* direct_in_predicate = static_cast<VDirectInPredicate*>(filter_impl.get());
 
                 int max_in_size =
                         _state->query_options().__isset.max_pushdown_conditions_per_column
@@ -1137,13 +1136,11 @@ Status OrcReader::set_fill_columns(
     }
 
     if (_enable_lazy_mat && !_lazy_read_ctx.predicate_columns.first.empty() &&
-        !_lazy_read_ctx.lazy_read_columns.empty()) {
+        !_lazy_read_ctx.lazy_read_columns.empty() && !_lazy_read_ctx.conjuncts.empty()) {
         _lazy_read_ctx.can_lazy_read = true;
     }
 
-    if (_lazy_read_ctx.conjuncts.empty()) {
-        _lazy_read_ctx.can_lazy_read = false;
-    } else if (_enable_filter_by_min_max) {
+    if (_enable_filter_by_min_max) {
         auto res = _init_search_argument(_push_down_exprs);
         if (_state->query_options().check_orc_init_sargs_success && !res) {
             std::stringstream ss;
@@ -1290,12 +1287,11 @@ Status OrcReader::_fill_partition_columns(
         auto doris_column = block->get_by_name(kv.first).column;
         auto* col_ptr = const_cast<IColumn*>(doris_column.get());
         const auto& [value, slot_desc] = kv.second;
-        auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
+        auto text_serde = slot_desc->get_data_type_ptr()->get_serde();
         Slice slice(value.data(), value.size());
         uint64_t num_deserialized = 0;
-        if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
-                                                            &num_deserialized,
-                                                            _text_formatOptions) != Status::OK()) {
+        if (text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows, &num_deserialized,
+                                                           _text_formatOptions) != Status::OK()) {
             return Status::InternalError("Failed to fill partition column: {}={}",
                                          slot_desc->col_name(), value);
         }
@@ -1492,17 +1488,16 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
                 "Wrong data type for column '{}', expected EncodedStringVectorBatch", col_name);
     }
     if (data->isEncoded) {
-        return _decode_string_dict_encoded_column<is_filter>(col_name, data_column, type_kind, data,
+        return _decode_string_dict_encoded_column<is_filter>(data_column, type_kind, data,
                                                              num_values);
     } else {
-        return _decode_string_non_dict_encoded_column<is_filter>(col_name, data_column, type_kind,
-                                                                 data, num_values);
+        return _decode_string_non_dict_encoded_column<is_filter>(data_column, type_kind, data,
+                                                                 num_values);
     }
 }
 
 template <bool is_filter>
-Status OrcReader::_decode_string_non_dict_encoded_column(const std::string& col_name,
-                                                         const MutableColumnPtr& data_column,
+Status OrcReader::_decode_string_non_dict_encoded_column(const MutableColumnPtr& data_column,
                                                          const orc::TypeKind& type_kind,
                                                          const orc::EncodedStringVectorBatch* cvb,
                                                          size_t num_values) {
@@ -1556,105 +1551,72 @@ Status OrcReader::_decode_string_non_dict_encoded_column(const std::string& col_
 }
 
 template <bool is_filter>
-Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name,
-                                                     const MutableColumnPtr& data_column,
+Status OrcReader::_decode_string_dict_encoded_column(const MutableColumnPtr& data_column,
                                                      const orc::TypeKind& type_kind,
                                                      const orc::EncodedStringVectorBatch* cvb,
                                                      size_t num_values) {
     std::vector<StringRef> string_values;
     size_t max_value_length = 0;
     string_values.reserve(num_values);
-    UInt8* __restrict filter_data;
+
+    UInt8* __restrict filter_data = nullptr;
     if constexpr (is_filter) {
         filter_data = _filter->data();
     }
+
+    auto process_one = [&]<bool is_char>(int i) {
+        if constexpr (is_filter) {
+            if (!filter_data[i]) {
+                string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
+                return;
+            }
+        }
+
+        char* val_ptr;
+        int64_t length;
+        cvb->dictionary->getValueByIndex(cvb->index.data()[i], val_ptr, length);
+
+        if constexpr (is_char) {
+            length = trim_right(val_ptr, length);
+        }
+
+        if (length > max_value_length) {
+            max_value_length = length;
+        }
+
+        string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW, length);
+    };
+
     if (type_kind == orc::TypeKind::CHAR) {
-        // Possibly there are some zero padding characters in CHAR type, we have to strip them off.
         if (cvb->hasNulls) {
             for (int i = 0; i < num_values; ++i) {
                 if (cvb->notNull[i]) {
-                    if constexpr (is_filter) {
-                        if (!filter_data[i]) {
-                            string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
-                            continue;
-                        }
-                    }
-                    char* val_ptr;
-                    int64_t length;
-                    cvb->dictionary->getValueByIndex(cvb->index.data()[i], val_ptr, length);
-                    length = trim_right(val_ptr, length);
-                    if (length > max_value_length) {
-                        max_value_length = length;
-                    }
-                    string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
-                                               length);
+                    process_one.template operator()<true>(i);
                 } else {
-                    // Orc doesn't fill null values in new batch, but the former batch has been release.
-                    // Other types like int/long/timestamp... are flat types without pointer in them,
-                    // so other types do not need to be handled separately like string.
                     string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
                 }
             }
         } else {
             for (int i = 0; i < num_values; ++i) {
-                if constexpr (is_filter) {
-                    if (!filter_data[i]) {
-                        string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
-                        continue;
-                    }
-                }
-                char* val_ptr;
-                int64_t length;
-                cvb->dictionary->getValueByIndex(cvb->index.data()[i], val_ptr, length);
-                length = trim_right(val_ptr, length);
-                if (length > max_value_length) {
-                    max_value_length = length;
-                }
-                string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
-                                           length);
+                process_one.template operator()<true>(i);
             }
         }
     } else {
         if (cvb->hasNulls) {
             for (int i = 0; i < num_values; ++i) {
                 if (cvb->notNull[i]) {
-                    if constexpr (is_filter) {
-                        if (!filter_data[i]) {
-                            string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
-                            continue;
-                        }
-                    }
-                    char* val_ptr;
-                    int64_t length;
-                    cvb->dictionary->getValueByIndex(cvb->index.data()[i], val_ptr, length);
-                    if (length > max_value_length) {
-                        max_value_length = length;
-                    }
-                    string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
-                                               length);
+                    process_one.template operator()<false>(i);
                 } else {
                     string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
                 }
             }
         } else {
             for (int i = 0; i < num_values; ++i) {
-                if constexpr (is_filter) {
-                    if (!filter_data[i]) {
-                        string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
-                        continue;
-                    }
-                }
-                char* val_ptr;
-                int64_t length;
-                cvb->dictionary->getValueByIndex(cvb->index.data()[i], val_ptr, length);
-                if (length > max_value_length) {
-                    max_value_length = length;
-                }
-                string_values.emplace_back((length > 0) ? val_ptr : EMPTY_STRING_FOR_OVERFLOW,
-                                           length);
+                process_one.template operator()<false>(i);
             }
         }
     }
+
     if (!string_values.empty()) {
         data_column->insert_many_strings_overflow(string_values.data(), string_values.size(),
                                                   max_value_length);

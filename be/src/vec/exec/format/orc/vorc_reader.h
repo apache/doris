@@ -554,15 +554,13 @@ private:
                                  size_t num_values);
 
     template <bool is_filter>
-    Status _decode_string_non_dict_encoded_column(const std::string& col_name,
-                                                  const MutableColumnPtr& data_column,
+    Status _decode_string_non_dict_encoded_column(const MutableColumnPtr& data_column,
                                                   const orc::TypeKind& type_kind,
                                                   const orc::EncodedStringVectorBatch* cvb,
                                                   size_t num_values);
 
     template <bool is_filter>
-    Status _decode_string_dict_encoded_column(const std::string& col_name,
-                                              const MutableColumnPtr& data_column,
+    Status _decode_string_dict_encoded_column(const MutableColumnPtr& data_column,
                                               const orc::TypeKind& type_kind,
                                               const orc::EncodedStringVectorBatch* cvb,
                                               size_t num_values);
