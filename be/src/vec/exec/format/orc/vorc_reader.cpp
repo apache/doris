@@ -631,7 +631,6 @@ std::pair<bool, orc::PredicateDataType> OrcReader::_get_orc_predicate_type(
 
 std::pair<bool, orc::Literal> OrcReader::_make_orc_literal(const VSlotRef* slot_ref,
                                                            const VLiteral* literal) {
-    DCHECK(_table_info_node_ptr->children_column_exists(slot_ref->expr_name()));
     // Get predicate type using new function
     auto [valid_pred_type, predicate_type] = _get_orc_predicate_type(slot_ref);
     if (!valid_pred_type) {
@@ -640,7 +639,6 @@ std::pair<bool, orc::Literal> OrcReader::_make_orc_literal(const VSlotRef* slot_
 
     // Get the orc_type again here as it's needed for convert_to_orc_literal
     auto file_col_name = _table_info_node_ptr->children_file_column_name(slot_ref->expr_name());
-    DCHECK(_type_map.contains(file_col_name));
     const auto* orc_type = _type_map[file_col_name];
 
     DCHECK(literal != nullptr);
@@ -1136,11 +1134,13 @@ Status OrcReader::set_fill_columns(
     }
 
     if (_enable_lazy_mat && !_lazy_read_ctx.predicate_columns.first.empty() &&
-        !_lazy_read_ctx.lazy_read_columns.empty() && !_lazy_read_ctx.conjuncts.empty()) {
+        !_lazy_read_ctx.lazy_read_columns.empty()) {
         _lazy_read_ctx.can_lazy_read = true;
     }
 
-    if (_enable_filter_by_min_max) {
+    if (_lazy_read_ctx.conjuncts.empty()) {
+        _lazy_read_ctx.can_lazy_read = false;
+    } else if (_enable_filter_by_min_max) {
         auto res = _init_search_argument(_push_down_exprs);
         if (_state->query_options().check_orc_init_sargs_success && !res) {
             std::stringstream ss;
