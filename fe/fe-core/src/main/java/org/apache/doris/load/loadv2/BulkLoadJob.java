@@ -18,7 +18,6 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
@@ -161,9 +160,9 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                     throw new DdlException("merge type in all statement must be the same.");
                 }
 
-                DataDescription legacyDataDesc = dataDescription.toDataDescription(ctx);
-                BrokerFileGroup brokerFileGroup = new BrokerFileGroup(legacyDataDesc);
-                brokerFileGroup.parse(db, legacyDataDesc);
+                //DataDescription legacyDataDesc = dataDescription.toDataDescription(ctx);
+                BrokerFileGroup brokerFileGroup = new BrokerFileGroup(dataDescription);
+                brokerFileGroup.parse(db, dataDescription);
                 fileGroupAggInfo.addFileGroup(brokerFileGroup);
             }
         } finally {
@@ -171,12 +170,13 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         }
     }
 
-    public void checkAndSetDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
+    public void checkAndSetDataSourceInfo(Database db, List<NereidsDataDescription> dataDescriptions)
+            throws DdlException {
         // check data source info
         db.readLock();
         try {
             LoadTask.MergeType mergeType = null;
-            for (DataDescription dataDescription : dataDescriptions) {
+            for (NereidsDataDescription dataDescription : dataDescriptions) {
                 if (mergeType == null) {
                     mergeType = dataDescription.getMergeType();
                 }

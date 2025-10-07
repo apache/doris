@@ -21,7 +21,6 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CopyFromParam;
 import org.apache.doris.analysis.CopyIntoProperties;
-import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.Separator;
@@ -57,6 +56,7 @@ import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.executor.Analyzer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
+import org.apache.doris.nereids.load.NereidsDataDescription;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
@@ -116,7 +116,7 @@ public class CopyIntoInfo {
 
     private LabelName label = null;
     private BrokerDesc brokerDesc = null;
-    private DataDescription dataDescription = null;
+    private NereidsDataDescription nereidsDataDescription = null;
     private final Map<String, String> brokerProperties = new HashMap<>();
     private Map<String, String> properties = new HashMap<>();
 
@@ -253,40 +253,31 @@ public class CopyIntoInfo {
             context.createSlotDesc(tupleDescriptor, slotReference, ((OlapScan) boundRelation).getTable());
         }
 
-        List<Expr> legacyColumnMappingList = null;
-        if (copyFromDesc.getColumnMappingList() != null && !copyFromDesc.getColumnMappingList().isEmpty()) {
-            legacyColumnMappingList = new ArrayList<>();
-            for (Expression expression : copyFromDesc.getColumnMappingList()) {
-                legacyColumnMappingList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext));
-            }
-        }
-        Expr legacyFileFilterExpr = null;
-        if (copyFromDesc.getFileFilterExpr().isPresent()) {
-            legacyFileFilterExpr = translateToLegacyExpr(copyFromDesc.getFileFilterExpr().get(),
-                    analyzer, context, cascadesContext);
-        }
-
         dataDescProperties.put(FileFormatProperties.PROP_COMPRESS_TYPE, copyIntoProperties.getCompression());
-        dataDescription = new DataDescription(tableName.getTbl(), null, Lists.newArrayList(filePath),
+
+        Expression filterExpr = copyFromDesc.getFileFilterExpr().isPresent()
+                ? copyFromDesc.getFileFilterExpr().get() : null;
+        nereidsDataDescription = new NereidsDataDescription(tableName.getTbl(), null, Lists.newArrayList(filePath),
             copyFromDesc.getFileColumns(), separator, fileFormatStr, null, false,
-            legacyColumnMappingList, legacyFileFilterExpr, null, LoadTask.MergeType.APPEND, null,
-            null, dataDescProperties);
+            copyFromDesc.getColumnMappingList(), filterExpr, null, LoadTask.MergeType.APPEND,
+            null, null, dataDescProperties);
+
         if (!(copyFromDesc.getColumnMappingList() == null
                 || copyFromDesc.getColumnMappingList().isEmpty())) {
-            dataDescription.setIgnoreCsvRedundantCol(true);
+            nereidsDataDescription.setIgnoreCsvRedundantCol(true);
         }
-        // analyze data description
+
         if (checkAuth) {
-            dataDescription.analyze(db);
+            nereidsDataDescription.analyze(db);
         } else {
-            dataDescription.analyzeWithoutCheckPriv(db);
+            nereidsDataDescription.analyzeWithoutCheckPriv(db);
         }
-        String path;
-        for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
-            path = dataDescription.getFilePaths().get(i);
-            dataDescription.getFilePaths().set(i, S3PropertyUtils.convertPathToS3(path));
+
+        for (int i = 0; i < nereidsDataDescription.getFilePaths().size(); i++) {
+            String path = nereidsDataDescription.getFilePaths().get(i);
+            nereidsDataDescription.getFilePaths().set(i, S3PropertyUtils.convertPathToS3(path));
             StorageBackend.checkPath(path, brokerDesc.getStorageType(), null);
-            dataDescription.getFilePaths().set(i, path);
+            nereidsDataDescription.getFilePaths().set(i, path);
         }
 
         try {
@@ -387,8 +378,8 @@ public class CopyIntoInfo {
         return brokerDesc;
     }
 
-    public List<DataDescription> getDataDescriptions() {
-        return Lists.newArrayList(dataDescription);
+    public List<NereidsDataDescription> getNereidsDataDescriptions() {
+        return Lists.newArrayList(nereidsDataDescription);
     }
 
     public Map<String, String> getProperties() {
