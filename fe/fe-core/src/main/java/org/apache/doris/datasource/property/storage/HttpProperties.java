@@ -19,17 +19,20 @@ package org.apache.doris.datasource.property.storage;
 
 import com.baidubce.services.cdn.model.OriginPeer;
 import com.uber.m3.util.ImmutableSet;
+import jdk.jpackage.internal.Log;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.parser.Origin;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.http.annotation.Immutable;
 import org.apache.hudi.common.util.MapUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
 public class HttpProperties extends StorageProperties {
     public static final String PROP_URL = "uri";
-
+    private static final Logger LOG = LogManager.getLogger(HttpProperties.class);
     private static final ImmutableSet<String> HTTP_PROPERTIES =
         new ImmutableSet.Builder<String>()
             .add(PROP_URL)
@@ -38,6 +41,7 @@ public class HttpProperties extends StorageProperties {
 
     public HttpProperties(Map<String, String> origProps) {
         super(Type.HTTP, origProps);
+        LOG.info("HttpProperties initialized with props: {}", origProps);
     }
 
     public static boolean canHandle(Map<String, String> props) {
