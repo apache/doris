@@ -847,7 +847,7 @@ struct CurrentTimeImpl {
             const auto* col = assert_cast<const ColumnInt8*>(
                     block.get_by_position(arguments[0]).column.get());
             uint8_t precision = col->get_element(0);
-            if (precision >= 0 && precision <= 6) {
+            if (precision <= 6) {
                 dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                   context->state()->nano_seconds(),
                                   context->state()->timezone_obj(), precision);
