@@ -233,8 +233,7 @@ TEST_F(TestCloudEmptyRowsetCompaction, test_empty_rowset_compaction_disabled) {
     EXPECT_EQ(compaction_score, 11);
 }
 
-TEST_F(TestCloudEmptyRowsetCompaction,
-       test_empty_rowset_compaction_no_consecutive_empty) {
+TEST_F(TestCloudEmptyRowsetCompaction, test_empty_rowset_compaction_no_consecutive_empty) {
     config::empty_rowset_compaction_min_count = 5;
     config::empty_rowset_compaction_min_ratio = 0.3;
 
@@ -261,8 +260,7 @@ TEST_F(TestCloudEmptyRowsetCompaction,
     EXPECT_EQ(compaction_score, 6);
 }
 
-TEST_F(TestCloudEmptyRowsetCompaction,
-       test_empty_rowset_compaction_consecutive_below_min_count) {
+TEST_F(TestCloudEmptyRowsetCompaction, test_empty_rowset_compaction_consecutive_below_min_count) {
     config::empty_rowset_compaction_min_count = 5;
     config::empty_rowset_compaction_min_ratio = 0.3;
 
@@ -285,8 +283,7 @@ TEST_F(TestCloudEmptyRowsetCompaction,
     EXPECT_EQ(compaction_score, 10);
 }
 
-TEST_F(TestCloudEmptyRowsetCompaction,
-       test_empty_rowset_compaction_consecutive_below_min_ratio) {
+TEST_F(TestCloudEmptyRowsetCompaction, test_empty_rowset_compaction_consecutive_below_min_ratio) {
     config::empty_rowset_compaction_min_count = 5;
     config::empty_rowset_compaction_min_ratio = 0.3;
 
@@ -310,8 +307,7 @@ TEST_F(TestCloudEmptyRowsetCompaction,
     EXPECT_EQ(compaction_score, 25);
 }
 
-TEST_F(TestCloudEmptyRowsetCompaction,
-       test_empty_rowset_compaction_consecutive_meets_criteria) {
+TEST_F(TestCloudEmptyRowsetCompaction, test_empty_rowset_compaction_consecutive_meets_criteria) {
     config::empty_rowset_compaction_min_count = 5;
     config::empty_rowset_compaction_min_ratio = 0.3;
 
@@ -362,8 +358,7 @@ TEST_F(TestCloudEmptyRowsetCompaction,
     EXPECT_EQ(expected_end_version - expected_start_version + 1, input_rowsets.size());
 }
 
-TEST_F(TestCloudEmptyRowsetCompaction,
-       test_empty_rowset_compaction_multiple_consecutive_groups) {
+TEST_F(TestCloudEmptyRowsetCompaction, test_empty_rowset_compaction_multiple_consecutive_groups) {
     config::empty_rowset_compaction_min_count = 5;
     config::empty_rowset_compaction_min_ratio = 0.3;
 
@@ -416,8 +411,7 @@ TEST_F(TestCloudEmptyRowsetCompaction,
     EXPECT_EQ(expected_end_version - expected_start_version + 1, input_rowsets.size());
 }
 
-TEST_F(TestCloudEmptyRowsetCompaction,
-       test_empty_rowset_compaction_version_range_validation) {
+TEST_F(TestCloudEmptyRowsetCompaction, test_empty_rowset_compaction_version_range_validation) {
     config::empty_rowset_compaction_min_count = 3;
     config::empty_rowset_compaction_min_ratio = 0.3;
 
@@ -543,8 +537,7 @@ TEST_F(TestCloudEmptyRowsetCompaction, test_find_longest_consecutive_empty_rowse
     EXPECT_EQ(result[1]->end_version() + 1, result[2]->start_version());
 }
 
-TEST_F(TestCloudEmptyRowsetCompaction,
-       test_find_longest_consecutive_empty_rowsets_no_empty) {
+TEST_F(TestCloudEmptyRowsetCompaction, test_find_longest_consecutive_empty_rowsets_no_empty) {
     std::vector<RowsetSharedPtr> candidate_rowsets;
 
     // Create only non-empty rowsets
@@ -564,8 +557,7 @@ TEST_F(TestCloudEmptyRowsetCompaction,
     EXPECT_TRUE(result.empty());
 }
 
-TEST_F(TestCloudEmptyRowsetCompaction,
-       test_find_longest_consecutive_empty_rowsets_single_empty) {
+TEST_F(TestCloudEmptyRowsetCompaction, test_find_longest_consecutive_empty_rowsets_single_empty) {
     std::vector<RowsetSharedPtr> candidate_rowsets;
 
     // Create a single empty rowset
