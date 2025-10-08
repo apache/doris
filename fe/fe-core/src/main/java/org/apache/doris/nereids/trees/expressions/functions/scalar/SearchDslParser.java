@@ -233,18 +233,32 @@ public class SearchDslParser {
 
         @Override
         public QsNode visitFieldQuery(SearchParser.FieldQueryContext ctx) {
-            if (ctx.fieldName() == null) {
-                throw new RuntimeException("Invalid field query: missing field name");
+            if (ctx.fieldPath() == null) {
+                throw new RuntimeException("Invalid field query: missing field path");
             }
-            String fieldName = ctx.fieldName().getText();
-            if (fieldName.startsWith("\"") && fieldName.endsWith("\"")) {
-                fieldName = fieldName.substring(1, fieldName.length() - 1);
+
+            // Build complete field path from segments (support field.subcolumn syntax)
+            StringBuilder fullPath = new StringBuilder();
+            List<SearchParser.FieldSegmentContext> segments = ctx.fieldPath().fieldSegment();
+
+            for (int i = 0; i < segments.size(); i++) {
+                if (i > 0) {
+                    fullPath.append('.');
+                }
+                String segment = segments.get(i).getText();
+                // Remove quotes if present
+                if (segment.startsWith("\"") && segment.endsWith("\"")) {
+                    segment = segment.substring(1, segment.length() - 1);
+                }
+                fullPath.append(segment);
             }
-            fieldNames.add(fieldName);
+
+            String fieldPath = fullPath.toString();
+            fieldNames.add(fieldPath);
 
             // Set current field context before visiting search value
             String previousFieldName = currentFieldName;
-            currentFieldName = fieldName;
+            currentFieldName = fieldPath;
 
             try {
                 if (ctx.searchValue() == null) {

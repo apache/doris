@@ -35,6 +35,7 @@
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/bitmap_query/bitmap_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_query.h"
@@ -52,8 +53,21 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
                                     InvertedIndexQueryType query_type,
                                     FieldReaderBinding* binding) {
     DCHECK(binding != nullptr);
+
+    // Check if this is a variant subcolumn
+    bool is_variant_sub = is_variant_subcolumn(field_name);
+
     auto data_it = _data_type_with_names.find(field_name);
     if (data_it == _data_type_with_names.end()) {
+        // For variant subcolumns, not finding the index is normal (the subcolumn may not exist in this segment)
+        // Return OK but with null binding to signal "no match"
+        if (is_variant_sub) {
+            VLOG_DEBUG << "Variant subcolumn '" << field_name
+                       << "' not found in this segment, treating as no match";
+            *binding = FieldReaderBinding();
+            return Status::OK();
+        }
+        // For normal fields, this is an error
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                 "field '{}' not found in inverted index metadata", field_name);
     }
@@ -69,6 +83,13 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
 
     auto iterator_it = _iterators.find(field_name);
     if (iterator_it == _iterators.end() || iterator_it->second == nullptr) {
+        // For variant subcolumns, not finding the iterator is normal
+        if (is_variant_sub) {
+            VLOG_DEBUG << "Variant subcolumn '" << field_name
+                       << "' iterator not found in this segment, treating as no match";
+            *binding = FieldReaderBinding();
+            return Status::OK();
+        }
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                 "iterator not found for field '{}'", field_name);
     }
@@ -171,12 +192,11 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
                 data_type_with_names,
         std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
         InvertedIndexResultBitmap& bitmap_result) const {
-    VLOG_DEBUG << "search: Processing DSL '" << search_param.original_dsl << "' with "
-               << data_type_with_names.size() << " indexed columns and " << iterators.size()
-               << " iterators";
-
     if (iterators.empty() || data_type_with_names.empty()) {
-        LOG(INFO) << "No indexed columns or iterators available, returning empty result";
+        LOG(INFO) << "No indexed columns or iterators available, returning empty result, dsl:"
+                  << search_param.original_dsl;
+        bitmap_result = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
+                                                  std::make_shared<roaring::Roaring>());
         return Status::OK();
     }
 
@@ -184,14 +204,19 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     context->collection_statistics = std::make_shared<CollectionStatistics>();
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
-    FieldReaderResolver resolver(data_type_with_names, iterators, context);
+    // Pass field_bindings to resolver for variant subcolumn detection
+    FieldReaderResolver resolver(data_type_with_names, iterators, context,
+                                 search_param.field_bindings);
 
     query_v2::QueryPtr root_query;
     std::string root_binding_key;
     RETURN_IF_ERROR(build_query_recursive(*this, search_param.root, context, resolver, &root_query,
                                           &root_binding_key));
     if (root_query == nullptr) {
-        LOG(INFO) << "search: Query tree resolved to empty query";
+        LOG(INFO) << "search: Query tree resolved to empty query, dsl:"
+                  << search_param.original_dsl;
+        bitmap_result = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
+                                                  std::make_shared<roaring::Roaring>());
         return Status::OK();
     }
 
@@ -389,9 +414,12 @@ Status FunctionSearch::build_query_recursive(const FunctionSearch& function,
                 std::string child_binding_key;
                 RETURN_IF_ERROR(build_query_recursive(function, child_clause, context, resolver,
                                                       &child_query, &child_binding_key));
-                if (child_query != nullptr) {
-                    builder.add(child_query, std::move(child_binding_key));
-                }
+                // Add all children including empty BitmapQuery
+                // BooleanQuery will handle the logic:
+                // - AND with empty bitmap → result is empty
+                // - OR with empty bitmap → empty bitmap is ignored by OR logic
+                // - NOT with empty bitmap → NOT(empty) = all rows (handled by BooleanQuery)
+                builder.add(child_query, std::move(child_binding_key));
             }
         }
 
@@ -425,6 +453,19 @@ Status FunctionSearch::build_leaf_query(const FunctionSearch& function, const TS
 
     FieldReaderBinding binding;
     RETURN_IF_ERROR(resolver.resolve(field_name, query_type, &binding));
+
+    // Check if binding is empty (variant subcolumn not found in this segment)
+    if (binding.lucene_reader == nullptr) {
+        VLOG_DEBUG << "build_leaf_query: Variant subcolumn '" << field_name
+                   << "' has no index in this segment, creating empty BitmapQuery (no matches)";
+        // Variant subcolumn doesn't exist - create empty BitmapQuery (no matches)
+        *out = std::make_shared<query_v2::BitmapQuery>(roaring::Roaring());
+        if (binding_key) {
+            binding_key->clear();
+        }
+        return Status::OK();
+    }
+
     if (binding_key) {
         *binding_key = binding.binding_key;
     }
