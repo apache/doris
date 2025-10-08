@@ -35,9 +35,9 @@
 
 namespace doris {
 
-class TestCloudSizeBasedCumulativeCompactionPolicy : public testing::Test {
+class TestCloudEmptyRowsetCompaction : public testing::Test {
 public:
-    TestCloudSizeBasedCumulativeCompactionPolicy() : _current_version(0) {}
+    TestCloudEmptyRowsetCompaction() : _current_version(0) {}
 
     void SetUp() {
         config::enable_empty_rowset_compaction = true;
@@ -213,7 +213,7 @@ protected:
     int64_t _current_version;
 };
 
-TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, test_empty_rowset_compaction_disabled) {
+TEST_F(TestCloudEmptyRowsetCompaction, test_empty_rowset_compaction_disabled) {
     config::enable_empty_rowset_compaction = false;
 
     CloudSizeBasedCumulativeCompactionPolicy policy;
@@ -233,7 +233,7 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, test_empty_rowset_compactio
     EXPECT_EQ(compaction_score, 11);
 }
 
-TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+TEST_F(TestCloudEmptyRowsetCompaction,
        test_empty_rowset_compaction_no_consecutive_empty) {
     config::empty_rowset_compaction_min_count = 5;
     config::empty_rowset_compaction_min_ratio = 0.3;
@@ -261,7 +261,7 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
     EXPECT_EQ(compaction_score, 6);
 }
 
-TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+TEST_F(TestCloudEmptyRowsetCompaction,
        test_empty_rowset_compaction_consecutive_below_min_count) {
     config::empty_rowset_compaction_min_count = 5;
     config::empty_rowset_compaction_min_ratio = 0.3;
@@ -285,7 +285,7 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
     EXPECT_EQ(compaction_score, 10);
 }
 
-TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+TEST_F(TestCloudEmptyRowsetCompaction,
        test_empty_rowset_compaction_consecutive_below_min_ratio) {
     config::empty_rowset_compaction_min_count = 5;
     config::empty_rowset_compaction_min_ratio = 0.3;
@@ -310,7 +310,7 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
     EXPECT_EQ(compaction_score, 25);
 }
 
-TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+TEST_F(TestCloudEmptyRowsetCompaction,
        test_empty_rowset_compaction_consecutive_meets_criteria) {
     config::empty_rowset_compaction_min_count = 5;
     config::empty_rowset_compaction_min_ratio = 0.3;
@@ -362,7 +362,7 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
     EXPECT_EQ(expected_end_version - expected_start_version + 1, input_rowsets.size());
 }
 
-TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+TEST_F(TestCloudEmptyRowsetCompaction,
        test_empty_rowset_compaction_multiple_consecutive_groups) {
     config::empty_rowset_compaction_min_count = 5;
     config::empty_rowset_compaction_min_ratio = 0.3;
@@ -416,7 +416,7 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
     EXPECT_EQ(expected_end_version - expected_start_version + 1, input_rowsets.size());
 }
 
-TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+TEST_F(TestCloudEmptyRowsetCompaction,
        test_empty_rowset_compaction_version_range_validation) {
     config::empty_rowset_compaction_min_count = 3;
     config::empty_rowset_compaction_min_ratio = 0.3;
@@ -462,7 +462,7 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
     //EXPECT_EQ(input_rowsets[1]->end_version() + 1, input_rowsets[2]->start_version());
 }
 
-TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, test_find_longest_consecutive_empty_rowsets) {
+TEST_F(TestCloudEmptyRowsetCompaction, test_find_longest_consecutive_empty_rowsets) {
     std::vector<RowsetSharedPtr> candidate_rowsets;
 
     // Create test rowsets: mixed empty and non-empty with various patterns
@@ -543,7 +543,7 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy, test_find_longest_consecuti
     EXPECT_EQ(result[1]->end_version() + 1, result[2]->start_version());
 }
 
-TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+TEST_F(TestCloudEmptyRowsetCompaction,
        test_find_longest_consecutive_empty_rowsets_no_empty) {
     std::vector<RowsetSharedPtr> candidate_rowsets;
 
@@ -564,7 +564,7 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
     EXPECT_TRUE(result.empty());
 }
 
-TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
+TEST_F(TestCloudEmptyRowsetCompaction,
        test_find_longest_consecutive_empty_rowsets_single_empty) {
     std::vector<RowsetSharedPtr> candidate_rowsets;
 
