@@ -134,6 +134,7 @@ struct WindowFunnelState {
         }
     }
 
+    // todo: rethink thid sort method.
     void sort() {
         auto num = events_list.size();
         std::vector<size_t> indices(num);
@@ -394,6 +395,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         this->data(const_cast<AggregateDataPtr>(place)).sort();
         assert_cast<ColumnInt32&>(to).get_data().push_back(
                 IAggregateFunctionDataHelper<WindowFunnelState,

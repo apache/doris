@@ -286,10 +286,6 @@ public class TableRef implements ParseNode {
         return isMark;
     }
 
-    public String getMarkTupleName() {
-        return markTupleName;
-    }
-
     public void setMark(TupleDescriptor markTuple) {
         this.isMark = markTuple != null;
         if (isMark) {
@@ -297,14 +293,6 @@ public class TableRef implements ParseNode {
         } else {
             this.markTupleName = null;
         }
-    }
-
-    public Expr getOnClause() {
-        return onClause;
-    }
-
-    public void setOnClause(Expr e) {
-        this.onClause = e;
     }
 
     public TableName getName() {
@@ -446,14 +434,6 @@ public class TableRef implements ParseNode {
 
     public String getSortColumn() {
         return sortColumn;
-    }
-
-    public ArrayList<LateralViewRef> getLateralViewRefs() {
-        return lateralViewRefs;
-    }
-
-    public void setLateralViewRefs(ArrayList<LateralViewRef> lateralViewRefs) {
-        this.lateralViewRefs = lateralViewRefs;
     }
 
     private String joinOpToSql() {
@@ -620,20 +600,6 @@ public class TableRef implements ParseNode {
         } else {
             return Lists.newArrayList(desc.getId());
         }
-    }
-
-    /**
-     * Set this table's context-dependent join attributes from the given table.
-     * Does not clone the attributes.
-     */
-    protected void setJoinAttrs(TableRef other) {
-        this.joinOp = other.joinOp;
-        this.isMark = other.isMark;
-        this.markTupleName = other.markTupleName;
-        this.joinHints = other.joinHints;
-        // this.tableHints_ = other.tableHints_;
-        this.onClause = other.onClause;
-        this.usingColNames = other.usingColNames;
     }
 
     public void reset() {
