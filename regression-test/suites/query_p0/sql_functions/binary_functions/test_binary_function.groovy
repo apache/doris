@@ -17,6 +17,16 @@
 
 suite("test_binary_function", "p0,external,mysql,external_docker,external_docker_mysql") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
+    def byteToString = { value ->
+        if (value != null) {
+            if (value instanceof byte[]) {
+                return new String(value, "UTF-8")
+            } else {
+                return value.toString()
+            }
+        }
+        return null
+    }
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -72,7 +82,7 @@ suite("test_binary_function", "p0,external,mysql,external_docker,external_docker
 
         def from_base64_result = sql """select id, from_base64_binary(vc), from_base64(vc) from ${test_table} order by id"""
         for (int i = 0; i < from_base64_result.size(); i++) {
-            def bin = (from_base64_result[i][1] == null) ? null : new String(from_base64_result[i][1], "UTF-8")
+            def bin = byteToString(from_base64_result[i][1])
             def str = from_base64_result[i][2]
             assertTrue(bin == str,
                 "from_base64 mismatch for row ${from_base64_result[i][0]}: VarBinary=${bin}, VARCHAR=${str}")
@@ -86,7 +96,7 @@ suite("test_binary_function", "p0,external,mysql,external_docker,external_docker
 
         def sub_binary_3args_result = sql """select id, sub_binary(vb, 1, 5), substr(vc, 1, 5) from ${test_table} order by id"""
         for (int i = 0; i < sub_binary_3args_result.size(); i++) {
-            def bin = (sub_binary_3args_result[i][1] == null) ? null : new String(sub_binary_3args_result[i][1], "UTF-8")
+            def bin = byteToString(sub_binary_3args_result[i][1])
             def str = sub_binary_3args_result[i][2]
             assertTrue(bin == str,
                 "sub_binary_3args mismatch for row ${sub_binary_3args_result[i][0]}: VarBinary=${bin}, VARCHAR=${str}")
@@ -94,7 +104,7 @@ suite("test_binary_function", "p0,external,mysql,external_docker,external_docker
 
         def sub_binary_3args_result_2 = sql """select id, sub_binary(vb, -1, 5), substr(vc, -1, 5) from ${test_table} order by id"""
         for (int i = 0; i < sub_binary_3args_result_2.size(); i++) {
-            def bin = (sub_binary_3args_result_2[i][1] == null) ? null : new String(sub_binary_3args_result_2[i][1], "UTF-8")
+            def bin = byteToString(sub_binary_3args_result_2[i][1])
             def str = sub_binary_3args_result_2[i][2]
             assertTrue(bin == str,
                 "sub_binary_3args_2 mismatch for row ${sub_binary_3args_result_2[i][0]}: VarBinary=${bin}, VARCHAR=${str}")
@@ -102,7 +112,7 @@ suite("test_binary_function", "p0,external,mysql,external_docker,external_docker
 
         def sub_binary_2args_result = sql """select id, sub_binary(vb, 1), substr(vc, 1) from ${test_table} order by id"""
         for (int i = 0; i < sub_binary_2args_result.size(); i++) {
-            def bin = (sub_binary_2args_result[i][1] == null) ? null : new String(sub_binary_2args_result[i][1], "UTF-8")
+            def bin = byteToString(sub_binary_2args_result[i][1])
             def str = sub_binary_2args_result[i][2]
             assertTrue(bin == str,
                 "sub_binary_2args mismatch for row ${sub_binary_2args_result[i][0]}: VarBinary=${bin}, VARCHAR=${str}")
@@ -110,7 +120,7 @@ suite("test_binary_function", "p0,external,mysql,external_docker,external_docker
 
         def sub_binary_2args_result_2 = sql """select id, sub_binary(vb, -1), substr(vc, -1) from ${test_table} order by id"""
         for (int i = 0; i < sub_binary_2args_result_2.size(); i++) {
-            def bin = (sub_binary_2args_result_2[i][1] == null) ? null : new String(sub_binary_2args_result_2[i][1], "UTF-8")
+            def bin = byteToString(sub_binary_2args_result_2[i][1])
             def str = sub_binary_2args_result_2[i][2]
             assertTrue(bin == str,
                 "sub_binary_2args_2 mismatch for row ${sub_binary_2args_result_2[i][0]}: VarBinary=${bin}, VARCHAR=${str}")
