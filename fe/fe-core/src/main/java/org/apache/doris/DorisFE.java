@@ -573,6 +573,18 @@ public class DorisFE {
         Config.max_external_table_cache_num = Util.getRandomInt(0, 1, 10, 10000);
         Config.max_external_table_row_count_cache_num = Util.getRandomInt(0, 1, 10, 100000);
         Config.max_external_table_split_file_meta_cache_num = Util.getRandomInt(0, 1, 10, 100000);
+
+        LOG.info("fuzzy set external catalog cache configs: max_hive_partition_cache_num={}, "
+                + "max_hive_partition_table_cache_num={}, external_cache_expire_time_seconds_after_access={}, "
+                + "external_cache_refresh_time_minutes={}, max_external_cache_loader_thread_pool_size={}, "
+                + "max_external_file_cache_num={}, max_external_schema_cache_num={}, "
+                + "max_external_table_cache_num={}, max_external_table_row_count_cache_num={}, "
+                + "max_external_table_split_file_meta_cache_num={}",
+                Config.max_hive_partition_cache_num, Config.max_hive_partition_table_cache_num,
+                Config.external_cache_expire_time_seconds_after_access, Config.external_cache_refresh_time_minutes,
+                Config.max_external_cache_loader_thread_pool_size, Config.max_external_file_cache_num,
+                Config.max_external_schema_cache_num, Config.max_external_table_cache_num,
+                Config.max_external_table_row_count_cache_num, Config.max_external_table_split_file_meta_cache_num);
     }
 
     public static class StartupOptions {
