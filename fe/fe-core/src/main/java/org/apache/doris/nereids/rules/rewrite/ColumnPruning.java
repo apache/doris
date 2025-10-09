@@ -367,7 +367,12 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         ImmutableList.Builder<Expression> newGroupByExprList
                 = ImmutableList.builderWithExpectedSize(newOutputList.size());
         for (NamedExpression e : newOutputList) {
-            if (!(e instanceof Alias && aggregateFunctions.contains(e.child(0)))) {
+            // collect all AggregateFunction from the expression
+            Set<AggregateFunction> aggFuncsInExpr = e.collect(AggregateFunction.class::isInstance);
+            // check if there is any intersection with aggregateFunctions
+            boolean hasIntersection = aggFuncsInExpr.stream()
+                    .anyMatch(aggregateFunctions::contains);
+            if (!(e instanceof Alias && hasIntersection)) {
                 newGroupByExprList.add(e);
             }
         }

@@ -166,8 +166,15 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             Plan child = agg.child().accept(writer, pushDownContext);
             if (child != agg.child()) {
                 // agg has been pushed down, rewrite agg output expressions
-                // before: agg[sum(A), by (B)]->join(C=D)->scan(T1[A...])
-                // after: agg[sum(x), by(B)]->join(C=D)->agg[sum(A) as x, by(B,C)]->scan(T1[A...])
+                // before: agg[sum(A), by (B)]
+                //                 ->join(C=D)
+                //                      ->scan(T1[A...])
+                //                      ->scan(T2)
+                // after: agg[sum(x), by(B)]
+                //                 ->join(C=D)
+                //                       ->agg[sum(A) as x, by(B,C)]
+                //                                 ->scan(T1[A...])
+                //                       ->scan(T2)
                 List<NamedExpression> newOutputExpressions = new ArrayList<>();
                 for (NamedExpression ne : agg.getOutputExpressions()) {
                     if (ne instanceof SlotReference) {
@@ -187,7 +194,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                         newOutputExpressions.add(replaceAliasExpr);
                     }
                 }
-                return agg.withAggOutputChild(newOutputExpressions, child);
+                return agg.withAggOutputChildAndWaitNormalize(newOutputExpressions, child);
             }
         } catch (RuntimeException e) {
             LOG.info("PushDownAggregation failed: " + e.getMessage() + "\n" + agg.treeString());
