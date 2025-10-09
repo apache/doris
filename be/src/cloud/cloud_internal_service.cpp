@@ -228,7 +228,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             expiration_time = 0;
         }
 
-        if (!tablet->add_rowset_warmup_state(rs_meta, WarmUpState::TRIGGERED_BY_JOB)) {
+        if (!tablet->add_rowset_warmup_state(rs_meta, WarmUpState::TRIGGERED_BY_EVENT_DRIVEN)) {
             LOG(INFO) << "found duplicate warmup task for rowset " << rowset_id.to_string()
                       << ", skip it";
             continue;
@@ -279,8 +279,9 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                     LOG(WARNING) << "download segment failed, tablet_id: " << tablet_id
                                  << " rowset_id: " << rowset_id.to_string() << ", error: " << st;
                 }
-                if (tablet->complete_rowset_segment_warmup(rowset_id, st, 1, 0) ==
-                    WarmUpState::DONE) {
+                if (tablet->complete_rowset_segment_warmup(WarmUpState::TRIGGERED_BY_EVENT_DRIVEN,
+                                                           rowset_id, st, 1,
+                                                           0) == WarmUpState::DONE) {
                     VLOG_DEBUG << "warmup rowset " << version.to_string() << "("
                                << rowset_id.to_string() << ") completed";
                 }
@@ -352,7 +353,8 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                         LOG(WARNING) << "download inverted index failed, tablet_id: " << tablet_id
                                      << " rowset_id: " << rowset_id << ", error: " << st;
                     }
-                    if (tablet->complete_rowset_segment_warmup(rowset_id, st, 0, 1) ==
+                    if (tablet->complete_rowset_segment_warmup(
+                                WarmUpState::TRIGGERED_BY_EVENT_DRIVEN, rowset_id, st, 0, 1) ==
                         WarmUpState::DONE) {
                         VLOG_DEBUG << "warmup rowset " << version.to_string() << "("
                                    << rowset_id.to_string() << ") completed";

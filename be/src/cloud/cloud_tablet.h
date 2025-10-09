@@ -330,8 +330,9 @@ public:
             std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
     void update_rowset_warmup_state_inverted_idx_num(RowsetId rowset_id, int64_t delta);
     void update_rowset_warmup_state_inverted_idx_num_unlocked(RowsetId rowset_id, int64_t delta);
-    WarmUpState complete_rowset_segment_warmup(RowsetId rowset_id, Status status,
-                                               int64_t segment_num, int64_t inverted_idx_num);
+    WarmUpState complete_rowset_segment_warmup(WarmUpState trigger_source, RowsetId rowset_id,
+                                               Status status, int64_t segment_num,
+                                               int64_t inverted_idx_num);
 
     bool is_rowset_warmed_up(const RowsetId& rowset_id) const;
 

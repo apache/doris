@@ -42,6 +42,7 @@ enum class DownloadType {
 enum class WarmUpState : int {
     NONE,
     TRIGGERED_BY_SYNC_ROWSET,
+    TRIGGERED_BY_EVENT_DRIVEN,
     TRIGGERED_BY_JOB,
     DONE,
 };

@@ -249,7 +249,8 @@ void CloudWarmUpManager::handle_jobs() {
                                 VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
                                            << seg_id << " completed";
                                 if (tablet->complete_rowset_segment_warmup(
-                                            rs->rowset_id(), st, 1, 0) == WarmUpState::DONE) {
+                                            WarmUpState::TRIGGERED_BY_JOB, rs->rowset_id(), st, 1,
+                                            0) == WarmUpState::DONE) {
                                     VLOG_DEBUG << "warmup rowset " << rs->version() << " completed";
                                 }
                             });
@@ -290,9 +291,9 @@ void CloudWarmUpManager::handle_jobs() {
                                         VLOG_DEBUG << "warmup rowset " << rs->version()
                                                    << " segment " << seg_id
                                                    << "inverted idx:" << idx_path << " completed";
-                                        if (tablet->complete_rowset_segment_warmup(rs->rowset_id(),
-                                                                                   st, 0, 1) ==
-                                            WarmUpState::DONE) {
+                                        if (tablet->complete_rowset_segment_warmup(
+                                                    WarmUpState::TRIGGERED_BY_JOB, rs->rowset_id(),
+                                                    st, 0, 1) == WarmUpState::DONE) {
                                             VLOG_DEBUG << "warmup rowset " << rs->version()
                                                        << " completed";
                                         }
@@ -311,9 +312,9 @@ void CloudWarmUpManager::handle_jobs() {
                                         VLOG_DEBUG << "warmup rowset " << rs->version()
                                                    << " segment " << seg_id
                                                    << "inverted idx:" << idx_path << " completed";
-                                        if (tablet->complete_rowset_segment_warmup(rs->rowset_id(),
-                                                                                   st, 0, 1) ==
-                                            WarmUpState::DONE) {
+                                        if (tablet->complete_rowset_segment_warmup(
+                                                    WarmUpState::TRIGGERED_BY_JOB, rs->rowset_id(),
+                                                    st, 0, 1) == WarmUpState::DONE) {
                                             VLOG_DEBUG << "warmup rowset " << rs->version()
                                                        << " completed";
                                         }
