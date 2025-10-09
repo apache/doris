@@ -116,6 +116,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -155,6 +156,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCte;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
@@ -203,6 +206,8 @@ import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PartitionSortNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.RecursiveCteNode;
+import org.apache.doris.planner.RecursiveCteScanNode;
 import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ResultSink;
@@ -1056,6 +1061,27 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment planFragment = createPlanFragment(scanNode, DataPartition.RANDOM, schemaScan);
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), schemaScan);
+        return planFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalRecursiveCteScan(PhysicalRecursiveCteScan recursiveCteScan,
+            PlanTranslatorContext context) {
+        TableIf table = recursiveCteScan.getTable();
+        List<Slot> slots = ImmutableList.copyOf(recursiveCteScan.getOutput());
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
+
+        RecursiveCteScanNode scanNode = new RecursiveCteScanNode(context.nextPlanNodeId(), tupleDescriptor);
+        scanNode.setNereidsId(recursiveCteScan.getId());
+        context.getNereidsIdToPlanNodeIdMap().put(recursiveCteScan.getId(), scanNode.getId());
+        Utils.execWithUncheckedException(scanNode::initScanRangeLocations);
+
+        translateRuntimeFilter(recursiveCteScan, scanNode, context);
+
+        context.addScanNode(scanNode, recursiveCteScan);
+        PlanFragment planFragment = createPlanFragment(scanNode, DataPartition.RANDOM, recursiveCteScan);
+        context.addPlanFragment(planFragment);
+        updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), recursiveCteScan);
         return planFragment;
     }
 
@@ -2263,6 +2289,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             setOperationNode = new ExceptNode(context.nextPlanNodeId(), setTuple.getId());
         } else if (setOperation instanceof PhysicalIntersect) {
             setOperationNode = new IntersectNode(context.nextPlanNodeId(), setTuple.getId());
+        } else if (setOperation instanceof PhysicalRecursiveCte) {
+            setOperationNode = new RecursiveCteNode(context.nextPlanNodeId(), setTuple.getId(),
+                    setOperation.getQualifier().equals(SetOperation.Qualifier.ALL));
         } else {
             throw new RuntimeException("not support set operation type " + setOperation);
         }
