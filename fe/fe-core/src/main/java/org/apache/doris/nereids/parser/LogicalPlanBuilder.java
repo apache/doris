@@ -2149,7 +2149,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             .map(RuleContext::getText)
                             .collect(ImmutableList.toImmutableList())
             );
-            return new LogicalSubQueryAlias<>(ctx.identifier().getText(), columnNames, queryPlan);
+            return new LogicalSubQueryAlias<>(ctx.identifier().getText(), columnNames, ctx.RECURSIVE() != null,
+                    queryPlan);
         });
     }
 
