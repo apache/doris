@@ -606,7 +606,20 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         local_state._serializer.reset_block();
         for (auto& channel : local_state.channels) {
             Status st = channel->close(state);
-            if (!st.ok() && final_st.ok()) {
+            /**
+             * Consider this case below:
+             *
+             *                 +--- Channel0 (Running)
+             *                 |
+             * ExchangeSink ---+--- Channel1 (EOF)
+             *                 |
+             *                 +--- Channel2 (Running)
+             *
+             * Channel1 is EOF now and return `END_OF_FILE` here. However, Channel0 and Channel2
+             * still need new data. If ExchangeSink returns EOF, downstream tasks will no longer receive
+             * blocks including EOS signal. So we must ensure to return EOF iff all channels are EOF.
+             */
+            if (!st.ok() && !st.is<ErrorCode::END_OF_FILE>() && final_st.ok()) {
                 final_st = st;
             }
         }
