@@ -90,6 +90,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCte;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
@@ -123,6 +125,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCte;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
@@ -870,6 +874,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitLogicalRecursiveCteScan(LogicalRecursiveCteScan recursiveCteScan, Void context) {
+        recursiveCteScan.getExpressions();
+        return computeCatalogRelation(recursiveCteScan);
+    }
+
+    @Override
     public Statistics visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
         return computeProject(project, groupExpression.childStatistics(0));
     }
@@ -910,6 +920,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public Statistics visitLogicalAssertNumRows(
             LogicalAssertNumRows<? extends Plan> assertNumRows, Void context) {
         return computeAssertNumRows(assertNumRows.getAssertNumRowsElement(), groupExpression.childStatistics(0));
+    }
+
+    @Override
+    public Statistics visitLogicalRecursiveCte(
+            LogicalRecursiveCte recursiveCte, Void context) {
+        return computeUnion(recursiveCte,
+                groupExpression.children()
+                        .stream().map(Group::getStatistics).collect(Collectors.toList()));
     }
 
     @Override
@@ -998,6 +1016,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitPhysicalRecursiveCteScan(PhysicalRecursiveCteScan recursiveCteScan, Void context) {
+        return computeCatalogRelation(recursiveCteScan);
+    }
+
+    @Override
     public Statistics visitPhysicalFileScan(PhysicalFileScan fileScan, Void context) {
         return computeCatalogRelation(fileScan);
     }
@@ -1081,6 +1104,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public Statistics visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
             Void context) {
         return computeAssertNumRows(assertNumRows.getAssertNumRowsElement(), groupExpression.childStatistics(0));
+    }
+
+    @Override
+    public Statistics visitPhysicalRecursiveCte(PhysicalRecursiveCte recursiveCte, Void context) {
+        return computeUnion(recursiveCte, groupExpression.children()
+                .stream().map(Group::getStatistics).collect(Collectors.toList()));
     }
 
     @Override
