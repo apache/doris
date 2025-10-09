@@ -156,6 +156,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCte;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteRecursiveChild;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
@@ -205,6 +208,8 @@ import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PartitionSortNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.RecursiveCteNode;
+import org.apache.doris.planner.RecursiveCteScanNode;
 import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ResultSink;
@@ -1067,6 +1072,28 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment planFragment = createPlanFragment(scanNode, DataPartition.RANDOM, schemaScan);
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), schemaScan);
+        return planFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalRecursiveCteScan(PhysicalRecursiveCteScan recursiveCteScan,
+            PlanTranslatorContext context) {
+        TableIf table = recursiveCteScan.getTable();
+        List<Slot> slots = ImmutableList.copyOf(recursiveCteScan.getOutput());
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
+
+        RecursiveCteScanNode scanNode = new RecursiveCteScanNode(table != null ? table.getName() : "",
+                context.nextPlanNodeId(), tupleDescriptor);
+        scanNode.setNereidsId(recursiveCteScan.getId());
+        context.getNereidsIdToPlanNodeIdMap().put(recursiveCteScan.getId(), scanNode.getId());
+        Utils.execWithUncheckedException(scanNode::initScanRangeLocations);
+
+        translateRuntimeFilter(recursiveCteScan, scanNode, context);
+
+        context.addScanNode(scanNode, recursiveCteScan);
+        PlanFragment planFragment = createPlanFragment(scanNode, DataPartition.RANDOM, recursiveCteScan);
+        context.addPlanFragment(planFragment);
+        updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), recursiveCteScan);
         return planFragment;
     }
 
@@ -2229,8 +2256,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (inputPlanNode instanceof OlapScanNode) {
                 ((OlapScanNode) inputPlanNode).updateRequiredSlots(context, requiredByProjectSlotIdSet);
             }
-            updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
-                    requiredByProjectSlotIdSet, context);
+            if (!(inputPlanNode instanceof RecursiveCteScanNode)) {
+                updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
+                        requiredByProjectSlotIdSet, context);
+            }
         } else {
             if (project.child() instanceof PhysicalDeferMaterializeTopN) {
                 inputFragment.setOutputExprs(allProjectionExprs);
@@ -2241,6 +2270,80 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         return inputFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalRecursiveCte(PhysicalRecursiveCte recursiveCte, PlanTranslatorContext context) {
+        List<PlanFragment> childrenFragments = new ArrayList<>();
+        for (Plan plan : recursiveCte.children()) {
+            childrenFragments.add(plan.accept(this, context));
+        }
+
+        TupleDescriptor setTuple = generateTupleDesc(recursiveCte.getOutput(), null, context);
+        List<SlotDescriptor> outputSlotDescs = new ArrayList<>(setTuple.getSlots());
+
+        RecursiveCteNode recursiveCteNode = new RecursiveCteNode(context.nextPlanNodeId(), setTuple.getId(),
+                    recursiveCte.getCteName(), recursiveCte.isUnionAll());
+        List<List<Expr>> distributeExprLists = getDistributeExprs(recursiveCte.children().toArray(new Plan[0]));
+        recursiveCteNode.setChildrenDistributeExprLists(distributeExprLists);
+        recursiveCteNode.setNereidsId(recursiveCte.getId());
+        List<List<Expression>> resultExpressionLists = Lists.newArrayList();
+        context.getNereidsIdToPlanNodeIdMap().put(recursiveCte.getId(), recursiveCteNode.getId());
+        for (List<SlotReference> regularChildrenOutput : recursiveCte.getRegularChildrenOutputs()) {
+            resultExpressionLists.add(new ArrayList<>(regularChildrenOutput));
+        }
+
+        for (PlanFragment childFragment : childrenFragments) {
+            recursiveCteNode.addChild(childFragment.getPlanRoot());
+        }
+
+        List<List<Expr>> materializedResultExprLists = Lists.newArrayList();
+        for (int i = 0; i < resultExpressionLists.size(); ++i) {
+            List<Expression> resultExpressionList = resultExpressionLists.get(i);
+            List<Expr> exprList = Lists.newArrayList();
+            Preconditions.checkState(resultExpressionList.size() == outputSlotDescs.size());
+            for (int j = 0; j < resultExpressionList.size(); ++j) {
+                if (outputSlotDescs.get(j).isMaterialized()) {
+                    exprList.add(ExpressionTranslator.translate(resultExpressionList.get(j), context));
+                    // TODO: reconsider this, we may change nullable info in previous nereids rules not here.
+                    outputSlotDescs.get(j)
+                            .setIsNullable(outputSlotDescs.get(j).getIsNullable() || exprList.get(j).isNullable());
+                }
+            }
+            materializedResultExprLists.add(exprList);
+        }
+        recursiveCteNode.setMaterializedResultExprLists(materializedResultExprLists);
+        Preconditions.checkState(recursiveCteNode.getMaterializedResultExprLists().size()
+                == recursiveCteNode.getChildren().size());
+
+        PlanFragment recursiveCteFragment;
+        if (childrenFragments.isEmpty()) {
+            recursiveCteFragment = createPlanFragment(recursiveCteNode,
+                    DataPartition.UNPARTITIONED, recursiveCte);
+            context.addPlanFragment(recursiveCteFragment);
+        } else {
+            int childrenSize = childrenFragments.size();
+            recursiveCteFragment = childrenFragments.get(childrenSize - 1);
+            for (int i = childrenSize - 2; i >= 0; i--) {
+                context.mergePlanFragment(childrenFragments.get(i), recursiveCteFragment);
+                for (PlanFragment child : childrenFragments.get(i).getChildren()) {
+                    recursiveCteFragment.addChild(child);
+                }
+            }
+            setPlanRoot(recursiveCteFragment, recursiveCteNode, recursiveCte);
+        }
+
+        recursiveCteFragment.updateDataPartition(DataPartition.UNPARTITIONED);
+        recursiveCteFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+
+        return recursiveCteFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalRecursiveCteRecursiveChild(
+            PhysicalRecursiveCteRecursiveChild<? extends Plan> recursiveChild,
+            PlanTranslatorContext context) {
+        return recursiveChild.child().accept(this, context);
     }
 
     /**

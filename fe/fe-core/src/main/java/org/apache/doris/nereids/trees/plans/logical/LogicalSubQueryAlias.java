@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.LazyCompute;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
@@ -42,6 +44,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -55,6 +58,7 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     protected RelationId relationId;
     private final List<String> qualifier;
     private final Optional<List<String>> columnAliases;
+    private final Supplier<Boolean> isRecursiveCte;
 
     public LogicalSubQueryAlias(String tableAlias, CHILD_TYPE child) {
         this(ImmutableList.of(tableAlias), Optional.empty(), Optional.empty(), Optional.empty(), child);
@@ -78,6 +82,7 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         super(PlanType.LOGICAL_SUBQUERY_ALIAS, groupExpression, logicalProperties, child);
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier is null"));
         this.columnAliases = columnAliases;
+        this.isRecursiveCte = computeIsRecursiveCte();
     }
 
     @Override
@@ -119,6 +124,23 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
             currentOutput.add(qualified);
         }
         return currentOutput.build();
+    }
+
+    private Supplier<Boolean> computeIsRecursiveCte() {
+        return LazyCompute.of(() -> {
+            List<UnboundRelation> relationList = collectToList(UnboundRelation.class::isInstance);
+            for (UnboundRelation relation : relationList) {
+                List<String> nameParts = relation.getNameParts();
+                if (nameParts.size() == 1 && nameParts.get(0).equalsIgnoreCase(getAlias())) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+
+    public boolean isRecursiveCte() {
+        return isRecursiveCte.get();
     }
 
     public String getAlias() {

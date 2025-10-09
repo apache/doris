@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCte;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
@@ -312,6 +313,16 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             }
         }
 
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalRecursiveCte(PhysicalRecursiveCte recursiveCte, PlanContext context) {
+        List<PhysicalProperties> requestGather = Lists.newArrayListWithCapacity(context.arity());
+        for (int i = context.arity(); i > 0; --i) {
+            requestGather.add(PhysicalProperties.GATHER);
+        }
+        addRequestPropertyToChildren(requestGather);
         return null;
     }
 
