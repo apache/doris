@@ -48,7 +48,7 @@ public class LocalShuffleTest extends TestWithFeService  {
                 + "  `identity_code` varchar(128) NULL COMMENT \"\",\n"
                 + "  `identity_value` varchar(128) NULL COMMENT \"\",\n"
                 + "  `oneid` bigint NULL COMMENT \"\",\n"
-                + "  INDEX idx_oneid (`oneid`) USING INVERTED COMMENT ''\n"
+                + "  INDEX idx_oneid (`oneid`) USING INVERTED COMMENT \"\"\n"
                 + ") ENGINE=OLAP\n"
                 + "UNIQUE KEY(`identity_code`, `identity_value`)\n"
                 + "COMMENT 'oooo'\n"

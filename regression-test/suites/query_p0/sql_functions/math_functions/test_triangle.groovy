@@ -45,6 +45,6 @@ suite("test_triangle") {
 
     qt_test "select k1,COT(v1) from test_triangle order by k1;"
     qt_test "select k1,SEC(v1) from test_triangle order by k1;"
-    qt_test "select k1,COSEC(v1) from test_triangle order by k1;"
+    qt_test "select k1,CSC(v1) from test_triangle order by k1;"
 }
 

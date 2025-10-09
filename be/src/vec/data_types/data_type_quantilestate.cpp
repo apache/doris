@@ -158,6 +158,10 @@ MutableColumnPtr DataTypeQuantileState::create_column() const {
     return ColumnQuantileState::create();
 }
 
+Status DataTypeQuantileState::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<ColumnQuantileState>(column);
+}
+
 void DataTypeQuantileState::serialize_as_stream(const QuantileState& cvalue, BufferWritable& buf) {
     auto& value = const_cast<QuantileState&>(cvalue);
     std::string memory_buffer;
@@ -170,16 +174,6 @@ void DataTypeQuantileState::deserialize_as_stream(QuantileState& value, BufferRe
     StringRef ref;
     buf.read_binary(ref);
     value.deserialize(ref.to_slice());
-}
-
-void DataTypeQuantileState::to_string(const class doris::vectorized::IColumn& column,
-                                      size_t row_num,
-                                      doris::vectorized::BufferWritable& ostr) const {
-    auto& data = const_cast<QuantileState&>(
-            assert_cast<const ColumnQuantileState&>(column).get_element(row_num));
-    std::string result(data.get_serialized_size(), '0');
-    data.serialize((uint8_t*)result.data());
-    ostr.write(result.data(), result.size());
 }
 
 } // namespace doris::vectorized

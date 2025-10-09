@@ -33,16 +33,14 @@
 
 #include "common/logging.h"
 #include "common/object_pool.h"
-#include "util/container_util.hpp"
 #include "util/runtime_profile_counter_tree_node.h"
 #ifdef BE_TEST
 #include "common/status.h" // For ErrorCode
 #endif
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 // Thread counters name
-static const std::string THREAD_TOTAL_TIME = "TotalWallClockTime";
 static const std::string THREAD_VOLUNTARY_CONTEXT_SWITCHES = "VoluntaryContextSwitches";
 static const std::string THREAD_INVOLUNTARY_CONTEXT_SWITCHES = "InvoluntaryContextSwitches";
 
@@ -122,10 +120,8 @@ void RuntimeProfile::merge(RuntimeProfile* other) {
 
         for (child_counter_src_itr = other->_child_counter_map.begin();
              child_counter_src_itr != other->_child_counter_map.end(); ++child_counter_src_itr) {
-            std::set<std::string>* child_counters = find_or_insert(
-                    &_child_counter_map, child_counter_src_itr->first, std::set<std::string>());
-            child_counters->insert(child_counter_src_itr->second.begin(),
-                                   child_counter_src_itr->second.end());
+            _child_counter_map[child_counter_src_itr->first].insert(
+                    child_counter_src_itr->second.begin(), child_counter_src_itr->second.end());
         }
     }
 
@@ -197,10 +193,8 @@ void RuntimeProfile::update(const std::vector<TRuntimeProfileNode>& nodes, int* 
 
         for (child_counter_src_itr = node.child_counters_map.begin();
              child_counter_src_itr != node.child_counters_map.end(); ++child_counter_src_itr) {
-            std::set<std::string>* child_counters = find_or_insert(
-                    &_child_counter_map, child_counter_src_itr->first, std::set<std::string>());
-            child_counters->insert(child_counter_src_itr->second.begin(),
-                                   child_counter_src_itr->second.end());
+            _child_counter_map[child_counter_src_itr->first].insert(
+                    child_counter_src_itr->second.begin(), child_counter_src_itr->second.end());
         }
     }
 
@@ -276,10 +270,8 @@ void RuntimeProfile::update(const google::protobuf::RepeatedPtrField<PRuntimePro
         }
 
         for (const auto& kv : node.child_counters_map()) {
-            std::set<std::string>* child_counters =
-                    find_or_insert(&_child_counter_map, kv.first, std::set<std::string>());
             for (const auto& child_name : kv.second.child_counters()) {
-                child_counters->insert(child_name);
+                _child_counter_map[kv.first].insert(child_name);
             }
         }
     }
@@ -376,7 +368,7 @@ void RuntimeProfile::compute_time_in_profile(int64_t total) {
     int64_t local_time = total_time_counter()->value() - total_child_time;
     // Counters have some margin, set to 0 if it was negative.
     local_time = std::max<int64_t>(0L, local_time);
-    _local_time_percent = static_cast<double>(local_time) / total;
+    _local_time_percent = static_cast<double>(local_time) / static_cast<double>(total);
     _local_time_percent = std::min(1.0, _local_time_percent) * 100;
 
     // Recurse on children
@@ -489,9 +481,7 @@ RuntimeProfile::HighWaterMarkCounter* RuntimeProfile::AddHighWaterMarkCounter(
     RuntimeProfile::HighWaterMarkCounter* counter =
             _pool->add(new RuntimeProfile::HighWaterMarkCounter(unit, level, parent_counter_name));
     _counter_map[name] = counter;
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
+    _child_counter_map[parent_counter_name].insert(name);
     return counter;
 }
 
@@ -510,9 +500,7 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
 
     Counter* counter = _pool->add(new Counter(type, 0, level));
     _counter_map[name] = counter;
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
+    _child_counter_map[parent_counter_name].insert(name);
     return counter;
 }
 
@@ -529,9 +517,7 @@ RuntimeProfile::NonZeroCounter* RuntimeProfile::add_nonzero_counter(
            _counter_map.find(parent_counter_name) != _counter_map.end());
     NonZeroCounter* counter = _pool->add(new NonZeroCounter(type, level, parent_counter_name));
     _counter_map[name] = counter;
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
+    _child_counter_map[parent_counter_name].insert(name);
     return counter;
 }
 
@@ -546,9 +532,7 @@ RuntimeProfile::DerivedCounter* RuntimeProfile::add_derived_counter(
 
     DerivedCounter* counter = _pool->add(new DerivedCounter(type, counter_fn));
     _counter_map[name] = counter;
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
+    _child_counter_map[parent_counter_name].insert(name);
     return counter;
 }
 
@@ -572,9 +556,7 @@ void RuntimeProfile::add_description(const std::string& name, const std::string&
            _counter_map.find(parent_counter_name) != _counter_map.end());
     DescriptionEntry* counter = _pool->add(new DescriptionEntry(name, description));
     _counter_map[name] = counter;
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
+    _child_counter_map[parent_counter_name].insert(name);
 }
 
 RuntimeProfile::ConditionCounter* RuntimeProfile::add_conditition_counter(
@@ -596,9 +578,7 @@ RuntimeProfile::ConditionCounter* RuntimeProfile::add_conditition_counter(
 
     ConditionCounter* counter = _pool->add(new ConditionCounter(type, counter_fn, level));
     _counter_map[name] = counter;
-    std::set<std::string>* child_counters =
-            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
-    child_counters->insert(name);
+    _child_counter_map[parent_counter_name].insert(name);
     return counter;
 }
 
@@ -690,7 +670,7 @@ void RuntimeProfile::to_thrift(TRuntimeProfileTree* tree, int64_t profile_level)
 }
 
 void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64_t profile_level) {
-    int index = nodes->size();
+    size_t index = nodes->size();
     nodes->push_back(TRuntimeProfileNode());
     TRuntimeProfileNode& node = (*nodes)[index];
     node.name = _name;
@@ -719,11 +699,11 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes, int64_t 
         std::lock_guard<std::mutex> l(_children_lock);
         children = _children;
     }
-    node.num_children = children.size();
+    node.num_children = cast_set<int32_t>(children.size());
     nodes->reserve(nodes->size() + children.size());
 
     for (int i = 0; i < children.size(); ++i) {
-        int child_idx = nodes->size();
+        size_t child_idx = nodes->size();
         children[i].first->to_thrift(nodes, profile_level);
         // fix up indentation flag
         (*nodes)[child_idx].indent = children[i].second;
@@ -768,10 +748,10 @@ void RuntimeProfile::to_proto(google::protobuf::RepeatedPtrField<PRuntimeProfile
         children = _children;
     }
 
-    node->set_num_children(children.size());
+    node->set_num_children(cast_set<int32_t>(children.size()));
 
     for (const auto& child : children) {
-        int child_index = nodes->size(); // capture index for indent correction
+        int child_index = cast_set<int>(nodes->size()); // capture index for indent correction
         child.first->to_proto(nodes, profile_level);
         (*nodes)[child_index].set_indent(child.second);
     }
@@ -787,7 +767,7 @@ int64_t RuntimeProfile::units_per_second(const RuntimeProfile::Counter* total_co
     }
 
     double secs = static_cast<double>(timer->value()) / 1000.0 / 1000.0 / 1000.0;
-    return int64_t(total_counter->value() / secs);
+    return int64_t(static_cast<double>(total_counter->value()) / secs);
 }
 
 int64_t RuntimeProfile::counter_sum(const std::vector<Counter*>* counters) {

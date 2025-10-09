@@ -29,6 +29,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/field.h"
@@ -36,7 +37,6 @@
 namespace doris {
 namespace vectorized {
 class BufferWritable;
-class ReadBuffer;
 } // namespace vectorized
 } // namespace doris
 
@@ -57,7 +57,6 @@ String IDataType::do_get_name() const {
 
 ColumnPtr IDataType::create_column_const(size_t size, const Field& field) const {
     auto column = create_column();
-    column->reserve(1);
     column->insert(field);
     return ColumnConst::create(std::move(column), size);
 }
@@ -70,33 +69,6 @@ size_t IDataType::get_size_of_value_in_memory() const {
     throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                            "Value of type {} in memory is not of fixed size.", get_name());
     return 0;
-}
-
-void IDataType::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                           "Data type {} to_string ostr not implement.", get_name());
-}
-
-std::string IDataType::to_string(const IColumn& column, size_t row_num) const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                           "Data type {} to_string not implement.", get_name());
-    return "";
-}
-Status IDataType::from_string(ReadBuffer& rb, IColumn* column) const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                           "Data type {} from_string not implement.", get_name());
-
-    return Status::OK();
-}
-
-void IDataType::to_string_batch(const IColumn& column, ColumnString& column_to) const {
-    const auto size = column.size();
-    column_to.reserve(size * 2);
-    VectorBufferWriter write_buffer(column_to);
-    for (size_t i = 0; i < size; ++i) {
-        to_string(column, i, write_buffer);
-        write_buffer.commit();
-    }
 }
 
 void IDataType::to_pb_column_meta(PColumnMeta* col_meta) const {
@@ -171,6 +143,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::TIMEV2;
     case PrimitiveType::TYPE_FIXED_LENGTH_OBJECT:
         return PGenericType::FIXEDLENGTHOBJECT;
+    case doris::PrimitiveType::TYPE_VARBINARY:
+        return PGenericType::VARBINARY;
     default:
         break;
     }
@@ -222,6 +196,23 @@ const char* deserialize_const_flag_and_row_num(const char* buf, MutableColumnPtr
         *column = const_column->get_ptr();
     }
     return buf;
+}
+
+FieldWithDataType IDataType::get_field_with_data_type(const IColumn& column, size_t row_num) const {
+    return FieldWithDataType {.field = column[row_num],
+                              .base_scalar_type_id = get_primitive_type()};
+}
+
+std::string IDataType::to_string(const IColumn& column, size_t row_num) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+    auto serde = get_serde();
+    auto tmp_col = ColumnString::create();
+    BufferWriter write_buffer(*tmp_col);
+    serde->to_string(*ptr, row_num, write_buffer);
+    write_buffer.commit();
+    return tmp_col->get_data_at(0).to_string();
 }
 
 } // namespace doris::vectorized

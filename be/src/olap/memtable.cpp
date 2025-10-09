@@ -647,6 +647,7 @@ void MemTable::shrink_memtable_by_agg() {
     if (same_keys_num != 0) {
         (_skip_bitmap_col_idx == -1) ? _aggregate<false, false>() : _aggregate<false, true>();
     }
+    _last_agg_pos = memory_usage();
 }
 
 bool MemTable::need_flush() const {
@@ -654,15 +655,16 @@ bool MemTable::need_flush() const {
     auto max_size = config::write_buffer_size;
     if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
         auto update_columns_size = _num_columns;
+        auto min_buffer_size = config::min_write_buffer_size_for_partial_update;
         max_size = max_size * update_columns_size / _tablet_schema->num_columns();
-        max_size = max_size > 1048576 ? max_size : 1048576;
+        max_size = max_size > min_buffer_size ? max_size : min_buffer_size;
     }
     return memory_usage() >= max_size;
 }
 
 bool MemTable::need_agg() const {
     if (_keys_type == KeysType::AGG_KEYS) {
-        auto max_size = config::write_buffer_size_for_agg;
+        auto max_size = _last_agg_pos + config::write_buffer_size_for_agg;
         return memory_usage() >= max_size;
     }
     return false;

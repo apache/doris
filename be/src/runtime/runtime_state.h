@@ -49,6 +49,7 @@
 #include "runtime/workload_group/workload_group.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "vec/runtime/vector_search_user_params.h"
 
 namespace doris {
 class RuntimeFilter;
@@ -188,6 +189,10 @@ public:
         return _query_options.__isset.enable_strict_cast && _query_options.enable_strict_cast;
     }
 
+    bool enable_insert_strict() const {
+        return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
+    }
+
     bool enable_decimal256() const {
         return _query_options.__isset.enable_decimal256 && _query_options.enable_decimal256;
     }
@@ -279,12 +284,13 @@ public:
 
     std::string get_error_log_file_path();
 
+    std::string get_first_error_msg() const { return _first_error_msg; }
+
     // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
     // If we need to stop the processing, set stop_processing to true
     Status append_error_msg_to_file(std::function<std::string()> line,
-                                    std::function<std::string()> error_msg,
-                                    bool is_summary = false);
+                                    std::function<std::string()> error_msg);
 
     int64_t num_bytes_load_total() { return _num_bytes_load_total.load(); }
 
@@ -421,6 +427,20 @@ public:
     }
 
     bool enable_page_cache() const;
+
+    bool enable_prefer_cached_rowset() const {
+        return _query_options.__isset.enable_prefer_cached_rowset &&
+               _query_options.enable_prefer_cached_rowset;
+    }
+
+    int64_t query_freshness_tolerance_ms() const {
+        return _query_options.query_freshness_tolerance_ms;
+    }
+
+    bool enable_query_freshness_tolerance() const {
+        return _query_options.__isset.query_freshness_tolerance_ms &&
+               _query_options.query_freshness_tolerance_ms > 0;
+    }
 
     std::vector<TTabletCommitInfo> tablet_commit_infos() const {
         std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
@@ -670,6 +690,11 @@ public:
     std::shared_ptr<IdFileMap>& get_id_file_map() { return _id_file_map; }
 
     void set_id_file_map();
+    VectorSearchUserParams get_vector_search_params() const {
+        return VectorSearchUserParams(_query_options.hnsw_ef_search,
+                                      _query_options.hnsw_check_relative_distance,
+                                      _query_options.hnsw_bounded_queue);
+    }
 
 private:
     Status create_error_log_file();
@@ -759,9 +784,9 @@ private:
     size_t _content_length = 0;
 
     // mini load
-    int64_t _error_row_number;
     std::string _error_log_file_path;
     std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
+    std::string _first_error_msg = "";
     mutable std::mutex _tablet_infos_mutex;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;

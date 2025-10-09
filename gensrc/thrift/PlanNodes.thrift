@@ -247,6 +247,7 @@ struct TFileTextScanRangeParams {
     5: optional i8 enclose;
     6: optional i8 escape;
     7: optional string null_format;
+    8: optional bool empty_field_as_null
 }
 
 struct TFileScanSlotInfo {
@@ -397,7 +398,7 @@ struct TTableFormatFileDesc {
     6: optional TMaxComputeFileDesc max_compute_params
     7: optional TTrinoConnectorFileDesc trino_connector_params
     8: optional TLakeSoulFileDesc lakesoul_params
-    9: optional i64 table_level_row_count
+    9: optional i64 table_level_row_count = -1
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -463,7 +464,7 @@ struct TFileScanRangeParams {
     // This is used to represent the latest id.
     25: optional i64 current_schema_id;
     // All schema information used in the current query process
-    26: optional list<ExternalTableSchema.TSchema> history_schema_info 
+    26: optional list<ExternalTableSchema.TSchema> history_schema_info
 }
 
 struct TFileRangeDesc {
@@ -493,6 +494,8 @@ struct TFileRangeDesc {
     12: optional string fs_name
     13: optional TFileFormatType format_type;
     14: optional i64 self_split_weight
+    // whether the value of columns_from_path is null
+    15: optional list<bool> columns_from_path_is_null;
 }
 
 struct TSplitSource {
@@ -535,12 +538,15 @@ struct TDataGenScanRange {
 }
 
 
+// deprecated
 struct TIcebergMetadataParams {
-  1: optional string serialized_task
-  2: optional map<string, string> hadoop_props
+  1: optional Types.TIcebergQueryType iceberg_query_type
+  2: optional string catalog
+  3: optional string database
+  4: optional string table
 }
 
-
+// deprecated
 struct TPaimonMetadataParams {
   1: optional string db_name
   2: optional string tbl_name
@@ -610,7 +616,7 @@ struct TMetaCacheStatsParams {
 
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
-  2: optional TIcebergMetadataParams iceberg_params
+  2: optional TIcebergMetadataParams iceberg_params // deprecated
   3: optional TBackendsMetadataParams backends_params
   4: optional TFrontendsMetadataParams frontends_params
   5: optional TQueriesMetadataParams queries_params
@@ -621,7 +627,12 @@ struct TMetaScanRange {
   10: optional TMetaCacheStatsParams meta_cache_stats_params
   11: optional TPartitionValuesMetadataParams partition_values_params
   12: optional THudiMetadataParams hudi_params
-  13: optional TPaimonMetadataParams paimon_params
+  13: optional TPaimonMetadataParams paimon_params // deprecated
+
+  // for quering sys tables for Paimon/Iceberg
+  14: optional map<string, string> hadoop_props
+  15: optional string serialized_table;
+  16: optional list<string> serialized_splits;
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -664,6 +675,7 @@ struct TJdbcScanNode {
   2: optional string table_name
   3: optional string query_string
   4: optional Types.TOdbcTableType table_type
+  5: optional bool is_tvf
 }
 
 struct TBrokerScanNode {
@@ -758,6 +770,7 @@ struct TSchemaScanNode {
   // 13: optional list<TSchemaTableStructure> table_structure // deprecated
   14: optional string catalog
   15: optional list<Types.TNetworkAddress> fe_addr_list
+  16: optional string frontend_conjuncts
 }
 
 struct TMetaScanNode {
@@ -780,9 +793,6 @@ struct TSortInfo {
   // Expressions evaluated over the input row that materialize the tuple to be sorted.
   // Contains one expr per slot in the materialized tuple.
   4: optional list<Exprs.TExpr> sort_tuple_slot_exprs
-
-  // Indicates the nullable info of sort_tuple_slot_exprs is changed after substitute by child's smap
-  5: optional list<bool> slot_exprs_nullability_changed_flags
   // Indicates whether topn query using two phase read
   6: optional bool use_two_phase_read
 }
@@ -816,6 +826,10 @@ struct TOlapScanNode {
   16: optional list<i32> distribute_column_ids
   17: optional i32 schema_version
   18: optional list<i32> topn_filter_source_node_ids //deprecated, move to TPlanNode.106
+  19: optional TSortInfo score_sort_info
+  20: optional i64 score_sort_limit
+  21: optional TSortInfo ann_sort_info
+  22: optional i64 ann_sort_limit
 }
 
 struct TEqJoinCondition {

@@ -115,12 +115,14 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     range.__isset.table_format_params = true;
 
     io::IOContext io_ctx;
+    io::FileReaderStats file_reader_stats;
+    io_ctx.file_reader_stats = &file_reader_stats;
     std::string time_zone = "CST";
     auto reader = OrcReader::create_unique(nullptr, runtime_state.get(), params, range, 100,
-                                           time_zone, &io_ctx, true);
+                                           time_zone, &io_ctx, nullptr, true);
     auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr file_reader;
-    static_cast<void>(reader->set_read_lines_mode({line}));
+    static_cast<void>(reader->read_by_rows({line}));
 
     static_cast<void>(local_fs->open_file(range.path, &file_reader));
 

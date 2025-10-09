@@ -558,3 +558,124 @@ TEST(VersionedMessageTest, GetRangeWithRangeKeySelector) {
         case_index += 1;
     }
 }
+
+TEST(VersionedValueTest, RemoveAll) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    std::string key_prefix = "remove_all_key_";
+
+    // Insert 10 versioned values
+    for (int i = 0; i < 10; ++i) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        VersionPB version_pb;
+        version_pb.set_version(i * 10);
+        Versionstamp versionstamp(i * 10, 0);
+        versioned_put(txn.get(), key_prefix, versionstamp, version_pb.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    ASSERT_EQ(count_range(txn_kv.get()), 10) << dump_range(txn_kv.get());
+
+    // Remove all versioned values
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_remove_all(txn.get(), key_prefix);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    ASSERT_EQ(count_range(txn_kv.get()), 0) << dump_range(txn_kv.get());
+
+    // Insert 5 versioned values and verify
+    for (int i = 0; i < 5; ++i) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        VersionPB version_pb;
+        version_pb.set_version(i * 100);
+        Versionstamp versionstamp(i * 100, 0);
+        versioned_put(txn.get(), key_prefix, versionstamp, version_pb.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    ASSERT_EQ(count_range(txn_kv.get()), 5) << dump_range(txn_kv.get());
+
+    // Remove all versioned values again
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_remove_all(txn.get(), key_prefix);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+    ASSERT_EQ(count_range(txn_kv.get()), 0) << dump_range(txn_kv.get());
+}
+
+TEST(VersionedValueTest, BatchGet) {
+    std::shared_ptr<TxnKv> txn_kv = std::make_shared<MemTxnKv>();
+    std::string key_prefix = "batch_get_key_";
+    std::vector<std::string> keys;
+    for (int i = 0; i < 5; ++i) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        VersionPB version_pb;
+        version_pb.set_version(i * 10);
+        Versionstamp versionstamp(i * 10, 0);
+        std::string key = fmt::format("{}{:02}", key_prefix, i);
+        versioned_put(txn.get(), key, versionstamp, version_pb.SerializeAsString());
+        keys.push_back(key);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    struct TestCase {
+        Versionstamp snapshot_version;
+        std::vector<std::string> keys;
+        std::vector<std::optional<Versionstamp>> expected_results;
+    };
+    std::vector<TestCase> test_cases = {
+            // Test case 1: Get all keys with max snapshot version
+            {Versionstamp::max(),
+             keys,
+             {
+                     {Versionstamp(0, 0)},
+                     {Versionstamp(10, 0)},
+                     {Versionstamp(20, 0)},
+                     {Versionstamp(30, 0)},
+                     {Versionstamp(40, 0)},
+             }},
+            // Test case 2: Get keys with a specific snapshot version (30, 0)
+            {Versionstamp(30, 0),
+             keys,
+             {
+                     {Versionstamp(0, 0)},
+                     {Versionstamp(10, 0)},
+                     {Versionstamp(20, 0)},
+                     {std::nullopt},
+                     {std::nullopt},
+             }},
+            // Test case 3: Get a non-existing keys
+            {Versionstamp::max(),
+             {"non_existing_key_1", "non_existing_key_2"},
+             {
+                     std::nullopt,
+                     std::nullopt,
+             }},
+    };
+    for (const auto& tc : test_cases) {
+        std::cout << "Running test case with snapshot version: " << tc.snapshot_version.to_string()
+                  << std::endl;
+        std::vector<std::optional<std::pair<std::string, Versionstamp>>> results;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        auto err = versioned_batch_get(txn.get(), tc.keys, tc.snapshot_version, &results);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK)
+                << "Failed to batch get keys with snapshot " << tc.snapshot_version.to_string();
+        ASSERT_EQ(results.size(), tc.expected_results.size());
+        for (size_t i = 0; i < results.size(); ++i) {
+            if (tc.expected_results[i].has_value()) {
+                ASSERT_TRUE(results[i].has_value());
+                ASSERT_EQ(results[i]->second.version(), tc.expected_results[i]->version())
+                        << "Mismatch for key: " << tc.keys[i];
+            } else {
+                ASSERT_FALSE(results[i].has_value())
+                        << "Expected no value for key: " << tc.keys[i] << ", value: "
+                        << (results[i].has_value() ? results[i]->second.to_string() : "null");
+            }
+        }
+    }
+}

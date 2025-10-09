@@ -50,13 +50,18 @@ public class ExplodeVariantArray extends TableGeneratingFunction implements
         super("explode_variant_array", args);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeVariantArray(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeVariantArray withChildren(List<Expression> children) {
         Preconditions.checkArgument(!children.isEmpty());
-        return new ExplodeVariantArray(children.toArray(new Expression[0]));
+        return new ExplodeVariantArray(getFunctionParams(children));
     }
 
     @Override
@@ -71,8 +76,8 @@ public class ExplodeVariantArray extends TableGeneratingFunction implements
         for (int i = 0; i < children.size(); i++) {
             if (children.get(i).getDataType() instanceof VariantType) {
                 structFields.add(
-                    new StructField("col" + (i + 1), VariantType.INSTANCE, true, ""));
-                arguments.add(VariantType.INSTANCE);
+                    new StructField("col" + (i + 1), children.get(i).getDataType(), true, ""));
+                arguments.add(children.get(i).getDataType());
             } else {
                 SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             }

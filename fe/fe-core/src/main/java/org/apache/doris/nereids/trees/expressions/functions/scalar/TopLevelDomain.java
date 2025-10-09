@@ -47,13 +47,18 @@ public class TopLevelDomain extends ScalarFunction
         super("top_level_domain", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private TopLevelDomain(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public TopLevelDomain withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new TopLevelDomain(children.get(0));
+        return new TopLevelDomain(getFunctionParams(children));
     }
 
     @Override

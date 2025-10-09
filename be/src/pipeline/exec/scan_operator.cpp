@@ -18,11 +18,13 @@
 #include "scan_operator.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
 
 #include <cstdint>
 #include <memory>
 
+#include "common/global_types.h"
 #include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/group_commit_scan_operator.h"
@@ -31,6 +33,7 @@
 #include "pipeline/exec/mock_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
+#include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "runtime_filter/runtime_filter_consumer_helper.h"
 #include "util/runtime_profile.h"
@@ -41,7 +44,9 @@
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vin_predicate.h"
+#include "vec/exprs/virtual_slot_ref.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vtopn_pred.h"
@@ -148,6 +153,8 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     M(INT)                          \
     M(BIGINT)                       \
     M(LARGEINT)                     \
+    M(FLOAT)                        \
+    M(DOUBLE)                       \
     M(CHAR)                         \
     M(DATE)                         \
     M(DATETIME)                     \
@@ -269,8 +276,14 @@ Status ScanLocalState<Derived>::_normalize_predicate(
     if (conjunct_expr_root != nullptr) {
         if (is_leaf(conjunct_expr_root)) {
             auto impl = conjunct_expr_root->get_impl();
-            // If impl is not null, which means this a conjuncts from runtime filter.
-            auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
+            // If impl is not null, which means this is a conjunct from runtime filter.
+            vectorized::VExpr* cur_expr = impl ? impl.get() : conjunct_expr_root.get();
+            if (dynamic_cast<vectorized::VirtualSlotRef*>(cur_expr)) {
+                // If the expr has virtual slot ref, we need to keep it in the tree.
+                output_expr = conjunct_expr_root;
+                return Status::OK();
+            }
+
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
@@ -587,6 +600,12 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
                                                                PushDownType* pdt) {
     auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
             slot->is_nullable(), range.precision(), range.scale());
+
+    if (slot->get_virtual_column_expr() != nullptr) {
+        // virtual column, do not push down
+        return Status::OK();
+    }
+
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
         HybridSetBase::IteratorBase* iter = nullptr;
@@ -617,7 +636,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
         } else {
             // normal in predicate
             auto* pred = static_cast<vectorized::VInPredicate*>(expr);
-            PushDownType temp_pdt = _should_push_down_in_predicate(pred, expr_ctx, false);
+            PushDownType temp_pdt = _should_push_down_in_predicate(pred, false);
             if (temp_pdt == PushDownType::UNACCEPTABLE) {
                 return Status::OK();
             }
@@ -731,8 +750,8 @@ Status ScanLocalState<Derived>::_should_push_down_binary_predicate(
 }
 
 template <typename Derived>
-PushDownType ScanLocalState<Derived>::_should_push_down_in_predicate(
-        vectorized::VInPredicate* pred, vectorized::VExprContext* expr_ctx, bool is_not_in) {
+PushDownType ScanLocalState<Derived>::_should_push_down_in_predicate(vectorized::VInPredicate* pred,
+                                                                     bool is_not_in) {
     if (pred->is_not_in() != is_not_in) {
         return PushDownType::UNACCEPTABLE;
     }
@@ -759,8 +778,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
         }
 
         vectorized::VInPredicate* pred = static_cast<vectorized::VInPredicate*>(expr);
-        if ((temp_pdt = _should_push_down_in_predicate(pred, expr_ctx, true)) ==
-            PushDownType::UNACCEPTABLE) {
+        if ((temp_pdt = _should_push_down_in_predicate(pred, true)) == PushDownType::UNACCEPTABLE) {
             return Status::OK();
         }
 
@@ -898,7 +916,8 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                          (PrimitiveType == TYPE_VARCHAR) || (PrimitiveType == TYPE_DATETIMEV2) ||
                          (PrimitiveType == TYPE_TINYINT) || (PrimitiveType == TYPE_SMALLINT) ||
                          (PrimitiveType == TYPE_INT) || (PrimitiveType == TYPE_BIGINT) ||
-                         (PrimitiveType == TYPE_LARGEINT) || (PrimitiveType == TYPE_IPV4) ||
+                         (PrimitiveType == TYPE_LARGEINT) || (PrimitiveType == TYPE_FLOAT) ||
+                         (PrimitiveType == TYPE_DOUBLE) || (PrimitiveType == TYPE_IPV4) ||
                          (PrimitiveType == TYPE_IPV6) || (PrimitiveType == TYPE_DECIMAL32) ||
                          (PrimitiveType == TYPE_DECIMAL64) || (PrimitiveType == TYPE_DECIMAL128I) ||
                          (PrimitiveType == TYPE_DECIMAL256) || (PrimitiveType == TYPE_STRING) ||
@@ -1096,10 +1115,10 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     // Rows read from storage.
     // Include the rows read from doris page cache.
-    _scan_rows = ADD_COUNTER(custom_profile(), "ScanRows", TUnit::UNIT);
+    _scan_rows = ADD_COUNTER_WITH_LEVEL(custom_profile(), "ScanRows", TUnit::UNIT, 1);
     // Size of data that read from storage.
     // Does not include rows that are cached by doris page cache.
-    _scan_bytes = ADD_COUNTER(custom_profile(), "ScanBytes", TUnit::BYTES);
+    _scan_bytes = ADD_COUNTER_WITH_LEVEL(custom_profile(), "ScanBytes", TUnit::BYTES, 1);
     return Status::OK();
 }
 
@@ -1204,7 +1223,6 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         _push_down_agg_type = tnode.push_down_agg_type_opt;
     } else if (tnode.olap_scan_node.__isset.push_down_agg_type_opt) {
         _push_down_agg_type = tnode.olap_scan_node.push_down_agg_type_opt;
-
     } else {
         _push_down_agg_type = TPushAggOp::type::NONE;
     }
@@ -1227,7 +1245,9 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
         // is checked in previous branch.
         if (query_options.enable_adaptive_pipeline_task_serial_read_on_limit) {
             DCHECK(query_options.__isset.adaptive_pipeline_task_serial_read_on_limit);
-            if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
+            if (!tnode.__isset.conjuncts || tnode.conjuncts.empty() ||
+                (tnode.conjuncts.size() == 1 && tnode.__isset.olap_scan_node &&
+                 tnode.olap_scan_node.keyType == TKeysType::UNIQUE_KEYS)) {
                 if (tnode.limit > 0 &&
                     tnode.limit <= query_options.adaptive_pipeline_task_serial_read_on_limit) {
                     _should_run_serial = true;

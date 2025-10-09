@@ -83,6 +83,11 @@ enum TExprNodeType {
   NULL_AWARE_IN_PRED = 36,
   NULL_AWARE_BINARY_PRED = 37,
   TIMEV2_LITERAL = 38,
+  VIRTUAL_SLOT_REF = 39,
+  VARBINARY_LITERAL = 40,
+  TRY_CAST_EXPR = 41
+  // for search DSL function
+  SEARCH_EXPR = 42,
 }
 
 //enum TAggregationOp {
@@ -188,6 +193,7 @@ struct TSlotRef {
   1: required Types.TSlotId slot_id
   2: required Types.TTupleId tuple_id
   3: optional i32 col_unique_id
+  4: optional bool is_virtual_slot
 }
 
 struct TColumnRef {
@@ -197,6 +203,10 @@ struct TColumnRef {
 
 struct TStringLiteral {
   1: required string value;
+}
+
+struct TVarBinaryLiteral {
+  1: required binary value;
 }
 
 struct TNullableStringLiteral {
@@ -225,6 +235,25 @@ struct TFunctionCallExpr {
 struct TSchemaChangeExpr {
   // target schema change table
   1: optional i64 table_id 
+}
+
+// Search DSL parameter structure
+struct TSearchClause {
+  1: required string clause_type  // TERM, QUOTED, PREFIX, WILDCARD, REGEXP, RANGE, LIST, ANY_ALL, AND, OR, NOT
+  2: optional string field_name   // Field name for leaf clauses
+  3: optional string value        // Search value for leaf clauses
+  4: optional list<TSearchClause> children  // Child clauses for compound clauses (AND, OR, NOT)
+}
+
+struct TSearchFieldBinding {
+  1: required string field_name   // Field name from DSL
+  2: required i32 slot_index      // Index in the slot reference arguments
+}
+
+struct TSearchParam {
+  1: required string original_dsl         // Original DSL string for debugging
+  2: required TSearchClause root     // Parsed AST root
+  3: required list<TSearchFieldBinding> field_bindings  // Field to slot mappings
 }
 
 // This is essentially a union over the subclasses of Expr.
@@ -275,6 +304,9 @@ struct TExprNode {
   35: optional TIPv6Literal ipv6_literal
   36: optional string label // alias name, a/b in `select xxx as a, count(1) as b`
   37: optional TTimeV2Literal timev2_literal
+  38: optional TVarBinaryLiteral varbinary_literal
+  39: optional bool is_cast_nullable
+  40: optional TSearchParam search_param
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

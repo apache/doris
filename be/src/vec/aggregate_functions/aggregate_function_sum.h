@@ -23,7 +23,6 @@
 #include <stddef.h>
 
 #include <memory>
-#include <type_traits>
 #include <vector>
 
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -34,7 +33,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -52,7 +50,7 @@ template <PrimitiveType T>
 struct AggregateFunctionSumData {
     typename PrimitiveTypeTraits<T>::ColumnItemType sum {};
 
-    void add(typename PrimitiveTypeTraits<T>::ColumnItemType value) {
+    NO_SANITIZE_UNDEFINED void add(typename PrimitiveTypeTraits<T>::ColumnItemType value) {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
@@ -71,7 +69,9 @@ struct AggregateFunctionSumData {
 /// Counts the sum of the numbers.
 template <PrimitiveType T, PrimitiveType TResult, typename Data>
 class AggregateFunctionSum final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>,
+          UnaryExpression,
+          NullableAggregateFunction {
 public:
     using ResultDataType = typename PrimitiveTypeTraits<TResult>::DataType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
@@ -214,12 +214,11 @@ public:
 
     bool supported_incremental_mode() const override { return true; }
 
-    void execute_function_with_incremental(int64_t partition_start, int64_t partition_end,
-                                           int64_t frame_start, int64_t frame_end,
-                                           AggregateDataPtr place, const IColumn** columns,
-                                           Arena& arena, bool previous_is_nul, bool end_is_nul,
-                                           bool has_null, UInt8* use_null_result,
-                                           UInt8* could_use_previous_result) const override {
+    NO_SANITIZE_UNDEFINED void execute_function_with_incremental(
+            int64_t partition_start, int64_t partition_end, int64_t frame_start, int64_t frame_end,
+            AggregateDataPtr place, const IColumn** columns, Arena& arena, bool previous_is_nul,
+            bool end_is_nul, bool has_null, UInt8* use_null_result,
+            UInt8* could_use_previous_result) const override {
         int64_t current_frame_start = std::max<int64_t>(frame_start, partition_start);
         int64_t current_frame_end = std::min<int64_t>(frame_end, partition_end);
 
@@ -235,10 +234,12 @@ public:
             auto incoming_pos = frame_end - 1;
             if (!previous_is_nul && outcoming_pos >= partition_start &&
                 outcoming_pos < partition_end) {
-                this->data(place).sum -= data[outcoming_pos];
+                this->data(place).add(typename PrimitiveTypeTraits<TResult>::ColumnItemType(
+                        -data[outcoming_pos]));
             }
             if (!end_is_nul && incoming_pos >= partition_start && incoming_pos < partition_end) {
-                this->data(place).sum += data[incoming_pos];
+                this->data(place).add(
+                        typename PrimitiveTypeTraits<TResult>::ColumnItemType(data[incoming_pos]));
             }
         } else {
             this->add_range_single_place(partition_start, partition_end, frame_start, frame_end,

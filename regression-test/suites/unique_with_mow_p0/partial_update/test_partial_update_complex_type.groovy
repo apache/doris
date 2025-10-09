@@ -131,7 +131,8 @@ suite("test_primary_key_partial_update_complex_type", "p0") {
                         `c_map` MAP<STRING,int> not null)
                         UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
                         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
-                        "store_row_column" = "${use_row_store}","disable_auto_compaction" = "true"); """
+                        "store_row_column" = "${use_row_store}","disable_auto_compaction" = "true",
+                        "enable_mow_light_delete" = "false"); """
 
             sql """insert into ${tableName2} values(2, "doris2", '{"jsonk2": 333, "jsonk4": 444}', [300, 400], {3, 4}, {'a': 2})"""
             sql """insert into ${tableName2} values(1, "doris1", '{"jsonk1": 123, "jsonk2": 456}', [100, 200], {1, 2}, {'b': 3})"""

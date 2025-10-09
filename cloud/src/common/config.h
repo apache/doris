@@ -118,6 +118,18 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 CONF_Bool(force_immediate_recycle, "false");
 
 CONF_mBool(enable_mow_job_key_check, "false");
+
+CONF_mBool(enable_restore_job_check, "false");
+
+CONF_mBool(enable_tablet_stats_key_check, "false");
+CONF_mBool(enable_txn_key_check, "false");
+
+CONF_mBool(enable_meta_key_check, "false");
+CONF_mBool(enable_version_key_check, "false");
+CONF_mBool(enable_meta_rowset_key_check, "false");
+CONF_mBool(enable_snapshot_check, "false");
+CONF_mBool(enable_mvcc_meta_key_check, "false");
+
 CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
 
 CONF_String(test_s3_ak, "");
@@ -278,11 +290,15 @@ CONF_mInt64(max_txn_commit_byte, "7340032");
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
 CONF_Int32(txn_lazy_commit_num_threads, "8");
-CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
+CONF_mInt64(txn_lazy_max_rowsets_per_batch, "1000");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
+CONF_Int32(max_restore_job_rowsets_per_batch, "1000");
 
-CONF_Bool(enable_cloud_txn_lazy_commit_fuzzy_test, "false");
+// the possibility to use a lazy commit for a doris txn, ranges from 0 to 100,
+// usually for testing
+// 0 for never, 100 for always
+CONF_mInt32(cloud_txn_lazy_commit_fuzzy_possibility, "0");
 
 // Max aborted txn num for the same label name
 CONF_mInt64(max_num_aborted_txn, "100");
@@ -320,7 +336,7 @@ CONF_mBool(enable_batch_get_mow_tablet_stats_and_meta, "true");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-CONF_Int32(aws_log_level, "3");
+CONF_Int32(aws_log_level, "2");
 CONF_Validator(aws_log_level, [](const int config) -> bool { return config >= 0 && config <= 6; });
 
 // azure sdk log level
@@ -328,7 +344,7 @@ CONF_Validator(aws_log_level, [](const int config) -> bool { return config >= 0 
 //    Informational = 2,
 //    Warning = 3,
 //    Error = 4
-CONF_Int32(azure_log_level, "3");
+CONF_Int32(azure_log_level, "4");
 CONF_Validator(azure_log_level,
                [](const int config) -> bool { return config >= 1 && config <= 4; });
 
@@ -340,5 +356,25 @@ CONF_mString(ca_cert_file_paths,
 
 CONF_Bool(enable_split_rowset_meta_pb, "false");
 CONF_Int32(split_rowset_meta_pb_size, "10000"); // split rowset meta pb size, default is 10K
+CONF_Bool(enable_split_tablet_schema_pb, "false");
+CONF_Int32(split_tablet_schema_pb_size, "10000"); // split tablet schema pb size, default is 10K
+CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
+
+CONF_Bool(enable_logging_for_single_version_reading, "false");
+CONF_mBool(enable_logging_conflict_keys, "false");
+
+// The time after which an aborted snapshot can be recycled, in seconds.
+// Default is 1 hour (3600 seconds).
+CONF_Int64(prune_aborted_snapshot_seconds, "3600"); // 1h
+
+// Snapshot configuration limits
+CONF_Int32(snapshot_min_interval_seconds, "3600"); // 1h min interval limit
+CONF_Int32(snapshot_max_reserved_num, "35");       // max reserved snapshots limit
+// New instance enable multi version status by default.
+// The new instance multi version status will be set to MULTI_VERSION_READ_WRITE.
+CONF_Bool(enable_multi_version_status, "false");
+// New instance enable cluster snapshot, it only works when enable_multi_version_status is true.
+// The new instance snapshot switch status will be set to SNAPSHOT_SWITCH_ON, and the auto snapshot will be open.
+CONF_Bool(enable_cluster_snapshot, "false");
 
 } // namespace doris::cloud::config

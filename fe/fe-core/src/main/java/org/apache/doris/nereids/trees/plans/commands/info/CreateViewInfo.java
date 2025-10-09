@@ -25,6 +25,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -45,7 +46,7 @@ public class CreateViewInfo extends BaseViewInfo {
 
     /** constructor*/
     public CreateViewInfo(boolean ifNotExists, boolean orReplace, TableNameInfo viewName, String comment,
-            String querySql, List<SimpleColumnDefinition> simpleColumnDefinitions) {
+                          String querySql, List<SimpleColumnDefinition> simpleColumnDefinitions) {
         super(viewName, querySql, simpleColumnDefinitions);
         this.ifNotExists = ifNotExists;
         this.orReplace = orReplace;
@@ -57,7 +58,7 @@ public class CreateViewInfo extends BaseViewInfo {
         viewName.analyze(ctx);
         FeNameFormat.checkTableName(viewName.getTbl());
         // disallow external catalog
-        Util.prohibitExternalCatalog(viewName.getCtl(), "CreateViewStmt");
+        Util.prohibitExternalCatalog(viewName.getCtl(), "CreateViewCommand");
         // check privilege
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, new TableName(viewName.getCtl(), viewName.getDb(),
                 viewName.getTbl()), PrivPredicate.CREATE)) {

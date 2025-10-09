@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <type_traits>
 #include <utility>
 
 #include "common/exception.h"
@@ -46,6 +47,8 @@ class IDataType;
 
 struct AggregateFunctionAttr {
     bool enable_decimal256 {false};
+    bool is_window_function {false};
+    bool is_foreach {false};
     std::vector<std::string> column_names;
 };
 
@@ -182,6 +185,7 @@ public:
                                                    const IColumn& column, Arena&) const = 0;
 
     /// Inserts results into a column.
+    // todo: Consider whether this passes a ConstAggregateDataPtr
     virtual void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const = 0;
 
     virtual void insert_result_into_vec(const std::vector<AggregateDataPtr>& places,
@@ -190,6 +194,8 @@ public:
 
     /** Contains a loop with calls to "add" function. You can collect arguments into array "places"
       *  and do a single call to "add_batch" for devirtualization and inlining.
+      * This function distributes inputs row to their corresponding aggregation states,
+      *  used in handling cases with `GROUP BY`, each place corresponds to a specific grouping key.
       */
     virtual void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                            const IColumn** columns, Arena&, bool agg_many = false) const = 0;
@@ -199,6 +205,7 @@ public:
                                     size_t place_offset, const IColumn** columns, Arena&) const = 0;
 
     /** The same for single place.
+      * Used in cases without `GROUP BY`, means all rows are aggregated into a single state.
       */
     virtual void add_batch_single_place(size_t batch_size, AggregateDataPtr place,
                                         const IColumn** columns, Arena&) const = 0;
@@ -251,6 +258,15 @@ public:
     /// eg sum(col) over (rows between 3 preceding and 3 following), could resue the previous result
     /// sum[i] = sum[i-1] - col[x] + col[y]
     virtual bool supported_incremental_mode() const { return false; }
+
+    virtual void set_query_context(QueryContext* context) {
+        throw Exception(ErrorCode::FATAL_ERROR,
+                        "set_query_context is not supported by aggregate function '{}'; "
+                        "only LLM aggregate functions implement this method",
+                        get_name());
+    }
+
+    virtual bool is_blockable() const { return false; }
 
     /**
     * Executes the aggregate function in incremental mode.
@@ -662,6 +678,15 @@ private:
     const IAggregateFunction* _function;
     std::unique_ptr<AggregateData[]> _data;
 };
+
+//Hint information of AggregateFunction signature
+
+struct NullableAggregateFunction {};    // Function's return value can be nullable
+struct NotNullableAggregateFunction {}; // Function's return value cannot be nullable
+
+struct UnaryExpression {};   // Can only have one parameter
+struct MultiExpression {};   // Must have multiple parameters (more than 1)
+struct VarargsExpression {}; // Uncertain number of parameters
 
 } // namespace doris::vectorized
 

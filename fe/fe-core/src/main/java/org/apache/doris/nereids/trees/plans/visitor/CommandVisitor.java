@@ -24,8 +24,12 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCreateClusterSnapshotCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminDropClusterSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetAutoClusterSnapshotCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetClusterSnapshotFeatureSwitchCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetPartitionVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
@@ -37,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColocateGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterDatabasePropertiesCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterResourceCommand;
@@ -125,6 +130,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.EmptyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
@@ -138,6 +144,7 @@ import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillQueryCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.LockTablesCommand;
+import org.apache.doris.nereids.trees.plans.commands.OptimizeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
@@ -157,6 +164,7 @@ import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAnalyzeCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowAnalyzeTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
@@ -177,10 +185,12 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCopyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateFunctionCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
@@ -267,7 +277,6 @@ import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
-import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
@@ -382,6 +391,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateJobCommand(CreateJobCommand createJobCommand, C context) {
         return visitCommand(createJobCommand, context);
+    }
+
+    default R visitAlterJobCommand(AlterJobCommand alterJobCommand, C context) {
+        return visitCommand(alterJobCommand, context);
     }
 
     default R visitCreateFileCommand(CreateFileCommand createFileCommand, C context) {
@@ -548,13 +561,13 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showStagesCommand, context);
     }
 
-    default R visitUnsupportedCommand(UnsupportedCommand unsupportedCommand, C context) {
-        return visitCommand(unsupportedCommand, context);
-    }
-
     default R visitUnsupportedStartTransactionCommand(StartTransactionCommand unsupportedStartTransactionCommand,
                                                       C context) {
         return visitCommand(unsupportedStartTransactionCommand, context);
+    }
+
+    default R visitShowAnalyzeTaskCommand(ShowAnalyzeTaskCommand showAnalyzeTaskCommand, C context) {
+        return visitCommand(showAnalyzeTaskCommand, context);
     }
 
     default R visitUnsetVariableCommand(UnsetVariableCommand unsetVariableCommand, C context) {
@@ -640,6 +653,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterTableCommand(AlterTableCommand alterTableCommand, C context) {
         return visitCommand(alterTableCommand, context);
+    }
+
+    default R visitOptimizeTableCommand(OptimizeTableCommand optimizeTableCommand, C context) {
+        return visitCommand(optimizeTableCommand, context);
     }
 
     default R visitShowGrantsCommand(ShowGrantsCommand showGrantsCommand, C context) {
@@ -948,6 +965,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showCharsetCommand, context);
     }
 
+    default R visitShowCreateLoadCommand(ShowCreateLoadCommand showCreateLoadCommand, C context) {
+        return visitCommand(showCreateLoadCommand, context);
+    }
+
     default R visitDropWorkloadPolicyCommand(DropWorkloadPolicyCommand dropWorkloadPolicyCommand, C context) {
         return visitCommand(dropWorkloadPolicyCommand, context);
     }
@@ -1178,6 +1199,26 @@ public interface CommandVisitor<R, C> {
         return visitCommand(adminCancelRepairTableCommand, context);
     }
 
+    default R visitAdminCreateClusterSnapshotCommand(
+            AdminCreateClusterSnapshotCommand adminCreateClusterSnapshotCommand, C context) {
+        return visitCommand(adminCreateClusterSnapshotCommand, context);
+    }
+
+    default R visitAdminSetAutoClusterSnapshotCommand(
+            AdminSetAutoClusterSnapshotCommand adminSetAutoClusterSnapshotCommand, C context) {
+        return visitCommand(adminSetAutoClusterSnapshotCommand, context);
+    }
+
+    default R visitAdminSetClusterSnapshotFeatureSwitchCommand(
+            AdminSetClusterSnapshotFeatureSwitchCommand adminSetClusterSnapshotFeatureSwitchCommand, C context) {
+        return visitCommand(adminSetClusterSnapshotFeatureSwitchCommand, context);
+    }
+
+    default R visitAdminDropClusterSnapshotCommand(
+            AdminDropClusterSnapshotCommand adminDropClusterSnapshotCommand, C context) {
+        return visitCommand(adminDropClusterSnapshotCommand, context);
+    }
+
     default R visitAdminRepairTableCommand(AdminRepairTableCommand adminRepairTableCommand, C context) {
         return visitCommand(adminRepairTableCommand, context);
     }
@@ -1383,6 +1424,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(dropIndexAnalyzerCommand, context);
     }
 
+    default R visitShowCreateStorageVaultCommand(ShowCreateStorageVaultCommand command, C context) {
+        return visitCommand(command, context);
+    }
+
     default R visitDropIndexTokenizerCommand(
             DropIndexTokenizerCommand dropIndexTokenizerCommand, C context) {
         return visitCommand(dropIndexTokenizerCommand, context);
@@ -1410,5 +1455,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropMaterializedViewCommand(DropMaterializedViewCommand dropMaterializedViewCommand, C context) {
         return visitCommand(dropMaterializedViewCommand, context);
+    }
+
+    default R visitEmptyCommand(EmptyCommand emptyCommand, C context) {
+        return visitCommand(emptyCommand, context);
     }
 }

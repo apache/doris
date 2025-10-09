@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.CreateRoutineLoadStmt;
-import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.ParseNode;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
@@ -40,13 +38,16 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
@@ -55,7 +56,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Injectable;
-import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
@@ -65,6 +65,7 @@ import org.junit.Test;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -77,100 +78,30 @@ public class RoutineLoadManagerTest {
     private SystemInfoService systemInfoService;
 
     @Test
-    public void testAddJobByStmt(@Injectable AccessControllerManager accessManager,
-            @Injectable TResourceInfo tResourceInfo,
-            @Mocked ConnectContext connectContext,
-            @Mocked Env env) throws UserException {
-        String jobName = "job1";
-        String dbName = "db1";
-        LabelName labelName = new LabelName(dbName, jobName);
-        String tableNameString = "table1";
-        List<ParseNode> loadPropertyList = new ArrayList<>();
-        Separator columnSeparator = new Separator(",");
-        loadPropertyList.add(columnSeparator);
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
-        String typeName = LoadDataSourceType.KAFKA.name();
-        Map<String, String> customProperties = Maps.newHashMap();
-        String topicName = "topic1";
-        customProperties.put(KafkaConfiguration.KAFKA_TOPIC.getName(), topicName);
-        String serverAddress = "http://127.0.0.1:8080";
-        customProperties.put(KafkaConfiguration.KAFKA_BROKER_LIST.getName(), serverAddress);
-        CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
-                                                                                loadPropertyList, properties,
-                                                                                typeName, customProperties,
-                                                                                LoadTask.MergeType.APPEND, "");
-        createRoutineLoadStmt.setOrigStmt(new OriginStatement("dummy", 0));
-
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, jobName, 1L, 1L,
-                serverAddress, topicName, UserIdentity.ADMIN);
-
-        new MockUp<KafkaRoutineLoadJob>() {
-            @Mock
-            public KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) {
-                return kafkaRoutineLoadJob;
-            }
-        };
-
-        new Expectations() {
-            {
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, PrivPredicate.LOAD);
-                minTimes = 0;
-                result = true;
-            }
-        };
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        routineLoadManager.createRoutineLoadJob(createRoutineLoadStmt);
-
-        Map<String, RoutineLoadJob> idToRoutineLoadJob =
-                Deencapsulation.getField(routineLoadManager, "idToRoutineLoadJob");
-        Assert.assertEquals(1, idToRoutineLoadJob.size());
-        RoutineLoadJob routineLoadJob = idToRoutineLoadJob.values().iterator().next();
-        Assert.assertEquals(1L, routineLoadJob.getDbId());
-        Assert.assertEquals(jobName, routineLoadJob.getName());
-        Assert.assertEquals(1L, routineLoadJob.getTableId());
-        Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob.getState());
-        Assert.assertEquals(true, routineLoadJob instanceof KafkaRoutineLoadJob);
-
-        Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob =
-                Deencapsulation.getField(routineLoadManager, "dbToNameToRoutineLoadJob");
-        Assert.assertEquals(1, dbToNameToRoutineLoadJob.size());
-        Assert.assertEquals(Long.valueOf(1L), dbToNameToRoutineLoadJob.keySet().iterator().next());
-        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = dbToNameToRoutineLoadJob.get(1L);
-        Assert.assertEquals(jobName, nameToRoutineLoadJob.keySet().iterator().next());
-        Assert.assertEquals(1, nameToRoutineLoadJob.values().size());
-        Assert.assertEquals(routineLoadJob, nameToRoutineLoadJob.values().iterator().next().get(0));
-    }
-
-    @Test
     public void testCreateJobAuthDeny(@Injectable AccessControllerManager accessManager,
             @Injectable TResourceInfo tResourceInfo,
             @Mocked ConnectContext connectContext,
             @Mocked Env env) {
         String jobName = "job1";
         String dbName = "db1";
-        LabelName labelName = new LabelName(dbName, jobName);
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
         String tableNameString = "table1";
         List<ParseNode> loadPropertyList = new ArrayList<>();
         Separator columnSeparator = new Separator(",");
         loadPropertyList.add(columnSeparator);
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
+        properties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
         String typeName = LoadDataSourceType.KAFKA.name();
         Map<String, String> customProperties = Maps.newHashMap();
         String topicName = "topic1";
         customProperties.put(KafkaConfiguration.KAFKA_TOPIC.getName(), topicName);
         String serverAddress = "http://127.0.0.1:8080";
         customProperties.put(KafkaConfiguration.KAFKA_BROKER_LIST.getName(), serverAddress);
-        CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
-                                                                                loadPropertyList, properties,
-                                                                                typeName, customProperties,
-                                                                                LoadTask.MergeType.APPEND, "");
-        createRoutineLoadStmt.setOrigStmt(new OriginStatement("dummy", 0));
-
+        LoadSeparator loadSeparator = new LoadSeparator(",");
+        Map<String, LoadProperty> loadPropertyMap = new HashMap<>();
+        loadPropertyMap.put(loadSeparator.getClass().getName(), loadSeparator);
+        CreateRoutineLoadInfo createRoutineLoadInfo = new CreateRoutineLoadInfo(labelNameInfo, tableNameString,
+                loadPropertyMap, properties, typeName, customProperties, LoadTask.MergeType.APPEND, "");
 
         new Expectations() {
             {
@@ -184,7 +115,8 @@ public class RoutineLoadManagerTest {
         };
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         try {
-            routineLoadManager.createRoutineLoadJob(createRoutineLoadStmt);
+            createRoutineLoadInfo.checkJobProperties();
+            routineLoadManager.createRoutineLoadJob(createRoutineLoadInfo, connectContext);
             Assert.fail();
         } catch (LoadException | DdlException e) {
             Assert.fail();

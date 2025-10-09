@@ -2025,6 +2025,16 @@ public class FunctionSet<T> {
                     "", "", "", "", "", "", "",
                     false, false, false, true));
         }
+
+        // AI_AGG
+        addBuiltin(AggregateFunction.createBuiltin("ai_agg",
+                Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR, Type.VARCHAR), Type.VARCHAR, Type.VARCHAR,
+                "", "", "", "", "", "", "",
+                false, false, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("ai_agg",
+                Lists.<Type>newArrayList(Type.STRING, Type.STRING, Type.STRING), Type.STRING, Type.STRING,
+                "", "", "", "", "", "", "",
+                false, false, false, true));
     }
 
     public Map<String, List<Function>> getVectorizedFunctions() {

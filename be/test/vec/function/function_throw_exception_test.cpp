@@ -17,8 +17,6 @@
 
 #include <gtest/gtest.h>
 
-#include <stdexcept>
-
 #include "runtime/primitive_type.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
@@ -48,12 +46,13 @@ public:
     }
 };
 
-class MockFunctionThrowStdException : public IFunction {
+class MockFunctionThrowExceptionNotMatchReturnType : public IFunction {
 public:
-    static constexpr auto name = "mock_function_throw_stdexception";
-    static FunctionPtr create() { return std::make_shared<MockFunctionThrowStdException>(); }
+    static constexpr auto name = "mock_function_throw_exception_not_match_return_type";
+    static FunctionPtr create() {
+        return std::make_shared<MockFunctionThrowExceptionNotMatchReturnType>();
+    }
     String get_name() const override { return name; }
-    bool skip_return_type_check() const override { return true; }
     bool use_default_implementation_for_constants() const override { return false; }
 
     size_t get_number_of_arguments() const override { return 0; }
@@ -66,13 +65,13 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        throw std::runtime_error("BEUT TEST: MockFunctionThrowStdException");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "BEUT TEST: MockFunctionThrowException");
     }
 };
 
 void register_function_throw_exception(SimpleFunctionFactory& factory) {
     factory.register_function<MockFunctionThrowException>();
-    factory.register_function<MockFunctionThrowStdException>();
+    factory.register_function<MockFunctionThrowExceptionNotMatchReturnType>();
 }
 
 TEST(FunctionThrowExceptionTest, test_throw_exception) {
@@ -87,17 +86,17 @@ TEST(FunctionThrowExceptionTest, test_throw_exception) {
     EXPECT_EQ(st.msg(), "BEUT TEST: MockFunctionThrowException");
 }
 
-TEST(FunctionThrowExceptionTest, test_throw_std_exception) {
-    auto function = SimpleFunctionFactory::instance().get_function(
-            "mock_function_throw_stdexception", {}, std::make_shared<DataTypeFloat64>(), {false},
-            BeExecVersionManager::get_newest_version());
+TEST(FunctionThrowExceptionTest, not_match_return_type) {
+    try {
+        auto function = SimpleFunctionFactory::instance().get_function(
+                "mock_function_throw_exception_not_match_return_type", {},
+                std::make_shared<DataTypeInt32>(), {false},
+                BeExecVersionManager::get_newest_version());
 
-    Block block;
-    auto st = function->execute(nullptr, block, {}, 0, 1);
-
-    EXPECT_EQ(st.code(), ErrorCode::INTERNAL_ERROR);
-    EXPECT_EQ(st.msg(),
-              "Function mock_function_throw_stdexception execute failed: BEUT TEST: "
-              "MockFunctionThrowStdException");
+    } catch (doris::Exception& e) {
+        EXPECT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
+        std::cout << "Exception msg: " << e.to_string() << std::endl;
+    }
 }
+
 } // namespace doris::vectorized

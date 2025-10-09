@@ -51,7 +51,7 @@
 namespace doris::vectorized {
 
 using namespace std::chrono_literals;
-
+#include "common/compile_check_begin.h"
 ScannerContext::ScannerContext(
         RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
         const TupleDescriptor* output_tuple_desc, const RowDescriptor* output_row_descriptor,
@@ -176,7 +176,7 @@ Status ScannerContext::init() {
     const int32_t max_column_reader_num = _state->max_column_reader_num();
 
     if (_max_scan_concurrency != 1 && max_column_reader_num > 0) {
-        int32_t scan_column_num = _output_tuple_desc->slots().size();
+        int32_t scan_column_num = cast_set<int32_t>(_output_tuple_desc->slots().size());
         int32_t current_column_num = scan_column_num * _max_scan_concurrency;
         if (current_column_num > max_column_reader_num) {
             int32_t new_max_thread_num = max_column_reader_num / scan_column_num;
@@ -491,7 +491,8 @@ void ScannerContext::update_peak_running_scanner(int num) {
 int32_t ScannerContext::_get_margin(std::unique_lock<std::mutex>& transfer_lock,
                                     std::unique_lock<std::shared_mutex>& scheduler_lock) {
     // margin_1 is used to ensure each scan operator could have at least _min_scan_concurrency scan tasks.
-    int32_t margin_1 = _min_scan_concurrency - (_tasks_queue.size() + _num_scheduled_scanners);
+    int32_t margin_1 = _min_scan_concurrency -
+                       (cast_set<int32_t>(_tasks_queue.size()) + _num_scheduled_scanners);
 
     // margin_2 is used to ensure the scan scheduler could have at least _min_scan_concurrency_of_scan_scheduler scan tasks.
     int32_t margin_2 =
@@ -564,8 +565,8 @@ Status ScannerContext::schedule_scan_task(std::shared_ptr<ScanTask> current_scan
 
     while (margin-- > 0) {
         std::shared_ptr<ScanTask> task_to_run;
-        const int32_t current_concurrency =
-                _tasks_queue.size() + _num_scheduled_scanners + tasks_to_submit.size();
+        const int32_t current_concurrency = cast_set<int32_t>(
+                _tasks_queue.size() + _num_scheduled_scanners + tasks_to_submit.size());
         VLOG_DEBUG << fmt::format("{} currenct concurrency: {} = {} + {} + {}", ctx_id,
                                   current_concurrency, _tasks_queue.size(), _num_scheduled_scanners,
                                   tasks_to_submit.size());
@@ -651,5 +652,5 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
 bool ScannerContext::low_memory_mode() const {
     return _local_state->low_memory_mode();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

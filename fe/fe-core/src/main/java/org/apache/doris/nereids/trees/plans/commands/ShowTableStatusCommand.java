@@ -26,13 +26,13 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -41,6 +41,7 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 
@@ -124,7 +125,8 @@ public class ShowTableStatusCommand extends ShowCommand {
     /**
      * validate
      */
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    @VisibleForTesting
+    protected void validate(ConnectContext ctx) throws AnalysisException {
         if (Strings.isNullOrEmpty(db)) {
             db = ctx.getDatabase();
             if (Strings.isNullOrEmpty(db)) {

@@ -70,6 +70,29 @@ suite("map-md", "p0") {
         SELECT * FROM ${tableName};
     """
 
+    qt_sql """ select count() from ${tableName} group by map_string_int order by map_string_int """
+    qt_sql """ select count() from ${tableName} group by map_string_string order by map_string_string """
+    qt_sql """ select count() from ${tableName} group by map_string_boolean order by map_string_boolean """
+    qt_sql """ select count() from ${tableName} group by map_string_tinyint order by map_string_tinyint """
+    qt_sql """ select count() from ${tableName} group by map_string_smallint order by map_string_smallint """
+    qt_sql """ select count() from ${tableName} group by map_string_bigint order by map_string_bigint """
+    qt_sql """ select count() from ${tableName} group by map_string_largeint order by map_string_largeint """
+    qt_sql """ select count() from ${tableName} group by map_string_float order by map_string_float """
+    qt_sql """ select count() from ${tableName} group by map_string_double order by map_string_double """
+    qt_sql """ select count() from ${tableName} group by map_string_decimal32 order by map_string_decimal32 """
+    qt_sql """ select count() from ${tableName} group by map_string_decimal64 order by map_string_decimal64 """
+    qt_sql """ select count() from ${tableName} group by map_string_decimal128 order by map_string_decimal128 """
+    qt_sql """ select count() from ${tableName} group by map_string_decimal256 order by map_string_decimal256 """
+    qt_sql """ select count() from ${tableName} group by map_string_date order by map_string_date """
+    qt_sql """ select count() from ${tableName} group by map_string_datetime order by map_string_datetime """
+    qt_sql """ select count() from ${tableName} group by map_string_ipv4 order by map_string_ipv4 """
+    qt_sql """ select count() from ${tableName} group by map_string_ipv6 order by map_string_ipv6 """
+    qt_sql """ select count() from ${tableName} group by map_string_array order by map_string_array """
+    qt_sql """ select count() from ${tableName} group by map_string_struct order by map_string_struct """
+    qt_sql """ select count() from ${tableName} group by map_string_map order by map_string_map """
+    qt_sql """ select count() from ${tableName} group by map_string_char order by map_string_char """
+    qt_sql """ select count() from ${tableName} group by map_string_varchar order by map_string_varchar """
+
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -276,10 +299,7 @@ suite("map-md", "p0") {
     """
     sql """ INSERT INTO ${tableName} (id, map_string_int) VALUES (1, MAP('key1', 1, 'key2', 2)), (2, MAP('key1', 1, 'key2', 2)) """
 
-    test {
-        sql """ select map_string_int, count(*) from ${tableName} group by map_string_int order by map_string_int """
-        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter, group by or order by. please run 'help hll' or 'help bitmap' or 'help array' or 'help map' or 'help struct' or 'help jsonb' or 'help variant' in your mysql client"
-    }
+    qt_sql """ select map_string_int, count(*) from ${tableName} group by map_string_int order by map_string_int """
 
 
     sql """ DROP TABLE IF EXISTS map_table_1; """

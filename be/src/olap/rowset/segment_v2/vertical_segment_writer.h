@@ -117,8 +117,6 @@ public:
     Slice min_encoded_key();
     Slice max_encoded_key();
 
-    TabletSchemaSPtr flush_schema() const { return _flush_schema; };
-
     void clear();
 
     Status close_inverted_index(int64_t* inverted_index_file_size) {
@@ -141,6 +139,7 @@ private:
     Status _write_zone_map();
     Status _write_bitmap_index();
     Status _write_inverted_index();
+    Status _write_ann_index();
     Status _write_bloom_filter_index();
     Status _write_short_key_index();
     Status _write_primary_key_index();
@@ -190,7 +189,6 @@ private:
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
             bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
             PartialUpdateStats& stats);
-    Status _append_block_with_variant_subcolumns(RowsInBlock& data);
     Status _generate_key_index(
             RowsInBlock& data, std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
             vectorized::IOlapColumnDataAccessor* seq_column,
@@ -262,9 +260,6 @@ private:
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
 
     std::vector<RowsInBlock> _batched_blocks;
-
-    // contains auto generated columns, should be nullptr if no variants's subcolumns
-    TabletSchemaSPtr _flush_schema = nullptr;
 
     BlockAggregator _block_aggregator;
 };

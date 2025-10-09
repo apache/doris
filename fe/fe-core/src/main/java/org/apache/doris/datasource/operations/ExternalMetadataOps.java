@@ -18,13 +18,13 @@
 package org.apache.doris.datasource.operations;
 
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 
@@ -87,20 +87,19 @@ public interface ExternalMetadataOps {
     void afterDropDb(String dbName);
 
     /**
-     *
-     * @param stmt
+     * @param createTableInfo
      * @return return false means table does not exist and is created this time
      * @throws UserException
      */
-    default boolean createTable(CreateTableStmt stmt) throws UserException {
-        boolean res = createTableImpl(stmt);
+    default boolean createTable(CreateTableInfo createTableInfo) throws UserException {
+        boolean res = createTableImpl(createTableInfo);
         if (!res) {
-            afterCreateTable(stmt.getDbName(), stmt.getTableName());
+            afterCreateTable(createTableInfo.getDbName(), createTableInfo.getTableName());
         }
         return res;
     }
 
-    boolean createTableImpl(CreateTableStmt stmt) throws UserException;
+    boolean createTableImpl(CreateTableInfo createTableInfo) throws UserException;
 
     default void afterCreateTable(String dbName, String tblName) {
     }

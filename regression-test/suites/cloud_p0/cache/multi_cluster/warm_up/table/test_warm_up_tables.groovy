@@ -31,8 +31,7 @@ suite("test_warm_up_tables") {
     }
     def getTablesFromShowCommand = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
-         logger.info(jobStateResult)
-         return jobStateResult[0][9]
+         return jobStateResult[0]
     }
 
     List<String> ipList = new ArrayList<>();
@@ -157,11 +156,10 @@ suite("test_warm_up_tables") {
         for (; i < retryTime; i++) {
             sleep(1000)
             def statuses = getJobState(jobId[0][0])
-            logger.info(statuses)
-            if (statuses.any { it.equals("CANCELLED") }) {
+            if (statuses.any { it != null && it.equals("CANCELLED") }) {
                 assertTrue(false);
             }
-            if (statuses.any { it.equals("FINISHED") }) {
+            if (statuses.any { it != null && it.equals("FINISHED") }) {
                 break;
             }
         }
@@ -176,8 +174,8 @@ suite("test_warm_up_tables") {
     waitJobDone(jobId_);
 
     def tablesString = getTablesFromShowCommand(jobId_[0][0])
-    assertTrue(tablesString.contains("customer.p3"), tablesString)
-    assertTrue(tablesString.contains("supplier"), tablesString)
+    assertTrue(tablesString.any { it != null && it.contains("customer") })
+    assertTrue(tablesString.any { it != null && it.contains("supplier") })
 
     sleep(30000)
     long ttl_cache_size = 0

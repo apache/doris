@@ -49,13 +49,18 @@ public class ExplodeJsonObject extends TableGeneratingFunction implements UnaryE
         super("explode_json_object", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeJsonObject(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeJsonObject withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeJsonObject(children.get(0));
+        return new ExplodeJsonObject(getFunctionParams(children));
     }
 
     @Override

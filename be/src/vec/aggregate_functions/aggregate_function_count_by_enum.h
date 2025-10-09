@@ -21,15 +21,11 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
-#include <array>
 #include <boost/dynamic_bitset.hpp>
 
-#include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -183,7 +179,9 @@ private:
 
 template <typename Data>
 class AggregateFunctionCountByEnum final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCountByEnum<Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCountByEnum<Data>>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
 public:
     AggregateFunctionCountByEnum() = default;
     AggregateFunctionCountByEnum(const DataTypes& argument_types_)

@@ -21,7 +21,7 @@ suite("test_show_keys") {
     """
 
     sql """
-        DROP TABLE IF EXISTS test_show_keys_v
+        DROP VIEW IF EXISTS test_show_keys_v
     """
 
     sql """

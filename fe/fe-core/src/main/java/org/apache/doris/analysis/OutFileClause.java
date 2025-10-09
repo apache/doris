@@ -195,7 +195,7 @@ public class OutFileClause {
         return parquetSchemas;
     }
 
-    public void analyze(Analyzer analyzer, List<Expr> resultExprs, List<String> colLabels) throws UserException {
+    public void analyze(List<Expr> resultExprs, List<String> colLabels) throws UserException {
         if (isAnalyzed) {
             // If the query stmt is rewritten, the whole stmt will be analyzed again.
             // But some of fields in this OutfileClause has been changed,
@@ -504,6 +504,11 @@ public class OutFileClause {
         analyzeBrokerDesc(copiedProps);
 
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
+        // check if compression type for csv is supported
+        if (fileFormatProperties instanceof CsvFileFormatProperties) {
+            CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
+            csvFileFormatProperties.checkSupportedCompressionType(true);
+        }
 
         if (copiedProps.containsKey(PROP_MAX_FILE_SIZE)) {
             maxFileSizeBytes = ParseUtil.analyzeDataVolume(copiedProps.get(PROP_MAX_FILE_SIZE));

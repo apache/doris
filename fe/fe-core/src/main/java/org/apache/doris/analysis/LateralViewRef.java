@@ -17,12 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.InlineView;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.Lists;
 
@@ -61,7 +58,7 @@ public class LateralViewRef extends TableRef {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
     }
 
     @Override
@@ -71,66 +68,8 @@ public class LateralViewRef extends TableRef {
 
 
     @Override
-    public TupleDescriptor createTupleDescriptor(Analyzer analyzer) throws AnalysisException {
-        // Create a fake catalog table for the lateral view
-        List<Column> columnList = Lists.newArrayList();
-        columnList.add(new Column(columnName, fnExpr.getFn().getReturnType(), false, null,
-                fnExpr.getFn().getNullableMode() == NullableMode.ALWAYS_NULLABLE, null, ""));
-        view = new InlineView(viewName, columnList);
-
-        // Create the non-materialized tuple and set the fake table in it.
-        TupleDescriptor result = analyzer.getDescTbl().createTupleDescriptor();
-        result.setTable(view);
-        return result;
-    }
-
-    // The default table name must be origin table name
-    // If there is table name in slot ref which is different from origin, it will thrown exception.
-    private void checkAndSupplyDefaultTableName(FunctionCallExpr expr) throws AnalysisException {
-        List<SlotRef> slotRefList = Lists.newArrayList();
-        expr.collect(SlotRef.class, slotRefList);
-        TableName relatedTableName = relatedTableRef.getAliasAsName();
-        for (SlotRef slotRef : slotRefList) {
-            TableName tableName = slotRef.getOriginTableName();
-            if (tableName == null) {
-                // t1 lateral view explode_split(k1, ",")
-                slotRef.setTblName(relatedTableName.cloneWithoutAnalyze());
-                return;
-            }
-            if (tableName.getDb() != null && !tableName.getDb().equalsIgnoreCase(relatedTableName.getDb())) {
-                // db2.t1 lateral view explode_split(db1.t1.k1, ",")
-                throw new AnalysisException("The column " + slotRef.toSql()
-                        + " in lateral view must come from the origin table "
-                        + relatedTableRef.toSql());
-            }
-
-            if (tableName.getTbl() != null) {
-                switch (GlobalVariable.lowerCaseTableNames) {
-                    case 0:
-                        if (tableName.getTbl().equals(relatedTableName.getTbl())) {
-                            // t1 lateral view explode_split(t1.k1, ",")
-                            tableName.setDb(relatedTableName.getDb());
-                            return;
-                        }
-                        break;
-                    case 1:
-                    case 2:
-                        if (tableName.getTbl().equalsIgnoreCase(relatedTableName.getTbl())) {
-                            tableName.setTbl(relatedTableName.getTbl());
-                            tableName.setDb(relatedTableName.getDb());
-                            return;
-                        }
-                        break;
-                    default:
-                        throw new AnalysisException("Not support specify table name in table function "
-                                + "when config.lower_case_table_names is not 0, 1 or 2");
-                }
-                // t1 lateral view explode_split(t2.k1, ",")
-                throw new AnalysisException("The column " + slotRef.toSql()
-                        + " in lateral view must come from the origin table "
-                        + relatedTableName.toSql());
-            }
-        }
+    public TupleDescriptor createTupleDescriptor() throws AnalysisException {
+        return null;
     }
 
     // 1. it must be a scalar function

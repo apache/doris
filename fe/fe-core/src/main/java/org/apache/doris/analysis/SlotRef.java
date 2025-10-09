@@ -284,7 +284,7 @@ public class SlotRef extends Expr {
             if (desc.getParent().getRef() == null) {
                 return null;
             }
-            return desc.getParent().getRef().getName();
+            return desc.getParent().getRef().getTableNameInfo().transferToTableName();
         }
         return tblName;
     }
@@ -312,6 +312,7 @@ public class SlotRef extends Expr {
         msg.node_type = TExprNodeType.SLOT_REF;
         msg.slot_ref = new TSlotRef(desc.getId().asInt(), desc.getParent().getId().asInt());
         msg.slot_ref.setColUniqueId(desc.getUniqueId());
+        msg.slot_ref.setIsVirtualSlot(desc.getVirtualColumn() != null);
         msg.setLabel(label);
     }
 

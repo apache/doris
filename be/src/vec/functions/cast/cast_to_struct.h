@@ -21,13 +21,18 @@
 #include "vec/data_types/data_type_struct.h"
 
 namespace doris::vectorized::CastWrapper {
+#include "common/compile_check_begin.h"
 // check struct value type and get to_type value
 // TODO: need handle another type to cast struct
 WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& from_type,
                                   const DataTypeStruct& to_type) {
     // support CAST AS Struct from string
     if (is_string_type(from_type->get_primitive_type())) {
-        return cast_from_string_to_generic;
+        if (context->enable_strict_mode()) {
+            return cast_from_string_to_complex_type_strict_mode;
+        } else {
+            return cast_from_string_to_complex_type;
+        }
     }
 
     // only support CAST AS Struct from struct or string types
@@ -69,7 +74,7 @@ WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& f
             ColumnNumbers element_arguments {block.columns()};
             block.insert(from_element_column);
 
-            size_t element_result = block.columns();
+            auto element_result = block.columns();
             block.insert({to_element_types[i], ""});
 
             RETURN_IF_ERROR(element_wrappers[i](context, block, element_arguments, element_result,
@@ -81,5 +86,5 @@ WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& f
         return Status::OK();
     };
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized::CastWrapper

@@ -24,10 +24,6 @@
 #include <glog/logging.h>
 #include <stddef.h>
 
-#include <algorithm>
-#include <memory>
-#include <new>
-#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -38,8 +34,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/io/io_helper.h"
-#include "vec/io/var_int.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -114,6 +108,8 @@ struct AggregateFunctionDistinctSingleNumericData {
 
         if constexpr (stable) {
             argument_columns[0]->resize(data.size());
+            // argument_columns[0] is a mutable column created using create_column.
+            // since get_raw_data returns a StringRef, const_cast is required here.
             auto ptr = (typename PrimitiveTypeTraits<T>::CppType*)const_cast<char*>(
                     argument_columns[0]->get_raw_data().data);
             for (auto it : data) {
@@ -269,7 +265,9 @@ struct AggregateFunctionDistinctMultipleGenericData
 template <template <bool stable> typename Data, bool stable = false>
 class AggregateFunctionDistinct
         : public IAggregateFunctionDataHelper<Data<stable>,
-                                              AggregateFunctionDistinct<Data, stable>> {
+                                              AggregateFunctionDistinct<Data, stable>>,
+          VarargsExpression,
+          NullableAggregateFunction {
 private:
     size_t prefix_size;
     AggregateFunctionPtr nested_func;
@@ -314,6 +312,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr targetplace, IColumn& to) const override {
+        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         auto* place = const_cast<AggregateDataPtr>(targetplace);
         auto arguments = this->data(place).get_arguments(this->argument_types);
         ColumnRawPtrs arguments_raw(arguments.size());

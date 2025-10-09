@@ -17,8 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.analysis.CancelExportStmt;
-import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -137,38 +135,6 @@ public class ExportMgr {
         LOG.info("add export job. {}", job);
     }
 
-    public void cancelExportJob(CancelExportStmt stmt) throws DdlException, AnalysisException {
-        // List of export jobs waiting to be cancelled
-        List<ExportJob> matchExportJobs = getWaitingCancelJobs(stmt);
-        if (matchExportJobs.isEmpty()) {
-            throw new DdlException("Export job(s) do not exist");
-        }
-        matchExportJobs = matchExportJobs.stream()
-                .filter(job -> !job.isFinalState()).collect(Collectors.toList());
-        if (matchExportJobs.isEmpty()) {
-            throw new DdlException("All export job(s) are at final state (CANCELLED/FINISHED)");
-        }
-
-        // check auth
-        checkCancelExportJobAuth(InternalCatalog.INTERNAL_CATALOG_NAME, stmt.getDbName(), matchExportJobs);
-        // Must add lock to protect export job.
-        // Because job may be cancelled when generating task executors,
-        // the cancel process may clear the task executor list at same time,
-        // which will cause ConcurrentModificationException
-        writeLock();
-        try {
-            for (ExportJob exportJob : matchExportJobs) {
-                // exportJob.cancel(ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
-                exportJob.updateExportJobState(ExportJobState.CANCELLED, 0L, null,
-                        ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
-            }
-        } catch (JobException e) {
-            throw new AnalysisException(e.getMessage());
-        } finally {
-            writeUnlock();
-        }
-    }
-
     private List<ExportJob> getWaitingCancelJobs(
             String label, String state,
             Expression operator)
@@ -275,42 +241,6 @@ public class ExportMgr {
         exportIdToJob.put(job.getId(), job);
         dbTolabelToExportJobId.computeIfAbsent(job.getDbId(),
                 k -> Maps.newHashMap()).put(job.getLabel(), job.getId());
-    }
-
-    private List<ExportJob> getWaitingCancelJobs(CancelExportStmt stmt) throws AnalysisException {
-        Predicate<ExportJob> jobFilter = buildCancelJobFilter(stmt);
-        readLock();
-        try {
-            return getJobs().stream().filter(jobFilter).collect(Collectors.toList());
-        } finally {
-            readUnlock();
-        }
-    }
-
-    @VisibleForTesting
-    public static Predicate<ExportJob> buildCancelJobFilter(CancelExportStmt stmt) throws AnalysisException {
-        String label = stmt.getLabel();
-        String state = stmt.getState();
-        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
-                CaseSensibility.LABEL.getCaseSensibility());
-
-        return job -> {
-            boolean labelFilter = true;
-            boolean stateFilter = true;
-            if (StringUtils.isNotEmpty(label)) {
-                labelFilter = label.contains("%") ? matcher.match(job.getLabel()) :
-                        job.getLabel().equalsIgnoreCase(label);
-            }
-            if (StringUtils.isNotEmpty(state)) {
-                stateFilter = job.getState().name().equalsIgnoreCase(state);
-            }
-
-            if (stmt.getOperator() != null && CompoundPredicate.Operator.OR.equals(stmt.getOperator())) {
-                return labelFilter || stateFilter;
-            }
-
-            return labelFilter && stateFilter;
-        };
     }
 
     public ExportJob getJob(long jobId) {

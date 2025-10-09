@@ -77,6 +77,7 @@ suite('complex_insert') {
     sql 'sync'
     qt_sql_uni 'select * from uni_comp_t order by id, ksint'
 
+    sql "set enable_insert_strict=false"
     sql 'truncate table dup_comp_t'
     sql '''
         insert into dup_comp_t (kint, ksint) 
@@ -109,6 +110,7 @@ suite('complex_insert') {
     '''
     sql 'sync'
     qt_sql_uni 'select * from uni_comp_t order by id, ksint, kint'
+    sql "set enable_insert_strict=true"
 
     sql 'drop table if exists t1'
     sql 'drop table if exists t2'
@@ -202,7 +204,7 @@ suite('complex_insert') {
         properties("replication_num" = "1");
     '''
     
-    createMV("create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;")
+    createMV("create materialized view k12s3m as select k1 as a1,sum(k2),max(k2) from agg_have_dup_base group by k1;")
 
     sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
     sql 'sync'

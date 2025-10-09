@@ -21,12 +21,16 @@
 #include "vec/data_types/data_type_array.h"
 
 namespace doris::vectorized::CastWrapper {
-
+#include "common/compile_check_begin.h"
 WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
                                  const DataTypeArray& to_type) {
     /// Conversion from String through parsing.
     if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
-        return cast_from_string_to_generic;
+        if (context->enable_strict_mode()) {
+            return cast_from_string_to_complex_type_strict_mode;
+        } else {
+            return cast_from_string_to_complex_type;
+        }
     }
 
     const auto* from_type = check_and_get_data_type<DataTypeArray>(from_type_untyped.get());
@@ -71,7 +75,7 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
             ColumnNumbers new_arguments {block.columns()};
             block.insert(from_nested_column);
 
-            size_t nested_result = block.columns();
+            uint32_t nested_result = block.columns();
             block.insert({to_nested_type, ""});
             RETURN_IF_ERROR(nested_function(context, block, new_arguments, nested_result,
                                             from_col_array->get_data_ptr()->size(), null_map));
@@ -87,5 +91,5 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
         return Status::OK();
     };
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized::CastWrapper

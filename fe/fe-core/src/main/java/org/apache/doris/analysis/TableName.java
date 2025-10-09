@@ -24,8 +24,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 
@@ -94,23 +92,7 @@ public class TableName {
         this.tbl = tableName;
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (Strings.isNullOrEmpty(ctl)) {
-            ctl = analyzer.getDefaultCatalog();
-            if (Strings.isNullOrEmpty(ctl)) {
-                ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
-            }
-        }
-        if (Strings.isNullOrEmpty(db)) {
-            db = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(db)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        }
-
-        if (Strings.isNullOrEmpty(tbl)) {
-            throw new AnalysisException("Table name is null");
-        }
+    public void analyze() throws AnalysisException {
     }
 
     public String getCtl() {

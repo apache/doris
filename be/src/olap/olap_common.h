@@ -36,6 +36,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/exception.h"
 #include "io/io_common.h"
@@ -48,7 +49,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 static constexpr int64_t MAX_ROWSET_ID = 1L << 56;
 static constexpr int64_t LOW_56_BITS = 0x00ffffffffffffff;
 
@@ -339,7 +340,7 @@ struct OlapReaderStatistics {
     int64_t rows_stats_filtered = 0;
     int64_t rows_stats_rp_filtered = 0;
     int64_t rows_bf_filtered = 0;
-    int64_t rows_dict_filtered = 0;
+    int64_t segment_dict_filtered = 0;
     // Including the number of rows filtered out according to the Delete information in the Tablet,
     // and the number of rows filtered for marked deleted rows under the unique key model.
     // This metric is mainly used to record the number of rows filtered by the delete condition in Segment V1,
@@ -377,7 +378,31 @@ struct OlapReaderStatistics {
     int64_t inverted_index_searcher_cache_hit = 0;
     int64_t inverted_index_searcher_cache_miss = 0;
     int64_t inverted_index_downgrade_count = 0;
+    int64_t inverted_index_analyzer_timer = 0;
+    int64_t inverted_index_lookup_timer = 0;
     InvertedIndexStatistics inverted_index_stats;
+
+    int64_t ann_index_load_ns = 0;
+    int64_t ann_topn_search_ns = 0;
+    int64_t ann_index_topn_search_cnt = 0;
+
+    // Detailed timing for ANN operations
+    int64_t ann_index_topn_engine_search_ns = 0;  // time spent in engine for range search
+    int64_t ann_index_topn_result_process_ns = 0; // time spent processing TopN results
+    int64_t ann_index_topn_engine_convert_ns = 0; // time spent on FAISS-side conversions (TopN)
+    int64_t ann_index_topn_engine_prepare_ns =
+            0; // time spent preparing before engine search (TopN)
+    int64_t rows_ann_index_topn_filtered = 0;
+
+    int64_t ann_index_range_search_ns = 0;
+    int64_t ann_index_range_search_cnt = 0;
+    // Detailed timing for ANN Range search
+    int64_t ann_range_engine_search_ns = 0; // time spent in engine for range search
+    int64_t ann_range_pre_process_ns = 0;   // time spent preparing before engine search
+
+    int64_t ann_range_result_convert_ns = 0; // time spent processing range results
+    int64_t ann_range_engine_convert_ns = 0; // time spent on FAISS-side conversions (Range)
+    int64_t rows_ann_index_range_filtered = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator
@@ -415,6 +440,14 @@ struct OlapReaderStatistics {
 
     int64_t segment_create_column_readers_timer_ns = 0;
     int64_t segment_load_index_timer_ns = 0;
+
+    int64_t variant_scan_sparse_column_timer_ns = 0;
+    int64_t variant_scan_sparse_column_bytes = 0;
+    int64_t variant_fill_path_from_sparse_column_timer_ns = 0;
+    int64_t variant_subtree_default_iter_count = 0;
+    int64_t variant_subtree_leaf_iter_count = 0;
+    int64_t variant_subtree_hierarchical_iter_count = 0;
+    int64_t variant_subtree_sparse_iter_count = 0;
 };
 
 using ColumnId = uint32_t;
@@ -464,7 +497,7 @@ struct RowsetId {
     void init(int64_t rowset_id) { init(1, rowset_id, 0, 0); }
 
     void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
-        version = id_version;
+        version = cast_set<int8_t>(id_version);
         if (UNLIKELY(high >= MAX_ROWSET_ID)) {
             throw Exception(Status::FatalError("inc rowsetid is too large:{}", high));
         }
@@ -563,11 +596,11 @@ struct CalcDeleteBitmapTask {
 
 // merge on write context
 struct MowContext {
-    MowContext(int64_t version, int64_t txnid, const RowsetIdUnorderedSet& ids,
+    MowContext(int64_t version, int64_t txnid, std::shared_ptr<RowsetIdUnorderedSet> ids,
                std::vector<RowsetSharedPtr> rowset_ptrs, std::shared_ptr<DeleteBitmap> db)
             : max_version(version),
               txn_id(txnid),
-              rowset_ids(ids),
+              rowset_ids(std::move(ids)),
               rowset_ptrs(std::move(rowset_ptrs)),
               delete_bitmap(std::move(db)) {}
 
@@ -578,7 +611,7 @@ struct MowContext {
 
     int64_t max_version;
     int64_t txn_id;
-    const RowsetIdUnorderedSet& rowset_ids;
+    std::shared_ptr<RowsetIdUnorderedSet> rowset_ids;
     std::vector<RowsetSharedPtr> rowset_ptrs;
     std::shared_ptr<DeleteBitmap> delete_bitmap;
 
@@ -605,7 +638,7 @@ struct VersionWithTime {
         }
     }
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris
 
 // This intended to be a "good" hash function.  It may change from time to time.

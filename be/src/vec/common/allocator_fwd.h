@@ -26,10 +26,9 @@
 #include <cstddef>
 namespace doris {
 class DefaultMemoryAllocator;
-class NoTrackingDefaultMemoryAllocator;
 
 template <bool clear_memory_, bool mmap_populate = false, bool use_mmap = false,
-          typename MemoryAllocator = DefaultMemoryAllocator>
+          typename MemoryAllocator = DefaultMemoryAllocator, bool check_and_tracking_memory = true>
 class Allocator;
 
 template <typename Base, size_t N = 64, size_t Alignment = 1>

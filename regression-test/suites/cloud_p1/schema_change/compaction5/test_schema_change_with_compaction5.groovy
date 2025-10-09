@@ -31,6 +31,7 @@ suite('test_schema_change_with_compaction5', 'docker') {
     docker(options) {
         def getJobState = { tableName ->
             def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+            logger.info("getJobState: " + jobStateResult)
             return jobStateResult[0][9]
         }
 
@@ -59,6 +60,7 @@ suite('test_schema_change_with_compaction5', 'docker') {
             // check load state
             while (true) {
                 def stateResult = sql "show load where Label = '${loadLabel}'"
+                logger.info("stateResult: " + stateResult)
                 def loadState = stateResult[stateResult.size() - 1][2].toString()
                 if ("CANCELLED".equalsIgnoreCase(loadState)) {
                     throw new IllegalStateException("load ${loadLabel} failed.")
@@ -85,7 +87,7 @@ suite('test_schema_change_with_compaction5', 'docker') {
             sql "select count(*) from date"
             // cu compaction
             logger.info("run compaction:" + originTabletId)
-            (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
+            def (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
             boolean running = true
             do {
@@ -117,7 +119,7 @@ suite('test_schema_change_with_compaction5', 'docker') {
             }
             // base compaction
             logger.info("run compaction:" + originTabletId)
-            (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
+            def (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, originTabletId)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
 
 
@@ -141,7 +143,7 @@ suite('test_schema_change_with_compaction5', 'docker') {
 
             // cu compaction
             for (int i = 0; i < array.size(); i++) {
-                tabletId = array[i].TabletId
+                def tabletId = array[i].TabletId
                 logger.info("run compaction:" + tabletId)
                 (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, tabletId)
                 logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
@@ -151,7 +153,7 @@ suite('test_schema_change_with_compaction5', 'docker') {
                 running = true
                 do {
                     Thread.sleep(100)
-                    tabletId = array[i].TabletId
+                    def tabletId = array[i].TabletId
                     (code, out, err) = be_get_compaction_status(injectBe.Host, injectBe.HttpPort, tabletId)
                     logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                     assertEquals(code, 0)
@@ -163,11 +165,14 @@ suite('test_schema_change_with_compaction5', 'docker') {
             cluster.restartFrontends()
             sleep(30000)
             context.reconnectFe()
+        } catch (Exception e) {
+            logger.error("Exception: " + e)
         } finally {
             if (injectBe != null) {
                 GetDebugPoint().disableDebugPointForAllBEs(injectName)
             }
             int max_try_time = 3000
+            def result = null
             while (max_try_time--){
                 result = getJobState("date")
                 if (result == "FINISHED" || result == "CANCELLED") {
@@ -185,7 +190,7 @@ suite('test_schema_change_with_compaction5', 'docker') {
             assertEquals(count[0][0], 23004);
             // check rowsets
             logger.info("run show:" + originTabletId)
-            (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, originTabletId)
+            def (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, originTabletId)
             logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(out.contains("[0-1]"))
             assertTrue(out.contains("[2-7]"))

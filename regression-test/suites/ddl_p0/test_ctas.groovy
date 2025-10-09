@@ -104,9 +104,11 @@ suite("test_ctas") {
             result([[null]])
         }
 
-        test {
-            sql """show load from ${dbname}"""
-            rowNum isGroupCommitMode() ? 4: 6
+        res = sql """show load from ${dbname}"""
+        if (isGroupCommitMode()) {
+            assertTrue(res.size() > 4)
+        } else {
+            assertTrue(res.size() > 6)
         }
 
         sql """

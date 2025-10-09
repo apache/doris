@@ -21,13 +21,12 @@ import org.apache.doris.nereids.rules.expression.rules.AddMinMax;
 import org.apache.doris.nereids.rules.expression.rules.ArrayContainToArrayOverlap;
 import org.apache.doris.nereids.rules.expression.rules.BetweenToEqual;
 import org.apache.doris.nereids.rules.expression.rules.CaseWhenToIf;
-import org.apache.doris.nereids.rules.expression.rules.ConcatWsMultiArrayToOne;
 import org.apache.doris.nereids.rules.expression.rules.DateFunctionRewrite;
 import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.LikeToEqualRewrite;
-import org.apache.doris.nereids.rules.expression.rules.LogToLn;
 import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
+import org.apache.doris.nereids.rules.expression.rules.ReplaceNullWithFalseForCond;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyConflictCompound;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyInPredicate;
@@ -59,13 +58,12 @@ public class ExpressionOptimization extends ExpressionRewrite {
 
                     DateFunctionRewrite.INSTANCE,
                     ArrayContainToArrayOverlap.INSTANCE,
+                    ReplaceNullWithFalseForCond.INSTANCE,
                     CaseWhenToIf.INSTANCE,
                     TopnToMax.INSTANCE,
                     NullSafeEqualToEqual.INSTANCE,
                     LikeToEqualRewrite.INSTANCE,
-                    BetweenToEqual.INSTANCE,
-                    LogToLn.INSTANCE,
-                    ConcatWsMultiArrayToOne.INSTANCE
+                    BetweenToEqual.INSTANCE
             )
     );
 

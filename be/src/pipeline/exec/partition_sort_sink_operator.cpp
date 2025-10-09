@@ -76,7 +76,9 @@ PartitionSortSinkOperatorX::PartitionSortSinkOperatorX(ObjectPool* pool, int ope
           _topn_phase(tnode.partition_sort_node.ptopn_phase),
           _has_global_limit(tnode.partition_sort_node.has_global_limit),
           _top_n_algorithm(tnode.partition_sort_node.top_n_algorithm),
-          _partition_inner_limit(tnode.partition_sort_node.partition_inner_limit) {}
+          _partition_inner_limit(tnode.partition_sort_node.partition_inner_limit),
+          _distribute_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
+                                                                : std::vector<TExpr> {}) {}
 
 Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
@@ -152,7 +154,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 RETURN_IF_ERROR(sorter->append_block(block.get()));
             }
             local_state._value_places[i]->_blocks.clear();
-            RETURN_IF_ERROR(sorter->prepare_for_read());
+            RETURN_IF_ERROR(sorter->prepare_for_read(false));
             INJECT_MOCK_SLEEP(std::unique_lock<std::mutex> lc(
                     local_state._shared_state->prepared_finish_lock));
             sorter->set_prepared_finish();
@@ -218,7 +220,7 @@ Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
                         using AggState = typename HashMethodType::State;
 
                         AggState state(key_columns);
-                        size_t num_rows = input_block->rows();
+                        uint32_t num_rows = (uint32_t)input_block->rows();
                         agg_method.init_serialized_keys(key_columns, num_rows);
 
                         auto creator = [&](const auto& ctor, auto& key, auto& origin) {

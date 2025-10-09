@@ -18,6 +18,7 @@
 #include "vec/exec/format/orc/orc_file_reader.h"
 
 #include "util/runtime_profile.h"
+#include "vec/common/custom_allocator.h"
 
 namespace doris {
 namespace vectorized {
@@ -60,7 +61,7 @@ Status OrcMergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t
 
     if (_cache == nullptr) {
         auto range_size = _range.end_offset - _range.start_offset;
-        _cache = std::make_unique<char[]>(range_size);
+        _cache = make_unique_buffer<char>(range_size);
 
         {
             SCOPED_RAW_TIMER(&_statistics.read_time);

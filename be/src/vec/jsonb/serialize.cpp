@@ -40,7 +40,6 @@
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_serde.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 

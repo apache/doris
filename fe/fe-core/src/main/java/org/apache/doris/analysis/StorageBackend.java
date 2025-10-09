@@ -75,7 +75,7 @@ public class StorageBackend implements ParseNode {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         StorageBackend.StorageType storageType = storageDesc.getStorageType();
         if (storageType != StorageType.BROKER && StringUtils.isEmpty(storageDesc.getName())) {
             storageDesc.setName(storageType.name());

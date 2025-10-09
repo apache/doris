@@ -110,10 +110,10 @@ GPERFTOOLS_SOURCE=gperftools-2.10
 GPERFTOOLS_MD5SUM="62bf6c76ba855ed580de5e139bd2a483"
 
 # zlib
-ZLIB_DOWNLOAD="https://sourceforge.net/projects/libpng/files/zlib/1.2.11/zlib-1.2.11.tar.gz"
-ZLIB_NAME=zlib-1.2.11.tar.gz
-ZLIB_SOURCE=zlib-1.2.11
-ZLIB_MD5SUM="1c9f62f0778697a09d36121ead88e08e"
+ZLIB_DOWNLOAD="https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
+ZLIB_NAME=zlib-1.3.1.tar.gz
+ZLIB_SOURCE=zlib-1.3.1
+ZLIB_MD5SUM="9855b6d802d7fe5b7bd5b196a2271655"
 
 # lz4
 LZ4_DOWNLOAD="https://github.com/lz4/lz4/archive/v1.9.4.tar.gz"
@@ -261,10 +261,10 @@ ARROW_SOURCE="arrow-apache-arrow-17.0.0"
 ARROW_MD5SUM="ba18bf83e2164abd34b9ac4cb164f0f0"
 
 # Abseil
-ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/archive/refs/tags/20230125.3.tar.gz"
-ABSEIL_NAME="abseil-cpp-20230125.3.tar.gz"
-ABSEIL_SOURCE=abseil-cpp-20230125.3
-ABSEIL_MD5SUM="9b6dae642c4bd92f007ab2c148bc0498"
+ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/releases/download/20250512.1/abseil-cpp-20250512.1.tar.gz"
+ABSEIL_NAME="abseil-cpp-20250512.1.tar.gz"
+ABSEIL_SOURCE=abseil-cpp-20250512.1
+ABSEIL_MD5SUM="f225db90c7f3485f3bb65ab2aeae76fa"
 
 # S2
 S2_DOWNLOAD="https://github.com/google/s2geometry/archive/refs/tags/v0.10.0.tar.gz"
@@ -348,10 +348,10 @@ BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.119.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.11.119.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.11.119"
-AWS_SDK_MD5SUM="3cd8bd51d39dc207a243a2074d11f439"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.219.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.11.219.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.11.219"
+AWS_SDK_MD5SUM="80aa616efe1a3e7a9bf0dfbc44a97864"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
@@ -540,19 +540,6 @@ PUGIXML_NAME=pugixml-1.15.tar.gz
 PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
-# openblas
-OPENBLAS_DOWNLOAD="https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.29/OpenBLAS-0.3.29.tar.gz"
-OPENBLAS_NAME="OpenBLAS-0.3.29.tar.gz"
-OPENBLAS_SOURCE="OpenBLAS-0.3.29"
-OPENBLAS_MD5SUM="853a0c5c0747c5943e7ef4bbb793162d"
-
-# faiss
-FAISS_DOWNLOAD="https://github.com/facebookresearch/faiss/archive/refs/tags/v1.10.0.tar.gz"
-FAISS_NAME="faiss-1.10.0.tar.gz"
-FAISS_SOURCE="faiss-1.10.0"
-FAISS_MD5SUM="f31edf2492808b27cc963d0ab316a205"
-
-
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -633,8 +620,6 @@ export TP_ARCHIVES=(
     'ICU'
     'JINDOFS'
     'PUGIXML'
-    'OPENBLAS'
-    'FAISS'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

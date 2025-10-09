@@ -4,12 +4,12 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashAgg[LOCAL]
---------------PhysicalProject
-----------------PhysicalUnion
-------------------PhysicalProject
+--------PhysicalProject
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------PhysicalUnion
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
@@ -34,7 +34,6 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
 ----------------------------------PhysicalOlapScan[ship_mode]
-------------------PhysicalProject
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]

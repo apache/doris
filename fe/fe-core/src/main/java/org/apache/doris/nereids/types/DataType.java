@@ -57,6 +57,38 @@ public abstract class DataType {
 
     protected static final NereidsParser PARSER = new NereidsParser();
 
+    private static class TypeMapLoader {
+        static final Map<org.apache.doris.catalog.PrimitiveType, DataType> LEGACY_MAP = initMap();
+
+        private static Map<org.apache.doris.catalog.PrimitiveType, DataType> initMap() {
+            return ImmutableMap.<org.apache.doris.catalog.PrimitiveType, DataType>builder()
+                    .put(Type.BOOLEAN.getPrimitiveType(), BooleanType.INSTANCE)
+                    .put(Type.TINYINT.getPrimitiveType(), TinyIntType.INSTANCE)
+                    .put(Type.SMALLINT.getPrimitiveType(), SmallIntType.INSTANCE)
+                    .put(Type.INT.getPrimitiveType(), IntegerType.INSTANCE)
+                    .put(Type.BIGINT.getPrimitiveType(), BigIntType.INSTANCE)
+                    .put(Type.LARGEINT.getPrimitiveType(), LargeIntType.INSTANCE)
+                    .put(Type.FLOAT.getPrimitiveType(), FloatType.INSTANCE)
+                    .put(Type.DOUBLE.getPrimitiveType(), DoubleType.INSTANCE)
+                    .put(Type.CHAR.getPrimitiveType(), StringType.INSTANCE)
+                    .put(Type.VARCHAR.getPrimitiveType(), StringType.INSTANCE)
+                    .put(Type.STRING.getPrimitiveType(), StringType.INSTANCE)
+                    .put(Type.DATE.getPrimitiveType(), DateType.INSTANCE)
+                    .put(Type.DATEV2.getPrimitiveType(), DateType.INSTANCE)
+                    .put(Type.DATETIME.getPrimitiveType(), DateTimeType.INSTANCE)
+                    .put(Type.DATETIMEV2.getPrimitiveType(), DateTimeV2Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMALV2.getPrimitiveType(), DecimalV2Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMAL32.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMAL64.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMAL128.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMAL256.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
+                    .put(Type.IPV4.getPrimitiveType(), IPv4Type.INSTANCE)
+                    .put(Type.IPV6.getPrimitiveType(), IPv6Type.INSTANCE)
+                    .put(Type.VARBINARY.getPrimitiveType(), VarBinaryType.INSTANCE)
+                    .build();
+        }
+    }
+
     // use class and supplier here to avoid class load deadlock.
     private static final Map<Class<? extends PrimitiveType>, Supplier<DataType>> PROMOTION_MAP
             = ImmutableMap.<Class<? extends PrimitiveType>, Supplier<DataType>>builder()
@@ -88,6 +120,10 @@ public abstract class DataType {
             .add(TimeV2Type.class, () -> ImmutableList.of(DateTimeV2Type.MAX, StringType.INSTANCE))
             .build();
 
+    public static Map<org.apache.doris.catalog.PrimitiveType, DataType> legacyTypeToNereidsType() {
+        return TypeMapLoader.LEGACY_MAP;
+    }
+
     /**
      * create a specific Literal for a given dataType
      */
@@ -104,6 +140,20 @@ public abstract class DataType {
             return new StringLiteral((String) value);
         }
         return null;
+    }
+
+    /**
+     * Get the active types for the deprecated types. see also {@link ScalarType#getDefaultDateType()}
+     */
+    public static DataType getCurrentType(DataType dataType) {
+        if (dataType instanceof DateType) {
+            return DateV2Type.INSTANCE;
+        } else if (dataType instanceof DateTimeType) {
+            return DateTimeV2Type.SYSTEM_DEFAULT;
+        } else if (dataType instanceof DecimalV2Type) {
+            return DecimalV3Type.SYSTEM_DEFAULT;
+        }
+        return dataType;
     }
 
     /**
@@ -320,6 +370,10 @@ public abstract class DataType {
             case "variant":
                 dataType = VariantType.INSTANCE;
                 break;
+            case "varbinary":
+                // NOTICE, Maybe. not supported create table, and varbinary do not have len now
+                dataType = VarBinaryType.INSTANCE;
+                break;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
         }
@@ -358,7 +412,6 @@ public abstract class DataType {
             case DATETIME: return DateTimeType.INSTANCE;
             case DATEV2: return DateV2Type.INSTANCE;
             case DATE: return DateType.INSTANCE;
-            case TIME: return TimeV2Type.INSTANCE;
             case TIMEV2: return TimeV2Type.of(((ScalarType) type).getScalarScale());
             case HLL: return HllType.INSTANCE;
             case BITMAP: return BitmapType.INSTANCE;
@@ -366,10 +419,10 @@ public abstract class DataType {
             case CHAR: return CharType.createCharType(type.getLength());
             case VARCHAR: return VarcharType.createVarcharType(type.getLength());
             case STRING: return StringType.INSTANCE;
-            case VARIANT: return VariantType.INSTANCE;
             case JSONB: return JsonType.INSTANCE;
             case IPV4: return IPv4Type.INSTANCE;
             case IPV6: return IPv6Type.INSTANCE;
+            case VARBINARY: return VarBinaryType.INSTANCE;
             case AGG_STATE: {
                 org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
                 List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
@@ -407,6 +460,21 @@ public abstract class DataType {
         } else if (type.isArrayType()) {
             org.apache.doris.catalog.ArrayType arrayType = (org.apache.doris.catalog.ArrayType) type;
             return ArrayType.of(fromCatalogType(arrayType.getItemType()), arrayType.getContainsNull());
+        } else if (type.isVariantType()) {
+            // In the past, variant metadata used the ScalarType type.
+            // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+            if (type instanceof org.apache.doris.catalog.VariantType) {
+                List<VariantField> variantFields = ((org.apache.doris.catalog.VariantType) type)
+                        .getPredefinedFields().stream()
+                        .map(cf -> new VariantField(cf.getPattern(), fromCatalogType(cf.getType()),
+                                cf.getComment() == null ? "" : cf.getComment(), cf.getPatternType().toString()))
+                        .collect(ImmutableList.toImmutableList());
+                return new VariantType(variantFields,
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
+                        ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse(),
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize());
+            }
+            return VariantType.INSTANCE;
         } else {
             return UnsupportedType.INSTANCE;
         }
@@ -563,6 +631,10 @@ public abstract class DataType {
         return this instanceof StringType;
     }
 
+    public boolean isVarBinaryType() {
+        return this instanceof VarBinaryType;
+    }
+
     public boolean isJsonType() {
         return this instanceof JsonType;
     }
@@ -653,6 +725,14 @@ public abstract class DataType {
         } else {
             return this;
         }
+    }
+
+    /**
+     * whether the element type in array can be calculated in array function
+     * @return true if the element type can be calculated
+     */
+    public boolean canBeCalculatedInArray() {
+        return isNumericType() || isBooleanType() || isStringLikeType() || isNullType();
     }
 
     /**
@@ -1004,6 +1084,20 @@ public abstract class DataType {
                 if (scale < 0 || scale > 6) {
                     throw new AnalysisException("Scale of Datetime/Time must between 0 and 6."
                             + " Scale was set to: " + scale + ".");
+                }
+                break;
+            }
+            case VARIANT: {
+                ArrayList<org.apache.doris.catalog.VariantField> predefinedFields =
+                        ((org.apache.doris.catalog.VariantType) scalarType).getPredefinedFields();
+                Set<String> fieldPatterns = new HashSet<>();
+                for (org.apache.doris.catalog.VariantField field : predefinedFields) {
+                    Type fieldType = field.getType();
+                    validateNestedType(scalarType, fieldType);
+                    if (!fieldPatterns.add(field.getPattern())) {
+                        throw new AnalysisException("Duplicate field name " + field.getPattern()
+                                + " in variant " + scalarType.toSql());
+                    }
                 }
                 break;
             }

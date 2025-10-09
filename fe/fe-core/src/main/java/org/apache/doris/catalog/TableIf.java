@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
-import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
@@ -28,6 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.systable.SysTable;
+import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.persist.AlterConstraintLog;
@@ -525,7 +525,7 @@ public interface TableIf {
         return false;
     }
 
-    default boolean isPartitionColumn(String columnName) {
+    default boolean isPartitionColumn(Column column) {
         return false;
     }
 
@@ -576,7 +576,7 @@ public interface TableIf {
      * @param tableNameWithSysTableName: eg: table$partitions
      * @return
      */
-    default Optional<TableValuedFunctionRef> getSysTableFunctionRef(
+    default Optional<TableValuedFunctionRefInfo> getSysTableFunctionRef(
             String ctlName, String dbName, String tableNameWithSysTableName) {
         for (SysTable sysTable : getSupportedSysTables()) {
             if (sysTable.containsMetaTable(tableNameWithSysTableName)) {

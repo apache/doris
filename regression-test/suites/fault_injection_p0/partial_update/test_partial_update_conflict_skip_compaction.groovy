@@ -180,6 +180,8 @@ suite("test_partial_update_conflict_skip_compaction", "nonConcurrent") {
         t1.join()
         t2.join()
 
+        sleep(2000)
+        sql "sync;"
         order_qt_sql "select * from ${table1};"
 
         check_rs_metas(3, {int startVersion, int endVersion, int numSegments, int numRows, String overlapPb ->

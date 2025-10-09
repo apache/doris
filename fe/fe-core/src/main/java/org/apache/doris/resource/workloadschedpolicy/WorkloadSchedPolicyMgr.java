@@ -17,9 +17,6 @@
 
 package org.apache.doris.resource.workloadschedpolicy;
 
-import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
-import org.apache.doris.analysis.CreateWorkloadSchedPolicyStmt;
-import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -246,16 +243,6 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
         }
     }
 
-    public void createWorkloadSchedPolicy(CreateWorkloadSchedPolicyStmt createStmt) throws UserException {
-        String policyName = createStmt.getPolicyName();
-        List<WorkloadConditionMeta> originConditions = createStmt.getConditions();
-        List<WorkloadActionMeta> originActions = createStmt.getActions();
-        Map<String, String> propMap = createStmt.getProperties();
-        boolean isIfNotExists = createStmt.isIfNotExists();
-
-        createWorkloadSchedPolicy(policyName, isIfNotExists, originConditions, originActions, propMap);
-    }
-
     private boolean checkPolicyCondition(List<WorkloadCondition> conditionList) throws UserException {
         if (conditionList.size() > Config.workload_max_condition_num_in_policy) {
             throw new UserException(
@@ -477,10 +464,6 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
         }
     }
 
-    public void alterWorkloadSchedPolicy(AlterWorkloadSchedPolicyStmt alterStmt) throws UserException {
-        alterWorkloadSchedPolicy(alterStmt.getPolicyName(), alterStmt.getProperties());
-    }
-
     public void alterWorkloadSchedPolicy(String policyName, Map<String, String> properties) throws UserException {
         writeLock();
         try {
@@ -497,10 +480,6 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
         } finally {
             writeUnlock();
         }
-    }
-
-    public void dropWorkloadSchedPolicy(DropWorkloadSchedPolicyStmt dropStmt) throws UserException {
-        dropWorkloadSchedPolicy(dropStmt.getPolicyName(), dropStmt.isIfExists());
     }
 
     public void dropWorkloadSchedPolicy(String policyName, boolean isExists) throws UserException {

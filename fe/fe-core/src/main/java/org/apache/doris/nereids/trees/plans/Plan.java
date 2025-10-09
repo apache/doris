@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -310,4 +311,8 @@ public interface Plan extends TreeNode<Plan> {
     void computeEqualSet(DataTrait.Builder builder);
 
     void computeFd(DataTrait.Builder builder);
+
+    default Statistics getStats() {
+        throw new IllegalStateException("Not support getStats for " + getClass().getName());
+    }
 }

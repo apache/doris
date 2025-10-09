@@ -32,6 +32,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.Objects;
@@ -40,7 +41,13 @@ import java.util.Objects;
  * MergeConsecutiveProjects ut
  */
 public class MergeProjectableTest implements MemoPatternMatchSupported {
-    LogicalOlapScan score = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score);
+    private static final LogicalOlapScan score = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score);
+
+    @BeforeAll
+    static void makeSureSlotIdStable() {
+        // make sure the slot id start from 10000 when not set StatementContext in ThreadLocal
+        score.getOutput();
+    }
 
     @Test
     public void testMergeConsecutiveProjects() {
@@ -70,9 +77,10 @@ public class MergeProjectableTest implements MemoPatternMatchSupported {
                 Lists.newArrayList(score.getOutput().get(1), score.getOutput().get(2), alias),
                 score);
 
+        Alias ySlot = new Alias(new Add(bottomProject.getOutput().get(2), Literal.of(2)), "Y");
         LogicalProject<LogicalProject<LogicalOlapScan>> topProject = new LogicalProject<>(
                 Lists.newArrayList(
-                        new Alias(new Add(bottomProject.getOutput().get(2), Literal.of(2)), "Y")),
+                        ySlot),
                 bottomProject);
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topProject)
@@ -81,7 +89,7 @@ public class MergeProjectableTest implements MemoPatternMatchSupported {
                         logicalProject(
                                 logicalOlapScan()
                         ).when(project -> Objects.equals(project.getProjects().toString(),
-                                "[((sid#0 + 1) + 2) AS `Y`#4]"))
+                                "[((sid#10000 + 1) + 2) AS `Y`#" + ySlot.getExprId().asInt() + "]"))
                 );
     }
 

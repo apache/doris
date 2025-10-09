@@ -37,30 +37,30 @@ void FunctionCastToDecimalTest::from_string_to_decimal32_overflow_test_func() {
         (*ofs_const_case) << "    sql \"set debug_skip_fold_constant = true;\"\n";
     }
 
-    from_string_overflow_test_func<Decimal32, 1, 0>(
-            ofs_const_case, ofs_const_expected_result, ofs_case, ofs_expected_result,
-            regression_case_name, table_index, test_data_index);
+    from_string_overflow_test_func<Decimal32>(1, 0, ofs_const_case, ofs_const_expected_result,
+                                              ofs_case, ofs_expected_result, regression_case_name,
+                                              table_index, test_data_index);
     ++table_index;
 
-    from_string_overflow_test_func<Decimal32, 1, 1>(
-            ofs_const_case, ofs_const_expected_result, ofs_case, ofs_expected_result,
-            regression_case_name, table_index, test_data_index);
+    from_string_overflow_test_func<Decimal32>(1, 1, ofs_const_case, ofs_const_expected_result,
+                                              ofs_case, ofs_expected_result, regression_case_name,
+                                              table_index, test_data_index);
     ++table_index;
-    from_string_overflow_test_func<Decimal32, 9, 0>(
-            ofs_const_case, ofs_const_expected_result, ofs_case, ofs_expected_result,
-            regression_case_name, table_index, test_data_index);
+    from_string_overflow_test_func<Decimal32>(9, 0, ofs_const_case, ofs_const_expected_result,
+                                              ofs_case, ofs_expected_result, regression_case_name,
+                                              table_index, test_data_index);
     ++table_index;
-    from_string_overflow_test_func<Decimal32, 9, 1>(
-            ofs_const_case, ofs_const_expected_result, ofs_case, ofs_expected_result,
-            regression_case_name, table_index, test_data_index);
+    from_string_overflow_test_func<Decimal32>(9, 1, ofs_const_case, ofs_const_expected_result,
+                                              ofs_case, ofs_expected_result, regression_case_name,
+                                              table_index, test_data_index);
     ++table_index;
-    from_string_overflow_test_func<Decimal32, 9, 4>(
-            ofs_const_case, ofs_const_expected_result, ofs_case, ofs_expected_result,
-            regression_case_name, table_index, test_data_index);
+    from_string_overflow_test_func<Decimal32>(9, 4, ofs_const_case, ofs_const_expected_result,
+                                              ofs_case, ofs_expected_result, regression_case_name,
+                                              table_index, test_data_index);
     ++table_index;
-    from_string_overflow_test_func<Decimal32, 9, 9>(
-            ofs_const_case, ofs_const_expected_result, ofs_case, ofs_expected_result,
-            regression_case_name, table_index, test_data_index);
+    from_string_overflow_test_func<Decimal32>(9, 9, ofs_const_case, ofs_const_expected_result,
+                                              ofs_case, ofs_expected_result, regression_case_name,
+                                              table_index, test_data_index);
     if (FLAGS_gen_regression_case) {
         (*ofs_const_case) << "}";
         (*ofs_case) << "}";

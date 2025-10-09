@@ -34,6 +34,7 @@
 #include <typeinfo>
 #include <vector>
 
+#include "common/compare.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "olap/uint24.h"
@@ -58,69 +59,6 @@ class ColumnSorter;
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-
-/** Stuff for comparing numbers.
-  * Integer values are compared as usual.
-  * Floating-point numbers are compared this way that NaNs always end up at the end
-  *  (if you don't do this, the sort would not work at all).
-  */
-template <typename T>
-struct CompareHelper {
-    static bool less(T a, T b, int /*nan_direction_hint*/) { return a < b; }
-    static bool greater(T a, T b, int /*nan_direction_hint*/) { return a > b; }
-
-    /** Compares two numbers. Returns a number less than zero, equal to zero, or greater than zero if a < b, a == b, a > b, respectively.
-      * If one of the values is NaN, then
-      * - if nan_direction_hint == -1 - NaN are considered less than all numbers;
-      * - if nan_direction_hint == 1 - NaN are considered to be larger than all numbers;
-      * Essentially: nan_direction_hint == -1 says that the comparison is for sorting in descending order.
-      */
-    static int compare(T a, T b, int /*nan_direction_hint*/) {
-        return a > b ? 1 : (a < b ? -1 : 0);
-    }
-};
-
-template <typename T>
-struct FloatCompareHelper {
-    static bool less(T a, T b, int nan_direction_hint) {
-        bool isnan_a = std::isnan(a);
-        bool isnan_b = std::isnan(b);
-
-        if (isnan_a && isnan_b) return false;
-        if (isnan_a) return nan_direction_hint < 0;
-        if (isnan_b) return nan_direction_hint > 0;
-
-        return a < b;
-    }
-
-    static bool greater(T a, T b, int nan_direction_hint) {
-        bool isnan_a = std::isnan(a);
-        bool isnan_b = std::isnan(b);
-
-        if (isnan_a && isnan_b) return false;
-        if (isnan_a) return nan_direction_hint > 0;
-        if (isnan_b) return nan_direction_hint < 0;
-
-        return a > b;
-    }
-
-    static int compare(T a, T b, int nan_direction_hint) {
-        bool isnan_a = std::isnan(a);
-        bool isnan_b = std::isnan(b);
-        if (UNLIKELY(isnan_a || isnan_b)) {
-            if (isnan_a && isnan_b) return 0;
-
-            return isnan_a ? nan_direction_hint : -nan_direction_hint;
-        }
-
-        return (T(0) < (a - b)) - ((a - b) < T(0));
-    }
-};
-
-template <>
-struct CompareHelper<Float32> : public FloatCompareHelper<Float32> {};
-template <>
-struct CompareHelper<Float64> : public FloatCompareHelper<Float64> {};
 
 /** A template for columns that use a simple array to store.
  */
@@ -313,9 +251,8 @@ public:
 
     /// This method implemented in header because it could be possibly devirtualized.
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override {
-        return CompareHelper<value_type>::compare(
-                data[n], assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs_).data[m],
-                nan_direction_hint);
+        return Compare::compare(
+                data[n], assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs_).data[m]);
     }
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
@@ -361,8 +298,6 @@ public:
 
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
-    ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
-
     StringRef get_raw_data() const override {
         return StringRef(reinterpret_cast<const char*>(data.data()), data.size());
     }
@@ -387,6 +322,8 @@ public:
 
     void replace_column_null_data(const uint8_t* __restrict null_map) override;
 
+    void replace_float_special_values() override;
+
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;
 
@@ -409,11 +346,13 @@ public:
     size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }
 
 protected:
+    // when run function which need_replace_null_data_to_default, use the value far from 0 to avoid
+    // raise errors for null cell.
     static value_type default_value() {
         if constexpr (T == PrimitiveType::TYPE_DATEV2 || T == PrimitiveType::TYPE_DATETIMEV2) {
-            return PrimitiveTypeTraits<T>::CppType::FIRST_DAY.to_date_int_val();
+            return PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE.to_date_int_val();
         } else if constexpr (T == PrimitiveType::TYPE_DATE || T == PrimitiveType::TYPE_DATETIME) {
-            return PrimitiveTypeTraits<T>::CppType::FIRST_DAY;
+            return PrimitiveTypeTraits<T>::CppType::DEFAULT_VALUE;
         } else {
             return value_type();
         }

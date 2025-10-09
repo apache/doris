@@ -46,13 +46,18 @@ public class ExplodeMap extends TableGeneratingFunction implements UnaryExpressi
         super("explode_map", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ExplodeMap(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ExplodeMap withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeMap(children.get(0));
+        return new ExplodeMap(getFunctionParams(children));
     }
 
     @Override

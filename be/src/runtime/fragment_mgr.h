@@ -33,7 +33,6 @@
 
 #include "common/be_mock_util.h"
 #include "common/status.h"
-#include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
 #include "runtime/query_context.h"
 #include "runtime_filter/runtime_filter_mgr.h"
@@ -56,7 +55,6 @@ class PipelineFragmentContext;
 class QueryContext;
 class ExecEnv;
 class ThreadPool;
-class TExecPlanFragmentParams;
 class PExecPlanFragmentStartRequest;
 class PMergeFilterRequest;
 class RuntimeProfile;
@@ -121,16 +119,12 @@ public:
     void stop();
 
     // execute one plan fragment
-    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type);
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
                               const TPipelineFragmentParamsList& parent);
 
     void remove_pipeline_context(std::pair<TUniqueId, int> key);
-
-    // TODO(zc): report this is over
-    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type,
-                              const FinishCallback& cb);
+    void remove_query_context(const TUniqueId& key);
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
                               const FinishCallback& cb, const TPipelineFragmentParamsList& parent);
@@ -218,7 +212,7 @@ private:
     std::unordered_map<TUniqueId, std::unordered_map<int, int64_t>> _bf_size_map;
 
     CountDownLatch _stop_background_threads_latch;
-    scoped_refptr<Thread> _cancel_thread;
+    std::shared_ptr<Thread> _cancel_thread;
     // This pool is used as global async task pool
     std::unique_ptr<ThreadPool> _thread_pool;
 

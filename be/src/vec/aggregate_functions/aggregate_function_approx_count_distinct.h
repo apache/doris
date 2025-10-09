@@ -28,11 +28,11 @@
 #include "util/slice.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -81,7 +81,9 @@ struct AggregateFunctionApproxCountDistinctData {
 template <PrimitiveType type>
 class AggregateFunctionApproxCountDistinct final
         : public IAggregateFunctionDataHelper<AggregateFunctionApproxCountDistinctData,
-                                              AggregateFunctionApproxCountDistinct<type>> {
+                                              AggregateFunctionApproxCountDistinct<type>>,
+          UnaryExpression,
+          NotNullableAggregateFunction {
 public:
     using ColumnDataType = typename PrimitiveTypeTraits<type>::ColumnType;
     String get_name() const override { return "approx_count_distinct"; }

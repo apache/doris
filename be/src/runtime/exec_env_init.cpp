@@ -32,6 +32,7 @@
 #include <string>
 #include <vector>
 
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_stream_load_executor.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -57,6 +58,7 @@
 #include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet_column_object_pool.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema_cache.h"
@@ -128,8 +130,6 @@
 //  #define EINTERNAL 255
 #include "io/fs/hdfs/hdfs_mgr.h"
 // clang-format on
-
-#include "runtime/memory/tcmalloc_hook.h"
 
 namespace doris {
 
@@ -279,7 +279,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_min_threads(config::min_s3_file_system_thread_num)
                               .set_max_threads(config::max_s3_file_system_thread_num)
                               .build(&_s3_file_system_thread_pool));
-    RETURN_IF_ERROR(_init_mem_env());
+    RETURN_IF_ERROR(init_mem_env());
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
@@ -300,7 +300,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
                                     config::query_cache_elasticity_size_mb);
-    _cluster_info = new ClusterInfo();
+    if (config::is_cloud_mode()) {
+        _cluster_info = new CloudClusterInfo();
+    } else {
+        _cluster_info = new ClusterInfo();
+    }
+
     _load_path_mgr = new LoadPathMgr(this);
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
@@ -468,7 +473,7 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
     }
 }
 
-Status ExecEnv::_init_mem_env() {
+Status ExecEnv::init_mem_env() {
     bool is_percent = false;
     std::stringstream ss;
     // 1. init mem tracker
@@ -476,8 +481,6 @@ Status ExecEnv::_init_mem_env() {
     _heap_profiler = HeapProfiler::create_global_instance();
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
-
-    init_hook();
 
     if (!BitUtil::IsPowerOf2(config::min_buffer_size)) {
         ss << "Config min_buffer_size must be a power-of-two: " << config::min_buffer_size;
@@ -543,12 +546,21 @@ Status ExecEnv::_init_mem_env() {
     } else {
         fd_number = static_cast<uint64_t>(l.rlim_cur);
     }
-    // SegmentLoader caches segments in rowset granularity. So the size of
-    // opened files will greater than segment_cache_capacity.
-    int64_t segment_cache_capacity = config::segment_cache_capacity;
-    int64_t segment_cache_fd_limit = fd_number / 100 * config::segment_cache_fd_percentage;
-    if (segment_cache_capacity < 0 || segment_cache_capacity > segment_cache_fd_limit) {
-        segment_cache_capacity = segment_cache_fd_limit;
+
+    int64_t segment_cache_capacity = 0;
+    if (config::is_cloud_mode()) {
+        // when in cloud mode, segment cache hold no system FD
+        // thus the FD num limit makes no sense
+        // cloud mode use FDCache to control FD
+        segment_cache_capacity = UINT32_MAX;
+    } else {
+        // SegmentLoader caches segments in rowset granularity. So the size of
+        // opened files will greater than segment_cache_capacity.
+        segment_cache_capacity = config::segment_cache_capacity;
+        int64_t segment_cache_fd_limit = fd_number / 100 * config::segment_cache_fd_percentage;
+        if (segment_cache_capacity < 0 || segment_cache_capacity > segment_cache_fd_limit) {
+            segment_cache_capacity = segment_cache_fd_limit;
+        }
     }
 
     int64_t segment_cache_mem_limit =
@@ -876,6 +888,7 @@ void ExecEnv::destroy() {
 
     _s_tracking_memory = false;
 
+    clear_storage_resource();
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }
 

@@ -34,6 +34,13 @@ RUN yum install -y byacc patch automake libtool perf vim make which file ncurses
 # clean cache
 RUN yum clean all
 
+# install jdk17
+RUN wget https://doris-thirdparty-1308700295.cos.ap-beijing.myqcloud.com/tools/openjdk-17.0.2_linux-x64_bin.tar.gz \
+    -q -O /tmp/openjdk-17.0.2_linux-x64_bin.tar.gz \
+    && cd /tmp && tar -xzf openjdk-17.0.2_linux-x64_bin.tar.gz \
+    && cp -r jdk-17.0.2/ /usr/lib/jvm/ \
+    && rm /tmp/openjdk-17.0.2_linux-x64_bin.tar.gz && rm -rf /tmp/jdk-17.0.2/
+
 # install maven 3.6.3
 RUN mkdir -p /usr/share/maven /usr/share/maven/ref \
     && wget -q -O /tmp/apache-maven.tar.gz https://doris-thirdparty-1308700295.cos.ap-beijing.myqcloud.com/tools/apache-maven-3.6.3-bin.tar.gz \
@@ -48,24 +55,28 @@ RUN wget https://doris-thirdparty-1308700295.cos.ap-beijing.myqcloud.com/tools/n
     && cp -r node-v12.13.0-linux-x64/* /usr/local/ \
     && rm /tmp/node-v12.13.0-linux-x64.tar.gz && rm -rf node-v12.13.0-linux-x64
 
-# install jdk17
-RUN wget https://doris-thirdparty-1308700295.cos.ap-beijing.myqcloud.com/tools/openjdk-17.0.2_linux-x64_bin.tar.gz \
-    -q -O /tmp/openjdk-17.0.2_linux-x64_bin.tar.gz \
-    && cd /tmp && tar -xzf openjdk-17.0.2_linux-x64_bin.tar.gz \
-    && cp -r jdk-17.0.2/ /usr/lib/jvm/ \
-    && rm /tmp/openjdk-17.0.2_linux-x64_bin.tar.gz && rm -rf /tmp/jdk-17.0.2/
-
 # install ldb-toolchain
-# 0.17
-RUN wget https://doris-community-bj-1308700295.cos.ap-beijing.myqcloud.com/tools/ldb_toolchain_gen.sh \
-    -q -O /tmp/ldb_toolchain_gen.sh \
-    && sh /tmp/ldb_toolchain_gen.sh /var/local/ldb-toolchain/ \
-    && rm /tmp/ldb_toolchain_gen.sh
+## 0.18
+RUN wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.18/ldb_toolchain_gen.sh \
+    -q -O /tmp/ldb_toolchain_gen_018.sh \
+    && sh /tmp/ldb_toolchain_gen_018.sh /var/local/ldb-toolchain-018/ \
+    && rm /tmp/ldb_toolchain_gen_018.sh
+
+## 0.25
+RUN wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.25/ldb_toolchain_gen.sh \
+    -q -O /tmp/ldb_toolchain_gen_025.sh \
+    && sh /tmp/ldb_toolchain_gen_025.sh /var/local/ldb-toolchain \
+    && rm /tmp/ldb_toolchain_gen_025.sh
+
+## Use clang-format in 0.18
+RUN echo '#!/bin/bash' > /usr/local/bin/clang-format && \
+    echo 'exec /var/local/ldb-toolchain-018/bin/clang-format "$@"' >> /usr/local/bin/clang-format && \
+    chmod +x /usr/local/bin/clang-format
 
 # there is a repo which is included all of thirdparty
 ENV REPOSITORY_URL="https://doris-thirdparty-hk-1308700295.cos.ap-hongkong.myqcloud.com/thirdparty" \
     DEFAULT_DIR="/var/local" \
-    JAVA_HOME="/usr/lib/jvm/java-1.8.0" \
+    JAVA_HOME="/usr/lib/jvm/java-1.8.0/" \
     PATH="/var/local/ldb-toolchain/bin/:$PATH"
     # USE_AVX2=0
 
@@ -93,16 +104,14 @@ RUN cd ${DEFAULT_DIR}/doris && /bin/bash thirdparty/build-thirdparty.sh \
     && mv ${DEFAULT_DIR}/doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/ \
     && rm -rf ${DEFAULT_DIR}/doris
 
-RUN alternatives --set java java-1.8.0-openjdk.x86_64 && alternatives --set javac java-1.8.0-openjdk.x86_64
-
 # squash all layers to reduce the image size
 FROM scratch
 COPY --from=builder / /
-ENV JAVA_HOME="/usr/lib/jvm/java-1.8.0" \
+ENV JAVA_HOME="/usr/lib/jvm/jdk-17.0.2/" \
     MAVEN_HOME="/usr/share/maven" \
     REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty" \
     DEFAULT_DIR="/var/local" \
-    PATH="/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:$PATH" \
+    PATH="/usr/local/bin:/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:/usr/lib/jvm/jdk-17.0.2/bin/:$PATH" \
     DORIS_THIRDPARTY="/var/local/thirdparty"
 WORKDIR /root
 

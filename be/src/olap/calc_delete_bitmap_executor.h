@@ -58,7 +58,7 @@ public:
                   std::function<void(segment_v2::SegmentSharedPtr, Status)> callback);
 
     // calculate delete bitmap between `segments`
-    Status submit(BaseTabletSPtr tablet, RowsetId rowset_id,
+    Status submit(BaseTabletSPtr tablet, TabletSchemaSPtr schema, RowsetId rowset_id,
                   const std::vector<segment_v2::SegmentSharedPtr>& segments,
                   DeleteBitmapPtr delete_bitmap);
 
@@ -85,7 +85,7 @@ public:
     ~CalcDeleteBitmapExecutor() { _thread_pool->shutdown(); }
 
     // init should be called after storage engine is opened,
-    void init();
+    void init(int max_threads);
 
     std::unique_ptr<CalcDeleteBitmapToken> create_token();
 

@@ -41,6 +41,7 @@
 #include "util/trace.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 void CumulativeCompaction::find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
@@ -50,7 +51,7 @@ void CumulativeCompaction::find_longest_consecutive_version(std::vector<RowsetSh
     }
 
     RowsetSharedPtr prev_rowset = rowsets->front();
-    size_t i = 1;
+    int i = 1;
     int max_start = 0;
     int max_length = 1;
 
@@ -193,18 +194,19 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
                      << ", first missed version next rowset version=" << missing_versions[1]
                      << ", tablet=" << _tablet->tablet_id();
         if (config::enable_auto_clone_on_compaction_missing_version) {
+            int64_t max_version = tablet()->max_version_unlocked();
             LOG_INFO("cumulative compaction submit missing rowset clone task.")
                     .tag("tablet_id", _tablet->tablet_id())
-                    .tag("version", missing_versions.back().first)
+                    .tag("max_version", max_version)
                     .tag("replica_id", tablet()->replica_id())
                     .tag("partition_id", _tablet->partition_id())
                     .tag("table_id", _tablet->table_id());
-            Status st = _engine.submit_clone_task(tablet(), missing_versions.back().first);
+            Status st = _engine.submit_clone_task(tablet(), max_version);
             if (!st) {
                 LOG_WARNING("cumulative compaction failed to submit missing rowset clone task.")
                         .tag("st", st.msg())
                         .tag("tablet_id", _tablet->tablet_id())
-                        .tag("version", missing_versions.back().first)
+                        .tag("max_version", max_version)
                         .tag("replica_id", tablet()->replica_id())
                         .tag("partition_id", _tablet->partition_id())
                         .tag("table_id", _tablet->table_id());
@@ -213,8 +215,8 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
     }
 
     int64_t max_score = config::cumulative_compaction_max_deltas;
-    auto process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
-    bool memory_usage_high = process_memory_usage > MemInfo::soft_mem_limit() * 0.8;
+    int64_t process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
+    bool memory_usage_high = process_memory_usage > MemInfo::soft_mem_limit() * 8 / 10;
     if (tablet()->last_compaction_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() || memory_usage_high) {
         max_score = std::max(config::cumulative_compaction_max_deltas /
                                      config::cumulative_compaction_max_deltas_factor,
@@ -288,5 +290,6 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
 
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris

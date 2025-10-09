@@ -41,7 +41,7 @@ import java.util.List;
  * Refreshing or invalidating a view will reload the view's definition but will not
  * affect the metadata of the underlying tables (if any).
  */
-public class View extends Table implements GsonPostProcessable {
+public class View extends Table implements GsonPostProcessable, ViewIf {
     private static final Logger LOG = LogManager.getLogger(View.class);
 
     // The original SQL-string given as view definition. Set during analysis.
@@ -96,6 +96,11 @@ public class View extends Table implements GsonPostProcessable {
     }
 
     public String getInlineViewDef() {
+        return inlineViewDef;
+    }
+
+    @Override
+    public String getViewText() {
         return inlineViewDef;
     }
 

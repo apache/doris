@@ -820,4 +820,25 @@ TEST_F(DorisFSDirectoryTest, FSIndexInputReadInternalTimer) {
     _CLDELETE(input1);
 }
 
+TEST_F(DorisFSDirectoryTest, PrivGetFN) {
+    {
+        std::string file_name = "my_file.txt";
+        std::string result = _directory->priv_getFN(file_name);
+        std::string expected_path = (_tmp_dir / file_name).string();
+        EXPECT_EQ(result, expected_path);
+    }
+    {
+        std::string file_name = "";
+        std::string result = _directory->priv_getFN(file_name);
+        std::string expected_path = (_tmp_dir / file_name).string();
+        EXPECT_EQ(result, expected_path);
+    }
+    {
+        std::string file_name = "subdir/another_file.log";
+        std::string result = _directory->priv_getFN(file_name);
+        std::string expected_path = (_tmp_dir / file_name).string();
+        EXPECT_EQ(result, expected_path);
+    }
+}
+
 } // namespace doris::segment_v2

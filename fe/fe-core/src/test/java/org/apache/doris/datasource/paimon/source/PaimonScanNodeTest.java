@@ -19,8 +19,8 @@ package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
@@ -92,15 +92,8 @@ public class PaimonScanNodeTest {
             }
         }).when(spyPaimonScanNode).getPaimonSplitFromAPI();
 
-        // Mock PaimonSource to return catalog
-        PaimonSource mockPaimonSource = Mockito.mock(PaimonSource.class);
-        Mockito.when(mockPaimonSource.getCatalog()).thenReturn(paimonFileExternalCatalog);
-        spyPaimonScanNode.setSource(mockPaimonSource);
-
-        // Mock ExternalCatalog properties
-        CatalogProperty mockCatalogProperty = Mockito.mock(CatalogProperty.class);
-        Mockito.when(paimonFileExternalCatalog.getCatalogProperty()).thenReturn(mockCatalogProperty);
-        Mockito.when(mockCatalogProperty.getStoragePropertiesMap()).thenReturn(Collections.emptyMap());
+        // Note: The original PaimonSource is sufficient for this test
+        // No need to mock catalog properties since doInitialize() is not called in this test
         // Mock SessionVariable behavior
         Mockito.when(sv.isForceJniScanner()).thenReturn(false);
         Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
@@ -135,16 +128,15 @@ public class PaimonScanNodeTest {
         // 1. Only startSnapshotId
         Map<String, String> params = new HashMap<>();
         params.put("startSnapshotId", "5");
-        Map<String, String> result = PaimonScanNode.validateIncrementalReadParams(params);
-        Assert.assertEquals("5", result.get("scan.snapshot-id"));
-        Assert.assertNull(result.get("scan.mode"));
-        Assert.assertEquals(2, result.size());
+        ExceptionChecker.expectThrowsWithMsg(UserException.class,
+                "endSnapshotId is required when using snapshot-based incremental read",
+                () -> PaimonScanNode.validateIncrementalReadParams(params));
 
         // 2. Both startSnapshotId and endSnapshotId
         params.clear();
         params.put("startSnapshotId", "1");
         params.put("endSnapshotId", "5");
-        result = PaimonScanNode.validateIncrementalReadParams(params);
+        Map<String, String> result = PaimonScanNode.validateIncrementalReadParams(params);
         Assert.assertEquals("1,5", result.get("incremental-between"));
         Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
         Assert.assertEquals(3, result.size());

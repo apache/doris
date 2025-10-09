@@ -53,13 +53,18 @@ public class Lpad extends ScalarFunction
         super("lpad", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Lpad(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Lpad withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new Lpad(children.get(0), children.get(1), children.get(2));
+        return new Lpad(getFunctionParams(children));
     }
 
     @Override

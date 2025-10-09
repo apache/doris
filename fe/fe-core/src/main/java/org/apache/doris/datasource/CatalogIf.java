@@ -18,8 +18,6 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -30,12 +28,13 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -63,6 +62,10 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     List<String> getDbNames();
 
+    default String getErrorMsg() {
+        return "";
+    }
+
     default boolean isInternalCatalog() {
         return this instanceof InternalCatalog;
     }
@@ -87,10 +90,6 @@ public interface CatalogIf<T extends DatabaseIf> {
     T getDbNullable(long dbId);
 
     Map<String, String> getProperties();
-
-    default String getResource() {
-        return null;
-    }
 
     default void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         if (this instanceof ExternalCatalog) {
@@ -174,7 +173,7 @@ public interface CatalogIf<T extends DatabaseIf> {
         CatalogLog log = new CatalogLog();
         log.setCatalogId(getId());
         log.setCatalogName(getName());
-        log.setResource(Strings.nullToEmpty(getResource()));
+        log.setResource("");
         log.setComment(getComment());
         log.setProps(getProperties());
         return log;
@@ -192,20 +191,21 @@ public interface CatalogIf<T extends DatabaseIf> {
     void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException;
 
     /**
-     * @return if org.apache.doris.analysis.CreateTableStmt.ifNotExists is true, return true if table exists,
+     * @return if org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo.ifNotExists is true,
+     * return true if table exists,
      * return false otherwise
      */
-    boolean createTable(CreateTableStmt stmt) throws UserException;
+    boolean createTable(CreateTableInfo createTableInfo) throws UserException;
 
     void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
-                   boolean force) throws DdlException;
+            boolean mustTemporary, boolean force) throws DdlException;
 
     default void renameTable(String dbName, String oldTableName, String newTableName) throws DdlException {
         throw new UnsupportedOperationException("Not support rename table operation");
     }
 
-    void truncateTable(String dbName, String tableName, PartitionNames partitionNames, boolean forceDrop,
-            String rawTruncateSql)
+    void truncateTable(String dbName, String tableName, PartitionNamesInfo partitionNamesInfo, boolean forceDrop,
+                       String rawTruncateSql)
             throws DdlException;
 
     // Convert from remote database name to local database name, overridden by subclass if necessary

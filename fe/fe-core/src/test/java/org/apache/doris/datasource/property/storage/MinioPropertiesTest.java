@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 
 import org.junit.jupiter.api.Assertions;
@@ -49,12 +50,10 @@ public class MinioPropertiesTest {
         Assertions.assertEquals("us-east-1", minioProperties.getRegion());
         origProps.remove("s3.endpoint");
         origProps.put("uri", "http://localhost:9000/test/");
-        Assertions.assertThrows(IllegalArgumentException.class, () ->
-                StorageProperties.createPrimary(origProps), "Property endpoint is required.");
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Property minio.endpoint is required", () -> StorageProperties.createPrimary(origProps));
         origProps.put("s3.endpoint", "http://localhost:9000");
-        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
-
-
+        ExceptionChecker.expectThrowsNoException(() -> StorageProperties.createPrimary(origProps));
     }
 
     @Test
@@ -67,8 +66,22 @@ public class MinioPropertiesTest {
     public void testMissingAccessKey() {
         origProps.put("s3.endpoint", "http://localhost:9000");
         origProps.put("s3.secret_key", "minioSecretKey");
-        Assertions.assertThrows(IllegalArgumentException.class, () ->
-                StorageProperties.createPrimary(origProps), "Property s3.access_key is required.");
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Both the access key and the secret key must be set.",
+                () -> StorageProperties.createPrimary(origProps));
+        origProps.remove("s3.secret_key");
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
+    }
+
+    @Test
+    public void testMissingSecretKey() {
+        origProps.put("s3.endpoint", "http://localhost:9000");
+        origProps.put("s3.access_key", "minioAccessKey");
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Both the access key and the secret key must be set.",
+                () -> StorageProperties.createPrimary(origProps));
+        origProps.remove("s3.access_key");
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
     }
 
     @Test

@@ -21,7 +21,10 @@ import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class AWSGlueMetaStoreBaseProperties {
@@ -50,6 +53,7 @@ public class AWSGlueMetaStoreBaseProperties {
 
     @ConnectorProperty(names = {"glue.secret_key",
             "aws.glue.secret-key", "client.credentials-provider.glue.secret_key"},
+            sensitive = true,
             description = "The secret key of the AWS Glue.")
     protected String glueSecretKey = "";
 
@@ -58,18 +62,17 @@ public class AWSGlueMetaStoreBaseProperties {
     protected String glueSessionToken = "";
 
     @ConnectorProperty(names = {"glue.role_arn"},
-            description = "The IAM role the AWS Glue.",
-            supported = false)
+            description = "The IAM role the AWS Glue.")
     protected String glueIAMRole = "";
 
     @ConnectorProperty(names = {"glue.external_id"},
-            description = "The external id of the AWS Glue.",
-            supported = false)
+            description = "The external id of the AWS Glue.")
     protected String glueExternalId = "";
 
     public static AWSGlueMetaStoreBaseProperties of(Map<String, String> properties) {
         AWSGlueMetaStoreBaseProperties propertiesObj = new AWSGlueMetaStoreBaseProperties();
         ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        propertiesObj.checkAndInit();
         return propertiesObj;
     }
 
@@ -86,31 +89,41 @@ public class AWSGlueMetaStoreBaseProperties {
      * glue.us-east-1.api.aws
      */
     private static final Pattern ENDPOINT_PATTERN = Pattern.compile(
-            "^(https?://)?(glue|glue-fips)\\.[a-z0-9-]+\\.(api\\.aws|amazonaws\\.com)$"
+            "^(?:https?://)?(?:glue|glue-fips)\\.([a-z0-9-]+)\\.(?:api\\.aws|amazonaws\\.com)$"
     );
 
     private ParamRules buildRules() {
 
-        return new ParamRules()
-                .require(glueAccessKey,
-                        "glue.access_key or aws.glue.access-key or client.credentials-provider.glue.access_key")
-                .require(glueSecretKey,
-                        "glue.secret_key or aws.glue.secret-key or client.credentials-provider.glue.secret_key")
-                .require(glueEndpoint, "glue.endpoint or aws.endpoint or aws.glue.endpoint is required");
+        return new ParamRules().requireTogether(new String[]{glueAccessKey, glueSecretKey},
+                "glue.access_key and glue.secret_key must be set together")
+                .requireAtLeastOne(new String[]{glueAccessKey, glueIAMRole},
+                        "At least one of glue.access_key or glue.role_arn must be set")
+                .requireAtLeastOne(new String[]{glueEndpoint, glueRegion},
+                        "At least one of glue.endpoint or glue.region must be set");
     }
 
-    public void check() {
+    private void checkAndInit() {
         buildRules().validate();
-        if (!ENDPOINT_PATTERN.matcher(glueEndpoint).matches()) {
-            throw new IllegalArgumentException("AWS Glue properties (glue.endpoint) are not set correctly: "
-                    + glueEndpoint);
+
+        Matcher matcher = ENDPOINT_PATTERN.matcher(glueEndpoint.toLowerCase());
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException("Invalid AWS Glue endpoint: " + glueEndpoint);
+        }
+
+        if (StringUtils.isBlank(glueRegion)) {
+            this.glueRegion = extractRegionFromEndpoint(matcher);
         }
     }
 
-    protected String getRegionFromGlueEndpoint() {
-        // https://glue.ap-northeast-1.amazonaws.com
-        // -> ap-northeast-1
-        return glueEndpoint.split("\\.")[1];
+    private String extractRegionFromEndpoint(Matcher matcher) {
+        for (int i = 1; i <= matcher.groupCount(); i++) {
+            String group = matcher.group(i);
+            if (StringUtils.isNotBlank(group)) {
+                return group;
+            }
+        }
+        throw new IllegalArgumentException("Could not extract region from endpoint: " + glueEndpoint);
     }
-
 }
+
+

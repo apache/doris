@@ -43,7 +43,6 @@
 
 #include "absl/strings/substitute.h"
 #include "gflags/gflags.h"
-#include "gutil/strings/numbers.h"
 #include "olap/olap_common.h"
 
 DEFINE_bool(gen_out, false, "generate expected check data for test");

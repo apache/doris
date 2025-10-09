@@ -21,6 +21,7 @@
 
 #include "vec/core/extended_types.h"
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 // Supported decimal number format:
 // <decimal> ::= <whitespace>* <value> <whitespace>*
 //
@@ -41,7 +42,7 @@ namespace doris {
 // <e_marker> ::= "e" | "E"
 template <PrimitiveType P>
 typename PrimitiveTypeTraits<P>::CppType::NativeType StringParser::string_to_decimal(
-        const char* __restrict s, int len, int type_precision, int type_scale,
+        const char* __restrict s, size_t len, int type_precision, int type_scale,
         ParseResult* result) {
     using T = typename PrimitiveTypeTraits<P>::CppType::NativeType;
     static_assert(std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> ||
@@ -221,13 +222,19 @@ typename PrimitiveTypeTraits<P>::CppType::NativeType StringParser::string_to_dec
     return is_negative ? T(-value) : T(value);
 }
 template vectorized::Int32 StringParser::string_to_decimal<PrimitiveType::TYPE_DECIMAL32>(
-        const char* __restrict s, int len, int type_precision, int type_scale, ParseResult* result);
+        const char* __restrict s, size_t len, int type_precision, int type_scale,
+        ParseResult* result);
 template vectorized::Int64 StringParser::string_to_decimal<PrimitiveType::TYPE_DECIMAL64>(
-        const char* __restrict s, int len, int type_precision, int type_scale, ParseResult* result);
+        const char* __restrict s, size_t len, int type_precision, int type_scale,
+        ParseResult* result);
 template vectorized::Int128 StringParser::string_to_decimal<PrimitiveType::TYPE_DECIMAL128I>(
-        const char* __restrict s, int len, int type_precision, int type_scale, ParseResult* result);
+        const char* __restrict s, size_t len, int type_precision, int type_scale,
+        ParseResult* result);
 template vectorized::Int128 StringParser::string_to_decimal<PrimitiveType::TYPE_DECIMALV2>(
-        const char* __restrict s, int len, int type_precision, int type_scale, ParseResult* result);
+        const char* __restrict s, size_t len, int type_precision, int type_scale,
+        ParseResult* result);
 template wide::Int256 StringParser::string_to_decimal<PrimitiveType::TYPE_DECIMAL256>(
-        const char* __restrict s, int len, int type_precision, int type_scale, ParseResult* result);
+        const char* __restrict s, size_t len, int type_precision, int type_scale,
+        ParseResult* result);
 } // end namespace doris
+#include "common/compile_check_avoid_end.h"

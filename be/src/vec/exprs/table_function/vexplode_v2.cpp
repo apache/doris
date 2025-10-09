@@ -19,9 +19,12 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <ostream>
 
 #include "common/status.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nothing.h"
@@ -49,7 +52,8 @@ Status VExplodeV2TableFunction::_process_init_variant(Block* block, int value_co
     // explode variant array
     auto column_without_nullable = remove_nullable(block->get_by_position(value_column_idx).column);
     auto column = column_without_nullable->convert_to_full_column_if_const();
-    const auto& variant_column = assert_cast<const ColumnVariant&>(*column);
+    auto& variant_column = assert_cast<ColumnVariant&>(*(column->assume_mutable()));
+    variant_column.finalize();
     _multi_detail[children_column_idx].output_as_variant = true;
     if (!variant_column.is_null_root()) {
         _array_columns[children_column_idx] = variant_column.get_root();
@@ -111,9 +115,7 @@ void VExplodeV2TableFunction::process_row(size_t row_idx) {
             _array_offsets[i] = (*detail.offsets_ptr)[row_idx - 1];
             // find max size in array
             auto cur_size = (*detail.offsets_ptr)[row_idx] - _array_offsets[i];
-            if (_cur_size < cur_size) {
-                _cur_size = cur_size;
-            }
+            _cur_size = std::max<unsigned long>(_cur_size, cur_size);
         }
     }
     _row_idx = row_idx;
@@ -145,11 +147,17 @@ void VExplodeV2TableFunction::get_same_many_values(MutableColumnPtr& column, int
         throw Exception(ErrorCode::INTERNAL_ERROR,
                         "Only multiple columns can be returned within a struct.");
     }
+
+    if (_generate_row_index) {
+        auto& pos_column = assert_cast<ColumnInt32&>(struct_column->get_column(0));
+        pos_column.insert_many_vals(static_cast<int32_t>(_cur_offset), length);
+    }
+
     for (int i = 0; i < _multi_detail.size(); i++) {
         auto& detail = _multi_detail[i];
         size_t pos = _array_offsets[i] + _cur_offset;
         size_t element_size = _multi_detail[i].array_col->size_at(_row_idx);
-        auto& struct_field = struct_column->get_column(i);
+        auto& struct_field = struct_column->get_column(i + (_generate_row_index ? 1 : 0));
         if ((detail.array_nullmap_data && detail.array_nullmap_data[_row_idx])) {
             struct_field.insert_many_defaults(length);
         } else {
@@ -191,11 +199,18 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "Only multiple columns can be returned within a struct.");
         }
+
+        if (_generate_row_index) {
+            auto& pos_column = assert_cast<ColumnInt32&>(struct_column->get_column(0));
+            pos_column.insert_range_of_integer(static_cast<int32_t>(_cur_offset),
+                                               static_cast<int32_t>(_cur_offset + max_step));
+        }
+
         for (int i = 0; i < _multi_detail.size(); i++) {
             auto& detail = _multi_detail[i];
             size_t pos = _array_offsets[i] + _cur_offset;
             size_t element_size = _multi_detail[i].array_col->size_at(_row_idx);
-            auto& struct_field = struct_column->get_column(i);
+            auto& struct_field = struct_column->get_column(i + (_generate_row_index ? 1 : 0));
             if (detail.array_nullmap_data && detail.array_nullmap_data[_row_idx]) {
                 struct_field.insert_many_defaults(max_step);
             } else {

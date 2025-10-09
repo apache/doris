@@ -175,6 +175,10 @@ MutableColumnPtr DataTypeHLL::create_column() const {
     return ColumnHLL::create();
 }
 
+Status DataTypeHLL::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<ColumnHLL>(column);
+}
+
 void DataTypeHLL::serialize_as_stream(const HyperLogLog& cvalue, BufferWritable& buf) {
     auto& value = const_cast<HyperLogLog&>(cvalue);
     std::string memory_buffer(value.max_serialized_size(), '0');
@@ -188,31 +192,4 @@ void DataTypeHLL::deserialize_as_stream(HyperLogLog& value, BufferReadable& buf)
     buf.read_binary(str);
     value.deserialize(Slice(str));
 }
-
-void DataTypeHLL::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
-                            doris::vectorized::BufferWritable& ostr) const {
-    auto col_row = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = col_row.first;
-    row_num = col_row.second;
-
-    auto& data = const_cast<HyperLogLog&>(assert_cast<const ColumnHLL&>(*ptr).get_element(row_num));
-
-    std::string result(data.max_serialized_size(), '0');
-    size_t actual_size = data.serialize((uint8_t*)result.data());
-    result.resize(actual_size);
-    ostr.write(result.c_str(), result.size());
-}
-
-Status DataTypeHLL::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto& data_column = assert_cast<ColumnHLL&>(*column);
-    auto& data = data_column.get_data();
-
-    HyperLogLog hll;
-    if (!hll.deserialize(Slice(rb.to_string()))) {
-        return Status::InternalError("deserialize hll from string fail!");
-    }
-    data.push_back(std::move(hll));
-    return Status::OK();
-}
-
 } // namespace doris::vectorized

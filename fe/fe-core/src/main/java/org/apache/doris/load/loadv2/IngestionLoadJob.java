@@ -863,11 +863,15 @@ public class IngestionLoadJob extends LoadJob {
 
         List<TColumn> columnsDesc = new ArrayList<>();
         List<Column> columns = new ArrayList<>();
+        Map<String, TColumn> colNameToColDesc = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (Column column : olapTable.getSchemaByIndexId(indexId)) {
             Column col = new Column(column);
             col.setName(column.getName().toLowerCase(Locale.ROOT));
             columns.add(col);
-            columnsDesc.add(col.toThrift());
+            TColumn tCol = col.toThrift();
+            columnsDesc.add(tCol);
+            String colName = col.tryGetBaseColumnName();
+            colNameToColDesc.put(colName, tCol);
             // use index schema to fill the descriptor table
             SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
             destSlotDesc.setIsMaterialized(true);
@@ -897,7 +901,7 @@ public class IngestionLoadJob extends LoadJob {
         return new PushTask(backendId, dbId, olapTable.getId(),
                 partitionId, indexId, tabletId, replicaId, schemaHash, 0, id,
                 TPushType.LOAD_V2, TPriority.NORMAL, transactionId, taskSignature,
-                tBrokerScanRange, tDescriptorTable, columnsDesc,
+                tBrokerScanRange, tDescriptorTable, columnsDesc, colNameToColDesc,
                 olapTable.getStorageVaultId(), schemaVersion);
     }
 

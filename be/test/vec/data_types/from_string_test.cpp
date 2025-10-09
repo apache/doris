@@ -23,7 +23,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/serde_utils.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 
@@ -36,9 +35,8 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
     // arithmetic scala field types
     {
         // fieldType, test_string, expect_wrapper_field_string, expect_data_type_string
-        typedef std::tuple<FieldType, std::vector<std::string>, std::vector<std::string>,
-                           std::vector<std::string>>
-                FieldType_RandStr;
+        using FieldType_RandStr = std::tuple<FieldType, std::vector<std::string>,
+                                             std::vector<std::string>, std::vector<std::string>>;
         std::vector<FieldType_RandStr> arithmetic_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_BOOL, {"0", "1", "-9"},
                                   {"0", "1", "1"}, {"0", "1", ""}),
@@ -197,7 +195,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                 std::cout << "the ith : " << i << std::endl;
                 std::string test_str = std::get<1>(type_pair)[i];
                 // data_type from_string
-                ReadBuffer rb_test(test_str.data(), test_str.size());
+                StringRef rb_test(test_str.data(), test_str.size());
                 Status st = data_type_ptr->from_string(rb_test, col.get());
                 if (std::get<3>(type_pair)[i].empty()) {
                     EXPECT_EQ(st.ok(), false);
@@ -214,7 +212,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
 
     // date and datetime type
     {
-        typedef std::pair<FieldType, std::string> FieldType_RandStr;
+        using FieldType_RandStr = std::pair<FieldType, std::string>;
         std::vector<FieldType_RandStr> date_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATE, "2020-01-01"),
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATEV2, "2020-01-01"),
@@ -246,9 +244,9 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             std::string max_s = max_wf->to_string();
             std::string rand_date = rand_wf->to_string();
 
-            ReadBuffer min_rb(min_s.data(), min_s.size());
-            ReadBuffer max_rb(max_s.data(), max_s.size());
-            ReadBuffer rand_rb(rand_date.data(), rand_date.size());
+            StringRef min_rb(min_s.data(), min_s.size());
+            StringRef max_rb(max_s.data(), max_s.size());
+            StringRef rand_rb(rand_date.data(), rand_date.size());
 
             auto col = data_type_ptr->create_column();
             Status st = data_type_ptr->from_string(min_rb, col.get());
@@ -285,7 +283,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
 
     // ipv4 and ipv6 type
     {
-        typedef std::pair<FieldType, std::string> FieldType_RandStr;
+        using FieldType_RandStr = std::pair<FieldType, std::string>;
         std::vector<FieldType_RandStr> ip_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "0.0.0.0"),         // min case
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "127.0.0.1"),       // rand case
@@ -312,7 +310,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             std::unique_ptr<WrapperField> rand_wf(WrapperField::create_by_type(type));
             Status st = rand_wf->from_string(pair.second, 0, 0);
             std::string rand_ip = rand_wf->to_string();
-            ReadBuffer rand_rb(rand_ip.data(), rand_ip.size());
+            StringRef rand_rb(rand_ip.data(), rand_ip.size());
             auto col = data_type_ptr->create_column();
             st = data_type_ptr->from_string(rand_rb, col.get());
             EXPECT_EQ(st.ok(), true);
@@ -329,7 +327,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             std::unique_ptr<WrapperField> rand_wf(WrapperField::create_by_type(type));
             Status st = rand_wf->from_string(pair.second, 0, 0);
             EXPECT_EQ(st.ok(), false);
-            ReadBuffer rand_rb(pair.second.data(), pair.second.size());
+            StringRef rand_rb(pair.second.data(), pair.second.size());
             auto col = data_type_ptr->create_column();
             st = data_type_ptr->from_string(rand_rb, col.get());
             EXPECT_EQ(st.ok(), false);

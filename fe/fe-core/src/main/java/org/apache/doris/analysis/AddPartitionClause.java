@@ -57,7 +57,7 @@ public class AddPartitionClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
     }
 
     @Override

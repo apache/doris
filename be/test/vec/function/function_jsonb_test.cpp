@@ -15,16 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gtest/gtest.h>
 #include <stdint.h>
 
-#include <iomanip>
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "common/status.h"
 #include "function_test_util.h"
-#include "gtest/gtest_pred_impl.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "testutil/any_type.h"
@@ -32,13 +30,13 @@
 #include "udf/udf.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column_const.h"
-#include "vec/columns/column_nullable.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/functions/function.h"
 
 namespace doris::vectorized {
 using namespace ut_type;
@@ -74,38 +72,38 @@ TEST(FunctionJsonbTEST, JsonbParseTest) {
     DataSet data_set_invalid = {
             {{STRING("abc")}, Null()}, // invalid string
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("'abc'")}, Null()}, // invalid string
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("100x")}, Null()}, // invalid int
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("6.a8")}, Null()}, // invalid double
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("{x")}, Null()}, // invalid object
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 
     data_set_invalid = {
             {{STRING("[123, abc]")}, Null()} // invalid array
     };
-    static_cast<void>(
-            check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid, true));
+    static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set_invalid,
+                                                          -1, -1, true));
 }
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToNullTest) {
@@ -179,6 +177,13 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToValueTest) {
     };
 
     static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
+
+    InputTypeSet input_types2 = {Nullable {PrimitiveType::TYPE_VARCHAR}, PrimitiveType::TYPE_JSONB,
+                                 PrimitiveType::TYPE_JSONB};
+    DataSet data_set2 = {{{Null(), STRING("{}"), STRING("{}")}, Null()},
+                         {{STRING("{}"), STRING("{}"), STRING("{}")}, Null()}};
+    auto st = check_function<DataTypeJsonb, true>(func_name, input_types2, data_set2);
+    ASSERT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT) << st.to_string();
 }
 
 TEST(FunctionJsonbTEST, JsonbExtractTest) {
@@ -327,6 +332,78 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
     static_cast<void>(check_function<DataTypeJsonb, true>(func_name, input_types, data_set));
 }
 
+TEST(FunctionJsonbTEST, JsonExtractCheckArg) {
+    ColumnsWithTypeAndName args;
+    args.emplace_back(ColumnWithTypeAndName {nullptr, std::make_shared<DataTypeJsonb>(), "jsonb"});
+    args.emplace_back(ColumnWithTypeAndName {nullptr, std::make_shared<DataTypeString>(), "path"});
+    auto return_type = make_nullable(std::make_shared<DataTypeJsonb>());
+    FunctionBasePtr func =
+            SimpleFunctionFactory::instance().get_function("json_extract", args, return_type);
+    ASSERT_NE(func, nullptr);
+
+    auto function_ptr = std::dynamic_pointer_cast<IFunction>(
+            assert_cast<DefaultFunction*>(func.get())->function);
+    ASSERT_TRUE(function_ptr);
+
+    ASSERT_EQ(function_ptr->get_number_of_arguments(), 0);
+    ASSERT_TRUE(function_ptr->is_variadic());
+
+    FunctionUtils fn_utils(return_type, {}, false);
+
+    auto st = function_ptr->open(fn_utils.get_fn_ctx(),
+                                 FunctionContext::FunctionStateScope::THREAD_LOCAL);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    auto col1 = ColumnHelper::create_column<DataTypeString>({"ab", "cd"});
+    auto col2 = ColumnHelper::create_column<DataTypeString>({"ef", "gh"});
+
+    Block block;
+    block.insert({col1, std::make_shared<DataTypeString>(), "jsonb"});
+    block.insert({col2, std::make_shared<DataTypeString>(), "path"});
+
+    st = function_ptr->execute(fn_utils.get_fn_ctx(), block, {0, 1}, 2, 2);
+    // the 1st arg's primitive type should be jsonb, but here is string.
+    ASSERT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT);
+}
+
+TEST(FunctionJsonbTEST, JsonParseCheckArg) {
+    ColumnsWithTypeAndName args;
+    args.emplace_back(
+            ColumnWithTypeAndName {nullptr, std::make_shared<DataTypeString>(), "json_str"});
+    args.emplace_back(
+            ColumnWithTypeAndName {nullptr, std::make_shared<DataTypeJsonb>(), "default_value"});
+    auto return_type = std::make_shared<DataTypeJsonb>();
+    FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
+            "json_parse_error_to_value", args, return_type);
+    ASSERT_NE(func, nullptr);
+
+    auto function_ptr = std::dynamic_pointer_cast<IFunction>(
+            assert_cast<DefaultFunction*>(func.get())->function);
+    ASSERT_TRUE(function_ptr);
+
+    ASSERT_EQ(function_ptr->get_number_of_arguments(), 0);
+    ASSERT_TRUE(function_ptr->is_variadic());
+
+    FunctionUtils fn_utils(return_type,
+                           {std::make_shared<DataTypeString>(), std::make_shared<DataTypeJsonb>()},
+                           false);
+
+    auto st = function_ptr->open(fn_utils.get_fn_ctx(),
+                                 FunctionContext::FunctionStateScope::THREAD_LOCAL);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    auto col1 = ColumnHelper::create_column<DataTypeString>({"ab", "cd"});
+    auto col2 = ColumnHelper::create_column<DataTypeString>({"ef", "gh"});
+
+    Block block;
+    block.insert({col1, std::make_shared<DataTypeString>(), "json_str"});
+    block.insert({col2, std::make_shared<DataTypeString>(), "default_value"});
+
+    st = function_ptr->execute(fn_utils.get_fn_ctx(), block, {0, 1}, 2, 2);
+    // the 2nd arg's primitive type should be jsonb, but here is string.
+    ASSERT_EQ(st.code(), ErrorCode::INVALID_ARGUMENT);
+}
+
 TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     std::string func_name = "CAST";
     InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_JSONB},
@@ -378,13 +455,12 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("true"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, TINYINT(1)},
             {{STRING("false"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, TINYINT(0)},
             {{STRING("100"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
-             TINYINT(100)}, //int8
-            {{STRING("10000"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
-             TINYINT(16)}, // int16
+             TINYINT(100)},                                                                //int8
+            {{STRING("10000"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, Null()}, // int16
             {{STRING("1000000000"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
-             TINYINT(0)}, // int32
+             Null()}, // int32
             {{STRING("1152921504606846976"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
-             TINYINT(0)}, // int64
+             Null()}, // int64
             {{STRING("6.18"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
              TINYINT(6)}, // double
             {{STRING(R"("abcd")"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
@@ -424,9 +500,9 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("10000"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
              SMALLINT(10000)}, // int16
             {{STRING("1000000000"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
-             SMALLINT(-13824)}, // int32
+             Null()}, // int32
             {{STRING("1152921504606846976"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
-             SMALLINT(0)}, // int64
+             Null()}, // int64
             {{STRING("6.18"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
              SMALLINT(6)}, // double
             {{STRING(R"("abcd")"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
@@ -466,7 +542,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("1000000000"), static_cast<int32_t>(PrimitiveType::TYPE_INT)},
              INT(1000000000)}, // int32
             {{STRING("1152921504606846976"), static_cast<int32_t>(PrimitiveType::TYPE_INT)},
-             INT(0)},                                                                  // int64
+             Null()},                                                                  // int64
             {{STRING("6.18"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, INT(6)}, // double
             {{STRING(R"("abcd")"), static_cast<int32_t>(PrimitiveType::TYPE_INT)},
              Null()},                                                                // string
@@ -550,7 +626,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     input_types = {Nullable {PrimitiveType::TYPE_JSONB}, Consted {PrimitiveType::TYPE_VARCHAR}};
     // cast to STRING
     data_set = {
-            {{STRING("null"), STRING("1")}, STRING("null")},
+            {{STRING("null"), STRING("1")}, Null()},
             {{STRING("true"), STRING("1")}, STRING("true")},
             {{STRING("false"), STRING("1")}, STRING("false")},
             {{STRING("100"), STRING("1")}, STRING("100")},                                 //int8
@@ -558,7 +634,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("1000000000"), STRING("1")}, STRING("1000000000")},                   // int32
             {{STRING("1152921504606846976"), STRING("1")}, STRING("1152921504606846976")}, // int64
             {{STRING("6.18"), STRING("1")}, STRING("6.18")},                               // double
-            {{STRING(R"("abcd")"), STRING("1")}, STRING(R"("abcd")")},                     // string
+            {{STRING(R"("abcd")"), STRING("1")}, STRING(R"(abcd)")},                       // string
             {{STRING("{}"), STRING("1")}, STRING("{}")}, // empty object
             {{STRING(R"({"k1":"v31", "k2": 300})"), STRING("1")},
              STRING(R"({"k1":"v31","k2":300})")},                       // object

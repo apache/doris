@@ -51,13 +51,18 @@ public class BitmapFromBase64 extends ScalarFunction
         super("bitmap_from_base64", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private BitmapFromBase64(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public BitmapFromBase64 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new BitmapFromBase64(children.get(0));
+        return new BitmapFromBase64(getFunctionParams(children));
     }
 
     @Override

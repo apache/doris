@@ -17,6 +17,33 @@
 -- !select6 --
 1
 
+-- !select7 --
+2
+
+-- !select8 --
+1
+
+-- !select9 --
+0
+
+-- !select10 --
+0
+
+-- !select11 --
+\N
+
+-- !select12 --
+\N
+
+-- !select13 --
+\N
+
+-- !select14 --
+\N
+
+-- !select15 --
+\N
+
 -- !select4_empty --
 
 -- !select5_empty --
@@ -39,6 +66,8 @@ a,b,c,	\N	\N
 a,b,c,12345	5	1
 a,b,c,12345	a	1
 a,你,你,1我2你4我5	你	3
+abababab	ab	4
+abcabcabc	abc	3
 
 -- !select6_null_not --
 abcde		0
@@ -54,6 +83,8 @@ a,b,c,		0
 a,b,c,12345	5	1
 a,b,c,12345	a	1
 a,你,你,1我2你4我5	我	2
+abababab	ab	4
+abcabcabc	abc	3
 
 -- !select7_not_null --
 abcde		0
@@ -69,6 +100,8 @@ a,b,c	\N	\N
 a,b,c,12345	5	1
 a,b,c,12345	a	1
 a你,你,1我2你4我5	你	3
+abababab	ab	4
+abcabcabc	abc	3
 
 -- !select8_not_not --
 abcde		0
@@ -84,6 +117,8 @@ a,b,c		0
 a,b,c,12345	5	1
 a,b,c,12345	a	1
 a你,你,1我2你4我5	我	2
+abababab	ab	4
+abcabcabc	abc	3
 
 -- !select9_null_const --
 abcde	a	1
@@ -99,6 +134,8 @@ a,b,c,	a	1
 a,b,c,12345	a	1
 a,b,c,12345	a	1
 a,你,你,1我2你4我5	a	1
+abababab	a	4
+abcabcabc	a	3
 
 -- !select10_not_null_const --
 abcde	a	1
@@ -114,6 +151,8 @@ a,b,c	a	1
 a,b,c,12345	a	1
 a,b,c,12345	a	1
 a你,你,1我2你4我5	a	1
+abababab	a	4
+abcabcabc	a	3
 
 -- !select11_const_null --
 a		0
@@ -129,6 +168,8 @@ a	asd	0
 a	5	0
 a	a	1
 a	你	0
+a	ab	0
+a	abc	0
 
 -- !select12_const_not_null --
 a		0
@@ -144,4 +185,84 @@ a	asd	0
 a	5	0
 a	a	1
 a	我	0
+a	ab	0
+a	abc	0
+
+-- !start_pos1 --
+abababab	ab	4
+abcabcabc	abc	3
+
+-- !start_pos2 --
+abababab	ab	3
+abcabcabc	abc	2
+
+-- !start_pos3 --
+abababab	ab	3
+abcabcabc	abc	2
+
+-- !start_pos_null --
+abababab	ab	\N
+abcabcabc	abc	\N
+
+-- !start_pos_const --
+abababab	ab	3
+abcabcabc	abc	2
+
+-- !start_pos_column --
+abababab	ab	0
+abcabcabc	abc	0
+
+-- !start_pos_large --
+abababab	ab	0
+abcabcabc	abc	0
+
+-- !start_pos_negative --
+abababab	ab	0
+abcabcabc	abc	0
+
+-- !select_with_start_pos1 --
+abcde	a	0
+	a	0
+	a	0
+\N	a	\N
+asdasd	a	1
+a1b1c1d	a	0
+,,,	a	0
+a,b,c	a	0
+a,b,c,	a	0
+\N	a	\N
+a,b,c,12345	a	0
+a,b,c,12345	a	0
+a,你,你,1我2你4我5	a	0
+abababab	a	3
+abcabcabc	a	2
+
+-- !select_with_start_pos2 --
+abcde		0
+		0
+	a	0
+		0
+asdasd	a	1
+a1b1c1d	1	2
+,,,	#	0
+a,b,c	v	0
+a,b,c		0
+	asd	0
+a,b,c,12345	5	1
+a,b,c,12345	a	0
+a你,你,1我2你4我5	我	2
+abababab	ab	3
+abcabcabc	abc	2
+
+-- !utf8 --
+2
+
+-- !utf8_start_pos --
+2
+
+-- !utf8_null --
+\N
+
+-- !utf8_const --
+1
 

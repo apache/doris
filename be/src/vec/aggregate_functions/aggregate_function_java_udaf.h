@@ -263,7 +263,9 @@ private:
 };
 
 class AggregateJavaUdaf final
-        : public IAggregateFunctionDataHelper<AggregateJavaUdafData, AggregateJavaUdaf> {
+        : public IAggregateFunctionDataHelper<AggregateJavaUdafData, AggregateJavaUdaf>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     ENABLE_FACTORY_CREATOR(AggregateJavaUdaf);
     AggregateJavaUdaf(const TFunction& fn, const DataTypes& argument_types_,
@@ -396,8 +398,7 @@ public:
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        Status st = this->data(const_cast<AggregateDataPtr&>(_exec_place))
-                            .write(buf, reinterpret_cast<int64_t>(place));
+        Status st = this->data(_exec_place).write(buf, reinterpret_cast<int64_t>(place));
         if (UNLIKELY(!st.ok())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }

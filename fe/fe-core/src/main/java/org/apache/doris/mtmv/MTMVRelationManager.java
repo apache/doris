@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -33,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -235,6 +235,9 @@ public class MTMVRelationManager implements MTMVHookService {
     public void refreshComplete(MTMV mtmv, MTMVRelation relation, MTMVTask task) {
         if (task.getStatus() == TaskStatus.SUCCESS) {
             Objects.requireNonNull(relation);
+            if (mtmv.isDropped) {
+                return;
+            }
             refreshMTMVCache(relation, new BaseTableInfo(mtmv));
         }
     }
@@ -284,7 +287,7 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     private void processBaseTableChange(BaseTableInfo baseTableInfo, String msgPrefix) {
-        Set<BaseTableInfo> mtmvsByBaseTable = getMtmvsByBaseTable(baseTableInfo);
+        Set<BaseTableInfo> mtmvsByBaseTable = getMtmvsByBaseTableOneLevel(baseTableInfo);
         if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
             return;
         }

@@ -17,14 +17,16 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
+import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -57,19 +59,21 @@ public class S3PropertiesTest {
         origProps.put("s3.secret_key", "myS3SecretKey");
         origProps.put("s3.region", "us-west-1");
         origProps.put(StorageProperties.FS_S3_SUPPORT, "true");
-        origProps = new HashMap<>();
-        origProps.put("s3.endpoint", "https://s3.example.com");
-        origProps.put(StorageProperties.FS_S3_SUPPORT, "true");
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps),
-                "Property cos.access_key is required.");
-        origProps.put("s3.access_key", "myS3AccessKey");
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps),
-                "Property cos.secret_key is required.");
-        origProps.put("s3.secret_key", "myS3SecretKey");
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps),
-                "Invalid endpoint format: https://s3.example.com");
-        origProps.put("s3.endpoint", "s3.us-west-1.amazonaws.com");
         Assertions.assertDoesNotThrow(() -> StorageProperties.createAll(origProps));
+        origProps = new HashMap<>();
+        origProps.put("s3.endpoint", "s3-fips.dualstack.us-east-2.amazonaws.com");
+        origProps.put(StorageProperties.FS_S3_SUPPORT, "true");
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-east-2", s3Properties.getRegion());
+        Assertions.assertEquals("s3-fips.dualstack.us-east-2.amazonaws.com", s3Properties.getEndpoint());
+
+        origProps = new HashMap<>();
+        origProps.put("s3.endpoint", "s3-fips.dualstack.us-east-2.amazonaws.com");
+        origProps.put("s3.access_key", "myS3AccessKey");
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Both the access key and the secret key must be set.", () -> StorageProperties.createAll(origProps));
+        origProps.put("s3.secret_key", "myS3SecretKey");
+        ExceptionChecker.expectThrowsNoException(() -> StorageProperties.createAll(origProps));
     }
 
     @Test
@@ -115,7 +119,6 @@ public class S3PropertiesTest {
 
     @Test
     public void testToNativeS3Configuration() throws UserException {
-        origProps.put("s3.endpoint", "https://cos.example.com");
         origProps.put("s3.access_key", "myS3AccessKey");
         origProps.put("s3.secret_key", "myS3SecretKey");
         origProps.put("s3.region", "us-west-1");
@@ -124,11 +127,6 @@ public class S3PropertiesTest {
         origProps.put("s3.connection.maximum", "88");
         origProps.put("s3.connection.timeout", "6000");
         origProps.put("test_non_storage_param", "6000");
-
-
-        Assertions.assertThrows(IllegalArgumentException.class, () -> {
-            StorageProperties.createAll(origProps).get(1);
-        }, "Invalid endpoint format: https://cos.example.com");
         origProps.put("s3.endpoint", "s3.us-west-1.amazonaws.com");
         S3Properties s3Properties = (S3Properties) StorageProperties.createAll(origProps).get(0);
         Map<String, String> s3Props = s3Properties.getBackendConfigProperties();
@@ -201,9 +199,7 @@ public class S3PropertiesTest {
         s3EndpointProps.put("oss.secret_key", "myCOSSecretKey");
         s3EndpointProps.put("oss.region", "cn-hangzhou");
         origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
-        // not support
-        Assertions.assertThrowsExactly(StoragePropertiesException.class,
-                () -> StorageProperties.createPrimary(s3EndpointProps), "Property cos.endpoint is required.");
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class, "Endpoint is not set. Please specify it explicitly.", () -> StorageProperties.createPrimary(s3EndpointProps));
     }
 
     @Test
@@ -217,11 +213,16 @@ public class S3PropertiesTest {
 
         Assertions.assertEquals("arn:aws:iam::123456789012:role/MyTestRole", backendProperties.get("AWS_ROLE_ARN"));
         Assertions.assertEquals("external-123", backendProperties.get("AWS_EXTERNAL_ID"));
+        origProps.remove("s3.external_id");
+        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+        backendProperties = s3Props.getBackendConfigProperties();
+        Assertions.assertNull(backendProperties.get("AWS_EXTERNAL_ID"));
+        Assertions.assertEquals("arn:aws:iam::123456789012:role/MyTestRole", backendProperties.get("AWS_ROLE_ARN"));
     }
 
     @Test
     public void testGetAwsCredentialsProviderWithIamRoleAndExternalId(@Mocked StsClientBuilder mockBuilder,
-            @Mocked StsClient mockStsClient, @Mocked InstanceProfileCredentialsProvider mockInstanceCreds) {
+                                                                      @Mocked StsClient mockStsClient, @Mocked InstanceProfileCredentialsProvider mockInstanceCreds) {
 
         new Expectations() {
             {
@@ -307,17 +308,26 @@ public class S3PropertiesTest {
         // Fails because it contains 'amazonaws.com' but doesn't match the strict S3 endpoint pattern (missing region).
         String invalidEndpoint1 = "s3.amazonaws.com";
         origProps.put("s3.endpoint", invalidEndpoint1);
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createPrimary(origProps));
-
+        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
+                "Region is not set. If you are using a standard endpoint, the region will be detected automatically. Otherwise, please specify it explicitly.", () -> StorageProperties.createPrimary(origProps));
+        origProps.put("s3.region", "us-west-2");
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
         // Fails because it contains 'amazonaws.com' but doesn't match the strict S3 endpoint pattern (invalid subdomain).
         String invalidEndpoint2 = "my-s3-service.amazonaws.com";
         origProps.put("s3.endpoint", invalidEndpoint2);
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createPrimary(origProps));
-
-        // Fails because it contains 'amazonaws.com' but doesn't match the strict S3 endpoint pattern (invalid TLD).
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
         String invalidEndpoint3 = "http://s3.us-west-2.amazonaws.com.cn";
         origProps.put("s3.endpoint", invalidEndpoint3);
-        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createPrimary(origProps));
+        StorageProperties storageProperties = StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-west-2", storageProperties.getHadoopStorageConfig().get("fs.s3a.endpoint.region"));
+        Assertions.assertEquals("http://s3.us-west-2.amazonaws.com.cn", storageProperties.getHadoopStorageConfig().get("fs.s3a.endpoint"));
+        origProps.remove("s3.endpoint");
+        storageProperties = StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-west-2", storageProperties.getHadoopStorageConfig().get("fs.s3a.endpoint.region"));
+        Assertions.assertEquals("https://s3.us-west-2.amazonaws.com", storageProperties.getHadoopStorageConfig().get("fs.s3a.endpoint"));
+        origProps.put("s3.endpoint", "s3.us-west-2.supervise.com");
+        origProps.put("s3.region", "us-west-2");
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
     }
 
     @Test
@@ -382,5 +392,28 @@ public class S3PropertiesTest {
         Assertions.assertEquals(baseResult.size(), result.size());
         Assertions.assertEquals("base-access-key", result.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("base-secret-key", result.get("AWS_SECRET_KEY"));
+    }
+
+    @Test
+    public void testS3PropertiesFromIcebergRest() throws UserException {
+        Map<String, String> props = Maps.newHashMap();
+        props.put("iceberg.rest.access-key-id", "aaa");
+        props.put("iceberg.rest.secret-access-key", "bbb");
+        props.put("iceberg.rest.signing-region", "ap-east-1");
+
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals("ap-east-1", s3Properties.region);
+        Assertions.assertEquals("https://s3.ap-east-1.amazonaws.com", s3Properties.endpoint);
+        Assertions.assertEquals("aaa", s3Properties.accessKey);
+        Assertions.assertEquals("bbb", s3Properties.secretKey);
+    }
+
+    @Test
+    public void testS3PropertiesAwsAnonymousCredentialsProvider() {
+        Map<String, String> props = Maps.newHashMap();
+        props.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(props);
+        AwsCredentialsProvider provider = s3Properties.getAwsCredentialsProvider();
+        Assertions.assertEquals(AnonymousCredentialsProvider.class, provider.getClass());
     }
 }

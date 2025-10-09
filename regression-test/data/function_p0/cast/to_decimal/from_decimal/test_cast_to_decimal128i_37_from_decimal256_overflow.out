@@ -7,6 +7,12 @@
 -- !sql_1_non_strict --
 0	\N
 1	\N
+2	\N
+3	\N
+4	\N
+5	\N
+6	\N
+7	\N
 
 -- !sql_5_non_strict --
 0	\N
@@ -14,6 +20,16 @@
 2	\N
 
 -- !sql_6_non_strict --
+0	\N
+1	\N
+2	\N
+3	\N
+4	\N
+5	\N
+6	\N
+7	\N
+
+-- !sql_7_non_strict --
 0	\N
 1	\N
 2	\N
@@ -57,21 +73,6 @@
 0	\N
 1	\N
 2	\N
-3	\N
-4	\N
-5	\N
-6	\N
-7	\N
-
--- !sql_17_non_strict --
-0	\N
-1	\N
-2	\N
-3	\N
-4	\N
-5	\N
-6	\N
-7	\N
 
 -- !sql_20_non_strict --
 0	\N
@@ -83,6 +84,16 @@
 1	\N
 2	\N
 
+-- !sql_22_non_strict --
+0	\N
+1	\N
+2	\N
+3	\N
+4	\N
+5	\N
+6	\N
+7	\N
+
 -- !sql_25_non_strict --
 0	\N
 1	\N
@@ -92,6 +103,16 @@
 0	\N
 1	\N
 2	\N
+
+-- !sql_27_non_strict --
+0	\N
+1	\N
+2	\N
+3	\N
+4	\N
+5	\N
+6	\N
+7	\N
 
 -- !sql_30_non_strict --
 0	\N
@@ -146,6 +167,12 @@
 -- !sql_42_non_strict --
 0	\N
 1	\N
+2	\N
+3	\N
+4	\N
+5	\N
+6	\N
+7	\N
 
 -- !sql_45_non_strict --
 0	\N
@@ -161,11 +188,10 @@
 0	\N
 1	\N
 2	\N
-3	\N
-4	\N
-5	\N
-6	\N
-7	\N
+
+-- !sql_48_non_strict --
+0	\N
+1	\N
 
 -- !sql_50_non_strict --
 0	\N
@@ -187,6 +213,10 @@
 6	\N
 7	\N
 
+-- !sql_53_non_strict --
+0	\N
+1	\N
+
 -- !sql_55_non_strict --
 0	\N
 1	\N
@@ -207,6 +237,10 @@
 6	\N
 7	\N
 
+-- !sql_58_non_strict --
+0	\N
+1	\N
+
 -- !sql_60_non_strict --
 0	\N
 1	\N
@@ -223,6 +257,16 @@
 2	\N
 
 -- !sql_63_non_strict --
+0	\N
+1	\N
+2	\N
+3	\N
+4	\N
+5	\N
+6	\N
+7	\N
+
+-- !sql_64_non_strict --
 0	\N
 1	\N
 
@@ -242,6 +286,16 @@
 2	\N
 
 -- !sql_68_non_strict --
+0	\N
+1	\N
+2	\N
+3	\N
+4	\N
+5	\N
+6	\N
+7	\N
+
+-- !sql_69_non_strict --
 0	\N
 1	\N
 
@@ -268,20 +322,6 @@
 -- !sql_73_non_strict --
 0	\N
 1	\N
-
--- !sql_75_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_76_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_77_non_strict --
-0	\N
-1	\N
 2	\N
 3	\N
 4	\N
@@ -289,123 +329,7 @@
 6	\N
 7	\N
 
--- !sql_78_non_strict --
-0	\N
-1	\N
-
--- !sql_80_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_81_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_82_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_83_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_84_non_strict --
-0	\N
-1	\N
-
--- !sql_85_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_86_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_87_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_88_non_strict --
-0	\N
-1	\N
-2	\N
-3	\N
-4	\N
-5	\N
-6	\N
-7	\N
-
--- !sql_89_non_strict --
-0	\N
-1	\N
-
--- !sql_90_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_91_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_92_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_93_non_strict --
-0	\N
-1	\N
-2	\N
-3	\N
-4	\N
-5	\N
-6	\N
-7	\N
-
--- !sql_94_non_strict --
-0	\N
-1	\N
-
--- !sql_95_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_96_non_strict --
-0	\N
-1	\N
-2	\N
-
--- !sql_97_non_strict --
-0	\N
-1	\N
-2	\N
-3	\N
-4	\N
-5	\N
-6	\N
-7	\N
-
--- !sql_98_non_strict --
-0	\N
-1	\N
-2	\N
-3	\N
-4	\N
-5	\N
-6	\N
-7	\N
-
--- !sql_99_non_strict --
+-- !sql_74_non_strict --
 0	\N
 1	\N
 

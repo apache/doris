@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <roaring/roaring.hh>
 
+#include "common/exception.h"
 #include "decimal12.h"
 #include "exprs/hybrid_set.h"
 #include "olap/column_predicate.h"
@@ -53,7 +54,7 @@ struct std::equal_to<doris::uint24_t> {
 };
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 /**
  * Use HybridSetType can avoid virtual function call in the loop.
  * @tparam Type
@@ -135,10 +136,6 @@ public:
 
     PredicateType type() const override { return PT; }
 
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        return input_type == Type || (is_string_type(input_type) && is_string_type(Type));
-    }
-
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
         if (iterator == nullptr) {
@@ -184,9 +181,18 @@ public:
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
         if (iterator == nullptr) {
-            return Status::OK();
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
+                    "in_list");
         }
-        std::string column_name = name_with_type.first;
+        // only string type and bkd inverted index reader can be used for in
+        if (iterator->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE) == nullptr &&
+            iterator->get_reader(segment_v2::InvertedIndexReaderType::BKD) == nullptr) {
+            //NOT support in list when parser is FULLTEXT for expr inverted index evaluate.
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
+                    "in_list");
+        }
         roaring::Roaring indices;
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
@@ -194,11 +200,12 @@ public:
             //            auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(
             //                    *reinterpret_cast<const T*>(ptr));
             std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-            RETURN_IF_ERROR(
-                    InvertedIndexQueryParamFactory::create_query_value<Type>(ptr, query_param));
+            RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value<Type>((const T*)ptr,
+                                                                                     query_param));
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             InvertedIndexParam param;
-            param.column_name = column_name;
+            param.column_name = name_with_type.first;
+            param.column_type = name_with_type.second;
             param.query_value = query_param->get_value();
             param.query_type = query_type;
             param.num_rows = num_rows;
@@ -270,8 +277,10 @@ public:
             return true;
         }
         if constexpr (PT == PredicateType::IN_LIST) {
-            return get_zone_map_value<Type, T>(statistic.first->cell_ptr()) <= _max_value &&
-                   get_zone_map_value<Type, T>(statistic.second->cell_ptr()) >= _min_value;
+            return Compare::less_equal(get_zone_map_value<Type, T>(statistic.first->cell_ptr()),
+                                       _max_value) &&
+                   Compare::greater_equal(get_zone_map_value<Type, T>(statistic.second->cell_ptr()),
+                                          _min_value);
         } else {
             return true;
         }
@@ -293,8 +302,10 @@ public:
             return false;
         }
         if constexpr (PT == PredicateType::NOT_IN_LIST) {
-            return get_zone_map_value<Type, T>(statistic.first->cell_ptr()) > _max_value ||
-                   get_zone_map_value<Type, T>(statistic.second->cell_ptr()) < _min_value;
+            return Compare::greater(get_zone_map_value<Type, T>(statistic.first->cell_ptr()),
+                                    _max_value) ||
+                   Compare::less(get_zone_map_value<Type, T>(statistic.second->cell_ptr()),
+                                 _min_value);
         } else {
             return false;
         }
@@ -326,7 +337,7 @@ public:
                     }
                 } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
                     const T* value = (const T*)(iter->get_value());
-                    uint24_t date_value(value->to_olap_date());
+                    uint24_t date_value(uint32_t(value->to_olap_date()));
                     if (bf->test_bytes(
                                 const_cast<char*>(reinterpret_cast<const char*>(&date_value)),
                                 sizeof(uint24_t))) {
@@ -367,7 +378,7 @@ public:
 private:
     uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
                              uint16_t size) const override {
-        int64_t new_size = 0;
+        int16_t new_size = 0;
 
         if (column.is_nullable()) {
             const auto* nullable_col =
@@ -392,8 +403,7 @@ private:
         return new_size;
     }
 
-    template <typename LeftT, typename RightT>
-    bool _operator(const LeftT& lhs, const RightT& rhs) const {
+    bool _operator(const bool& lhs, const bool& rhs) const {
         if constexpr (PT == PredicateType::IN_LIST) {
             return lhs != rhs;
         } else {
@@ -517,6 +527,11 @@ private:
         } else {
             auto* nested_col_ptr = vectorized::check_and_get_column<
                     vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column);
+            if (nested_col_ptr == nullptr) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "InListPredicateBase: _base_evaluate_bit get invalid column type");
+            }
+
             auto& data_array = nested_col_ptr->get_data();
 
             for (uint16_t i = 0; i < size; i++) {
@@ -555,10 +570,10 @@ private:
     }
 
     void _update_min_max(const T& value) {
-        if (value > _max_value) {
+        if (Compare::greater(value, _max_value)) {
             _max_value = value;
         }
-        if (value < _min_value) {
+        if (Compare::less(value, _min_value)) {
             _min_value = value;
         }
     }
@@ -676,5 +691,5 @@ ColumnPredicate* create_in_list_predicate(uint32_t column_id,
         return _create_in_list_predicate<Type, PT>(column_id, hybrid_set, char_length);
     }
 }
-
+#include "common/compile_check_end.h"
 } //namespace doris
