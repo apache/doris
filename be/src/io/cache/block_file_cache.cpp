@@ -55,7 +55,7 @@
 namespace doris::io {
 #include "common/compile_check_begin.h"
 
-std::atomic<size_t> BlockFileCache::file_cache_fill_buffer_size{0};
+std::atomic<size_t> BlockFileCache::file_cache_fill_buffer_size {0};
 
 BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
@@ -190,7 +190,7 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_evict_by_try_release");
 
     _file_cache_fill_buffer_size_metrics = std::make_shared<bvar::Status<size_t>>(
-        _cache_base_path.c_str(), "file_cache_fill_buffer_size", 0);
+            _cache_base_path.c_str(), "file_cache_fill_buffer_size", 0);
     _file_cache_fill_buffer_max_size_metrics = std::make_shared<bvar::Status<size_t>>(
             _cache_base_path.c_str(), "file_cache_fill_max_buffer_size",
             config::file_cache_fill_buffer_max_size);
@@ -2457,8 +2457,10 @@ std::map<std::string, double> BlockFileCache::get_stats() {
     stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
     stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
 
-    stats["file_cache_fill_buffer_size"] = (double)_file_cache_fill_buffer_size_metrics->get_value();
-    stats["file_cache_fill_buffer_max_size"] = (double)_file_cache_fill_buffer_max_size_metrics->get_value();
+    stats["file_cache_fill_buffer_size"] =
+            (double)_file_cache_fill_buffer_size_metrics->get_value();
+    stats["file_cache_fill_buffer_max_size"] =
+            (double)_file_cache_fill_buffer_max_size_metrics->get_value();
 
     return stats;
 }
