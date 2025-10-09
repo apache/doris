@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
+import java.security.InvalidParameterException;
 import java.util.Map;
 
 public class SessionVariablesTest extends TestWithFeService {
@@ -58,8 +59,18 @@ public class SessionVariablesTest extends TestWithFeService {
         Assertions.assertEquals(numOfForwardVars, vars.size());
 
         vars.put(SessionVariable.ENABLE_PROFILE, "true");
+        vars.put(SessionVariable.LC_TIME_NAMES, "EN-us");
         sessionVariable.setForwardedSessionVariables(vars);
         Assertions.assertTrue(sessionVariable.enableProfile);
+        Assertions.assertEquals("en_US", sessionVariable.getLcTimeNames());
+    }
+
+    @Test
+    public void testLcTimeNamesSetter() {
+        sessionVariable.setLcTimeNames("En-us");
+        Assertions.assertEquals("en_US", sessionVariable.getLcTimeNames());
+        Assertions.assertThrows(InvalidParameterException.class,
+                () -> sessionVariable.setLcTimeNames("xx"));
     }
 
     @Test

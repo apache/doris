@@ -70,6 +70,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     private boolean negative;
     private boolean strictMode = false; // default is false
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
+    // private String lcTimeNames = "en_US";
     private int timeout = Config.stream_load_default_timeout_second;
     private long execMemLimit = 2 * 1024 * 1024 * 1024L; // default is 2GB
     private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
@@ -260,6 +261,19 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         return jsonRoot;
     }
 
+    // @Override
+    // public String getLcTimeNames() {
+    //     return lcTimeNames;
+    // }
+
+    // public void setLcTimeNames(String lcTimeNames) {
+    //     if (Strings.isNullOrEmpty(lcTimeNames)) {
+    //         this.lcTimeNames = "en_US";
+    //     } else {
+    //         this.lcTimeNames = lcTimeNames;
+    //     }
+    // }
+
     public void setJsonRoot(String jsonRoot) {
         this.jsonRoot = jsonRoot;
     }
@@ -381,6 +395,9 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         this.jsonRoot = task.getJsonRoot();
         this.sendBatchParallelism = task.getSendBatchParallelism();
         this.loadToSingleTablet = task.isLoadToSingleTablet();
+        // if (task instanceof NereidsLoadTaskInfo) {
+        //     setLcTimeNames(((NereidsLoadTaskInfo) task).getLcTimeNames());
+        // }
     }
 
     private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request) throws UserException {
@@ -438,6 +455,9 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         } else if (ConnectContext.get() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }
+        // if (request.isSetLcTimeNames()) {
+        //     setLcTimeNames(request.getLcTimeNames());
+        // }
         if (request.isSetExecMemLimit()) {
             execMemLimit = request.getExecMemLimit();
         }

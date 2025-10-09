@@ -52,6 +52,7 @@ import org.apache.doris.thrift.TSerdeDialect;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -67,6 +68,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.Serializable;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.security.InvalidParameterException;
 import java.security.SecureRandom;
 import java.time.format.DateTimeFormatter;
@@ -74,6 +76,8 @@ import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.HashMap;
+import java.util.IllformedLocaleException;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -131,6 +135,31 @@ public class SessionVariable implements Serializable, Writable {
     public static final String NET_WRITE_TIMEOUT = "net_write_timeout";
     public static final String NET_READ_TIMEOUT = "net_read_timeout";
     public static final String TIME_ZONE = "time_zone";
+    public static final String LC_TIME_NAMES = "lc_time_names";
+    private static final String DEFAULT_LC_TIME_NAMES = "en_US";
+    private static final Map<String, String> SUPPORTED_LC_TIME_NAMES;
+
+    static {
+        Map<String, String> locales = new LinkedHashMap<>();
+        locales.put("en_US", "English - United States");
+        locales.put("de_DE", "German - Germany");
+        locales.put("fr_FR", "French - France");
+        locales.put("it_IT", "Italian - Italy");
+        locales.put("ja_JP", "Japanese - Japan");
+        locales.put("nl_NL", "Dutch - Netherlands");
+        locales.put("da_DK", "Danish - Denmark");
+        locales.put("es_ES", "Spanish - Spain");
+        locales.put("pt_PT", "Portuguese - Portugal");
+        locales.put("sv_SE", "Swedish - Sweden");
+        locales.put("cs_CZ", "Czech - Czech Republic");
+        locales.put("hu_HU", "Hungarian - Hungary");
+        locales.put("pl_PL", "Polish - Poland");
+        locales.put("ru_RU", "Russian - Russia");
+        locales.put("sk_SK", "Slovak - Slovakia");
+        locales.put("uk_UA", "Ukrainian - Ukraine");
+        SUPPORTED_LC_TIME_NAMES = ImmutableMap.copyOf(locales);
+    }
+
     public static final String SQL_SAFE_UPDATES = "sql_safe_updates";
     public static final String NET_BUFFER_LENGTH = "net_buffer_length";
     public static final String HAVE_QUERY_CACHE =  "have_query_cache";
@@ -1125,6 +1154,10 @@ public class SessionVariable implements Serializable, Writable {
     // The current time zone
     @VariableMgr.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResult = true)
     public String timeZone = TimeUtils.getSystemTimeZone().getID();
+
+    @VariableMgr.VarAttr(name = LC_TIME_NAMES, needForward = true, affectQueryResult = true,
+            setter = "setLcTimeNames")
+    private String lcTimeNames = DEFAULT_LC_TIME_NAMES;
 
     @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
     public int exchangeInstanceParallel = 100;
@@ -3468,6 +3501,51 @@ public class SessionVariable implements Serializable, Writable {
         this.timeZone = timeZone;
     }
 
+    private static String canonicalizeLcTimeNames(String value) {
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            throw new InvalidParameterException("lc_time_names value is empty");
+        }
+        String normalized = trimmed.replace('-', '_');
+        String[] segments = normalized.split("_");
+        if (segments.length != 2) {
+            throw new InvalidParameterException(
+                    "lc_time_names value must be in language_COUNTRY form: " + value);
+        }
+        String language = segments[0].toLowerCase(Locale.ROOT);
+        String country = segments[1].toUpperCase(Locale.ROOT);
+        try {
+            new Locale.Builder().setLanguage(language).setRegion(country).build();
+        } catch (IllformedLocaleException e) {
+            throw new InvalidParameterException("lc_time_names value is invalid: " + value);
+        }
+        return language + "_" + country;
+    }
+
+    public String getLcTimeNames() {
+        return lcTimeNames;
+    }
+
+    public void setLcTimeNames(String lcTimeNames) {
+        if (Strings.isNullOrEmpty(lcTimeNames)) {
+            this.lcTimeNames = DEFAULT_LC_TIME_NAMES;
+            return;
+        }
+        if ("default".equalsIgnoreCase(lcTimeNames) || "null".equalsIgnoreCase(lcTimeNames)) {
+            this.lcTimeNames = DEFAULT_LC_TIME_NAMES;
+            return;
+        }
+        String canonical = canonicalizeLcTimeNames(lcTimeNames);
+        if (!SUPPORTED_LC_TIME_NAMES.containsKey(canonical)) {
+            throw new InvalidParameterException("Unsupported lc_time_names value: " + lcTimeNames);
+        }
+        this.lcTimeNames = canonical;
+    }
+
+    public Map<String, String> getSupportedLcTimeNames() {
+        return SUPPORTED_LC_TIME_NAMES;
+    }
+
     public int getSqlSafeUpdates() {
         return sqlSafeUpdates;
     }
@@ -4856,6 +4934,16 @@ public class SessionVariable implements Serializable, Writable {
 
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("set forward variable: {} = {}", varAttr.name(), val);
+                }
+
+                if (!Strings.isNullOrEmpty(varAttr.setter())) {
+                    try {
+                        SessionVariable.class.getDeclaredMethod(varAttr.setter(), String.class)
+                                .invoke(this, val);
+                    } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+                        LOG.warn("failed to set forward variable {} via setter", varAttr.name(), e);
+                    }
+                    continue;
                 }
 
                 // set config field

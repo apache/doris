@@ -312,6 +312,12 @@ public class CoordinatorContext {
         queryGlobals.setTimestampMs(System.currentTimeMillis());
         queryGlobals.setTimeZone(timezone);
         queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
+        ConnectContext currentCtx = ConnectContext.get();
+        if (currentCtx != null && currentCtx.getSessionVariable() != null) {
+            queryGlobals.setLcTimeNames(currentCtx.getSessionVariable().getLcTimeNames());
+        } else {
+            queryGlobals.setLcTimeNames("en_US");
+        }
 
         ExecutionProfile executionProfile = new ExecutionProfile(
                 queryId,
@@ -351,6 +357,7 @@ public class CoordinatorContext {
         } else {
             queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
         }
+        queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
         return queryGlobals;
     }
 

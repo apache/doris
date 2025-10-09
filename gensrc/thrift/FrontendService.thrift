@@ -555,6 +555,8 @@ struct TStreamLoadPutRequest {
     58: optional Descriptors.TPartialUpdateNewRowPolicy partial_update_new_key_policy
     59: optional bool empty_field_as_null
 
+    // 60: optional string lc_time_names
+
     // For cloud
     1000: optional string cloud_cluster
     1001: optional i64 table_id

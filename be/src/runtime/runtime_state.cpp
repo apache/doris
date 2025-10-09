@@ -214,10 +214,12 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
                           const TQueryGlobals& query_globals, ExecEnv* exec_env) {
     _fragment_instance_id = fragment_instance_id;
     _query_options = query_options;
+    _lc_time_names = query_globals.lc_time_names;
     if (query_globals.__isset.time_zone && query_globals.__isset.nano_seconds) {
         _timezone = query_globals.time_zone;
         _timestamp_ms = query_globals.timestamp_ms;
         _nano_seconds = query_globals.nano_seconds;
+
     } else if (query_globals.__isset.time_zone) {
         _timezone = query_globals.time_zone;
         _timestamp_ms = query_globals.timestamp_ms;

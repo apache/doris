@@ -46,6 +46,10 @@ public interface NereidsLoadTaskInfo {
 
     String getTimezone();
 
+    // default String getLcTimeNames() {
+    //     return "en_US";
+    // }
+
     PartitionNames getPartitions();
 
     LoadTask.MergeType getMergeType();
