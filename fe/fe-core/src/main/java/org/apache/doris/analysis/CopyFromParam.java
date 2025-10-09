@@ -33,6 +33,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -77,7 +78,7 @@ public class CopyFromParam {
         this.targetColumns = targetColumns;
     }
 
-    public void analyze(String fullDbName, TableName tableName, boolean useDeleteSign, String fileType)
+    public void analyze(String fullDbName, TableNameInfo tableName, boolean useDeleteSign, String fileType)
             throws AnalysisException {
         if (exprList == null && fileFilterExpr == null && !useDeleteSign) {
             return;

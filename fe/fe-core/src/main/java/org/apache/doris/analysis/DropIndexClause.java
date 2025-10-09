@@ -22,17 +22,18 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.info.TableNameInfo;
 
 import java.util.Map;
 
 public class DropIndexClause extends AlterTableClause {
     private final String indexName;
-    private final TableName tableName;
+    private final TableNameInfo tableName;
     private boolean ifExists;
 
     private boolean alter;
 
-    public DropIndexClause(String indexName, boolean ifExists, TableName tableName, boolean alter) {
+    public DropIndexClause(String indexName, boolean ifExists, TableNameInfo tableName, boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.indexName = indexName;
         this.ifExists = ifExists;
@@ -44,7 +45,7 @@ public class DropIndexClause extends AlterTableClause {
         return indexName;
     }
 
-    public TableName getTableName() {
+    public TableNameInfo getTableName() {
         return tableName;
     }
 

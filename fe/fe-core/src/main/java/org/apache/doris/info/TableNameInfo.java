@@ -20,7 +20,6 @@
 
 package org.apache.doris.info;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -150,6 +149,9 @@ public class TableNameInfo {
         this.tbl = tableName;
     }
 
+    public void analyze() throws AnalysisException {
+    }
+
     /**
      * analyze tableNameInfo
      * @param ctx ctx
@@ -219,14 +221,6 @@ public class TableNameInfo {
      */
     public String getTbl() {
         return tbl;
-    }
-
-    /**
-     * transferToTableName
-     * @return TableName
-     */
-    public TableName transferToTableName() {
-        return new TableName(ctl, db, tbl);
     }
 
     public String getTableAlias() {
