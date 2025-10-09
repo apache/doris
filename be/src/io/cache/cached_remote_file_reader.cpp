@@ -272,7 +272,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     size_t empty_start = 0;
     size_t empty_end = 0;
     size_t buffer_size = 0;
-    size_t old_buffer_size;
+    size_t old_buffer_size = 0;
     std::unique_ptr<char[]> buffer_moved;
     if (!empty_blocks.empty()) {
         empty_start = empty_blocks.front()->range().left;
