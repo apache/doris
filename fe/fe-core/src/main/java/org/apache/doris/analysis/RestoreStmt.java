@@ -150,6 +150,9 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        if (Config.isCloudMode()) {
+            throw new UserException("Restore is not implemented in cloud mode");
+        }
         if (repoName.equals(Repository.KEEP_ON_LOCAL_REPO_NAME)) {
             isLocal = true;
             if (jobInfo == null) {
