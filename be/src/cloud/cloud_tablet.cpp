@@ -1662,24 +1662,25 @@ bool CloudTablet::add_rowset_warmup_state(const RowsetMeta& rowset, WarmUpTrigge
     return add_rowset_warmup_state_unlocked(rowset, source, start_tp);
 }
 
-void CloudTablet::update_rowset_warmup_state_inverted_idx_num(WarmUpTriggerSource source,
+bool CloudTablet::update_rowset_warmup_state_inverted_idx_num(WarmUpTriggerSource source,
                                                               RowsetId rowset_id, int64_t delta) {
     std::lock_guard wlock(_meta_lock);
-    update_rowset_warmup_state_inverted_idx_num_unlocked(source, rowset_id, delta);
+    return update_rowset_warmup_state_inverted_idx_num_unlocked(source, rowset_id, delta);
 }
 
-void CloudTablet::update_rowset_warmup_state_inverted_idx_num_unlocked(WarmUpTriggerSource source,
+bool CloudTablet::update_rowset_warmup_state_inverted_idx_num_unlocked(WarmUpTriggerSource source,
                                                                        RowsetId rowset_id,
                                                                        int64_t delta) {
     auto it = _rowset_warm_up_states.find(rowset_id);
     if (it == _rowset_warm_up_states.end()) {
-        return;
+        return false;
     }
     if (it->second.state.trigger_source != source) {
         // Only the same trigger source can update the state
-        return;
+        return false;
     }
     it->second.num_inverted_idx += delta;
+    return true;
 }
 
 bool CloudTablet::add_rowset_warmup_state_unlocked(const RowsetMeta& rowset,

@@ -216,10 +216,10 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupWithInvertedIn
                                                        WarmUpTriggerSource::EVENT_DRIVEN);
     EXPECT_TRUE(add_result);
 
-    _tablet->update_rowset_warmup_state_inverted_idx_num(WarmUpTriggerSource::EVENT_DRIVEN,
-                                                         rowset->rowset_id(), 1);
-    _tablet->update_rowset_warmup_state_inverted_idx_num(WarmUpTriggerSource::EVENT_DRIVEN,
-                                                         rowset->rowset_id(), 1);
+    EXPECT_TRUE(_tablet->update_rowset_warmup_state_inverted_idx_num(
+            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), 1));
+    EXPECT_TRUE(_tablet->update_rowset_warmup_state_inverted_idx_num(
+            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), 1));
 
     // Complete one segment file
     WarmUpState result1 = _tablet->complete_rowset_segment_warmup(
@@ -250,8 +250,8 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupWithInvertedIn
                                                        WarmUpTriggerSource::EVENT_DRIVEN);
     EXPECT_TRUE(add_result);
 
-    _tablet->update_rowset_warmup_state_inverted_idx_num(WarmUpTriggerSource::EVENT_DRIVEN,
-                                                         rowset->rowset_id(), 1);
+    EXPECT_TRUE(_tablet->update_rowset_warmup_state_inverted_idx_num(
+            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), 1));
 
     // Complete segment file
     WarmUpState result1 = _tablet->complete_rowset_segment_warmup(
@@ -408,6 +408,14 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupTriggerSource)
             _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
     EXPECT_TRUE(add_result);
 
+    // Attempt to update inverted index num with a different trigger source, should fail
+    bool update_result = _tablet->update_rowset_warmup_state_inverted_idx_num(
+            WarmUpTriggerSource::SYNC_ROWSET, rowset->rowset_id(), 1);
+    EXPECT_FALSE(update_result);
+    update_result = _tablet->update_rowset_warmup_state_inverted_idx_num(
+            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), 1);
+    EXPECT_FALSE(update_result);
+
     // Attempt to complete with a different trigger source, should not update state
     WarmUpState result = _tablet->complete_rowset_segment_warmup(
             WarmUpTriggerSource::SYNC_ROWSET, rowset->rowset_id(), Status::OK(), 1, 0);
@@ -424,4 +432,219 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupTriggerSource)
     expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DONE};
     EXPECT_EQ(result, expected_state);
 }
+
+// Test JOB trigger source can override non-JOB warmup states
+TEST_F(CloudTabletWarmUpStateTest, TestJobTriggerOverridesNonJobStates) {
+    auto rowset = create_rowset(Version(14, 14), 2);
+    ASSERT_NE(rowset, nullptr);
+
+    // First, add EVENT_DRIVEN warmup state
+    bool result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+                                                    WarmUpTriggerSource::EVENT_DRIVEN);
+    EXPECT_TRUE(result1);
+
+    // Verify EVENT_DRIVEN state is set
+    WarmUpState state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+
+    // Now add JOB warmup state, should override EVENT_DRIVEN
+    bool result2 =
+            _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
+    EXPECT_TRUE(result2);
+
+    // Verify JOB state has overridden EVENT_DRIVEN
+    state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+}
+
+// Test JOB trigger source can override SYNC_ROWSET warmup state
+TEST_F(CloudTabletWarmUpStateTest, TestJobTriggerOverridesSyncRowsetState) {
+    auto rowset = create_rowset(Version(15, 15), 3);
+    ASSERT_NE(rowset, nullptr);
+
+    // First, add SYNC_ROWSET warmup state
+    bool result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+                                                    WarmUpTriggerSource::SYNC_ROWSET);
+    EXPECT_TRUE(result1);
+
+    // Verify SYNC_ROWSET state is set
+    WarmUpState state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::SYNC_ROWSET, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+
+    // Now add JOB warmup state, should override SYNC_ROWSET
+    bool result2 =
+            _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
+    EXPECT_TRUE(result2);
+
+    // Verify JOB state has overridden SYNC_ROWSET
+    state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+}
+
+// Test JOB trigger source cannot override another JOB warmup state
+TEST_F(CloudTabletWarmUpStateTest, TestJobTriggerCannotOverrideAnotherJob) {
+    auto rowset = create_rowset(Version(16, 16), 2);
+    ASSERT_NE(rowset, nullptr);
+
+    // First, add JOB warmup state
+    bool result1 =
+            _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
+    EXPECT_TRUE(result1);
+
+    // Verify first JOB state is set
+    WarmUpState state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+
+    // Try to add another JOB warmup state, should fail
+    bool result2 =
+            _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
+    EXPECT_FALSE(result2);
+
+    // Verify state remains the original JOB state
+    state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+}
+
+// Test EVENT_DRIVEN cannot override existing JOB state
+TEST_F(CloudTabletWarmUpStateTest, TestEventDrivenCannotOverrideJobState) {
+    auto rowset = create_rowset(Version(17, 17), 1);
+    ASSERT_NE(rowset, nullptr);
+
+    // First, add JOB warmup state
+    bool result1 =
+            _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
+    EXPECT_TRUE(result1);
+
+    // Verify JOB state is set
+    WarmUpState state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+
+    // Try to add EVENT_DRIVEN warmup state, should fail
+    bool result2 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+                                                    WarmUpTriggerSource::EVENT_DRIVEN);
+    EXPECT_FALSE(result2);
+
+    // Verify state remains JOB
+    state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+}
+
+// Test SYNC_ROWSET cannot override existing JOB state
+TEST_F(CloudTabletWarmUpStateTest, TestSyncRowsetCannotOverrideJobState) {
+    auto rowset = create_rowset(Version(18, 18), 2);
+    ASSERT_NE(rowset, nullptr);
+
+    // First, add JOB warmup state
+    bool result1 =
+            _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
+    EXPECT_TRUE(result1);
+
+    // Verify JOB state is set
+    WarmUpState state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+
+    // Try to add SYNC_ROWSET warmup state, should fail
+    bool result2 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+                                                    WarmUpTriggerSource::SYNC_ROWSET);
+    EXPECT_FALSE(result2);
+
+    // Verify state remains JOB
+    state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+}
+
+// Test EVENT_DRIVEN cannot override existing SYNC_ROWSET state
+TEST_F(CloudTabletWarmUpStateTest, TestEventDrivenCannotOverrideSyncRowsetState) {
+    auto rowset = create_rowset(Version(19, 19), 1);
+    ASSERT_NE(rowset, nullptr);
+
+    // First, add SYNC_ROWSET warmup state
+    bool result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+                                                    WarmUpTriggerSource::SYNC_ROWSET);
+    EXPECT_TRUE(result1);
+
+    // Verify SYNC_ROWSET state is set
+    WarmUpState state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::SYNC_ROWSET, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+
+    // Try to add EVENT_DRIVEN warmup state, should fail
+    bool result2 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+                                                    WarmUpTriggerSource::EVENT_DRIVEN);
+    EXPECT_FALSE(result2);
+
+    // Verify state remains SYNC_ROWSET
+    state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    expected_state = WarmUpState {WarmUpTriggerSource::SYNC_ROWSET, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+}
+
+// Test SYNC_ROWSET cannot override existing EVENT_DRIVEN state
+TEST_F(CloudTabletWarmUpStateTest, TestSyncRowsetCannotOverrideEventDrivenState) {
+    auto rowset = create_rowset(Version(20, 20), 3);
+    ASSERT_NE(rowset, nullptr);
+
+    // First, add EVENT_DRIVEN warmup state
+    bool result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+                                                    WarmUpTriggerSource::EVENT_DRIVEN);
+    EXPECT_TRUE(result1);
+
+    // Verify EVENT_DRIVEN state is set
+    WarmUpState state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+
+    // Try to add SYNC_ROWSET warmup state, should fail
+    bool result2 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+                                                    WarmUpTriggerSource::SYNC_ROWSET);
+    EXPECT_FALSE(result2);
+
+    // Verify state remains EVENT_DRIVEN
+    state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+}
+
+// Test JOB can override DONE state from non-JOB source
+TEST_F(CloudTabletWarmUpStateTest, TestJobCanOverrideDoneStateFromNonJob) {
+    auto rowset = create_rowset(Version(21, 21), 1);
+    ASSERT_NE(rowset, nullptr);
+
+    // First, add EVENT_DRIVEN warmup state
+    bool result1 = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+                                                    WarmUpTriggerSource::EVENT_DRIVEN);
+    EXPECT_TRUE(result1);
+
+    // Complete the warmup to DONE state
+    WarmUpState result = _tablet->complete_rowset_segment_warmup(
+            WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), Status::OK(), 1, 0);
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DONE};
+    EXPECT_EQ(result, expected_state);
+
+    // Now add JOB warmup state, should override the DONE state
+    bool result2 =
+            _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
+    EXPECT_TRUE(result2);
+
+    // Verify JOB state has overridden the DONE state
+    WarmUpState state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+}
+
 } // namespace doris
