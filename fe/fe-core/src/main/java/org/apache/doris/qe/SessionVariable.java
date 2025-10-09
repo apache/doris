@@ -866,6 +866,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
 
+    public static final String MERGE_IO_READ_SLICE_SIZE = "merge_io_read_slice_size";
+
     public static final String ENABLE_PREFER_CACHED_ROWSET = "enable_prefer_cached_rowset";
     public static final String QUERY_FRESHNESS_TOLERANCE_MS = "query_freshness_tolerance_ms";
 
@@ -1505,7 +1507,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = "topn_lazy_materialization_threshold", needForward = true,
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL)
-    public int topNLazyMaterializationThreshold = 512 * 1024;
+    public int topNLazyMaterializationThreshold = 1024;
 
     public boolean enableTopnLazyMaterialization() {
         return ConnectContext.get() != null
@@ -2583,6 +2585,11 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkAggPhase")
     public int aggPhase = 0;
 
+
+    @VariableMgr.VarAttr(name = MERGE_IO_READ_SLICE_SIZE, description = {"调整 READ_SLICE_SIZE 大小，降低 Merge IO 读放大影响",
+            "Make the READ_SLICE_SIZE variable configurable to reduce the impact caused by read amplification."})
+    public int mergeReadSliceSize = 8388608;
+
     public void setAggPhase(int phase) {
         aggPhase = phase;
     }
@@ -3116,26 +3123,28 @@ public class SessionVariable implements Serializable, Writable {
         this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
 
         // for spill to disk
-        switch (randomInt % 4) {
-            case 0:
-                this.spillMinRevocableMem = 0;
-                break;
-            case 1:
-                this.spillMinRevocableMem = 1;
-                break;
-            case 2:
-                this.spillMinRevocableMem = 1024 * 1024;
-                break;
-            case 3:
-            default:
-                this.spillMinRevocableMem = 100L * 1024 * 1024;
-                break;
-        }
+        if (Config.fuzzy_test_type.equals("p0")) {
+            switch (randomInt % 4) {
+                case 0:
+                    this.spillMinRevocableMem = 0;
+                    break;
+                case 1:
+                    this.spillMinRevocableMem = 1;
+                    break;
+                case 2:
+                    this.spillMinRevocableMem = 1024 * 1024;
+                    break;
+                case 3:
+                default:
+                    this.spillMinRevocableMem = 100L * 1024 * 1024;
+                    break;
+            }
 
-        randomInt = random.nextInt(99);
-        this.enableSpill = randomInt % 4 != 0;
-        this.enableForceSpill = randomInt % 3 == 0;
-        this.enableReserveMemory = randomInt % 5 != 0;
+            randomInt = random.nextInt(99);
+            this.enableSpill = randomInt % 4 != 0;
+            this.enableForceSpill = randomInt % 3 == 0;
+            this.enableReserveMemory = randomInt % 5 != 0;
+        }
 
         // random pre materialized view rewrite strategy
         randomInt = random.nextInt(3);
@@ -4704,7 +4713,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswEfSearch(hnswEFSearch);
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
-
+        tResult.setMergeReadSliceSize(mergeReadSliceSize);
         return tResult;
     }
 

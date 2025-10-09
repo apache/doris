@@ -1741,6 +1741,15 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         new_ram_user.mutable_encryption_info()->CopyFrom(encryption_info);
         instance.mutable_ram_user()->CopyFrom(new_ram_user);
     }
+    if (config::enable_multi_version_status) {
+        instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_READ_WRITE);
+        instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
+        if (config::enable_cluster_snapshot) {
+            instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_ON);
+            instance.set_snapshot_interval_seconds(config::snapshot_min_interval_seconds);
+            instance.set_max_reserved_snapshot(1);
+        }
+    }
 
     if (instance.instance_id().empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -2509,8 +2518,8 @@ void handle_notify_decommissioned(const std::string& instance_id,
 }
 
 void handle_rename_cluster(const std::string& instance_id, const ClusterInfo& cluster,
-                           std::shared_ptr<ResourceManager> resource_mgr, std::string& msg,
-                           MetaServiceCode& code) {
+                           std::shared_ptr<ResourceManager> resource_mgr, bool replace,
+                           std::string& msg, MetaServiceCode& code) {
     msg = resource_mgr->update_cluster(
             instance_id, cluster,
             [&](const ClusterPB& i) { return i.cluster_id() == cluster.cluster.cluster_id(); },
@@ -2522,6 +2531,10 @@ void handle_rename_cluster(const std::string& instance_id, const ClusterInfo& cl
                     cluster_names.emplace(cluster_in_instance.cluster_name());
                 }
                 auto it = cluster_names.find(cluster.cluster.cluster_name());
+                LOG(INFO) << "cluster.cluster.cluster_name(): " << cluster.cluster.cluster_name();
+                for (auto itt : cluster_names) {
+                    LOG(INFO) << "instance's cluster name : " << itt;
+                }
                 if (it != cluster_names.end()) {
                     code = MetaServiceCode::INVALID_ARGUMENT;
                     ss << "failed to rename cluster, a cluster with the same name already exists "
@@ -2539,7 +2552,8 @@ void handle_rename_cluster(const std::string& instance_id, const ClusterInfo& cl
                 }
                 c.set_cluster_name(cluster.cluster.cluster_name());
                 return msg;
-            });
+            },
+            replace);
 }
 
 void handle_update_cluster_endpoint(const std::string& instance_id, const ClusterInfo& cluster,
@@ -2766,9 +2780,17 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     case AlterClusterRequest::NOTIFY_DECOMMISSIONED:
         handle_notify_decommissioned(instance_id, request, resource_mgr(), msg, code);
         break;
-    case AlterClusterRequest::RENAME_CLUSTER:
-        handle_rename_cluster(instance_id, cluster, resource_mgr(), msg, code);
+    case AlterClusterRequest::RENAME_CLUSTER: {
+        // SQL mode, cluster cluster name eq empty cluster name, need drop empty cluster first.
+        // but in http api, cloud control will drop empty cluster
+        bool replace_if_existing_empty_target_cluster =
+                request->has_replace_if_existing_empty_target_cluster()
+                        ? request->replace_if_existing_empty_target_cluster()
+                        : false;
+        handle_rename_cluster(instance_id, cluster, resource_mgr(),
+                              replace_if_existing_empty_target_cluster, msg, code);
         break;
+    }
     case AlterClusterRequest::UPDATE_CLUSTER_ENDPOINT:
         handle_update_cluster_endpoint(instance_id, cluster, resource_mgr(), msg, code);
         break;

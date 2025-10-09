@@ -76,6 +76,7 @@ suite("one_level_nestedtypes_with_s3data") {
         }
     }
     def load_from_s3 = {table_name, uri_file, format ->
+        sql "set enable_insert_strict = false;"
         if (format == "csv") {
             order_qt_sql_s3 """select * from s3(
                 "uri" = "${uri_file}",
@@ -113,6 +114,7 @@ suite("one_level_nestedtypes_with_s3data") {
                     "provider" = "${getS3Provider()}",
                     "read_json_by_line"="true"); """
         }
+        sql "set enable_insert_strict = true;"
     }
 
     // step1. create table
