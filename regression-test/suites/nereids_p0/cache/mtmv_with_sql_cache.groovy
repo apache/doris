@@ -176,277 +176,280 @@ suite("mtmv_with_sql_cache") {
                 on t1.id = t2.id
             """
 
-        retryTestSqlCache(3, 1000) {
-            createTestTable tb_name1
-            createTestTable tb_name2
+        for (def __ in 0..3) {
+            retryTestSqlCache(3, 1000) {
+                createTestTable tb_name1
+                createTestTable tb_name2
 
-            sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name1};"""
-            sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name2};"""
-            sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name3};"""
-            sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name4};"""
-            sql """DROP MATERIALIZED VIEW IF EXISTS ${nested_mv_name1};"""
-            cur_create_async_partition_mv(dbName, mv_name1, mtmv_sql1, "(id)")
-            cur_create_async_partition_mv(dbName, mv_name2, mtmv_sql2, "(id)")
-            cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
-            cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
+                sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name1};"""
+                sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name2};"""
+                sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name3};"""
+                sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name4};"""
+                sql """DROP MATERIALIZED VIEW IF EXISTS ${nested_mv_name1};"""
+                cur_create_async_partition_mv(dbName, mv_name1, mtmv_sql1, "(id)")
+                cur_create_async_partition_mv(dbName, mv_name2, mtmv_sql2, "(id)")
+                cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
+                cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
 
-            sleep(10000)
-            sql "set enable_nereids_planner=true"
-            sql "set enable_fallback_to_original_planner=false"
-            sql "set enable_sql_cache=true"
+                sleep(10000)
+                sql "set enable_nereids_planner=true"
+                sql "set enable_fallback_to_original_planner=false"
+                sql "set enable_sql_cache=true"
 
-            // Direct Query
-            assertNoCache "select * from ${mv_name1}"
-            assertNoCache "select * from ${mv_name2}"
-            assertNoCache "select * from ${mv_name4}"
-            assertNoCache "select * from ${nested_mv_name1}"
-            // mtmv rewrite
-            assertNoCache mtmv_sql1
-            assertNoCache mtmv_sql2
-            assertNoCache mtmv_sql4
-            assertNoCache nested_mtmv_sql1
+                // Direct Query
+                assertNoCache "select * from ${mv_name1}"
+                assertNoCache "select * from ${mv_name2}"
+                assertNoCache "select * from ${mv_name4}"
+                assertNoCache "select * from ${nested_mv_name1}"
+                // mtmv rewrite
+                assertNoCache mtmv_sql1
+                assertNoCache mtmv_sql2
+                assertNoCache mtmv_sql4
+                assertNoCache nested_mtmv_sql1
 
-            retryUntilHasSqlCache "select * from ${mv_name1}"
-            retryUntilHasSqlCache "select * from ${mv_name2}"
-            retryUntilHasSqlCache "select * from ${mv_name4}"
-            retryUntilHasSqlCache "select * from ${nested_mv_name1}"
-            retryUntilHasSqlCache mtmv_sql1
-            retryUntilHasSqlCache mtmv_sql2
-            retryUntilHasSqlCache mtmv_sql4
-            retryUntilHasSqlCache nested_mtmv_sql1
+                retryUntilHasSqlCache "select * from ${mv_name1}"
+                retryUntilHasSqlCache "select * from ${mv_name2}"
+                retryUntilHasSqlCache "select * from ${mv_name4}"
+                retryUntilHasSqlCache "select * from ${nested_mv_name1}"
+                retryUntilHasSqlCache mtmv_sql1
+                retryUntilHasSqlCache mtmv_sql2
+                retryUntilHasSqlCache mtmv_sql4
+                retryUntilHasSqlCache nested_mtmv_sql1
 
-            assertHasCache "select * from ${mv_name1}"
-            assertHasCache "select * from ${mv_name2}"
-            assertHasCache "select * from ${mv_name4}"
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertHasCache mtmv_sql1
-            assertHasCache mtmv_sql2
-            assertHasCache mtmv_sql4
-            assertHasCache nested_mtmv_sql1
+                assertHasCache "select * from ${mv_name1}"
+                assertHasCache "select * from ${mv_name2}"
+                assertHasCache "select * from ${mv_name4}"
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertHasCache mtmv_sql1
+                assertHasCache mtmv_sql2
+                assertHasCache mtmv_sql4
+                assertHasCache nested_mtmv_sql1
 
-            // rename mtmv
-            sql """ALTER MATERIALIZED VIEW ${mv_name1} rename ${mv_name3};"""
-            assertNoCache "select * from ${mv_name3}"
-            assertNoCache mtmv_sql1
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertNoCache nested_mtmv_sql3
+                // rename mtmv
+                sql """ALTER MATERIALIZED VIEW ${mv_name1} rename ${mv_name3};"""
+                assertNoCache "select * from ${mv_name3}"
+                assertNoCache mtmv_sql1
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertNoCache nested_mtmv_sql3
 
-            sql """ALTER MATERIALIZED VIEW ${mv_name3} rename ${mv_name1};"""
-            assertHasCache "select * from ${mv_name1}"  // Since this SQL query hasn't been executed before, so it's still valid now.
-            assertNoCache mtmv_sql1
-            assertHasCache "select * from ${nested_mv_name1}" // nested mtmv don't change
-            assertHasCache nested_mtmv_sql1 // Since this SQL query hasn't been executed before, so it's still valid now.
+                sql """ALTER MATERIALIZED VIEW ${mv_name3} rename ${mv_name1};"""
+                assertHasCache "select * from ${mv_name1}"  // Since this SQL query hasn't been executed before, so it's still valid now.
+                assertNoCache mtmv_sql1
+                assertHasCache "select * from ${nested_mv_name1}" // nested mtmv don't change
+                assertHasCache nested_mtmv_sql1 // Since this SQL query hasn't been executed before, so it's still valid now.
 
-            retryUntilHasSqlCache mtmv_sql1
-            assertHasCache mtmv_sql1
+                retryUntilHasSqlCache mtmv_sql1
+                assertHasCache mtmv_sql1
 
-            // replace mtmv
-            sql """ALTER MATERIALIZED VIEW ${mv_name1} REPLACE WITH MATERIALIZED VIEW ${mv_name2};"""
-            assertNoCache "select * from ${mv_name1}"
-            assertNoCache "select * from ${mv_name2}"
-            assertNoCache mtmv_sql1
-            assertNoCache mtmv_sql2// -->   "select * from mv1/mv2" --> version change  --> nocache
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertNoCache nested_mtmv_sql1
+                // replace mtmv
+                sql """ALTER MATERIALIZED VIEW ${mv_name1} REPLACE WITH MATERIALIZED VIEW ${mv_name2};"""
+                assertNoCache "select * from ${mv_name1}"
+                assertNoCache "select * from ${mv_name2}"
+                assertNoCache mtmv_sql1
+                assertNoCache mtmv_sql2// -->   "select * from mv1/mv2" --> version change  --> nocache
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertNoCache nested_mtmv_sql1
 
-            sql """ALTER MATERIALIZED VIEW ${mv_name2} REPLACE WITH MATERIALIZED VIEW ${mv_name1};"""
-            assertNoCache "select * from ${mv_name1}"
-            assertNoCache "select * from ${mv_name2}"
-            assertNoCache mtmv_sql1
-            assertNoCache mtmv_sql2 // -->   "select * from mv1/mv2" --> version change  --> nocache
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertNoCache nested_mtmv_sql1
+                sql """ALTER MATERIALIZED VIEW ${mv_name2} REPLACE WITH MATERIALIZED VIEW ${mv_name1};"""
+                assertNoCache "select * from ${mv_name1}"
+                assertNoCache "select * from ${mv_name2}"
+                assertNoCache mtmv_sql1
+                assertNoCache mtmv_sql2 // -->   "select * from mv1/mv2" --> version change  --> nocache
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertNoCache nested_mtmv_sql1
 
-            retryUntilHasSqlCache "select * from ${mv_name1}"
-            retryUntilHasSqlCache "select * from ${mv_name2}"
-            retryUntilHasSqlCache mtmv_sql1
-            retryUntilHasSqlCache mtmv_sql2
-            retryUntilHasSqlCache "select * from ${nested_mv_name1}"
-            retryUntilHasSqlCache nested_mtmv_sql1
+                retryUntilHasSqlCache "select * from ${mv_name1}"
+                retryUntilHasSqlCache "select * from ${mv_name2}"
+                retryUntilHasSqlCache mtmv_sql1
+                retryUntilHasSqlCache mtmv_sql2
+                retryUntilHasSqlCache "select * from ${nested_mv_name1}"
+                retryUntilHasSqlCache nested_mtmv_sql1
 
-            assertHasCache "select * from ${mv_name1}"
-            assertHasCache "select * from ${mv_name2}"
-            assertHasCache mtmv_sql1
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertHasCache nested_mtmv_sql1
+                assertHasCache "select * from ${mv_name1}"
+                assertHasCache "select * from ${mv_name2}"
+                assertHasCache mtmv_sql1
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertHasCache nested_mtmv_sql1
 
-            // pause/resume mtmv don't affect the SQL cache's operation.
-            sql """PAUSE MATERIALIZED VIEW JOB ON ${mv_name1};"""
-            assertHasCache "select * from ${mv_name1}"
-            assertHasCache mtmv_sql1
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertHasCache nested_mtmv_sql1
+                // pause/resume mtmv don't affect the SQL cache's operation.
+                sql """PAUSE MATERIALIZED VIEW JOB ON ${mv_name1};"""
+                assertHasCache "select * from ${mv_name1}"
+                assertHasCache mtmv_sql1
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertHasCache nested_mtmv_sql1
 
-            sql """PAUSE MATERIALIZED VIEW JOB ON ${mv_name4};"""
-            assertHasCache "select * from ${mv_name4}"
-            assertHasCache mtmv_sql4
+                sql """PAUSE MATERIALIZED VIEW JOB ON ${mv_name4};"""
+                assertHasCache "select * from ${mv_name4}"
+                assertHasCache mtmv_sql4
 
-            sql """RESUME MATERIALIZED VIEW JOB ON ${mv_name1};"""
-            assertHasCache "select * from ${mv_name1}"
-            assertHasCache mtmv_sql1
+                sql """RESUME MATERIALIZED VIEW JOB ON ${mv_name1};"""
+                assertHasCache "select * from ${mv_name1}"
+                assertHasCache mtmv_sql1
 
-            sql """RESUME MATERIALIZED VIEW JOB ON ${mv_name4};"""
-            assertHasCache "select * from ${mv_name4}"
-            assertHasCache mtmv_sql4
+                sql """RESUME MATERIALIZED VIEW JOB ON ${mv_name4};"""
+                assertHasCache "select * from ${mv_name4}"
+                assertHasCache mtmv_sql4
 
-            // To refresh the materialized view to ensure its initial performance is normal.
-            sql "REFRESH MATERIALIZED VIEW ${mv_name1} AUTO;"
-            waitingMTMVTaskFinishedByMvName(mv_name1)
+                // To refresh the materialized view to ensure its initial performance is normal.
+                sql "REFRESH MATERIALIZED VIEW ${mv_name1} AUTO;"
+                waitingMTMVTaskFinishedByMvName(mv_name1)
 
-            sleep(15 * 1000)
-            assertHasCache "select * from ${mv_name1}"
-            assertHasCache mtmv_sql1
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertHasCache nested_mtmv_sql1
+                sleep(10000)
+                assertHasCache "select * from ${mv_name1}"
+                assertHasCache mtmv_sql1
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertHasCache nested_mtmv_sql1
 
-            // refresh mtmv complete
-            sql "REFRESH MATERIALIZED VIEW ${mv_name1} complete;"
-            sleep(15 * 1000)
-            assertNoCache "select * from ${mv_name1}"
-            assertNoCache mtmv_sql1
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertNoCache nested_mtmv_sql1
+                // refresh mtmv complete
+                sql "REFRESH MATERIALIZED VIEW ${mv_name1} complete;"
+                sleep(10000)
+                assertNoCache "select * from ${mv_name1}"
+                assertNoCache mtmv_sql1
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertNoCache nested_mtmv_sql1
 
-            retryUntilHasSqlCache mtmv_sql1
-            retryUntilHasSqlCache "select * from ${mv_name1}"
-            retryUntilHasSqlCache nested_mtmv_sql1
+                retryUntilHasSqlCache mtmv_sql1
+                retryUntilHasSqlCache "select * from ${mv_name1}"
+                retryUntilHasSqlCache nested_mtmv_sql1
 
-            assertHasCache mtmv_sql1
-            assertHasCache "select * from ${mv_name1}"
-            assertHasCache nested_mtmv_sql1
+                assertHasCache mtmv_sql1
+                assertHasCache "select * from ${mv_name1}"
+                assertHasCache nested_mtmv_sql1
 
-            // base table insert overwrite
-            sql "INSERT OVERWRITE table ${tb_name1} PARTITION(p5) VALUES (5, 6);"
-            sleep(10 * 1000)
-            assertHasCache "select * from ${mv_name1}"
-            assertNoCache mtmv_sql1
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertHasCache nested_mtmv_sql1
+                // base table insert overwrite
+                sql "INSERT OVERWRITE table ${tb_name1} PARTITION(p5) VALUES (5, 6);"
+                sleep(10000)
+                assertHasCache "select * from ${mv_name1}"
+                assertNoCache mtmv_sql1
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertHasCache nested_mtmv_sql1
 
-            retryUntilHasSqlCache mtmv_sql1
-            assertHasCache mtmv_sql1
+                retryUntilHasSqlCache mtmv_sql1
+                assertHasCache mtmv_sql1
 
-            sql "REFRESH MATERIALIZED VIEW ${mv_name1} AUTO;"
-            waitingMTMVTaskFinishedByMvName(mv_name1)
-            sleep(15 * 1000)
-            assertNoCache "select * from ${mv_name1}"
-            assertNoCache mtmv_sql1
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertNoCache nested_mtmv_sql1
+                sql "REFRESH MATERIALIZED VIEW ${mv_name1} AUTO;"
+                waitingMTMVTaskFinishedByMvName(mv_name1)
+                sleep(10000)
+                assertNoCache "select * from ${mv_name1}"
+                assertNoCache mtmv_sql1
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertNoCache nested_mtmv_sql1
 
-            retryUntilHasSqlCache "select * from ${mv_name1}"
-            retryUntilHasSqlCache nested_mtmv_sql1
+                retryUntilHasSqlCache "select * from ${mv_name1}"
+                retryUntilHasSqlCache nested_mtmv_sql1
 
-            assertHasCache "select * from ${mv_name1}"
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertHasCache nested_mtmv_sql1
+                assertHasCache "select * from ${mv_name1}"
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertHasCache nested_mtmv_sql1
 
 
-            // add partition
-            sql "alter table ${tb_name1} add partition p6 values[('6'),('7'))"
-            assertHasCache "select * from ${mv_name1}"
-            assertNoCache mtmv_sql1
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertHasCache nested_mtmv_sql1
+                // add partition
+                sql "alter table ${tb_name1} add partition p6 values[('6'),('7'))"
+                assertHasCache "select * from ${mv_name1}"
+                assertNoCache mtmv_sql1
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertHasCache nested_mtmv_sql1
 
-            retryUntilHasSqlCache mtmv_sql1
-            assertHasCache mtmv_sql1
+                retryUntilHasSqlCache mtmv_sql1
+                assertHasCache mtmv_sql1
 
-            // base table insert data
-            sql "insert into ${tb_name1} values(6, 1)"
-            sleep(15 * 1000)
-            assertHasCache "select * from ${mv_name1}"
-            assertNoCache mtmv_sql1  // mtmv no work -> directly base table -> no cache
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertHasCache nested_mtmv_sql1  // nested mtmv no work -> mtmv cache work -> has cache
+                // base table insert data
+                sql "insert into ${tb_name1} values(6, 1)"
+                sleep(10000)
+                assertHasCache "select * from ${mv_name1}"
+                assertNoCache mtmv_sql1  // mtmv no work -> directly base table -> no cache
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertHasCache nested_mtmv_sql1  // nested mtmv no work -> mtmv cache work -> has cache
 
-            retryUntilHasSqlCache mtmv_sql1
+                retryUntilHasSqlCache mtmv_sql1
 
-            // recreate mtmv to add column
-            cur_create_async_partition_mv(dbName, mv_name1, mtmv_sql3, "(id)")
-            sleep(15 * 1000)
-            assertNoCache "select * from ${mv_name1}"
-            assertHasCache "select * from ${mv_name2}"
-            assertNoCache mtmv_sql1
-            assertNoCache mtmv_sql4  // base table change, not hit mtmv1/mtmv4
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertNoCache nested_mtmv_sql1
+                // recreate mtmv to add column
+                cur_create_async_partition_mv(dbName, mv_name1, mtmv_sql3, "(id)")
+                sleep(10000)
+                assertNoCache "select * from ${mv_name1}"
+                assertHasCache "select * from ${mv_name2}"
+                assertNoCache mtmv_sql1
+                assertNoCache mtmv_sql4  // base table change, not hit mtmv1/mtmv4
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertNoCache nested_mtmv_sql1
 
-            retryUntilHasSqlCache "select * from ${mv_name1}"
-            assertHasCache "select * from ${mv_name1}"
+                retryUntilHasSqlCache "select * from ${mv_name1}"
+                assertHasCache "select * from ${mv_name1}"
 
-            sql "REFRESH MATERIALIZED VIEW ${mv_name2} AUTO;"
-            waitingMTMVTaskFinishedByMvName(mv_name2)
-            sleep(15 * 1000)
-            assertNoCache "select * from ${mv_name2}"
-            retryUntilHasSqlCache "select * from ${mv_name2}"
-            assertHasCache "select * from ${mv_name2}"
+                sql "REFRESH MATERIALIZED VIEW ${mv_name2} AUTO;"
+                waitingMTMVTaskFinishedByMvName(mv_name2)
+                sleep(10000)
+                assertNoCache "select * from ${mv_name2}"
+                retryUntilHasSqlCache "select * from ${mv_name2}"
+                assertHasCache "select * from ${mv_name2}"
 
-            retryUntilHasSqlCache mtmv_sql1
-            assertHasCache mtmv_sql1
+                retryUntilHasSqlCache mtmv_sql1
+                assertHasCache mtmv_sql1
 
-            retryUntilHasSqlCache mtmv_sql4
-            retryUntilHasSqlCache nested_mtmv_sql1
-            assertHasCache mtmv_sql4
-            assertHasCache nested_mtmv_sql1
+                retryUntilHasSqlCache mtmv_sql4
+                retryUntilHasSqlCache nested_mtmv_sql1
+                assertHasCache mtmv_sql4
+                assertHasCache nested_mtmv_sql1
 
-            // insert overwrite
-            sql "INSERT OVERWRITE table ${tb_name1} PARTITION(p4) VALUES (4, 6);"
-            sleep(15 * 1000)
-            assertHasCache "select * from ${mv_name1}"
-            assertNoCache mtmv_sql4
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertHasCache nested_mtmv_sql1
+                // insert overwrite
+                sql "INSERT OVERWRITE table ${tb_name1} PARTITION(p4) VALUES (4, 6);"
+                sleep(10000)
+                assertHasCache "select * from ${mv_name1}"
+                assertNoCache mtmv_sql4
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertHasCache nested_mtmv_sql1
 
-            retryUntilHasSqlCache mtmv_sql4
-            assertHasCache mtmv_sql4
+                retryUntilHasSqlCache mtmv_sql4
+                assertHasCache mtmv_sql4
 
-            sql "REFRESH MATERIALIZED VIEW ${mv_name1} AUTO;"
-            waitingMTMVTaskFinishedByMvName(mv_name1)
-            sleep(15 * 1000)
-            assertNoCache "select * from ${mv_name1}"
-            assertNoCache mtmv_sql3 // base table change -> mtmv no work -> directly base table -> no cache
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertNoCache nested_mtmv_sql1
+                sql "REFRESH MATERIALIZED VIEW ${mv_name1} AUTO;"
+                waitingMTMVTaskFinishedByMvName(mv_name1)
+                sleep(10000)
+                assertNoCache "select * from ${mv_name1}"
+                assertNoCache mtmv_sql3 // base table change -> mtmv no work -> directly base table -> no cache
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertNoCache nested_mtmv_sql1
 
-            retryUntilHasSqlCache "select * from ${mv_name1}"
-            retryUntilHasSqlCache nested_mtmv_sql1
+                retryUntilHasSqlCache "select * from ${mv_name1}"
+                retryUntilHasSqlCache nested_mtmv_sql1
 
-            sql "REFRESH MATERIALIZED VIEW ${mv_name4} AUTO;"
-            waitingMTMVTaskFinishedByMvName(mv_name4)
-            sleep(15 * 1000)
-            assertNoCache mtmv_sql4
+                sql "REFRESH MATERIALIZED VIEW ${mv_name4} AUTO;"
+                waitingMTMVTaskFinishedByMvName(mv_name4)
+                sleep(10000)
+                assertNoCache mtmv_sql4
 
-            assertHasCache "select * from ${mv_name1}"
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertHasCache nested_mtmv_sql1
+                assertHasCache "select * from ${mv_name1}"
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertHasCache nested_mtmv_sql1
 
-            // add partition
-            sql "alter table ${tb_name1} add partition p7 values[('7'),('8'))"
-            assertHasCache "select * from ${mv_name1}"
-            assertNoCache mtmv_sql4
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertHasCache nested_mtmv_sql1
+                // add partition
+                sql "alter table ${tb_name1} add partition p7 values[('7'),('8'))"
+                assertHasCache "select * from ${mv_name1}"
+                assertNoCache mtmv_sql4
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertHasCache nested_mtmv_sql1
 
-            retryUntilHasSqlCache mtmv_sql4
-            assertHasCache mtmv_sql4
+                retryUntilHasSqlCache mtmv_sql4
+                assertHasCache mtmv_sql4
 
-            // insert data
-            sql "insert into ${tb_name1} values(7, 1)"
-            sleep(15 * 1000)
-            assertHasCache "select * from ${mv_name1}"
-            assertNoCache mtmv_sql3
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertHasCache nested_mtmv_sql1
+                // insert data
+                sql "insert into ${tb_name1} values(7, 1)"
+                sleep(10000)
+                assertHasCache "select * from ${mv_name1}"
+                assertNoCache mtmv_sql3
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertHasCache nested_mtmv_sql1
 
-            sql "REFRESH MATERIALIZED VIEW ${mv_name1} AUTO;"
-            waitingMTMVTaskFinishedByMvName(mv_name1)
-            sleep(15 * 1000)
-            assertNoCache "select * from ${mv_name1}"
-            assertNoCache mtmv_sql3
-            assertHasCache "select * from ${nested_mv_name1}"
-            assertNoCache nested_mtmv_sql1
+                sql "REFRESH MATERIALIZED VIEW ${mv_name1} AUTO;"
+                waitingMTMVTaskFinishedByMvName(mv_name1)
+                sleep(10000)
+                assertNoCache "select * from ${mv_name1}"
+                assertNoCache mtmv_sql3
+                assertHasCache "select * from ${nested_mv_name1}"
+                assertNoCache nested_mtmv_sql1
+            }
         }
+
 
     }
 
