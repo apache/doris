@@ -212,6 +212,9 @@ public class RestoreCommand extends Command implements ForwardWithSync {
      * analyzeProperties
      */
     public void analyzeProperties() throws AnalysisException {
+        if (Config.isCloudMode()) {
+            throw new AnalysisException("Restore is not implemented in cloud mode");
+        }
         // timeout
         if (properties.containsKey("timeout")) {
             try {
