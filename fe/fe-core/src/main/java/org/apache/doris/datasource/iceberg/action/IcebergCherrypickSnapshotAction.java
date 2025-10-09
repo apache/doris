@@ -17,13 +17,20 @@
 
 package org.apache.doris.datasource.iceberg.action;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ArgumentParsers;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+
+import com.google.common.collect.Lists;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.Table;
 
 import java.util.List;
 import java.util.Map;
@@ -41,8 +48,7 @@ public class IcebergCherrypickSnapshotAction extends BaseIcebergAction {
     public static final String SNAPSHOT_ID = "snapshot_id";
 
     public IcebergCherrypickSnapshotAction(Map<String, String> properties,
-            Optional<PartitionNamesInfo> partitionNamesInfo,
-            Optional<Expression> whereCondition,
+            Optional<PartitionNamesInfo> partitionNamesInfo, Optional<Expression> whereCondition,
             IcebergExternalTable icebergTable) {
         super("cherrypick_snapshot", properties, partitionNamesInfo, whereCondition, icebergTable);
     }
@@ -65,7 +71,38 @@ public class IcebergCherrypickSnapshotAction extends BaseIcebergAction {
 
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
-        throw new DdlException("Iceberg cherrypick_snapshot procedure is not implemented yet");
+        Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
+        Long sourceSnapshotId = namedArguments.getLong(SNAPSHOT_ID);
+
+        try {
+            Snapshot targetSnapshot = icebergTable.snapshot(sourceSnapshotId);
+            if (targetSnapshot == null) {
+                throw new UserException("Snapshot not found in table");
+            }
+
+            icebergTable.manageSnapshots().cherrypick(sourceSnapshotId).commit();
+            Snapshot currentSnapshot = icebergTable.currentSnapshot();
+
+            // invalid iceberg catalog table cache.
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
+            return Lists.newArrayList(
+                    String.valueOf(sourceSnapshotId),
+                    String.valueOf(currentSnapshot.snapshotId()
+                    )
+            );
+
+        } catch (Exception e) {
+            throw new UserException("Failed to cherry-pick snapshot " + sourceSnapshotId + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    protected List<Column> getResultSchema() {
+        return Lists.newArrayList(new Column("source_snapshot_id", Type.BIGINT, false,
+                        "ID of the snapshot whose changes were cherry-picked into the current table state"),
+                new Column("current_snapshot_id", Type.BIGINT, false,
+                        "ID of the new snapshot created as a result of the cherry-pick operation, "
+                                + "now set as the current snapshot"));
     }
 
     @Override
