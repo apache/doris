@@ -1782,7 +1782,7 @@ void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
     if (_pip_id_to_pipeline[pipeline_id]->close_task()) {
         if (_dag.contains(pipeline_id)) {
             for (auto dep : _dag[pipeline_id]) {
-                _pip_id_to_pipeline[dep]->make_all_runnable();
+                _pip_id_to_pipeline[dep]->make_all_runnable(pipeline_id);
             }
         }
     }
