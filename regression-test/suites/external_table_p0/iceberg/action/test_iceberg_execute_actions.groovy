@@ -223,8 +223,8 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
 
     // Execute rollback to the earliest snapshot
     sql """
-        OPTIMIZE TABLE ${catalog_name}.${db_name}.test_rollback
-        PROPERTIES("action" = "rollback_to_snapshot", "snapshot_id" = "${rollbackEarliestSnapshotId}")
+        ALTER TABLE ${catalog_name}.${db_name}.test_rollback
+        EXECUTE rollback_to_snapshot("snapshot_id" = "${rollbackEarliestSnapshotId}")
     """
     qt_after_rollback_to_snapshot """SELECT * FROM test_rollback ORDER BY id"""
 
@@ -257,8 +257,8 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
 
     // Execute timestamp-based rollback
     sql """
-        OPTIMIZE TABLE ${catalog_name}.${db_name}.test_rollback_timestamp
-        PROPERTIES("action" = "rollback_to_timestamp", "timestamp" = "${formattedSnapshotTime}")
+        ALTER TABLE ${catalog_name}.${db_name}.test_rollback_timestamp
+        EXECUTE rollback_to_timestamp("timestamp" = "${formattedSnapshotTime}")
     """
     qt_after_rollback_to_timestamp """SELECT * FROM test_rollback_timestamp ORDER BY id"""
 
@@ -286,8 +286,8 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
 
     // Execute set current snapshot by snapshot ID
     sql """
-        OPTIMIZE TABLE ${catalog_name}.${db_name}.test_current_snapshot
-        PROPERTIES("action" = "set_current_snapshot", "snapshot_id" = "${targetCurrentSnapshotId}")
+        ALTER TABLE ${catalog_name}.${db_name}.test_current_snapshot
+        EXECUTE set_current_snapshot("snapshot_id" = "${targetCurrentSnapshotId}")
     """
     qt_after_set_current_snapshot_by_snapshotid """SELECT * FROM test_current_snapshot ORDER BY id"""
 
@@ -301,16 +301,16 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
     // Test setting current snapshot by branch reference
     qt_before_set_current_snapshot_by_branch """SELECT * FROM test_current_snapshot ORDER BY id"""
     sql """
-        OPTIMIZE TABLE ${catalog_name}.${db_name}.test_current_snapshot
-        PROPERTIES("action" = "set_current_snapshot", "ref" = "dev_branch")
+        ALTER TABLE ${catalog_name}.${db_name}.test_current_snapshot
+        EXECUTE set_current_snapshot("ref" = "dev_branch")
     """
     qt_after_set_current_snapshot_by_branch """SELECT * FROM test_current_snapshot ORDER BY id"""
 
     // Test setting current snapshot by tag reference
     qt_before_set_current_snapshot_by_tag """SELECT * FROM test_current_snapshot ORDER BY id"""
     sql """
-        OPTIMIZE TABLE ${catalog_name}.${db_name}.test_current_snapshot
-        PROPERTIES("action" = "set_current_snapshot", "ref" = "dev_tag")
+        ALTER TABLE ${catalog_name}.${db_name}.test_current_snapshot
+        EXECUTE set_current_snapshot("ref" = "dev_tag")
     """
     qt_after_set_current_snapshot_by_tag """SELECT * FROM test_current_snapshot ORDER BY id"""
 
@@ -338,15 +338,15 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
 
     // Step 1: Rollback to earliest snapshot to create test scenario
     sql """
-        OPTIMIZE TABLE ${catalog_name}.${db_name}.test_cherrypick
-        PROPERTIES("action" = "rollback_to_snapshot", "snapshot_id" = "${cherrypickEarliestSnapshotId}")
+        ALTER TABLE ${catalog_name}.${db_name}.test_cherrypick
+        EXECUTE rollback_to_snapshot("snapshot_id" = "${cherrypickEarliestSnapshotId}")
     """
     qt_rollback_snapshot """SELECT * FROM test_cherrypick ORDER BY id"""
 
     // Step 2: Cherrypick changes from the latest snapshot
     sql """
-        OPTIMIZE TABLE ${catalog_name}.${db_name}.test_cherrypick
-        PROPERTIES("action" = "cherrypick_snapshot", "snapshot_id" = "${cherrypickLatestSnapshotId}")
+        ALTER TABLE ${catalog_name}.${db_name}.test_cherrypick
+        EXECUTE cherrypick_snapshot("snapshot_id" = "${cherrypickLatestSnapshotId}")
     """
     qt_after_cherrypick_snapshot """SELECT * FROM test_cherrypick ORDER BY id"""
 
@@ -381,8 +381,8 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
     qt_before_fast_forword_branch """SELECT * FROM test_fast_forward@branch(feature_branch) ORDER BY id"""
 
     sql """
-        OPTIMIZE TABLE ${catalog_name}.${db_name}.test_fast_forward
-        PROPERTIES("action" = "fast_forward", "branch" = "feature_branch", "to" = "main")
+        ALTER TABLE ${catalog_name}.${db_name}.test_fast_forward
+        EXECUTE fast_forward("branch" = "feature_branch", "to" = "main")
     """
     qt_after_fast_forword_branch """SELECT * FROM test_fast_forward@branch(feature_branch) ORDER BY id"""
 
