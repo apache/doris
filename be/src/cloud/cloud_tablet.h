@@ -34,6 +34,10 @@ enum class WarmUpProgress : int { NONE, DOING, DONE };
 struct WarmUpState {
     WarmUpTriggerSource trigger_source {WarmUpTriggerSource::NONE};
     WarmUpProgress progress {WarmUpProgress::NONE};
+
+    bool operator==(const WarmUpState& other) const {
+        return trigger_source == other.trigger_source && progress == other.progress;
+    }
 };
 
 struct SyncRowsetStats {
