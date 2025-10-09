@@ -24,21 +24,29 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCte;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.ProjectProcessor;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -70,7 +78,7 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
             // step 1. analyzed all cte plan
             Pair<CTEContext, List<LogicalCTEProducer<Plan>>> result = analyzeCte(logicalCTE, ctx.cascadesContext);
             CascadesContext outerCascadesCtx = CascadesContext.newContextWithCteContext(
-                    ctx.cascadesContext, logicalCTE.child(), result.first);
+                    ctx.cascadesContext, logicalCTE.child(), result.first, Optional.empty(), ImmutableList.of());
             outerCascadesCtx.withPlanProcess(ctx.cascadesContext.showPlanProcess(), () -> {
                 outerCascadesCtx.newAnalyzer().analyze();
             });
@@ -95,23 +103,94 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         List<LogicalCTEProducer<Plan>> cteProducerPlans = new ArrayList<>();
         for (LogicalSubQueryAlias<Plan> aliasQuery : aliasQueries) {
             // we should use a chain to ensure visible of cte
-            LogicalPlan parsedCtePlan = (LogicalPlan) aliasQuery.child();
-            CascadesContext innerCascadesCtx = CascadesContext.newContextWithCteContext(
-                    cascadesContext, parsedCtePlan, outerCteCtx);
-            innerCascadesCtx.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
-                innerCascadesCtx.newAnalyzer().analyze();
-            });
-            cascadesContext.addPlanProcesses(innerCascadesCtx.getPlanProcesses());
-            LogicalPlan analyzedCtePlan = (LogicalPlan) innerCascadesCtx.getRewritePlan();
-            checkColumnAlias(aliasQuery, analyzedCtePlan.getOutput());
-            CTEId cteId = StatementScopeIdGenerator.newCTEId();
-            LogicalSubQueryAlias<Plan> logicalSubQueryAlias =
-                    aliasQuery.withChildren(ImmutableList.of(analyzedCtePlan));
-            outerCteCtx = new CTEContext(cteId, logicalSubQueryAlias, outerCteCtx);
-            outerCteCtx.setAnalyzedPlan(logicalSubQueryAlias);
-            cteProducerPlans.add(new LogicalCTEProducer<>(cteId, logicalSubQueryAlias));
+            if (aliasQuery.isRecursiveCte()) {
+                Pair<CTEContext, LogicalCTEProducer<Plan>> result = analyzeRecursiveCte(aliasQuery, outerCteCtx,
+                        cascadesContext);
+                outerCteCtx = result.first;
+                cteProducerPlans.add(result.second);
+            } else {
+                LogicalPlan parsedCtePlan = (LogicalPlan) aliasQuery.child();
+                CascadesContext innerCascadesCtx = CascadesContext.newContextWithCteContext(
+                        cascadesContext, parsedCtePlan, outerCteCtx, Optional.empty(), ImmutableList.of());
+                innerCascadesCtx.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
+                    innerCascadesCtx.newAnalyzer().analyze();
+                });
+                cascadesContext.addPlanProcesses(innerCascadesCtx.getPlanProcesses());
+                LogicalPlan analyzedCtePlan = (LogicalPlan) innerCascadesCtx.getRewritePlan();
+                checkColumnAlias(aliasQuery, analyzedCtePlan.getOutput());
+                CTEId cteId = StatementScopeIdGenerator.newCTEId();
+                LogicalSubQueryAlias<Plan> logicalSubQueryAlias = aliasQuery
+                        .withChildren(ImmutableList.of(analyzedCtePlan));
+                outerCteCtx = new CTEContext(cteId, logicalSubQueryAlias, outerCteCtx);
+                outerCteCtx.setAnalyzedPlan(logicalSubQueryAlias);
+                cteProducerPlans.add(new LogicalCTEProducer<>(cteId, logicalSubQueryAlias));
+            }
         }
         return Pair.of(outerCteCtx, cteProducerPlans);
+    }
+
+    private Pair<CTEContext, LogicalCTEProducer<Plan>> analyzeRecursiveCte(LogicalSubQueryAlias<Plan> aliasQuery,
+            CTEContext outerCteCtx, CascadesContext cascadesContext) {
+        Preconditions.checkArgument(aliasQuery.isRecursiveCte(), "alias query must be recursive cte");
+        LogicalPlan parsedCtePlan = (LogicalPlan) aliasQuery.child();
+        if (!(parsedCtePlan instanceof LogicalUnion) || parsedCtePlan.children().size() != 2) {
+            throw new AnalysisException("recursive cte must be union");
+        }
+        // analyze anchor child, its output list will be recursive cte temp table's schema
+        LogicalPlan anchorChild = (LogicalPlan) parsedCtePlan.child(0);
+        CascadesContext innerAnchorCascadesCtx = CascadesContext.newContextWithCteContext(
+                cascadesContext, anchorChild, outerCteCtx, Optional.of(aliasQuery.getAlias()), ImmutableList.of());
+        innerAnchorCascadesCtx.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
+            innerAnchorCascadesCtx.newAnalyzer().analyze();
+        });
+        cascadesContext.addPlanProcesses(innerAnchorCascadesCtx.getPlanProcesses());
+        LogicalPlan analyzedAnchorChild = (LogicalPlan) innerAnchorCascadesCtx.getRewritePlan();
+        checkColumnAlias(aliasQuery, analyzedAnchorChild.getOutput());
+
+        // analyze recursive child
+        LogicalPlan recursiveChild = (LogicalPlan) parsedCtePlan.child(1);
+        CascadesContext innerRecursiveCascadesCtx = CascadesContext.newContextWithCteContext(
+                cascadesContext, recursiveChild, outerCteCtx, Optional.of(aliasQuery.getAlias()),
+                analyzedAnchorChild.getOutput());
+        innerRecursiveCascadesCtx.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
+            innerRecursiveCascadesCtx.newAnalyzer().analyze();
+        });
+        cascadesContext.addPlanProcesses(innerRecursiveCascadesCtx.getPlanProcesses());
+        LogicalPlan analyzedRecursiveChild = (LogicalPlan) innerRecursiveCascadesCtx.getRewritePlan();
+        LogicalUnion logicalUnion = (LogicalUnion) parsedCtePlan;
+
+        // manually bind LogicalRecursiveCte, see bindSetOperation in BindExpression.java
+        LogicalRecursiveCte analyzedCtePlan = new LogicalRecursiveCte(
+                logicalUnion.getQualifier(), ImmutableList.of(analyzedAnchorChild, analyzedRecursiveChild));
+        List<List<NamedExpression>> childrenProjections = analyzedCtePlan.collectChildrenProjections();
+        int childrenProjectionSize = childrenProjections.size();
+        ImmutableList.Builder<List<SlotReference>> childrenOutputs = ImmutableList
+                .builderWithExpectedSize(childrenProjectionSize);
+        ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(childrenProjectionSize);
+        for (int i = 0; i < childrenProjectionSize; i++) {
+            Plan newChild;
+            Plan child = analyzedCtePlan.child(i);
+            if (childrenProjections.get(i).stream().allMatch(SlotReference.class::isInstance)) {
+                newChild = child;
+            } else {
+                List<NamedExpression> parentProject = childrenProjections.get(i);
+                newChild = ProjectProcessor.tryProcessProject(parentProject, child)
+                        .orElseGet(() -> new LogicalProject<>(parentProject, child));
+            }
+            newChildren.add(newChild);
+            childrenOutputs.add((List<SlotReference>) (List) newChild.getOutput());
+        }
+        analyzedCtePlan = (LogicalRecursiveCte) analyzedCtePlan.withChildrenAndTheirOutputs(newChildren.build(),
+                childrenOutputs.build());
+        List<NamedExpression> newOutputs = analyzedCtePlan.buildNewOutputs();
+        analyzedCtePlan = analyzedCtePlan.withNewOutputs(newOutputs);
+
+        CTEId cteId = StatementScopeIdGenerator.newCTEId();
+        LogicalSubQueryAlias<Plan> logicalSubQueryAlias = aliasQuery.withChildren(ImmutableList.of(analyzedCtePlan));
+        outerCteCtx = new CTEContext(cteId, logicalSubQueryAlias, outerCteCtx);
+        outerCteCtx.setAnalyzedPlan(logicalSubQueryAlias);
+        LogicalCTEProducer<Plan> cteProducer = new LogicalCTEProducer<>(cteId, logicalSubQueryAlias);
+        return Pair.of(outerCteCtx, cteProducer);
     }
 
     /**

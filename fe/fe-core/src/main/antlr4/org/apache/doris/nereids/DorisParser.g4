@@ -1218,7 +1218,7 @@ cte
     ;
 
 aliasQuery
-    : identifier columnAliases? AS LEFT_PAREN query RIGHT_PAREN
+    : RECURSIVE? identifier columnAliases? AS LEFT_PAREN query RIGHT_PAREN
     ;
 
 columnAliases
