@@ -97,6 +97,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @SerializedName(value = "sql")
     String executeSql;
 
+    String encryptedSql;
 
     @SerializedName(value = "stc")
     protected AtomicLong succeedTaskCount = new AtomicLong(0);

@@ -95,12 +95,19 @@ suite("test_streaming_insert_job") {
     def pauseShowTask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
     assert pauseShowTask.size() == 0
 
-
+    //check offset
     def jobOffset = sql """
         select currentOffset, endoffset from jobs("type"="insert") where Name='${jobName}'
     """
     assert jobOffset.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
     assert jobOffset.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
+
+    // check encrypt sk
+    def jobExecuteSQL = sql """
+        select ExecuteSql from jobs("type"="insert") where Name='${jobName}'
+    """
+    assert jobExecuteSQL.get(0).get(0).contains("${getS3AK()}")
+    assert !jobExecuteSQL.get(0).get(0).contains("${getS3SK()}")
 
     // alter streaming job
     sql """
@@ -155,5 +162,4 @@ suite("test_streaming_insert_job") {
 
     def jobCountRsp = sql """select count(1) from jobs("type"="insert")  where Name ='${jobName}'"""
     assert jobCountRsp.get(0).get(0) == 0
-
 }
