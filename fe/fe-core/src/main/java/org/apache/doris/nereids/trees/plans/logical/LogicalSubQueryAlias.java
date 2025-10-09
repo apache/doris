@@ -56,28 +56,36 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     private final List<String> qualifier;
     private final Optional<List<String>> columnAliases;
 
+    private final boolean isRecursiveCte;
+
     public LogicalSubQueryAlias(String tableAlias, CHILD_TYPE child) {
-        this(ImmutableList.of(tableAlias), Optional.empty(), Optional.empty(), Optional.empty(), child);
+        this(ImmutableList.of(tableAlias), Optional.empty(), false, Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalSubQueryAlias(List<String> qualifier, CHILD_TYPE child) {
-        this(qualifier, Optional.empty(), Optional.empty(), Optional.empty(), child);
+        this(qualifier, Optional.empty(), false, Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalSubQueryAlias(String tableAlias, Optional<List<String>> columnAliases, CHILD_TYPE child) {
-        this(ImmutableList.of(tableAlias), columnAliases, Optional.empty(), Optional.empty(), child);
+        this(ImmutableList.of(tableAlias), columnAliases, false, Optional.empty(), Optional.empty(), child);
+    }
+
+    public LogicalSubQueryAlias(String tableAlias, Optional<List<String>> columnAliases, boolean isRecursiveCte,
+            CHILD_TYPE child) {
+        this(ImmutableList.of(tableAlias), columnAliases, isRecursiveCte, Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalSubQueryAlias(List<String> qualifier, Optional<List<String>> columnAliases, CHILD_TYPE child) {
-        this(qualifier, columnAliases, Optional.empty(), Optional.empty(), child);
+        this(qualifier, columnAliases, false, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalSubQueryAlias(List<String> qualifier, Optional<List<String>> columnAliases,
+    public LogicalSubQueryAlias(List<String> qualifier, Optional<List<String>> columnAliases, boolean isRecursiveCte,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_SUBQUERY_ALIAS, groupExpression, logicalProperties, child);
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier is null"));
         this.columnAliases = columnAliases;
+        this.isRecursiveCte = isRecursiveCte;
     }
 
     @Override
@@ -129,10 +137,14 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         return columnAliases;
     }
 
+    public boolean isRecursiveCte() {
+        return isRecursiveCte;
+    }
+
     @Override
     public String toString() {
         return columnAliases.map(strings -> Utils.toSqlString("LogicalSubQueryAlias",
-                "qualifier", qualifier,
+                "qualifier", qualifier, "isRecursiveCte", isRecursiveCte,
                 "columnAliases", StringUtils.join(strings, ",")
         )).orElseGet(() -> Utils.toSqlString("LogicalSubQueryAlias",
                 "qualifier", qualifier
@@ -171,7 +183,8 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     @Override
     public LogicalSubQueryAlias<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalSubQueryAlias<>(qualifier, columnAliases, children.get(0));
+        return new LogicalSubQueryAlias<>(qualifier, columnAliases, isRecursiveCte, Optional.empty(), Optional.empty(),
+                children.get(0));
     }
 
     @Override
@@ -186,7 +199,7 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public LogicalSubQueryAlias<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalSubQueryAlias<>(qualifier, columnAliases, groupExpression,
+        return new LogicalSubQueryAlias<>(qualifier, columnAliases, isRecursiveCte, groupExpression,
                 Optional.of(getLogicalProperties()), child());
     }
 
@@ -194,7 +207,7 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalSubQueryAlias<>(qualifier, columnAliases, groupExpression, logicalProperties,
+        return new LogicalSubQueryAlias<>(qualifier, columnAliases, isRecursiveCte, groupExpression, logicalProperties,
                 children.get(0));
     }
 

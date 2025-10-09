@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCte;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
@@ -326,6 +327,22 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                 }
             }
             for (List<NamedExpression> constantExprs : logicalUnion.getConstantExprsList()) {
+                for (int j = 0; j < constantExprs.size(); j++) {
+                    inputNullable.set(j, inputNullable.get(j) || constantExprs.get(j).nullable());
+                }
+            }
+        } else if (setOperation instanceof LogicalRecursiveCte) {
+            // LogicalRecursiveCte is basically like LogicalUnion, so just do same as LogicalUnion
+            LogicalRecursiveCte logicalRecursiveCte = (LogicalRecursiveCte) setOperation;
+            if (!logicalRecursiveCte.getConstantExprsList().isEmpty() && setOperation.children().isEmpty()) {
+                int outputSize = logicalRecursiveCte.getConstantExprsList().get(0).size();
+                // create the inputNullable list and fill it with all FALSE values
+                inputNullable = Lists.newArrayListWithCapacity(outputSize);
+                for (int i = 0; i < outputSize; i++) {
+                    inputNullable.add(false);
+                }
+            }
+            for (List<NamedExpression> constantExprs : logicalRecursiveCte.getConstantExprsList()) {
                 for (int j = 0; j < constantExprs.size(); j++) {
                     inputNullable.set(j, inputNullable.get(j) || constantExprs.get(j).nullable());
                 }

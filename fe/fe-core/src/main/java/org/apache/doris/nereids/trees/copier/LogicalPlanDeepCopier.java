@@ -53,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCte;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
@@ -352,6 +353,28 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .collect(ImmutableList.toImmutableList());
         return new LogicalUnion(union.getQualifier(), outputs, childrenOutputs,
                 constantExprsList, union.hasPushedFilter(), children);
+    }
+
+    @Override
+    public Plan visitLogicalRecursiveCte(LogicalRecursiveCte recursiveCte, DeepCopierContext context) {
+        List<Plan> children = recursiveCte.children().stream()
+                .map(c -> c.accept(this, context))
+                .collect(ImmutableList.toImmutableList());
+        List<List<NamedExpression>> constantExprsList = recursiveCte.getConstantExprsList().stream()
+                .map(l -> l.stream()
+                        .map(e -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(e, context))
+                        .collect(ImmutableList.toImmutableList()))
+                .collect(ImmutableList.toImmutableList());
+        List<NamedExpression> outputs = recursiveCte.getOutputs().stream()
+                .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
+                .collect(ImmutableList.toImmutableList());
+        List<List<SlotReference>> childrenOutputs = recursiveCte.getRegularChildrenOutputs().stream()
+                .map(childOutputs -> childOutputs.stream()
+                        .map(o -> (SlotReference) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
+                        .collect(ImmutableList.toImmutableList()))
+                .collect(ImmutableList.toImmutableList());
+        return new LogicalRecursiveCte(recursiveCte.getQualifier(), outputs, childrenOutputs,
+                constantExprsList, recursiveCte.hasPushedFilter(), children);
     }
 
     @Override
