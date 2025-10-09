@@ -32,17 +32,17 @@ class EliminateBooleanTypeCaseWhenTest extends ExpressionRewriteTestHelper {
                         EliminateBooleanTypeCaseWhen.INSTANCE
                 )
         ));
-        assertRewriteAfterTypeCoercion("case when a = 1 then true end", "(a = 1) <=> true or null");
-        assertRewriteAfterTypeCoercion("case when a = 1 then true else null end", "(a = 1) <=> true or null");
-        assertRewriteAfterTypeCoercion("case when a = 1 then true else false end", "(a = 1) <=> true or false");
-        assertRewriteAfterTypeCoercion("case when a = 1 then true else true end", "(a = 1) <=> true or true");
-        assertRewriteAfterTypeCoercion("case when a = 1 then true else b = 1 end", "(a = 1) <=> true or b = 1");
+        assertRewriteAfterTypeCoercion("case when a = 1 then true end", "(a = 1 and a is not null) or null");
+        assertRewriteAfterTypeCoercion("case when a = 1 then true else null end", "(a = 1 and a is not null) or null");
+        assertRewriteAfterTypeCoercion("case when a = 1 then true else false end", "(a = 1 and a is not null) or false");
+        assertRewriteAfterTypeCoercion("case when a = 1 then true else true end", "(a = 1 and a is not null) or true");
+        assertRewriteAfterTypeCoercion("case when a = 1 then true else b = 1 end", "(a = 1 and a is not null) or b = 1");
         assertRewriteAfterTypeCoercion("case when a = 1 then true when b = 1 then true when c = 1 then true end",
-                "(a = 1) <=> true or (b = 1) <=> true or (c = 1) <=> true or null");
+                "(a = 1 and a is not null) or (b = 1 and b is not null) or (c = 1 and c is not null) or null");
         assertRewriteAfterTypeCoercion("case when a = 1 then false when b = 1 then false when c = 1 then false end",
-                "not((a = 1) <=> true) and not ((b = 1) <=> true) and not((c = 1) <=> true) and null");
+                "not(a = 1 and a is not null) and not (b = 1 and b is not null) and not(c = 1 and c is not null) and null");
         assertRewriteAfterTypeCoercion("case when a = 1 then true when b = 1 then false when c = 1 then true end",
-                "((a = 1) <=> true) or (not ((b = 1) <=> true) and ((c = 1) <=> true or null))");
+                "(a = 1 and a is not null) or (not (b = 1 and b is not null) and ((c = 1 and c is not null) or null))");
     }
 
     @Test
@@ -53,7 +53,7 @@ class EliminateBooleanTypeCaseWhenTest extends ExpressionRewriteTestHelper {
                 )
         ));
 
-        assertRewriteAfterTypeCoercion("if(a = 1, true, a > b)", "(a = 1) <=> true or a > b");
-        assertRewriteAfterTypeCoercion("if(a = 1, false, a > b)", "not ((a = 1) <=> true) and a > b");
+        assertRewriteAfterTypeCoercion("if(a = 1, true, a > b)", "(a = 1 and a is not null) or a > b");
+        assertRewriteAfterTypeCoercion("if(a = 1, false, a > b)", "not (a = 1 and a is not null) and a > b");
     }
 }

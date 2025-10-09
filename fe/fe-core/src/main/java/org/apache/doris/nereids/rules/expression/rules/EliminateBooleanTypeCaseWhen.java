@@ -17,22 +17,27 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -96,7 +101,8 @@ public class EliminateBooleanTypeCaseWhen implements ExpressionPatternRuleFactor
         try {
             for (int i = whenClauses.size() - 1; i >= 0; i--) {
                 WhenClause whenClause = whenClauses.get(i);
-                Expression condition = new NullSafeEqual(whenClause.getOperand(), BooleanLiteral.TRUE);
+                // operand <=> true
+                Expression condition = nullSafeEqualTrue(whenClause.getOperand()).first;
                 if (whenClause.getResult().equals(BooleanLiteral.TRUE)) {
                     result = new Or(condition, result);
                 } else {
@@ -109,6 +115,105 @@ public class EliminateBooleanTypeCaseWhen implements ExpressionPatternRuleFactor
             return Optional.empty();
         }
         return Optional.of(result);
+    }
+
+    /**
+     * get: (expression <=> true, have optimized)
+     */
+    @VisibleForTesting
+    public Pair<Expression, Boolean> nullSafeEqualTrue(Expression expression) {
+        if (expression.isNullLiteral()) {
+            return Pair.of(BooleanLiteral.FALSE, true);
+        } else if (!expression.nullable()) {
+            return Pair.of(expression, true);
+        } else if (expression instanceof ComparisonPredicate) {
+            ComparisonPredicate comparisonPredicate = (ComparisonPredicate) expression;
+            Expression left = comparisonPredicate.left();
+            Expression right = comparisonPredicate.right();
+            if (comparisonPredicate instanceof NullSafeEqual) {
+                return Pair.of(expression, true);
+            } else {
+                // expression will be 'NULL', then  'NULL <=> TRUE' will be FALSE
+                if (left.isNullLiteral() || right.isNullLiteral()) {
+                    return Pair.of(BooleanLiteral.FALSE, true);
+                }
+                List<Expression> conjuncts = Lists.newArrayListWithExpectedSize(3);
+                conjuncts.add(expression);
+                if (tryAddNotNull(left, conjuncts) && tryAddNotNull(right, conjuncts)) {
+                    return Pair.of(ExpressionUtils.and(conjuncts), true);
+                }
+            }
+        } else if (expression instanceof InPredicate) {
+            InPredicate in = (InPredicate) expression;
+            Expression compareExpr = in.getCompareExpr();
+            if (compareExpr.isNullLiteral()) {
+                return Pair.of(BooleanLiteral.FALSE, true);
+            }
+            List<Expression> conjuncts = Lists.newArrayListWithExpectedSize(2);
+            if (tryAddNotNull(compareExpr, conjuncts)) {
+                boolean allOptionNonNullLiteral = true;
+                ImmutableList.Builder<Expression> newOptionsBuilder
+                        = ImmutableList.builderWithExpectedSize(in.getOptions().size());
+                for (Expression option : in.getOptions()) {
+                    if (option.isNullLiteral()) {
+                        continue;
+                    }
+                    if (!option.isLiteral()) {
+                        allOptionNonNullLiteral = false;
+                        break;
+                    }
+                    newOptionsBuilder.add(option);
+                }
+                if (allOptionNonNullLiteral) {
+                    List<Expression> newOptions = newOptionsBuilder.build();
+                    if (newOptions.isEmpty()) {
+                        return Pair.of(BooleanLiteral.FALSE, true);
+                    }
+                    Expression newIn = newOptions.size() == in.getOptions().size()
+                            ? in : ExpressionUtils.toInPredicateOrEqualTo(compareExpr, newOptions);
+                    conjuncts.add(newIn);
+                    return Pair.of(ExpressionUtils.and(conjuncts), true);
+                }
+            }
+        } else if (expression instanceof CompoundPredicate) {
+            // process AND / OR
+            // c1 and c2 and c3 <=> TRUE  can rewrite to (c1 <=> TRUE) and (c2 <=> TRUE) and (c3 <=> TRUE)
+            // the same for OR
+            int childNotOptNum = 0;
+            int MAX_NOT_OPT_NUM = 1;
+            ImmutableList.Builder<Expression> newChildren
+                    = ImmutableList.builderWithExpectedSize(expression.children().size());
+            for (Expression child : expression.children()) {
+                Pair<Expression, Boolean> newChildPair = nullSafeEqualTrue(child);
+                boolean childHasOpt = newChildPair.second;
+                if (!childHasOpt) {
+                    childNotOptNum++;
+                    if (childNotOptNum > MAX_NOT_OPT_NUM) {
+                        break;
+                    }
+                }
+                newChildren.add(newChildPair.first);
+            }
+            if (childNotOptNum <= MAX_NOT_OPT_NUM) {
+                return Pair.of(expression.withChildren(newChildren.build()), true);
+            }
+        }
+
+        return Pair.of(new NullSafeEqual(expression, BooleanLiteral.TRUE), false);
+    }
+
+    private boolean tryAddNotNull(Expression expression, List<Expression> conjuncts) {
+        // if expression isn't slot reference, and it's nullable, we don't rewrite it to
+        // avoid the expression grow bigger, for example:   a + b > 10 <=> TRUE   => a + b > 10 and not(isnull(a + b)),
+        // then a + b will calc twice.
+        if (expression instanceof SlotReference || !expression.nullable()) {
+            if (expression.nullable()) {
+                conjuncts.add(ExpressionUtils.notIsNull(expression));
+            }
+            return true;
+        } else {
+            return false;
+        }
     }
 
     private Expression flattenCompound(Expression expression) {
