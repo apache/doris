@@ -47,6 +47,7 @@
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
+#include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/local_file_reader.h"
 #include "olap/id_manager.h"
@@ -279,6 +280,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_min_threads(config::min_s3_file_system_thread_num)
                               .set_max_threads(config::max_s3_file_system_thread_num)
                               .build(&_s3_file_system_thread_pool));
+    if (config::enable_file_cache_fill_async) {
+        static_cast<void>(ThreadPoolBuilder("FileCacheFillThreadPool")
+                                  .set_min_threads(cast_set<int>(config::num_file_cache_fill_thread_pool_min_thread))
+                                  .set_max_threads(cast_set<int>(config::num_file_cache_fill_thread_pool_max_thread))
+                                  .build(&io::CachedRemoteFileReader::_file_cache_fill_thread_pool));
+    }
     RETURN_IF_ERROR(init_mem_env());
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
@@ -788,6 +795,9 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
     SAFE_SHUTDOWN(_s3_file_system_thread_pool);
+    if (config::enable_file_cache_fill_async)  {
+        SAFE_SHUTDOWN(io::CachedRemoteFileReader::_file_cache_fill_thread_pool);
+    }
     SAFE_SHUTDOWN(_send_batch_thread_pool);
     SAFE_SHUTDOWN(_send_table_stats_thread_pool);
 
@@ -840,6 +850,9 @@ void ExecEnv::destroy() {
     _lazy_release_obj_pool.reset(nullptr);
     _non_block_close_thread_pool.reset(nullptr);
     _s3_file_system_thread_pool.reset(nullptr);
+    if (config::enable_file_cache_fill_async)  {
+        io::CachedRemoteFileReader::_file_cache_fill_thread_pool.reset(nullptr);
+    }
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);

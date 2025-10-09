@@ -333,6 +333,8 @@ public:
                 _cache_capacity_metrics->get_value() - _cur_cache_size_metrics->get_value(), 0);
     }
 
+    static std::atomic<size_t> file_cache_fill_buffer_size;
+
 private:
     LRUQueue& get_queue(FileCacheType type);
     const LRUQueue& get_queue(FileCacheType type) const;
@@ -522,6 +524,9 @@ private:
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_size_metrics_matrix[4][4];
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_self_lru_metrics_matrix[4];
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_try_release;
+
+    std::shared_ptr<bvar::Status<size_t>> _file_cache_fill_buffer_size_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _file_cache_fill_buffer_max_size_metrics;
 
     std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_hit_blocks_5m;
     std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_read_blocks_5m;

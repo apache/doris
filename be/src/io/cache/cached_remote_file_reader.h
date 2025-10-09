@@ -31,6 +31,7 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
+#include "util/threadpool.h"
 
 namespace doris::io {
 struct IOContext;
@@ -53,6 +54,8 @@ public:
     FileReader* get_remote_reader() { return _remote_file_reader.get(); }
 
     static std::pair<size_t, size_t> s_align_size(size_t offset, size_t size, size_t length);
+
+    static std::unique_ptr<ThreadPool> _file_cache_fill_thread_pool;
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
