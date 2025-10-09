@@ -171,7 +171,7 @@ Status InvertedIndexColumnWriter<field_type>::create_field(lucene::document::Fie
         }
     })
     if (_index_file_writer->get_storage_format() >= InvertedIndexStorageFormatPB::V3) {
-        (*field)->setIndexVersion(IndexVersion::kV3);
+        (*field)->setIndexVersion(IndexVersion::kV4);
         // Only effective in v3
         std::string dict_compression =
                 get_parser_dict_compression_from_properties(_index_meta->properties());

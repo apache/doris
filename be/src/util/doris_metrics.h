@@ -244,6 +244,8 @@ public:
     IntCounter* num_io_bytes_read_from_cache = nullptr;
     IntCounter* num_io_bytes_read_from_remote = nullptr;
 
+    IntCounter* udf_close_bthread_count = nullptr;
+
     IntCounter* query_ctx_cnt = nullptr;
     IntCounter* scanner_ctx_cnt = nullptr;
     IntCounter* scanner_cnt = nullptr;
@@ -253,6 +255,9 @@ public:
     IntCounter* ann_index_load_cnt = nullptr;
     IntCounter* ann_index_search_costs_ms = nullptr;
     IntCounter* ann_index_search_cnt = nullptr;
+    IntCounter* ann_index_in_memory_cnt = nullptr;
+    IntCounter* ann_index_in_memory_rows_cnt = nullptr;
+    IntCounter* ann_index_construction = nullptr;
 
     IntGauge* runtime_filter_consumer_num = nullptr;
     IntGauge* runtime_filter_consumer_ready_num = nullptr;

@@ -141,6 +141,8 @@ public:
 
     int exists(const std::string& path) override;
 
+    int abort_multipart_upload(const std::string& path, const std::string& upload_id) override;
+
     // Get the objects' expiration time on the conf.bucket
     // returns 0 for success otherwise error
     int get_life_cycle(int64_t* expiration_days);

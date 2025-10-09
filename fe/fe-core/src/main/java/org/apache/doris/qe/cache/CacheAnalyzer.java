@@ -206,7 +206,14 @@ public class CacheAnalyzer {
 
     public static boolean commonCacheCondition(SessionVariable sessionVariable) {
         return sessionVariable.getSqlSelectLimit() < 0 && sessionVariable.getDefaultOrderByLimit() < 0
-                && !sessionVariable.dryRunQuery;
+                && !sessionVariable.dryRunQuery
+                && !sessionVariable.skipDeleteBitmap
+                && !sessionVariable.skipDeleteSign
+                && !sessionVariable.skipDeletePredicate
+                && !sessionVariable.skipStorageEngineMerge
+                && !sessionVariable.skipMissingVersion
+                && !sessionVariable.skipBadTablet
+                && !sessionVariable.showHiddenColumns;
     }
 
     public void checkCacheModeForNereids(long now) {

@@ -83,7 +83,7 @@ std::string StreamLoadContext::to_json() const {
     if (status.ok()) {
         writer.String("OK");
     } else {
-        writer.String(status.to_string().c_str());
+        writer.String(status.to_string_no_stack().c_str());
     }
     // number_load_rows
     writer.Key("NumberTotalRows");
@@ -340,7 +340,7 @@ std::string StreamLoadContext::to_json_for_mini_load() const {
     if (status.ok() || show_ok) {
         writer.String("OK");
     } else {
-        writer.String(status.to_string().c_str());
+        writer.String(status.to_string_no_stack().c_str());
     }
     writer.EndObject();
     return s.GetString();

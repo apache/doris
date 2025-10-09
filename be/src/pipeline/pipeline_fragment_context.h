@@ -117,7 +117,7 @@ public:
     void clear_finished_tasks() {
         for (size_t j = 0; j < _tasks.size(); j++) {
             for (size_t i = 0; i < _tasks[j].size(); i++) {
-                _tasks[j][i]->stop_if_finished();
+                _tasks[j][i].first->stop_if_finished();
             }
         }
     }
@@ -228,8 +228,25 @@ private:
     bool _use_serial_source = false;
 
     OperatorPtr _root_op = nullptr;
-    // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
-    std::vector<std::vector<std::shared_ptr<PipelineTask>>> _tasks;
+    //
+    /**
+     * Matrix stores tasks with local runtime states.
+     * This is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
+     *
+     * 2-D matrix:
+     * +-------------------------+------------+-------+
+     * |            | Pipeline 0 | Pipeline 1 |  ...  |
+     * +------------+------------+------------+-------+
+     * | Instance 0 |  task 0-0  |  task 0-1  |  ...  |
+     * +------------+------------+------------+-------+
+     * | Instance 1 |  task 1-0  |  task 1-1  |  ...  |
+     * +------------+------------+------------+-------+
+     * | ...                                          |
+     * +--------------------------------------+-------+
+     */
+    std::vector<
+            std::vector<std::pair<std::shared_ptr<PipelineTask>, std::unique_ptr<RuntimeState>>>>
+            _tasks;
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
@@ -299,21 +316,6 @@ private:
     //    - _task_runtime_states is at the task level, unique to each task.
 
     std::vector<TUniqueId> _fragment_instance_ids;
-    /**
-     * Local runtime states for each task.
-     *
-     * 2-D matrix:
-     * +-------------------------+------------+-------+
-     * |            | Instance 0 | Instance 1 |  ...  |
-     * +------------+------------+------------+-------+
-     * | Pipeline 0 |  task 0-0  |  task 0-1  |  ...  |
-     * +------------+------------+------------+-------+
-     * | Pipeline 1 |  task 1-0  |  task 1-1  |  ...  |
-     * +------------+------------+------------+-------+
-     * | ...                                          |
-     * +--------------------------------------+-------+
-     */
-    std::vector<std::vector<std::unique_ptr<RuntimeState>>> _task_runtime_states;
 
     // Total instance num running on all BEs
     int _total_instances = -1;

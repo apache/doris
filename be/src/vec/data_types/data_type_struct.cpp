@@ -101,41 +101,6 @@ std::string DataTypeStruct::do_get_name() const {
     return s.str();
 }
 
-std::string DataTypeStruct::to_string(const IColumn& column, size_t row_num) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    auto& struct_column = assert_cast<const ColumnStruct&>(*ptr);
-
-    std::string str;
-    str += "{";
-    for (size_t idx = 0; idx < elems.size(); idx++) {
-        if (idx != 0) {
-            str += ", ";
-        }
-        str += elems[idx]->to_string(struct_column.get_column(idx), row_num);
-    }
-    str += "}";
-    return str;
-}
-
-void DataTypeStruct::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    auto& struct_column = assert_cast<const ColumnStruct&>(*ptr);
-    ostr.write("{", 1);
-    for (size_t idx = 0; idx < elems.size(); idx++) {
-        if (idx != 0) {
-            ostr.write(", ", 2);
-        }
-        elems[idx]->to_string(struct_column.get_column(idx), row_num, ostr);
-    }
-    ostr.write("}", 1);
-}
-
 MutableColumnPtr DataTypeStruct::create_column() const {
     size_t size = elems.size();
     MutableColumns tuple_columns(size);

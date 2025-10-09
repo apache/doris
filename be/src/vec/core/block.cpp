@@ -527,6 +527,56 @@ std::string Block::dump_types() const {
     return out;
 }
 
+std::string Block::dump_data_json(size_t begin, size_t row_limit, bool allow_null_mismatch) const {
+    std::stringstream ss;
+
+    std::vector<std::string> headers;
+    headers.reserve(columns());
+    for (const auto& it : data) {
+        // fmt::format is from the {fmt} library, you might be using std::format in C++20
+        // If not, you can build the string with a stringstream as a fallback.
+        headers.push_back(fmt::format("{}({})", it.name, it.type->get_name()));
+    }
+
+    size_t start_row = std::min(begin, rows());
+    size_t end_row = std::min(rows(), begin + row_limit);
+
+    ss << "[";
+    for (size_t row_num = start_row; row_num < end_row; ++row_num) {
+        if (row_num > start_row) {
+            ss << ",";
+        }
+        ss << "{";
+        for (size_t i = 0; i < columns(); ++i) {
+            if (i > 0) {
+                ss << ",";
+            }
+            ss << "\"" << headers[i] << "\":";
+            std::string s;
+
+            // This value-extraction logic is preserved from your original function
+            // to maintain consistency, especially for handling nullability mismatches.
+            if (data[i].column && data[i].type->is_nullable() &&
+                !data[i].column->is_concrete_nullable()) {
+                // This branch handles a specific internal representation of nullable columns.
+                // The original code would assert here if allow_null_mismatch is false.
+                assert(allow_null_mismatch);
+                s = assert_cast<const DataTypeNullable*>(data[i].type.get())
+                            ->get_nested_type()
+                            ->to_string(*data[i].column, row_num);
+            } else {
+                // This is the standard path. The to_string method is expected to correctly
+                // handle all cases, including when the column is null (e.g., by returning "NULL").
+                s = data[i].to_string(row_num);
+            }
+            ss << "\"" << s << "\"";
+        }
+        ss << "}";
+    }
+    ss << "]";
+    return ss.str();
+}
+
 std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mismatch) const {
     std::vector<std::string> headers;
     std::vector<int> headers_size;
@@ -1131,6 +1181,35 @@ Block MutableBlock::to_block(int start_column, int end_column) {
         columns_with_schema.emplace_back(std::move(_columns[i]), _data_types[i], _names[i]);
     }
     return {columns_with_schema};
+}
+
+std::string MutableBlock::dump_data_json(size_t row_limit) const {
+    std::stringstream ss;
+    std::vector<std::string> headers;
+
+    headers.reserve(columns());
+    for (size_t i = 0; i < columns(); ++i) {
+        headers.push_back(_data_types[i]->get_name());
+    }
+    size_t num_rows_to_dump = std::min(rows(), row_limit);
+    ss << "[";
+    for (size_t row_num = 0; row_num < num_rows_to_dump; ++row_num) {
+        if (row_num > 0) {
+            ss << ",";
+        }
+        ss << "{";
+        for (size_t i = 0; i < columns(); ++i) {
+            if (i > 0) {
+                ss << ",";
+            }
+            ss << "\"" << headers[i] << "\":";
+            std::string s = _data_types[i]->to_string(*_columns[i].get(), row_num);
+            ss << "\"" << s << "\"";
+        }
+        ss << "}";
+    }
+    ss << "]";
+    return ss.str();
 }
 
 std::string MutableBlock::dump_data(size_t row_limit) const {

@@ -150,6 +150,7 @@ message RowsetMetaPB {
     optional SplitSchemaPB __split_schema = 1009;  // A special field, DO NOT change it.
 
     optional int64 visible_ts_ms = 1010;
+    optional string reference_instance_id = 1011;  // For cluster snapshot
 }
 
 message SchemaDictKeyList {
@@ -247,6 +248,7 @@ message RowsetMetaCloudPB {
     optional SplitSchemaPB __split_schema = 108;  // A special field, DO NOT change it.
 
     optional int64 visible_ts_ms = 109;
+    optional string reference_instance_id = 110;  // For cluster snapshot
 }
 
 message SegmentStatisticsPB {

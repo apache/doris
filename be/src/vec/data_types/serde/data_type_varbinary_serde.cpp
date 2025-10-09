@@ -65,4 +65,10 @@ Status DataTypeVarbinarySerDe::_write_column_to_mysql(const IColumn& column,
     return Status::OK();
 }
 
+void DataTypeVarbinarySerDe::to_string(const IColumn& column, size_t row_num,
+                                       BufferWritable& bw) const {
+    const auto value = assert_cast<const ColumnVarbinary&>(column).get_data_at(row_num);
+    bw.write(value.data, value.size);
+}
+
 } // namespace doris::vectorized

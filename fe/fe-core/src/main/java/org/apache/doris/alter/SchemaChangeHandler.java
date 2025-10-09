@@ -3333,7 +3333,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     && indexChangeJob.getDbId() == dbId
                     && indexChangeJob.getTableId() == tableId
                     && indexChangeJob.getPartitionName().equals(partitionName)
-                    && indexChangeJob.hasSameAlterInvertedIndex(isDrop, alterIndexes)
+                    && ((Config.isNotCloudMode() && indexChangeJob.hasSameAlterInvertedIndex(isDrop, alterIndexes))
+                    || Config.isCloudMode())
                     && !indexChangeJob.isDone()) {
                 // if JobState is done (CANCELLED or FINISHED), also allow user to create job again
                 return true;

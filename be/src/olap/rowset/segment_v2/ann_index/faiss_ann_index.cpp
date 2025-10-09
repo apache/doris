@@ -41,6 +41,7 @@
 #include "olap/rowset/segment_v2/ann_index/ann_index.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index_files.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
+#include "util/doris_metrics.h"
 #include "util/time.h"
 #include "vec/core/types.h"
 
@@ -70,7 +71,13 @@ void FaissVectorIndex::update_roaring(const faiss::idx_t* labels, const size_t n
     }
 }
 
-FaissVectorIndex::FaissVectorIndex() : _index(nullptr) {}
+FaissVectorIndex::FaissVectorIndex() : VectorIndex(), _index(nullptr) {}
+
+FaissVectorIndex::~FaissVectorIndex() {
+    if (_index != nullptr) {
+        DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(-_index->ntotal);
+    }
+}
 
 struct FaissIndexWriter : faiss::IOWriter {
 public:
@@ -163,7 +170,10 @@ doris::Status FaissVectorIndex::add(vectorized::Int64 n, const float* vec) {
     DCHECK(vec != nullptr);
     DCHECK(_index != nullptr);
     omp_set_num_threads(config::omp_threads_limit);
+    DorisMetrics::instance()->ann_index_construction->increment(1);
     _index->add(n, vec);
+    DorisMetrics::instance()->ann_index_construction->increment(-1);
+    DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(n);
     return doris::Status::OK();
 }
 
@@ -482,6 +492,7 @@ doris::Status FaissVectorIndex::load(lucene::store::Directory* dir) {
     VLOG_DEBUG << fmt::format("Load index from {} costs {} ms, rows {}", dir->getObjectName(),
                               duration.count(), idx->ntotal);
     _index.reset(idx);
+    DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(_index->ntotal);
     return doris::Status::OK();
 }
 

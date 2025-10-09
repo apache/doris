@@ -74,7 +74,8 @@ AnnIndexType string_to_ann_index_type(const std::string& type);
  */
 class VectorIndex {
 public:
-    virtual ~VectorIndex() = default;
+    VectorIndex();
+    virtual ~VectorIndex();
 
     virtual void train(vectorized::Int64 n, const float* x) = 0;
 

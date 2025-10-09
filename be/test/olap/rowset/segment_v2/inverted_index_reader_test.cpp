@@ -3546,4 +3546,106 @@ TEST_F(InvertedIndexReaderTest, UnsupportedDataTypes) {
     test_unsupported_data_types();
 }
 
+// Test InvertedIndexResultBitmap operator|= with NULL handling
+TEST_F(InvertedIndexReaderTest, ResultBitmapOrOperatorNullHandling) {
+    // Test SQL three-valued logic for OR:
+    // - TRUE OR NULL = TRUE (not NULL)
+    // - FALSE OR NULL = NULL
+    // - NULL OR NULL = NULL
+
+    // Case 1: TRUE OR NULL = TRUE
+    {
+        auto data_a = std::make_shared<roaring::Roaring>();
+        auto null_a = std::make_shared<roaring::Roaring>();
+        data_a->add(1); // row 1 is TRUE
+        // row 2 is FALSE (not in data_a, not in null_a)
+
+        auto data_b = std::make_shared<roaring::Roaring>();
+        auto null_b = std::make_shared<roaring::Roaring>();
+        null_b->add(1); // row 1 is NULL
+        data_b->add(2); // row 2 is TRUE
+
+        InvertedIndexResultBitmap bitmap_a(data_a, null_a);
+        InvertedIndexResultBitmap bitmap_b(data_b, null_b);
+
+        bitmap_a |= bitmap_b;
+
+        // Result: row 1 should be TRUE (TRUE OR NULL = TRUE)
+        //         row 2 should be TRUE (FALSE OR TRUE = TRUE)
+        EXPECT_TRUE(bitmap_a.get_data_bitmap()->contains(1));
+        EXPECT_TRUE(bitmap_a.get_data_bitmap()->contains(2));
+        EXPECT_FALSE(bitmap_a.get_null_bitmap()->contains(1)); // row 1 is not NULL
+        EXPECT_FALSE(bitmap_a.get_null_bitmap()->contains(2)); // row 2 is not NULL
+    }
+
+    // Case 2: FALSE OR NULL = NULL
+    {
+        auto data_a = std::make_shared<roaring::Roaring>();
+        auto null_a = std::make_shared<roaring::Roaring>();
+        // row 0 is FALSE
+
+        auto data_b = std::make_shared<roaring::Roaring>();
+        auto null_b = std::make_shared<roaring::Roaring>();
+        null_b->add(0); // row 0 is NULL
+
+        InvertedIndexResultBitmap bitmap_a(data_a, null_a);
+        InvertedIndexResultBitmap bitmap_b(data_b, null_b);
+
+        bitmap_a |= bitmap_b;
+
+        // Result: row 0 should be NULL (FALSE OR NULL = NULL)
+        EXPECT_FALSE(bitmap_a.get_data_bitmap()->contains(0));
+        EXPECT_TRUE(bitmap_a.get_null_bitmap()->contains(0));
+    }
+
+    // Case 3: NULL OR NULL = NULL
+    {
+        auto data_a = std::make_shared<roaring::Roaring>();
+        auto null_a = std::make_shared<roaring::Roaring>();
+        null_a->add(5); // row 5 is NULL
+
+        auto data_b = std::make_shared<roaring::Roaring>();
+        auto null_b = std::make_shared<roaring::Roaring>();
+        null_b->add(5); // row 5 is NULL
+
+        InvertedIndexResultBitmap bitmap_a(data_a, null_a);
+        InvertedIndexResultBitmap bitmap_b(data_b, null_b);
+
+        bitmap_a |= bitmap_b;
+
+        // Result: row 5 should be NULL (NULL OR NULL = NULL)
+        EXPECT_FALSE(bitmap_a.get_data_bitmap()->contains(5));
+        EXPECT_TRUE(bitmap_a.get_null_bitmap()->contains(5));
+    }
+
+    // Case 4: Complex scenario - cross-field OR with NULL
+    // Simulating: field1="value" OR field2="value" where field2 has NULL
+    {
+        auto data_field1 = std::make_shared<roaring::Roaring>();
+        auto null_field1 = std::make_shared<roaring::Roaring>();
+        data_field1->addRange(0, 15); // rows 0-14 match field1
+
+        auto data_field2 = std::make_shared<roaring::Roaring>();
+        auto null_field2 = std::make_shared<roaring::Roaring>();
+        null_field2->addRange(0, 15); // rows 0-14 have NULL in field2
+        data_field2->add(20);         // row 20 matches field2
+
+        InvertedIndexResultBitmap bitmap_field1(data_field1, null_field1);
+        InvertedIndexResultBitmap bitmap_field2(data_field2, null_field2);
+
+        bitmap_field1 |= bitmap_field2;
+
+        // Result: rows 0-14 should be TRUE (TRUE OR NULL = TRUE)
+        //         row 20 should be TRUE
+        for (uint32_t i = 0; i < 15; ++i) {
+            EXPECT_TRUE(bitmap_field1.get_data_bitmap()->contains(i))
+                    << "Row " << i << " should be TRUE";
+            EXPECT_FALSE(bitmap_field1.get_null_bitmap()->contains(i))
+                    << "Row " << i << " should not be NULL";
+        }
+        EXPECT_TRUE(bitmap_field1.get_data_bitmap()->contains(20));
+        EXPECT_FALSE(bitmap_field1.get_null_bitmap()->contains(20));
+    }
+}
+
 } // namespace doris::segment_v2

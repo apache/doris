@@ -120,6 +120,7 @@ class FileColumnIterator;
 using ColumnIteratorUPtr = std::unique_ptr<ColumnIterator>;
 using OffsetFileColumnIteratorUPtr = std::unique_ptr<OffsetFileColumnIterator>;
 using FileColumnIteratorUPtr = std::unique_ptr<FileColumnIterator>;
+using ColumnIteratorSPtr = std::shared_ptr<ColumnIterator>;
 
 // There will be concurrent users to read the same column. So
 // we should do our best to reduce resource usage through share

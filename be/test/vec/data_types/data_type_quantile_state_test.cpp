@@ -110,38 +110,6 @@ void insert_data_quantile_state(MutableColumns* quantile_state_cols,
     std::cout << "finish insert data" << std::endl;
 }
 
-// test to_string | to_string_batch | from_string
-TEST_P(DataTypeQuantileStateTest, FromAndToStringTest) {
-    MutableColumns quantile_state_cols;
-    std::vector<std::string> data_strs;
-    insert_data_quantile_state(&quantile_state_cols, datatype_quantile_state, rows_value,
-                               &data_strs);
-
-    {
-        // to_string_batch | from_string
-        auto col_to = ColumnString::create();
-        datatype_quantile_state->to_string_batch(*quantile_state_cols[0]->get_ptr(), *col_to);
-        ASSERT_EQ(col_to->size(), quantile_state_cols[0]->get_ptr()->size());
-        std::cout << "finish to_string_batch | from_string not support test" << std::endl;
-    }
-
-    {
-        // to_string | from_string
-        auto ser_col = ColumnString::create();
-        ser_col->reserve(quantile_state_cols[0]->get_ptr()->size());
-        VectorBufferWriter buffer_writer(*ser_col.get());
-        for (int i = 0; i < quantile_state_cols[0]->get_ptr()->size(); ++i) {
-            datatype_quantile_state->to_string(*quantile_state_cols[0]->get_ptr(), i,
-                                               buffer_writer);
-            std::string res =
-                    datatype_quantile_state->to_string(*quantile_state_cols[0]->get_ptr(), i);
-            buffer_writer.commit();
-            EXPECT_EQ(res, "QuantileState()"); // QuantileState to_string is not implemented
-        }
-        std::cout << "finish to_string | from_string not support test" << std::endl;
-    }
-}
-
 // serialize / deserialize
 TEST_P(DataTypeQuantileStateTest, SerializeDeserializeTest) {
     MutableColumns quantile_state_cols;

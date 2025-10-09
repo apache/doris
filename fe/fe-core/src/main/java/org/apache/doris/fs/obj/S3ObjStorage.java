@@ -24,6 +24,7 @@ import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.fs.GlobListResult;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import org.apache.commons.lang3.StringUtils;
@@ -54,6 +55,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request.Builder;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
@@ -528,12 +530,48 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      * Copy from `AzureObjStorage.GlobList`
      */
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+        GlobListResult globListResult = globListInternal(remotePath, result, fileNameOnly, null, -1, -1);
+        return globListResult.getStatus();
+    }
+
+    /**
+     * List all files under the given path with glob pattern.
+     * For example, if the path is "s3://bucket/path/to/*.csv",
+     * it will list all files under "s3://bucket/path/to/" with ".csv" suffix.
+     * <p>
+     * Limit: Starting from startFile, until the total file size is greater than fileSizeLimit,
+     * or the number of files is greater than fileNumLimit.
+     *
+     * @return GlobListResult
+     */
+    public GlobListResult globListWithLimit(String remotePath, List<RemoteFile> result, String startFile,
+            long fileSizeLimit, long fileNumLimit) {
+        return globListInternal(remotePath, result, false, startFile, fileSizeLimit, fileNumLimit);
+    }
+
+    /**
+     * List all files under the given path with glob pattern.
+     * For example, if the path is "s3://bucket/path/to/*.csv",
+     * it will list all files under "s3://bucket/path/to/" with ".csv" suffix.
+     * <p>
+     * Copy from `AzureObjStorage.GlobList`
+     */
+    private GlobListResult globListInternal(String remotePath, List<RemoteFile> result, boolean fileNameOnly,
+            String startFile, long fileSizeLimit, long fileNumLimit) {
         long roundCnt = 0;
         long elementCnt = 0;
         long matchCnt = 0;
+        long matchFileSize = 0L;
         long startTime = System.nanoTime();
+        String currentMaxFile = "";
+        boolean hasLimits = fileSizeLimit > 0 || fileNumLimit > 0;
         try {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            // Directory bucket check for limit scenario
+            if (hasLimits && uri.useS3DirectoryBucket()) {
+                throw new RuntimeException("Not support glob with limit for directory bucket");
+            }
+
             String bucket = uri.getBucket();
             String globPath = uri.getKey(); // eg: path/to/*.csv
 
@@ -552,7 +590,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             // For Directory Buckets, ensure proper prefix handling using standardized approach
             String finalPrefix = listPrefix;
 
-            if (uri.useS3DirectoryBucket()) {
+            if (!hasLimits && uri.useS3DirectoryBucket()) {
                 String adjustedPrefix = S3URI.getDirectoryPrefixForGlob(listPrefix);
                 if (LOG.isDebugEnabled() && !adjustedPrefix.equals(listPrefix)) {
                     LOG.debug("Directory bucket detected, adjusting prefix from '{}' to '{}'",
@@ -561,12 +599,18 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 finalPrefix = adjustedPrefix;
             }
 
-            ListObjectsV2Request request = ListObjectsV2Request.builder()
+            Builder builder = ListObjectsV2Request.builder()
                     .bucket(bucket)
-                    .prefix(finalPrefix)
-                    .build();
+                    .prefix(finalPrefix);
+
+            if (startFile != null) {
+                builder.startAfter(startFile);
+            }
+
+            ListObjectsV2Request request = builder.build();
 
             boolean isTruncated = false;
+            boolean reachLimit = false;
             do {
                 roundCnt++;
                 ListObjectsV2Response response = listObjectsV2(request);
@@ -589,6 +633,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         }
 
                         matchCnt++;
+                        matchFileSize += obj.size();
                         RemoteFile remoteFile = new RemoteFile(
                                 fileNameOnly ? objPath.getFileName().toString() :
                                         "s3://" + bucket + "/" + objPath.toString(),
@@ -598,9 +643,24 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                                 isPrefix ? 0 : obj.lastModified().toEpochMilli()
                         );
                         result.add(remoteFile);
+
+                        if (hasLimits && reachLimit(result.size(), matchFileSize, fileSizeLimit, fileNumLimit)) {
+                            reachLimit = true;
+                            break;
+                        }
+
                         objPath = objPath.getParent();
                         isPrefix = true;
                     }
+                    if (reachLimit) {
+                        break;
+                    }
+                }
+
+                // Record current max file for limit scenario
+                if (!response.contents().isEmpty()) {
+                    S3Object lastS3Object = response.contents().get(response.contents().size() - 1);
+                    currentMaxFile = lastS3Object.key();
                 }
 
                 isTruncated = response.isTruncated();
@@ -609,16 +669,16 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                             .continuationToken(response.nextContinuationToken())
                             .build();
                 }
-            } while (isTruncated);
+            } while (isTruncated && !reachLimit);
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("remotePath:{}, result:{}", remotePath, result);
             }
-            return Status.OK;
+            return new GlobListResult(Status.OK, currentMaxFile, bucket, finalPrefix);
         } catch (Exception e) {
             LOG.warn("Errors while getting file status", e);
-            return new Status(Status.ErrCode.COMMON_ERROR,
-                    "Errors while getting file status " + Util.getRootCauseMessage(e));
+            return new GlobListResult(new Status(Status.ErrCode.COMMON_ERROR,
+                    "Errors while getting file status " + Util.getRootCauseMessage(e)));
         } finally {
             long endTime = System.nanoTime();
             long duration = endTime - startTime;
@@ -628,6 +688,28 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         duration / 1000 / 1000);
             }
         }
+    }
+
+    private static boolean reachLimit(int matchFileCnt, long matchFileSize, long sizeLimit, long fileNum) {
+        if (matchFileCnt < 0 || sizeLimit < 0 || fileNum < 0) {
+            return false;
+        }
+        if (fileNum > 0 && matchFileCnt >= fileNum) {
+            LOG.info(
+                    "reach file num limit fileNum:{} objectFiles count:{}",
+                    fileNum,
+                    matchFileCnt);
+            return true;
+        }
+
+        if (sizeLimit > 0 && matchFileSize >= sizeLimit) {
+            LOG.info(
+                    "reach size limit sizeLimit:{}, objectFilesSize:{}",
+                    sizeLimit,
+                    matchFileSize);
+            return true;
+        }
+        return false;
     }
 
     @Override

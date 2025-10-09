@@ -662,6 +662,12 @@ void FragmentMgr::remove_pipeline_context(std::pair<TUniqueId, int> key) {
     _pipeline_map.erase(key);
 }
 
+void FragmentMgr::remove_query_context(const TUniqueId& key) {
+#ifndef BE_TEST
+    _query_ctx_map.erase(key);
+#endif
+}
+
 std::shared_ptr<QueryContext> FragmentMgr::get_query_ctx(const TUniqueId& query_id) {
     auto val = _query_ctx_map.find(query_id);
     if (auto q_ctx = val.lock()) {
@@ -747,13 +753,11 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                         if (parent.__isset.runtime_filter_info) {
                             auto info = parent.runtime_filter_info;
                             if (info.__isset.runtime_filter_params) {
-                                if (!info.runtime_filter_params.rid_to_runtime_filter.empty()) {
-                                    auto handler =
-                                            std::make_shared<RuntimeFilterMergeControllerEntity>();
-                                    RETURN_IF_ERROR(
-                                            handler->init(query_ctx, info.runtime_filter_params));
-                                    query_ctx->set_merge_controller_handler(handler);
-                                }
+                                auto handler =
+                                        std::make_shared<RuntimeFilterMergeControllerEntity>();
+                                RETURN_IF_ERROR(
+                                        handler->init(query_ctx, info.runtime_filter_params));
+                                query_ctx->set_merge_controller_handler(handler);
 
                                 query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                                         info.runtime_filter_params);
@@ -787,16 +791,32 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
                                     std::pair<TUniqueId, int>,
                                     std::shared_ptr<pipeline::PipelineFragmentContext>>& map)
                                     -> Status {
+            std::set<TUniqueId> query_id_set;
             for (auto& it : map) {
                 auto elapsed = it.second->elapsed_time() / 1000000000;
                 if (elapsed < duration) {
                     // Only display tasks which has been running for more than {duration} seconds.
                     continue;
                 }
+                if (!query_id_set.contains(it.first.first)) {
+                    query_id_set.insert(it.first.first);
+                    fmt::format_to(
+                            debug_string_buffer, "QueryId: {}, global_runtime_filter_mgr: {}\n",
+                            print_id(it.first.first),
+                            it.second->get_query_ctx()->runtime_filter_mgr()->debug_string());
+
+                    if (it.second->get_query_ctx()->get_merge_controller_handler()) {
+                        fmt::format_to(debug_string_buffer, "{}\n",
+                                       it.second->get_query_ctx()
+                                               ->get_merge_controller_handler()
+                                               ->debug_string());
+                    }
+                }
+
                 auto timeout_second = it.second->timeout_second();
                 fmt::format_to(
                         debug_string_buffer,
-                        "No.{} (elapse_second={}s, query_timeout_second={}s, is_timeout={}) : {}\n",
+                        "No.{} (elapse_second={}s, query_timeout_second={}s, is_timeout={}): {}\n",
                         i, elapsed, timeout_second, it.second->is_timeout(now),
                         it.second->debug_string());
                 i++;
@@ -893,7 +913,7 @@ void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
         }
     }
     query_ctx->cancel(reason);
-    _query_ctx_map.erase(query_id);
+    remove_query_context(query_id);
     LOG(INFO) << "Query " << print_id(query_id)
               << " is cancelled and removed. Reason: " << reason.to_string();
 }

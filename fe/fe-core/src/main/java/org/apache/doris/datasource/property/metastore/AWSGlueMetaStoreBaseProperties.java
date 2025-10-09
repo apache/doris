@@ -62,13 +62,11 @@ public class AWSGlueMetaStoreBaseProperties {
     protected String glueSessionToken = "";
 
     @ConnectorProperty(names = {"glue.role_arn"},
-            description = "The IAM role the AWS Glue.",
-            supported = false)
+            description = "The IAM role the AWS Glue.")
     protected String glueIAMRole = "";
 
     @ConnectorProperty(names = {"glue.external_id"},
-            description = "The external id of the AWS Glue.",
-            supported = false)
+            description = "The external id of the AWS Glue.")
     protected String glueExternalId = "";
 
     public static AWSGlueMetaStoreBaseProperties of(Map<String, String> properties) {
@@ -96,12 +94,12 @@ public class AWSGlueMetaStoreBaseProperties {
 
     private ParamRules buildRules() {
 
-        return new ParamRules()
-                .require(glueAccessKey,
-                        "glue.access_key is required")
-                .require(glueSecretKey,
-                        "glue.secret_key is required")
-                .require(glueEndpoint, "glue.endpoint is required");
+        return new ParamRules().requireTogether(new String[]{glueAccessKey, glueSecretKey},
+                "glue.access_key and glue.secret_key must be set together")
+                .requireAtLeastOne(new String[]{glueAccessKey, glueIAMRole},
+                        "At least one of glue.access_key or glue.role_arn must be set")
+                .requireAtLeastOne(new String[]{glueEndpoint, glueRegion},
+                        "At least one of glue.endpoint or glue.region must be set");
     }
 
     private void checkAndInit() {

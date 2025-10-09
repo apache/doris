@@ -17,10 +17,11 @@
 
 package org.apache.doris.plugin.audit;
 
-import org.apache.doris.analysis.EmptyStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.EmptyCommand;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
@@ -56,22 +57,22 @@ public class AuditLogBuilderTest {
             // Set smaller max length for testing
             GlobalVariable.auditPluginMaxSqlLength = 50;
 
-            // Use EmptyStmt as representative of non-INSERT statements
-            StatementBase nonInsertStmt = new EmptyStmt();
+            // Use EmptyCommand as representative of non-INSERT statements
+            Command nonInsertCommand = new EmptyCommand();
 
             // 1. Test null input
-            String result = AuditLogHelper.handleStmt(null, nonInsertStmt);
+            String result = AuditLogHelper.handleCommand(null, nonInsertCommand);
             Assert.assertNull(result);
 
             // 2. Test short statement not truncated
             String shortStmt = "SELECT * FROM table1";
-            result = AuditLogHelper.handleStmt(shortStmt, nonInsertStmt);
+            result = AuditLogHelper.handleCommand(shortStmt, nonInsertCommand);
             Assert.assertEquals(shortStmt, result);
 
             // 3. Test long statement truncated (using audit_plugin_max_sql_length)
             String longStmt
                     = "SELECT * FROM very_long_table_name_that_exceeds_the_maximum_length_limit_for_audit_log";
-            result = AuditLogHelper.handleStmt(longStmt, nonInsertStmt);
+            result = AuditLogHelper.handleCommand(longStmt, nonInsertCommand);
             Assert.assertTrue("Result should contain truncation message",
                     result.contains("/* truncated. audit_plugin_max_sql_length=50 */"));
             Assert.assertTrue("Result should be shorter than original",
@@ -79,7 +80,7 @@ public class AuditLogBuilderTest {
 
             // 4. Test statement with newlines, tabs, carriage returns
             String stmtWithSpecialChars = "SELECT *\nFROM table1\tWHERE id = 1\r";
-            result = AuditLogHelper.handleStmt(stmtWithSpecialChars, nonInsertStmt);
+            result = AuditLogHelper.handleCommand(stmtWithSpecialChars, nonInsertCommand);
             Assert.assertTrue("Should contain actual newlines", result.contains("\n"));
             Assert.assertTrue("Should contain actual tabs", result.contains("\t"));
             Assert.assertTrue("Should contain actual carriage returns", result.contains("\r"));
@@ -87,7 +88,7 @@ public class AuditLogBuilderTest {
             // 5. Test long statement with Chinese characters truncation
             String chineseStmt
                     = "SELECT * FROM 表名很长的中文表名字符测试表名很长的中文表名字符测试表名很长的中文表名字符测试";
-            result = AuditLogHelper.handleStmt(chineseStmt, nonInsertStmt);
+            result = AuditLogHelper.handleCommand(chineseStmt, nonInsertCommand);
             Assert.assertTrue("Should contain truncation message for Chinese text",
                     result.contains("/* truncated. audit_plugin_max_sql_length=50 */"));
 
@@ -98,7 +99,7 @@ public class AuditLogBuilderTest {
                 sb.append("a");
             }
             String exactLengthStmt = sb.toString();
-            result = AuditLogHelper.handleStmt(exactLengthStmt, nonInsertStmt);
+            result = AuditLogHelper.handleCommand(exactLengthStmt, nonInsertCommand);
             Assert.assertEquals("Should not be truncated when exactly at limit", exactLengthStmt, result);
 
             // 7. Test boundary case: exceeding max length by 1 character
@@ -107,13 +108,13 @@ public class AuditLogBuilderTest {
                 sb.append("a");
             }
             String overLimitStmt = sb.toString();
-            result = AuditLogHelper.handleStmt(overLimitStmt, nonInsertStmt);
+            result = AuditLogHelper.handleCommand(overLimitStmt, nonInsertCommand);
             Assert.assertTrue("Should be truncated when over limit by 1 char",
                     result.contains("/* truncated. audit_plugin_max_sql_length=50 */"));
 
             // 8. Test empty string
             String emptyStmt = "";
-            result = AuditLogHelper.handleStmt(emptyStmt, nonInsertStmt);
+            result = AuditLogHelper.handleCommand(emptyStmt, nonInsertCommand);
             Assert.assertEquals("Empty string should remain empty", "", result);
         } finally {
             // Restore original values
@@ -227,7 +228,7 @@ public class AuditLogBuilderTest {
         try {
             // Test different max length settings
             int[] testLengths = {10, 100, 1000, 4096};
-            StatementBase nonInsertStmt = new EmptyStmt();
+            Command nonInsertCommand = new EmptyCommand();
 
             for (int maxLength : testLengths) {
                 GlobalVariable.auditPluginMaxSqlLength = maxLength;
@@ -239,7 +240,7 @@ public class AuditLogBuilderTest {
                 }
                 String longStmt = sb.toString();
 
-                String result = AuditLogHelper.handleStmt(longStmt, nonInsertStmt);
+                String result = AuditLogHelper.handleCommand(longStmt, nonInsertCommand);
 
                 Assert.assertTrue("Should contain truncation message for length " + maxLength,
                         result.contains("/* truncated. audit_plugin_max_sql_length=" + maxLength + " */"));
@@ -264,11 +265,11 @@ public class AuditLogBuilderTest {
         try {
             // Set a smaller character length limit
             GlobalVariable.auditPluginMaxSqlLength = 20;
-            StatementBase nonInsertStmt = new EmptyStmt();
+            Command nonInsertCommand = new EmptyCommand();
 
             // Test truncation with Chinese characters (calculated by character count, not byte count)
             String utf8Stmt = "SELECT * FROM 测试表名"; // Chinese characters calculated by character count
-            String result = AuditLogHelper.handleStmt(utf8Stmt, nonInsertStmt);
+            String result = AuditLogHelper.handleCommand(utf8Stmt, nonInsertCommand);
 
             // Verify result is a valid string
             Assert.assertNotNull("Result should not be null", result);
@@ -284,7 +285,7 @@ public class AuditLogBuilderTest {
 
             // Test a definitely truncated long Chinese string
             String longUtf8Stmt = "SELECT * FROM 这是一个很长的中文表名用来测试字符截断功能是否正常工作";
-            String longResult = AuditLogHelper.handleStmt(longUtf8Stmt, nonInsertStmt);
+            String longResult = AuditLogHelper.handleCommand(longUtf8Stmt, nonInsertCommand);
 
             Assert.assertTrue("Long UTF-8 string should be truncated",
                     longResult.contains("/* truncated. audit_plugin_max_sql_length=20 */"));
@@ -306,7 +307,7 @@ public class AuditLogBuilderTest {
             GlobalVariable.auditPluginMaxSqlLength = 100;        // Regular statement limit
             GlobalVariable.auditPluginMaxInsertStmtLength = 60;  // INSERT statement limit
 
-            StatementBase nonInsertStmt = new EmptyStmt();
+            Command nonInsertCommand = new EmptyCommand();
 
             // Create a statement with length between 60-100
             StringBuilder sb = new StringBuilder();
@@ -316,7 +317,7 @@ public class AuditLogBuilderTest {
             String testStmt = sb.toString();
 
             // 1. Test non-INSERT statement behavior
-            String result = AuditLogHelper.handleStmt(testStmt, nonInsertStmt);
+            String result = AuditLogHelper.handleCommand(testStmt, nonInsertCommand);
             // Should use audit_plugin_max_sql_length=100, so not truncated
             Assert.assertFalse("Non-INSERT statement should not be truncated with sql length limit",
                     result.contains("/* truncated."));
@@ -329,7 +330,7 @@ public class AuditLogBuilderTest {
             }
             String longTestStmt = longSb.toString();
 
-            result = AuditLogHelper.handleStmt(longTestStmt, nonInsertStmt);
+            result = AuditLogHelper.handleCommand(longTestStmt, nonInsertCommand);
             // Should use audit_plugin_max_sql_length=100 for truncation
             Assert.assertTrue("Long non-INSERT statement should be truncated",
                     result.contains("/* truncated. audit_plugin_max_sql_length=100 */"));
@@ -515,7 +516,8 @@ public class AuditLogBuilderTest {
             StatementBase parsedInsertStmt = parser.parseSQL(testInsertStmt).get(0);
 
             // Test non-INSERT statement
-            StatementBase nonInsertStmt = new EmptyStmt();
+            Command nonInsertCommand = new EmptyCommand();
+
             String testSelectStmt = "SELECT * FROM test_table WHERE id = 1";
 
             // Test Case 1: auditPluginMaxSqlLength = 0, auditPluginMaxInsertStmtLength > 0
@@ -596,7 +598,7 @@ public class AuditLogBuilderTest {
             GlobalVariable.auditPluginMaxSqlLength = 0;
             GlobalVariable.auditPluginMaxInsertStmtLength = 100; // This should be ignored for non-INSERT
 
-            result = AuditLogHelper.handleStmt(testSelectStmt, nonInsertStmt);
+            result = AuditLogHelper.handleCommand(testSelectStmt, nonInsertCommand);
             Assert.assertNotNull("Result should not be null for non-INSERT with zero sql limit", result);
             // Non-INSERT statements bypass the Math.max(0, Math.min(...)) logic and go directly to truncateByBytes
 

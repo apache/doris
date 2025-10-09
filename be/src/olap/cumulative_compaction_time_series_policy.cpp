@@ -58,7 +58,7 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
     // NOTE: tablet._meta_lock is hold
     auto& rs_metas = tablet->tablet_meta()->all_rs_metas();
     // check the base rowset and collect the rowsets of cumulative part
-    for (auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         int64_t start_version = rs_meta->start_version();
         int64_t end_version = rs_meta->end_version();
         if (start_version < first_version) {
@@ -169,8 +169,8 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
 }
 
 void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
-        Tablet* tablet, const std::vector<RowsetMetaSharedPtr>& all_metas,
-        int64_t current_cumulative_point, int64_t* ret_cumulative_point) {
+        Tablet* tablet, const RowsetMetaMapContainer& all_metas, int64_t current_cumulative_point,
+        int64_t* ret_cumulative_point) {
     *ret_cumulative_point = Tablet::K_INVALID_CUMULATIVE_POINT;
     if (current_cumulative_point != Tablet::K_INVALID_CUMULATIVE_POINT) {
         // only calculate the point once.
@@ -183,7 +183,7 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
     }
 
     std::list<RowsetMetaSharedPtr> existing_rss;
-    for (auto& rs : all_metas) {
+    for (const auto& [_, rs] : all_metas) {
         existing_rss.emplace_back(rs);
     }
 

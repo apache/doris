@@ -490,12 +490,14 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     tmp_meta->delete_bitmap().delete_bitmap.clear();
     // Keep only version [0-1] rowset, other rowsets will be added in _output_rowsets
     auto& rs_metas = tmp_meta->all_mutable_rs_metas();
-    rs_metas.erase(std::remove_if(rs_metas.begin(), rs_metas.end(),
-                                  [](const RowsetMetaSharedPtr& rs_meta) {
-                                      return !(rs_meta->version().first == 0 &&
-                                               rs_meta->version().second == 1);
-                                  }),
-                   rs_metas.end());
+    for (auto it = rs_metas.begin(); it != rs_metas.end();) {
+        const auto& rs_meta = it->second;
+        if (rs_meta->version().first == 0 && rs_meta->version().second == 1) {
+            ++it;
+        } else {
+            it = rs_metas.erase(it);
+        }
+    }
 
     std::shared_ptr<CloudTablet> tmp_tablet =
             std::make_shared<CloudTablet>(_cloud_storage_engine, tmp_meta);

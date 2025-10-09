@@ -214,12 +214,11 @@ public:
 
     bool supported_incremental_mode() const override { return true; }
 
-    void execute_function_with_incremental(int64_t partition_start, int64_t partition_end,
-                                           int64_t frame_start, int64_t frame_end,
-                                           AggregateDataPtr place, const IColumn** columns,
-                                           Arena& arena, bool previous_is_nul, bool end_is_nul,
-                                           bool has_null, UInt8* use_null_result,
-                                           UInt8* could_use_previous_result) const override {
+    NO_SANITIZE_UNDEFINED void execute_function_with_incremental(
+            int64_t partition_start, int64_t partition_end, int64_t frame_start, int64_t frame_end,
+            AggregateDataPtr place, const IColumn** columns, Arena& arena, bool previous_is_nul,
+            bool end_is_nul, bool has_null, UInt8* use_null_result,
+            UInt8* could_use_previous_result) const override {
         int64_t current_frame_start = std::max<int64_t>(frame_start, partition_start);
         int64_t current_frame_end = std::min<int64_t>(frame_end, partition_end);
 

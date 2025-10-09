@@ -161,6 +161,11 @@ public:
                                         RowsetMetaSharedPtr prev_rowset_meta,
                                         RowsetSharedPtr* rowset);
 
+    Status list_snapshot(std::vector<SnapshotInfoPB>& snapshots);
+    Status get_snapshot_properties(SnapshotSwitchStatus& switch_status,
+                                   int64_t& max_reserved_snapshots,
+                                   int64_t& snapshot_interval_seconds);
+
 private:
     bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
                                             std::ranges::range auto&& rs_metas,

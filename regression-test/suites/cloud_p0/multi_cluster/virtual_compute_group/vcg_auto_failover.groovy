@@ -73,6 +73,7 @@ suite('vcg_auto_failover', 'multi_cluster,docker') {
             cluster.addBackend(2, clusterName2)
 
             // add vcluster
+            def instance_id = "default_instance_id"
             def normalVclusterName = "normalVirtualClusterName"
             def normalVclusterId = "normalVirtualClusterId"
             def vcgClusterNames = [clusterName1, clusterName2]
@@ -179,7 +180,7 @@ suite('vcg_auto_failover', 'multi_cluster,docker') {
                 table "${tableName}"
 
                 set 'column_separator', ','
-                set 'cloud_cluster', 'normalVirtualClusterName'
+                set 'compute_group', 'normalVirtualClusterName'
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
@@ -343,7 +344,7 @@ suite('vcg_auto_failover', 'multi_cluster,docker') {
                 table "${tableName}"
 
                 set 'column_separator', ','
-                set 'cloud_cluster', 'normalVirtualClusterName'
+                set 'compute_group', 'normalVirtualClusterName'
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s

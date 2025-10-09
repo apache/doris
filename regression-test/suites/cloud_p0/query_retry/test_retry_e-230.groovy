@@ -45,6 +45,7 @@ suite("test_retry_e-230", 'docker') {
     options.connectToFollower = false
     for (def j = 0; j < 2; j++) {
         docker(options) {
+            sql """set enable_sql_cache=false"""
             def tbl = 'test_retry_e_230_tbl'
             def tbl1 = 'table_1'
             def tbl2 = 'table_2'

@@ -76,8 +76,8 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-uti
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
 
 echo "INFO: PR target branch ${target_branch}"
-if ! [[ "${target_branch}" == master || "${target_branch}" == branch-2.0 ]]; then
-    # if target branch is not master or branch-2.0, set target_branch to master to use the same doris meta and storage
+if ! [[ "${target_branch}" == master || "${target_branch}" == branch-4.0 ]]; then
+    # if target branch is not master or branch-4.0, set target_branch to master to use the same doris meta and storage
     bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export target_branch=master"
 fi
 install_java

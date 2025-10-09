@@ -140,4 +140,32 @@ suite("test_inverted_index_v3", "p0"){
 
     } finally {
     }
+
+    sql """
+      CREATE TABLE `t1` (
+        `id` int NOT NULL,
+        `v` variant<MATCH_NAME_GLOB 'key':text,properties("variant_max_subcolumns_count" = "3")> ,
+        INDEX idx_v (`v`) USING INVERTED PROPERTIES("dict_compression" = "true", "lower_case" = "true", "parser" = "unicode", "support_phrase" = "true", "field_pattern" = "key")
+      ) ENGINE=OLAP
+      DUPLICATE KEY(`id`)
+      DISTRIBUTED BY HASH(`id`) BUCKETS 1
+      PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1",
+      "inverted_index_storage_format" = "V3"
+      );
+    """
+
+    sql """
+      CREATE TABLE `t2` (
+        `id` int NOT NULL,
+        `v` variant,
+        INDEX idx_v (`v`) USING INVERTED PROPERTIES("dict_compression" = "true", "lower_case" = "true", "parser" = "unicode", "support_phrase" = "true")
+      ) ENGINE=OLAP
+      DUPLICATE KEY(`id`)
+      DISTRIBUTED BY HASH(`id`) BUCKETS 1
+      PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1",
+      "inverted_index_storage_format" = "V3"
+      );
+    """
 }

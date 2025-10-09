@@ -61,8 +61,11 @@ UnionSinkOperatorX::UnionSinkOperatorX(int child_id, int sink_id, int dest_id, O
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
           _cur_child_id(child_id),
           _child_size(tnode.num_children),
-          _distribute_exprs(tnode.__isset.distribute_expr_lists ? tnode.distribute_expr_lists[0]
-                                                                : std::vector<TExpr> {}) {}
+          _distribute_exprs(tnode.__isset.distribute_expr_lists
+                                    ? tnode.distribute_expr_lists[child_id]
+                                    : std::vector<TExpr> {}) {
+    DCHECK(!tnode.__isset.distribute_expr_lists || tnode.distribute_expr_lists.size() > child_id);
+}
 
 Status UnionSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));

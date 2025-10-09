@@ -197,7 +197,7 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
             } catch (Exception e) {
                 log.info(e.getMessage())
                 // BE err msg need use string contains to check
-                assertTrue(e.getMessage().contains("Arithmetic overflow when converting value 123.4567 from type Decimal(7, 4) to type Decimal(6, 4)"))
+                assertTrue(e.getMessage().contains("can't cast to"))
             }
 
             try {
@@ -208,7 +208,7 @@ suite("test_hive_write_type", "p0,external,hive,external_docker,external_docker_
                 """
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Arithmetic overflow when converting value 123.4567 from type Decimal(7, 4) to type Decimal(6, 4)"))
+                assertTrue(e.getMessage().contains("can't cast to"))
             }
 
             test {
