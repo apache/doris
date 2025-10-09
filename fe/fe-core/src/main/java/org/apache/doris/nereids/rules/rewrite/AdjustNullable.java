@@ -78,9 +78,15 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     private static final Logger LOG = LogManager.getLogger(AdjustNullable.class);
 
     private final boolean isAnalyzedPhase;
+    private final boolean check;
+
+    public AdjustNullable(boolean isAnalyzedPhase, boolean check) {
+        this.isAnalyzedPhase = isAnalyzedPhase;
+        this.check = check;
+    }
 
     public AdjustNullable(boolean isAnalyzedPhase) {
-        this.isAnalyzedPhase = isAnalyzedPhase;
+        this(isAnalyzedPhase, !isAnalyzedPhase);
     }
 
     @Override
@@ -448,7 +454,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     private <T extends Expression> Optional<T> updateExpression(T input,
             Map<ExprId, Slot> replaceMap, boolean debugCheck) {
         AtomicBoolean changed = new AtomicBoolean(false);
-        Expression replaced = doUpdateExpression(changed, input, replaceMap, !isAnalyzedPhase && debugCheck);
+        Expression replaced = doUpdateExpression(changed, input, replaceMap, check && debugCheck);
         return changed.get() ? Optional.of((T) replaced) : Optional.empty();
     }
 
