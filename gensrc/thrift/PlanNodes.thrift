@@ -384,6 +384,7 @@ struct THudiFileDesc {
     12: optional i64 schema_id; // for schema change. (native reader)
 }
 
+// Deprecated: LakeSoul support has been removed
 struct TLakeSoulFileDesc {
     1: optional list<string> file_paths;
     2: optional list<string> primary_keys;
@@ -410,7 +411,7 @@ struct TTableFormatFileDesc {
     5: optional TTransactionalHiveDesc transactional_hive_params
     6: optional TMaxComputeFileDesc max_compute_params
     7: optional TTrinoConnectorFileDesc trino_connector_params
-    8: optional TLakeSoulFileDesc lakesoul_params
+    8: optional TLakeSoulFileDesc lakesoul_params // Deprecated
     9: optional i64 table_level_row_count = -1
 }
 

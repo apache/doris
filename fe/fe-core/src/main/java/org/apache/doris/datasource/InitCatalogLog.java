@@ -40,7 +40,8 @@ public class InitCatalogLog implements Writable {
         PAIMON,
         MAX_COMPUTE,
         HUDI,
-        LAKESOUL,
+        @Deprecated
+        LAKESOUL, // Deprecated: LakeSoul support has been removed
         TEST,
         TRINO_CONNECTOR,
         UNKNOWN;

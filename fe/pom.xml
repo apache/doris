@@ -324,8 +324,6 @@ under the License.
         <arrow.version>17.0.0</arrow.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
-        <!-- lakesoul -->
-        <lakesoul.version>2.6.2</lakesoul.version>
 
 
         <commons-collections.version>3.2.2</commons-collections.version>
