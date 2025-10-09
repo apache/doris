@@ -425,13 +425,13 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
                 LOG_WARNING(
                         "[report_query_statistics] report to fe {} failed, reason:{}, try reopen.",
                         add_str, e.what());
+#else
+                std::cerr << "thrift error, reason=" << e.what();
+#endif
                 if (rpc_status.ok()) {
                     coord->reportExecStatus(res, params);
                     rpc_result[addr] = true;
                 }
-#else
-                std::cerr << "thrift error, reason=" << e.what();
-#endif
             }
         } catch (apache::thrift::TApplicationException& e) {
             LOG_WARNING(
