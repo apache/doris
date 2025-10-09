@@ -127,7 +127,10 @@ public:
     int task_id() const { return _index; };
     bool is_finalized() const { return _exec_state == State::FINALIZED; }
 
-    void set_wake_up_early() { _wake_up_early = true; }
+    void set_wake_up_early(PipelineId wake_by = -1) {
+        _wake_up_early = true;
+        _wake_by = wake_by;
+    }
 
     // Execution phase should be terminated. This is called if this task is canceled or waken up early.
     void terminate();
@@ -309,6 +312,7 @@ private:
     MonotonicStopWatch _state_change_watcher;
     std::atomic<bool> _spilling = false;
     const std::string _pipeline_name;
+    int _wake_by = -1;
 };
 
 using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;
