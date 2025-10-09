@@ -95,7 +95,8 @@ TEST_F(CloudTabletWarmUpStateTest, TestAddRowsetWarmupStateTriggeredByJob) {
 
     // Verify the state is correctly set
     WarmUpState state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
-    WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(state, expected_state);
 }
 
@@ -110,7 +111,8 @@ TEST_F(CloudTabletWarmUpStateTest, TestAddRowsetWarmupStateTriggeredBySyncRowset
 
     // Verify the state is correctly set
     WarmUpState state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
-    WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::SYNC_ROWSET, WarmUpProgress::DOING};
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::SYNC_ROWSET, WarmUpProgress::DOING};
     EXPECT_EQ(state, expected_state);
 }
 
@@ -131,7 +133,8 @@ TEST_F(CloudTabletWarmUpStateTest, TestAddDuplicateRowsetWarmupState) {
 
     // State should remain the original one
     WarmUpState state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
-    WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(state, expected_state);
 }
 
@@ -158,7 +161,8 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupPartial) {
     // Complete one segment, should still be in TRIGGERED_BY_EVENT_DRIVEN state
     WarmUpState result1 = _tablet->complete_rowset_segment_warmup(
             WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), Status::OK(), 1, 0);
-    WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(result1, expected_state);
 
     // Complete second segment, should still be in TRIGGERED_BY_EVENT_DRIVEN state
@@ -186,7 +190,8 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupFull) {
     // Complete first segment
     WarmUpState result1 = _tablet->complete_rowset_segment_warmup(
             WarmUpTriggerSource::SYNC_ROWSET, rowset->rowset_id(), Status::OK(), 1, 0);
-    WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::SYNC_ROWSET, WarmUpProgress::DOING};
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::SYNC_ROWSET, WarmUpProgress::DOING};
     EXPECT_EQ(result1, expected_state);
 
     // Complete second segment, should transition to DONE state
@@ -219,7 +224,8 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupWithInvertedIn
     // Complete one segment file
     WarmUpState result1 = _tablet->complete_rowset_segment_warmup(
             WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), Status::OK(), 1, 0);
-    WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(result1, expected_state);
 
     // Complete inverted index file, should still be in TRIGGERED_BY_EVENT_DRIVEN state
@@ -250,7 +256,8 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupWithInvertedIn
     // Complete segment file
     WarmUpState result1 = _tablet->complete_rowset_segment_warmup(
             WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), Status::OK(), 1, 0);
-    WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(result1, expected_state);
 
     // Complete inverted index file
@@ -279,7 +286,8 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupWithError) {
     Status error_status = Status::InternalError("Test error");
     WarmUpState result = _tablet->complete_rowset_segment_warmup(
             WarmUpTriggerSource::EVENT_DRIVEN, rowset->rowset_id(), error_status, 1, 0);
-    WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DONE};
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DONE};
     EXPECT_EQ(result, expected_state);
 
     // Verify final state is DONE even with error
@@ -306,7 +314,8 @@ TEST_F(CloudTabletWarmUpStateTest, TestMultipleRowsetsWarmupState) {
                                                  WarmUpTriggerSource::EVENT_DRIVEN));
 
     // Verify all states
-    WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(_tablet->get_rowset_warmup_state(rowset1->rowset_id()), expected_state);
     expected_state = WarmUpState {WarmUpTriggerSource::SYNC_ROWSET, WarmUpProgress::DOING};
     EXPECT_EQ(_tablet->get_rowset_warmup_state(rowset2->rowset_id()), expected_state);
@@ -314,18 +323,18 @@ TEST_F(CloudTabletWarmUpStateTest, TestMultipleRowsetsWarmupState) {
     EXPECT_EQ(_tablet->get_rowset_warmup_state(rowset3->rowset_id()), expected_state);
 
     // Complete rowset1 (2 segments)
-    WarmUpState result = _tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
-                                                      rowset1->rowset_id(), Status::OK(), 1, 0);
+    WarmUpState result = _tablet->complete_rowset_segment_warmup(
+            WarmUpTriggerSource::EVENT_DRIVEN, rowset1->rowset_id(), Status::OK(), 1, 0);
     expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(result, expected_state);
     result = _tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
-                                                      rowset1->rowset_id(), Status::OK(), 1, 0);
+                                                     rowset1->rowset_id(), Status::OK(), 1, 0);
     expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DONE};
     EXPECT_EQ(result, expected_state);
 
     // Complete rowset3 (1 segment)
     result = _tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
-                                                      rowset3->rowset_id(), Status::OK(), 1, 0);
+                                                     rowset3->rowset_id(), Status::OK(), 1, 0);
     expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DONE};
     EXPECT_EQ(result, expected_state);
 
@@ -350,7 +359,8 @@ TEST_F(CloudTabletWarmUpStateTest, TestWarmupStateWithZeroSegments) {
 
     // State should be immediately ready for completion since there are no segments to warm up
     WarmUpState state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
-    WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DONE};
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DONE};
     EXPECT_EQ(state, expected_state);
 }
 
@@ -368,16 +378,17 @@ TEST_F(CloudTabletWarmUpStateTest, TestConcurrentWarmupStateAccess) {
                                                  WarmUpTriggerSource::SYNC_ROWSET));
 
     // Interleaved completion operations
-    WarmUpState result = _tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
-                                                      rowset1->rowset_id(), Status::OK(), 1, 0);
-    WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
+    WarmUpState result = _tablet->complete_rowset_segment_warmup(
+            WarmUpTriggerSource::EVENT_DRIVEN, rowset1->rowset_id(), Status::OK(), 1, 0);
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(result, expected_state);
     result = _tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::SYNC_ROWSET,
-                                                      rowset2->rowset_id(), Status::OK(), 1, 0);
+                                                     rowset2->rowset_id(), Status::OK(), 1, 0);
     expected_state = WarmUpState {WarmUpTriggerSource::SYNC_ROWSET, WarmUpProgress::DOING};
     EXPECT_EQ(result, expected_state);
     result = _tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
-                                                      rowset1->rowset_id(), Status::OK(), 1, 0);
+                                                     rowset1->rowset_id(), Status::OK(), 1, 0);
     expected_state = WarmUpState {WarmUpTriggerSource::EVENT_DRIVEN, WarmUpProgress::DOING};
     EXPECT_EQ(result, expected_state);
 
