@@ -25,7 +25,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * Rotate TDE root key command
@@ -48,7 +47,6 @@ public class AdminRotateTdeRootKeyCommand extends Command implements ForwardWith
 
     public AdminRotateTdeRootKeyCommand(Map<String, String> properties) {
         super(PlanType.ADMIN_ROTATE_TDE_ROOT_KEY);
-        Objects.requireNonNull(properties, "properties are required");
         this.properties = properties;
     }
 
@@ -64,6 +62,6 @@ public class AdminRotateTdeRootKeyCommand extends Command implements ForwardWith
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitCommand(this, context);
+        return visitor.visitAdminRotateTdeRootKeyCommand(this, context);
     }
 }
