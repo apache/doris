@@ -452,16 +452,8 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
                 if (!path.IsString()) {
                     return Status::InvalidJsonPath("Invalid json path: {}", _jsonpaths);
                 }
-                std::string json_path = path.GetString();
-                // If json_path starts with $ but not $., add a dot after $
-                // e.g., $record[0].c1 -> $.record[0].c1
-                if (json_path.size() > 1 && json_path[0] == '$' && json_path[1] != '.') {
-                    json_path.insert(1, ".");
-                } else if (UNLIKELY(json_path.size() == 1 && json_path[0] == '$')) {
-                    json_path.insert(1, ".");
-                }
                 std::vector<JsonPath> parsed_paths;
-                JsonFunctions::parse_json_paths(json_path, &parsed_paths);
+                JsonFunctions::parse_json_paths(path.GetString(), &parsed_paths);
                 _parsed_jsonpaths.push_back(std::move(parsed_paths));
             }
 
@@ -473,12 +465,8 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
     // parse jsonroot
     if (!_json_root.empty()) {
         std::string json_root = _json_root;
-        // eg:
-        //    $ -> $.
-        //    $text#abc.xyz -> $.text#abc.xyz
-        if (json_root.size() > 1 && json_root[0] == '$' && json_root[1] != '.') {
-            json_root.insert(1, ".");
-        } else if (json_root.size() == 1 && json_root[0] == '$') {
+        //  $ -> $.
+        if (json_root.size() == 1 && json_root[0] == '$') {
             json_root.insert(1, ".");
         }
         JsonFunctions::parse_json_paths(json_root, &_parsed_json_root);
