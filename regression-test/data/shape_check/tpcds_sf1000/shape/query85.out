@@ -18,7 +18,7 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF5 wp_web_page_sk->[ws_web_page_sk]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer_address.ca_address_sk = web_returns.wr_refunded_addr_sk)) otherCondition=(OR[AND[ca_state IN ('IA', 'NC', 'TX'),(web_sales.ws_net_profit >= 100.00),(web_sales.ws_net_profit <= 200.00)],AND[ca_state IN ('GA', 'WI', 'WV'),(web_sales.ws_net_profit >= 150.00)],AND[ca_state IN ('KY', 'OK', 'VA'),(web_sales.ws_net_profit <= 250.00)]]) build RFs:RF4 wr_refunded_addr_sk->[ca_address_sk]
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_address.ca_address_sk = web_returns.wr_refunded_addr_sk)) otherCondition=(OR[AND[ca_state IN ('IA', 'NC', 'TX'),(web_sales.ws_net_profit >= 100.00),(web_sales.ws_net_profit <= 200.00)],AND[ca_state IN ('GA', 'WI', 'WV'),(web_sales.ws_net_profit >= 150.00)],AND[ca_state IN ('KY', 'OK', 'VA'),(web_sales.ws_net_profit <= 250.00)]]) build RFs:RF4 wr_refunded_addr_sk->[ca_address_sk]
 --------------------------------PhysicalProject
 ----------------------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('GA', 'IA', 'KY', 'NC', 'OK', 'TX', 'VA', 'WI', 'WV'))
 ------------------------------------PhysicalOlapScan[customer_address] apply RFs: RF4

@@ -24,6 +24,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
@@ -197,6 +198,10 @@ public class BaseViewInfo {
         for (Column col : finalCols) {
             if (!colSets.add(col.getName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col.getName());
+            }
+            if (col.getType().isVarbinaryType()) {
+                throw new org.apache.doris.common.AnalysisException(
+                        "View does not support VARBINARY type: " + col.getName());
             }
             try {
                 FeNameFormat.checkColumnName(col.getName());

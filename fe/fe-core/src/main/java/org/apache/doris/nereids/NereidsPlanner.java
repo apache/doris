@@ -900,7 +900,12 @@ public class NereidsPlanner extends Planner {
                     }
                 }
         }
-
+        if (ConnectContext.get() != null && cascadesContext != null
+                && cascadesContext.getGroupExpressionCount()
+                        > ConnectContext.get().getSessionVariable().memoMaxGroupExpressionSize) {
+            plan += "\n\n\n group expression count exceeds memo_max_group_expression_size("
+                    + ConnectContext.get().getSessionVariable().memoMaxGroupExpressionSize + ")\n";
+        }
         if (statementContext != null) {
             if (!statementContext.getHints().isEmpty()) {
                 String hint = getHintExplainString(statementContext.getHints());
@@ -983,7 +988,7 @@ public class NereidsPlanner extends Planner {
         return PhysicalProperties.GATHER;
     }
 
-    private ExplainLevel getExplainLevel(ExplainOptions explainOptions) {
+    protected ExplainLevel getExplainLevel(ExplainOptions explainOptions) {
         if (explainOptions == null) {
             return ExplainLevel.NONE;
         }

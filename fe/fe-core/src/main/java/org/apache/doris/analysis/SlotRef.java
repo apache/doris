@@ -284,7 +284,7 @@ public class SlotRef extends Expr {
             if (desc.getParent().getRef() == null) {
                 return null;
             }
-            return desc.getParent().getRef().getName();
+            return desc.getParent().getRef().getTableNameInfo().transferToTableName();
         }
         return tblName;
     }

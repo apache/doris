@@ -27,6 +27,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.load.loadv2.InsertLoadJob;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
@@ -56,6 +57,7 @@ public abstract class AbstractInsertExecutor {
     protected long jobId;
     protected final ConnectContext ctx;
     protected final Coordinator coordinator;
+    protected InsertLoadJob insertLoadJob;
     protected String labelName;
     protected final DatabaseIf database;
     protected final TableIf table;
@@ -74,10 +76,13 @@ public abstract class AbstractInsertExecutor {
     public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
             Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
         this.ctx = ctx;
-        this.coordinator = EnvFactory.getInstance().createCoordinator(ctx, planner, ctx.getStatsErrorEstimator());
+        this.database = table.getDatabase();
+        this.insertLoadJob = new InsertLoadJob(database.getId(), labelName);
+        ctx.getEnv().getLoadManager().addLoadJob(insertLoadJob);
+        this.coordinator = EnvFactory.getInstance().createCoordinator(
+                ctx, planner, ctx.getStatsErrorEstimator(), insertLoadJob.getId());
         this.labelName = labelName;
         this.table = table;
-        this.database = table.getDatabase();
         this.insertCtx = insertCtx;
         this.emptyInsert = emptyInsert;
     }

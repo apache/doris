@@ -24,6 +24,7 @@
 #include "common/logging.h"
 #include "common/stats.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-store/clone_chain_reader.h"
 #include "meta-store/keys.h"
 #include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv_error.h"
@@ -107,7 +108,7 @@ void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controlle
         return;
     }
     bool is_versioned_read = is_version_read_enabled(instance_id);
-    MetaReader reader(instance_id);
+    CloneChainReader reader(instance_id, resource_mgr_.get());
     if (!is_versioned_read) {
         err = index_exists(txn.get(), instance_id, request);
     } else {
@@ -202,7 +203,7 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
     commit_index_log.set_table_id(request->table_id());
 
     bool is_versioned_read = is_version_read_enabled(instance_id);
-    MetaReader reader(instance_id);
+    CloneChainReader reader(instance_id, resource_mgr_.get());
     for (auto index_id : request->index_ids()) {
         auto key = recycle_index_key({instance_id, index_id});
         std::string val;
@@ -360,7 +361,7 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
     drop_index_log.set_table_id(request->table_id());
     drop_index_log.set_expiration(request->expiration());
 
-    MetaReader reader(instance_id);
+    CloneChainReader reader(instance_id, resource_mgr_.get());
     for (auto index_id : request->index_ids()) {
         auto key = recycle_index_key({instance_id, index_id});
         std::string val;
@@ -503,7 +504,7 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
     if (!is_versioned_read) {
         err = partition_exists(txn.get(), instance_id, request);
     } else {
-        MetaReader reader(instance_id);
+        CloneChainReader reader(instance_id, resource_mgr_.get());
         err = reader.is_partition_exists(txn.get(), request->partition_ids(0));
     }
     // If index has existed, this might be a stale request
@@ -624,7 +625,7 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
     commit_partition_log.mutable_index_ids()->CopyFrom(request->index_ids());
 
     bool is_versioned_read = is_version_read_enabled(instance_id);
-    MetaReader reader(instance_id);
+    CloneChainReader reader(instance_id, resource_mgr_.get());
     for (auto part_id : request->partition_ids()) {
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
@@ -786,7 +787,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
     drop_partition_log.mutable_index_ids()->CopyFrom(request->index_ids());
     drop_partition_log.set_expired_at_s(request->expiration());
 
-    MetaReader reader(instance_id);
+    CloneChainReader reader(instance_id, resource_mgr_.get());
     for (auto part_id : request->partition_ids()) {
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;

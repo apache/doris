@@ -101,7 +101,7 @@ struct StPoint {
                              GeoPoint& point, std::string& buf) {
         double y = right_column->get_element(0);
         for (int row = 0; row < size; ++row) {
-            auto cur_res = point.from_coord(right_column->get_element(row), y);
+            auto cur_res = point.from_coord(left_column->get_element(row), y);
             loop_do(cur_res, res, null_map, row, point, buf);
         }
     }

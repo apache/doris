@@ -213,4 +213,70 @@ TEST_F(JsonbDocumentTest, writer) {
             R"("key_decimal256":3402823669209384634633746074317.68211454})");
     ASSERT_EQ(json_string, expected_string);
 }
+
+TEST_F(JsonbDocumentTest, forobject) {
+    JsonbWriter writer;
+    writer.writeStartObject();
+
+    writer.writeKey("key_null");
+    writer.writeNull();
+
+    writer.writeKey("key_true");
+    writer.writeBool(true);
+
+    writer.writeKey("key_false");
+    writer.writeBool(false);
+
+    writer.writeKey("key_int");
+    writer.writeInt(12345);
+
+    // writer array
+
+    writer.writeKey("key_array");
+    writer.writeStartArray();
+    writer.writeInt(1);
+    writer.writeStartString();
+    writer.writeString("array string");
+    writer.writeEndString();
+    writer.writeEndArray();
+
+    writer.writeEndObject();
+
+    JsonbDocument* doc = writer.getDocument();
+    auto* root = doc->getValue();
+    std::cout << JsonbToJson {}.to_json_string(root) << std::endl;
+    EXPECT_EQ(
+            JsonbToJson {}.to_json_string(root),
+            R"({"key_null":null,"key_true":true,"key_false":false,"key_int":12345,"key_array":[1,"array string"]})");
+
+    // object
+    const auto* root_obj = root->unpack<ObjectVal>();
+    EXPECT_EQ(root_obj->numElem(), 5);
+    std::cout << "numElem: " << root_obj->numElem() << std::endl;
+    for (auto it = root_obj->begin(); it != root_obj->end(); ++it) {
+        std::cout << "key: " << std::string(it->getKeyStr(), it->klen()) << std::endl;
+    }
+
+    {
+        std::string key = "key_null";
+        {
+            auto val = root_obj->search(key.data(), key.size());
+            EXPECT_TRUE(val != root_obj->end());
+        }
+        {
+            auto val = root_obj->search(key.c_str());
+            EXPECT_TRUE(val != root_obj->end());
+        }
+
+        {
+            auto* val = root_obj->find(key.data(), key.size());
+            EXPECT_TRUE(val != nullptr);
+        }
+        {
+            auto* val = root_obj->find(key.c_str());
+            EXPECT_TRUE(val != nullptr);
+        }
+    }
+}
+
 } // namespace doris

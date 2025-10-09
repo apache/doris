@@ -33,10 +33,22 @@ suite("nereids_scalar_fn_U") {
 	qt_sql_unix_timestamp_DateTimeV2_notnull "select unix_timestamp(kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1"
 	qt_sql_unix_timestamp_DateV2 "select unix_timestamp(kdtv2) from fn_test order by kdtv2"
 	qt_sql_unix_timestamp_DateV2_notnull "select unix_timestamp(kdtv2) from fn_test_not_nullable order by kdtv2"
-	qt_sql_unix_timestamp_Varchar_Varchar "select unix_timestamp(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
-	qt_sql_unix_timestamp_Varchar_Varchar_notnull "select unix_timestamp(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
-	qt_sql_unix_timestamp_String_String "select unix_timestamp(kstr, kstr) from fn_test order by kstr, kstr"
-	qt_sql_unix_timestamp_String_String_notnull "select unix_timestamp(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
+	test {
+		sql "select unix_timestamp(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
+		exception "is invalid"
+	}
+	test {
+		sql "select unix_timestamp(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
+		exception "is invalid"
+	}
+	test {
+		sql "select unix_timestamp(kstr, kstr) from fn_test order by kstr, kstr"
+		exception "is invalid"
+	}
+	test {
+		sql "select unix_timestamp(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
+		exception "is invalid"
+	}
 	qt_sql_upper_Varchar "select upper(kvchrs1) from fn_test order by kvchrs1"
 	qt_sql_upper_Varchar_notnull "select upper(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_upper_String "select upper(kstr) from fn_test order by kstr"

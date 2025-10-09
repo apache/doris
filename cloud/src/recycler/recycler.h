@@ -364,6 +364,11 @@ public:
         accessor_map_.insert({std::string(id), std::move(accessor)});
     }
 
+    // Recycle snapshot meta and data, return 0 for success otherwise error.
+    int recycle_snapshot_meta_and_data(const std::string& resource_id,
+                                       Versionstamp snapshot_version,
+                                       const SnapshotPB& snapshot_pb);
+
 private:
     // returns 0 for success otherwise error
     int init_obj_store_accessors();
@@ -427,11 +432,6 @@ private:
 
     // Whether the instance has any snapshots, return 0 for success otherwise error.
     int has_cluster_snapshots(bool* any);
-
-    // Recycle snapshot meta and data, return 0 for success otherwise error.
-    int recycle_snapshot_meta_and_data(const std::string& resource_id,
-                                       Versionstamp snapshot_version,
-                                       const SnapshotPB& snapshot_pb);
 
 private:
     std::atomic_bool stopped_ {false};

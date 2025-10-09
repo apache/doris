@@ -19,6 +19,7 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.QueryState;
 import org.apache.doris.thrift.TUniqueId;
@@ -135,9 +136,9 @@ public class ProfilePersistentTest {
         }
         Assert.assertFalse(readFailed);
 
-        StringBuilder builder1 = new StringBuilder();
+        SafeStringBuilder builder1 = new SafeStringBuilder();
         summaryProfile.prettyPrint(builder1);
-        StringBuilder builder2 = new StringBuilder();
+        SafeStringBuilder builder2 = new SafeStringBuilder();
         deserializedSummaryProfile.prettyPrint(builder2);
 
         Assert.assertNotEquals("", builder1.toString());
@@ -201,7 +202,7 @@ public class ProfilePersistentTest {
             Assert.assertEquals(profile.getQueryFinishTimestamp(), readProfile.getQueryFinishTimestamp());
 
             // Verify content is readable
-            StringBuilder builder = new StringBuilder();
+            SafeStringBuilder builder = new SafeStringBuilder();
             readProfile.getOnStorageProfile(builder);
             Assert.assertFalse(Strings.isNullOrEmpty(builder.toString()));
 
@@ -268,7 +269,7 @@ public class ProfilePersistentTest {
             // Test with corrupted file
             File profileFile = new File(profile.getProfileStoragePath());
             FileUtils.writeStringToFile(profileFile, "corrupted content", StandardCharsets.UTF_8);
-            StringBuilder corruptedContent = new StringBuilder();
+            SafeStringBuilder corruptedContent = new SafeStringBuilder();
             profile.getOnStorageProfile(corruptedContent);
             Assert.assertTrue(corruptedContent.toString().contains("Failed to read profile"));
 
@@ -381,7 +382,7 @@ public class ProfilePersistentTest {
         Path tempDir = Files.createTempDirectory("profile-persistent-test");
         try {
             // First get profile content before storage
-            StringBuilder beforeStorage = new StringBuilder();
+            SafeStringBuilder beforeStorage = new SafeStringBuilder();
             profile.getExecutionProfileContent(beforeStorage);
 
             // Write to storage
@@ -389,7 +390,7 @@ public class ProfilePersistentTest {
 
             // Test with non-stored profile
             Profile nonStoredProfile = constructRandomProfile(1);
-            StringBuilder nonStoredBuilder = new StringBuilder();
+            SafeStringBuilder nonStoredBuilder = new SafeStringBuilder();
             nonStoredProfile.getOnStorageProfile(nonStoredBuilder);
             Assert.assertEquals("", nonStoredBuilder.toString());
 
@@ -403,7 +404,7 @@ public class ProfilePersistentTest {
             zos.close();
             fos.close();
 
-            StringBuilder invalidBuilder = new StringBuilder();
+            SafeStringBuilder invalidBuilder = new SafeStringBuilder();
             profile.getOnStorageProfile(invalidBuilder);
             Assert.assertTrue(invalidBuilder.toString().contains("Failed to read profile"));
 

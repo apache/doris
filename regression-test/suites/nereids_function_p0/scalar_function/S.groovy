@@ -213,10 +213,22 @@ suite("nereids_scalar_fn_S") {
 	qt_sql_starts_with_Varchar_Varchar_notnull "select starts_with(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
 	qt_sql_starts_with_String_String "select starts_with(kstr, kstr) from fn_test order by kstr, kstr"
 	qt_sql_starts_with_String_String_notnull "select starts_with(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
-	qt_sql_str_to_date_Varchar_Varchar "select str_to_date(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
-	qt_sql_str_to_date_Varchar_Varchar_notnull "select str_to_date(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
-	qt_sql_str_to_date_String_String "select str_to_date(kstr, kstr) from fn_test order by kstr, kstr"
-	qt_sql_str_to_date_String_String_notnull "select str_to_date(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
+	test{
+		sql "select str_to_date(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
+		exception "is invalid"
+	}
+	test{
+		sql "select str_to_date(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
+		exception "is invalid"
+	}
+	test{
+		sql "select str_to_date(kstr, kstr) from fn_test order by kstr, kstr"
+		exception "is invalid"
+	}
+	test{
+		sql "select str_to_date(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
+		exception "is invalid"
+	}
 	qt_sql_strleft_Varchar_Integer "select strleft(kvchrs1, kint) from fn_test order by kvchrs1, kint"
 	qt_sql_strleft_Varchar_Integer_notnull "select strleft(kvchrs1, kint) from fn_test_not_nullable order by kvchrs1, kint"
 	qt_sql_strleft_String_Integer "select strleft(kstr, kint) from fn_test order by kstr, kint"
@@ -243,6 +255,14 @@ suite("nereids_scalar_fn_S") {
 	qt_sql_substring_Varchar_Integer_Integer_notnull "select substring(kvchrs1, kint, kint) from fn_test_not_nullable order by kvchrs1, kint, kint"
 	qt_sql_substring_String_Integer_Integer "select substring(kstr, kint, kint) from fn_test order by kstr, kint, kint"
 	qt_sql_substring_String_Integer_Integer_notnull "select substring(kstr, kint, kint) from fn_test_not_nullable order by kstr, kint, kint"
+	qt_sql_substring_Varchar_Integer_From "select substring(kvchrs1 FROM kint) from fn_test order by kvchrs1, kint"
+	qt_sql_substring_Varchar_Integer_notnull_From "select substring(kvchrs1 FROM kint) from fn_test_not_nullable order by kvchrs1, kint"
+	qt_sql_substring_String_Integer_From "select substring(kstr FROM kint) from fn_test order by kstr, kint"
+	qt_sql_substring_String_Integer_notnull_From "select substring(kstr FROM kint) from fn_test_not_nullable order by kstr, kint"
+	qt_sql_substring_Varchar_Integer_Integer_From_For "select substring(kvchrs1 FROM kint FOR kint) from fn_test order by kvchrs1, kint, kint"
+	qt_sql_substring_Varchar_Integer_Integer_notnull_From_For "select substring(kvchrs1 FROM kint FOR kint) from fn_test_not_nullable order by kvchrs1, kint, kint"
+	qt_sql_substring_String_Integer_Integer_From_For "select substring(kstr FROM kint FOR kint) from fn_test order by kstr, kint, kint"
+	qt_sql_substring_String_Integer_Integer_notnull_From_For "select substring(kstr FROM kint FOR kint) from fn_test_not_nullable order by kstr, kint, kint"
 	qt_sql_substring_index_Varchar_Varchar_Integer "select substring_index(kvchrs1, ' ', 2) from fn_test order by kvchrs1"
 	qt_sql_substring_index_Varchar_Varchar_Integer_notnull "select substring_index(kvchrs1, ' ', 2) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_substring_index_String_String_Integer "select substring_index(kstr, ' ', 2) from fn_test order by kstr"

@@ -1086,4 +1086,41 @@ public class CreateTableCommandTest extends TestWithFeService {
 
         return command.getCreateMTMVInfo();
     }
+
+    @Test
+    public void testMTMVRejectVarbinary() throws Exception {
+        String mv = "CREATE MATERIALIZED VIEW mv_vb\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT X'AB' as vb;";
+
+        LogicalPlan plan = new NereidsParser().parseSingle(mv);
+        Assertions.assertTrue(plan instanceof CreateMTMVCommand);
+        CreateMTMVCommand cmd = (CreateMTMVCommand) plan;
+
+        org.apache.doris.nereids.exceptions.AnalysisException ex = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> cmd.getCreateMTMVInfo().analyze(connectContext));
+        System.out.println(ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("MTMV do not support varbinary type"));
+        Assertions.assertTrue(ex.getMessage().contains("vb"));
+    }
+
+    @Test
+    public void testVarBinaryModifyColumnRejected() throws Exception {
+        createTable("create table test.vb_alt (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        org.apache.doris.nereids.trees.plans.logical.LogicalPlan plan =
+                new org.apache.doris.nereids.parser.NereidsParser()
+                        .parseSingle("alter table test.vb_alt modify column v1 VARBINARY");
+        Assertions.assertTrue(
+                plan instanceof org.apache.doris.nereids.trees.plans.commands.AlterTableCommand);
+        org.apache.doris.nereids.trees.plans.commands.AlterTableCommand cmd2 =
+                (org.apache.doris.nereids.trees.plans.commands.AlterTableCommand) plan;
+        Assertions.assertThrows(Throwable.class, () -> cmd2.run(connectContext, null));
+    }
 }

@@ -41,6 +41,7 @@ suite("test_tvf_error_data", "p0") {
     """
 
     // Step1: date with quotatio 
+    sql "set enable_insert_strict = false"
     sql """       
               INSERT INTO ${tableName}
                      SELECT * FROM S3 (
@@ -52,6 +53,7 @@ suite("test_tvf_error_data", "p0") {
                             "region" = "${region}"
                             );
        """
+    sql "set enable_insert_strict = true"
     qt_select """
             select * from ${tableName}
     """
@@ -93,6 +95,7 @@ suite("test_tvf_error_data", "p0") {
     sql """ truncate table  ${tableName} """
 
     // Step4: string with double quotatio init
+    sql "set enable_insert_strict = false"
     qt_sql """       
               INSERT INTO ${tableName}
                      SELECT * FROM S3 (
@@ -104,12 +107,14 @@ suite("test_tvf_error_data", "p0") {
                             "region" = "${region}"
                             );
        """
+    sql "set enable_insert_strict = true"
     qt_select """
             select * from ${tableName}
     """
     sql """ truncate table  ${tableName} """
 
     // Step5: string with symbol init
+    sql "set enable_insert_strict = false"
     qt_sql """       
               INSERT INTO ${tableName}
                      SELECT * FROM S3 (
@@ -121,12 +126,14 @@ suite("test_tvf_error_data", "p0") {
                             "region" = "${region}"
                             );
        """
+    sql "set enable_insert_strict = true"
     qt_select """
             select * from ${tableName}
     """
     sql """ truncate table  ${tableName} """
 
     // Step6: string with enclose init
+    sql "set enable_insert_strict = false"
     qt_sql """       
               INSERT INTO ${tableName}
                      SELECT * FROM S3 (
@@ -139,12 +146,14 @@ suite("test_tvf_error_data", "p0") {
                             "region" = "${region}"
                             );
        """
+    sql "set enable_insert_strict = true"
     qt_select """
             select * from ${tableName}
     """
     sql """ truncate table  ${tableName} """
 
     // Step7: string with escape init
+    sql "set enable_insert_strict = false"
     qt_sql """       
               INSERT INTO ${tableName}
                      SELECT * FROM S3 (
@@ -158,6 +167,7 @@ suite("test_tvf_error_data", "p0") {
                             "region" = "${region}"
                             );
        """
+    sql "set enable_insert_strict = true"
     qt_select """
             select * from ${tableName}
     """
@@ -165,6 +175,7 @@ suite("test_tvf_error_data", "p0") {
 
 
     // Step8: string with separator init
+    sql "set enable_insert_strict = false"
     qt_sql """       
               INSERT INTO ${tableName}
                      SELECT * FROM S3 (
@@ -178,6 +189,7 @@ suite("test_tvf_error_data", "p0") {
                             "region" = "${region}"
                             );
        """
+    sql "set enable_insert_strict = true"
     qt_select """
             select * from ${tableName}
     """

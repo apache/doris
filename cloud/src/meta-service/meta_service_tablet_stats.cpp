@@ -30,7 +30,7 @@
 #include "common/util.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-store/document_message.h"
+#include "meta-store/clone_chain_reader.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -180,7 +180,7 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
 }
 
 void internal_get_versioned_tablet_stats(MetaServiceCode& code, std::string& msg,
-                                         MetaReader& meta_reader, Transaction* txn,
+                                         CloneChainReader& meta_reader, Transaction* txn,
                                          const std::string& instance_id,
                                          const TabletIndexPB& tablet_idx, TabletStatsPB& stats,
                                          bool snapshot) {

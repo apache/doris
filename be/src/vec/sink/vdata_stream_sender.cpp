@@ -263,6 +263,19 @@ Status Channel::send_local_block(Block* block, bool eos, bool can_be_moved) {
     }
 }
 
+std::string Channel::debug_string() const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer,
+                   "fragment_instance_id: {}, _dest_node_id: {}, _is_local: {}, _receiver_status: "
+                   "{}, _closed: {}, _need_close: {}, _be_number: {}, _eos_send: {}",
+                   print_id(_fragment_instance_id), _dest_node_id, _is_local,
+                   _receiver_status.to_string(), _closed, _need_close, _be_number, _eos_send);
+    if (_is_local) {
+        fmt::format_to(debug_string_buffer, "_local_recvr: {}", _local_recvr->debug_string());
+    }
+    return fmt::to_string(debug_string_buffer);
+}
+
 Status Channel::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();

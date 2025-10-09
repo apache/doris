@@ -97,4 +97,19 @@ public class If extends ScalarFunction
             return null;
         }
     }
+
+    /** get condition */
+    public Expression getCondition() {
+        return child(0);
+    }
+
+    /** get true value */
+    public Expression getTrueValue() {
+        return child(1);
+    }
+
+    /** get false value */
+    public Expression getFalseValue() {
+        return child(2);
+    }
 }

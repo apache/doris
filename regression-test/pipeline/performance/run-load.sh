@@ -666,11 +666,11 @@ exit_flag=0
     stream_load_orc_speed_threshold=${stream_load_orc_speed_threshold_master:-15}         # 单位 MB/s
     stream_load_parquet_speed_threshold=${stream_load_parquet_speed_threshold_master:-22} # 单位 MB/s
     insert_into_select_speed_threshold=${insert_into_select_speed_threshold_master:-700}  # 单位 Krows/s
-    if [[ "${target_branch}" == "branch-2.0" ]]; then
-        stream_load_json_speed_threshold=${stream_load_json_speed_threshold_branch20:-105}      # 单位 MB/s
-        stream_load_orc_speed_threshold=${stream_load_orc_speed_threshold_branch20:-15}         # 单位 MB/s
-        stream_load_parquet_speed_threshold=${stream_load_parquet_speed_threshold_branch20:-22} # 单位 MB/s
-        insert_into_select_speed_threshold=${insert_into_select_speed_threshold_branch20:-410}  # 单位 Krows/s
+    if [[ "${target_branch}" == "branch-4.0" ]]; then
+        stream_load_json_speed_threshold=${stream_load_json_speed_threshold_branch40:-115}      # 单位 MB/s
+        stream_load_orc_speed_threshold=${stream_load_orc_speed_threshold_branch40:-15}         # 单位 MB/s
+        stream_load_parquet_speed_threshold=${stream_load_parquet_speed_threshold_branch40:-22} # 单位 MB/s
+        insert_into_select_speed_threshold=${insert_into_select_speed_threshold_branch40:-700}  # 单位 Krows/s
     elif [[ "${target_branch}" == "branch-3.1" ]]; then
         stream_load_json_speed_threshold=${stream_load_json_speed_threshold_branch31:-115}      # 单位 MB/s
         stream_load_orc_speed_threshold=${stream_load_orc_speed_threshold_branch31:-15}         # 单位 MB/s

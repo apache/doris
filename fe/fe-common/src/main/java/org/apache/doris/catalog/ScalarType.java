@@ -220,11 +220,13 @@ public class ScalarType extends Type {
                 return IPV4;
             case IPV6:
                 return IPV6;
+            case VARBINARY:
+                return VARBINARY;
             case ALL:
                 return ALL;
             default:
                 LOG.warn("type={}", type);
-                Preconditions.checkState(false);
+                Preconditions.checkState(false, "type.name()=" + type.name());
                 return NULL;
         }
     }

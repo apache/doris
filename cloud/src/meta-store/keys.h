@@ -66,6 +66,8 @@
 // 0x01 "job" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} -> TabletJobInfoPB
 // 0x01 "job" ${instance_id} "recycle"                                                     -> JobRecyclePB
 // 0x01 "job" ${instance_id} "check"                                                       -> JobRecyclePB
+// 0x01 "job" ${instance_id} "streaming_job" ${db_id} ${job_id}                            -> StreamingJobPB
+
 //
 // 0x01 "copy" ${instance_id} "job" ${stage_id} ${table_id} ${copy_id} ${group_id}         -> CopyJobPB
 // 0x01 "copy" ${instance_id} "loading_file" ${stage_id} ${table_id} ${obj_name} ${etag}   -> CopyFilePB
@@ -98,6 +100,7 @@
 // 0x03 "meta" ${instance_id} "schema" ${index_id} ${schema_version}                -> TabletSchemaPB
 // 0x03 "meta" ${instance_id} "rowset_load" ${tablet_id} ${version} ${timestamp}    -> RowsetMetaPB
 // 0x03 "meta" ${instance_id} "rowset_compact" ${tablet_id} ${version} ${timestamp} -> RowsetMetaPB
+// 0x03 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id}             -> DeleteBitmapStoragePB
 //
 // 0x03 "data" ${instance_id} "rowset_ref_count" ${tablet_id} ${rowset_id} => int64
 //
@@ -217,6 +220,9 @@ using MetaPendingDeleteBitmapInfo = BasicKeyInfo<24 , std::tuple<std::string, in
 
 //                                                      0:instance_id 1:db_id  2:job_id
 using RLJobProgressKeyInfo = BasicKeyInfo<25, std::tuple<std::string, int64_t, int64_t>>;
+
+//                                                      0:instance_id 1:db_id  2:job_id
+using StreamingJobKeyInfo = BasicKeyInfo<52, std::tuple<std::string, int64_t, int64_t>>;
 
 //                                                      0:instance_id 1:vault_id
 using StorageVaultKeyInfo = BasicKeyInfo<26, std::tuple<std::string, std::string>>;
@@ -407,6 +413,8 @@ void job_tablet_key(const JobTabletKeyInfo& in, std::string* out);
 static inline std::string job_tablet_key(const JobTabletKeyInfo& in) { std::string s; job_tablet_key(in, &s); return s; }
 void rl_job_progress_key_info(const RLJobProgressKeyInfo& in, std::string* out);
 static inline std::string rl_job_progress_key_info(const RLJobProgressKeyInfo& in) { std::string s; rl_job_progress_key_info(in, &s); return s; }
+void streaming_job_key(const StreamingJobKeyInfo& in, std::string* out);
+static inline std::string streaming_job_key(const StreamingJobKeyInfo& in) { std::string s; streaming_job_key(in, &s); return s; }
 
 std::string copy_key_prefix(std::string_view instance_id);
 void copy_job_key(const CopyJobKeyInfo& in, std::string* out);

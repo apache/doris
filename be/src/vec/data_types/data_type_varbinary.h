@@ -80,9 +80,6 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeVarbinarySerDe>(nesting_level);
     };

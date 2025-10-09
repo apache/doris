@@ -722,6 +722,28 @@ public class SchemaTable extends Table {
                                     .column("P99_DURATION", ScalarType.createType(PrimitiveType.BIGINT),
                                             SchemaTableAggregateType.MAX, false)
                                     .build(), true))
+            .put("cluster_snapshots",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "cluster_snapshots", TableType.SCHEMA,
+                        builder().column("ID", ScalarType.createStringType())
+                            .column("ANCESTOR", ScalarType.createStringType())
+                            .column("CREATE_AT", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                            .column("FINISH_AT", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                            .column("IMAGE_URL", ScalarType.createStringType())
+                            .column("JOURNAL_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("STATE", ScalarType.createStringType())
+                            .column("AUTO", ScalarType.createType(PrimitiveType.BOOLEAN))
+                            .column("TTL", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("LABEL", ScalarType.createStringType())
+                            .column("MSG", ScalarType.createStringType())
+                            .column("COUNT", ScalarType.createType(PrimitiveType.INT))
+                            .build()))
+            .put("cluster_snapshot_properties",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "cluster_snapshot_properties", TableType.SCHEMA,
+                        builder().column("SNAPSHOT_ENABLED", ScalarType.createType(PrimitiveType.STRING))
+                            .column("AUTO_SNAPSHOT", ScalarType.createType(PrimitiveType.BOOLEAN))
+                            .column("MAX_RESERVED_SNAPSHOTS", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("SNAPSHOT_INTERVAL_SECONDS", ScalarType.createType(PrimitiveType.BIGINT))
+                            .build()))
             .build();
 
     private boolean fetchAllFe = false;

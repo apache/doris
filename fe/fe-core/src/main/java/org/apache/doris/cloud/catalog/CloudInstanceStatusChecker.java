@@ -17,24 +17,24 @@
 
 package org.apache.doris.cloud.catalog;
 
-// import org.apache.doris.analysis.WarmUpClusterStmt;
 import org.apache.doris.catalog.Env;
-// import org.apache.doris.cloud.CacheHotspotManager;
-// import org.apache.doris.cloud.CloudWarmUpJob;
+import org.apache.doris.cloud.CacheHotspotManager;
+import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-// import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-// import org.apache.doris.common.DdlException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-// import java.util.Arrays;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -147,14 +147,12 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
     }
 
     private void cancelCacheJobs(ComputeGroup vcgInFe, List<String> jobIds) {
-        // TODO(dx)
-        /*
         CacheHotspotManager cacheHotspotManager = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr();
         for (String jobId : jobIds) {
             try {
                 if (Env.getCurrentEnv().isMaster()) {
                     // cancel old jobId, will write editlog, so just master can do
-                    cacheHotspotManager.cancel(Long.parseLong(jobId));
+                    cacheHotspotManager.cancel(Long.parseLong(jobId), "vcg cancel");
                     LOG.info("virtual compute group {}, cancel jobId {}", vcgInFe.getName(), jobId);
                 }
             } catch (DdlException e) {
@@ -162,12 +160,9 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
                         vcgInFe.getName(), jobId, e);
             }
         }
-       */
     }
 
     private void checkNeedRebuildFileCache(ComputeGroup virtualGroupInFe, List<String> jobIdsInMs) {
-        // TODO(dx):
-        /*
         CacheHotspotManager cacheHotspotManager = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr();
         // check jobIds in Ms valid, if been cancelled, start new jobs
         for (String jobId : jobIdsInMs) {
@@ -210,7 +205,6 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
                 return;
             }
         }
-         */
     }
 
     /**
@@ -222,7 +216,7 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
                     virtualGroupInFe.getName(), virtualGroupInMs);
             return;
         }
-        // CacheHotspotManager cacheHotspotManager = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr();
+        CacheHotspotManager cacheHotspotManager = ((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr();
         List<String> jobIdsInMs =
                 new ArrayList<>(virtualGroupInMs.getClusterPolicy().getCacheWarmupJobidsList());
 
@@ -230,8 +224,6 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
         LOG.debug("virtual compute group {}, get from ms file cache sync task jobIds {}",
                 virtualGroupInFe, jobIdsInMs);
         // virtual group has been changed in before step
-        // TODO(dx)
-        /*
         if (virtualGroupInFe.isNeedRebuildFileCache()) {
             String srcCg = virtualGroupInFe.getActiveComputeGroup();
             String dstCg = virtualGroupInFe.getStandbyComputeGroup();
@@ -247,8 +239,9 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
                     syncInterValSec = 600;
                 }
                 periodicProperties.put("sync_interval_sec", String.valueOf(syncInterValSec));
-                WarmUpClusterStmt periodicStmtPeriodic =
-                        new WarmUpClusterStmt(dstCg, srcCg, true, periodicProperties);
+                WarmUpClusterCommand periodicStmtPeriodic =
+                        new WarmUpClusterCommand(Collections.emptyList(), srcCg, dstCg,
+                            true, false, periodicProperties);
                 long jobIdPeriodic = cacheHotspotManager.createJob(periodicStmtPeriodic);
 
                 // load event
@@ -256,8 +249,9 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
                 // "sync_mode" = "event_driven", "sync_event" = "load"
                 eventProperties.put("sync_mode", "event_driven");
                 eventProperties.put("sync_event", "load");
-                WarmUpClusterStmt eventStmtPeriodic =
-                        new WarmUpClusterStmt(dstCg, srcCg, true, eventProperties);
+                WarmUpClusterCommand eventStmtPeriodic =
+                        new WarmUpClusterCommand(Collections.emptyList(), srcCg, dstCg,
+                            true, false, eventProperties);
                 long jobIdEvent = cacheHotspotManager.createJob(eventStmtPeriodic);
                 // send jobIds to ms
                 List<String> newJobIds = Arrays.asList(Long.toString(jobIdPeriodic), Long.toString(jobIdEvent));
@@ -270,7 +264,6 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
             }
             virtualGroupInFe.setNeedRebuildFileCache(false);
         }
-         */
     }
 
     private void handleExistingVirtualComputeGroup(Cloud.ClusterPB clusterInMs, ComputeGroup virtualGroupInFe) {

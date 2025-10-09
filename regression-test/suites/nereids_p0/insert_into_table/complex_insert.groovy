@@ -77,6 +77,7 @@ suite('complex_insert') {
     sql 'sync'
     qt_sql_uni 'select * from uni_comp_t order by id, ksint'
 
+    sql "set enable_insert_strict=false"
     sql 'truncate table dup_comp_t'
     sql '''
         insert into dup_comp_t (kint, ksint) 
@@ -109,6 +110,7 @@ suite('complex_insert') {
     '''
     sql 'sync'
     qt_sql_uni 'select * from uni_comp_t order by id, ksint, kint'
+    sql "set enable_insert_strict=true"
 
     sql 'drop table if exists t1'
     sql 'drop table if exists t2'

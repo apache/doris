@@ -264,6 +264,9 @@ public:
     std::string dump_data(size_t begin = 0, size_t row_limit = 100,
                           bool allow_null_mismatch = false) const;
 
+    std::string dump_data_json(size_t begin = 0, size_t row_limit = 100,
+                               bool allow_null_mismatch = false) const;
+
     /** Get one line data from block, only use in load data */
     std::string dump_one_line(size_t row, int column_end) const;
 
@@ -617,6 +620,7 @@ public:
     void erase(const String& name);
 
     std::string dump_data(size_t row_limit = 100) const;
+    std::string dump_data_json(size_t row_limit = 100) const;
 
     void clear() {
         _columns.clear();

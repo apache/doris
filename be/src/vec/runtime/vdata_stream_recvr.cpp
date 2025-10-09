@@ -143,6 +143,21 @@ void VDataStreamRecvr::SenderQueue::set_source_ready(std::lock_guard<std::mutex>
     }
 }
 
+std::string VDataStreamRecvr::SenderQueue::debug_string() {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer,
+                   "_num_remaining_senders = {}, block_queue size = {}, _is_cancelled: {}, "
+                   "_cancel_status: {}, _sender_eos_set: (",
+                   _num_remaining_senders, _block_queue.size(), _is_cancelled,
+                   _cancel_status.to_string());
+    std::lock_guard<std::mutex> l(_lock);
+    for (auto& i : _sender_eos_set) {
+        fmt::format_to(debug_string_buffer, "{}, ", i);
+    }
+    fmt::format_to(debug_string_buffer, ")");
+    return fmt::to_string(debug_string_buffer);
+}
+
 Status VDataStreamRecvr::SenderQueue::add_block(std::unique_ptr<PBlock> pblock, int be_number,
                                                 int64_t packet_seq,
                                                 ::google::protobuf::Closure** done,
@@ -410,6 +425,18 @@ void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
     }
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_block(block, use_move);
+}
+
+std::string VDataStreamRecvr::debug_string() {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer,
+                   "fragment_instance_id: {}, _dest_node_id: {}, _is_merging: {}, _is_closed: {}",
+                   print_id(_fragment_instance_id), _dest_node_id, _is_merging, _is_closed);
+    for (size_t i = 0; i < _sender_queues.size(); i++) {
+        fmt::format_to(debug_string_buffer, "No. {} queue: {}", i,
+                       _sender_queues[i]->debug_string());
+    }
+    return fmt::to_string(debug_string_buffer);
 }
 
 std::shared_ptr<pipeline::Dependency> VDataStreamRecvr::get_local_channel_dependency(

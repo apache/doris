@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessor;
+import org.apache.doris.nereids.processor.post.Validator;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -67,6 +68,19 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
 
     @Override
     public Plan visitPhysicalTopN(PhysicalTopN topN, CascadesContext ctx) {
+        try {
+            Plan result = computeTopN(topN, ctx);
+            if (SessionVariable.isFeDebug()) {
+                Validator validator = new Validator();
+                validator.processRoot(result, ctx);
+            }
+            return result;
+        } catch (Exception e) {
+            return topN;
+        }
+    }
+
+    private Plan computeTopN(PhysicalTopN topN, CascadesContext ctx) {
         if (hasMaterialized) {
             return topN;
         }

@@ -198,6 +198,7 @@ suite("test_nested_types_insert_into_with_s3", "p0") {
     // step2. insert into doris table
     // step2. query and check
 
+    sql "set enable_insert_strict = false"
     for (int i = 0; i < 2; ++i) {
         qt_sql_arr_orc_s3 """
         select * from s3("uri" = "${orcFiles[i]}",
@@ -219,11 +220,13 @@ suite("test_nested_types_insert_into_with_s3", "p0") {
         sql "sync"
         sql "truncate table ${table_names[i]} "
     }
+    sql "set enable_insert_strict = true"
 
     // here need truncate table for insert into same table with parquet file which data is not same with orc file,
     // so select from parquet will fail
 
     
+    sql "set enable_insert_strict = false"
     for (int i = 0; i < 2; ++i) {
         qt_sql_arr_parquet_s3 """
          select * from s3("uri" = "${parquetFiles[i]}",

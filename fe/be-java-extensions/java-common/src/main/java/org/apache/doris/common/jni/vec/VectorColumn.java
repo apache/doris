@@ -211,10 +211,12 @@ public class VectorColumn {
         return new VectorColumn(columnType, capacity);
     }
 
+    // create readable column
     public static VectorColumn createReadableColumn(ColumnType columnType, int numRows, long columnMetaAddress) {
         return new VectorColumn(columnType, numRows, columnMetaAddress);
     }
 
+    // create this.meta column
     public static VectorColumn createReadableColumn(long address, int capacity, ColumnType columnType) {
         return new VectorColumn(address, capacity, columnType);
     }
@@ -276,8 +278,13 @@ public class VectorColumn {
             OffHeap.freeMemory(nullMap);
         }
         if (data != 0) {
-            OffHeap.freeMemory(data);
+            if (columnType.isVarbinaryType()) {
+                freeVarbinaryData();
+            } else {
+                OffHeap.freeMemory(data);
+            }
         }
+
         if (offsets != 0) {
             OffHeap.freeMemory(offsets);
         }
@@ -288,6 +295,24 @@ public class VectorColumn {
         numNulls = 0;
         appendIndex = 0;
         isConst = false;
+    }
+
+    private void freeVarbinaryData() {
+        long[] addrs = new long[appendIndex];
+        int count = 0;
+        for (int i = 0; i < appendIndex; i++) {
+            long entry = data + 16L * i;
+            long len = OffHeap.getLong(null, entry);
+            if (len > 0) { // 0 indicates null or empty
+                long addr = OffHeap.getLong(null, entry + 8);
+                if (addr != 0) {
+                    addrs[count++] = addr;
+                }
+            }
+        }
+        if (count > 0) {
+            OffHeap.freeMemoryBatch(java.util.Arrays.copyOf(addrs, count));
+        }
     }
 
     private void throwReserveException(int requiredCapacity, Throwable cause) {
@@ -327,8 +352,10 @@ public class VectorColumn {
             this.data = OffHeap.reallocateMemory(data, oldCapacity * typeSize, newCapacity * typeSize);
         } else if (columnType.isStringType() || columnType.isArray() || columnType.isMap()) {
             this.offsets = OffHeap.reallocateMemory(offsets, oldOffsetSize, newOffsetSize);
+        } else if (columnType.isVarbinaryType()) {
+            this.data = OffHeap.reallocateMemory(data, oldCapacity * 16L, newCapacity * 16L);
         } else if (!columnType.isStruct()) {
-            throw new RuntimeException("Unhandled type: " + columnType);
+            throw new RuntimeException("Unhandled type: " + columnType.getName());
         }
         if (!"#stringBytes".equals(columnType.getName())) {
             this.nullMap = OffHeap.reallocateMemory(nullMap, oldCapacity, newCapacity);
@@ -423,7 +450,6 @@ public class VectorColumn {
             case CHAR:
             case VARCHAR:
             case STRING:
-            case BINARY:
                 return appendBytesAndOffset(new byte[0]);
             case ARRAY:
                 return appendArray(Collections.emptyList());
@@ -431,8 +457,9 @@ public class VectorColumn {
                 return appendMap(Collections.emptyList(), Collections.emptyList());
             case STRUCT:
                 return appendStruct(structFieldIndex, null);
+            case BINARY:
             case VARBINARY:
-                return appendBytesAndOffset(new byte[0]);
+                return appendVarbinary(new byte[0]);
             default:
                 throw new RuntimeException("Unknown type value: " + typeValue);
         }
@@ -1448,6 +1475,89 @@ public class VectorColumn {
         return result;
     }
 
+    public int appendVarbinary(byte[] src) {
+        long addr = OffHeap.allocateMemory(src.length);
+        OffHeap.copyMemory(src, OffHeap.BYTE_ARRAY_OFFSET, null, addr, src.length);
+        reserve(appendIndex + 1);
+        OffHeap.putLong(null, data + 16L * appendIndex, src.length);
+        OffHeap.putLong(null, data + 16L * appendIndex + 8, addr);
+        return appendIndex++;
+    }
+
+    public void appendVarbinary(byte[][] batch, boolean isNullable) {
+        if (!isNullable) {
+            checkNullable(batch, batch.length);
+        }
+        reserve(appendIndex + batch.length);
+        int rows = batch.length;
+        int[] sizes = new int[rows];
+        int allocCount = 0;
+        for (int i = 0; i < rows; i++) {
+            byte[] v = batch[i];
+            if (v != null && v.length > 0) {
+                sizes[allocCount++] = v.length;
+            }
+        }
+        long[] addrs = allocCount == 0 ? new long[0]
+                : OffHeap.allocateMemoryBatch(java.util.Arrays.copyOf(sizes, allocCount));
+        if (allocCount != 0) {
+            if (addrs == null) {
+                throw new OutOfMemoryError("allocateMemoryBatch returned null");
+            }
+        }
+        int cursor = 0;
+        for (int i = 0; i < rows; i++) {
+            byte[] v = batch[i];
+            if (v == null) {
+                putNull(appendIndex);
+                OffHeap.putLong(null, data + 16L * appendIndex, 0L);
+                OffHeap.putLong(null, data + 16L * appendIndex + 8, 0L);
+            } else if (v.length == 0) {
+                OffHeap.putLong(null, data + 16L * appendIndex, 0L);
+                OffHeap.putLong(null, data + 16L * appendIndex + 8, 0L);
+            } else {
+                long addr = addrs[cursor++];
+                OffHeap.copyMemory(v, OffHeap.BYTE_ARRAY_OFFSET, null, addr, v.length);
+                OffHeap.putLong(null, data + 16L * appendIndex, (long) v.length);
+                OffHeap.putLong(null, data + 16L * appendIndex + 8, addr);
+            }
+            appendIndex++;
+        }
+    }
+
+    public byte[][] getVarBinaryColumn(int start, int end) {
+        byte[][] result = new byte[end - start][];
+        for (int i = start; i < end; ++i) {
+            if (!isNullAt(i)) {
+                result[i - start] = getBytesVarbinary(i);
+            }
+        }
+        return result;
+    }
+
+    public byte[] getBytesVarbinary(int rowId) {
+        // Each row is a 16-byte StringView struct at data + 16*rowId
+        // layout:
+        //   [0..3]  uint32 size
+        //   [4..15] inline bytes (when size <= 12) OR
+        //   [8..15] const char* data (when size > 12)
+        long entry = data + 16L * rowId;
+        int size = OffHeap.getInt(null, entry);
+        if (size == 0) {
+            return new byte[0];
+        }
+        if (size <= 12) {
+            // For inline case, the first `size` bytes are stored contiguously
+            // starting at entry + 4 across the 12-byte inline area.
+            byte[] out = new byte[size];
+            OffHeap.copyMemory(null, entry + 4, out, OffHeap.BYTE_ARRAY_OFFSET, size);
+            return out;
+        } else {
+            long addr = OffHeap.getLong(null, entry + 8);
+            return OffHeap.getByte(null, addr, size);
+        }
+    }
+
     public void updateMeta(VectorColumn meta) {
         if (columnType.isUnsupported()) {
             meta.appendLong(0);
@@ -1606,8 +1716,9 @@ public class VectorColumn {
             case STRUCT:
                 appendStruct((Map<String, Object>[]) batch, isNullable);
                 break;
+            case BINARY:
             case VARBINARY:
-                appendBinaryAndOffset((byte[][]) batch, isNullable);
+                appendVarbinary((byte[][]) batch, isNullable);
                 break;
             default:
                 throw new RuntimeException("Unknown type value: " + columnType.getType());
@@ -1661,8 +1772,9 @@ public class VectorColumn {
                 return getMapColumn(start, end);
             case STRUCT:
                 return getStructColumn(start, end);
+            case BINARY:
             case VARBINARY:
-                return getBinaryColumn(start, end);
+                return getVarBinaryColumn(start, end);
             default:
                 throw new RuntimeException("Unknown type value: " + columnType.getType());
         }
@@ -1730,7 +1842,8 @@ public class VectorColumn {
                 }
                 break;
             case BINARY:
-                appendBytesAndOffset(o.getBytes());
+            case VARBINARY:
+                appendVarbinary(o.getBytes());
                 break;
             case ARRAY: {
                 List<ColumnValue> values = new ArrayList<>();
@@ -1811,7 +1924,7 @@ public class VectorColumn {
                 break;
             case BINARY:
             case VARBINARY: {
-                byte[] bytes = getBytesWithOffset(i);
+                byte[] bytes = getBytesVarbinary(i);
                 sb.append(dumpHex(bytes));
                 sb.append(" ASCII:(");
                 boolean printable = true;

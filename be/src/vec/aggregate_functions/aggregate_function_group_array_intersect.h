@@ -80,8 +80,8 @@ struct AggregateFunctionGroupArrayIntersectData {
         const ColVecType* nested_column_data = nullptr;
 
         if (is_column_data_nullable) {
-            auto* const_col_data = const_cast<IColumn*>(&column_data);
-            col_null = static_cast<ColumnNullable*>(const_col_data);
+            const auto* const_col_data = &column_data;
+            col_null = static_cast<const ColumnNullable*>(const_col_data);
             nested_column_data = &assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
                     col_null->get_nested_column());
         } else {
@@ -364,11 +364,10 @@ public:
         const auto arr_size = offsets[row_num] - offset;
         const auto& column_data = column.get_data();
         const bool is_column_data_nullable = column_data.is_nullable();
-        ColumnNullable* col_null = nullptr;
+        const ColumnNullable* col_null = nullptr;
 
         if (is_column_data_nullable) {
-            auto const_col_data = const_cast<IColumn*>(&column_data);
-            col_null = static_cast<ColumnNullable*>(const_col_data);
+            col_null = static_cast<const ColumnNullable*>(&column_data);
         }
 
         auto process_element = [&](size_t i) {

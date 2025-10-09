@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -40,7 +41,8 @@ public class XxHash64 extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).varArgs(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(StringType.INSTANCE)
+            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(StringType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(VarBinaryType.INSTANCE)
     );
 
     /**

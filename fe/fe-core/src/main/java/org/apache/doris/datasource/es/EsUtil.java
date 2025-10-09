@@ -300,6 +300,8 @@ public class EsUtil {
                 case "constant_keyword":
                     type = ScalarType.createStringType();
                     break;
+                // When ES table is empty, object fields still have explicit "type": "object" in mapping
+                case "object":
                 case "nested":
                     type = Type.JSONB;
                     break;

@@ -15,12 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <utility>
 
-#include "vec/core/types.h"
-#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h" // IWYU pragma: keep
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"

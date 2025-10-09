@@ -218,8 +218,11 @@ suite("test_group_commit_http_stream") {
                 }
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
-                assertEquals("fail", json.Status.toLowerCase())
-                assertTrue(json.Message.contains("too many filtered rows"))
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(6, json.NumberTotalRows)
+                assertEquals(3, json.NumberLoadedRows)
+                assertEquals(2, json.NumberFilteredRows)
+                assertEquals(1, json.NumberUnselectedRows)
             }
         }
 

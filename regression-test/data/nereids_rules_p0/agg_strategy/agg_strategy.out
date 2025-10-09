@@ -897,3 +897,25 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalOlapScan[t_gbykey_10_dstkey_10_1000_dst_key1]
 
+-- !multi_distinct_count_and_count_distinct_multi_expr --
+2	20
+
+-- !multi_distinct_sum_and_count_distinct_multi_expr --
+1	20
+
+-- !multi_distinct_sum0_and_count_distinct_multi_expr --
+1	20
+
+-- !multi_distinct_group_concat_and_count_distinct_multi_expr --
+PhysicalResultSink
+--hashAgg[DISTINCT_GLOBAL]
+----PhysicalDistribute[DistributionSpecGather]
+------hashAgg[DISTINCT_LOCAL]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[t_gbykey_10_dstkey_10_1000_id]
+
+-- !multi_distinct_count_2_same_args --
+10
+

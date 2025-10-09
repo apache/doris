@@ -36,8 +36,10 @@ import org.apache.doris.analysis.LambdaFunctionCallExpr;
 import org.apache.doris.analysis.LambdaFunctionExpr;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
+import org.apache.doris.analysis.SearchPredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
+import org.apache.doris.analysis.TryCastExpr;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function;
@@ -73,8 +75,10 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
@@ -441,6 +445,16 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
+    public Expr visitTryCast(TryCast cast, PlanTranslatorContext context) {
+        // left child of cast is expression, right child of cast is target type
+        TryCastExpr tryCastExpr = new TryCastExpr(cast.getDataType().toCatalogDataType(),
+                cast.child().accept(this, context), null);
+        tryCastExpr.setNullableFromNereids(cast.nullable());
+        tryCastExpr.setOriginCastNullable(cast.parentNullable());
+        return tryCastExpr;
+    }
+
+    @Override
     public Expr visitInPredicate(InPredicate inPredicate, PlanTranslatorContext context) {
         List<Expr> inList = inPredicate.getOptions().stream()
                 .map(e -> e.accept(this, context))
@@ -616,6 +630,28 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         functionCallExpr = new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments));
         functionCallExpr.setNullableFromNereids(dictGetMany.nullable());
         return functionCallExpr;
+    }
+
+    @Override
+    public Expr visitSearchExpression(SearchExpression searchExpression,
+            PlanTranslatorContext context) {
+        List<Expr> slotChildren = new ArrayList<>();
+
+        // Convert slot reference children from Nereids to Analysis
+        for (Expression slotExpr : searchExpression.getSlotChildren()) {
+            Expr translatedSlot = slotExpr.accept(this, context);
+            slotChildren.add(translatedSlot);
+        }
+
+        // Create SearchPredicate with proper slot children for BE "action on slot" detection
+        SearchPredicate searchPredicate =
+                new SearchPredicate(
+                        searchExpression.getDslString(),
+                        searchExpression.getQsPlan(),
+                        slotChildren);
+
+        searchPredicate.setNullableFromNereids(searchExpression.nullable());
+        return searchPredicate;
     }
 
     @Override

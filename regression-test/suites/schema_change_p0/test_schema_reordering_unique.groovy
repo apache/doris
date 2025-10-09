@@ -176,7 +176,9 @@ suite("test_schema_reordering_unique", "p0") {
             "               (5, 'David Wilson', 88.9, 'Seattle', 32, 1, 9998887776, false,  5000000000, '2024-06-15', '2024-06-15', '2024-06-15 15:45:00', '2024-06-15 15:45:00', 'Test String 5', 50, {'a': 500, 'b': 200}, '[\"abc\", \"def\"]',95.5, 9.99);"
 
     sql initTable1
+    sql "set enable_insert_strict = false"
     sql initTableData1
+    sql "set enable_insert_strict = true"
     checkTableData("${tbName}", "${tbName2}", "t_int")
     sql """ DROP TABLE IF EXISTS ${tbName} """
 

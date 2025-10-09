@@ -29,7 +29,7 @@
 
 namespace doris {
 
-void SchemaScannerHelper::insert_string_value(int col_index, std::string str_val,
+void SchemaScannerHelper::insert_string_value(int col_index, std::string_view str_val,
                                               vectorized::Block* block) {
     vectorized::MutableColumnPtr mutable_col_ptr;
     mutable_col_ptr = block->get_by_position(col_index).column->assume_mutable();

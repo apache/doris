@@ -610,4 +610,11 @@ int HdfsAccessor::exists(const std::string& relative_path) {
     return ret != 0;
 }
 
+int HdfsAccessor::abort_multipart_upload(const std::string& path, const std::string& upload_id) {
+    LOG_WARNING("abort_multipart_upload not implemented")
+            .tag("path", path)
+            .tag("upload_id", upload_id);
+    return -1;
+}
+
 } // namespace doris::cloud
