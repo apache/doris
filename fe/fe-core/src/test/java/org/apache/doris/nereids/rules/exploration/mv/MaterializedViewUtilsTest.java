@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.TableColumnInfo;
+import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.RelatedTableColumnInfo;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -929,7 +929,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
         Assertions.assertNotNull(relatedTableInfo);
         Assertions.assertTrue(pctPossible);
 
-        TableColumnInfo columnInfo = relatedTableInfo.getTableColumnInfos().get(0);
+        RelatedTableColumnInfo columnInfo = relatedTableInfo.getTableColumnInfos().get(0);
         BaseTableInfo relatedBaseTableInfo = columnInfo.getTableInfo();
         try {
             TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
@@ -940,6 +940,6 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
         } catch (Exception exception) {
             Assertions.fail();
         }
-        Assertions.assertEquals(columnInfo.getColumn().toLowerCase(), expectColumnName.toLowerCase());
+        Assertions.assertEquals(columnInfo.getColumnStr().toLowerCase(), expectColumnName.toLowerCase());
     }
 }

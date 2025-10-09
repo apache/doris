@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.TableColumnInfo;
+import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.RelatedTableColumnInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -848,8 +848,8 @@ public class PartitionColumnTraceTest extends TestWithFeService {
         Assertions.assertTrue(relatedTableInfo.isPctPossible());
 
         Set<Pair<String, String>> relatedTableColumnPairs = new HashSet<>();
-        List<TableColumnInfo> tableColumnInfos = relatedTableInfo.getTableColumnInfos();
-        for (TableColumnInfo info : tableColumnInfos) {
+        List<RelatedTableColumnInfo> tableColumnInfos = relatedTableInfo.getTableColumnInfos();
+        for (RelatedTableColumnInfo info : tableColumnInfos) {
             Optional<Expression> partitionExpression = info.getPartitionExpression();
             if (StringUtils.isNotEmpty(timeUnit) && partitionExpression.isPresent()) {
                 List<DateTrunc> dateTruncs = partitionExpression.get().collectToList(DateTrunc.class::isInstance);
@@ -859,7 +859,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
             }
             try {
                 relatedTableColumnPairs.add(
-                        Pair.of(info.getTableInfo().getTableName(), info.getColumn().toLowerCase()));
+                        Pair.of(info.getTableInfo().getTableName(), info.getColumnStr().toLowerCase()));
             } catch (Exception exception) {
                 Assertions.fail();
             }

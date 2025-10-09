@@ -39,7 +39,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo;
-import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.TableColumnInfo;
+import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.RelatedTableColumnInfo;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -95,8 +95,8 @@ public class MTMVPartitionDefinition {
             return mtmvPartitionInfo;
         }
         // todo Should get multi column
-        TableColumnInfo columnInfo = relatedTableInfo.getTableColumnInfos().get(0);
-        mtmvPartitionInfo.setRelatedCol(columnInfo.getColumn());
+        RelatedTableColumnInfo columnInfo = relatedTableInfo.getTableColumnInfos().get(0);
+        mtmvPartitionInfo.setRelatedCol(columnInfo.getColumnStr());
         mtmvPartitionInfo.setRelatedTable(columnInfo.getTableInfo());
         if (columnInfo.getPartitionExpression().isPresent()) {
             // Set mv partition expr by relatedTableInfo, this is used for partition rollup and so on
@@ -130,7 +130,7 @@ public class MTMVPartitionDefinition {
                     + " the fail reason is %s", relatedTableInfo.getFailReason()));
         }
         // todo Should get multi column
-        TableColumnInfo columnInfo = relatedTableInfo.getTableColumnInfos().get(0);
+        RelatedTableColumnInfo columnInfo = relatedTableInfo.getTableColumnInfos().get(0);
         MTMVRelatedTableIf mtmvBaseRealtedTable = MTMVUtil.getRelatedTable(columnInfo.getTableInfo());
         Set<String> partitionColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         try {
@@ -140,8 +140,8 @@ public class MTMVPartitionDefinition {
             throw new AnalysisException(e.getMessage(), e);
         }
 
-        if (!partitionColumnNames.contains(columnInfo.getColumn())) {
-            throw new AnalysisException("error related column: " + columnInfo.getColumn());
+        if (!partitionColumnNames.contains(columnInfo.getColumnStr())) {
+            throw new AnalysisException("error related column: " + columnInfo.getColumnStr());
         }
         return relatedTableInfo;
     }
