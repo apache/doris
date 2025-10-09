@@ -126,8 +126,9 @@ private:
         size_t length = condition.length();
         if constexpr (Type == TYPE_CHAR) {
             length = std::max(
-                    static_cast<size_t>(
-                            assert_cast<const vectorized::DataTypeString*>(data_type.get())->len()),
+                    static_cast<size_t>(assert_cast<const vectorized::DataTypeString*>(
+                                                vectorized::remove_nullable(data_type).get())
+                                                ->len()),
                     length);
         }
 
