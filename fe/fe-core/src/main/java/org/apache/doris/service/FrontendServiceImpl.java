@@ -2285,7 +2285,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TStatus snapshotLoaderReport(TSnapshotLoaderReportRequest request) throws TException {
         if (Env.getCurrentEnv().getBackupHandler().report(request.getTaskType(), request.getJobId(),
-                request.getTaskId(), request.getFinishedNum(), request.getTotalNum())) {
+                request.getTaskId(), request.getFinishedNum(), request.getTotalNum(), request.getUploadBytes())) {
             return new TStatus(TStatusCode.OK);
         }
         return new TStatus(TStatusCode.CANCELLED);
