@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -153,9 +154,10 @@ public:
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
 
     bool is_running() { return _running.load(); }
-    PipelineTask& set_running(bool running) {
-        _running.exchange(running);
-        return *this;
+    bool set_running(bool running) {
+        bool old_value = !running;
+        _running.compare_exchange_weak(old_value, running);
+        return old_value;
     }
 
     RuntimeState* runtime_state() const { return _state; }

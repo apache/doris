@@ -25,6 +25,7 @@
 #include <concurrentqueue.h>
 #include <sqltypes.h>
 
+#include <algorithm>
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -129,6 +130,19 @@ public:
     void set_ready_to_write() {
         DCHECK_EQ(_shared_state->sink_deps.size(), 1) << debug_string();
         _shared_state->sink_deps.front()->set_ready();
+    }
+
+    void remove_blocked_task(const std::shared_ptr<PipelineTask>& task) {
+        std::unique_lock<std::mutex> lc(_task_lock);
+        auto it = std::ranges::find_if(_blocked_task, [&](const std::weak_ptr<PipelineTask>& ptr) {
+            auto sp = ptr.lock();
+            return sp == task;
+        });
+
+        if (it == _blocked_task.end()) {
+            return;
+        }
+        _blocked_task.erase(it);
     }
 
     // Notify downstream pipeline tasks this dependency is blocked.
