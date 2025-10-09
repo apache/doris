@@ -55,6 +55,12 @@ struct std::equal_to<doris::uint24_t> {
 
 namespace doris {
 #include "common/compile_check_begin.h"
+struct TypeDetail {
+    PrimitiveType type;
+    int precision;
+    int scale;
+    int len;
+};
 /**
  * Use HybridSetType can avoid virtual function call in the loop.
  * @tparam Type
@@ -80,6 +86,29 @@ public:
             } else if constexpr (Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
                                  Type == TYPE_DECIMAL128I || Type == TYPE_DECIMAL256) {
                 tmp = convert(*col, condition);
+            } else {
+                tmp = convert(condition);
+            }
+            _values->insert(&tmp);
+            _update_min_max(tmp);
+        }
+    }
+
+    template <typename ConditionType, typename ConvertFunc>
+    InListPredicateBase(uint32_t column_id, const ConditionType& conditions,
+                        const ConvertFunc& convert, bool is_opposite, const TypeDetail detail,
+                        vectorized::Arena& arena)
+            : ColumnPredicate(column_id, is_opposite),
+              _min_value(type_limit<T>::max()),
+              _max_value(type_limit<T>::min()) {
+        _values = std::make_shared<HybridSetType>(false);
+        for (const auto& condition : conditions) {
+            T tmp;
+            if constexpr (Type == TYPE_STRING || Type == TYPE_CHAR) {
+                tmp = convert(detail, condition, arena);
+            } else if constexpr (Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
+                                 Type == TYPE_DECIMAL128I || Type == TYPE_DECIMAL256) {
+                tmp = convert(detail, condition);
             } else {
                 tmp = convert(condition);
             }
@@ -611,6 +640,29 @@ ColumnPredicate* _create_in_list_predicate(uint32_t column_id, const ConditionTy
     }
 }
 
+template <PrimitiveType Type, PredicateType PT, typename ConditionType, typename ConvertFunc,
+          size_t N = 0>
+ColumnPredicate* _create_in_list_predicate(uint32_t column_id, const ConditionType& conditions,
+                                           const ConvertFunc& convert, bool is_opposite,
+                                           const TypeDetail detail, vectorized::Arena& arena) {
+    using T = typename PrimitiveTypeTraits<Type>::CppType;
+    if constexpr (N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE) {
+        using Set = std::conditional_t<
+                std::is_same_v<T, StringRef>, StringSet<FixedContainer<std::string, N>>,
+                HybridSet<Type, FixedContainer<T, N>,
+                          vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>>;
+        return new InListPredicateBase<Type, PT, Set>(column_id, conditions, convert, is_opposite,
+                                                      detail, arena);
+    } else {
+        using Set = std::conditional_t<
+                std::is_same_v<T, StringRef>, StringSet<DynamicContainer<std::string>>,
+                HybridSet<Type, DynamicContainer<T>,
+                          vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>>;
+        return new InListPredicateBase<Type, PT, Set>(column_id, conditions, convert, is_opposite,
+                                                      detail, arena);
+    }
+}
+
 template <PrimitiveType Type, PredicateType PT, typename ConditionType, typename ConvertFunc>
 ColumnPredicate* create_in_list_predicate(uint32_t column_id, const ConditionType& conditions,
                                           const ConvertFunc& convert, bool is_opposite,
@@ -643,6 +695,41 @@ ColumnPredicate* create_in_list_predicate(uint32_t column_id, const ConditionTyp
     } else {
         return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc>(
                 column_id, conditions, convert, is_opposite, col, arena);
+    }
+}
+
+template <PrimitiveType Type, PredicateType PT, typename ConditionType, typename ConvertFunc>
+ColumnPredicate* create_in_list_predicate(uint32_t column_id, const ConditionType& conditions,
+                                          const ConvertFunc& convert, bool is_opposite,
+                                          const TypeDetail detail, vectorized::Arena& arena) {
+    if (conditions.size() == 1) {
+        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 1>(
+                column_id, conditions, convert, is_opposite, detail, arena);
+    } else if (conditions.size() == 2) {
+        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 2>(
+                column_id, conditions, convert, is_opposite, detail, arena);
+    } else if (conditions.size() == 3) {
+        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 3>(
+                column_id, conditions, convert, is_opposite, detail, arena);
+    } else if (conditions.size() == 4) {
+        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 4>(
+                column_id, conditions, convert, is_opposite, detail, arena);
+    } else if (conditions.size() == 5) {
+        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 5>(
+                column_id, conditions, convert, is_opposite, detail, arena);
+    } else if (conditions.size() == 6) {
+        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 6>(
+                column_id, conditions, convert, is_opposite, detail, arena);
+    } else if (conditions.size() == 7) {
+        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc, 7>(
+                column_id, conditions, convert, is_opposite, detail, arena);
+    } else if (conditions.size() == FIXED_CONTAINER_MAX_SIZE) {
+        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc,
+                                         FIXED_CONTAINER_MAX_SIZE>(column_id, conditions, convert,
+                                                                   is_opposite, detail, arena);
+    } else {
+        return _create_in_list_predicate<Type, PT, ConditionType, ConvertFunc>(
+                column_id, conditions, convert, is_opposite, detail, arena);
     }
 }
 
