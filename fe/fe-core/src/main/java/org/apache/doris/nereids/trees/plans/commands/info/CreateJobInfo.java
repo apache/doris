@@ -24,6 +24,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
@@ -110,17 +111,18 @@ public class CreateJobInfo {
      * @throws UserException If there is an error during SQL analysis or job creation.
      */
     public AbstractJob analyzeAndBuildJobInfo(ConnectContext ctx) throws UserException {
-        checkAuth();
+        String dbName = ctx.getDatabase();
+        if (Strings.isNullOrEmpty(dbName)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+        }
+
+        checkAuth(dbName);
         if (labelNameOptional.orElseThrow(() -> new AnalysisException("labelName is null")).isEmpty()) {
             throw new AnalysisException("Job name can not be empty");
         }
 
         String jobName = labelNameOptional.get();
         checkJobName(jobName);
-        String dbName = ctx.getDatabase();
-        if (Strings.isNullOrEmpty(dbName)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-        }
 
         Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         // check its insert stmt,currently only support insert stmt
@@ -214,9 +216,16 @@ public class CreateJobInfo {
         startsTimeStampOptional.ifPresent(s -> timerDefinition.setStartTimeMs(stripQuotesAndParseTimestamp(s)));
     }
 
-    protected static void checkAuth() throws AnalysisException {
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+    protected void checkAuth(String dbName) throws AnalysisException {
+        if (streamingJob) {
+            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.LOAD)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD");
+            }
+        } else {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+            }
         }
     }
 
