@@ -199,7 +199,9 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<FieldType::OLAP_FIELD_TYPE_BIGINT, FOR_ENCODING, true>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT, PLAIN_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT, BIT_SHUFFLE>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT, PLAIN_ENCODING>();
 
     _add_map<FieldType::OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>();
     _add_map<FieldType::OLAP_FIELD_TYPE_LARGEINT, PLAIN_ENCODING>();
