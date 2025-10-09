@@ -306,8 +306,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 }
                 stats.bytes_write_into_file_cache += block_size;
             }
-        }
-        else {
+        } else {
             // atomically reserve buffer space and get the previous size
             old_buffer_size = BlockFileCache::file_cache_fill_buffer_size.fetch_add(buffer_size);
             // fill cache synchronously if the reservation would exceed the limit
