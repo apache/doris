@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FormatOptions;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.nereids.CascadesContext;
@@ -86,6 +87,7 @@ import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -677,5 +679,51 @@ public class InsertUtils {
                 }
             }
         }
+    }
+
+    /**
+     * Cut the error message to ensure it fits within MySQL error packet size limit.
+     * @param msg the main error message
+     * @param firstErrorMsg the first error message from coordinator
+     * @param url the tracking URL for error log
+     * @return the final truncated error message
+     */
+    public static String getFinalErrorMsg(String msg, String firstErrorMsg, String url) {
+        int maxTotalBytes = 512;
+        String firstErrorMsgPart = "";
+        String urlPart = "";
+
+        // first_error_msg size, normally < 512 (default 256)
+        if (!Strings.isNullOrEmpty(firstErrorMsg)) {
+            firstErrorMsgPart = ". first_error_msg: " + firstErrorMsg;
+        }
+
+        // url
+        if (!Strings.isNullOrEmpty(url)) {
+            urlPart = ". url: " + url;
+        }
+
+        int maxMessageBytes = maxTotalBytes - firstErrorMsgPart.length() - urlPart.length();
+        if (DebugPointUtil.isEnable("TestErrorMsgTruncate")) {
+            int numAsToAppend = (maxTotalBytes - msg.length()) / 4;
+            StringBuilder sbA = new StringBuilder(numAsToAppend);
+            for (int i = 0; i < numAsToAppend; i++) {
+                sbA.append("Test");
+            }
+            msg = msg + sbA.toString();
+        }
+
+        if (msg.length() > maxMessageBytes && maxMessageBytes > 0) {
+            msg = msg.substring(0, maxMessageBytes - 1);
+        } else if (maxMessageBytes <= 0) {
+            // (TODO Refrain): temporarily not handle this case
+        }
+
+        StringBuilder finalErrorMsg = new StringBuilder();
+        finalErrorMsg.append(msg);
+        finalErrorMsg.append(firstErrorMsgPart);
+        finalErrorMsg.append(urlPart);
+
+        return finalErrorMsg.toString();
     }
 }
