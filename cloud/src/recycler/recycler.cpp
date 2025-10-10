@@ -3786,7 +3786,21 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         auto ret = txn_remove(txn_kv_.get(), dbm_start_key, dbm_end_key);
         if (ret != 0) {
             LOG(WARNING) << "failed to delete versioned delete bitmap kv, instance_id="
-                         << instance_id_;
+                         << instance_id_ << ", tablet_id=" << tablet_id
+                         << ", rowset_id=" << rowset_id;
+        }
+        return ret;
+    };
+
+    auto delete_delete_bitmap_kvs = [&](int64_t tablet_id, const std::string& rowset_id) {
+        auto delete_bitmap_start =
+                meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id, 0, 0});
+        auto delete_bitmap_end =
+                meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id, INT64_MAX, INT64_MAX});
+        auto ret = txn_remove(txn_kv_.get(), delete_bitmap_start, delete_bitmap_end);
+        if (ret != 0) {
+            LOG(WARNING) << "failed to delete delete bitmap kv, instance_id=" << instance_id_
+                         << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id;
         }
         return ret;
     };
@@ -3808,6 +3822,11 @@ int InstanceRecycler::recycle_tmp_rowsets() {
             for (const auto& [_, rs] : tmp_rowsets_to_delete) {
                 if (delete_versioned_delete_bitmap_kvs(rs.tablet_id(), rs.rowset_id_v2()) != 0) {
                     LOG(WARNING) << "failed to delete versioned delete bitmap kv, rs="
+                                 << rs.ShortDebugString();
+                    return;
+                }
+                if (delete_delete_bitmap_kvs(rs.tablet_id(), rs.rowset_id_v2()) != 0) {
+                    LOG(WARNING) << "failed to delete delete bitmap kv, rs="
                                  << rs.ShortDebugString();
                     return;
                 }
