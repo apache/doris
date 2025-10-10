@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
 import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterContextV2;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -67,6 +68,7 @@ import javax.annotation.Nullable;
  */
 public class PlanTranslatorContext {
     private final ConnectContext connectContext;
+    private final StatementContext statementContext;
     private final List<PlanFragment> planFragments = Lists.newArrayList();
 
     private DescriptorTable descTable;
@@ -119,16 +121,20 @@ public class PlanTranslatorContext {
 
     private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
 
+    /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
+        this.statementContext = ctx.getStatementContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
         this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
         this.descTable = new DescriptorTable();
     }
 
+    /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx, DescriptorTable descTable) {
         this.connectContext = ctx.getConnectContext();
+        this.statementContext = ctx.getStatementContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
         this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
@@ -141,6 +147,7 @@ public class PlanTranslatorContext {
     @VisibleForTesting
     public PlanTranslatorContext() {
         this.connectContext = null;
+        this.statementContext = new StatementContext();
         this.translator = null;
         this.topnFilterContext = new TopnFilterContext();
         IdGenerator<RuntimeFilterId> runtimeFilterIdGen = RuntimeFilterId.createGenerator();
@@ -178,6 +185,10 @@ public class PlanTranslatorContext {
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    public StatementContext getStatementContext() {
+        return statementContext;
     }
 
     public Set<ScanNode> getScanNodeWithUnknownColumnStats() {

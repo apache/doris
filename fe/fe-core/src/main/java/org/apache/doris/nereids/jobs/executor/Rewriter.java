@@ -109,6 +109,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
 import org.apache.doris.nereids.rules.rewrite.MergeTopNs;
+import org.apache.doris.nereids.rules.rewrite.NestedColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
@@ -911,6 +912,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             )
                     ));
                 }
+                rewriteJobs.add(
+                        topic("nested column prune",
+                            custom(RuleType.NESTED_COLUMN_PRUNING, NestedColumnCollector::new)
+                        )
+                );
                 rewriteJobs.addAll(jobs(
                         topic("rewrite cte sub-tree after sub path push down",
                                 custom(RuleType.CLEAR_CONTEXT_STATUS, ClearContextStatus::new),

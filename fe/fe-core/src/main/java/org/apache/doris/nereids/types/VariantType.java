@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
  * Example: VARIANT <`a.b`:INT, `a.c`:DATETIMEV2>
  *
  */
-public class VariantType extends PrimitiveType {
+public class VariantType extends PrimitiveType implements NestedColumnPrunable {
 
     public static final VariantType INSTANCE = new VariantType(0);
 

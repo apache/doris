@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.analysis.AccessPathInfo;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
@@ -284,6 +285,10 @@ public class StatementContext implements Closeable {
     private boolean isInsert = false;
 
     private Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = Optional.empty();
+
+    private boolean hasNestedColumns;
+
+    private Map<Integer, AccessPathInfo> slotIdToAcessPathInfo = new HashMap<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -1016,5 +1021,21 @@ public class StatementContext implements Closeable {
     public void setMvRefreshPredicates(
             Map<TableIf, Set<Expression>> mvRefreshPredicates) {
         this.mvRefreshPredicates = Optional.of(mvRefreshPredicates);
+    }
+
+    public boolean hasNestedColumns() {
+        return hasNestedColumns;
+    }
+
+    public void setHasNestedColumns(boolean hasNestedColumns) {
+        this.hasNestedColumns = hasNestedColumns;
+    }
+
+    public void setSlotIdToAccessPathInfo(int slotId, AccessPathInfo accessPathInfo) {
+        this.slotIdToAcessPathInfo.put(slotId, accessPathInfo);
+    }
+
+    public Optional<AccessPathInfo> getAccessPathInfo(Slot slot) {
+        return Optional.ofNullable(this.slotIdToAcessPathInfo.get(slot.getExprId().asInt()));
     }
 }
