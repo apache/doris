@@ -204,7 +204,21 @@ public:
     }
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
-        return Status::NotSupported("plain page not implement vec op now");
+        DCHECK(_parsed);
+        if (*n == 0 || _cur_idx >= _num_elems) [[unlikely]] {
+            *n = 0;
+            return Status::OK();
+        }
+
+        size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
+        const void* src_data = &_data[PLAIN_PAGE_HEADER_SIZE + _cur_idx * SIZE_OF_TYPE];
+
+        dst->insert_many_fix_len_data((const char*)src_data, max_fetch);
+
+        *n = max_fetch;
+        _cur_idx += max_fetch;
+
+        return Status::OK();
     }
 
     size_t count() const override {
