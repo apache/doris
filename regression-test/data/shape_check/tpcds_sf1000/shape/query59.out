@@ -27,7 +27,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalOlapScan[store] apply RFs: RF5
 ------------------PhysicalProject
 --------------------filter((d.d_month_seq <= 1206) and (d.d_month_seq >= 1195))
-----------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalOlapScan[date_dim(d)]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((d.d_week_seq = d_week_seq2)) otherCondition=() build RFs:RF2 d_week_seq->[d_week_seq]
 ------------------PhysicalProject
@@ -38,5 +38,5 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalOlapScan[store]
 ------------------PhysicalProject
 --------------------filter((d.d_month_seq <= 1218) and (d.d_month_seq >= 1207))
-----------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalOlapScan[date_dim(d)]
 

@@ -22,7 +22,7 @@ PhysicalResultSink
 --------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1
 ------------------------------------PhysicalProject
 --------------------------------------filter((d1.d_month_seq <= 1235) and (d1.d_month_seq >= 1224))
-----------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------PhysicalOlapScan[date_dim(d1)]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[item]
 

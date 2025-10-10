@@ -35,12 +35,12 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((n1.n_regionkey = region.r_regionkey)) otherCondition=()
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[nation]
+--------------------------------------PhysicalOlapScan[nation(n1)]
 ------------------------------------PhysicalProject
 --------------------------------------filter((region.r_name = 'AMERICA'))
 ----------------------------------------PhysicalOlapScan[region]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[nation]
+----------------------PhysicalOlapScan[nation(n2)]
 
 Hint log:
 Used: leading(supplier { orders { lineitem broadcast part } { customer broadcast { n1 broadcast region } } } broadcast n2 )
