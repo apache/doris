@@ -1163,7 +1163,7 @@ DEFINE_mBool(enable_evaluate_shadow_queue_diff, "false");
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
 
-DEFINE_Bool(enable_file_cache_fill_async, "false");
+DEFINE_Bool(enable_file_cache_fill_async, "true");
 DEFINE_Int32(num_file_cache_fill_thread_pool_min_thread, "4");
 DEFINE_Int32(num_file_cache_fill_thread_pool_max_thread, "16");
 DEFINE_mInt64(file_cache_fill_buffer_max_size, "1073741824");
