@@ -517,8 +517,8 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
         column->set_variant_max_sparse_column_statistics_size(
                 tcolumn.variant_max_sparse_column_statistics_size);
     }
-    if (tcolumn.__isset.variant_sparse_bucket_num) {
-        column->set_variant_sparse_bucket_num(tcolumn.variant_sparse_bucket_num);
+    if (tcolumn.__isset.variant_sparse_hash_shard_count) {
+        column->set_variant_sparse_hash_shard_count(tcolumn.variant_sparse_hash_shard_count);
     }
 }
 

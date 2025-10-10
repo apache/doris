@@ -192,7 +192,7 @@ std::pair<std::shared_ptr<ColumnReader>, std::string>
 UnifiedSparseColumnReader::select_reader_and_cache_key(const std::string& relative_path) const {
     if (has_buckets()) {
         uint32_t N = static_cast<uint32_t>(_buckets.size());
-        uint32_t bucket_index = vectorized::schema_util::variant_sparse_bucket_of(
+        uint32_t bucket_index = vectorized::schema_util::variant_sparse_shard_of(
                 StringRef {relative_path.data(), relative_path.size()}, N);
         DCHECK(bucket_index < _buckets.size());
         std::string key = std::string(SPARSE_COLUMN_PATH) + ".b" + std::to_string(bucket_index);
@@ -313,7 +313,7 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
         if (bucket_index.has_value() && _sparse_reader.has_buckets()) {
             uint32_t N = static_cast<uint32_t>(_sparse_reader.num_buckets());
             if (N > 1) {
-                uint32_t b = vectorized::schema_util::variant_sparse_bucket_of(
+                uint32_t b = vectorized::schema_util::variant_sparse_shard_of(
                         StringRef {path.data(), path.size()}, N);
                 if (b != bucket_index.value()) {
                     continue; // prune subcolumns of other buckets early

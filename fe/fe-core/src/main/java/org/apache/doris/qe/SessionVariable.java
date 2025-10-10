@@ -862,7 +862,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
                                                             "default_variant_max_sparse_column_statistics_size";
-    public static final String DEFAULT_VARIANT_SPARSE_BUCKET_NUM = "default_variant_sparse_bucket_num";
+    public static final String DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT = "default_variant_sparse_hash_shard_count";
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
 
@@ -903,7 +903,7 @@ public class SessionVariable implements Serializable, Writable {
     // When false (default), the optimizer rule PushDownVirtualColumnsIntoOlapScan will not apply.
     @VariableMgr.VarAttr(name = "enable_virtual_slot_for_cse", needForward = true,
             varType = VariableAnnotation.EXPERIMENTAL,
-            description = {"是否启用将公共子表达式作为虚拟列下推到OlapScan（实验特性）",
+            description = {"是否启用将公共子表达式作为虚拟列下推到 OlapScan（实验特性）",
                     "Enable pushing common sub-expressions as virtual columns into OlapScan (experimental)"})
     public boolean experimentalEnableVirtualSlotForCse = false;
 
@@ -3012,11 +3012,11 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
 
     @VariableMgr.VarAttr(
-            name = DEFAULT_VARIANT_SPARSE_BUCKET_NUM,
+            name = DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,
             needForward = true,
             fuzzy = true
     )
-    public int defaultVariantSparseBucketNum = 1;
+    public int defaultVariantSparseHashShardCount = 1;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -3040,7 +3040,7 @@ public class SessionVariable implements Serializable, Writable {
         int maxBytes = 10 * 1024 * 1024;
         this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
         this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
-        this.defaultVariantSparseBucketNum = random.nextInt(5) + 1;
+        this.defaultVariantSparseHashShardCount = random.nextInt(5) + 1;
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -5486,8 +5486,8 @@ public class SessionVariable implements Serializable, Writable {
         return defaultVariantMaxSparseColumnStatisticsSize;
     }
 
-    public int getDefaultVariantSparseBucketNum() {
-        return defaultVariantSparseBucketNum;
+    public int getDefaultVariantSparseHashShardCount() {
+        return defaultVariantSparseHashShardCount;
     }
 
     public void readAffectQueryResultVariables(BiConsumer<String, Object> variablesReader) {

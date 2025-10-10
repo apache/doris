@@ -182,7 +182,7 @@ Status UnifiedSparseColumnWriter::init_buckets(int bucket_num, const TabletColum
     _bucket_opts.resize(bucket_num);
     for (int b = 0; b < bucket_num; ++b) {
         TabletColumn bucket_col =
-                vectorized::schema_util::create_sparse_bucket_column(parent_column, b);
+                vectorized::schema_util::create_sparse_shard_column(parent_column, b);
         _bucket_opts[b] = base_opts;
         _bucket_opts[b].meta = footer->add_columns();
         _init_column_meta(_bucket_opts[b].meta, column_id, bucket_col, base_opts.compression_type);
@@ -294,7 +294,7 @@ Status UnifiedSparseColumnWriter::append_from_variant(const vectorized::ColumnVa
     // Bucketized sparse mode path:
     // - Materialize N temporary ColumnMap (keys, values, offsets)
     // - For each row, distribute (path,value) pairs to the bucket decided by
-    //   schema_util::variant_sparse_bucket_of(path)
+    //   schema_util::variant_sparse_shard_of(path)
     // - Convert and append each bucket map to its writer using the column id
     //   sequence initialized by init_buckets (starting at _first_column_id)
     // - Compute per-bucket path stats and persist into each bucket's meta
@@ -317,7 +317,7 @@ Status UnifiedSparseColumnWriter::append_from_variant(const vectorized::ColumnVa
         size_t end = offsets[row];
         for (size_t i = start; i < end; ++i) {
             StringRef path = paths_col->get_data_at(i);
-            uint32_t b = vectorized::schema_util::variant_sparse_bucket_of(path, bucket_num);
+            uint32_t b = vectorized::schema_util::variant_sparse_shard_of(path, bucket_num);
             auto& map_col = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]);
             map_col.get_keys_ptr()->assume_mutable()->insert_from(*paths_col, i);
             map_col.get_values_ptr()->assume_mutable()->insert_from(*values_col, i);
@@ -329,7 +329,7 @@ Status UnifiedSparseColumnWriter::append_from_variant(const vectorized::ColumnVa
     }
     for (int b = 0; b < bucket_num; ++b) {
         TabletColumn bucket_col =
-                vectorized::schema_util::create_sparse_bucket_column(tablet_column, b);
+                vectorized::schema_util::create_sparse_shard_column(tablet_column, b);
         converter->add_column_data_convertor(bucket_col);
         int this_col_id = _first_column_id + b;
         RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
@@ -526,7 +526,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
 Status VariantColumnWriterImpl::_process_sparse_column(
         vectorized::ColumnVariant* ptr, vectorized::OlapBlockDataConvertor* converter,
         size_t num_rows, int& column_id) {
-    int bucket_num = std::max(1, _tablet_column->variant_sparse_bucket_num());
+    int bucket_num = std::max(1, _tablet_column->variant_sparse_hash_shard_count());
     if (bucket_num == 1 || bucket_num == 0) {
         TabletColumn sparse_column = vectorized::schema_util::create_sparse_column(*_tablet_column);
         RETURN_IF_ERROR(_sparse_writer.init_single(sparse_column, column_id, _opts, _opts.footer));

@@ -473,7 +473,7 @@ public abstract class DataType {
                         ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
                         ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse(),
                         ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize(),
-                        ((org.apache.doris.catalog.VariantType) type).getVariantSparseBucketNum());
+                        ((org.apache.doris.catalog.VariantType) type).getVariantSparseHashShardCount());
             }
             return VariantType.INSTANCE;
         } else {

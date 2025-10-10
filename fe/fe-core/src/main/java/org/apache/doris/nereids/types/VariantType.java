@@ -49,7 +49,7 @@ public class VariantType extends PrimitiveType {
     private final int variantMaxSparseColumnStatisticsSize;
 
     private final List<VariantField> predefinedFields;
-    private final int variantSparseBucketNum;
+    private final int variantSparseHashShardCount;
 
     // No predefined fields
     public VariantType(int variantMaxSubcolumnsCount) {
@@ -57,7 +57,7 @@ public class VariantType extends PrimitiveType {
         this.predefinedFields = Lists.newArrayList();
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 10000;
-        this.variantSparseBucketNum = 32;
+        this.variantSparseHashShardCount = 32;
     }
 
     /**
@@ -68,23 +68,23 @@ public class VariantType extends PrimitiveType {
         this.variantMaxSubcolumnsCount = 0;
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 10000;
-        this.variantSparseBucketNum = 32;
+        this.variantSparseHashShardCount = 32;
     }
 
     public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount, boolean enableTypedPathsToSparse,
-            int variantMaxSparseColumnStatisticsSize, int variantSparseBucketNum) {
+            int variantMaxSparseColumnStatisticsSize, int variantSparseHashShardCount) {
         this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.enableTypedPathsToSparse = enableTypedPathsToSparse;
         this.variantMaxSparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize;
-        this.variantSparseBucketNum = variantSparseBucketNum;
+        this.variantSparseHashShardCount = variantSparseHashShardCount;
     }
 
     @Override
     public DataType conversion() {
         return new VariantType(predefinedFields.stream().map(VariantField::conversion)
                                 .collect(Collectors.toList()), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
-                                    variantMaxSparseColumnStatisticsSize, variantSparseBucketNum);
+                                    variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount);
     }
 
     @Override
@@ -92,7 +92,7 @@ public class VariantType extends PrimitiveType {
         org.apache.doris.catalog.VariantType type = new org.apache.doris.catalog.VariantType(predefinedFields.stream()
                 .map(VariantField::toCatalogDataType)
                 .collect(Collectors.toCollection(ArrayList::new)), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
-                     variantMaxSparseColumnStatisticsSize, variantSparseBucketNum);
+                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount);
         return type;
     }
 
@@ -139,10 +139,10 @@ public class VariantType extends PrimitiveType {
                                     .append(String.valueOf(variantMaxSparseColumnStatisticsSize))
                                     .append("\"");
         }
-        if (variantSparseBucketNum != 0 && variantSparseBucketNum != 1) {
+        if (variantSparseHashShardCount != 0 && variantSparseHashShardCount != 1) {
             sb.append(",");
-            sb.append("\"variant_sparse_bucket_num\" = \"")
-                                    .append(String.valueOf(variantSparseBucketNum))
+            sb.append("\"variant_sparse_hash_shard_count\" = \"")
+                                    .append(String.valueOf(variantSparseHashShardCount))
                                     .append("\"");
         }
         sb.append(")>");
@@ -161,14 +161,14 @@ public class VariantType extends PrimitiveType {
         return this.variantMaxSubcolumnsCount == other.variantMaxSubcolumnsCount
                     && this.enableTypedPathsToSparse == other.enableTypedPathsToSparse
                     && this.variantMaxSparseColumnStatisticsSize == other.variantMaxSparseColumnStatisticsSize
-                    && this.variantSparseBucketNum == other.variantSparseBucketNum
+                    && this.variantSparseHashShardCount == other.variantSparseHashShardCount
                     && Objects.equals(predefinedFields, other.predefinedFields);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
-                            variantMaxSparseColumnStatisticsSize, variantSparseBucketNum, predefinedFields);
+                            variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, predefinedFields);
     }
 
     @Override
@@ -193,7 +193,7 @@ public class VariantType extends PrimitiveType {
         return variantMaxSparseColumnStatisticsSize;
     }
 
-    public int getVariantSparseBucketNum() {
-        return variantSparseBucketNum;
+    public int getVariantSparseHashShardCount() {
+        return variantSparseHashShardCount;
     }
 }

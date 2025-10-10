@@ -651,7 +651,7 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
     return res;
 }
 
-TabletColumn create_sparse_bucket_column(const TabletColumn& variant, int bucket_index) {
+TabletColumn create_sparse_shard_column(const TabletColumn& variant, int bucket_index) {
     TabletColumn res;
     std::string name = variant.name_lower_case() + "." + SPARSE_COLUMN_PATH + ".b" +
                        std::to_string(bucket_index);
@@ -669,7 +669,7 @@ TabletColumn create_sparse_bucket_column(const TabletColumn& variant, int bucket
     return res;
 }
 
-uint32_t variant_sparse_bucket_of(const StringRef& path, uint32_t bucket_num) {
+uint32_t variant_sparse_shard_of(const StringRef& path, uint32_t bucket_num) {
     if (bucket_num <= 1) return 0;
     SipHash hash;
     hash.update(path.data, path.size);
@@ -1107,10 +1107,10 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
         // append sparse column(s)
         // If variant uses bucketized sparse columns, append one sparse bucket column per bucket.
         // Otherwise, append the single sparse column.
-        int bucket_num = std::max(1, column->variant_sparse_bucket_num());
+        int bucket_num = std::max(1, column->variant_sparse_hash_shard_count());
         if (bucket_num > 1) {
             for (int b = 0; b < bucket_num; ++b) {
-                TabletColumn sparse_bucket_column = create_sparse_bucket_column(*column, b);
+                TabletColumn sparse_bucket_column = create_sparse_shard_column(*column, b);
                 output_schema->append_column(sparse_bucket_column);
             }
         } else {

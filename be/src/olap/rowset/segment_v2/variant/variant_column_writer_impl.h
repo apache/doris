@@ -90,7 +90,7 @@ public:
     // - Single mode: convert src.get_sparse_column() and append to the single writer, populate
     //   out_stats (merged) and write stats to meta
     // - Bucket mode: materialize N ColumnMap temporaries, distribute entries by
-    //   schema_util::variant_sparse_bucket_of(path), convert and append per bucket, and write
+    //   schema_util::variant_sparse_shard_of(path), convert and append per bucket, and write
     //   per-bucket stats to metas
     Status append_from_variant(const vectorized::ColumnVariant& src, size_t num_rows,
                                vectorized::OlapBlockDataConvertor* converter,
