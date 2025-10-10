@@ -254,60 +254,84 @@ public class S3Util {
     }
 
     /**
-     * Expand number range patterns in the path.
-     * For example: "path/file_{1..3}.csv" -> ["path/file_1.csv", "path/file_2.csv", "path/file_3.csv"]
-     * Supports multiple range patterns in a single path.
+     * Convert range patterns to brace enumeration patterns for glob matching.
+     * Parts containing negative numbers or non-numeric characters are skipped.
+     * eg:
+     *    -> "file_{1..3,4,5..6}_{1..3,2..4}.csv" -> "file_{1,2,3,4,5,6}_{1,2,3,4}.csv"
+     *    -> "path/to/{1..3}/file.csv" -> "path/to/{1,2,3}/file.csv"
+     *    -> "data_{-1..4,2,1..3}.csv" -> "data_{1,2,3}.csv"  (-1..4 skipped, keep 2 and 1..3)
+     *    -> "data_{abcdef..4,2,1..3,Refrain}.csv" -> "data_{1,2,3}.csv"  (invalid parts skipped)
      *
-     * @param pathPattern Path that may contain {start..end} patterns
-     * @return List of expanded paths. If no pattern found, returns a list with the original path.
+     * @param pathPattern Path that may contain {start..end} or mixed {start..end,values} patterns
+     * @return Path with ranges converted to comma-separated enumeration
      */
-    public static List<String> expandNumberRange(String pathPattern) {
-        List<String> result = new ArrayList<>();
+    public static String convertRangeToBrace(String pathPattern) {
+        Pattern bracePattern = Pattern.compile("\\{([^}]+)\\}");
+        Matcher braceMatcher = bracePattern.matcher(pathPattern);
+        StringBuffer result = new StringBuffer();
 
-        // Regular expression to match {number..number} pattern
-        Pattern rangePattern = Pattern.compile("\\{(\\d+)\\.\\.(\\d+)\\}");
-        Matcher matcher = rangePattern.matcher(pathPattern);
+        while (braceMatcher.find()) {
+            String braceContent = braceMatcher.group(1);
+            String[] parts = braceContent.split(",");
+            List<Integer> allNumbers = new ArrayList<>();
+            Pattern rangePattern = Pattern.compile("^(-?\\d+)\\.\\.(-?\\d+)$");
 
-        if (!matcher.find()) {
-            // No range pattern found, return original path
-            result.add(pathPattern);
-            return result;
-        }
+            for (String part : parts) {
+                part = part.trim();
+                Matcher rangeMatcher = rangePattern.matcher(part);
 
-        // Reset matcher to process all occurrences
-        matcher.reset();
+                if (rangeMatcher.matches()) {
+                    int start = Integer.parseInt(rangeMatcher.group(1));
+                    int end = Integer.parseInt(rangeMatcher.group(2));
 
-        // Start with the original pattern
-        List<String> currentPaths = new ArrayList<>();
-        currentPaths.add(pathPattern);
+                    // Skip this range if either start or end is negative
+                    if (start < 0 || end < 0) {
+                        continue;
+                    }
 
-        // Process each range pattern found
-        while (matcher.find()) {
-            List<String> expandedPaths = new ArrayList<>();
-            String rangeStr = matcher.group(0);
-            int start = Integer.parseInt(matcher.group(1));
-            int end = Integer.parseInt(matcher.group(2));
-
-            // {3..1} -> {1..3}
-            if (start > end) {
-                int temp = start;
-                start = end;
-                end = temp;
-            }
-
-            // Expand each current path with the range
-            for (String currentPath : currentPaths) {
-                for (int i = start; i <= end; i++) {
-                    String expandedPath = currentPath.replaceFirst(
-                            Pattern.quote(rangeStr), String.valueOf(i));
-                    expandedPaths.add(expandedPath);
+                    if (start > end) {
+                        int temp = start;
+                        start = end;
+                        end = temp;
+                    }
+                    for (int i = start; i <= end; i++) {
+                        if (!allNumbers.contains(i)) {
+                            allNumbers.add(i);
+                        }
+                    }
+                } else if (part.matches("^\\d+$")) {
+                    // This is a single non-negative number like "4"
+                    int num = Integer.parseInt(part);
+                    if (!allNumbers.contains(num)) {
+                        allNumbers.add(num);
+                    }
+                } else {
+                    // Not a valid number or range (e.g., negative number, or contains non-numeric chars)
+                    // Just skip this part and continue processing other parts
+                    continue;
                 }
             }
 
-            currentPaths = expandedPaths;
-        }
+            // If no valid numbers found after filtering, keep original content
+            if (allNumbers.isEmpty()) {
+                braceMatcher.appendReplacement(result, "{" + braceContent + "}");
+                continue;
+            }
 
-        return currentPaths;
+            // Build comma-separated result
+            StringBuilder sb = new StringBuilder("{");
+            for (int i = 0; i < allNumbers.size(); i++) {
+                if (i > 0) {
+                    sb.append(",");
+                }
+                sb.append(allNumbers.get(i));
+            }
+            sb.append("}");
+            braceMatcher.appendReplacement(result, sb.toString());
+        }
+        braceMatcher.appendTail(result);
+
+        return result.toString();
     }
 
     // Fast fail validation for S3 endpoint connectivity to avoid retries and long waits
