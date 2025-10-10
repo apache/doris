@@ -1583,6 +1583,7 @@ primaryExpression
     | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                              #cast
+    | name=TRY_CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                           #tryCast
     | constant                                                                                 #constantDefault
     | interval                                                                                 #intervalLiteral
     | ASTERISK (exceptOrReplace)*                                                              #star
@@ -1601,7 +1602,7 @@ primaryExpression
         (OVER windowSpec)?                                                                     #groupConcat
     | TRIM LEFT_PAREN
         ((BOTH | LEADING | TRAILING) expression? | expression) FROM expression RIGHT_PAREN     #trim
-    | (SUBSTR | SUBSTRING) LEFT_PAREN
+    | (SUBSTR | SUBSTRING | MID) LEFT_PAREN
         expression FROM expression (FOR expression)? RIGHT_PAREN                               #substring
     | POSITION LEFT_PAREN expression IN expression RIGHT_PAREN                                 #position
     | functionCallExpression                                                                   #functionCall
@@ -2066,6 +2067,7 @@ nonReserved
     | MAX
     | MEMO
     | MERGE
+    | MID
     | MIGRATE
     | MIGRATIONS
     | MIN
