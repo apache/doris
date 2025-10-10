@@ -216,6 +216,31 @@ public:
         return Status::OK();
     }
 
+    Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
+                          vectorized::MutableColumnPtr& dst) override {
+        DCHECK(_parsed);
+        if (*n == 0) [[unlikely]] {
+            *n = 0;
+            return Status::OK();
+        }
+
+        auto total = *n;
+        size_t read_count = 0;
+        for (size_t i = 0; i < total; ++i) {
+            ordinal_t ord = rowids[i] - page_first_ordinal;
+            if (UNLIKELY(ord >= _num_elems)) {
+                break;
+            }
+
+            const void* src_data = &_data[PLAIN_PAGE_HEADER_SIZE + ord * SIZE_OF_TYPE];
+            dst->insert_data((const char*)src_data, SIZE_OF_TYPE);
+            read_count++;
+        }
+
+        *n = read_count;
+        return Status::OK();
+    }
+
     size_t count() const override {
         DCHECK(_parsed);
         return _num_elems;
