@@ -272,9 +272,10 @@ public:
         return f;
     }
     template <PrimitiveType T>
-    static Field create_field(const typename PrimitiveTypeTraits<T>::NearestFieldType&& data) {
+    static Field create_field(typename PrimitiveTypeTraits<T>::NearestFieldType&& data) {
         auto f = Field(PrimitiveTypeTraits<T>::NearestPrimitiveType);
-        f.template create_concrete<PrimitiveTypeTraits<T>::NearestPrimitiveType>(data);
+        f.template create_concrete<PrimitiveTypeTraits<T>::NearestPrimitiveType>(
+                std::forward<typename PrimitiveTypeTraits<T>::NearestFieldType>(data));
         return f;
     }
 
@@ -295,6 +296,31 @@ public:
             }
         }
         return *this;
+    }
+
+    void create(JsonbField&& rhs) {
+        new (&storage) JsonbField(std::move(rhs));
+        type = PrimitiveType::TYPE_JSONB;
+    }
+
+    void create(Float64 rhs) {
+        new (&storage) Float64(rhs);
+        type = PrimitiveType::TYPE_DOUBLE;
+    }
+
+    void create(Int64 rhs) {
+        new (&storage) Int64(rhs);
+        type = PrimitiveType::TYPE_BIGINT;
+    }
+
+    void create(String&& rhs) {
+        new (&storage) String(std::move(rhs));
+        type = PrimitiveType::TYPE_STRING;
+    }
+
+    void create(Int128 rhs) {
+        new (&storage) Int128(rhs);
+        type = PrimitiveType::TYPE_LARGEINT;
     }
 
     bool is_complex_field() const {
@@ -506,8 +532,10 @@ private:
     void assign_concrete(const typename PrimitiveTypeTraits<Type>::NearestFieldType& x);
 
     void create(const Field& field);
+    void create(Field&& field);
 
     void assign(const Field& x);
+    void assign(Field&& x);
 
     void destroy();
 
