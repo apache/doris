@@ -36,6 +36,8 @@ public:
 
     virtual void begin_snapshot(std::string_view instance_id, const BeginSnapshotRequest& request,
                                 BeginSnapshotResponse* response);
+    virtual void update_snapshot(std::string_view instance_id, const UpdateSnapshotRequest& request,
+                                 UpdateSnapshotResponse* response);
     virtual void commit_snapshot(std::string_view instance_id, const CommitSnapshotRequest& request,
                                  CommitSnapshotResponse* response);
     virtual void abort_snapshot(std::string_view instance_id, const AbortSnapshotRequest& request,
@@ -53,6 +55,10 @@ public:
     virtual int check_snapshots(InstanceChecker* checker);
 
     virtual int inverted_check_snapshots(InstanceChecker* checker);
+
+    virtual int check_mvcc_meta_key(InstanceChecker* checker);
+
+    virtual int inverted_check_mvcc_meta_key(InstanceChecker* checker);
 
     // Recycle snapshots that are expired or marked as recycled, based on the retention policy.
     // Return 0 for success otherwise error.

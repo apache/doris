@@ -56,4 +56,33 @@ int InstanceChecker::do_snapshots_check() {
     return success;
 }
 
+int InstanceChecker::do_mvcc_rowset_meta_key_check() {
+    int ret = snapshot_manager_->check_mvcc_meta_key(this);
+    int success = 0;
+    if (ret != 0) {
+        if (ret == 1) {
+            LOG(WARNING) << "failed to check mvcc meta key"
+                         << ", segment file lost or key leaked"
+                         << ", instance_id=" << instance_id_;
+        } else if (ret < 0) {
+            LOG(WARNING) << "failed to check mvcc meta key"
+                         << ", instance_id=" << instance_id_;
+        }
+        success = 1;
+    }
+    ret = snapshot_manager_->inverted_check_mvcc_meta_key(this);
+    if (ret != 0) {
+        if (ret == 1) {
+            LOG(WARNING) << "failed to inverted check mvcc meta key"
+                         << ", segment key lost or segment file leaked"
+                         << ", instance_id=" << instance_id_;
+        } else if (ret < 0) {
+            LOG(WARNING) << "failed to inverted check mvcc meta key"
+                         << ", instance_id=" << instance_id_;
+        }
+        success = 1;
+    }
+    return success;
+}
+
 } // namespace doris::cloud

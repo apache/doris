@@ -815,6 +815,10 @@ message SnapshotPB {
     // The resource id of the object store where snapshot image stored.
     optional string resource_id = 14;
 
+    // record the multipart upload file_name and upload_id, used for aborting multipart upload
+    optional string upload_file = 15;
+    optional string upload_id = 16;
+
     // TODO: add the referenced resources
 }
 
@@ -1959,6 +1963,19 @@ message BeginSnapshotResponse {
     optional ObjectStoreInfoPB obj_info = 4;
 }
 
+message UpdateSnapshotRequest {
+    optional string cloud_unique_id = 1;
+    optional string snapshot_id = 2;
+    // record the multipart upload file_name and upload_id, used for aborting multipart upload
+    optional string upload_file = 3;
+    optional string upload_id = 4;
+    optional string request_ip = 5;
+}
+
+message UpdateSnapshotResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 message CommitSnapshotRequest {
     optional string cloud_unique_id = 1;
     optional string snapshot_id = 2;
@@ -2136,6 +2153,7 @@ service MetaService {
 
     // cluster snapshot related methods
     rpc begin_snapshot(BeginSnapshotRequest) returns (BeginSnapshotResponse);
+    rpc update_snapshot(UpdateSnapshotRequest) returns (UpdateSnapshotResponse);
     rpc commit_snapshot(CommitSnapshotRequest) returns (CommitSnapshotResponse);
     rpc abort_snapshot(AbortSnapshotRequest) returns (AbortSnapshotResponse);
     rpc drop_snapshot(DropSnapshotRequest) returns (DropSnapshotResponse);

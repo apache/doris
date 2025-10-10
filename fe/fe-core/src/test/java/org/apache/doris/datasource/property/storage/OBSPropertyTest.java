@@ -39,7 +39,7 @@ public class OBSPropertyTest {
         origProps.put("obs.secret_key", "myOBSSecretKey");
         origProps.put(StorageProperties.FS_OBS_SUPPORT, "true");
         ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Invalid endpoint: https://obs.example.com", () -> StorageProperties.createAll(origProps));
+                "Region is not set. If you are using a standard endpoint, the region will be detected automatically. Otherwise, please specify it explicitly.", () -> StorageProperties.createAll(origProps));
 
         // Test creation without additional properties
         origProps = new HashMap<>();

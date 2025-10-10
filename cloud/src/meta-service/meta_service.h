@@ -361,6 +361,10 @@ public:
                         const BeginSnapshotRequest* request, BeginSnapshotResponse* response,
                         ::google::protobuf::Closure* done) override;
 
+    void update_snapshot(::google::protobuf::RpcController* controller,
+                         const UpdateSnapshotRequest* request, UpdateSnapshotResponse* response,
+                         ::google::protobuf::Closure* done) override;
+
     void commit_snapshot(::google::protobuf::RpcController* controller,
                          const CommitSnapshotRequest* request, CommitSnapshotResponse* response,
                          ::google::protobuf::Closure* done) override;
@@ -874,6 +878,12 @@ public:
                         const BeginSnapshotRequest* request, BeginSnapshotResponse* response,
                         ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::begin_snapshot, controller, request, response, done);
+    }
+
+    void update_snapshot(::google::protobuf::RpcController* controller,
+                         const UpdateSnapshotRequest* request, UpdateSnapshotResponse* response,
+                         ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::update_snapshot, controller, request, response, done);
     }
 
     void commit_snapshot(::google::protobuf::RpcController* controller,
