@@ -298,31 +298,6 @@ public:
         return *this;
     }
 
-    void create(JsonbField&& rhs) {
-        new (&storage) JsonbField(std::move(rhs));
-        type = PrimitiveType::TYPE_JSONB;
-    }
-
-    void create(Float64 rhs) {
-        new (&storage) Float64(rhs);
-        type = PrimitiveType::TYPE_DOUBLE;
-    }
-
-    void create(Int64 rhs) {
-        new (&storage) Int64(rhs);
-        type = PrimitiveType::TYPE_BIGINT;
-    }
-
-    void create(String&& rhs) {
-        new (&storage) String(std::move(rhs));
-        type = PrimitiveType::TYPE_STRING;
-    }
-
-    void create(Int128 rhs) {
-        new (&storage) Int128(rhs);
-        type = PrimitiveType::TYPE_LARGEINT;
-    }
-
     bool is_complex_field() const {
         return type == PrimitiveType::TYPE_ARRAY || type == PrimitiveType::TYPE_MAP ||
                type == PrimitiveType::TYPE_STRUCT || type == PrimitiveType::TYPE_VARIANT;
