@@ -452,8 +452,13 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
                 if (!path.IsString()) {
                     return Status::InvalidJsonPath("Invalid json path: {}", _jsonpaths);
                 }
+                std::string json_path = path.GetString();
+                // $ -> $. in json_path
+                if (UNLIKELY(json_path.size() == 1 && json_path[0] == '$')) {
+                    json_path.insert(1, ".");
+                }
                 std::vector<JsonPath> parsed_paths;
-                JsonFunctions::parse_json_paths(path.GetString(), &parsed_paths);
+                JsonFunctions::parse_json_paths(json_path, &parsed_paths);
                 _parsed_jsonpaths.push_back(std::move(parsed_paths));
             }
 
@@ -465,7 +470,7 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
     // parse jsonroot
     if (!_json_root.empty()) {
         std::string json_root = _json_root;
-        //  $ -> $.
+        //  $ -> $. in json_root
         if (json_root.size() == 1 && json_root[0] == '$') {
             json_root.insert(1, ".");
         }

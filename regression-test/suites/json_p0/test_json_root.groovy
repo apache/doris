@@ -86,6 +86,74 @@ suite("test_json_root", "p0") {
     sql """ sync; """
     
     qt_select_jsonroot_dollar "SELECT * FROM ${testTable} ORDER BY id"
+
+    sql "DROP TABLE IF EXISTS ${testTable}"
+
+    testTable = "t_with_json"
+
+    sql """
+        CREATE TABLE IF NOT EXISTS ${testTable}(
+            c1 INT DEFAULT '10',
+            c2 Json
+        )
+        DISTRIBUTED BY RANDOM BUCKETS 10
+        PROPERTIES("replication_num" = "1");
+        """
+
+    // case3: use "$" in json_path
+
+    streamLoad {
+        table testTable
+        file dataFile
+        time 10000
+        set 'format', 'json'
+        set 'strip_outer_array', 'true'
+        set 'jsonpaths', '["$.id", "$"]'
+        set 'columns', 'c1,c2'
+        
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertTrue(json.NumberLoadedRows > 0)
+        }
+    }
     
+    sql """ sync; """
+    
+    qt_select_jsonpath_dollar "SELECT * FROM ${testTable} ORDER BY c1"
+    
+    sql "TRUNCATE TABLE ${testTable}"
+
+
+    // case4: use "$." in json_path
+
+    streamLoad {
+        table testTable
+        file dataFile
+        time 10000
+        set 'format', 'json'
+        set 'strip_outer_array', 'true'
+        set 'jsonpaths', '["$.id", "$."]'
+        set 'columns', 'c1,c2'
+        
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertTrue(json.NumberLoadedRows > 0)
+        }
+    }
+    
+    sql """ sync; """
+    
+    qt_select_jsonpath_dollar_dot "SELECT * FROM ${testTable} ORDER BY c1"
+        
     sql "DROP TABLE IF EXISTS ${testTable}"
 }
