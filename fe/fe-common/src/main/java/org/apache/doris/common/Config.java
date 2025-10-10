@@ -3620,12 +3620,6 @@ public class Config extends ConfigBase {
     })
     public static int first_error_msg_max_length = 256;
 
-    @ConfField(mutable = true, masterOnly = false, description = {
-            "如果设置为 false，则 health 接口将返回 503，表示此 FE 不应再接收服务请求",
-            "If set to false, the health endpoint will return 503, "
-                    + "indicating that this FE should no longer receive service requests"})
-    public static boolean frontend_service_available = true;
-
     @ConfField
     public static String cloud_snapshot_handler_class = "org.apache.doris.cloud.snapshot.CloudSnapshotHandler";
     @ConfField

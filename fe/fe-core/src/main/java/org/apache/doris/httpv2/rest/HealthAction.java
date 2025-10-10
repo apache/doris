@@ -44,10 +44,6 @@ public class HealthAction extends RestBaseController {
             return ResponseEntityBuilder.serviceUnavailable("Server is not ready");
         }
 
-        if (!Config.frontend_service_available) {
-            return ResponseEntityBuilder.serviceUnavailable("Server is not available");
-        }
-
         Map<String, Object> result = new HashMap<>();
         result.put("total_backend_num", Env.getCurrentSystemInfo().getAllBackendIds(false).size());
         result.put("online_backend_num", Env.getCurrentSystemInfo().getAllBackendIds(true).size());
