@@ -198,6 +198,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.EndsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EsQuery;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Even;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ExportSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ExtractUrlParameter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Field;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FindInSet;
@@ -1053,7 +1054,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(AISimilarity.class, "ai_similarity"),
             scalar(Embed.class, "embed"),
             scalar(Uniform.class, "uniform"),
-            scalar(MakeSet.class, "make_set"));
+            scalar(MakeSet.class, "make_set"),
+            scalar(ExportSet.class, "export_set"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 
