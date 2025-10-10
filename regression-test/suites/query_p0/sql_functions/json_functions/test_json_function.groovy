@@ -92,6 +92,9 @@ suite("test_json_function", "arrow_flight_sql") {
     qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\\\k')"""
     qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\\\\\k')"""
 
+    sql """select json_extract('{"name\\k" : 123}', '\$.name\\\\\\k')"""
+    sql """select json_extract_no_quotes('{"name\\k" : 123}', '\$.name\\\\\\k')"""
+
     qt_json_contains1 """
       SELECT JSON_CONTAINS('{"age": 30, "name": "John", "hobbies": ["reading", "swimming"]}', '{"invalid": "format"}');
     """
