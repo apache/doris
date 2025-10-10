@@ -838,10 +838,31 @@ struct CurrentTimeImpl {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
         auto col_to = ColumnTimeV2::create();
-        VecDateTimeValue dtv;
+        DateV2Value<DateTimeV2ValueType> dtv;
         dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                           context->state()->timezone_obj());
-        auto time = TimeValue::make_time(dtv.hour(), dtv.minute(), dtv.second());
+        double time;
+        if (arguments.size() == 1) {
+            // the precision must be const, which is checked in fe.
+            const auto* col = assert_cast<const ColumnInt8*>(
+                    block.get_by_position(arguments[0]).column.get());
+            uint8_t precision = col->get_element(0);
+            if (precision <= 6) {
+                dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
+                                  context->state()->nano_seconds(),
+                                  context->state()->timezone_obj(), precision);
+                time = TimeValue::make_time(dtv.hour(), dtv.minute(), dtv.second(),
+                                            dtv.microsecond());
+            } else {
+                return Status::InvalidArgument(
+                        "The precision in function CURTIME should be between 0 and 6, but got {}",
+                        precision);
+            }
+        } else {
+            dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
+                              context->state()->timezone_obj());
+            time = TimeValue::make_time(dtv.hour(), dtv.minute(), dtv.second());
+        }
         col_to->insert_value(time);
         block.get_by_position(result).column =
                 ColumnConst::create(std::move(col_to), input_rows_count);
