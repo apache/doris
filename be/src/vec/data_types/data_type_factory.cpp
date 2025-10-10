@@ -472,12 +472,12 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = vectorized::create_decimal(precision, scale, false);
         break;
     // Just Mock A NULL Type in Vec Exec Engine
-    case TYPE_NULL:
-        nested = std::make_shared<vectorized::DataTypeUInt8>();
-        const_cast<vectorized::DataTypeUInt8&>(
-                reinterpret_cast<const vectorized::DataTypeUInt8&>(*nested))
-                .set_null_literal(true);
+    case TYPE_NULL: {
+        auto temp_nested = std::make_shared<vectorized::DataTypeUInt8>();
+        temp_nested->set_null_literal(true);
+        nested = std::move(temp_nested);
         break;
+    }
     case TYPE_VARBINARY:
         nested = std::make_shared<vectorized::DataTypeVarbinary>(len, TYPE_VARBINARY);
         break;
