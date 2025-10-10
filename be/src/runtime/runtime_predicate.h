@@ -154,7 +154,7 @@ private:
     Field _orderby_extrem {PrimitiveType::TYPE_NULL};
     Arena _predicate_arena;
     std::function<std::string(const Field&)> _get_value_fn;
-    std::function<ColumnPredicate*(const TabletColumn&, int, const std::string&, bool,
+    std::function<ColumnPredicate*(const DataTypePtr&, int, const std::string&, bool,
                                    vectorized::Arena&)>
             _pred_constructor;
     bool _detected_source = false;

@@ -107,8 +107,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
     } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         nested = std::make_shared<DataTypeVariant>(col_desc.variant_max_subcolumns_count());
     } else {
-        nested =
-                _create_primitive_data_type(col_desc.type(), col_desc.precision(), col_desc.frac());
+        nested = _create_primitive_data_type(col_desc.type(), col_desc.precision(), col_desc.frac(),
+                                             col_desc.length());
     }
 
     if ((is_nullable || col_desc.is_nullable()) && nested) {
@@ -118,7 +118,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
 }
 
 DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, int precision,
-                                                         int scale) const {
+                                                         int scale, int length) const {
     DataTypePtr result = nullptr;
     switch (type) {
     case FieldType::OLAP_FIELD_TYPE_BOOL:
@@ -167,7 +167,7 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = std::make_shared<vectorized::DataTypeFloat64>();
         break;
     case FieldType::OLAP_FIELD_TYPE_CHAR:
-        result = std::make_shared<vectorized::DataTypeString>(-1, TYPE_CHAR);
+        result = std::make_shared<vectorized::DataTypeString>(length, TYPE_CHAR);
         break;
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
         result = std::make_shared<vectorized::DataTypeString>(-1, TYPE_VARCHAR);
@@ -386,7 +386,7 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
     } else {
         // TODO add precision and frac
         nested = _create_primitive_data_type(static_cast<FieldType>(pcolumn.type()),
-                                             pcolumn.precision(), pcolumn.frac());
+                                             pcolumn.precision(), pcolumn.frac(), -1);
     }
 
     if (pcolumn.is_nullable() && nested) {
