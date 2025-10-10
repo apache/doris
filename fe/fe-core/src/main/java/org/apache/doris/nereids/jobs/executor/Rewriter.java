@@ -664,14 +664,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                LogicalAggregate.class, LogicalJoin.class
                         ),
                         custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
-                        topDown(new NormalizeAggregate()),
                         costBased(topDown(
                                 new PushDownAggWithDistinctThroughJoinOneSide()
                                 )),
                         costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
-                        topDown(new PushCountIntoUnionAll()),
-                        // set AdjustNullable.check = false to force refreshing nullable
-                        custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(false, false))
+                        topDown(new PushCountIntoUnionAll())
                 ),
                 topic("Limit optimization",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalLimit.class)

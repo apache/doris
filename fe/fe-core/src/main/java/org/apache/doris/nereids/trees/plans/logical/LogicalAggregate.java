@@ -341,11 +341,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), newChild);
     }
 
-    public LogicalAggregate<Plan> withAggOutputChildAndWaitNormalize(List<NamedExpression> newOutput, Plan newChild) {
-        return new LogicalAggregate<>(groupByExpressions, newOutput, false, ordinalIsResolved, generated,
-                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), newChild);
-    }
-
     public LogicalAggregate<Plan> withNormalized(List<Expression> normalizedGroupBy,
             List<NamedExpression> normalizedOutput, Plan normalizedChild) {
         return new LogicalAggregate<>(normalizedGroupBy, normalizedOutput, true, ordinalIsResolved, generated,

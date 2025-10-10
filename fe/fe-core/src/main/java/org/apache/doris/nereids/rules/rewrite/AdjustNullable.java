@@ -78,6 +78,11 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     private static final Logger LOG = LogManager.getLogger(AdjustNullable.class);
 
     private final boolean isAnalyzedPhase;
+    /**
+     * When check is true, if we find a slot that is non-nullable in the plan,
+     * but we infer it should be nullable from the plan's subtree, and fe_debug is true,
+     * then throw an exception.
+     */
     private final boolean check;
 
     public AdjustNullable(boolean isAnalyzedPhase, boolean check) {

@@ -35,6 +35,8 @@
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
+import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
@@ -51,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
@@ -68,6 +71,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -194,7 +198,13 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                         newOutputExpressions.add(replaceAliasExpr);
                     }
                 }
-                return agg.withAggOutputChildAndWaitNormalize(newOutputExpressions, child);
+                LogicalAggregate<Plan> eagerAgg =
+                        agg.withAggOutputChild(newOutputExpressions, child);
+                NormalizeAggregate normalizeAggregate = new NormalizeAggregate();
+                LogicalPlan normalized = normalizeAggregate.normalizeAgg(eagerAgg, Optional.empty(),
+                        context.getCascadesContext());
+                AdjustNullable adjustNullable = new AdjustNullable(false, false);
+                return adjustNullable.rewriteRoot(normalized, null);
             }
         } catch (RuntimeException e) {
             LOG.info("PushDownAggregation failed: " + e.getMessage() + "\n" + agg.treeString());
