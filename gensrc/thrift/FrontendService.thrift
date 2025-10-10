@@ -346,7 +346,7 @@ struct TGroupCommitInfo{
     2: optional i64 groupCommitLoadTableId
     3: optional string cluster
     5: optional bool updateLoadData
-    6: optional i64 tableId 
+    6: optional i64 tableId
     7: optional i64 receiveData
 }
 
@@ -554,6 +554,7 @@ struct TStreamLoadPutRequest {
     57: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
     58: optional Descriptors.TPartialUpdateNewRowPolicy partial_update_new_key_policy
     59: optional bool empty_field_as_null
+    60: optional i64 random_tablet_switching_threshold
 
     // For cloud
     1000: optional string cloud_cluster
@@ -634,7 +635,7 @@ struct TLoadTxnCommitRequest {
     17: optional string auth_code_uuid // deprecated, use token instead
     18: optional bool groupCommit
     19: optional i64 receiveBytes
-    20: optional i64 backendId 
+    20: optional i64 backendId
 }
 
 struct TLoadTxnCommitResult {
@@ -1713,7 +1714,7 @@ service FrontendService {
     TGetBinlogLagResult getBinlogLag(1: TGetBinlogLagRequest request)
 
     Status.TStatus updateStatsCache(1: TUpdateFollowerStatsCacheRequest request)
-    
+
     Status.TStatus updatePlanStatsCache(1: TUpdatePlanStatsCacheRequest request)
 
     TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
