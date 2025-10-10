@@ -613,6 +613,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String LOW_MEMORY_MODE_BUFFER_LIMIT = "low_memory_mode_buffer_limit";
     public static final String DUMP_HEAP_PROFILE_WHEN_MEM_LIMIT_EXCEEDED = "dump_heap_profile_when_mem_limit_exceeded";
 
+    public static final String ENABLE_FUZZY_BLOCKABLE_TASK = "enable_fuzzy_blockable_task";
+
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
 
     public static final String HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
@@ -2788,6 +2790,10 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     public boolean dumpHeapProfileWhenMemLimitExceeded = false;
 
+    @VariableMgr.VarAttr(
+            name = ENABLE_FUZZY_BLOCKABLE_TASK, fuzzy = true)
+    public boolean enableFuzzyBlockableTask = false;
+
     @VariableMgr.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, needForward = true, description = {
             "在CTAS中，如果 CHAR / VARCHAR 列不来自于源表，是否是将这一列的长度设置为 MAX，即65533。默认为 true。",
             "In CTAS (Create Table As Select), if CHAR/VARCHAR columns do not originate from the source table,"
@@ -3108,7 +3114,7 @@ public class SessionVariable implements Serializable, Writable {
                 this.batchSize = 1024;
                 this.enableFoldConstantByBe = false;
             }
-
+            this.enableFuzzyBlockableTask = random.nextBoolean();
         }
         this.runtimeFilterWaitInfinitely = random.nextBoolean();
 
@@ -4584,6 +4590,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setRuntimeBloomFilterMinSize(runtimeBloomFilterMinSize);
         tResult.setRuntimeBloomFilterMaxSize(runtimeBloomFilterMaxSize);
         tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
+        tResult.setEnableFuzzyBlockableTask(enableFuzzyBlockableTask);
 
         if (cpuResourceLimit > 0) {
             TResourceLimit resourceLimit = new TResourceLimit();
