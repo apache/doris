@@ -892,19 +892,15 @@ private:
     }
 };
 
-#define TIME_ROUND_WITH_DELTA_TYPE(IMPL, NAME, UNIT, TYPE, DELTA)                                 \
-    using FunctionOneArg##IMPL##DELTA =                                                           \
-            FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIME, 1>; /*DateTime and Date is same here*/ \
-    using FunctionTwoArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIME, 2>;        \
-    using FunctionThreeArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIME, 3>;      \
-    using FunctionDateV2OneArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, TYPE_DATEV2, 1>;    \
-    using FunctionDateV2TwoArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, TYPE_DATEV2, 2>;    \
-    using FunctionDateV2ThreeArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, TYPE_DATEV2, 3>;  \
-    using FunctionDateTimeV2OneArg##IMPL##DELTA =                                                 \
-            FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIMEV2, 1>;                                  \
-    using FunctionDateTimeV2TwoArg##IMPL##DELTA =                                                 \
-            FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIMEV2, 2>;                                  \
-    using FunctionDateTimeV2ThreeArg##IMPL##DELTA =                                               \
+#define TIME_ROUND_WITH_DELTA_TYPE(IMPL, NAME, UNIT, TYPE, DELTA)                                \
+    using FunctionDateV2OneArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, TYPE_DATEV2, 1>;   \
+    using FunctionDateV2TwoArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, TYPE_DATEV2, 2>;   \
+    using FunctionDateV2ThreeArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, TYPE_DATEV2, 3>; \
+    using FunctionDateTimeV2OneArg##IMPL##DELTA =                                                \
+            FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIMEV2, 1>;                                 \
+    using FunctionDateTimeV2TwoArg##IMPL##DELTA =                                                \
+            FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIMEV2, 2>;                                 \
+    using FunctionDateTimeV2ThreeArg##IMPL##DELTA =                                              \
             FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIMEV2, 3>;
 
 #define TIME_ROUND_DECLARE(IMPL, NAME, UNIT, TYPE)                                            \
@@ -942,9 +938,6 @@ TIME_ROUND_DECLARE(SecondCeil, second_ceil, SECOND, CEIL);
 
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
 #define REGISTER_FUNC_WITH_DELTA_TYPE(IMPL, DELTA)                        \
-    factory.register_function<FunctionOneArg##IMPL##DELTA>();             \
-    factory.register_function<FunctionTwoArg##IMPL##DELTA>();             \
-    factory.register_function<FunctionThreeArg##IMPL##DELTA>();           \
     factory.register_function<FunctionDateV2OneArg##IMPL##DELTA>();       \
     factory.register_function<FunctionDateV2TwoArg##IMPL##DELTA>();       \
     factory.register_function<FunctionDateV2ThreeArg##IMPL##DELTA>();     \
@@ -952,7 +945,6 @@ void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTimeV2TwoArg##IMPL##DELTA>();   \
     factory.register_function<FunctionDateTimeV2ThreeArg##IMPL##DELTA>(); \
     factory.register_function<FunctionDateTimeV2TwoArg##IMPL>();          \
-    factory.register_function<FunctionDateTimeTwoArg##IMPL>();            \
     factory.register_function<FunctionDateV2TwoArg##IMPL>();
 
 #define REGISTER_FUNC(IMPL) REGISTER_FUNC_WITH_DELTA_TYPE(IMPL, Int32)
