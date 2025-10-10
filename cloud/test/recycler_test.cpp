@@ -1104,26 +1104,16 @@ static int get_copy_file_num(TxnKv* txn_kv, const std::string& stage_id, int64_t
     return 0;
 }
 
-<<<<<<< HEAD
-=======
-static void check_delete_bitmap_keys_size(TxnKv* txn_kv, int64_t tablet_id, int expected_size,
-                                          int version = 2) {
+static void check_delete_bitmap_keys_size(TxnKv* txn_kv, int64_t tablet_id, int expected_size) {
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     std::unique_ptr<RangeGetIterator> it;
-    std::string dbm_start_key, dbm_end_key;
-    if (version == 2) {
-        dbm_start_key = versioned::meta_delete_bitmap_key({instance_id, tablet_id, ""});
-        dbm_end_key = versioned::meta_delete_bitmap_key({instance_id, tablet_id + 1, ""});
-    } else if (version == 1) {
-        dbm_start_key = meta_delete_bitmap_key({instance_id, tablet_id, "", 0, 0});
-        dbm_end_key = meta_delete_bitmap_key({instance_id, tablet_id + 1, "", 0, 0});
-    }
+    auto dbm_start_key = meta_delete_bitmap_key({instance_id, tablet_id, "", 0, 0});
+    auto dbm_end_key = meta_delete_bitmap_key({instance_id, tablet_id + 1, "", 0, 0});
     ASSERT_EQ(txn->get(dbm_start_key, dbm_end_key, &it), TxnErrorCode::TXN_OK);
     EXPECT_EQ(it->size(), expected_size);
 }
 
->>>>>>> bf943cc8f35 ([fix](mow) delete bitmap is not deleted if commit compaction job failed (#56758))
 TEST(RecyclerTest, recycle_empty) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
@@ -1355,12 +1345,7 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
         for (int j = 0; j < 1000; ++j) {
             auto rowset = create_rowset("recycle_tmp_rowsets", tablet_id_base + j,
                                         index_id_base + j, 5, schemas[i % 5], txn_id);
-<<<<<<< HEAD
             create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, i & 1, false);
-        }
-    }
-=======
-            create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, i & 1, false, i < 50);
             if (i < 50) {
                 create_delete_bitmaps(txn.get(), tablet_id_base + j, rowset.rowset_id_v2(), 0, 1);
             }
@@ -1368,10 +1353,8 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     }
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     for (int j = 0; j < 20; ++j) {
-        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 50);
-        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 100, 1);
+        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 100);
     }
->>>>>>> bf943cc8f35 ([fix](mow) delete bitmap is not deleted if commit compaction job failed (#56758))
 
     auto start = std::chrono::steady_clock::now();
     ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
@@ -1395,18 +1378,9 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     // EXPECT_GE for InvertedIndexIdCache::get
     EXPECT_GE(insert_inverted_index, 4000);
     EXPECT_GE(insert_no_inverted_index, 1000);
-<<<<<<< HEAD
-=======
-    // check rowset ref count key has been deleted
-    begin_key = versioned::data_rowset_ref_count_key({instance_id, 0, ""});
-    end_key = versioned::data_rowset_ref_count_key({instance_id, INT64_MAX, ""});
-    ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
-    ASSERT_EQ(it->size(), 0);
     for (int j = 0; j < 20; ++j) {
         check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 0);
-        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 0, 1);
     }
->>>>>>> bf943cc8f35 ([fix](mow) delete bitmap is not deleted if commit compaction job failed (#56758))
 }
 
 TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {

@@ -2892,23 +2892,6 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         return 0;
     };
 
-<<<<<<< HEAD
-=======
-    // TODO bacth delete
-    auto delete_versioned_delete_bitmap_kvs = [&](int64_t tablet_id, const std::string& rowset_id) {
-        std::string dbm_start_key =
-                versioned::meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id});
-        std::string dbm_end_key = dbm_start_key;
-        encode_int64(INT64_MAX, &dbm_end_key);
-        auto ret = txn_remove(txn_kv_.get(), dbm_start_key, dbm_end_key);
-        if (ret != 0) {
-            LOG(WARNING) << "failed to delete versioned delete bitmap kv, instance_id="
-                         << instance_id_ << ", tablet_id=" << tablet_id
-                         << ", rowset_id=" << rowset_id;
-        }
-        return ret;
-    };
-
     auto delete_delete_bitmap_kvs = [&](int64_t tablet_id, const std::string& rowset_id) {
         auto delete_bitmap_start =
                 meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id, 0, 0});
@@ -2922,7 +2905,6 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         return ret;
     };
 
->>>>>>> bf943cc8f35 ([fix](mow) delete bitmap is not deleted if commit compaction job failed (#56758))
     auto loop_done = [&]() -> int {
         DORIS_CLOUD_DEFER {
             tmp_rowset_keys.clear();
@@ -2935,21 +2917,13 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                 LOG(WARNING) << "failed to delete tmp rowset data, instance_id=" << instance_id_;
                 return;
             }
-<<<<<<< HEAD
-=======
             for (const auto& [_, rs] : tmp_rowsets_to_delete) {
-                if (delete_versioned_delete_bitmap_kvs(rs.tablet_id(), rs.rowset_id_v2()) != 0) {
-                    LOG(WARNING) << "failed to delete versioned delete bitmap kv, rs="
-                                 << rs.ShortDebugString();
-                    return;
-                }
                 if (delete_delete_bitmap_kvs(rs.tablet_id(), rs.rowset_id_v2()) != 0) {
                     LOG(WARNING) << "failed to delete delete bitmap kv, rs="
                                  << rs.ShortDebugString();
                     return;
                 }
             }
->>>>>>> bf943cc8f35 ([fix](mow) delete bitmap is not deleted if commit compaction job failed (#56758))
             if (txn_remove(txn_kv_.get(), tmp_rowset_keys_to_delete) != 0) {
                 LOG(WARNING) << "failed to tmp rowset kv, instance_id=" << instance_id_;
                 return;
