@@ -573,9 +573,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             }
 
             String bucket = uri.getBucket();
-            LOG.info("Refrain uri path:{}, remotePath:{}", uri.getKey(), remotePath);
-            String globPath = S3Util.convertRangeToBrace(uri.getKey());
-            LOG.info("Refrain globPath:{}, remotePath:{}", globPath, remotePath);
+            String globPath = S3Util.extendGlobs(uri.getKey());
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("globList globPath:{}, remotePath:{}", globPath, remotePath);

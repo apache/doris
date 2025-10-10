@@ -253,6 +253,11 @@ public class S3Util {
         return globPattern.substring(0, earliestSpecialCharIndex);
     }
 
+    // Apply some rules to extend the globs parsing behavior
+    public static String extendGlobs(String pathPattern) {
+        return extendGlobNumberRange(pathPattern);
+    }
+
     /**
      * Convert range patterns to brace enumeration patterns for glob matching.
      * Parts containing negative numbers or non-numeric characters are skipped.
@@ -265,7 +270,7 @@ public class S3Util {
      * @param pathPattern Path that may contain {start..end} or mixed {start..end,values} patterns
      * @return Path with ranges converted to comma-separated enumeration
      */
-    public static String convertRangeToBrace(String pathPattern) {
+    public static String extendGlobNumberRange(String pathPattern) {
         Pattern bracePattern = Pattern.compile("\\{([^}]+)\\}");
         Matcher braceMatcher = bracePattern.matcher(pathPattern);
         StringBuffer result = new StringBuffer();
