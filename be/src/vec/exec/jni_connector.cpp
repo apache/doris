@@ -158,7 +158,7 @@ Status JniConnector::get_table_schema(std::string& table_schema_str) {
             _jni_scanner_obj.call_object_method(env, _jni_scanner_get_table_schema).call(&jstr));
     Jni::LocalStringBufferGuard cstr;
     RETURN_IF_ERROR(jstr.get_string_chars(env, &cstr));
-    table_schema_str = std::string{cstr.get()}; // copy to std::string
+    table_schema_str = std::string {cstr.get()}; // copy to std::string
     return Status::OK();
 }
 
@@ -182,14 +182,16 @@ Status JniConnector::close() {
 
             RETURN_ERROR_IF_EXC(env);
             int64_t _append = 0;
-            RETURN_IF_ERROR(_jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
-                                    .call(&_append));
+            RETURN_IF_ERROR(
+                    _jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
+                            .call(&_append));
 
             COUNTER_UPDATE(_java_append_data_time, _append);
 
             int64_t _create = 0;
             RETURN_IF_ERROR(
-                    _jni_scanner_obj.call_long_method(env, _jni_scanner_get_create_vector_table_time)
+                    _jni_scanner_obj
+                            .call_long_method(env, _jni_scanner_get_create_vector_table_time)
                             .call(&_create));
 
             COUNTER_UPDATE(_java_create_vector_table_time, _create);
@@ -202,7 +204,8 @@ Status JniConnector::close() {
 
             // _fill_block may be failed and returned, we should release table in close.
             // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
-            RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call());
+            RETURN_IF_ERROR(
+                    _jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call());
             RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_close).call());
         }
     }

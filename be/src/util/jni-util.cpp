@@ -339,7 +339,7 @@ Status Util::clean_udf_class_load_cache(const std::string& function_signature) {
     return Status::OK();
 }
 
-Status Util::_init_collect_class() WARN_UNUSED_RESULT {
+Status Util::_init_collect_class() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     // for hashmap
@@ -384,7 +384,7 @@ Status Util::Init() {
     return Status::OK();
 }
 
-Status Util::_init_register_natives() WARN_UNUSED_RESULT {
+Status Util::_init_register_natives() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     // Find JNINativeMethod class and create a global ref.
@@ -414,9 +414,8 @@ Status Util::_init_register_natives() WARN_UNUSED_RESULT {
              (void*)&JavaNativeMethods::memoryFreeBatch},
     };
 
-        int res =
-                env->RegisterNatives(local_jni_native_exc_cl, java_native_methods,
-                                     sizeof(java_native_methods) / sizeof(java_native_methods[0]));
+    int res = env->RegisterNatives(local_jni_native_exc_cl, java_native_methods,
+                                   sizeof(java_native_methods) / sizeof(java_native_methods[0]));
     DCHECK_EQ(res, 0);
     if (res) [[unlikely]] {
         return Status::JniError("Failed to RegisterNatives.");

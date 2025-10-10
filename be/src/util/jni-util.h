@@ -65,14 +65,14 @@ public:
         return Status::OK();
     }
 
-    static Status Init() WARN_UNUSED_RESULT { return init_throw_exception(); }
+    static Status Init() { return init_throw_exception(); }
 
     static Status GetJniExceptionMsg(JNIEnv* env, bool log_stack = true,
                                      const std::string& prefix = "") WARN_UNUSED_RESULT;
 
 private:
     static Status GetJNIEnvSlowPath(JNIEnv** env);
-    static Status init_throw_exception() WARN_UNUSED_RESULT {
+    static Status init_throw_exception() {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(Jni::Env::Get(&env));
 
@@ -370,8 +370,8 @@ public:
         requires std::disjunction_v<std::is_same<T, jboolean>, std::is_same<T, jbyte>,
                                     std::is_same<T, jchar>, std::is_same<T, jshort>,
                                     std::is_same<T, jint>, std::is_same<T, jlong>,
-                                    std::is_same<T, jfloat>, std::is_same<T, jdouble> >
-    FunctionCall& with_arg(T arg) WARN_UNUSED_RESULT {
+                                    std::is_same<T, jfloat>, std::is_same<T, jdouble>>
+    FunctionCall& with_arg(T arg) {
         jvalue v;
         std::memset(&v, 0, sizeof(v));
         if constexpr (std::is_same_v<T, jboolean>) {
@@ -414,11 +414,12 @@ public:
 
     Status call() {
         using return_type = typename CallHelper<tag>::RETURN_TYPE;
-        if constexpr (std::disjunction_v<std::is_same<return_type, jboolean>, std::is_same<return_type, jbyte>,
-                std::is_same<return_type, jchar>, std::is_same<return_type, jshort>,
-                std::is_same<return_type, jint>, std::is_same<return_type, jlong>,
-                std::is_same<return_type, jfloat>, std::is_same<return_type, jdouble>,
-                        std::is_same<return_type, void>>) {
+        if constexpr (std::disjunction_v<
+                              std::is_same<return_type, jboolean>, std::is_same<return_type, jbyte>,
+                              std::is_same<return_type, jchar>, std::is_same<return_type, jshort>,
+                              std::is_same<return_type, jint>, std::is_same<return_type, jlong>,
+                              std::is_same<return_type, jfloat>, std::is_same<return_type, jdouble>,
+                              std::is_same<return_type, void>>) {
             CallHelper<tag>::call_impl(_env, _base, _method, _args.data());
             RETURN_ERROR_IF_EXC(_env);
         } else if constexpr (std::is_same_v<return_type, jobject>) {
@@ -459,8 +460,8 @@ public:
         requires std::disjunction_v<std::is_same<T, jboolean>, std::is_same<T, jbyte>,
                                     std::is_same<T, jchar>, std::is_same<T, jshort>,
                                     std::is_same<T, jint>, std::is_same<T, jlong>,
-                                    std::is_same<T, jfloat>, std::is_same<T, jdouble> >
-    NonvirtaulFunctionCall& with_arg(T arg) WARN_UNUSED_RESULT {
+                                    std::is_same<T, jfloat>, std::is_same<T, jdouble>>
+    NonvirtaulFunctionCall& with_arg(T arg) {
         jvalue v;
         std::memset(&v, 0, sizeof(v));
         if constexpr (std::is_same_v<T, jboolean>) {
@@ -492,17 +493,18 @@ public:
     // no override
     Status call() {
         using return_type = typename CallHelper<tag>::RETURN_TYPE;
-        if constexpr (std::disjunction_v<std::is_same<return_type, jboolean>, std::is_same<return_type, jbyte>,
-                std::is_same<return_type, jchar>, std::is_same<return_type, jshort>,
-                std::is_same<return_type, jint>, std::is_same<return_type, jlong>,
-                std::is_same<return_type, jfloat>, std::is_same<return_type, jdouble>,
-                std::is_same<return_type, void>>) {
+        if constexpr (std::disjunction_v<
+                              std::is_same<return_type, jboolean>, std::is_same<return_type, jbyte>,
+                              std::is_same<return_type, jchar>, std::is_same<return_type, jshort>,
+                              std::is_same<return_type, jint>, std::is_same<return_type, jlong>,
+                              std::is_same<return_type, jfloat>, std::is_same<return_type, jdouble>,
+                              std::is_same<return_type, void>>) {
             CallHelper<tag>::call_impl(this->_env, this->_base, _cls, this->_method,
                                        this->_args.data());
             RETURN_ERROR_IF_EXC(this->_env);
         } else if constexpr (std::is_same_v<return_type, jobject>) {
             jobject tmp = CallHelper<tag>::call_impl(this->_env, this->_base, _cls, this->_method,
-                                       this->_args.data());
+                                                     this->_args.data());
             RETURN_ERROR_IF_EXC(this->_env);
             this->_env->DeleteLocalRef(tmp);
         } else {
@@ -738,6 +740,7 @@ public:
     Status get_string_chars(JNIEnv* env, StringBufferGuard<Ref>* jni_chars) const {
         return StringBufferGuard<Ref>::create(env, *this, jni_chars, nullptr);
     }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(String);
 };
@@ -810,6 +813,7 @@ public:
         RETURN_IF_ERROR(WriteBufferToByteArray(env, (jbyte*)buffer, size, serialized_msg));
         return Status::OK();
     }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Array);
 };
@@ -907,6 +911,7 @@ public:
         DCHECK(!method_id.uninitialized());
         return FunctionCall<StaticVoidMethod>::instance(env, (jclass)this->_obj, method_id._id);
     }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Class);
 };
@@ -922,7 +927,7 @@ using GlobalString = String<Global>;
 
 template <CallTag tag>
 template <RefType Ref>
-FunctionCall<tag>& FunctionCall<tag>::with_arg(const Object<Ref>& obj) WARN_UNUSED_RESULT {
+FunctionCall<tag>& FunctionCall<tag>::with_arg(const Object<Ref>& obj) {
     jvalue v;
     std::memset(&v, 0, sizeof(v));
     v.l = obj._obj;
@@ -932,8 +937,7 @@ FunctionCall<tag>& FunctionCall<tag>::with_arg(const Object<Ref>& obj) WARN_UNUS
 
 template <CallTag tag>
 template <RefType Ref>
-NonvirtaulFunctionCall<tag>& NonvirtaulFunctionCall<tag>::with_arg(const Object<Ref>& obj)
-        WARN_UNUSED_RESULT {
+NonvirtaulFunctionCall<tag>& NonvirtaulFunctionCall<tag>::with_arg(const Object<Ref>& obj) {
     jvalue v;
     std::memset(&v, 0, sizeof(v));
     v.l = obj._obj;
