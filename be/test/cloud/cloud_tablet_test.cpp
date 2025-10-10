@@ -647,4 +647,30 @@ TEST_F(CloudTabletWarmUpStateTest, TestJobCanOverrideDoneStateFromNonJob) {
     EXPECT_EQ(state, expected_state);
 }
 
+// Test JOB can override DONE state from JOB source
+TEST_F(CloudTabletWarmUpStateTest, TestJobCanOverrideDoneStateFromJob) {
+    auto rowset = create_rowset(Version(21, 21), 1);
+    ASSERT_NE(rowset, nullptr);
+
+    // First, add EVENT_DRIVEN warmup state
+    bool result1 =
+            _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
+    EXPECT_TRUE(result1);
+
+    // Complete the warmup to DONE state
+    WarmUpState result = _tablet->complete_rowset_segment_warmup(
+            WarmUpTriggerSource::JOB, rowset->rowset_id(), Status::OK(), 1, 0);
+    WarmUpState expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DONE};
+    EXPECT_EQ(result, expected_state);
+
+    // Now add JOB warmup state, should override the DONE state
+    bool result2 =
+            _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()), WarmUpTriggerSource::JOB);
+    EXPECT_TRUE(result2);
+
+    // Verify JOB state has overridden the DONE state
+    WarmUpState state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    expected_state = WarmUpState {WarmUpTriggerSource::JOB, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+}
 } // namespace doris

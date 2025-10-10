@@ -1695,11 +1695,11 @@ bool CloudTablet::add_rowset_warmup_state_unlocked(const RowsetMeta& rowset,
         // For job-triggered warmup (one-time and periodic warmup), allow it to proceed
         // except when there's already another job-triggered warmup in progress
         if (source == WarmUpTriggerSource::JOB) {
-            if (existing_state.trigger_source == WarmUpTriggerSource::JOB) {
+            if (existing_state.trigger_source == WarmUpTriggerSource::JOB &&
+                existing_state.progress == WarmUpProgress::DOING) {
                 // Same job type already in progress, skip to avoid duplicate warmup
                 return false;
             }
-            // Override other states (EVENT_DRIVEN, SYNC_ROWSET) but not another JOB
         } else {
             // For non-job warmup (EVENT_DRIVEN, SYNC_ROWSET), skip if any warmup exists
             return false;
@@ -1714,7 +1714,9 @@ bool CloudTablet::add_rowset_warmup_state_unlocked(const RowsetMeta& rowset,
         g_file_cache_warm_up_rowset_triggered_by_event_driven_num << 1;
     }
     _rowset_warm_up_states[rowset_id] = {
-            .state = {.trigger_source = source, .progress = WarmUpProgress::DOING},
+            .state = {.trigger_source = source,
+                      .progress = (rowset.num_segments() == 0 ? WarmUpProgress::DONE
+                                                              : WarmUpProgress::DOING)},
             .num_segments = rowset.num_segments(),
             .start_tp = start_tp};
     return true;
