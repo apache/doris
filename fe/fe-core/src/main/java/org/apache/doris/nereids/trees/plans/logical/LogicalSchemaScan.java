@@ -54,29 +54,42 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
     /**
      * Constructs a LogicalSchemaScan with the specified parameters.
      *
-     * @param id Unique identifier for this relation
-     * @param table The table interface representing the underlying data source
-     * @param qualifier The qualifier list representing the path to this table
-     * @param filterPushed Whether filter has been pushed down to this scan operation
-     * @param schemaCatalog Optional catalog name in the schema
-     * @param schemaDatabase Optional database name in the schema
-     * @param schemaTable Optional table name in the schema
-     * @param virtualColumns List of virtual columns to be included in the scan
+     * @param id                Unique identifier for this relation
+     * @param table             The table interface representing the underlying data
+     *                          source
+     * @param qualifier         The qualifier list representing the path to this
+     *                          table
+     * @param filterPushed      Whether filter has been pushed down to this scan
+     *                          operation
+     * @param schemaCatalog     Optional catalog name in the schema
+     * @param schemaDatabase    Optional database name in the schema
+     * @param schemaTable       Optional table name in the schema
+     * @param virtualColumns    List of virtual columns to be included in the scan
      * @param frontendConjuncts conjuncts needed by FrontendService
-     * @param groupExpression Optional group expression for memo representation
+     * @param groupExpression   Optional group expression for memo representation
      * @param logicalProperties Optional logical properties for this plan node
+     * @param tableAlias        Table alias for this scan
      */
     public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier, boolean filterPushed,
             Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable,
             List<NamedExpression> virtualColumns, List<Expression> frontendConjuncts,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            String tableAlias) {
         super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier, ImmutableList.of(), virtualColumns,
-                groupExpression, logicalProperties);
+                groupExpression, logicalProperties, tableAlias);
         this.filterPushed = filterPushed;
         this.schemaCatalog = schemaCatalog;
         this.schemaDatabase = schemaDatabase;
         this.schemaTable = schemaTable;
         this.frontendConjuncts = frontendConjuncts;
+    }
+
+    public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier, boolean filterPushed,
+            Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable,
+            List<NamedExpression> virtualColumns, List<Expression> frontendConjuncts,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+        this(id, table, qualifier, filterPushed, schemaCatalog, schemaDatabase, schemaTable, virtualColumns,
+                frontendConjuncts, groupExpression, logicalProperties, "");
     }
 
     public boolean isFilterPushed() {
@@ -108,7 +121,7 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
                 schemaCatalog, schemaDatabase, schemaTable, virtualColumns,
-                frontendConjuncts, groupExpression, Optional.of(getLogicalProperties()));
+                frontendConjuncts, groupExpression, Optional.of(getLogicalProperties()), tableAlias);
     }
 
     @Override
@@ -116,25 +129,33 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
                 schemaCatalog, schemaDatabase, schemaTable, virtualColumns, frontendConjuncts, groupExpression,
-                logicalProperties);
+                logicalProperties, tableAlias);
     }
 
     @Override
     public LogicalSchemaScan withRelationId(RelationId relationId) {
         return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
                 schemaCatalog, schemaDatabase, schemaTable, virtualColumns, frontendConjuncts, Optional.empty(),
-                Optional.empty());
+                Optional.empty(), tableAlias);
     }
 
     public LogicalSchemaScan withFrontendConjuncts(Optional<String> schemaCatalog, Optional<String> schemaDatabase,
             Optional<String> schemaTable, List<Expression> frontendConjuncts) {
         return new LogicalSchemaScan(relationId, table, qualifier, true, schemaCatalog, schemaDatabase, schemaTable,
-                virtualColumns, frontendConjuncts, Optional.empty(), Optional.of(getLogicalProperties()));
+                virtualColumns, frontendConjuncts, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias);
+    }
+
+    public LogicalSchemaScan withTableAlias(String tableAlias) {
+        return new LogicalSchemaScan(relationId, table, qualifier, filterPushed, schemaCatalog, schemaDatabase,
+                schemaTable, virtualColumns, frontendConjuncts, Optional.empty(),
+                Optional.of(getLogicalProperties()), tableAlias);
     }
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalSchemaScan");
+        return Utils.toSqlString("LogicalSchemaScan",
+                "qualified", qualifiedName(),
+                "alias", tableAlias);
     }
 
     @Override
