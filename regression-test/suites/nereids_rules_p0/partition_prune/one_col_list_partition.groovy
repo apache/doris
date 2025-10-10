@@ -224,7 +224,7 @@ suite("one_col_list_partition") {
         contains("VEMPTYSET")
     }
     explain {
-        sql "SELECT * FROM one_col_list_partition_date WHERE if(a>1, dt<'2001-1-01 00:00:00', dt<'2001-1-01 00:00:00')"
+        sql "SELECT * FROM one_col_list_partition_date WHERE if(a>1, dt<'2001-1-01 00:00:00', dt<'2001-1-03 00:00:00')"
         contains("partitions=8/9 (p1,p2,p3,p4,p5,p6,p7,p8)")
     }
     explain {
