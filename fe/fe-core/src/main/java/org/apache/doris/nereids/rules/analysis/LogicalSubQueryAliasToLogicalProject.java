@@ -39,7 +39,7 @@ public class LogicalSubQueryAliasToLogicalProject extends OneRewriteRuleFactory 
                         Plan child = subQueryAlias.child();
                         String alias = subQueryAlias.getAlias();
 
-                        // If child is a LogicalCatalogRelation, set the tableAlias using polymorphism
+                        // If child is a LogicalCatalogRelation, set the tableAlias
                         if (child instanceof LogicalCatalogRelation) {
                             child = ((LogicalCatalogRelation) child).withTableAlias(alias);
                         }

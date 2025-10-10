@@ -186,9 +186,12 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
     @Override
     public String shapeInfo() {
         StringBuilder shapeBuilder = new StringBuilder();
-        String tableNameOrAlias = "".equals(tableAlias) ? table.getName() : tableAlias;
+        String tableNameAndAlias = table.getName();
+        if (!"".equals(tableAlias)) {
+            tableNameAndAlias += "(" + tableAlias + ")";
+        }
         shapeBuilder.append(this.getClass().getSimpleName())
-                .append("[").append(tableNameOrAlias).append("]");
+                .append("[").append(tableNameAndAlias).append("]");
         if (!getAppliedRuntimeFilters().isEmpty()) {
             shapeBuilder.append(" apply RFs:");
             getAppliedRuntimeFilters()
