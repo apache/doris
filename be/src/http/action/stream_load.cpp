@@ -502,7 +502,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
         request.__set_strictMode(strictMode);
     }
-    // timezone first. if not, try time_zone
+    // timezone first. if not, try system time_zone
     if (!http_req->header(HTTP_TIMEZONE).empty()) {
         request.__set_timezone(http_req->header(HTTP_TIMEZONE));
     } else if (!http_req->header(HTTP_TIME_ZONE).empty()) {

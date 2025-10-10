@@ -71,7 +71,7 @@ public abstract class AbstractInsertExecutor {
     protected long txnId = INVALID_TXN_ID;
 
     /**
-     * Constructor
+     * Randomly generate job ID.
      */
     public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
             Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
@@ -85,6 +85,24 @@ public abstract class AbstractInsertExecutor {
         this.table = table;
         this.insertCtx = insertCtx;
         this.emptyInsert = emptyInsert;
+    }
+
+    /**
+     * Specify job ID.
+     */
+    public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
+            Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId) {
+        this.ctx = ctx;
+        this.database = table.getDatabase();
+        this.insertLoadJob = new InsertLoadJob(database.getId(), labelName, jobId);
+        ctx.getEnv().getLoadManager().addLoadJob(insertLoadJob);
+        this.coordinator = EnvFactory.getInstance().createCoordinator(
+                ctx, planner, ctx.getStatsErrorEstimator(), insertLoadJob.getId());
+        this.labelName = labelName;
+        this.table = table;
+        this.insertCtx = insertCtx;
+        this.emptyInsert = emptyInsert;
+        this.jobId = jobId;
     }
 
     public Coordinator getCoordinator() {
