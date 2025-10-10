@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.DateUtils;
 
 import org.apache.commons.lang3.StringUtils;
@@ -1416,7 +1417,7 @@ public class DateTimeExtractAndTransform {
         }
 
         if (result == null) {
-            return new NullLiteral();
+            return new NullLiteral(StringType.INSTANCE);
         }
 
         return new VarcharLiteral(result);
