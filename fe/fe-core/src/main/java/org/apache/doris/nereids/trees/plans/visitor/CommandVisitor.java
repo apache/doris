@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCreateClusterSnapshotC
 import org.apache.doris.nereids.trees.plans.commands.AdminDropClusterSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminRotateTdeRootKeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetAutoClusterSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetClusterSnapshotFeatureSwitchCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
@@ -1455,6 +1456,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropMaterializedViewCommand(DropMaterializedViewCommand dropMaterializedViewCommand, C context) {
         return visitCommand(dropMaterializedViewCommand, context);
+    }
+
+    default R visitAdminRotateTdeRootKeyCommand(AdminRotateTdeRootKeyCommand rotateTdeRootKeyCommand, C context) {
+        return visitCommand(rotateTdeRootKeyCommand, context);
     }
 
     default R visitEmptyCommand(EmptyCommand emptyCommand, C context) {
