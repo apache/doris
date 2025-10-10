@@ -740,8 +740,8 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arrayFlatten, context);
     }
 
-    default R visitArrayMap(ArrayMap arraySort, C context) {
-        return visitScalarFunction(arraySort, context);
+    default R visitArrayMap(ArrayMap arrayMap, C context) {
+        return visitScalarFunction(arrayMap, context);
     }
 
     default R visitArrayMatchAll(ArrayMatchAll arrayMatchAll, C context) {

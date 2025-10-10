@@ -77,7 +77,8 @@ struct TSlotDescriptor {
   16: optional string col_default_value
   17: optional Types.TPrimitiveType primitive_type = Types.TPrimitiveType.INVALID_TYPE
   18: optional Exprs.TExpr virtual_column_expr
-  19: optional TColumnAccessPaths column_access_paths
+  19: optional TColumnAccessPaths all_access_paths
+  20: optional TColumnAccessPaths predicate_access_paths
 }
 
 enum TAccessPathType {
@@ -106,19 +107,17 @@ struct TColumnNameAccessPath {
    //      >
    //    >
    //  >
-   // if we want to access `map_keys(s.data[0])`, the path will be: ['data', '*', 'KEYS'],
-   // if we want to access `map_values(s.data[0])[0].b`, the path will be: ['data', '*', 'VALUES', 'b'],
-   // if we want to access `s.data[0]['k'].b`, the path will be ['data', '*', '*', 'b']
-   // if we want to access the whole struct of s, the path will be: [],
+   // if we want to access `map_keys(s.data[0])`, the path will be: ['s', 'data', '*', 'KEYS'],
+   // if we want to access `map_values(s.data[0])[0].b`, the path will be: ['s', 'data', '*', 'VALUES', 'b'],
+   // if we want to access `s.data[0]['k'].b`, the path will be ['s', 'data', '*', '*', 'b']
+   // if we want to access the whole struct of s, the path will be: ['s'],
    1: required list<string> path
-   2: required bool is_predicate
 }
 
 /*
 // implement in the future
 struct TIcebergColumnAccessPath {
    1: required list<i64> path
-   2: required bool is_predicate
 }
 */
 

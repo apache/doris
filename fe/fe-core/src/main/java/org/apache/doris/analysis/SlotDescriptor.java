@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.thrift.TColumnAccessPaths;
 import org.apache.doris.thrift.TSlotDescriptor;
 
 import com.google.common.base.MoreObjects;
@@ -75,6 +76,8 @@ public class SlotDescriptor {
     private boolean needMaterialize = true;
     private boolean isAutoInc = false;
     private Expr virtualColumn = null;
+    private TColumnAccessPaths allAccessPaths;
+    private TColumnAccessPaths predicateAccessPaths;
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent) {
 
@@ -127,6 +130,22 @@ public class SlotDescriptor {
 
     public List<String> getSubColLables() {
         return this.subColPath;
+    }
+
+    public TColumnAccessPaths getAllAccessPaths() {
+        return allAccessPaths;
+    }
+
+    public void setAllAccessPaths(TColumnAccessPaths allAccessPaths) {
+        this.allAccessPaths = allAccessPaths;
+    }
+
+    public TColumnAccessPaths getPredicateAccessPaths() {
+        return predicateAccessPaths;
+    }
+
+    public void setPredicateAccessPaths(TColumnAccessPaths predicateAccessPaths) {
+        this.predicateAccessPaths = predicateAccessPaths;
     }
 
     public TupleDescriptor getParent() {
@@ -334,6 +353,12 @@ public class SlotDescriptor {
         }
         if (virtualColumn != null) {
             tSlotDescriptor.setVirtualColumnExpr(virtualColumn.treeToThrift());
+        }
+        if (allAccessPaths != null) {
+            tSlotDescriptor.setAllAccessPaths(allAccessPaths);
+        }
+        if (predicateAccessPaths != null) {
+            tSlotDescriptor.setPredicateAccessPaths(predicateAccessPaths);
         }
         return tSlotDescriptor;
     }
