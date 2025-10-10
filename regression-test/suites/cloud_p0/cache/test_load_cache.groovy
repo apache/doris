@@ -170,14 +170,6 @@ suite('test_load_cache', 'docker') {
         // ============================================================================
         // SCENARIO 1: disable_file_cache = true
         // ============================================================================
-        logger.info("")
-        logger.info("#" * 100)
-        logger.info("###")
-        logger.info("###  TEST SCENARIO 1: disable_file_cache=true")
-        logger.info("###  Expected: Normal=0 bytes, Disposable=91163 bytes")
-        logger.info("###")
-        logger.info("#" * 100)
-        logger.info("")
 
         // Clear file cache before test
         clearFileCacheOnAllBackends()
@@ -209,9 +201,6 @@ suite('test_load_cache', 'docker') {
         long normalQueueSizeBefore1 = getTotalNormalQueueSize()
         long disposableQueueSizeBefore1 = getTotalDisposableQueueSize()
         long disposableQueueElementCountBefore1 = getTotalDisposableQueueElementCount()
-
-        logger.info("Cache sizes BEFORE Scenario 1:")
-        logger.info("  Normal: ${normalQueueSizeBefore1} bytes, Disposable: ${disposableQueueSizeBefore1} bytes")
 
         // Execute S3 TVF Load
         sql """
@@ -251,31 +240,17 @@ suite('test_load_cache', 'docker') {
         long disposableQueueIncrease1 = disposableQueueSizeAfter1 - disposableQueueSizeBefore1
         long disposableElementIncrease1 = disposableQueueElementCountAfter1 - disposableQueueElementCountBefore1
 
-        logger.info("")
-        logger.info("=" * 80)
-        logger.info("SCENARIO 1 VERIFICATION")
-        logger.info("=" * 80)
         logger.info("Expected: Normal=0 bytes, Disposable=91163 bytes")
         logger.info("Actual:   Normal=${normalQueueIncrease1} bytes, Disposable=${disposableQueueIncrease1} bytes")
-        logger.info("")
 
         // Verify Scenario 1
         def expectedDisposableSize = 91163
         assertTrue(disposableQueueIncrease1 == expectedDisposableSize,
             "Scenario 1: Disposable queue should be exactly ${expectedDisposableSize} bytes, but got ${disposableQueueIncrease1} bytes")
-        logger.info("✓ Disposable queue: ${disposableQueueIncrease1} bytes (exact match)")
-
         assertTrue(disposableElementIncrease1 > 0,
             "Scenario 1: Disposable queue elements should increase, but got ${disposableElementIncrease1}")
-        logger.info("✓ Disposable queue elements: ${disposableElementIncrease1}")
-
         assertTrue(normalQueueIncrease1 == 0,
             "Scenario 1: Normal queue should be 0 bytes, but got ${normalQueueIncrease1} bytes")
-        logger.info("✓ Normal queue: 0 bytes (no caching)")
-
-        logger.info("")
-        logger.info("✓✓✓ SCENARIO 1 PASSED ✓✓✓")
-        logger.info("")
 
         // Clean up
         sql """DROP TABLE IF EXISTS load_test_table"""
@@ -286,14 +261,6 @@ suite('test_load_cache', 'docker') {
         // ============================================================================
         // SCENARIO 2: disable_file_cache = false
         // ============================================================================
-        logger.info("")
-        logger.info("#" * 100)
-        logger.info("###")
-        logger.info("###  TEST SCENARIO 2: disable_file_cache=false")
-        logger.info("###  Expected: Normal=~237KB (range), Disposable=91163 bytes (exact)")
-        logger.info("###")
-        logger.info("#" * 100)
-        logger.info("")
 
         // Clear file cache before test
         clearFileCacheOnAllBackends()
@@ -325,9 +292,6 @@ suite('test_load_cache', 'docker') {
         long normalQueueSizeBefore2 = getTotalNormalQueueSize()
         long disposableQueueSizeBefore2 = getTotalDisposableQueueSize()
         long disposableQueueElementCountBefore2 = getTotalDisposableQueueElementCount()
-
-        logger.info("Cache sizes BEFORE Scenario 2:")
-        logger.info("  Normal: ${normalQueueSizeBefore2} bytes, Disposable: ${disposableQueueSizeBefore2} bytes")
 
         // Execute S3 TVF Load
         sql """
@@ -367,66 +331,20 @@ suite('test_load_cache', 'docker') {
         long disposableQueueIncrease2 = disposableQueueSizeAfter2 - disposableQueueSizeBefore2
         long disposableElementIncrease2 = disposableQueueElementCountAfter2 - disposableQueueElementCountBefore2
 
-        logger.info("")
-        logger.info("=" * 80)
-        logger.info("SCENARIO 2 VERIFICATION")
-        logger.info("=" * 80)
         logger.info("Expected: Normal=~237KB (range), Disposable=91163 bytes (exact)")
         logger.info("Actual:   Normal=${normalQueueIncrease2} bytes (${String.format("%.2f", normalQueueIncrease2 / 1024.0)} KB), Disposable=${disposableQueueIncrease2} bytes")
-        logger.info("")
 
         // Verify Scenario 2
         assertTrue(disposableQueueIncrease2 == expectedDisposableSize,
             "Scenario 2: Disposable queue should be exactly ${expectedDisposableSize} bytes, but got ${disposableQueueIncrease2} bytes")
-        logger.info("✓ Disposable queue: ${disposableQueueIncrease2} bytes (exact match)")
-
         assertTrue(disposableElementIncrease2 > 0,
             "Scenario 2: Disposable queue elements should increase, but got ${disposableElementIncrease2}")
-        logger.info("✓ Disposable queue elements: ${disposableElementIncrease2}")
-
         def normalMinThreshold = 200 * 1024
         def normalMaxThreshold = 280 * 1024
         assertTrue(normalQueueIncrease2 >= normalMinThreshold && normalQueueIncrease2 <= normalMaxThreshold,
             "Scenario 2: Normal queue should be in range [${normalMinThreshold}, ${normalMaxThreshold}] bytes, but got ${normalQueueIncrease2} bytes")
-        logger.info("✓ Normal queue: ${normalQueueIncrease2} bytes (${String.format("%.2f", normalQueueIncrease2 / 1024.0)} KB, within range)")
-
-        logger.info("")
-        logger.info("✓✓✓ SCENARIO 2 PASSED ✓✓✓")
-        logger.info("")
 
         // Clean up
         sql """DROP TABLE IF EXISTS load_test_table"""
-
-        // ============================================================================
-        // FINAL SUMMARY
-        // ============================================================================
-        logger.info("")
-        logger.info("#" * 100)
-        logger.info("###")
-        logger.info("###  FINAL TEST SUMMARY")
-        logger.info("###")
-        logger.info("#" * 100)
-        logger.info("")
-        logger.info("Scenario 1 (disable_file_cache=true):")
-        logger.info("  Normal Queue:     ${normalQueueIncrease1} bytes  (Expected: 0 bytes)")
-        logger.info("  Disposable Queue: ${disposableQueueIncrease1} bytes  (Expected: 91163 bytes)")
-        logger.info("")
-        logger.info("Scenario 2 (disable_file_cache=false):")
-        logger.info("  Normal Queue:     ${normalQueueIncrease2} bytes (${String.format("%.2f", normalQueueIncrease2 / 1024.0)} KB)  (Expected: ~237KB)")
-        logger.info("  Disposable Queue: ${disposableQueueIncrease2} bytes  (Expected: 91163 bytes)")
-        logger.info("")
-        logger.info("Key Findings:")
-        logger.info("  1. Query phase ALWAYS caches compressed S3 file in Disposable queue (exactly 91163 bytes)")
-        logger.info("  2. Insert phase respects disable_file_cache setting:")
-        logger.info("     - When true:  NO caching in Normal queue (0 bytes)")
-        logger.info("     - When false: Caches Doris internal format in Normal queue (~237KB, range validated)")
-        logger.info("  3. Disposable queue size is exact (compressed file)")
-        logger.info("  4. Normal queue size uses range check (statistics may change in future)")
-        logger.info("")
-        logger.info("#" * 100)
-        logger.info("###")
-        logger.info("###  ✓✓✓ ALL TESTS PASSED ✓✓✓")
-        logger.info("###")
-        logger.info("#" * 100)
     }
 }
