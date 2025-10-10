@@ -204,7 +204,9 @@ public:
     }
 
     /// Find node that matches the path exactly.
-    Node* find_exact(const PathInData& path) const { return find_impl(path, true); }
+    const Node* find_exact(const PathInData& path) const { return find_impl(path, true); }
+
+    Node* find_exact(const PathInData& path) { return find_impl(path, true); }
 
     static const Node* find_leaf(const Node* node, const NodePredicate& predicate) {
         if (!node) {
@@ -225,7 +227,16 @@ public:
     }
 
     /// Find leaf by path.
-    Node* find_leaf(const PathInData& path) const {
+    const Node* find_leaf(const PathInData& path) const {
+        const auto* candidate = find_exact(path);
+        if (!candidate || !candidate->is_scalar()) {
+            return nullptr;
+        }
+        return candidate;
+    }
+
+    /// Find leaf by path.
+    Node* find_leaf(const PathInData& path) {
         auto* candidate = find_exact(path);
         if (!candidate || !candidate->is_scalar()) {
             return nullptr;
