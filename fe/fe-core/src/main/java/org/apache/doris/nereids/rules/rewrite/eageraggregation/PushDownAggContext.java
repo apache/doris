@@ -47,6 +47,7 @@ public class PushDownAggContext {
 
     // cascadesContext is used for normalizeAgg
     private final CascadesContext cascadesContext;
+
     /**
      * constructor
      */
