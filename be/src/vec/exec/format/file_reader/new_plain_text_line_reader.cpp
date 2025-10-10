@@ -150,7 +150,10 @@ void EncloseCsvLineReaderCtx::_on_normal(const uint8_t* start, size_t& len) {
 void EncloseCsvLineReaderCtx::_on_pre_match_enclose(const uint8_t* start, size_t& len) {
     do {
         do {
-            if (start[_idx] == _escape) [[unlikely]] {
+            // When escape and enclose are the same character, we should only use the quote escape mechanism.
+            // Otherwise, the escape check would always capture the enclose character first,
+            // preventing the quote escape logic from working correctly.
+            if (start[_idx] == _escape && _escape != _enclose) [[unlikely]] {
                 _should_escape = !_should_escape;
             } else if (_should_escape) [[unlikely]] {
                 _should_escape = false;
