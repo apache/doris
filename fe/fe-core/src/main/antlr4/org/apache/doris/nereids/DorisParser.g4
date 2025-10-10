@@ -1623,10 +1623,7 @@ primaryExpression
     ;
 
 getFormatCategory
-    : DATE
-    | DATETIME
-    | TIME
-    | ident=identifier
+    : ident=identifier
         { $ident.text.equalsIgnoreCase("date")
             || $ident.text.equalsIgnoreCase("datetime")
             || $ident.text.equalsIgnoreCase("time") }?
