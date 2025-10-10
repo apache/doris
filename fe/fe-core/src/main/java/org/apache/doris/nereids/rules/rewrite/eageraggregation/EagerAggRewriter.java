@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
+import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.stats.StatsCalculator;
@@ -46,6 +47,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -187,7 +189,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             aliasMap.put(newAggFunc, (Alias) alias.withChildren(newAggFunc));
             aggFunctions.add(newAggFunc);
         }
-        return new PushDownAggContext(aggFunctions, groupKeys, aliasMap);
+        return new PushDownAggContext(aggFunctions, groupKeys, aliasMap, context.getCascadesContext());
     }
 
     @Override
@@ -296,7 +298,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             for (NamedExpression key : context.getGroupKeys()) {
                 context.addFinalGroupKey((SlotReference) key.toSlot());
             }
-            return new LogicalAggregate(context.getGroupKeys(), aggOutputExpressions, child);
+            LogicalAggregate genAgg = new LogicalAggregate(context.getGroupKeys(), aggOutputExpressions, child);
+            NormalizeAggregate normalizeAggregate = new NormalizeAggregate();
+            return normalizeAggregate.normalizeAgg(genAgg, Optional.empty(),
+                    context.getCascadesContext());
         } else {
             return child;
         }

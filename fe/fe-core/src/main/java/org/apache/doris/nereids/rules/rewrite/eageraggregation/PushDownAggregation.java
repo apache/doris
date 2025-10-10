@@ -165,7 +165,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
         }
 
         PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
-                groupKeys);
+                groupKeys, context.getCascadesContext());
         try {
             Plan child = agg.child().accept(writer, pushDownContext);
             if (child != agg.child()) {

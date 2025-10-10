@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -44,21 +45,25 @@ public class PushDownAggContext {
     // the group keys that eventually used to generate aggregation node
     private final LinkedHashSet<SlotReference> finalGroupKeys = new LinkedHashSet<>();
 
+    // cascadesContext is used for normalizeAgg
+    private final CascadesContext cascadesContext;
     /**
      * constructor
      */
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
-            List<NamedExpression> groupKeys) {
-        this(aggFunctions, groupKeys, null);
+            List<NamedExpression> groupKeys,
+            CascadesContext cascadesContext) {
+        this(aggFunctions, groupKeys, null, cascadesContext);
     }
 
     /**
      * constructor
      */
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
-            List<NamedExpression> groupKeys, Map<AggregateFunction, Alias> aliasMap) {
+            List<NamedExpression> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext) {
         this.groupKeys = groupKeys;
         this.aggFunctions = ImmutableList.copyOf(aggFunctions);
+        this.cascadesContext = cascadesContext;
 
         if (aliasMap == null) {
             ImmutableMap.Builder<AggregateFunction, Alias> aliasMapBuilder = ImmutableMap.builder();
@@ -90,7 +95,7 @@ public class PushDownAggContext {
     }
 
     public PushDownAggContext withGoupKeys(List<NamedExpression> groupKeys) {
-        return new PushDownAggContext(aggFunctions, groupKeys, aliasMap);
+        return new PushDownAggContext(aggFunctions, groupKeys, aliasMap, cascadesContext);
     }
 
     public Set<Slot> getAggFunctionsInputSlots() {
@@ -103,5 +108,9 @@ public class PushDownAggContext {
 
     public void addFinalGroupKey(SlotReference key) {
         this.finalGroupKeys.add(key);
+    }
+
+    public CascadesContext getCascadesContext() {
+        return cascadesContext;
     }
 }
