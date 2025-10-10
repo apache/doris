@@ -109,7 +109,8 @@ public:
 
         if (is_nullable() && _predicate->nulls_first()) {
             // null values ​​are always not filtered
-            change_null_to_true(block->get_by_position(num_columns_without_result).column);
+            change_null_to_true(
+                    block->get_by_position(num_columns_without_result).column->assume_mutable());
         }
         return Status::OK();
     }

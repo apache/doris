@@ -546,7 +546,8 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         const auto& column = *DORIS_TRY(_tablet_schema->column(tmp_cond.column_name));
         const auto& mcolumn = materialize_column(column);
         uint32_t index = _tablet_schema->field_index(tmp_cond.column_name);
-        ColumnPredicate* predicate = parse_to_predicate(mcolumn, index, tmp_cond, _predicate_arena);
+        ColumnPredicate* predicate =
+                parse_to_predicate(mcolumn.get_vec_type(), index, tmp_cond, _predicate_arena);
         // record condition value into predicate_params in order to pushdown segment_iterator,
         // _gen_predicate_result_sign will build predicate result unique sign with condition value
         predicate->attach_profile_counter(param.runtime_filter_id, param.filtered_rows_counter,

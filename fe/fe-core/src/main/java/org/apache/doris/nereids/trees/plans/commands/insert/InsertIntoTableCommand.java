@@ -132,6 +132,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         this.cte = cte;
         this.needNormalizePlan = needNormalizePlan;
         this.branchName = branchName;
+        this.jobId = Env.getCurrentEnv().getNextId();
     }
 
     /**
@@ -356,7 +357,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                             planner,
                             dataSink,
                             physicalSink,
-                            () -> new OlapTxnInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert)
+                            () -> new OlapTxnInsertExecutor(
+                                    ctx, olapTable, label, planner, insertCtx, emptyInsert, jobId)
                     );
                 } else if (ctx.isGroupCommit()) {
                     Backend groupCommitBackend = Env.getCurrentEnv()
@@ -369,7 +371,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                             dataSink,
                             physicalSink,
                             () -> new OlapGroupCommitInsertExecutor(
-                                    ctx, olapTable, label, planner, insertCtx, emptyInsert, groupCommitBackend
+                                    ctx, olapTable, label, planner, insertCtx, emptyInsert, groupCommitBackend, jobId
                             )
                     );
                 } else {
@@ -377,7 +379,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                             planner,
                             dataSink,
                             physicalSink,
-                            () -> new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert)
+                            () -> new OlapInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert, jobId)
                     );
                 }
 

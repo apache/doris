@@ -302,6 +302,13 @@ bool PipelineTask::is_blockable() const {
     // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
     // 2. Runtime filter dependencies are ready
     // 3. All tablets are loaded into local storage
+
+    if (_state->enable_fuzzy_blockable_task()) {
+        if ((_schedule_time + _task_idx) % 2 == 0) {
+            return true;
+        }
+    }
+
     return _need_to_revoke_memory ||
            std::ranges::any_of(_operators,
                                [&](OperatorPtr op) -> bool { return op->is_blockable(_state); }) ||
