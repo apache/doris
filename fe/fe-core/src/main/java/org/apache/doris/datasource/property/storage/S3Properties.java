@@ -356,7 +356,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     @Override
     public AwsCredentialsProvider getAwsCredentialsProvider() {
-        if (Config.enable_custom_aws_credentials_chain) {
+        if (Config.aws_credentials_provider_version.equalsIgnoreCase("v2")) {
             return getAwsCredentialsProviderV2();
         }
         return getAwsCredentialsProviderV1();

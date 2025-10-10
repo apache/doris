@@ -42,7 +42,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     role_conf2.role_arn = "role_arn";
     role_conf2.external_id = "external_id";
 
-    config::enable_custom_aws_credentials_chain = true;
+    config::aws_credentials_provider_version = "v2";
     {
         auto provider_v2 = factory.get_aws_credentials_provider(anonymous_conf);
         auto custom_chain_v2 =
@@ -70,7 +70,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
         ASSERT_NE(custom_chain_v2, nullptr);
     }
 
-    config::enable_custom_aws_credentials_chain = false;
+    config::aws_credentials_provider_version = "v1";
     {
         auto provider_v1 = factory.get_aws_credentials_provider(anonymous_conf);
         auto default_chain_v1 =
@@ -100,7 +100,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
         ASSERT_NE(default_chain_v1, nullptr);
     }
 
-    config::enable_custom_aws_credentials_chain = true;
+    config::aws_credentials_provider_version = "v2";
 }
 
 } // namespace doris

@@ -205,7 +205,7 @@ public class S3Util {
 
     private static AwsCredentialsProvider getAwsCredencialsProvider(URI endpoint, String region, String accessKey,
                 String secretKey, String sessionToken, String roleArn, String externalId) {
-        if (Config.enable_custom_aws_credentials_chain) {
+        if (Config.aws_credentials_provider_version.equalsIgnoreCase("v2")) {
             return getAwsCredencialsProviderV2(endpoint, region, accessKey, secretKey,
                     sessionToken, roleArn, externalId);
         }

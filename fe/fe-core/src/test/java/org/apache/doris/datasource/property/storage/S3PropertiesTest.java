@@ -412,15 +412,15 @@ public class S3PropertiesTest {
 
     @Test
     public void testS3PropertiesAwsAnonymousCredentialsProvider() {
-        Config.enable_custom_aws_credentials_chain = false;
+        Config.aws_credentials_provider_version = "v1";
         Map<String, String> props = Maps.newHashMap();
         props.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
         S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(props);
         AwsCredentialsProvider provider = s3Properties.getAwsCredentialsProvider();
         Assertions.assertEquals(AnonymousCredentialsProvider.class, provider.getClass());
-        Config.enable_custom_aws_credentials_chain = true;
+        Config.aws_credentials_provider_version = "v2";
         provider = s3Properties.getAwsCredentialsProvider();
         Assertions.assertEquals(AwsCredentialsProviderChain.class, provider.getClass());
-        Config.enable_custom_aws_credentials_chain = true;
+        Config.aws_credentials_provider_version = "v2";
     }
 }

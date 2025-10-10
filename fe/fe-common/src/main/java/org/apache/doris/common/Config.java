@@ -3639,5 +3639,5 @@ public class Config extends ConfigBase {
     public static int multi_part_upload_pool_size = 10;
 
     @ConfField(mutable = true)
-    public static boolean enable_custom_aws_credentials_chain = true;
+    public static String aws_credentials_provider_version = "v2";
 }

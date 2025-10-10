@@ -341,7 +341,7 @@ S3ClientFactory::_get_aws_credentials_provider_v2(const S3ClientConf& s3_conf) {
 
 std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3ClientFactory::get_aws_credentials_provider(
         const S3ClientConf& s3_conf) {
-    if (config::enable_custom_aws_credentials_chain) {
+    if (config::aws_credentials_provider_version == "v2") {
         return _get_aws_credentials_provider_v2(s3_conf);
     }
     return _get_aws_credentials_provider_v1(s3_conf);

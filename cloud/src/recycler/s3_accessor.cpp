@@ -349,7 +349,7 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::_get_aws_credenti
 
 std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::get_aws_credentials_provider(
         const S3Conf& s3_conf) {
-    if (config::enable_custom_aws_credentials_chain) {
+    if (config::aws_credentials_provider_version == "v2") {
         return _get_aws_credentials_provider_v2(s3_conf);
     }
     return _get_aws_credentials_provider_v1(s3_conf);
