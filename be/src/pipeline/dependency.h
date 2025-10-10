@@ -584,6 +584,9 @@ public:
 
 struct RecCTESharedState : public BasicSharedState {
     std::vector<vectorized::Block> anchor_side;
+    std::vector<vectorized::Block> rec_side;
+    int _current_round = 0;
+    Dependency* source_dep = nullptr;
 };
 
 struct JoinSharedState : public BasicSharedState {

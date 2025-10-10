@@ -298,7 +298,7 @@ public:
     Status send_block_to_cte_scan(const TUniqueId& instance_id, int node_id,
                                   const google::protobuf::RepeatedPtrField<doris::PBlock>& pblocks,
                                   bool eos);
-    void registe_cte_scan(const TUniqueId& instance_id, int node_id,
+    bool registe_cte_scan(const TUniqueId& instance_id, int node_id,
                           pipeline::RecCTEScanLocalState* scan);
     void deregiste_cte_scan(const TUniqueId& instance_id, int node_id);
 
@@ -382,6 +382,7 @@ private:
 
     // instance id + node id -> cte scan
     std::map<std::pair<TUniqueId, int>, pipeline::RecCTEScanLocalState*> _cte_scan;
+    std::set<std::pair<TUniqueId, int>> _cte_scan_set;
     std::mutex _cte_scan_lock;
 
 public:

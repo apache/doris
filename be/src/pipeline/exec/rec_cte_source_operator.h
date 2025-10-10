@@ -49,13 +49,9 @@ public:
     RecCTESourceLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status open(RuntimeState* state) override;
-    Status init(RuntimeState* state, LocalStateInfo& info) override {
-        _hash_table_compute_timer = ADD_TIMER(Base::custom_profile(), "HashTableComputeTime");
-        _hash_table_emplace_timer = ADD_TIMER(Base::custom_profile(), "HashTableEmplaceTime");
-        _hash_table_input_counter =
-                ADD_COUNTER(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT);
-        return Status::OK();
-    }
+    Status init(RuntimeState* state, LocalStateInfo& info) override;
+
+    bool is_blockable() const override { return true; }
 
 private:
     friend class RecCTESourceOperatorX;
@@ -70,9 +66,11 @@ private:
 
     vectorized::Arena _arena;
     vectorized::IColumn::Selector _distinct_row;
+
+    std::vector<vectorized::Block> _blocks;
 };
 
-class RecCTESourceOperatorX MOCK_REMOVE(final) : public OperatorX<RecCTESourceLocalState> {
+class RecCTESourceOperatorX : public OperatorX<RecCTESourceLocalState> {
 public:
     using Base = OperatorX<RecCTESourceLocalState>;
     RecCTESourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
@@ -88,33 +86,48 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
 
+    Status set_child(OperatorPtr child) override {
+        Base::_child = child;
+        return Status::OK();
+    }
+
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
         auto& local_state = get_local_state(state);
-        while (!_ready_to_return) {
-            auto last_round_offset = _blocks.size();
-            if (!_current_round) {
-                for (auto anchor_block : local_state._shared_state->anchor_side) {
+        if (!_ready_to_return) {
+            auto last_round_offset = local_state._blocks.size();
+            if (!local_state._shared_state->_current_round) {
+                for (auto& anchor_block : local_state._shared_state->anchor_side) {
                     RETURN_IF_ERROR(_emplace_block(state, std::move(anchor_block)));
                 }
             } else {
-                RETURN_IF_ERROR(_collect_child_block(state));
+                for (auto rec_block : local_state._shared_state->rec_side) {
+                    RETURN_IF_ERROR(_emplace_block(state, std::move(rec_block)));
+                }
             }
 
-            if (last_round_offset == _blocks.size() || _current_round >= max_recursion_depth) {
+            local_state._shared_state->anchor_side.clear();
+            local_state._shared_state->rec_side.clear();
+            local_state._shared_state->source_dep->block();
+
+
+            if (last_round_offset == local_state._blocks.size() ||
+                local_state._shared_state->_current_round >= max_recursion_depth) {
                 _ready_to_return = true;
             } else {
                 RETURN_IF_ERROR(_recursive_process(state, last_round_offset));
             }
 
-            _current_round++;
+            local_state._shared_state->_current_round++;
         }
 
-        if (_blocks.empty()) {
-            *eos = true;
-        } else {
-            *eos = false;
-            block->swap(_blocks.back());
-            _blocks.pop_back();
+        if (_ready_to_return) {
+            local_state._shared_state->source_dep->set_ready();
+            if (local_state._blocks.empty()) {
+                *eos = true;
+            } else {
+                block->swap(local_state._blocks.back());
+                local_state._blocks.pop_back();
+            }
         }
 
         return Status::OK();
@@ -123,27 +136,15 @@ public:
     bool is_source() const override { return true; }
 
 private:
-    Status _collect_child_block(RuntimeState* state) {
-        auto& local_state = get_local_state(state);
+    Status _recursive_process(RuntimeState* state, size_t last_round_offset) const {
+        
 
-        bool eos = false;
-        vectorized::Block* input_block = nullptr;
-        while (!eos) {
-            if (state->is_cancelled()) {
-                return Status::Cancelled("RecCTESourceOperatorX is cancelled");
-            }
-            RETURN_IF_ERROR(child()->get_block(state, input_block, &eos));
-            if (input_block->rows() == 0) {
-                continue;
-            }
-            vectorized::Block block;
-            RETURN_IF_ERROR(materialize_block(local_state._child_expr, input_block, &block));
-            RETURN_IF_ERROR(_emplace_block(state, std::move(block)));
-        }
+        RETURN_IF_ERROR(_send_reset_fragments(state));
+        RETURN_IF_ERROR(_send_data_to_targets(state, last_round_offset));
         return Status::OK();
     }
 
-    Status _recursive_process(RuntimeState* state, size_t last_round_offset) {
+    Status _send_reset_fragments(RuntimeState* state) const {
         for (auto fragment : _fragments_to_reset) {
             auto stub =
                     state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(
@@ -155,30 +156,36 @@ private:
 
             PResetFragmentResult result;
             brpc::Controller controller;
+            controller.set_timeout_ms(
+                    get_execution_rpc_timeout_ms(state->get_query_ctx()->execution_timeout()));
             stub->reset_fragment(&controller, &request, &result, brpc::DoNothing());
             brpc::Join(controller.call_id());
+            if (controller.Failed()) {
+                return Status::InternalError(controller.ErrorText());
+            }
 
             RETURN_IF_ERROR(Status::create(result.status()));
         }
-
-        RETURN_IF_ERROR(_send_data_to_targets(state, last_round_offset));
         return Status::OK();
     }
 
     PTransmitRecCTEBlockParams _build_basic_param(RuntimeState* state,
-                                                  const TRecCTETarget& target) {
+                                                  const TRecCTETarget& target) const {
         PTransmitRecCTEBlockParams request;
         request.set_node_id(target.node_id);
         request.mutable_query_id()->CopyFrom(UniqueId(state->query_id()).to_proto());
         request.mutable_fragment_instance_id()->CopyFrom(
-                UniqueId(state->fragment_instance_id()).to_proto());
+                UniqueId(target.fragment_instance_id).to_proto());
         return request;
     }
 
-    Status _send_data_to_targets(RuntimeState* state, size_t last_round_offset) {
+    Status _send_data_to_targets(RuntimeState* state, size_t last_round_offset) const {
+        auto& local_state = get_local_state(state);
+
         int send_multi_blocks_byte_size = state->query_options().exchange_multi_blocks_byte_size;
         int block_number_per_target =
-                int(_blocks.size() - last_round_offset + _targets.size() - 1) / _targets.size();
+                int(local_state._blocks.size() - last_round_offset + _targets.size() - 1) /
+                _targets.size();
         for (auto target : _targets) {
             auto stub =
                     state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(
@@ -190,15 +197,15 @@ private:
 
             // send blocks
             int step = block_number_per_target;
-            while (last_round_offset < _blocks.size() && step > 0) {
+            while (last_round_offset < local_state._blocks.size() && step > 0) {
                 PTransmitRecCTEBlockParams request = _build_basic_param(state, target);
                 auto current_bytes = 0;
-                while (last_round_offset < _blocks.size() && step > 0 &&
+                while (last_round_offset < local_state._blocks.size() && step > 0 &&
                        current_bytes < send_multi_blocks_byte_size) {
                     auto* pblock = request.add_blocks();
                     size_t uncompressed_bytes = 0;
                     size_t compressed_bytes = 0;
-                    RETURN_IF_ERROR(_blocks[last_round_offset].serialize(
+                    RETURN_IF_ERROR(local_state._blocks[last_round_offset].serialize(
                             state->be_exec_version(), pblock, &uncompressed_bytes,
                             &compressed_bytes, state->fragement_transmission_compression_type()));
                     last_round_offset++;
@@ -209,6 +216,9 @@ private:
 
                 PTransmitRecCTEBlockResult result;
                 brpc::Controller controller;
+                controller.set_timeout_ms(
+                        get_execution_rpc_timeout_ms(state->get_query_ctx()->execution_timeout()));
+
                 stub->transmit_rec_cte_block(&controller, &request, &result, brpc::DoNothing());
                 brpc::Join(controller.call_id());
                 RETURN_IF_ERROR(Status::create(result.status()));
@@ -229,7 +239,7 @@ private:
         return Status::OK();
     }
 
-    Status _emplace_block(RuntimeState* state, vectorized::Block&& block) {
+    Status _emplace_block(RuntimeState* state, vectorized::Block&& block) const {
         auto& local_state = get_local_state(state);
         if (!_is_union_all) {
             local_state._distinct_row.clear();
@@ -276,15 +286,15 @@ private:
                        local_state._agg_data->method_variant);
 
             if (local_state._distinct_row.size() == block.rows()) {
-                _blocks.emplace_back(std::move(block));
+                local_state._blocks.emplace_back(std::move(block));
             } else if (!local_state._distinct_row.empty()) {
                 auto distinct_block = vectorized::MutableBlock(block.clone_empty());
                 RETURN_IF_ERROR(block.append_to_block_by_selector(&distinct_block,
                                                                   local_state._distinct_row));
-                _blocks.emplace_back(distinct_block.to_block());
+                local_state._blocks.emplace_back(distinct_block.to_block());
             }
         } else {
-            _blocks.emplace_back(std::move(block));
+            local_state._blocks.emplace_back(std::move(block));
         }
         return Status::OK();
     }
@@ -297,8 +307,6 @@ private:
     std::vector<TRecCTETarget> _targets;
     std::vector<TRecCTEResetInfo> _fragments_to_reset;
 
-    std::vector<vectorized::Block> _blocks;
-    int _current_round = 0;
     bool _ready_to_return = false;
 
     const int max_recursion_depth = 10;

@@ -31,56 +31,65 @@ class RuntimeState;
 namespace pipeline {
 class DataQueue;
 
-class RecCTESinkOperatorX;
-class RecCTESinkLocalState final : public PipelineXSinkLocalState<RecCTESharedState> {
+class RecCTEAnchorSinkOperatorX;
+class RecCTEAnchorSinkLocalState final : public PipelineXSinkLocalState<RecCTESharedState> {
 public:
-    ENABLE_FACTORY_CREATOR(RecCTESinkLocalState);
-    RecCTESinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
+    ENABLE_FACTORY_CREATOR(RecCTEAnchorSinkLocalState);
+    RecCTEAnchorSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {}
     Status open(RuntimeState* state) override;
 
 private:
-    friend class RecCTESinkOperatorX;
+    friend class RecCTEAnchorSinkOperatorX;
     using Base = PipelineXSinkLocalState<RecCTESharedState>;
-    using Parent = RecCTESinkOperatorX;
+    using Parent = RecCTEAnchorSinkOperatorX;
 
     vectorized::VExprContextSPtrs _child_expr;
 };
 
-class RecCTESinkOperatorX MOCK_REMOVE(final) : public DataSinkOperatorX<RecCTESinkLocalState> {
+class RecCTEAnchorSinkOperatorX MOCK_REMOVE(final)
+        : public DataSinkOperatorX<RecCTEAnchorSinkLocalState> {
 public:
-    using Base = DataSinkOperatorX<RecCTESinkLocalState>;
+    using Base = DataSinkOperatorX<RecCTEAnchorSinkLocalState>;
 
-    friend class RecCTESinkLocalState;
-    RecCTESinkOperatorX(int sink_id, int dest_id, const TPlanNode& tnode,
-                        const DescriptorTbl& descs)
+    friend class RecCTEAnchorSinkLocalState;
+    RecCTEAnchorSinkOperatorX(int sink_id, int dest_id, const TPlanNode& tnode,
+                              const DescriptorTbl& descs)
             : Base(sink_id, tnode.node_id, dest_id),
               _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
 
-    ~RecCTESinkOperatorX() override = default;
+    ~RecCTEAnchorSinkOperatorX() override = default;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
 
-    bool rerunable() const override { return true; }
-
-    std::shared_ptr<BasicSharedState> create_shared_state() const override { return nullptr; }
-
     Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos) override {
         auto& local_state = get_local_state(state);
+        LOG(WARNING) << "mytest RecCTEAnchorSinkOperatorX sink";
 
         if (input_block->rows() != 0) {
             vectorized::Block block;
             RETURN_IF_ERROR(materialize_block(local_state._child_expr, input_block, &block));
-            local_state._shared_state->rec_side.emplace_back(std::move(block));
+            LOG(WARNING) << "mytest RecCTEAnchorSinkOperatorX sink block" << block.rows();
+            local_state._shared_state->anchor_side.emplace_back(block);
         }
 
         if (eos) {
-            if (local_state._shared_state->_current_round != 0) {
+            LOG(WARNING) << "mytest RecCTEAnchorSinkOperatorX sink eos";
+            if (local_state._shared_state->_current_round == 0) {
                 local_state._shared_state->source_dep->set_ready();
             }
         }
         return Status::OK();
+    }
+
+    std::shared_ptr<BasicSharedState> create_shared_state() const override {
+        std::shared_ptr<BasicSharedState> ss = std::make_shared<RecCTESharedState>();
+        ss->id = operator_id();
+        for (const auto& dest : dests_id()) {
+            ss->related_op_ids.insert(dest);
+        }
+        return ss;
     }
 
 private:

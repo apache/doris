@@ -36,6 +36,7 @@ inline Status materialize_block(const vectorized::VExprContextSPtrs& exprs,
         int result_column_id = -1;
         RETURN_IF_ERROR(expr->execute(src_block, &result_column_id));
         colunms.emplace_back(src_block->get_by_position(result_column_id));
+        src_block->get_by_position(result_column_id).column = nullptr;
     }
     *res_block = {colunms};
     return Status::OK();

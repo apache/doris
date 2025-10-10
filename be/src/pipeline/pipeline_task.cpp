@@ -29,6 +29,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/dependency.h"
+#include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/pipeline.h"
@@ -547,7 +548,7 @@ Status PipelineTask::execute(bool* done) {
                 }
             }
 
-            if (_eos) {
+            if (_eos && !_sink->rerunable()) {
                 RETURN_IF_ERROR(close(Status::OK(), false));
             }
 
@@ -588,6 +589,12 @@ Status PipelineTask::execute(bool* done) {
             });
             RETURN_IF_ERROR(block->check_type_and_column());
             status = _sink->sink(_state, block, _eos);
+
+            if (_sink->rerunable() && _eos) {
+                RETURN_IF_ERROR(((ExchangeSourceOperatorX*)_root)->reset(_state));
+                LOG(WARNING)<<"mytest reset ExchangeSourceOperatorX";
+                _eos = false;
+            }
 
             if (status.is<ErrorCode::END_OF_FILE>()) {
                 set_wake_up_early();

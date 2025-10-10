@@ -505,7 +505,7 @@ Status QueryContext::send_block_to_cte_scan(
     std::unique_lock<std::mutex> l(_cte_scan_lock);
     auto it = _cte_scan.find(std::make_pair(instance_id, node_id));
     if (it == _cte_scan.end()) {
-        return Status::InternalError("CTE scan not found for instance {}, node {}",
+        return Status::InternalError("RecCTEScan not found for instance {}, node {}",
                                      print_id(instance_id), node_id);
     }
     for (const auto& pblock : pblocks) {
@@ -517,13 +517,19 @@ Status QueryContext::send_block_to_cte_scan(
     return Status::OK();
 }
 
-void QueryContext::registe_cte_scan(const TUniqueId& instance_id, int node_id,
+bool QueryContext::registe_cte_scan(const TUniqueId& instance_id, int node_id,
                                     pipeline::RecCTEScanLocalState* scan) {
     std::unique_lock<std::mutex> l(_cte_scan_lock);
     auto key = std::make_pair(instance_id, node_id);
     DCHECK(!_cte_scan.contains(key)) << "Duplicate registe cte scan for instance "
                                      << print_id(instance_id) << ", node " << node_id;
     _cte_scan.emplace(key, scan);
+
+    if (_cte_scan_set.contains(key)) {
+        return false;
+    }
+    _cte_scan_set.insert(key);
+    return true;
 }
 
 void QueryContext::deregiste_cte_scan(const TUniqueId& instance_id, int node_id) {

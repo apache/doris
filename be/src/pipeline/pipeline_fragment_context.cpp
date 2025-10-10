@@ -81,6 +81,7 @@
 #include "pipeline/exec/partitioned_aggregation_source_operator.h"
 #include "pipeline/exec/partitioned_hash_join_probe_operator.h"
 #include "pipeline/exec/partitioned_hash_join_sink_operator.h"
+#include "pipeline/exec/rec_cte_anchor_sink_operator.h"
 #include "pipeline/exec/rec_cte_scan_operator.h"
 #include "pipeline/exec/rec_cte_sink_operator.h"
 #include "pipeline/exec/rec_cte_source_operator.h"
@@ -1634,16 +1635,26 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         if (!_dag.contains(downstream_pipeline_id)) {
             _dag.insert({downstream_pipeline_id, {}});
         }
-        PipelinePtr build_side_pipe = add_pipeline(cur_pipe);
-        _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
-        DataSinkOperatorPtr sink;
-        sink = std::make_shared<RecCTESinkOperatorX>(next_sink_operator_id(), op->operator_id(),
-                                                     tnode, descs);
-        RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
-        RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode, _runtime_state.get()));
-        _pipeline_parent_map.push(op->node_id(), cur_pipe);
-        _pipeline_parent_map.push(op->node_id(), build_side_pipe);
+        PipelinePtr anchor_side_pipe = add_pipeline(cur_pipe);
+        _dag[downstream_pipeline_id].push_back(anchor_side_pipe->id());
+
+        DataSinkOperatorPtr anchor_sink;
+        anchor_sink = std::make_shared<RecCTEAnchorSinkOperatorX>(next_sink_operator_id(),
+                                                                  op->operator_id(), tnode, descs);
+        RETURN_IF_ERROR(anchor_side_pipe->set_sink(anchor_sink));
+        RETURN_IF_ERROR(anchor_side_pipe->sink()->init(tnode, _runtime_state.get()));
+        _pipeline_parent_map.push(op->node_id(), anchor_side_pipe);
+
+        PipelinePtr rec_side_pipe = add_pipeline(cur_pipe);
+        _dag[downstream_pipeline_id].push_back(rec_side_pipe->id());
+
+        DataSinkOperatorPtr rec_sink;
+        rec_sink = std::make_shared<RecCTESinkOperatorX>(next_sink_operator_id(), op->operator_id(),
+                                                         tnode, descs);
+        RETURN_IF_ERROR(rec_side_pipe->set_sink(rec_sink));
+        RETURN_IF_ERROR(rec_side_pipe->sink()->init(tnode, _runtime_state.get()));
+        _pipeline_parent_map.push(op->node_id(), rec_side_pipe);
 
         break;
     }
@@ -1793,7 +1804,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
     }
 
     // all submitted tasks done
-    _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
+    //_exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
 }
 
 void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
@@ -2017,9 +2028,12 @@ Status PipelineFragmentContext::reset(ThreadPool* thread_pool) {
         }
     }
 
+    _is_fragment_instance_closed = true;
     _release_resource();
     RETURN_IF_ERROR(_build_and_prepare_full_pipeline(thread_pool));
 
+    _submitted = false;
+    RETURN_IF_ERROR(submit());
     return Status::OK();
 }
 

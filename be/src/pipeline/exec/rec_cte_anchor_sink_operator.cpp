@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "pipeline/exec/rec_cte_sink_operator.h"
+#include "pipeline/exec/rec_cte_anchor_sink_operator.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
-Status RecCTESinkLocalState::open(RuntimeState* state) {
+Status RecCTEAnchorSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
@@ -32,11 +32,11 @@ Status RecCTESinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status RecCTESinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
+Status RecCTEAnchorSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(Base::init(tnode, state));
     DCHECK(tnode.__isset.rec_cte_node);
     {
-        const auto& texprs = tnode.rec_cte_node.result_expr_lists[1];
+        const auto& texprs = tnode.rec_cte_node.result_expr_lists[0];
         vectorized::VExprContextSPtrs ctxs;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(texprs, ctxs));
         _child_expr = ctxs;
@@ -44,8 +44,10 @@ Status RecCTESinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status RecCTESinkOperatorX::prepare(RuntimeState* state) {
+Status RecCTEAnchorSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
+    LOG(WARNING) << "mytest RecCTEAnchorSinkOperatorX child" << _child->debug_string() << " "
+                 << _child->row_desc().debug_string();
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_expr, state, _child->row_desc()));
     RETURN_IF_ERROR(vectorized::VExpr::check_expr_output_type(_child_expr, _child->row_desc()));
     RETURN_IF_ERROR(vectorized::VExpr::open(_child_expr, state));

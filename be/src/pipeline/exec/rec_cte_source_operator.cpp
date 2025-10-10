@@ -40,12 +40,23 @@ Status RecCTESourceLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(init_hash_method<DistinctDataVariants>(_agg_data.get(),
                                                                get_data_types(_child_expr), false));
     }
+
+    _shared_state->source_dep = _dependency;
+    return Status::OK();
+}
+
+Status RecCTESourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    RETURN_IF_ERROR(Base::init(state, info));
+    _hash_table_compute_timer = ADD_TIMER(Base::custom_profile(), "HashTableComputeTime");
+    _hash_table_emplace_timer = ADD_TIMER(Base::custom_profile(), "HashTableEmplaceTime");
+    _hash_table_input_counter =
+            ADD_COUNTER(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT);
     return Status::OK();
 }
 
 Status RecCTESourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(Base::init(tnode, state));
-    DCHECK(tnode.__isset.union_node);
+    DCHECK(tnode.__isset.rec_cte_node);
     {
         const auto& texprs = tnode.rec_cte_node.result_expr_lists[1];
         vectorized::VExprContextSPtrs ctxs;
@@ -58,7 +69,7 @@ Status RecCTESourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
 Status RecCTESourceOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_expr, state, _child->row_desc()));
-    RETURN_IF_ERROR(vectorized::VExpr::check_expr_output_type(_child_expr, row_descriptor()));
+    RETURN_IF_ERROR(vectorized::VExpr::check_expr_output_type(_child_expr, _child->row_desc()));
     RETURN_IF_ERROR(vectorized::VExpr::open(_child_expr, state));
     return Status::OK();
 }

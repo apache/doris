@@ -75,7 +75,8 @@ public class AssignedJobBuilder {
             Set<TNetworkAddress> networkAddresses = new TreeSet<>();
             for (AssignedJob assignedJob : fragmentAssignedJobs) {
                 DistributedPlanWorker distributedPlanWorker = assignedJob.getAssignedWorker();
-                networkAddresses.add(new TNetworkAddress(distributedPlanWorker.host(), distributedPlanWorker.port()));
+                networkAddresses
+                        .add(new TNetworkAddress(distributedPlanWorker.host(), distributedPlanWorker.brpcPort()));
             }
             fragmentIdToNetworkAddressMap.put(fragmentId, networkAddresses);
 
@@ -95,7 +96,8 @@ public class AssignedJobBuilder {
                 }
                 TRecCTETarget tRecCTETarget = new TRecCTETarget();
                 DistributedPlanWorker distributedPlanWorker = fragmentAssignedJobs.get(0).getAssignedWorker();
-                tRecCTETarget.setAddr(new TNetworkAddress(distributedPlanWorker.host(), distributedPlanWorker.port()));
+                tRecCTETarget
+                        .setAddr(new TNetworkAddress(distributedPlanWorker.host(), distributedPlanWorker.brpcPort()));
                 tRecCTETarget.setFragmentInstanceId(fragmentAssignedJobs.get(0).instanceId());
                 tRecCTETarget.setNodeId(recursiveCteScanNodes.get(0).getId().asInt());
                 fragmentIdToRecCteTargetMap.put(fragmentId, tRecCTETarget);
