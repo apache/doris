@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForSingleTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
@@ -127,6 +128,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.checkerframework.nonapi.io.github.classgraph.utils.Assert;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
@@ -488,6 +490,16 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 StringLiteral.of("week"));
         rewritten = executor.rewrite(t, context);
         Assertions.assertEquals(new DateV2Literal("0001-01-01"), rewritten);
+
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("22:12:12"));
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("22:12:12.123456"));
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("121122"));
+        Assertions.assertTrue(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("121122.123456"));
+
+        Assertions.assertFalse(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("2020-12-12"));
+        Assertions.assertFalse(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("2020-12-12 12:12:12"));
+        Assertions.assertFalse(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("2020/12/12"));
+        Assertions.assertFalse(ComputeSignatureForSingleTimeArithmetic.isTimeFormat("2020/12/12 12:12:12"));
 
         FromUnixtime f = new FromUnixtime(BigIntLiteral.of(123456789L), StringLiteral.of("%y %m %d"));
         rewritten = executor.rewrite(f, context);
