@@ -75,6 +75,12 @@ DECLARE_mInt32(init_scanner_sync_rowsets_parallelism);
 // Cloud compaction config
 DECLARE_mInt64(min_compaction_failure_interval_ms);
 DECLARE_mBool(enable_new_tablet_do_compaction);
+// Enable empty rowset compaction strategy
+DECLARE_mBool(enable_empty_rowset_compaction);
+// Minimum number of consecutive empty rowsets to trigger compaction
+DECLARE_mInt32(empty_rowset_compaction_min_count);
+// Minimum percentage of empty rowsets to trigger compaction
+DECLARE_mDouble(empty_rowset_compaction_min_ratio);
 // For cloud read/write separate mode
 DECLARE_mInt64(base_compaction_freeze_interval_s);
 DECLARE_mInt64(compaction_load_max_freeze_interval_s);
