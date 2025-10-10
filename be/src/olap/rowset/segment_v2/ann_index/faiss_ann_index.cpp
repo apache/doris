@@ -19,12 +19,16 @@
 
 #include <faiss/index_io.h>
 #include <omp.h>
+#include <pthread.h>
 
+#include <algorithm>
 #include <cmath>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "CLucene/store/IndexInput.h"
@@ -42,11 +46,81 @@
 #include "olap/rowset/segment_v2/ann_index/ann_index_files.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "util/doris_metrics.h"
+#include "util/thread.h"
 #include "util/time.h"
 #include "vec/core/types.h"
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
+
+namespace {
+
+std::mutex g_omp_thread_mutex;
+int g_index_threads_in_use = 0;
+
+// Guard that ensures the total OpenMP threads used by concurrent index builds
+// never exceed the configured omp_threads_limit.
+class ScopedOmpThreadBudget {
+public:
+    // For each index build, reserve at most half of the remaining threads, at least 1 thread.
+    ScopedOmpThreadBudget() {
+        std::unique_lock<std::mutex> lock(g_omp_thread_mutex);
+        auto thread_cap = config::omp_threads_limit - g_index_threads_in_use;
+        _reserved_threads = std::max(1, thread_cap / 2);
+        g_index_threads_in_use += _reserved_threads;
+        DorisMetrics::instance()->ann_index_build_index_threads->increment(_reserved_threads);
+        omp_set_num_threads(_reserved_threads);
+        VLOG_DEBUG << fmt::format(
+                "ScopedOmpThreadBudget reserve threads reserved={}, in_use={}, limit={}",
+                _reserved_threads, g_index_threads_in_use, config::omp_threads_limit);
+    }
+
+    ~ScopedOmpThreadBudget() {
+        std::lock_guard<std::mutex> lock(g_omp_thread_mutex);
+        g_index_threads_in_use -= _reserved_threads;
+        DorisMetrics::instance()->ann_index_build_index_threads->increment(-_reserved_threads);
+        if (g_index_threads_in_use < 0) {
+            g_index_threads_in_use = 0;
+        }
+        VLOG_DEBUG << fmt::format(
+                "ScopedOmpThreadBudget release threads reserved={}, remaining_in_use={}, limit={}",
+                _reserved_threads, g_index_threads_in_use, config::omp_threads_limit);
+    }
+
+private:
+    int _reserved_threads = 1;
+};
+
+// Temporarily rename the current thread so FAISS build phases are easier to spot in debuggers.
+class ScopedThreadName {
+public:
+    explicit ScopedThreadName(const std::string& new_name) {
+        // POSIX limits thread names to 15 visible chars plus the null terminator.
+        char current_name[16] = {0};
+#ifdef __APPLE__
+        int ret = pthread_getname_np(pthread_self(), current_name, sizeof(current_name));
+#else
+        int ret = pthread_getname_np(pthread_self(), current_name, sizeof(current_name));
+#endif
+        if (ret == 0) {
+            _has_previous_name = true;
+            _previous_name = current_name;
+        }
+        Thread::set_self_name(new_name);
+    }
+
+    ~ScopedThreadName() {
+        if (_has_previous_name) {
+            Thread::set_self_name(_previous_name);
+        }
+    }
+
+private:
+    bool _has_previous_name = false;
+    std::string _previous_name;
+};
+
+} // namespace
 std::unique_ptr<faiss::IDSelector> FaissVectorIndex::roaring_to_faiss_selector(
         const roaring::Roaring& roaring) {
     std::vector<faiss::idx_t> ids;
@@ -154,7 +228,9 @@ public:
 void FaissVectorIndex::train(vectorized::Int64 n, const float* x) {
     DCHECK(x != nullptr);
     DCHECK(_index != nullptr);
-    omp_set_num_threads(config::omp_threads_limit);
+    ScopedThreadName scoped_name("faiss_train_idx");
+    // Reserve OpenMP threads globally so concurrent builds stay under omp_threads_limit.
+    ScopedOmpThreadBudget thread_budget;
     _index->train(n, x);
 }
 
@@ -169,11 +245,17 @@ void FaissVectorIndex::train(vectorized::Int64 n, const float* x) {
 doris::Status FaissVectorIndex::add(vectorized::Int64 n, const float* vec) {
     DCHECK(vec != nullptr);
     DCHECK(_index != nullptr);
-    omp_set_num_threads(config::omp_threads_limit);
-    DorisMetrics::instance()->ann_index_construction->increment(1);
-    _index->add(n, vec);
-    DorisMetrics::instance()->ann_index_construction->increment(-1);
-    DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(n);
+    ScopedThreadName scoped_name("faiss_build_idx");
+    // build index for every 1M rows, so that we can adjust thread usage dynamically.
+    for (vectorized::Int64 i = 0; i < n; i += 1'000'000) {
+        // Apply the same thread budget when adding vectors to limit concurrency.
+        ScopedOmpThreadBudget thread_budget;
+        DorisMetrics::instance()->ann_index_construction->increment(1);
+        vectorized::Int64 chunk_size = std::min(1'000'000L, n - i);
+        _index->add(chunk_size, vec + i * _dimension);
+        DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(chunk_size);
+        DorisMetrics::instance()->ann_index_construction->increment(-1);
+    }
     return doris::Status::OK();
 }
 
