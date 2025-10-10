@@ -42,6 +42,7 @@ import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
@@ -320,8 +321,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
             StreamingInsertTask nextTask = createStreamingInsertTask();
             this.runningStreamTask = nextTask;
-            //todo: maybe fetch from txn attachment?
-            offsetProvider.updateOffset(task.getRunningOffset());
         } finally {
             writeUnlock();
         }
@@ -454,8 +453,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             taskIds.add(runningStreamTask.getTaskId());
             // todo: Check whether the taskid of runningtask is consistent with the taskid associated with txn
 
-            // todo: need get loadStatistic, load manager statistic is empty
-            LoadStatistic loadStatistic = new LoadStatistic();
+            List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager().queryLoadJobsByJobIds(taskIds);
+            if (loadJobs.size() == 0) {
+                throw new TransactionException("load job not found, insert job id is " + runningStreamTask.getTaskId());
+            }
+            LoadJob loadJob = loadJobs.get(0);
+            LoadStatistic loadStatistic = loadJob.getLoadStatistic();
             txnState.setTxnCommitAttachment(new StreamingTaskTxnCommitAttachment(
                         getJobId(),
                         runningStreamTask.getTaskId(),
