@@ -64,7 +64,7 @@ public:
 
     void set_min_rows_per_scanner(int64_t size) { _min_rows_per_scanner = size; }
 
-    void set_optimize_index_scan_parallelism(bool v) { _optimize_index_scan_parallelism = v; }
+    void set_scan_parallelism_by_segment(bool v) { _scan_parallelism_by_segment = v; }
 
     const OlapReaderStatistics* builder_stats() const { return &_builder_stats; }
 
@@ -95,7 +95,7 @@ private:
     std::map<RowsetId, std::vector<size_t>> _all_segments_rows;
 
     // Force building one scanner per segment when true.
-    bool _optimize_index_scan_parallelism {false};
+    bool _scan_parallelism_by_segment {false};
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     OlapReaderStatistics _builder_stats;

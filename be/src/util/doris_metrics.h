@@ -122,6 +122,10 @@ public:
     IntCounter* segment_read_total = nullptr;
     // total number of rows in queried segments (before index pruning)
     IntCounter* segment_row_total = nullptr;
+    // number of condition cache lookups when digest != 0
+    IntCounter* condition_cache_search_count = nullptr;
+    // number of condition cache hits
+    IntCounter* condition_cache_hit_count = nullptr;
 
     IntCounter* stream_load_txn_begin_request_total = nullptr;
     IntCounter* stream_load_txn_commit_request_total = nullptr;
