@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 
+import com.google.common.base.Splitter;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.PartitionSpec;
@@ -66,6 +67,7 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -794,7 +796,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         try {
             ViewCatalog viewCatalog = (ViewCatalog) catalog;
-            return executionAuthenticator.execute(() -> viewCatalog.loadView(TableIdentifier.of(dbName, tblName)));
+            return executionAuthenticator.execute(
+                    () -> viewCatalog.loadView(TableIdentifier.of(getNamespace(dbName), tblName)));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load view, error message is:" + e.getMessage(), e);
         }
@@ -807,7 +810,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         try {
             return executionAuthenticator.execute(() ->
-                ((ViewCatalog) catalog).listViews(Namespace.of(db))
+                    ((ViewCatalog) catalog).listViews(getNamespace(db))
                     .stream().map(TableIdentifier::name).collect(Collectors.toList()));
         } catch (Exception e) {
             throw new RuntimeException("Failed to list view names, error message is:" + e.getMessage(), e);
@@ -815,15 +818,17 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private TableIdentifier getTableIdentifier(String dbName, String tblName) {
-        return externalCatalogName
-            .map(s -> TableIdentifier.of(s, dbName, tblName))
-            .orElseGet(() -> TableIdentifier.of(dbName, tblName));
+        Namespace ns = getNamespace(dbName);
+        return TableIdentifier.of(ns, tblName);
     }
 
     private Namespace getNamespace(String dbName) {
-        return externalCatalogName
-            .map(s -> Namespace.of(s, dbName))
-            .orElseGet(() -> Namespace.of(dbName));
+        String[] splits = Splitter.on(".").omitEmptyStrings().trimResults().splitToList(dbName).toArray(new String[0]);
+        if (externalCatalogName.isPresent()) {
+            splits = Arrays.copyOf(splits, splits.length + 1);
+            splits[splits.length - 1] = externalCatalogName.get();
+        }
+        return Namespace.of(splits);
     }
 
     private Namespace getNamespace() {
@@ -842,4 +847,5 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         viewCatalog.dropView(getTableIdentifier(remoteDbName, remoteViewName));
     }
 }
+
 
