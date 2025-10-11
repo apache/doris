@@ -24,7 +24,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -42,6 +41,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
@@ -337,18 +337,18 @@ public class NereidsDataDescription {
     /**
      * data desc for mysql client
      */
-    public NereidsDataDescription(TableName tableName,
-            PartitionNames partitionNames,
-            String file,
-            boolean clientLocal,
-            List<String> columns,
-            Separator columnSeparator,
-            Separator lineDelimiter,
-            int skipLines,
-            List<Expression> columnMappingList,
-            Map<String, String> properties) {
-        this.tableName = tableName.getTbl();
-        this.dbName = tableName.getDb();
+    public NereidsDataDescription(TableNameInfo tableNameInfo,
+                                  PartitionNames partitionNames,
+                                  String file,
+                                  boolean clientLocal,
+                                  List<String> columns,
+                                  Separator columnSeparator,
+                                  Separator lineDelimiter,
+                                  int skipLines,
+                                  List<Expression> columnMappingList,
+                                  Map<String, String> properties) {
+        this.tableName = tableNameInfo.getTbl();
+        this.dbName = tableNameInfo.getDb();
         this.partitionNames = partitionNames;
         this.filePaths = Lists.newArrayList(file);
         this.clientLocal = clientLocal;

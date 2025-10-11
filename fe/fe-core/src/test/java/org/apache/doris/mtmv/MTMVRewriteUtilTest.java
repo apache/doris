@@ -17,10 +17,10 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.qe.ConnectContext;
@@ -115,7 +115,7 @@ public class MTMVRewriteUtilTest {
 
                 MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
-                        (Set<TableName>) any);
+                        (Set<TableNameInfo>) any);
                 minTimes = 0;
                 result = true;
 
@@ -140,7 +140,7 @@ public class MTMVRewriteUtilTest {
 
                 MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
-                        (Set<TableName>) any);
+                        (Set<TableNameInfo>) any);
                 minTimes = 0;
                 result = false;
             }
@@ -171,7 +171,7 @@ public class MTMVRewriteUtilTest {
 
                 MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
-                        (Set<TableName>) any);
+                        (Set<TableNameInfo>) any);
                 minTimes = 0;
                 result = false;
             }
@@ -193,7 +193,7 @@ public class MTMVRewriteUtilTest {
 
                 MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
-                        (Set<TableName>) any);
+                        (Set<TableNameInfo>) any);
                 minTimes = 0;
                 result = false;
             }
@@ -228,7 +228,7 @@ public class MTMVRewriteUtilTest {
             {
                 MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
-                        (Set<TableName>) any);
+                        (Set<TableNameInfo>) any);
                 minTimes = 0;
                 result = false;
             }

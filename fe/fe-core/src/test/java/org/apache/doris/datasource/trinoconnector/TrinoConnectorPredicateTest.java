@@ -31,10 +31,10 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorPredicateConverter;
+import org.apache.doris.info.TableNameInfo;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -255,7 +255,7 @@ public class TrinoConnectorPredicateTest {
         }
 
         // test <=>
-        SlotRef intSlot = new SlotRef(new TableName("test_table"), "c_int");
+        SlotRef intSlot = new SlotRef(new TableNameInfo("test_table"), "c_int");
         NullLiteral nullLiteral = NullLiteral.create(Type.INT);
         BinaryPredicate expr = new BinaryPredicate(Operator.EQ_FOR_NULL, intSlot, nullLiteral);
         TupleDomain<ColumnHandle> testNullTupleDomain = trinoConnectorPredicateConverter.convertExprToTrinoTupleDomain(
@@ -655,28 +655,28 @@ public class TrinoConnectorPredicateTest {
 
     private List<SlotRef> mockSlotRefs() {
         return new ImmutableList.Builder()
-                .add(new SlotRef(new TableName("test_table"), "c_bool"))
+                .add(new SlotRef(new TableNameInfo("test_table"), "c_bool"))
 
-                .add(new SlotRef(new TableName("test_table"), "c_tinyint"))
-                .add(new SlotRef(new TableName("test_table"), "c_smallint"))
-                .add(new SlotRef(new TableName("test_table"), "c_int"))
-                .add(new SlotRef(new TableName("test_table"), "c_bigint"))
+                .add(new SlotRef(new TableNameInfo("test_table"), "c_tinyint"))
+                .add(new SlotRef(new TableNameInfo("test_table"), "c_smallint"))
+                .add(new SlotRef(new TableNameInfo("test_table"), "c_int"))
+                .add(new SlotRef(new TableNameInfo("test_table"), "c_bigint"))
 
-                .add(new SlotRef(new TableName("test_table"), "c_real"))
-                .add(new SlotRef(new TableName("test_table"), "c_double"))
+                .add(new SlotRef(new TableNameInfo("test_table"), "c_real"))
+                .add(new SlotRef(new TableNameInfo("test_table"), "c_double"))
 
-                .add(new SlotRef(new TableName("test_table"), "c_short_decimal"))
-                .add(new SlotRef(new TableName("test_table"), "c_long_decimal"))
+                .add(new SlotRef(new TableNameInfo("test_table"), "c_short_decimal"))
+                .add(new SlotRef(new TableNameInfo("test_table"), "c_long_decimal"))
 
-                .add(new SlotRef(new TableName("test_table"), "c_char"))
-                .add(new SlotRef(new TableName("test_table"), "c_varchar"))
-                .add(new SlotRef(new TableName("test_table"), "c_varbinary"))
+                .add(new SlotRef(new TableNameInfo("test_table"), "c_char"))
+                .add(new SlotRef(new TableNameInfo("test_table"), "c_varchar"))
+                .add(new SlotRef(new TableNameInfo("test_table"), "c_varbinary"))
 
-                .add(new SlotRef(new TableName("test_table"), "c_date"))
-                .add(new SlotRef(new TableName("test_table"), "c_short_timestamp"))
+                .add(new SlotRef(new TableNameInfo("test_table"), "c_date"))
+                .add(new SlotRef(new TableNameInfo("test_table"), "c_short_timestamp"))
                 // .add(new SlotRef(new TableName("test_table"), "c_short_timestamp_timezone"))
-                .add(new SlotRef(new TableName("test_table"), "c_long_timestamp"))
-                .add(new SlotRef(new TableName("test_table"), "c_long_timestamp_timezone"))
+                .add(new SlotRef(new TableNameInfo("test_table"), "c_long_timestamp"))
+                .add(new SlotRef(new TableNameInfo("test_table"), "c_long_timestamp_timezone"))
                 .build();
     }
 
