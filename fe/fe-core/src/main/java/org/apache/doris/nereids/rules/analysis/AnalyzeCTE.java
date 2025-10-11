@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
@@ -159,9 +160,10 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         LogicalPlan analyzedRecursiveChild = (LogicalPlan) innerRecursiveCascadesCtx.getRewritePlan();
         LogicalUnion logicalUnion = (LogicalUnion) parsedCtePlan;
 
-        // manually bind LogicalRecursiveCte, see bindSetOperation in BindExpression.java
+        // create LogicalRecursiveCte
         LogicalRecursiveCte analyzedCtePlan = new LogicalRecursiveCte(
-                logicalUnion.getQualifier(), ImmutableList.of(analyzedAnchorChild, analyzedRecursiveChild));
+                logicalUnion.getQualifier() == SetOperation.Qualifier.ALL,
+                ImmutableList.of(analyzedAnchorChild, analyzedRecursiveChild));
         List<List<NamedExpression>> childrenProjections = analyzedCtePlan.collectChildrenProjections();
         int childrenProjectionSize = childrenProjections.size();
         ImmutableList.Builder<List<SlotReference>> childrenOutputs = ImmutableList
@@ -180,8 +182,7 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
             newChildren.add(newChild);
             childrenOutputs.add((List<SlotReference>) (List) newChild.getOutput());
         }
-        analyzedCtePlan = (LogicalRecursiveCte) analyzedCtePlan.withChildrenAndTheirOutputs(newChildren.build(),
-                childrenOutputs.build());
+        analyzedCtePlan = analyzedCtePlan.withChildrenAndTheirOutputs(newChildren.build(), childrenOutputs.build());
         List<NamedExpression> newOutputs = analyzedCtePlan.buildNewOutputs();
         analyzedCtePlan = analyzedCtePlan.withNewOutputs(newOutputs);
 

@@ -15,14 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.nereids.trees.plans.algebra;
 
-import org.apache.doris.common.SystemIdGenerator;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 
 import java.util.List;
 
-public class RecursiveCteTempTable extends Table {
-    public RecursiveCteTempTable(String tableName, List<Column> fullSchema) {
-        super(SystemIdGenerator.getNextId(), tableName, TableType.RECURSIVE_CTE_TEMP_TABLE, fullSchema);
-    }
+/**
+ * Common interface for logical/physical recursive cte.
+ */
+public interface RecursiveCte {
+    boolean isUnionAll();
+
+    List<SlotReference> getRegularChildOutput(int i);
+
+    List<NamedExpression> getOutputs();
+
+    List<List<SlotReference>> getRegularChildrenOutputs();
 }

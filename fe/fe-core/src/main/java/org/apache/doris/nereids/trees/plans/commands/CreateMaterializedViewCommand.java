@@ -323,7 +323,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 }
                 try {
                     Expr defineExpr = translateToLegacyExpr(predicate, context.planTranslatorContext);
-                    context.filterItem = new MVColumnItem(predicate.toSql(), defineExpr);
+                    context.filterItem = new MVColumnItem(defineExpr.toSqlWithoutTbl(), defineExpr);
                 } catch (Exception ex) {
                     throw new AnalysisException(ex.getMessage());
                 }
