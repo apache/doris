@@ -116,7 +116,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
-import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -2269,6 +2268,79 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return inputFragment;
     }
 
+    @Override
+    public PlanFragment visitPhysicalRecursiveCte(PhysicalRecursiveCte recursiveCte, PlanTranslatorContext context) {
+        List<PlanFragment> childrenFragments = new ArrayList<>();
+        for (Plan plan : recursiveCte.children()) {
+            childrenFragments.add(plan.accept(this, context));
+        }
+
+        TupleDescriptor setTuple = generateTupleDesc(recursiveCte.getOutput(), null, context);
+        List<SlotDescriptor> outputSlotDescs = new ArrayList<>(setTuple.getSlots());
+
+        RecursiveCteNode recursiveCteNode = new RecursiveCteNode(context.nextPlanNodeId(), setTuple.getId(),
+                    recursiveCte.isUnionAll());
+        List<List<Expr>> distributeExprLists = getDistributeExprs(recursiveCte.children().toArray(new Plan[0]));
+        recursiveCteNode.setChildrenDistributeExprLists(distributeExprLists);
+        recursiveCteNode.setNereidsId(recursiveCte.getId());
+        List<List<Expression>> resultExpressionLists = Lists.newArrayList();
+        context.getNereidsIdToPlanNodeIdMap().put(recursiveCte.getId(), recursiveCteNode.getId());
+        for (List<SlotReference> regularChildrenOutput : recursiveCte.getRegularChildrenOutputs()) {
+            resultExpressionLists.add(new ArrayList<>(regularChildrenOutput));
+        }
+
+        for (PlanFragment childFragment : childrenFragments) {
+            recursiveCteNode.addChild(childFragment.getPlanRoot());
+        }
+
+        List<List<Expr>> materializedResultExprLists = Lists.newArrayList();
+        for (int i = 0; i < resultExpressionLists.size(); ++i) {
+            List<Expression> resultExpressionList = resultExpressionLists.get(i);
+            List<Expr> exprList = Lists.newArrayList();
+            Preconditions.checkState(resultExpressionList.size() == outputSlotDescs.size());
+            for (int j = 0; j < resultExpressionList.size(); ++j) {
+                if (outputSlotDescs.get(j).isMaterialized()) {
+                    exprList.add(ExpressionTranslator.translate(resultExpressionList.get(j), context));
+                    // TODO: reconsider this, we may change nullable info in previous nereids rules not here.
+                    outputSlotDescs.get(j)
+                            .setIsNullable(outputSlotDescs.get(j).getIsNullable() || exprList.get(j).isNullable());
+                }
+            }
+            materializedResultExprLists.add(exprList);
+        }
+        recursiveCteNode.setMaterializedResultExprLists(materializedResultExprLists);
+        Preconditions.checkState(recursiveCteNode.getMaterializedResultExprLists().size()
+                == recursiveCteNode.getChildren().size());
+
+        PlanFragment recursiveCteFragment;
+        if (childrenFragments.isEmpty()) {
+            recursiveCteFragment = createPlanFragment(recursiveCteNode,
+                    DataPartition.UNPARTITIONED, recursiveCte);
+            context.addPlanFragment(recursiveCteFragment);
+        } else {
+            int childrenSize = childrenFragments.size();
+            recursiveCteFragment = childrenFragments.get(childrenSize - 1);
+            for (int i = childrenSize - 2; i >= 0; i--) {
+                context.mergePlanFragment(childrenFragments.get(i), recursiveCteFragment);
+                for (PlanFragment child : childrenFragments.get(i).getChildren()) {
+                    recursiveCteFragment.addChild(child);
+                }
+            }
+            setPlanRoot(recursiveCteFragment, recursiveCteNode, recursiveCte);
+        }
+
+        // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution
+        // we need turn of parallel scan to ensure to get correct result.
+        // TODO: nereids forbid all parallel scan under PhysicalSetOperation temporary
+        if (!recursiveCte.getPhysicalProperties().equals(PhysicalProperties.ANY)
+                && findOlapScanNodesByPassExchangeAndJoinNode(recursiveCteFragment.getPlanRoot())) {
+            recursiveCteFragment.setHasColocatePlanNode(true);
+            recursiveCteNode.setColocate(true);
+        }
+
+        return recursiveCteFragment;
+    }
+
     /**
      * Returns a new fragment with a UnionNode as its root. The data partition of the
      * returned fragment and how the data of the child fragments is consumed depends on the
@@ -2300,9 +2372,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             setOperationNode = new ExceptNode(context.nextPlanNodeId(), setTuple.getId());
         } else if (setOperation instanceof PhysicalIntersect) {
             setOperationNode = new IntersectNode(context.nextPlanNodeId(), setTuple.getId());
-        } else if (setOperation instanceof PhysicalRecursiveCte) {
-            setOperationNode = new RecursiveCteNode(context.nextPlanNodeId(), setTuple.getId(),
-                    setOperation.getQualifier().equals(SetOperation.Qualifier.ALL));
         } else {
             throw new RuntimeException("not support set operation type " + setOperation);
         }
