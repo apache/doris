@@ -56,8 +56,4 @@ suite("test_decimalv2_rqg") {
     sql """
         SELECT CEIL(ARG0,CAST(-1 AS INT)) FROM (SELECT TEMPDATA . data, TABLE0.ARG0 FROM TEMPDATA CROSS JOIN (SELECT data AS ARG0 FROM DECIMALV2_10_0_DATA_NOT_EMPTY_NOT_NULLABLE ) AS TABLE0) t ;
     """
-
-
-
-    sql """ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = 'true')"""
 }
