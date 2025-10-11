@@ -459,7 +459,7 @@ DECLARE_mInt32(index_page_cache_stale_sweep_time_sec);
 // great impact on the performance of MOW, so it can be longer.
 DECLARE_mInt32(pk_index_page_cache_stale_sweep_time_sec);
 
-DECLARE_Bool(enable_low_cardinality_optimize);
+DECLARE_mBool(enable_low_cardinality_optimize);
 DECLARE_Bool(enable_low_cardinality_cache_code);
 
 // be policy
