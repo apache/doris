@@ -18,7 +18,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 suite("load_p2", "variant_type,p2"){
-    boolean use_stream_load = true
+    boolean use_stream_load = false
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
