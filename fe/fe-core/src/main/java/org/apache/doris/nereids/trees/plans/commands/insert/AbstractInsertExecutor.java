@@ -44,7 +44,9 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Abstract insert executor.
@@ -69,6 +71,25 @@ public abstract class AbstractInsertExecutor {
     protected Optional<InsertCommandContext> insertCtx;
     protected final boolean emptyInsert;
     protected long txnId = INVALID_TXN_ID;
+
+    /**
+     * Insert executor listener
+     */
+    public interface InsertExecutorListener {
+        /**
+         * Called before insert execution begins
+         */
+
+        default void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId)
+                throws Exception {
+        }
+
+        default void afterComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId)
+                throws Exception {
+        }
+    }
+
+    private List<InsertExecutorListener> listeners = new CopyOnWriteArrayList<>();
 
     /**
      * Randomly generate job ID.
@@ -103,6 +124,14 @@ public abstract class AbstractInsertExecutor {
         this.insertCtx = insertCtx;
         this.emptyInsert = emptyInsert;
         this.jobId = jobId;
+    }
+
+    public void registerListener(InsertExecutorListener listener) {
+        listeners.add(listener);
+    }
+
+    public void unregisterListener(InsertExecutorListener listener) {
+        listeners.remove(listener);
     }
 
     public Coordinator getCoordinator() {
@@ -223,7 +252,13 @@ public abstract class AbstractInsertExecutor {
             executor.updateProfile(false);
             execImpl(executor, jobId);
             checkStrictModeAndFilterRatio();
+            for (InsertExecutorListener listener : listeners) {
+                listener.beforeComplete(this, executor, jobId);
+            }
             onComplete();
+            for (InsertExecutorListener listener : listeners) {
+                listener.afterComplete(this, executor, jobId);
+            }
         } catch (Throwable t) {
             onFail(t);
             // retry insert into from select when meet E-230 in cloud
