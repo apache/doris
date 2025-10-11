@@ -17,26 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
-import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
-import org.apache.doris.nereids.trees.expressions.functions.table.File;
-import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
-import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
-import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
-import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
-import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
-import org.apache.doris.nereids.trees.expressions.functions.table.HudiMeta;
-import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
-import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
-import org.apache.doris.nereids.trees.expressions.functions.table.Local;
-import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
-import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
-import org.apache.doris.nereids.trees.expressions.functions.table.PaimonMeta;
-import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
-import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
-import org.apache.doris.nereids.trees.expressions.functions.table.Query;
-import org.apache.doris.nereids.trees.expressions.functions.table.S3;
-import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
+import org.apache.doris.nereids.trees.expressions.functions.table.*;
 
 import com.google.common.collect.ImmutableList;
 
@@ -67,7 +48,8 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Tasks.class, "tasks"),
             tableValued(Query.class, "query"),
             tableValued(PartitionValues.class, "partition_values"),
-            tableValued(File.class, "file")
+            tableValued(File.class, "file"),
+            tableValued(Http.class, "http")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();
