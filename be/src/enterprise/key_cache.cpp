@@ -325,9 +325,13 @@ Status KeyCache::decrypt_data_key(std::shared_ptr<EncryptionKeyPB>& data_key_cip
 }
 
 Status KeyCache::get_master_keys() {
+    if (ThriftRpcHelper::get_exec_env() == nullptr) {
+        LOG(INFO) << "rpc client is not ready";
+        return Status::InternalError("rpc client is not ready");
+    }
+
     TGetEncryptionKeysRequest request;
     request.version = 1;
-
     TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
     TGetEncryptionKeysResult result;
     {
