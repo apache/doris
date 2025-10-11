@@ -267,5 +267,6 @@ template class DataTypeNumberBase<TYPE_IPV4>;
 template class DataTypeNumberBase<TYPE_IPV6>;
 template class DataTypeNumberBase<TYPE_TIME>;
 template class DataTypeNumberBase<TYPE_TIMEV2>;
+template class DataTypeNumberBase<TYPE_TIMESTAMPTZ>;
 
 } // namespace doris::vectorized
