@@ -119,11 +119,6 @@ public:
 
     void clear();
 
-    // Get column data page statistics for the current segment
-    const std::vector<ColumnDataPageStatsPB>& get_column_data_page_stats() const {
-        return _column_data_page_stats;
-    }
-
     Status close_inverted_index(int64_t* inverted_index_file_size) {
         // no inverted index
         if (_index_file_writer == nullptr) {
@@ -207,8 +202,8 @@ private:
     bool _is_mow();
     bool _is_mow_with_cluster_key();
 
-    // Collect column data page statistics
-    void _collect_column_statistics();
+    // Collect column data page statistics after write_data
+    void _collect_column_data_page_stats();
 
 private:
     friend class ::doris::BlockAggregator;
@@ -271,8 +266,8 @@ private:
 
     BlockAggregator _block_aggregator;
 
-    // Column data page statistics for this segment
-    std::vector<ColumnDataPageStatsPB> _column_data_page_stats;
+    // Column data page statistics, keyed by column unique id
+    std::map<int32_t, ColumnDataPageStatsPB> _column_data_page_stats;
 };
 
 } // namespace segment_v2

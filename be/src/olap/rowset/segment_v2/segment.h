@@ -210,6 +210,10 @@ public:
     Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
                              OlapReaderStatistics* stats);
 
+    // Get column data page statistics from segment footer
+    Status get_column_data_page_stats(std::vector<ColumnDataPageStatsPB>* column_stats,
+                                      OlapReaderStatistics* stats = nullptr);
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,

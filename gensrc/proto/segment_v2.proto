@@ -225,6 +225,14 @@ message PrimaryKeyIndexMetaPB {
     optional bytes max_key = 4;
 }
 
+// Column data page statistics for a single column
+message ColumnDataPageStatsPB {
+    optional int32 column_unique_id = 1;
+    optional string column_name = 2;
+    optional string column_type = 3;
+    optional int64 data_page_size = 4;
+}
+
 message SegmentFooterPB {
     optional uint32 version = 1 [default = 1]; // file version
     repeated ColumnMetaPB columns = 2; // tablet schema
@@ -241,6 +249,9 @@ message SegmentFooterPB {
 
     // Primary key index meta
     optional PrimaryKeyIndexMetaPB primary_key_index_meta = 10;
+
+    // Column data page statistics for this segment
+    repeated ColumnDataPageStatsPB column_data_page_stats = 11;
 }
 
 message BTreeMetaPB {

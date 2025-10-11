@@ -18,9 +18,11 @@
 #include "exec/schema_scanner/schema_column_data_sizes_scanner.h"
 
 #include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/segment_v2.pb.h>
 
 #include <algorithm>
 #include <cstddef>
+#include <map>
 #include <memory>
 #include <shared_mutex>
 #include <string>
@@ -32,8 +34,10 @@
 #include "cloud/config.h"
 #include "common/status.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
@@ -52,14 +56,14 @@ class Block;
 
 std::vector<SchemaScanner::ColumnDesc> SchemaColumnDataSizesScanner::_s_tbls_columns = {
         //   name,                type,          size,             is_null
-        {"BACKEND_ID",          TYPE_BIGINT,   sizeof(int64_t),   true},
-        {"TABLE_ID",            TYPE_BIGINT,   sizeof(int64_t),   true},
-        {"ROWSET_ID",           TYPE_VARCHAR,  sizeof(StringRef), true},
-        {"TABLET_ID",           TYPE_BIGINT,   sizeof(int64_t),   true},
-        {"COLUMN_UNIQUE_ID",    TYPE_INT,      sizeof(int32_t),   true},
-        {"COLUMN_NAME",         TYPE_VARCHAR,  sizeof(StringRef), true},
-        {"COLUMN_TYPE",         TYPE_VARCHAR,  sizeof(StringRef), true},
-        {"DATA_PAGE_SIZE",      TYPE_BIGINT,   sizeof(int64_t),   true},
+        {"BACKEND_ID", TYPE_BIGINT, sizeof(int64_t), true},
+        {"TABLE_ID", TYPE_BIGINT, sizeof(int64_t), true},
+        {"ROWSET_ID", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLET_ID", TYPE_BIGINT, sizeof(int64_t), true},
+        {"COLUMN_UNIQUE_ID", TYPE_INT, sizeof(int32_t), true},
+        {"COLUMN_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"COLUMN_TYPE", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"DATA_PAGE_SIZE", TYPE_BIGINT, sizeof(int64_t), true},
 };
 
 SchemaColumnDataSizesScanner::SchemaColumnDataSizesScanner()
@@ -83,13 +87,60 @@ Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
         for (const auto& rowset : rowsets) {
             auto rowset_meta = rowset->rowset_meta();
 
-            // Get column data page stats from rowset meta
-            const auto& column_stats = rowset_meta->column_data_page_stats();
-            for (const auto& stat : column_stats) {
+            // Only process BetaRowset
+            auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+            if (!beta_rowset) {
+                continue;
+            }
+
+            // Skip empty rowsets
+            if (beta_rowset->num_segments() == 0) {
+                continue;
+            }
+
+            // Map to aggregate column stats by column_unique_id across all segments in this rowset
+            // Key: column_unique_id, Value: aggregated stats
+            std::map<int32_t, segment_v2::ColumnDataPageStatsPB> aggregated_stats;
+
+            // Load all segments at once
+            std::vector<segment_v2::SegmentSharedPtr> segments;
+            auto st = beta_rowset->load_segments(&segments);
+            if (!st.ok()) {
+                LOG(WARNING) << "Failed to load segments for rowset "
+                             << beta_rowset->rowset_id().to_string()
+                             << ", error: " << st.to_string();
+                continue;
+            }
+
+            // Get column data page stats from each segment footer and aggregate by column_unique_id
+            for (const auto& segment : segments) {
+                std::vector<segment_v2::ColumnDataPageStatsPB> column_stats;
+                st = segment->get_column_data_page_stats(&column_stats);
+                if (!st.ok()) {
+                    continue;
+                }
+
+                // Aggregate stats by column_unique_id
+                for (const auto& stat : column_stats) {
+                    int32_t col_uid = stat.column_unique_id();
+                    auto it = aggregated_stats.find(col_uid);
+                    if (it == aggregated_stats.end()) {
+                        // First occurrence of this column in this rowset
+                        aggregated_stats[col_uid] = stat;
+                    } else {
+                        // Accumulate data_page_size for this column
+                        it->second.set_data_page_size(it->second.data_page_size() +
+                                                      stat.data_page_size());
+                    }
+                }
+            }
+
+            // Convert aggregated stats to ColumnDataSizeInfo
+            for (const auto& [col_uid, stat] : aggregated_stats) {
                 ColumnDataSizeInfo info;
                 info.backend_id = backend_id_;
                 info.table_id = table_id;
-                info.rowset_id = rowset->rowset_id().to_string();
+                info.rowset_id = beta_rowset->rowset_id().to_string();
                 info.tablet_id = rowset_meta->tablet_id();
                 info.column_unique_id = stat.column_unique_id();
                 info.column_name = stat.column_name();
@@ -117,16 +168,17 @@ Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
             }
         }
     } else {
-        std::vector<TabletSharedPtr> tablets =
-                ExecEnv::GetInstance()->storage_engine().to_local().tablet_manager()->get_all_tablet();
+        std::vector<TabletSharedPtr> tablets = ExecEnv::GetInstance()
+                                                       ->storage_engine()
+                                                       .to_local()
+                                                       .tablet_manager()
+                                                       ->get_all_tablet();
         for (const auto& tablet : tablets) {
             std::vector<std::pair<Version, RowsetSharedPtr>> all_rowsets;
             {
                 std::shared_lock rowset_ldlock(tablet->get_header_lock());
                 tablet->acquire_version_and_rowsets(&all_rowsets);
             }
-            LOG_INFO("[verbose] tablet {}, all_rowsets size {}", tablet->tablet_id(),
-                     all_rowsets.size());
             std::vector<RowsetSharedPtr> rowsets;
             for (const auto& version_and_rowset : all_rowsets) {
                 rowsets.emplace_back(version_and_rowset.second);
@@ -220,7 +272,7 @@ Status SchemaColumnDataSizesScanner::_fill_block_impl(vectorized::Block* block) 
         for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             column_names[i - fill_idx_begin] = _column_data_sizes[i].column_name;
             strs[i - fill_idx_begin] = StringRef(column_names[i - fill_idx_begin].c_str(),
-                                                column_names[i - fill_idx_begin].size());
+                                                 column_names[i - fill_idx_begin].size());
             datas[i - fill_idx_begin] = strs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
@@ -233,7 +285,7 @@ Status SchemaColumnDataSizesScanner::_fill_block_impl(vectorized::Block* block) 
         for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             column_types[i - fill_idx_begin] = _column_data_sizes[i].column_type;
             strs[i - fill_idx_begin] = StringRef(column_types[i - fill_idx_begin].c_str(),
-                                                column_types[i - fill_idx_begin].size());
+                                                 column_types[i - fill_idx_begin].size());
             datas[i - fill_idx_begin] = strs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, datas));
