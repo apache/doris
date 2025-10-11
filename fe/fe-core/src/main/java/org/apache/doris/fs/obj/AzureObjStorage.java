@@ -330,7 +330,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                     java.nio.file.Path blobPath = Paths.get(blobItem.getName());
 
                     boolean isPrefix = false;
-                    while (blobPath.normalize().toString().startsWith(listPrefix)) {
+                    while (null != blobPath && blobPath.normalize().toString().startsWith(listPrefix)) {
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("get blob {}", blobPath.normalize().toString());
                         }

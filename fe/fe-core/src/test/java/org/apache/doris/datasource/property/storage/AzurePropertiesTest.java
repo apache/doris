@@ -54,7 +54,7 @@ public class AzurePropertiesTest {
         Assertions.assertEquals("myAzureSecretKey", azureProperties.getSecretKey());
         Assertions.assertEquals("false", azureProperties.getUsePathStyle());
         Assertions.assertEquals("false", azureProperties.getForceParsingByStandardUrl());
-        Assertions.assertEquals("Azure", azureProperties.getStorageName());
+        Assertions.assertEquals("AZURE", azureProperties.getStorageName());
     }
 
     // Test for missing access_key configuration, should throw an exception
@@ -98,26 +98,6 @@ public class AzurePropertiesTest {
 
     }
 
-    // Test for path style when use_path_style is false
-    @Test
-    public void testPathStyleCombinations() throws Exception {
-        origProps.put("s3.endpoint", "https://mystorageaccount.blob.core.windows.net");
-        origProps.put("s3.access_key", "a");
-        origProps.put("s3.secret_key", "b");
-        origProps.put("provider", "azure");
-
-        // By default, use_path_style is false
-        AzureProperties azureProperties = (AzureProperties) StorageProperties.createPrimary(origProps);
-        Assertions.assertEquals("s3://mystorageaccount/mycontainer/blob.txt",
-                azureProperties.validateAndNormalizeUri("https://mystorageaccount.blob.core.windows.net/mycontainer/blob.txt"));
-
-        // Set use_path_style to true
-        origProps.put("use_path_style", "true");
-        azureProperties = (AzureProperties) StorageProperties.createPrimary(origProps);
-        Assertions.assertEquals("s3://mycontainer/blob.txt",
-                azureProperties.validateAndNormalizeUri("https://mystorageaccount.blob.core.windows.net/mycontainer/blob.txt"));
-    }
-
     @Test
     public void testParsingUri() throws Exception {
         origProps.put("s3.endpoint", "https://mystorageaccount.blob.core.windows.net");
@@ -136,7 +116,7 @@ public class AzurePropertiesTest {
         Assertions.assertEquals("https://mystorageaccount.blob.core.windows.net/mycontainer/blob.txt",
                 azureProperties.validateAndGetUri(origProps));
         azureProperties.setUsePathStyle("false");
-        Assertions.assertEquals("s3://mystorageaccount/mycontainer/blob.txt",
+        Assertions.assertEquals("s3://mycontainer/blob.txt",
                 azureProperties.validateAndNormalizeUri("https://mystorageaccount.blob.core.windows.net/mycontainer/blob.txt"));
 
 

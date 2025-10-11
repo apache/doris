@@ -179,21 +179,6 @@ public class StorageBackend implements ParseNode {
          */
         public static final Set<StorageType> REFACTOR_STORAGE_TYPES =
                 ImmutableSet.of(StorageType.S3, StorageType.HDFS, StorageType.OFS, StorageType.JFS, StorageType.AZURE);
-
-        public static StorageType convertToStorageType(String storageName) {
-            switch (storageName.toLowerCase()) {
-                case "hdfs":
-                    return StorageType.HDFS;
-                case "s3":
-                    return StorageType.S3;
-                case "jfs":
-                    return StorageType.JFS;
-                case "local":
-                    return StorageType.LOCAL;
-                default:
-                    throw new IllegalArgumentException("Invalid storage type: " + storageName);
-            }
-        }
     }
 
 }

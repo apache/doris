@@ -24,6 +24,7 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 import com.google.common.base.Strings;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.hadoop.conf.Configuration;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -59,23 +60,26 @@ import java.util.stream.Stream;
 public class AzureProperties extends StorageProperties {
     @Getter
     @ConnectorProperty(names = {"azure.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
+            required = false,
             description = "The endpoint of S3.")
     protected String endpoint = "";
 
 
     @Getter
-    @ConnectorProperty(names = {"azure.access_key", "s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
+    @ConnectorProperty(names = {"azure.account_name", "azure.access_key", "s3.access_key",
+            "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
             description = "The access key of S3.")
     protected String accessKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"azure.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key"},
+    @ConnectorProperty(names = {"azure.account_key", "azure.secret_key", "s3.secret_key",
+            "AWS_SECRET_KEY", "secret_key"},
             sensitive = true,
             description = "The secret key of S3.")
     protected String secretKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"azure.bucket", "s3.bucket"},
+    @ConnectorProperty(names = {"container", "azure.bucket", "s3.bucket"},
             required = false,
             description = "The container of Azure blob.")
     protected String container = "";
@@ -137,6 +141,7 @@ public class AzureProperties extends StorageProperties {
         s3Props.put("AWS_SECRET_KEY", secretKey);
         s3Props.put("AWS_NEED_OVERRIDE_ENDPOINT", "true");
         s3Props.put("provider", "azure");
+        s3Props.put("PROVIDER", "AZURE");
         s3Props.put("use_path_style", usePathStyle);
         return s3Props;
     }
@@ -155,24 +160,46 @@ public class AzureProperties extends StorageProperties {
 
     @Override
     public String validateAndNormalizeUri(String url) throws UserException {
-        return S3PropertyUtils.validateAndNormalizeUri(url, usePathStyle, forceParsingByStandardUrl);
+        return AzurePropertyUtils.validateAndNormalizeUri(url);
 
     }
 
     @Override
     public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
-        return S3PropertyUtils.validateAndGetUri(loadProps);
+        return AzurePropertyUtils.validateAndGetUri(loadProps);
     }
 
     @Override
     public String getStorageName() {
-        return "Azure";
+        return "AZURE";
     }
 
     @Override
     public void initializeHadoopStorageConfig() {
-        // Azure does not require any special Hadoop configuration for S3 compatibility.
-        // The properties are already set in the getBackendConfigProperties method.
-        // This method will be removed in the future when FileIO is fully implemented.
+        hadoopStorageConfig = new Configuration();
+        //disable azure cache
+        // Disable all Azure ABFS/WASB FileSystem caching to ensure fresh instances per configuration
+        for (String scheme : new String[]{"abfs", "abfss", "wasb", "wasbs"}) {
+            hadoopStorageConfig.set("fs." + scheme + ".impl.disable.cache", "true");
+        }
+        origProps.forEach((k, v) -> {
+            if (k.startsWith("fs.azure.")) {
+                hadoopStorageConfig.set(k, v);
+            }
+        });
+        setAzureAccountKeys(hadoopStorageConfig, accessKey, secretKey);
     }
+
+    private static void setAzureAccountKeys(Configuration conf, String accountName, String accountKey) {
+        String[] endpoints = {
+                "dfs.core.windows.net",
+                "blob.core.windows.net"
+        };
+        for (String endpoint : endpoints) {
+            String key = String.format("fs.azure.account.key.%s.%s", accountName, endpoint);
+            conf.set(key, accountKey);
+        }
+        conf.set("fs.azure.account.key", accountKey);
+    }
+
 }
