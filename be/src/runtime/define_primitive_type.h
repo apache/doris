@@ -69,7 +69,8 @@ enum PrimitiveType : PrimitiveNative {
     TYPE_UINT32,              /* 38, used as offset */
     TYPE_UINT64,              /* 39, used as offset */
     TYPE_FIXED_LENGTH_OBJECT, /* 40, represent fixed-length object on BE */
-    TYPE_VARBINARY            /* 41, varbinary */
+    TYPE_VARBINARY,           /* 41, varbinary */
+    TYPE_TIMESTAMPTZ          /* 42, timestamptz */
 };
 
 } // namespace doris
