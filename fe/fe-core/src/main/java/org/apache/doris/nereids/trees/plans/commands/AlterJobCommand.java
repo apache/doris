@@ -129,7 +129,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
         UnboundTVFRelation inputTvf = getTvf(sql);
         Preconditions.checkArgument(originTvf.getFunctionName().equalsIgnoreCase(inputTvf.getFunctionName()),
                 "The tvf type %s cannot be modified in ALTER JOB", inputTvf);
-        switch (originTvf.getFunctionName().toLowerCase())
+        switch (originTvf.getFunctionName().toLowerCase()) {
             case "s3":
                 Preconditions.checkArgument(Objects.equals(originTvf.getProperties().getMap().get("uri"),
                         inputTvf.getProperties().getMap().get("uri")),
