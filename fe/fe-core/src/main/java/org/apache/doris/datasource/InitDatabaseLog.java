@@ -40,7 +40,8 @@ public class InitDatabaseLog implements Writable {
         MAX_COMPUTE,
         HUDI,
         PAIMON,
-        LAKESOUL,
+        @Deprecated
+        LAKESOUL, // Deprecated: LakeSoul support has been removed
         TEST,
         INFO_SCHEMA_DB,
         TRINO_CONNECTOR,
