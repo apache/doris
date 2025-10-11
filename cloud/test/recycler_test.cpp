@@ -1104,6 +1104,16 @@ static int get_copy_file_num(TxnKv* txn_kv, const std::string& stage_id, int64_t
     return 0;
 }
 
+static void check_delete_bitmap_keys_size(TxnKv* txn_kv, int64_t tablet_id, int expected_size) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::unique_ptr<RangeGetIterator> it;
+    auto dbm_start_key = meta_delete_bitmap_key({instance_id, tablet_id, "", 0, 0});
+    auto dbm_end_key = meta_delete_bitmap_key({instance_id, tablet_id + 1, "", 0, 0});
+    ASSERT_EQ(txn->get(dbm_start_key, dbm_end_key, &it), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(it->size(), expected_size);
+}
+
 TEST(RecyclerTest, recycle_empty) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
@@ -1328,13 +1338,22 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     int64_t txn_id_base = 114115;
     int64_t tablet_id_base = 10015;
     int64_t index_id_base = 1000;
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     for (int i = 0; i < 50; ++i) {
         int64_t txn_id = txn_id_base + i;
         for (int j = 0; j < 1000; ++j) {
             auto rowset = create_rowset("recycle_tmp_rowsets", tablet_id_base + j,
                                         index_id_base + j, 5, schemas[i % 5], txn_id);
             create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, i & 1, false);
+            if (i < 50) {
+                create_delete_bitmaps(txn.get(), tablet_id_base + j, rowset.rowset_id_v2(), 0, 1);
+            }
         }
+    }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    for (int j = 0; j < 20; ++j) {
+        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 100);
     }
 
     auto start = std::chrono::steady_clock::now();
@@ -1349,7 +1368,6 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     ASSERT_EQ(0, accessor->list_directory("data/", &list_iter));
     ASSERT_FALSE(list_iter->has_next());
     // check all tmp rowset kv have been deleted
-    std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     std::unique_ptr<RangeGetIterator> it;
     auto begin_key = meta_rowset_tmp_key({instance_id, 0, 0});
@@ -1360,6 +1378,9 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     // EXPECT_GE for InvertedIndexIdCache::get
     EXPECT_GE(insert_inverted_index, 4000);
     EXPECT_GE(insert_no_inverted_index, 1000);
+    for (int j = 0; j < 20; ++j) {
+        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 0);
+    }
 }
 
 TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
