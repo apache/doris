@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe.runtime;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
@@ -41,6 +42,9 @@ import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanFragmentId;
+import org.apache.doris.planner.RecursiveCteNode;
+import org.apache.doris.planner.RecursiveCteScanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.qe.ConnectContext;
@@ -48,6 +52,7 @@ import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TAIResource;
 import org.apache.doris.thrift.TDataSinkType;
+import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -56,6 +61,9 @@ import org.apache.doris.thrift.TPipelineInstanceParams;
 import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TPlanFragmentDestination;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TRecCTENode;
+import org.apache.doris.thrift.TRecCTEResetInfo;
+import org.apache.doris.thrift.TRecCTETarget;
 import org.apache.doris.thrift.TRuntimeFilterInfo;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TScanRangeParams;
@@ -79,6 +87,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 
@@ -89,6 +99,7 @@ public class ThriftPlansBuilder {
             CoordinatorContext coordinatorContext) {
 
         List<PipelineDistributedPlan> distributedPlans = coordinatorContext.distributedPlans;
+        setParamsForRecursiveCteNode(distributedPlans);
 
         // we should set runtime predicate first, then we can use heap sort and to thrift
         setRuntimePredicateIfNeed(coordinatorContext.scanNodes);
@@ -572,6 +583,91 @@ public class ThriftPlansBuilder {
                     }
                 }
                 break;
+            }
+        }
+    }
+
+    private static void setParamsForRecursiveCteNode(List<PipelineDistributedPlan> distributedPlans) {
+        Map<PlanFragmentId, TRecCTETarget> fragmentIdToRecCteTargetMap = new TreeMap<>();
+        Map<PlanFragmentId, Set<TNetworkAddress>> fragmentIdToNetworkAddressMap = new TreeMap<>();
+        for (PipelineDistributedPlan plan : distributedPlans) {
+            List<AssignedJob> fragmentAssignedJobs = plan.getInstanceJobs();
+            Set<TNetworkAddress> networkAddresses = new TreeSet<>();
+            for (AssignedJob assignedJob : fragmentAssignedJobs) {
+                DistributedPlanWorker distributedPlanWorker = assignedJob.getAssignedWorker();
+                networkAddresses.add(new TNetworkAddress(distributedPlanWorker.host(),
+                        distributedPlanWorker.brpcPort()));
+            }
+            PlanFragment planFragment = plan.getFragmentJob().getFragment();
+            fragmentIdToNetworkAddressMap.put(planFragment.getFragmentId(), networkAddresses);
+
+            List<RecursiveCteScanNode> recursiveCteScanNodes = planFragment.getPlanRoot()
+                    .collectInCurrentFragment(RecursiveCteScanNode.class::isInstance);
+            if (!recursiveCteScanNodes.isEmpty()) {
+                if (recursiveCteScanNodes.size() != 1) {
+                    throw new IllegalStateException(
+                            String.format("one fragment can only have 1 recursive cte scan node, but there is %d",
+                                    recursiveCteScanNodes.size()));
+                }
+                if (fragmentAssignedJobs.isEmpty()) {
+                    throw new IllegalStateException(
+                            "fragmentAssignedJobs is empty for recursive cte scan node");
+                }
+                TRecCTETarget tRecCTETarget = new TRecCTETarget();
+                DistributedPlanWorker distributedPlanWorker = fragmentAssignedJobs.get(0).getAssignedWorker();
+                tRecCTETarget.setAddr(new TNetworkAddress(distributedPlanWorker.host(),
+                        distributedPlanWorker.brpcPort()));
+                tRecCTETarget.setFragmentInstanceId(fragmentAssignedJobs.get(0).instanceId());
+                tRecCTETarget.setNodeId(recursiveCteScanNodes.get(0).getId().asInt());
+                fragmentIdToRecCteTargetMap.put(planFragment.getFragmentId(), tRecCTETarget);
+            }
+
+            List<RecursiveCteNode> recursiveCteNodes = planFragment.getPlanRoot()
+                    .collectInCurrentFragment(RecursiveCteNode.class::isInstance);
+            if (!recursiveCteNodes.isEmpty()) {
+                if (recursiveCteNodes.size() != 1) {
+                    throw new IllegalStateException(
+                            String.format("one fragment can only have 1 recursive cte node, but there is %d",
+                                    recursiveCteNodes.size()));
+                }
+
+                List<TRecCTETarget> targets = new ArrayList<>();
+                List<TRecCTEResetInfo> fragmentsToReset = new ArrayList<>();
+                // PhysicalPlanTranslator will swap recursiveCteNodes's child fragment,
+                // so we get recursive one by 1st child
+                List<PlanFragment> childFragments = new ArrayList<>();
+                planFragment.getChild(0).collectAll(PlanFragment.class::isInstance, childFragments);
+                for (PlanFragment child : childFragments) {
+                    PlanFragmentId childFragmentId = child.getFragmentId();
+                    TRecCTETarget tRecCTETarget = fragmentIdToRecCteTargetMap.getOrDefault(childFragmentId, null);
+                    if (tRecCTETarget != null) {
+                        targets.add(tRecCTETarget);
+                    }
+                    Set<TNetworkAddress> tNetworkAddresses = fragmentIdToNetworkAddressMap.get(childFragmentId);
+                    if (tNetworkAddresses == null) {
+                        throw new IllegalStateException(
+                                String.format("can't find TNetworkAddress for fragment %d", childFragmentId));
+                    }
+                    for (TNetworkAddress address : tNetworkAddresses) {
+                        TRecCTEResetInfo tRecCTEResetInfo = new TRecCTEResetInfo();
+                        tRecCTEResetInfo.setFragmentId(childFragmentId.asInt());
+                        tRecCTEResetInfo.setAddr(address);
+                        fragmentsToReset.add(tRecCTEResetInfo);
+                    }
+                }
+
+                RecursiveCteNode recursiveCteNode = recursiveCteNodes.get(0);
+                List<List<Expr>> materializedResultExprLists = recursiveCteNode.getMaterializedResultExprLists();
+                List<List<TExpr>> texprLists = new ArrayList<>(materializedResultExprLists.size());
+                for (List<Expr> exprList : materializedResultExprLists) {
+                    texprLists.add(Expr.treesToThrift(exprList));
+                }
+                TRecCTENode tRecCTENode = new TRecCTENode();
+                tRecCTENode.setIsUnionAll(recursiveCteNode.isUnionAll());
+                tRecCTENode.setTargets(targets);
+                tRecCTENode.setFragmentsToReset(fragmentsToReset);
+                tRecCTENode.setResultExprLists(texprLists);
+                recursiveCteNode.settRecCTENode(tRecCTENode);
             }
         }
     }

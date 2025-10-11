@@ -26,6 +26,7 @@ import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
 
@@ -57,6 +58,8 @@ public class UnassignedRecursiveCteScanJob extends AbstractUnassignedScanJob {
     @Override
     protected List<AssignedJob> fillUpAssignedJobs(List<AssignedJob> assignedJobs,
             DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
-        return fillUpSingleEmptyInstance(workerManager);
+        Preconditions.checkArgument(!assignedJobs.isEmpty(),
+                "assignedJobs is empty for UnassignedRecursiveCteScanJob");
+        return assignedJobs;
     }
 }

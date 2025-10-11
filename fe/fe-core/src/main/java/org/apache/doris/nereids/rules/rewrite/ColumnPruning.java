@@ -217,7 +217,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     @Override
     public Plan visitLogicalRecursiveCte(LogicalRecursiveCte recursiveCte, PruneContext context) {
         // LogicalRecursiveCte is basically like LogicalUnion, so just do same as LogicalUnion
-        if (recursiveCte.getQualifier() == Qualifier.DISTINCT) {
+        if (!recursiveCte.isUnionAll()) {
             return skipPruneThisAndFirstLevelChildren(recursiveCte);
         }
         LogicalRecursiveCte prunedOutputRecursiveCte = pruneRecursiveCteOutput(recursiveCte, context);
@@ -451,7 +451,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             return recursiveCte;
         }
         List<NamedExpression> prunedOutputs = Lists.newArrayList();
-        List<List<NamedExpression>> constantExprsList = recursiveCte.getConstantExprsList();
         List<List<SlotReference>> regularChildrenOutputs = recursiveCte.getRegularChildrenOutputs();
         List<Plan> children = recursiveCte.children();
         List<Integer> extractColumnIndex = Lists.newArrayList();
@@ -463,8 +462,6 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             }
         }
 
-        ImmutableList.Builder<List<NamedExpression>> prunedConstantExprsList
-                = ImmutableList.builderWithExpectedSize(constantExprsList.size());
         if (prunedOutputs.isEmpty()) {
             // process prune all columns
             NamedExpression originSlot = originOutput.get(0);
@@ -472,7 +469,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                     TinyIntType.INSTANCE, false, originSlot.getQualifier()));
             regularChildrenOutputs = Lists.newArrayListWithCapacity(regularChildrenOutputs.size());
             children = Lists.newArrayListWithCapacity(children.size());
-            for (int i = 0; i < recursiveCte.getArity(); i++) {
+            for (int i = 0; i < recursiveCte.children().size(); i++) {
                 Plan child = recursiveCte.child(i);
                 List<NamedExpression> newProjectOutput = ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1)));
                 LogicalProject<?> project;
@@ -487,25 +484,12 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
                 regularChildrenOutputs.add((List) project.getOutput());
                 children.add(project);
             }
-            for (int i = 0; i < constantExprsList.size(); i++) {
-                prunedConstantExprsList.add(ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1))));
-            }
-        } else {
-            int len = extractColumnIndex.size();
-            for (List<NamedExpression> row : constantExprsList) {
-                ImmutableList.Builder<NamedExpression> newRow = ImmutableList.builderWithExpectedSize(len);
-                for (int idx : extractColumnIndex) {
-                    newRow.add(row.get(idx));
-                }
-                prunedConstantExprsList.add(newRow.build());
-            }
         }
 
         if (prunedOutputs.equals(originOutput) && !context.requiredSlotsIds.isEmpty()) {
             return recursiveCte;
         } else {
-            return recursiveCte.withNewOutputsChildrenAndConstExprsList(prunedOutputs, children,
-                    regularChildrenOutputs, prunedConstantExprsList.build());
+            return recursiveCte.withNewOutputsAndChildren(prunedOutputs, children, regularChildrenOutputs);
         }
     }
 

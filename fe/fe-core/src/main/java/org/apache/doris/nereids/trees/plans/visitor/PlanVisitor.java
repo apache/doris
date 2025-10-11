@@ -383,7 +383,7 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     }
 
     public R visitPhysicalRecursiveCte(PhysicalRecursiveCte recursiveCte, C context) {
-        return visitPhysicalSetOperation(recursiveCte, context);
+        return visit(recursiveCte, context);
     }
 
     public R visitAbstractPhysicalSort(AbstractPhysicalSort<? extends Plan> sort, C context) {
