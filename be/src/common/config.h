@@ -1185,6 +1185,11 @@ DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
+DECLARE_Bool(enable_file_cache_fill_async);
+DECLARE_Int32(num_file_cache_fill_thread_pool_min_thread);
+DECLARE_Int32(num_file_cache_fill_thread_pool_max_thread);
+DECLARE_mInt64(file_cache_fill_buffer_max_size);
+
 // inverted index searcher cache
 // cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
