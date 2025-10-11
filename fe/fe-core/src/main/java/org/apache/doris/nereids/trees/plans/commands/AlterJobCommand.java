@@ -160,7 +160,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
     }
 
     private boolean checkSql(String originSql) {
-        if (originSql == null || originSql.isEmpty()) {
+        if (originSql == null || originSql.isEmpty() || sql == null || sql.isEmpty()) {
             return false;
         }
         if (!originSql.equals(this.sql)) {
