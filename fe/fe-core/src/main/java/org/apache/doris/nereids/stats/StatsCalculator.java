@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
+import org.apache.doris.nereids.trees.plans.algebra.RecursiveCte;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
@@ -925,7 +926,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitLogicalRecursiveCte(
             LogicalRecursiveCte recursiveCte, Void context) {
-        return computeUnion(recursiveCte,
+        return computeRecursiveCte(recursiveCte,
                 groupExpression.children()
                         .stream().map(Group::getStatistics).collect(Collectors.toList()));
     }
@@ -1108,7 +1109,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitPhysicalRecursiveCte(PhysicalRecursiveCte recursiveCte, Void context) {
-        return computeUnion(recursiveCte, groupExpression.children()
+        return computeRecursiveCte(recursiveCte, groupExpression.children()
                 .stream().map(Group::getStatistics).collect(Collectors.toList()));
     }
 
@@ -1491,6 +1492,71 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 .collect(Collectors.toMap(Pair::key, Pair::value, (item1, item2) -> item1));
         int rowCount = 0;
         return new Statistics(rowCount, 1, columnStatsMap);
+    }
+
+    /**
+     * computeRecursiveCte
+     */
+    public Statistics computeRecursiveCte(RecursiveCte recursiveCte, List<Statistics> childStats) {
+        // TODO: refactor this for one row relation
+        List<SlotReference> head;
+        Statistics headStats;
+        List<List<SlotReference>> childOutputs = Lists.newArrayList(recursiveCte.getRegularChildrenOutputs());
+
+        head = childOutputs.get(0);
+        headStats = new StatisticsBuilder(childStats.get(0)).build();
+
+        StatisticsBuilder statisticsBuilder = new StatisticsBuilder();
+        List<NamedExpression> unionOutput = recursiveCte.getOutputs();
+        double unionRowCount = childStats.stream().mapToDouble(Statistics::getRowCount).sum();
+        statisticsBuilder.setRowCount(unionRowCount);
+
+        for (int i = 0; i < head.size(); i++) {
+            Slot headSlot = head.get(i);
+            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(
+                    headStats.findColumnStatistics(headSlot));
+            for (int j = 1; j < childOutputs.size(); j++) {
+                Slot slot = childOutputs.get(j).get(i);
+                ColumnStatistic rightStatistic = childStats.get(j).findColumnStatistics(slot);
+                double rightRowCount = childStats.get(j).getRowCount();
+                colStatsBuilder = unionColumn(colStatsBuilder,
+                        headStats.getRowCount(), rightStatistic, rightRowCount, headSlot.getDataType());
+            }
+
+            //update hot values
+            Map<Literal, Float> unionHotValues = new HashMap<>();
+            for (int j = 0; j < childOutputs.size(); j++) {
+                Slot slot = childOutputs.get(j).get(i);
+                ColumnStatistic slotStats = childStats.get(j).findColumnStatistics(slot);
+                if (slotStats.getHotValues() != null) {
+                    for (Map.Entry<Literal, Float> entry : slotStats.getHotValues().entrySet()) {
+                        Float value = unionHotValues.get(entry.getKey());
+                        if (value == null) {
+                            unionHotValues.put(entry.getKey(),
+                                    (float) (entry.getValue() * childStats.get(j).getRowCount()));
+                        } else {
+                            unionHotValues.put(entry.getKey(),
+                                    (float) (value + entry.getValue() * childStats.get(j).getRowCount()));
+                        }
+                    }
+                }
+            }
+
+            Map<Literal, Float> resultHotValues = new LinkedHashMap<>();
+            for (Literal hot : unionHotValues.keySet()) {
+                float ratio = (float) (unionHotValues.get(hot) / unionRowCount);
+                if (ratio * colStatsBuilder.getNdv() >= SessionVariable.getSkewValueThreshold()
+                        || ratio >= SessionVariable.getHotValueThreshold()) {
+                    resultHotValues.put(hot, ratio);
+                }
+            }
+            if (!resultHotValues.isEmpty()) {
+                colStatsBuilder.setHotValues(resultHotValues);
+            }
+            statisticsBuilder.putColumnStatistics(unionOutput.get(i), colStatsBuilder.build());
+        }
+
+        return statisticsBuilder.setWidthInJoinCluster(1).build();
     }
 
     /**
