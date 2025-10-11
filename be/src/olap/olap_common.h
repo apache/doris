@@ -162,6 +162,7 @@ enum class FieldType {
     OLAP_FIELD_TYPE_DECIMAL256 = 37,
     OLAP_FIELD_TYPE_IPV4 = 38,
     OLAP_FIELD_TYPE_IPV6 = 39,
+    OLAP_FIELD_TYPE_TIMESTAMPTZ = 40,
 };
 
 // Define all aggregation methods supported by Field
@@ -210,6 +211,7 @@ constexpr bool field_is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DATEV2 ||
            field_type == FieldType::OLAP_FIELD_TYPE_DATETIME ||
            field_type == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ ||
            field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL ||
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
