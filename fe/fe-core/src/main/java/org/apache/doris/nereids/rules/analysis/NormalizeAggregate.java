@@ -127,33 +127,34 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                         .toRule(RuleType.NORMALIZE_AGGREGATE));
     }
 
+    /**
+     * The LogicalAggregate node may contain window agg functions and usual agg functions
+     * we call window agg functions as window-agg and usual agg functions as trivial-agg for short
+     * This rule simplify LogicalAggregate node by:
+     *    1. Push down some exprs from old LogicalAggregate node to a new child LogicalProject Node,
+     *    2. create a new LogicalAggregate with normalized group by exprs and trivial-aggs
+     *    3. Pull up normalized old LogicalAggregate's output exprs to a new parent LogicalProject Node
+     * Push down exprs:
+     *    1. all group by exprs
+     *    2. child contains subquery expr in trivial-agg
+     *    3. child contains window expr in trivial-agg
+     *    4. all input slots of trivial-agg
+     *    5. expr(including subquery) in distinct trivial-agg
+     * Normalize LogicalAggregate's output.
+     *    1. normalize group by exprs by outputs of bottom LogicalProject
+     *    2. normalize trivial-aggs by outputs of bottom LogicalProject
+     *    3. build normalized agg outputs
+     * Pull up exprs:
+     * normalize all output exprs in old LogicalAggregate to build a parent project node, typically includes:
+     *    1. simple slots
+     *    2. aliases
+     *        a. alias with no aggs child
+     *        b. alias with trivial-agg child
+     *        c. alias with window-agg
+     */
     @SuppressWarnings("checkstyle:UnusedLocalVariable")
-    private LogicalPlan normalizeAgg(LogicalAggregate<Plan> aggregate, Optional<LogicalHaving<?>> having,
+    public LogicalPlan normalizeAgg(LogicalAggregate<Plan> aggregate, Optional<LogicalHaving<?>> having,
             CascadesContext ctx) {
-        // The LogicalAggregate node may contain window agg functions and usual agg functions
-        // we call window agg functions as window-agg and usual agg functions as trivial-agg for short
-        // This rule simplify LogicalAggregate node by:
-        // 1. Push down some exprs from old LogicalAggregate node to a new child LogicalProject Node,
-        // 2. create a new LogicalAggregate with normalized group by exprs and trivial-aggs
-        // 3. Pull up normalized old LogicalAggregate's output exprs to a new parent LogicalProject Node
-        // Push down exprs:
-        // 1. all group by exprs
-        // 2. child contains subquery expr in trivial-agg
-        // 3. child contains window expr in trivial-agg
-        // 4. all input slots of trivial-agg
-        // 5. expr(including subquery) in distinct trivial-agg
-        // Normalize LogicalAggregate's output.
-        // 1. normalize group by exprs by outputs of bottom LogicalProject
-        // 2. normalize trivial-aggs by outputs of bottom LogicalProject
-        // 3. build normalized agg outputs
-        // Pull up exprs:
-        // normalize all output exprs in old LogicalAggregate to build a parent project node, typically includes:
-        // 1. simple slots
-        // 2. aliases
-        //    a. alias with no aggs child
-        //    b. alias with trivial-agg child
-        //    c. alias with window-agg
-
         // Push down exprs:
         // collect group by exprs
         Set<Expression> groupingByExprs = Utils.fastToImmutableSet(aggregate.getGroupByExpressions());

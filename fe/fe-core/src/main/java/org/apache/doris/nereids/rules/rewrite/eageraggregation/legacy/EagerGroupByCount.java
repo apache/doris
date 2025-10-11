@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration;
+package org.apache.doris.nereids.rules.rewrite.eageraggregation.legacy;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
@@ -50,26 +49,26 @@ import java.util.Set;
  * |   (y)
  * (x)
  * ->
- * aggregate: SUM(sum1 * cnt2), SUM(sum2 * cnt1)
+ * aggregate: SUM(sum1), SUM(y  * cnt)
  * |
  * join
  * |   \
- * |   aggregate: SUM(y) as sum2, COUNT: cnt2
- * aggregate: SUM(x) as sum1, COUNT: cnt1
+ * |   (y)
+ * aggregate: SUM(x) as sum1 , COUNT as cnt
  * </pre>
  */
-public class EagerSplit extends OneExplorationRuleFactory {
-    public static final EagerSplit INSTANCE = new EagerSplit();
+public class EagerGroupByCount extends OneExplorationRuleFactory {
+    public static final EagerGroupByCount INSTANCE = new EagerGroupByCount();
 
     @Override
     public Rule build() {
         return logicalAggregate(innerLogicalJoin())
+                .when(agg -> agg.child().getOtherJoinConjuncts().size() == 0)
                 .when(agg -> agg.getAggregateFunctions().stream()
-                        .allMatch(f -> f instanceof Sum && ((Sum) f).child() instanceof SlotReference))
+                        .allMatch(f -> f instanceof Sum && ((Sum) f).child() instanceof Slot))
                 .then(agg -> {
                     LogicalJoin<GroupPlan, GroupPlan> join = agg.child();
                     List<Slot> leftOutput = join.left().getOutput();
-                    List<Slot> rightOutput = join.right().getOutput();
                     List<Sum> leftSums = new ArrayList<>();
                     List<Sum> rightSums = new ArrayList<>();
                     for (AggregateFunction f : agg.getAggregateFunctions()) {
@@ -85,44 +84,24 @@ public class EagerSplit extends OneExplorationRuleFactory {
                     }
 
                     // left bottom agg
-                    Set<Slot> leftBottomAggGroupBy = new HashSet<>();
+                    Set<Slot> bottomAggGroupBy = new HashSet<>();
                     agg.getGroupByExpressions().stream().map(e -> (Slot) e).filter(leftOutput::contains)
-                            .forEach(leftBottomAggGroupBy::add);
+                            .forEach(bottomAggGroupBy::add);
                     join.getHashJoinConjuncts().forEach(e -> e.getInputSlots().forEach(slot -> {
                         if (leftOutput.contains(slot)) {
-                            leftBottomAggGroupBy.add(slot);
+                            bottomAggGroupBy.add(slot);
                         }
                     }));
-                    List<NamedExpression> leftBottomSums = new ArrayList<>();
+                    List<NamedExpression> bottomSums = new ArrayList<>();
                     for (int i = 0; i < leftSums.size(); i++) {
-                        leftBottomSums.add(new Alias(new Sum(leftSums.get(i).child()), "left_sum" + i));
+                        bottomSums.add(new Alias(new Sum(leftSums.get(i).child()), "sum" + i));
                     }
-                    Alias leftCnt = new Alias(new Count(), "left_cnt");
-                    List<NamedExpression> leftBottomAggOutput = ImmutableList.<NamedExpression>builder()
-                            .addAll(leftBottomAggGroupBy).addAll(leftBottomSums).add(leftCnt).build();
-                    LogicalAggregate<GroupPlan> leftBottomAgg = new LogicalAggregate<>(
-                            ImmutableList.copyOf(leftBottomAggGroupBy), leftBottomAggOutput, join.left());
-
-                    // right bottom agg
-                    Set<Slot> rightBottomAggGroupBy = new HashSet<>();
-                    agg.getGroupByExpressions().stream().map(e -> (Slot) e).filter(rightOutput::contains)
-                            .forEach(rightBottomAggGroupBy::add);
-                    join.getHashJoinConjuncts().forEach(e -> e.getInputSlots().forEach(slot -> {
-                        if (rightOutput.contains(slot)) {
-                            rightBottomAggGroupBy.add(slot);
-                        }
-                    }));
-                    List<NamedExpression> rightBottomSums = new ArrayList<>();
-                    for (int i = 0; i < rightSums.size(); i++) {
-                        rightBottomSums.add(new Alias(new Sum(rightSums.get(i).child()), "right_sum" + i));
-                    }
-                    Alias rightCnt = new Alias(new Count(), "right_cnt");
-                    List<NamedExpression> rightBottomAggOutput = ImmutableList.<NamedExpression>builder()
-                            .addAll(rightBottomAggGroupBy).addAll(rightBottomSums).add(rightCnt).build();
-                    LogicalAggregate<GroupPlan> rightBottomAgg = new LogicalAggregate<>(
-                            ImmutableList.copyOf(rightBottomAggGroupBy), rightBottomAggOutput, join.right());
-
-                    Plan newJoin = join.withChildren(leftBottomAgg, rightBottomAgg);
+                    Alias cnt = new Alias(new Count(), "cnt");
+                    List<NamedExpression> bottomAggOutput = ImmutableList.<NamedExpression>builder()
+                            .addAll(bottomAggGroupBy).addAll(bottomSums).add(cnt).build();
+                    LogicalAggregate<GroupPlan> bottomAgg = new LogicalAggregate<>(
+                            ImmutableList.copyOf(bottomAggGroupBy), bottomAggOutput, join.left());
+                    Plan newJoin = join.withChildren(bottomAgg, join.right());
 
                     // top agg
                     List<NamedExpression> newOutputExprs = new ArrayList<>();
@@ -141,22 +120,20 @@ public class EagerSplit extends OneExplorationRuleFactory {
                             newOutputExprs.add(ne);
                         }
                     }
-                    Preconditions.checkState(leftSumOutputExprs.size() == leftBottomSums.size());
-                    Preconditions.checkState(rightSumOutputExprs.size() == rightBottomSums.size());
                     for (int i = 0; i < leftSumOutputExprs.size(); i++) {
                         Alias oldSum = leftSumOutputExprs.get(i);
-                        Slot slot = leftBottomSums.get(i).toSlot();
-                        newOutputExprs.add(new Alias(oldSum.getExprId(), new Sum(new Multiply(slot, rightCnt.toSlot())),
-                                oldSum.getName()));
-                    }
-                    for (int i = 0; i < rightSumOutputExprs.size(); i++) {
-                        Alias oldSum = rightSumOutputExprs.get(i);
-                        Slot bottomSum = rightBottomSums.get(i).toSlot();
-                        Alias newSum = new Alias(oldSum.getExprId(), new Sum(new Multiply(bottomSum, leftCnt.toSlot())),
-                                oldSum.getName());
+                        // sum in bottom Agg
+                        Slot bottomSum = bottomSums.get(i).toSlot();
+                        Alias newSum = new Alias(oldSum.getExprId(), new Sum(bottomSum), oldSum.getName());
                         newOutputExprs.add(newSum);
                     }
+                    for (Alias oldSum : rightSumOutputExprs) {
+                        Sum oldSumFunc = (Sum) oldSum.child();
+                        Slot slot = (Slot) oldSumFunc.child();
+                        newOutputExprs.add(new Alias(oldSum.getExprId(), new Sum(new Multiply(slot, cnt.toSlot())),
+                                oldSum.getName()));
+                    }
                     return agg.withAggOutput(newOutputExprs).withChildren(newJoin);
-                }).toRule(RuleType.EAGER_SPLIT);
+                }).toRule(RuleType.EAGER_GROUP_BY_COUNT);
     }
 }
