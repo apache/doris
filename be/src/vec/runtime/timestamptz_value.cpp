@@ -68,9 +68,9 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz) const {
     /// TODO: We could directly use datetime's to_string here. In the future,
     /// when we support a function like 'show datetime with timezone',
     /// we can reuse this implementation.
-    snprintf(buf, sizeof(buf), "%04ld-%02d-%02d %02d:%02d:%02d.%06d %s%02d:%02d", civ.year(),
+    snprintf(buf, sizeof(buf), "%04ld-%02d-%02d %02d:%02d:%02d.%06d %c%02d:%02d", civ.year(),
              civ.month(), civ.day(), civ.hour(), civ.minute(), civ.second(), _utc_dt.microsecond(),
-             (offset_hours >= 0 ? "+" : "-"), std::abs(offset_hours), offset_mins);
+             (offset_hours >= 0 ? '+' : '-'), std::abs(offset_hours), offset_mins);
 
     return {buf};
 }
