@@ -38,11 +38,10 @@
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/functions/string_hex_util.h"
+#include "vec/utils/stringop_substring.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_avoid_begin.h"
-
-static constexpr int MAX_STACK_CIPHER_LEN = 1024 * 64;
 
 class FunctionToBinary : public IFunction {
 public:
@@ -156,8 +155,8 @@ struct NameVarbinaryLength {
 
 struct VarbinaryLengthImpl {
     using ReturnType = DataTypeInt32;
-    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_VARBINARY;
     using ReturnColumnType = ColumnInt32;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_VARBINARY;
 
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeVarbinary>()};
@@ -178,108 +177,92 @@ using FunctionBinaryLength = FunctionUnaryToType<VarbinaryLengthImpl, NameVarbin
 
 struct ToBase64BinaryImpl {
     static constexpr auto name = "to_base64_binary";
-    static constexpr auto is_nullable = false;
-
     using ReturnType = DataTypeString;
+    using ColumnType = ColumnString;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_VARBINARY;
 
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count) {
-        auto& col_ptr = block.get_by_position(arguments[0]).column;
-        if (const auto* col = check_and_get_column<ColumnVarbinary>(col_ptr.get())) {
-            auto result_column = ColumnString::create();
-            result_column->get_offsets().reserve(input_rows_count);
+    static Status vector(const PaddedPODArray<doris::StringView>& data,
+                         ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
+        auto rows_count = data.size();
+        dst_offsets.resize(rows_count);
 
-            for (size_t i = 0; i < input_rows_count; i++) {
-                auto binary = col->get_data_at(i);
+        std::array<char, string_hex::MAX_STACK_CIPHER_LEN> stack_buf;
+        std::vector<char> heap_buf;
+        for (size_t i = 0; i < rows_count; i++) {
+            auto binary = data[i];
+            auto binlen = binary.size();
 
-                if (binary.size == 0) {
-                    result_column->insert_default();
-                    continue;
-                }
-
-                char dst_array[MAX_STACK_CIPHER_LEN];
-                char* dst = dst_array;
-
-                int cipher_len = 4 * ((binary.size + 2) / 3);
-                std::unique_ptr<char[]> dst_uptr;
-                if (cipher_len > MAX_STACK_CIPHER_LEN) {
-                    dst_uptr.reset(new char[cipher_len]);
-                    dst = dst_uptr.get();
-                }
-
-                auto len = doris::base64_encode(reinterpret_cast<const unsigned char*>(binary.data),
-                                                binary.size, reinterpret_cast<unsigned char*>(dst));
-
-                result_column->insert_data(dst, len);
+            if (binlen == 0) {
+                StringOP::push_empty_string(i, dst_data, dst_offsets);
+                continue;
             }
-            block.replace_by_position(result, std::move(result_column));
-        } else {
-            return Status::RuntimeError("Illegal column {} of argument of function {}",
-                                        block.get_by_position(arguments[0]).column->get_name(),
-                                        ToBase64BinaryImpl::name);
+
+            char* dst = nullptr;
+            auto cipher_len = 4 * ((binlen + 2) / 3);
+            if (cipher_len <= stack_buf.size()) {
+                dst = stack_buf.data();
+            } else {
+                heap_buf.resize(cipher_len);
+                dst = heap_buf.data();
+            }
+
+            auto outlen =
+                    doris::base64_encode(reinterpret_cast<const unsigned char*>(binary.data()),
+                                         binlen, reinterpret_cast<unsigned char*>(dst));
+
+            StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
         }
 
         return Status::OK();
     }
 };
 
-using FunctionToBase64Binary = FunctionBinaryUnary<ToBase64BinaryImpl>;
+using FunctionToBase64Binary = FunctionStringEncode<ToBase64BinaryImpl, false>;
 
 struct FromBase64BinaryImpl {
     static constexpr auto name = "from_base64_binary";
-    static constexpr auto is_nullable = true;
-
     using ReturnType = DataTypeVarbinary;
+    using ColumnType = ColumnVarbinary;
 
-    static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, uint32_t result,
-                               size_t input_rows_count) {
-        auto& col_ptr = block.get_by_position(arguments[0]).column;
-        if (const auto* col = check_and_get_column<ColumnString>(col_ptr.get())) {
-            auto result_column = ColumnVarbinary::create();
-            auto null_map = ColumnUInt8::create(input_rows_count, 0);
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         ColumnVarbinary* res, NullMap& null_map) {
+        auto rows_count = offsets.size();
 
-            for (size_t i = 0; i < input_rows_count; i++) {
-                auto base64_string = col->get_data_at(i);
+        std::array<char, string_hex::MAX_STACK_CIPHER_LEN> stack_buf;
+        std::vector<char> heap_buf;
+        for (size_t i = 0; i < rows_count; i++) {
+            const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            ColumnString::Offset slen = offsets[i] - offsets[i - 1];
 
-                if (base64_string.size == 0) {
-                    result_column->insert_default();
-                    continue;
-                }
-
-                char dst_array[MAX_STACK_CIPHER_LEN];
-                char* dst = dst_array;
-
-                int cipher_len = base64_string.size;
-                std::unique_ptr<char[]> dst_uptr;
-                if (cipher_len > MAX_STACK_CIPHER_LEN) {
-                    dst_uptr.reset(new char[cipher_len]);
-                    dst = dst_uptr.get();
-                }
-
-                auto len = doris::base64_decode(base64_string.data, base64_string.size, dst);
-
-                if (len < 0) {
-                    null_map->get_data()[i] = 1;
-                    result_column->insert_default();
-                } else {
-                    result_column->insert_data(dst, len);
-                }
+            if (slen == 0) {
+                res->insert_default();
+                continue;
             }
 
-            block.replace_by_position(
-                    result, ColumnNullable::create(std::move(result_column), std::move(null_map)));
-        } else {
-            return Status::RuntimeError("Illegal column {} of argument of function {}",
-                                        block.get_by_position(arguments[0]).column->get_name(),
-                                        FromBase64BinaryImpl::name);
+            UInt32 cipher_len = slen;
+            char* dst = nullptr;
+            if (cipher_len <= stack_buf.size()) {
+                dst = stack_buf.data();
+            } else {
+                heap_buf.resize(cipher_len);
+                dst = heap_buf.data();
+            }
+
+            auto outlen = doris::base64_decode(source, slen, dst);
+
+            if (outlen < 0) {
+                null_map[i] = 1;
+                res->insert_default();
+            } else {
+                res->insert_data(dst, outlen);
+            }
         }
+
         return Status::OK();
     }
 };
 
-using FunctionFromBase64Binary = FunctionBinaryUnary<FromBase64BinaryImpl>;
+using FunctionFromBase64Binary = FunctionStringOperateToNullType<FromBase64BinaryImpl>;
 
 struct SubBinary3Impl {
     static DataTypes get_variadic_argument_types() {

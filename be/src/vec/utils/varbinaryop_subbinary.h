@@ -25,7 +25,7 @@
 #include "vec/data_types/data_type_varbinary.h"
 
 namespace doris::vectorized {
-#include "common/compile_check_avoid_begin.h"
+#include "common/compile_check_begin.h"
 
 struct SubBinaryUtil {
     static void sub_binary_execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
@@ -73,14 +73,18 @@ private:
         }
 
         for (size_t i = 0; i < size; ++i) {
-            StringRef binary = binarys->get_data_at(index_check_const<binary_const>(i));
-            int binary_size = binary.size;
+            doris::StringView binary = binarys->get_data()[index_check_const<binary_const>(i)];
+            int binary_size = static_cast<int>(binary.size());
 
             int start_value = start->get_data()[index_check_const<start_const>(i)];
             int len_value = len->get_data()[index_check_const<len_const>(i)];
 
-            if (start_value > binary_size || start_value < -binary_size || binary_size == 0 ||
-                len_value <= 0) {
+            bool start_out_of_range = start_value > binary_size;
+            bool len_non_positive = len_value <= 0;
+            bool start_too_negative = start_value < -binary_size;
+            bool input_empty = binary_size == 0;
+
+            if (start_out_of_range || len_non_positive || start_too_negative || input_empty) {
                 res->insert_default();
                 continue;
             }
@@ -90,10 +94,10 @@ private:
             }
             int fixed_len = std::min(binary_size - fixed_pos, len_value);
 
-            res->insert_data(binary.data + fixed_pos, fixed_len);
+            res->insert_data(binary.data() + fixed_pos, fixed_len);
         }
     }
 };
 
-#include "common/compile_check_avoid_end.h"
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

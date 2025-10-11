@@ -66,7 +66,7 @@ TEST(function_binary_test, function_binary_length_test) {
     check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
-TEST(function_binary_test, function_to_base64_test) {
+TEST(function_binary_test, function_to_base64_binary_test) {
     std::string func_name = "to_base64_binary";
     InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY};
 
@@ -88,7 +88,7 @@ TEST(function_binary_test, function_to_base64_test) {
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
 
-TEST(function_binary_test, function_from_base64_test) {
+TEST(function_binary_test, function_from_base64_binary_test) {
     std::string func_name = "from_base64_binary";
     InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
