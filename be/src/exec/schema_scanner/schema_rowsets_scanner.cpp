@@ -62,7 +62,6 @@ std::vector<SchemaScanner::ColumnDesc> SchemaRowsetsScanner::_s_tbls_columns = {
         {"END_VERSION", TYPE_BIGINT, sizeof(int64_t), true},
         {"INDEX_DISK_SIZE", TYPE_BIGINT, sizeof(size_t), true},
         {"DATA_DISK_SIZE", TYPE_BIGINT, sizeof(size_t), true},
-        {"COMMON_INDEX_SIZE", TYPE_BIGINT, sizeof(size_t), true},
         {"CREATION_TIME", TYPE_DATETIME, sizeof(int64_t), true},
         {"NEWEST_WRITE_TIMESTAMP", TYPE_DATETIME, sizeof(int64_t), true},
         {"SCHEMA_VERSION", TYPE_INT, sizeof(int32_t), true},
@@ -239,16 +238,6 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 9, datas));
     }
-    // COMMON_INDEX_SIZE
-    {
-        std::vector<int64_t> srcs(fill_rowsets_num);
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            RowsetSharedPtr rowset = rowsets_[i];
-            srcs[i - fill_idx_begin] = rowset->common_index_size();
-            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, datas));
-    }
     // CREATION_TIME
     {
         std::vector<VecDateTimeValue> srcs(fill_rowsets_num);
@@ -258,7 +247,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i - fill_idx_begin].from_unixtime(creation_time, _timezone_obj);
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, datas));
     }
     // NEWEST_WRITE_TIMESTAMP
     {
@@ -269,7 +258,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i - fill_idx_begin].from_unixtime(newest_write_timestamp, _timezone_obj);
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));
     }
     // SCHEMA_VERSION
     {
@@ -279,7 +268,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i - fill_idx_begin] = rowset->tablet_schema()->schema_version();
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, datas));
     }
 
     _rowsets_idx += fill_rowsets_num;
