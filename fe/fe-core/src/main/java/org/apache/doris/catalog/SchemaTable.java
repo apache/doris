@@ -423,7 +423,6 @@ public class SchemaTable extends Table {
                             .column("END_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("INDEX_DISK_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("DATA_DISK_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
-                            .column("COMMON_INDEX_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("CREATION_TIME", ScalarType.createType(PrimitiveType.DATETIME))
                             .column("NEWEST_WRITE_TIMESTAMP", ScalarType.createType(PrimitiveType.DATETIME))
                             .column("SCHEMA_VERSION", ScalarType.createType(PrimitiveType.INT))
