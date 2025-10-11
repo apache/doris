@@ -52,8 +52,10 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
+import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor.InsertExecutorListener;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
@@ -113,18 +115,20 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     private final Optional<LogicalPlan> cte;
     private final boolean needNormalizePlan;
 
+    private InsertExecutorListener insertExecutorListener;
+
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
             Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte) {
-        this(logicalQuery, labelName, insertCtx, cte, true, Optional.empty());
+        this(PlanType.INSERT_INTO_TABLE_COMMAND, logicalQuery, labelName, insertCtx, cte, true, Optional.empty());
     }
 
     /**
      * constructor
      */
-    public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
+    public InsertIntoTableCommand(PlanType planType, LogicalPlan logicalQuery, Optional<String> labelName,
                                   Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte,
                                   boolean needNormalizePlan, Optional<String> branchName) {
-        super(PlanType.INSERT_INTO_TABLE_COMMAND);
+        super(planType);
         this.originLogicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
         this.logicalQuery = Optional.empty();
@@ -133,6 +137,13 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         this.needNormalizePlan = needNormalizePlan;
         this.branchName = branchName;
         this.jobId = Env.getCurrentEnv().getNextId();
+    }
+
+    public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
+            Optional<InsertCommandContext> insertCtx, Optional<LogicalPlan> cte,
+            boolean needNormalizePlan, Optional<String> branchName) {
+        this(PlanType.INSERT_INTO_TABLE_COMMAND, logicalQuery, labelName, insertCtx, cte,
+                needNormalizePlan, branchName);
     }
 
     /**
@@ -180,6 +191,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     public void setJobId(long jobId) {
         this.jobId = jobId;
+    }
+
+    public void setInsertExecutorListener(InsertExecutorListener insertExecutorListener) {
+        this.insertExecutorListener = insertExecutorListener;
     }
 
     @Override
@@ -450,6 +465,11 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
                         () -> new DictionaryInsertExecutor(
                                 ctx, dictionary, label, planner, insertCtx, emptyInsert, jobId));
+            } else if (physicalSink instanceof PhysicalBlackholeSink) {
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                // insertCtx is not useful for blackhole. so keep it empty is ok.
+                return ExecutorFactory.from(planner, dataSink, physicalSink,
+                        () -> new BlackholeInsertExecutor(ctx, targetTableIf, label, planner, insertCtx, emptyInsert));
             } else {
                 // TODO: support other table types
                 throw new AnalysisException(
@@ -509,6 +529,9 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         // if the insert stmt data source is empty, directly return, no need to be executed.
         if (insertExecutor.isEmptyInsert()) {
             return;
+        }
+        if (insertExecutorListener != null) {
+            insertExecutor.registerListener(insertExecutorListener);
         }
         insertExecutor.executeSingleInsert(executor);
     }
