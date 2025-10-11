@@ -112,6 +112,9 @@ public:
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
 
+    const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column,
+                                                size_t size) const override;
+
     const DataTypeSerDeSPtr& get_nested_serde() const { return nested_serde; }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;

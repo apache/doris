@@ -1065,6 +1065,19 @@ std::pair<Field, FieldInfo> ColumnVariant::deserialize_from_sparse_column(const 
     return {std::move(res), std::move(info_res)};
 }
 
+void ColumnVariant::deserialize_from_sparse_column2(const ColumnString* value, size_t row,
+                                                    Field& res, FieldInfo& info_res) {
+    const auto& data_ref = value->get_data_at(row);
+    const char* data = data_ref.data;
+    DCHECK(data_ref.size > 1);
+    const FieldType type = static_cast<FieldType>(*reinterpret_cast<const uint8_t*>(data++));
+    info_res.scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type);
+    const char* end = parse_binary_from_sparse_column(type, data, res, info_res);
+    DCHECK_EQ(end - data_ref.data, data_ref.size)
+            << "FieldType: " << (int)type << " data_ref.size: " << data_ref.size << " end: " << end
+            << " data: " << data;
+}
+
 Field ColumnVariant::operator[](size_t n) const {
     Field object;
     get(n, object);
@@ -2508,6 +2521,26 @@ size_t ColumnVariant::find_path_lower_bound_in_sparse_data(StringRef path,
     return it.index;
 }
 
+void ColumnVariant::Subcolumn::deserialize_from_sparse_column(const ColumnString* value,
+                                                              size_t row) {
+    const auto& data_ref = value->get_data_at(row);
+    const auto* start_data = reinterpret_cast<const uint8_t*>(data_ref.data);
+    const PrimitiveType type =
+            TabletColumn::get_primitive_type_by_field_type(static_cast<FieldType>(*start_data++));
+    if (type == least_common_type.get_type_id()) {
+        ++num_rows;
+        auto& nullable_serde =
+                        assert_cast<DataTypeNullableSerDe&, TypeCheckOnRelease::DISABLE>(*least_common_type.get_serde());
+        const uint8_t* end_data = nullable_serde.deserialize_binary_to_column(
+                reinterpret_cast<const uint8_t*>(data_ref.data), *data[data.size() - 1],
+                data_ref.size);
+        DCHECK_EQ(end_data - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
+    } else {
+        const auto& res_data = ColumnVariant::deserialize_from_sparse_column(value, row);
+        insert(res_data.first, res_data.second);
+    }
+}
+
 void ColumnVariant::fill_path_column_from_sparse_data(Subcolumn& subcolumn, NullMap* null_map,
                                                       StringRef path,
                                                       const ColumnPtr& sparse_data_column,
@@ -2538,9 +2571,10 @@ void ColumnVariant::fill_path_column_from_sparse_data(Subcolumn& subcolumn, Null
             // auto value_data = sparse_data_values.get_data_at(lower_bound_path_index);
             // ReadBufferFromMemory buf(value_data.data, value_data.size);
             // dynamic_serialization->deserializeBinary(path_column, buf, getFormatSettings());
-            const auto& data = ColumnVariant::deserialize_from_sparse_column(
-                    &sparse_data_values, lower_bound_path_index);
-            subcolumn.insert(data.first, data.second);
+            // const auto& data = ColumnVariant::deserialize_from_sparse_column(
+            //         &sparse_data_values, lower_bound_path_index);
+            subcolumn.deserialize_from_sparse_column(&sparse_data_values, lower_bound_path_index);
+            //subcolumn.insert(data.first, data.second);
             is_null = false;
         } else {
             subcolumn.insert_default();

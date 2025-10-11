@@ -421,6 +421,12 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "write_one_cell_to_binary");
     }
 
+    virtual const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column,
+                                                        size_t size) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "deserialize_binary_to_column");
+        return data;
+    }
+
 protected:
     bool _return_object_as_string = false;
     // This parameter indicates what level the serde belongs to and is mainly used for complex types

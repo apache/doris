@@ -771,6 +771,41 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
 }
 
 template <PrimitiveType T>
+const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_column(const uint8_t* data,
+                                                                    IColumn& column,
+                                                                    size_t size) const {
+    const uint8_t type = *data++;
+    DCHECK_EQ(type, (const uint8_t)TabletColumn::get_field_type_by_type(T));
+    auto& col = assert_cast<ColumnType&>(column);
+    if constexpr (T == TYPE_TINYINT || T == TYPE_BOOLEAN) {
+        col.insert_value(unaligned_load<Int8>(data));
+        data += sizeof(Int8);
+    } else if constexpr (T == TYPE_SMALLINT) {
+        col.insert_value(unaligned_load<Int16>(data));
+        data += sizeof(Int16);
+    } else if constexpr (T == TYPE_INT) {
+        col.insert_value(unaligned_load<Int32>(data));
+        data += sizeof(Int32);
+    } else if constexpr (T == TYPE_BIGINT) {
+        col.insert_value(unaligned_load<Int64>(data));
+        data += sizeof(Int64);
+    } else if constexpr (T == TYPE_LARGEINT) {
+        col.insert_value(unaligned_load<Int128>(data));
+        data += sizeof(Int128);
+    } else if constexpr (T == TYPE_FLOAT) {
+        col.insert_value(unaligned_load<Float32>(data));
+        data += sizeof(Float32);
+    } else if constexpr (T == TYPE_DOUBLE) {
+        col.insert_value(unaligned_load<Float64>(data));
+        data += sizeof(Float64);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "deserialize_binary_to_column with type '{}'", type_to_string(T));
+    }
+    return data;
+}
+
+template <PrimitiveType T>
 void value_to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType value,
                      BufferWritable& bw, int scale) {
     if constexpr (T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||

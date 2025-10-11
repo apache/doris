@@ -527,6 +527,30 @@ void DataTypeArraySerDe::write_one_cell_to_binary(const IColumn& src_column,
     }
 }
 
+const uint8_t* DataTypeArraySerDe::deserialize_binary_to_column(const uint8_t* data,
+                                                                IColumn& column,
+                                                                size_t size) const {
+    auto& array_col = assert_cast<ColumnArray&>(column);
+    auto& offsets = array_col.get_offsets();
+    auto& nested_column = array_col.get_data();
+    const uint8_t type = *data++;
+    DCHECK_EQ(type, (const uint8_t)FieldType::OLAP_FIELD_TYPE_ARRAY);
+    const size_t nested_size = unaligned_load<size_t>(data);
+    data += sizeof(size_t);
+    if (nested_size == 0) [[unlikely]] {
+        offsets.push_back(offsets.back());
+        return data;
+    }
+
+    for (size_t i = 0; i < nested_size; ++i) {
+        const uint8_t* new_data =
+                nested_serde->deserialize_binary_to_column(data, nested_column, i);
+        data = new_data;
+    }
+    offsets.push_back(offsets.back() + nested_size);
+    return data;
+}
+
 void DataTypeArraySerDe::to_string(const IColumn& column, size_t row_num,
                                    BufferWritable& bw) const {
     const auto& data_column = assert_cast<const ColumnArray&>(column);

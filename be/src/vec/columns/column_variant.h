@@ -195,6 +195,8 @@ public:
         /// Returns last inserted field.
         Field get_last_field() const;
 
+        void deserialize_from_sparse_column(const ColumnString* value, size_t row);
+
         /// Returns single column if subcolumn in finalizes.
         /// Otherwise -- undefined behaviour.
         IColumn& get_finalized_column();
@@ -573,6 +575,9 @@ public:
     // Deserialize the i-th row of the column from the sparse column.
     static std::pair<Field, FieldInfo> deserialize_from_sparse_column(const ColumnString* value,
                                                                       size_t row);
+
+    static void deserialize_from_sparse_column2(const ColumnString* value, size_t row, Field& res,
+                                                FieldInfo& info_res);
 
     Status pick_subcolumns_to_sparse_column(
             const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths,

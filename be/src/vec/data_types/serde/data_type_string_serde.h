@@ -233,6 +233,17 @@ public:
                data_size);
     }
 
+    const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column,
+                                                size_t size) const override {
+        auto& col = assert_cast<ColumnString&>(column);
+        const uint8_t type = *data++;
+        DCHECK_EQ(type, (const uint8_t)FieldType::OLAP_FIELD_TYPE_STRING);
+        const size_t data_size = unaligned_load<size_t>(data);
+        data += sizeof(size_t);
+        col.insert_data(reinterpret_cast<const char*>(data), data_size);
+        return data + data_size;
+    }
+
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
 
 private:
