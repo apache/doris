@@ -246,8 +246,11 @@ struct TSearchClause {
 }
 
 struct TSearchFieldBinding {
-  1: required string field_name   // Field name from DSL
+  1: required string field_name   // Field name from DSL (may include path like "field.subcolumn")
   2: required i32 slot_index      // Index in the slot reference arguments
+  3: optional string parent_field_name    // Parent field name for variant subcolumns
+  4: optional string subcolumn_path       // Subcolumn path for variant fields (e.g., "subcolumn" or "sub1.sub2")
+  5: optional bool is_variant_subcolumn   // True if this is a variant subcolumn access
 }
 
 struct TSearchParam {

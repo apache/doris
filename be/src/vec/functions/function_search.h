@@ -57,13 +57,27 @@ public:
             const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
                     data_type_with_names,
             const std::unordered_map<std::string, IndexIterator*>& iterators,
-            std::shared_ptr<IndexQueryContext> context)
+            std::shared_ptr<IndexQueryContext> context,
+            const std::vector<TSearchFieldBinding>& field_bindings = {})
             : _data_type_with_names(data_type_with_names),
               _iterators(iterators),
-              _context(std::move(context)) {}
+              _context(std::move(context)),
+              _field_bindings(field_bindings) {
+        // Build a lookup map for quick variant subcolumn checks
+        for (const auto& binding : _field_bindings) {
+            if (binding.__isset.is_variant_subcolumn && binding.is_variant_subcolumn) {
+                _variant_subcolumn_fields.insert(binding.field_name);
+            }
+        }
+    }
 
     Status resolve(const std::string& field_name, InvertedIndexQueryType query_type,
                    FieldReaderBinding* binding);
+
+    // Check if a field is a variant subcolumn
+    bool is_variant_subcolumn(const std::string& field_name) const {
+        return _variant_subcolumn_fields.count(field_name) > 0;
+    }
 
     const std::vector<std::shared_ptr<lucene::index::IndexReader>>& readers() const {
         return _readers;
@@ -94,6 +108,8 @@ private:
             _data_type_with_names;
     const std::unordered_map<std::string, IndexIterator*>& _iterators;
     std::shared_ptr<IndexQueryContext> _context;
+    std::vector<TSearchFieldBinding> _field_bindings;
+    std::unordered_set<std::string> _variant_subcolumn_fields;
     std::unordered_map<std::string, FieldReaderBinding> _cache;
     std::vector<std::shared_ptr<lucene::index::IndexReader>> _readers;
     std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>> _binding_readers;

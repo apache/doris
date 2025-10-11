@@ -605,10 +605,16 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     {
         if (_opts.runtime_state &&
             _opts.runtime_state->query_options().enable_inverted_index_query &&
-            has_index_in_iterators()) {
+            (has_index_in_iterators() || !_common_expr_ctxs_push_down.empty())) {
             SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
             size_t input_rows = _row_bitmap.cardinality();
-            RETURN_IF_ERROR(_apply_inverted_index());
+            // Only apply column-level inverted index if we have iterators
+            if (has_index_in_iterators()) {
+                RETURN_IF_ERROR(_apply_inverted_index());
+            }
+            // Always apply expr-level index (e.g., search expressions) if we have common_expr_pushdown
+            // This allows search expressions with variant subcolumns to be evaluated even when
+            // the segment doesn't have all subcolumns
             RETURN_IF_ERROR(_apply_index_expr());
             for (auto it = _common_expr_ctxs_push_down.begin();
                  it != _common_expr_ctxs_push_down.end();) {
