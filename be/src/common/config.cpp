@@ -411,7 +411,7 @@ DEFINE_mInt32(data_page_cache_stale_sweep_time_sec, "300");
 DEFINE_mInt32(index_page_cache_stale_sweep_time_sec, "600");
 DEFINE_mInt32(pk_index_page_cache_stale_sweep_time_sec, "600");
 
-DEFINE_Bool(enable_low_cardinality_optimize, "true");
+DEFINE_mBool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
 
 // be policy
