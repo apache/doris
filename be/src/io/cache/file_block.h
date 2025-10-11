@@ -63,7 +63,8 @@ public:
         SKIP_CACHE,
     };
 
-    FileBlock(const FileCacheKey& key, size_t size, BlockFileCache* mgr, State download_state);
+    FileBlock(const FileCacheKey& key, size_t size, BlockFileCache* mgr, State download_state,
+              int64_t tablet_id);
 
     ~FileBlock() = default;
 
@@ -169,6 +170,7 @@ private:
     bool _is_deleting {false};
 
     FileBlockCell* cell;
+    int64_t _tablet_id {0};
 };
 
 extern std::ostream& operator<<(std::ostream& os, const FileBlock::State& value);

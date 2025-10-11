@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 #include <sstream>
 
 #include "common/status.h"

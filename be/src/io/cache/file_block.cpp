@@ -37,11 +37,12 @@ std::ostream& operator<<(std::ostream& os, const FileBlock::State& value) {
 }
 
 FileBlock::FileBlock(const FileCacheKey& key, size_t size, BlockFileCache* mgr,
-                     State download_state)
+                     State download_state, int64_t tablet_id)
         : _block_range(key.offset, key.offset + size - 1),
           _download_state(download_state),
           _mgr(mgr),
-          _key(key) {
+          _key(key),
+          _tablet_id(tablet_id) {
     /// On creation, file block state can be EMPTY, DOWNLOADED, SKIP_CACHE.
     switch (_download_state) {
     case State::DOWNLOADING: {

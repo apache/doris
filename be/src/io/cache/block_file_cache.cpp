@@ -702,8 +702,8 @@ FileBlocks BlockFileCache::split_range_into_cells(const UInt128Wrapper& hash,
             key.offset = current_pos;
             key.meta.type = context.cache_type;
             key.meta.expiration_time = context.expiration_time;
-            auto file_block = std::make_shared<FileBlock>(key, current_size, this,
-                                                          FileBlock::State::SKIP_CACHE);
+            auto file_block = std::make_shared<FileBlock>(
+                    key, current_size, this, FileBlock::State::SKIP_CACHE, context.tablet_id);
             file_blocks.push_back(std::move(file_block));
         } else {
             auto* cell = add_cell(hash, context, current_pos, current_size, state, cache_lock);
@@ -861,7 +861,8 @@ FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& hash, const CacheC
     key.offset = offset;
     key.meta.type = context.cache_type;
     key.meta.expiration_time = context.expiration_time;
-    FileBlockCell cell(std::make_shared<FileBlock>(key, size, this, state), cache_lock);
+    FileBlockCell cell(std::make_shared<FileBlock>(key, size, this, state, context.tablet_id),
+                       cache_lock);
     Status st;
     if (context.expiration_time == 0 && context.cache_type == FileCacheType::TTL) {
         st = cell.file_block->change_cache_type_between_ttl_and_others(FileCacheType::NORMAL);
