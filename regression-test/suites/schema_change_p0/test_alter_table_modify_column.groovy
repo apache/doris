@@ -180,7 +180,7 @@ suite("test_alter_table_modify_column") {
     test {
         sql """alter table ${dupTableName} modify COLUMN siteid BIGINT key DEFAULT '10' first;"""
         // check exception message contains
-        exception "Can not modify partition or distribution column : siteid"
+        exception "Can not modify distribution column"
     }
 
     sql """alter table ${dupTableName} modify COLUMN username VARCHAR(32) key DEFAULT 'test' first;"""
