@@ -31,6 +31,7 @@
 #include "vec/common/string_view.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/runtime/timestamptz_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -73,6 +74,7 @@ class DataTypeDateTime;
 class DataTypeDate;
 class DataTypeDateTimeV2;
 class DataTypeDateV2;
+class DataTypeTimeStampTz;
 template <PrimitiveType T>
 class DataTypeDecimal;
 using DataTypeDecimal32 = DataTypeDecimal<TYPE_DECIMAL32>;
@@ -104,6 +106,7 @@ using ColumnBool = ColumnUInt8;
 using ColumnDate = ColumnVector<TYPE_DATE>;
 using ColumnDateTime = ColumnVector<TYPE_DATETIME>;
 using ColumnDateV2 = ColumnVector<TYPE_DATEV2>;
+using ColumnTimeStampTz = ColumnVector<TYPE_TIMESTAMPTZ>;
 using ColumnDateTimeV2 = ColumnVector<TYPE_DATETIMEV2>;
 using ColumnFloat32 = ColumnVector<TYPE_FLOAT>;
 using ColumnFloat64 = ColumnVector<TYPE_DOUBLE>;
@@ -481,6 +484,23 @@ struct PrimitiveTypeTraits<TYPE_DATEV2> {
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DATEV2;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DATEV2;
 };
+
+template <>
+struct PrimitiveTypeTraits<TYPE_TIMESTAMPTZ> {
+    using CppType = TimestampTzValue;
+    using StorageFieldType = uint64_t;
+    using CppNativeType = uint64_t;
+    using ColumnItemType = vectorized::UInt64;
+    using DataType = vectorized::DataTypeTimeStampTz;
+    using ColumnType = vectorized::ColumnTimeStampTz;
+    using NearestFieldType = vectorized::UInt64;
+    using AvgNearestFieldType = vectorized::UInt64;
+    using AvgNearestFieldType256 = vectorized::UInt64;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_TIMESTAMPTZ;
+    static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_TIMESTAMPTZ;
+    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_TIMESTAMPTZ;
+};
+
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
     using CppType = DecimalV2Value;
