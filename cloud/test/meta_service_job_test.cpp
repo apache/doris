@@ -5214,4 +5214,49 @@ TEST(MetaServiceJobTest, GetStreamingTaskCommitAttachTest) {
     }
 }
 
+TEST(MetaServiceJobTest, DeleteJobKeyRemovesStreamingMeta) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "test_cloud_instance_id";
+    std::string cloud_unique_id = "1:test_cloud_unique_id:1";
+    MOCK_GET_INSTANCE_ID(instance_id);
+    create_and_refresh_instance(meta_service.get(), instance_id);
+
+    int64_t db_id = 1001;
+    int64_t job_id = 2002;
+
+    // Put a dummy StreamingTaskCommitAttachmentPB under streaming_job_key
+    StreamingTaskCommitAttachmentPB attach;
+    attach.set_job_id(job_id);
+    attach.set_scanned_rows(123);
+    attach.set_load_bytes(456);
+    attach.set_num_files(3);
+    attach.set_file_bytes(789);
+    std::string val = attach.SerializeAsString();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key = streaming_job_key({instance_id, db_id, job_id});
+    txn->put(key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    // Act: call delete_streaming_job
+    brpc::Controller cntl;
+    DeleteStreamingJobRequest req;
+    DeleteStreamingJobResponse res;
+    req.set_cloud_unique_id(cloud_unique_id);
+    req.set_db_id(db_id);
+    req.set_job_id(job_id);
+    meta_service->delete_streaming_job(&cntl, &req, &res, nullptr);
+
+    // Assert: RPC returns OK
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // And the key is gone
+    std::unique_ptr<Transaction> check_txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&check_txn), TxnErrorCode::TXN_OK);
+    std::string got;
+    TxnErrorCode err = check_txn->get(key, &got);
+    ASSERT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND);
+}
+
 } // namespace doris::cloud
