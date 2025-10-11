@@ -109,7 +109,6 @@ public:
             local_state._shared_state->rec_side.clear();
             local_state._shared_state->source_dep->block();
 
-
             if (last_round_offset == local_state._blocks.size() ||
                 local_state._shared_state->_current_round >= max_recursion_depth) {
                 _ready_to_return = true;
@@ -137,8 +136,6 @@ public:
 
 private:
     Status _recursive_process(RuntimeState* state, size_t last_round_offset) const {
-        
-
         RETURN_IF_ERROR(_send_reset_fragments(state));
         RETURN_IF_ERROR(_send_data_to_targets(state, last_round_offset));
         return Status::OK();

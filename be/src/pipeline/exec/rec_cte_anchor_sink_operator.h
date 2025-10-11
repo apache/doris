@@ -65,17 +65,14 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos) override {
         auto& local_state = get_local_state(state);
-        LOG(WARNING) << "mytest RecCTEAnchorSinkOperatorX sink";
 
         if (input_block->rows() != 0) {
             vectorized::Block block;
             RETURN_IF_ERROR(materialize_block(local_state._child_expr, input_block, &block));
-            LOG(WARNING) << "mytest RecCTEAnchorSinkOperatorX sink block" << block.rows();
             local_state._shared_state->anchor_side.emplace_back(block);
         }
 
         if (eos) {
-            LOG(WARNING) << "mytest RecCTEAnchorSinkOperatorX sink eos";
             if (local_state._shared_state->_current_round == 0) {
                 local_state._shared_state->source_dep->set_ready();
             }

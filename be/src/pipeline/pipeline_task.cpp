@@ -592,7 +592,6 @@ Status PipelineTask::execute(bool* done) {
 
             if (_sink->rerunable() && _eos) {
                 RETURN_IF_ERROR(((ExchangeSourceOperatorX*)_root)->reset(_state));
-                LOG(WARNING)<<"mytest reset ExchangeSourceOperatorX";
                 _eos = false;
             }
 

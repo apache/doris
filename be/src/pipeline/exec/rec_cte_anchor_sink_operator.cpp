@@ -46,8 +46,6 @@ Status RecCTEAnchorSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* sta
 
 Status RecCTEAnchorSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
-    LOG(WARNING) << "mytest RecCTEAnchorSinkOperatorX child" << _child->debug_string() << " "
-                 << _child->row_desc().debug_string();
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_expr, state, _child->row_desc()));
     RETURN_IF_ERROR(vectorized::VExpr::check_expr_output_type(_child_expr, _child->row_desc()));
     RETURN_IF_ERROR(vectorized::VExpr::open(_child_expr, state));
