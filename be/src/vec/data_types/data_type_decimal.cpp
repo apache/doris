@@ -54,14 +54,8 @@ namespace doris::vectorized {
 
 DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
     auto transform = [&](DataTypePtr t) -> DataTypePtr {
-        if (t->get_primitive_type() == PrimitiveType::TYPE_DECIMALV2) {
-            auto res = DataTypeFactory::instance().create_data_type(
-                    TYPE_DECIMALV2, t->is_nullable(), BeConsts::MAX_DECIMALV2_PRECISION,
-                    BeConsts::MAX_DECIMALV2_SCALE);
-            DCHECK_EQ(res->get_scale(), BeConsts::MAX_DECIMALV2_SCALE);
-            return res;
-        } else if (t->get_primitive_type() == PrimitiveType::TYPE_BINARY ||
-                   t->get_primitive_type() == PrimitiveType::TYPE_LAMBDA_FUNCTION) {
+        if (t->get_primitive_type() == PrimitiveType::TYPE_BINARY ||
+            t->get_primitive_type() == PrimitiveType::TYPE_LAMBDA_FUNCTION) {
             return DataTypeFactory::instance().create_data_type(TYPE_STRING, t->is_nullable());
         } else {
             return t;
