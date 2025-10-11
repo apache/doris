@@ -161,6 +161,7 @@ struct CacheContext {
     bool is_cold_data {false};
     ReadStatistics* stats;
     bool is_warmup {false};
+    int64_t tablet_id {0};
 };
 
 template <class Lock>
