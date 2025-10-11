@@ -85,9 +85,13 @@ public class DateLiteral extends LiteralExpr {
     private static final DateLiteral MAX_DATETIME = new DateLiteral(9999, 12, 31, 23, 59, 59);
 
     private static final DateLiteral MIN_DATETIMEV2
-            = new DateLiteral(0000, 1, 1, 0, 0, 0, 0, Type.DATETIMEV2);
+            = new DateLiteral(0000, 1, 1, 0, 0, 0, 0, Type.DATETIMEV2_WITH_MAX_SCALAR);
     private static final DateLiteral MAX_DATETIMEV2
-            = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999L, Type.DATETIMEV2);
+            = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999L, Type.DATETIMEV2_WITH_MAX_SCALAR);
+    private static final DateLiteral MIN_TIMESTAMP_TZ
+            = new DateLiteral(0000, 1, 1, 0, 0, 0, 0, Type.TIMESTAMP_TZ_WITH_MAX_SCALAR);
+    private static final DateLiteral MAX_TIMESTAMP_TZ
+            = new DateLiteral(9999, 12, 31, 23, 59, 59, 999999L, Type.TIMESTAMP_TZ_WITH_MAX_SCALAR);
     private static final int MAX_MICROSECOND = 999999;
 
     private static List<DateTimeFormatter> formatterList = null;
@@ -193,7 +197,6 @@ public class DateLiteral extends LiteralExpr {
 
     public DateLiteral(Type type, boolean isMax) throws AnalysisException {
         super();
-        this.type = type;
         if (type.equals(Type.DATE) || type.equals(Type.DATEV2)) {
             if (isMax) {
                 copy(MAX_DATE);
@@ -206,13 +209,20 @@ public class DateLiteral extends LiteralExpr {
             } else {
                 copy(MIN_DATETIME);
             }
-        } else {
+        } else if (type.equals(Type.DATETIMEV2)) {
             if (isMax) {
                 copy(MAX_DATETIMEV2);
             } else {
                 copy(MIN_DATETIMEV2);
             }
+        } else {
+            if (isMax) {
+                copy(MAX_TIMESTAMP_TZ);
+            } else {
+                copy(MIN_TIMESTAMP_TZ);
+            }
         }
+        this.type = type;
         analysisDone();
     }
 
@@ -303,7 +313,7 @@ public class DateLiteral extends LiteralExpr {
         this.month = month;
         this.day = day;
         this.microsecond = microsecond;
-        Preconditions.checkArgument(type.isDatetimeV2());
+        Preconditions.checkArgument(type.isDatetimeV2() || type.isTimeStampTz());
         this.type = type;
         analysisDone();
     }
@@ -316,7 +326,8 @@ public class DateLiteral extends LiteralExpr {
         this.month = month;
         this.day = day;
         Preconditions.checkArgument(type.getPrimitiveType().equals(Type.DATETIME.getPrimitiveType())
-                || type.getPrimitiveType().equals(Type.DATETIMEV2.getPrimitiveType()));
+                || type.getPrimitiveType().equals(Type.DATETIMEV2.getPrimitiveType())
+                || type.getPrimitiveType().equals(Type.TIMESTAMPTZ.getPrimitiveType()));
         this.type = type;
         analysisDone();
     }
@@ -558,7 +569,7 @@ public class DateLiteral extends LiteralExpr {
             return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
         } else if (type.equals(Type.DATEV2)) {
             return (year << 9) | (month << 5) | day;
-        } else if (type.isDatetimeV2()) {
+        } else if (type.isDatetimeV2() || type.isTimeStampTz()) {
             return (year << 46) | (month << 42) | (day << 37) | (hour << 32)
                 | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
         } else {
@@ -576,7 +587,7 @@ public class DateLiteral extends LiteralExpr {
             buffer = ByteBuffer.allocate(4);
             buffer.order(ByteOrder.LITTLE_ENDIAN);
             buffer.putInt(value);
-        } else if (type == PrimitiveType.DATETIMEV2) {
+        } else if (type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMESTAMPTZ) {
             long value = (year << 46) | (month << 42) | (day << 37) | (hour << 32)
                     | (minute << 26) | (second << 20) | (microsecond % (1 << 20));
             buffer = ByteBuffer.allocate(8);
@@ -685,14 +696,17 @@ public class DateLiteral extends LiteralExpr {
         dateTimeChars[16] = ':';
         fillPaddedValue(dateTimeChars, 17, second, 2);
 
-        if (type.isDatetimeV2()) {
+        if (type.isDatetimeV2() || type.isTimeStampTz()) {
             int scale = ((ScalarType) type).getScalarScale();
-            if (scale == 0) {
-                return new String(dateTimeChars, 0, 19);
-            }
             long scaledMicroseconds = (long) (microsecond / SCALE_FACTORS[scale]);
             dateTimeChars[19] = '.';
             fillPaddedValue(dateTimeChars, 20, (int) scaledMicroseconds, scale);
+            if (scale == 0) {
+                scale = -1;
+            }
+            if (type.isTimeStampTz()) {
+                return new String(dateTimeChars, 0, 20 + scale) + "+00:00";
+            }
             return new String(dateTimeChars, 0, 20 + scale);
         }
 
@@ -721,11 +735,17 @@ public class DateLiteral extends LiteralExpr {
         dateTimeChars[16] = ':';
         fillPaddedValue(dateTimeChars, 17, second, 2);
 
-        if (type.isDatetimeV2()) {
+        if (type.isDatetimeV2() || type.isTimeStampTz()) {
             int scale = ((ScalarType) type).getScalarScale();
             long scaledMicroseconds = (long) (microsecond / SCALE_FACTORS[scale]);
             dateTimeChars[19] = '.';
             fillPaddedValue(dateTimeChars, 20, (int) scaledMicroseconds, scale);
+            if (scale == 0) {
+                scale = -1;
+            }
+            if (type.isTimeStampTz()) {
+                return new String(dateTimeChars, 0, 20 + scale) + "+00:00";
+            }
             return new String(dateTimeChars, 0, 20 + scale);
         }
 
@@ -746,7 +766,7 @@ public class DateLiteral extends LiteralExpr {
     public String convertToString(PrimitiveType type) {
         if (type == PrimitiveType.DATE || type == PrimitiveType.DATEV2) {
             return String.format("%04d-%02d-%02d", year, month, day);
-        } else if (type == PrimitiveType.DATETIMEV2) {
+        } else if (type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMESTAMPTZ) {
             String tmp = String.format("%04d-%02d-%02d %02d:%02d:%02d",
                     year, month, day, hour, minute, second);
             if (microsecond == 0) {
@@ -778,7 +798,7 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     protected void toThrift(TExprNode msg) {
-        if (type.isDatetimeV2()) {
+        if (type.isDatetimeV2() || type.isTimeStampTz()) {
             this.roundFloor(((ScalarType) type).getScalarScale());
         }
         msg.node_type = TExprNodeType.DATE_LITERAL;

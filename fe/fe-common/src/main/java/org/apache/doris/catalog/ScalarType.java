@@ -148,6 +148,8 @@ public class ScalarType extends Type {
                 return createDatetimeV2Type(scale);
             case TIMEV2:
                 return createTimeV2Type(scale);
+            case TIMESTAMPTZ:
+                return createTimeStampTzType(scale);
             case VARBINARY:
                 return createVarbinaryType(len);
             default:
@@ -205,6 +207,8 @@ public class ScalarType extends Type {
                 return DEFAULT_DATETIMEV2;
             case TIMEV2:
                 return TIMEV2;
+            case TIMESTAMPTZ:
+                return DEFAULT_TIMESTAMP_TZ;
             case DECIMAL32:
                 return DEFAULT_DECIMAL32;
             case DECIMAL64:
@@ -456,6 +460,14 @@ public class ScalarType extends Type {
     }
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
+    public static ScalarType createTimeStampTzType(int scale) {
+        ScalarType type = new ScalarType(PrimitiveType.TIMESTAMPTZ);
+        type.precision = DATETIME_PRECISION;
+        type.scale = scale;
+        return type;
+    }
+
+    @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createDatetimeType() {
         if (!Config.enable_date_conversion) {
             return new ScalarType(PrimitiveType.DATETIME);
@@ -600,8 +612,10 @@ public class ScalarType extends Type {
             return "decimalv3(" + precision + "," + scale + ")";
         } else  if (type == PrimitiveType.DATETIMEV2) {
             return "datetimev2(" + scale + ")";
-        } else  if (type == PrimitiveType.TIMEV2) {
+        } else if (type == PrimitiveType.TIMEV2) {
             return "timev2(" + scale + ")";
+        } else if (type == PrimitiveType.TIMESTAMPTZ) {
+            return "timestamptz(" + scale + ")";
         } else if (type == PrimitiveType.VARCHAR) {
             if (isWildcardVarchar()) {
                 return "varchar(" + MAX_VARCHAR_LENGTH + ")";
@@ -668,6 +682,9 @@ public class ScalarType extends Type {
                 break;
             case TIMEV2:
                 stringBuilder.append("time").append("(").append(scale).append(")");
+                break;
+            case TIMESTAMPTZ:
+                stringBuilder.append("timestamptz").append("(").append(scale).append(")");
                 break;
             case BOOLEAN:
                 return "boolean";
@@ -750,6 +767,7 @@ public class ScalarType extends Type {
             case DECIMAL128:
             case DECIMAL256:
             case DATETIMEV2:
+            case TIMESTAMPTZ:
             case TIMEV2: {
                 if (precision < scale) {
                     throw new IllegalArgumentException(
@@ -767,14 +785,15 @@ public class ScalarType extends Type {
 
     public int decimalPrecision() {
         Preconditions.checkState(type == PrimitiveType.DECIMALV2 || type == PrimitiveType.DATETIMEV2
-                || type == PrimitiveType.TIMEV2 || type == PrimitiveType.DECIMAL32
-                || type == PrimitiveType.DECIMAL64 || type == PrimitiveType.DECIMAL128
-                || type == PrimitiveType.DECIMAL256);
+                || type == PrimitiveType.TIMESTAMPTZ || type == PrimitiveType.TIMEV2
+                || type == PrimitiveType.DECIMAL32 || type == PrimitiveType.DECIMAL64
+                || type == PrimitiveType.DECIMAL128 || type == PrimitiveType.DECIMAL256);
         return precision;
     }
 
     public int decimalScale() {
-        Preconditions.checkState(type == PrimitiveType.DECIMALV2 || type == PrimitiveType.DATETIMEV2
+        Preconditions.checkState(type == PrimitiveType.DECIMALV2
+                || type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMESTAMPTZ
                 || type == PrimitiveType.TIMEV2 || type == PrimitiveType.DECIMAL32
                 || type == PrimitiveType.DECIMAL64 || type == PrimitiveType.DECIMAL128
                 || type == PrimitiveType.DECIMAL256);
@@ -848,6 +867,11 @@ public class ScalarType extends Type {
     }
 
     @Override
+    public boolean isWildcardTimeStampTz() {
+        return type == PrimitiveType.TIMESTAMPTZ && scale == -1;
+    }
+
+    @Override
     public boolean isWildcardDecimal() {
         return (type.isDecimalV2Type() || type.isDecimalV3Type())
                 && precision == -1 && scale == -1;
@@ -917,6 +941,10 @@ public class ScalarType extends Type {
         }
         if (isDatetimeV2() && scalarType.isWildcardDatetimeV2()) {
             Preconditions.checkState(!isWildcardDatetimeV2());
+            return true;
+        }
+        if (isTimeStampTz() && scalarType.isWildcardTimeStampTz()) {
+            Preconditions.checkState(!isWildcardTimeStampTz());
             return true;
         }
         if (isTimeV2() && scalarType.isWildcardTimeV2()) {

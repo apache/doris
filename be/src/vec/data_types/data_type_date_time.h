@@ -134,6 +134,11 @@ template <>
 inline constexpr bool IsTimeV2Type<DataTypeTimeV2> = true;
 
 template <typename DataType>
+constexpr bool IsTimeStampTzType = false;
+template <>
+inline constexpr bool IsTimeStampTzType<DataTypeTimeStampTz> = true;
+
+template <typename DataType>
 constexpr bool IsDatelikeV1Types = IsDateTimeType<DataType> || IsDateType<DataType>;
 template <typename DataType>
 constexpr bool IsDatelikeV2Types = IsDateTimeV2Type<DataType> || IsDateV2Type<DataType>;
