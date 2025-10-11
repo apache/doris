@@ -1342,4 +1342,45 @@ public class DateTimeExtractAndTransform {
     public static Expression secToTime(DoubleLiteral sec) {
         return new TimeV2Literal(sec.getValue() * 1000000);
     }
+
+    /**
+     * date transform function period_add
+     */
+    @ExecFunction(name = "period_add")
+    public static Expression periodAdd(BigIntLiteral period, BigIntLiteral months) {
+        return new BigIntLiteral(convertMonthToPeriod(
+                checkAndConvertPeriodToMonth(period.getValue()) + months.getValue()));
+    }
+
+    /**
+     * date transform function period_diff
+     */
+    @ExecFunction(name = "period_diff")
+    public static Expression periodDiff(BigIntLiteral period1, BigIntLiteral period2) {
+        return new BigIntLiteral(checkAndConvertPeriodToMonth(
+                period1.getValue()) - checkAndConvertPeriodToMonth(period2.getValue()));
+    }
+
+    private static void validatePeriod(long period) {
+        if (period <= 0 || (period % 100) == 0 || (period % 100) > 12) {
+            throw new AnalysisException("Period function got invalid period: " + period);
+        }
+    }
+
+    private static long checkAndConvertPeriodToMonth(long period) {
+        validatePeriod(period);
+        long year = period / 100;
+        if (year < 100) {
+            year += (year >= 70) ? 1900 : 2000;
+        }
+        return year * 12L + (period % 100) - 1;
+    }
+
+    private static long convertMonthToPeriod(long month) {
+        long year = month / 12;
+        if (year < 100) {
+            year += (year >= 70) ? 1900 : 2000;
+        }
+        return year * 100 + month % 12 + 1;
+    }
 }

@@ -366,6 +366,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseDataSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PeriodAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PeriodDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pi;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Positive;
@@ -1061,7 +1063,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Embed.class, "embed"),
             scalar(Uniform.class, "uniform"),
             scalar(MakeSet.class, "make_set"),
-            scalar(ExportSet.class, "export_set"));
+            scalar(ExportSet.class, "export_set"),
+            scalar(PeriodAdd.class, "period_add"),
+            scalar(PeriodDiff.class, "period_diff"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 
