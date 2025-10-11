@@ -116,5 +116,8 @@ public:
                                bool allow_delete = false) override;
 };
 
+void find_longest_consecutive_empty_rowsets(std::vector<RowsetSharedPtr>* result,
+                                            const std::vector<RowsetSharedPtr>& candidate_rowsets);
+
 #include "common/compile_check_end.h"
 } // namespace doris
