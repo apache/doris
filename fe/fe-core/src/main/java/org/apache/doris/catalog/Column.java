@@ -657,6 +657,7 @@ public class Column implements GsonPostProcessable {
         tColumn.setClusterKeyId(this.clusterKeyId);
         tColumn.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
         tColumn.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
+        tColumn.setVariantSparseHashShardCount(this.getVariantSparseHashShardCount());
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -885,6 +886,7 @@ public class Column implements GsonPostProcessable {
             builder.setVariantMaxSubcolumnsCount(this.getVariantMaxSubcolumnsCount());
             builder.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
             builder.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
+            builder.setVariantSparseHashShardCount(this.getVariantSparseHashShardCount());
             // variant may contain predefined structured fields
             addChildren(builder);
         }
@@ -963,6 +965,9 @@ public class Column implements GsonPostProcessable {
             }
             if (this.getVariantMaxSparseColumnStatisticsSize() != other.getVariantMaxSparseColumnStatisticsSize()) {
                 throw new DdlException("Can not change variant max sparse column statistics size");
+            }
+            if (this.getVariantSparseHashShardCount() != other.getVariantSparseHashShardCount()) {
+                throw new DdlException("Can not change variant sparse bucket num");
             }
             if (!this.getChildren().isEmpty() || !other.getChildren().isEmpty()) {
                 throw new DdlException("Can not change variant schema templates");
@@ -1301,6 +1306,10 @@ public class Column implements GsonPostProcessable {
 
     public int getVariantMaxSparseColumnStatisticsSize() {
         return type.isVariantType() ? ((ScalarType) type).getVariantMaxSparseColumnStatisticsSize() : -1;
+    }
+
+    public int getVariantSparseHashShardCount() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantSparseHashShardCount() : -1;
     }
 
     public void setFieldPatternType(TPatternType type) {
