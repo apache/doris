@@ -335,6 +335,11 @@ public:
                                           GetStreamingTaskCommitAttachResponse* response,
                                           ::google::protobuf::Closure* done) override;
 
+    void delete_streaming_job(::google::protobuf::RpcController* controller,
+                              const DeleteStreamingJobRequest* request,
+                              DeleteStreamingJobResponse* response,
+                              ::google::protobuf::Closure* done) override;
+
     void reset_rl_progress(::google::protobuf::RpcController* controller,
                            const ResetRLProgressRequest* request, ResetRLProgressResponse* response,
                            ::google::protobuf::Closure* done) override;
@@ -847,6 +852,13 @@ public:
                                           ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_streaming_task_commit_attach, controller, request,
                   response, done);
+    }
+
+    void delete_streaming_job(::google::protobuf::RpcController* controller,
+                              const DeleteStreamingJobRequest* request,
+                              DeleteStreamingJobResponse* response,
+                              ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::delete_streaming_job, controller, request, response, done);
     }
 
     void reset_rl_progress(::google::protobuf::RpcController* controller,
