@@ -19,6 +19,7 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.DateLiteral;
@@ -252,5 +253,124 @@ public class IcebergPredicateTest {
             Expression expression = IcebergUtils.convertToIcebergExpr(notPredicate, schema);
             Assert.assertNull("pred: " + notPredicate.toSql(), expression);
         }
+    }
+
+    @Test
+    public void testCastExpressionNotPushedDown() throws AnalysisException {
+        // Test that expressions containing CAST on columns are not pushed down to
+        // Iceberg.
+
+        // Test 1: Basic CAST predicate - CAST(string_col AS datetime) = literal
+        SlotRef stringColumn = new SlotRef(new TableName(), "c_str");
+        stringColumn.setType(Type.STRING);
+        CastExpr castToDatetime = new CastExpr(Type.DATETIMEV2, stringColumn);
+        StringLiteral datetimeLiteral = new StringLiteral("2025-06-10 00:00:00");
+        BinaryPredicate castPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, castToDatetime,
+                datetimeLiteral);
+
+        Expression expression = IcebergUtils.convertToIcebergExpr(castPredicate, schema);
+        Assert.assertNull("CAST(string_col AS datetime) = literal should not be pushed down", expression);
+
+        // Test 2: CAST with comparison operator - CAST(string_col AS date) >= literal
+        CastExpr castToDate = new CastExpr(Type.DATEV2, stringColumn);
+        StringLiteral dateLiteral = new StringLiteral("2025-06-10");
+        BinaryPredicate castGePredicate = new BinaryPredicate(BinaryPredicate.Operator.GE, castToDate, dateLiteral);
+
+        expression = IcebergUtils.convertToIcebergExpr(castGePredicate, schema);
+        Assert.assertNull("CAST(string_col AS date) >= literal should not be pushed down", expression);
+
+        // Test 3: CAST with IN predicate - CAST(string_col AS int) IN (1, 2, 3)
+        CastExpr castToInt = new CastExpr(Type.INT, stringColumn);
+        List<Expr> inList = Lists.newArrayList(
+            new IntLiteral(1, Type.INT),
+            new IntLiteral(2, Type.INT),
+            new IntLiteral(3, Type.INT)
+        );
+        InPredicate castInPredicate = new InPredicate(castToInt, inList, false);
+
+        expression = IcebergUtils.convertToIcebergExpr(castInPredicate, schema);
+        Assert.assertNull("CAST(string_col AS int) IN (...) should not be pushed down", expression);
+
+        // Test 4: CAST with NOT IN predicate - CAST(int_col AS string) NOT IN ('a',
+        // 'b')
+        SlotRef intColumn = new SlotRef(new TableName(), "c_int");
+        intColumn.setType(Type.INT);
+        CastExpr castIntToString = new CastExpr(Type.STRING, intColumn);
+        List<Expr> notInList = Lists.newArrayList(
+                new StringLiteral("a"),
+                new StringLiteral("b"),
+                new StringLiteral("c"));
+        InPredicate castNotInPredicate = new InPredicate(castIntToString, notInList, true);
+
+        expression = IcebergUtils.convertToIcebergExpr(castNotInPredicate, schema);
+        Assert.assertNull("CAST(int_col AS string) NOT IN (...) should not be pushed down", expression);
+
+        // Test 5: Reverse operand order - literal = CAST(date_col AS string)
+        SlotRef dateColumn = new SlotRef(new TableName(), "c_date");
+        dateColumn.setType(Type.DATEV2);
+        CastExpr castDateToString = new CastExpr(Type.STRING, dateColumn);
+        StringLiteral stringLiteral = new StringLiteral("2025-06-10");
+        BinaryPredicate reversePredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, stringLiteral,
+                castDateToString);
+
+        expression = IcebergUtils.convertToIcebergExpr(reversePredicate, schema);
+        Assert.assertNull("literal = CAST(date_col AS string) should not be pushed down", expression);
+
+        // Test 6: Complex AND predicate with CAST - (normal_predicate AND
+        // cast_predicate)
+        BinaryPredicate normalPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, intColumn, new IntLiteral(100, Type.INT));
+        CompoundPredicate andWithCast = new CompoundPredicate(Operator.AND, normalPredicate, castPredicate);
+
+        expression = IcebergUtils.convertToIcebergExpr(andWithCast, schema);
+        // For AND predicates, if one side has CAST (can't be pushed), we should still
+        // push the other side
+        Assert.assertNotNull("AND predicate should push down the non-CAST side", expression);
+        // The result should be equivalent to just the normal predicate
+        Expression normalExpr = IcebergUtils.convertToIcebergExpr(normalPredicate, schema);
+        Assert.assertEquals("AND with CAST should reduce to the pushable predicate",
+                normalExpr.toString(), expression.toString());
+
+        // Test 7: Complex OR predicate with CAST - (normal_predicate OR cast_predicate)
+        CompoundPredicate orWithCast = new CompoundPredicate(Operator.OR, normalPredicate, castPredicate);
+
+        expression = IcebergUtils.convertToIcebergExpr(orWithCast, schema);
+        // For OR predicates, if any side has CAST (can't be pushed), the whole OR can't
+        // be pushed
+        Assert.assertNull("OR predicate with CAST should not be pushed down", expression);
+
+        // Test 8: NOT predicate with CAST - NOT(CAST(col AS type) = literal)
+        CompoundPredicate notCast = new CompoundPredicate(Operator.NOT, castPredicate, null);
+
+        expression = IcebergUtils.convertToIcebergExpr(notCast, schema);
+        Assert.assertNull("NOT(CAST predicate) should not be pushed down", expression);
+
+        // Test 9: Nested CAST - CAST(CAST(string_col AS int) AS bigint) = literal
+        CastExpr nestedCast = new CastExpr(Type.BIGINT, castToInt);
+        BinaryPredicate nestedCastPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, nestedCast,
+                new IntLiteral(1000, Type.BIGINT));
+
+        expression = IcebergUtils.convertToIcebergExpr(nestedCastPredicate, schema);
+        Assert.assertNull("Nested CAST should not be pushed down", expression);
+
+        // Test 10: Different types of CAST operations
+        // CAST float to int
+        SlotRef floatColumn = new SlotRef(new TableName(), "c_float");
+        floatColumn.setType(Type.FLOAT);
+        CastExpr castFloatToInt = new CastExpr(Type.INT, floatColumn);
+        BinaryPredicate floatCastPredicate = new BinaryPredicate(BinaryPredicate.Operator.LT, castFloatToInt,
+                new IntLiteral(10, Type.INT));
+
+        expression = IcebergUtils.convertToIcebergExpr(floatCastPredicate, schema);
+        Assert.assertNull("CAST(float_col AS int) should not be pushed down", expression);
+
+        // CAST decimal to string
+        SlotRef decimalColumn = new SlotRef(new TableName(), "c_dec");
+        decimalColumn.setType(Type.DECIMALV2);
+        CastExpr castDecimalToString = new CastExpr(Type.STRING, decimalColumn);
+        BinaryPredicate decimalCastPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, castDecimalToString,
+                new StringLiteral("123.45"));
+
+        expression = IcebergUtils.convertToIcebergExpr(decimalCastPredicate, schema);
+        Assert.assertNull("CAST(decimal_col AS string) should not be pushed down", expression);
     }
 }
