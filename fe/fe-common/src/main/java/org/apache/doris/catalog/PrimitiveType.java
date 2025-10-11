@@ -68,6 +68,7 @@ public enum PrimitiveType {
     DATEV2("DATEV2", 4, TPrimitiveType.DATEV2, true),
     DATETIMEV2("DATETIMEV2", 8, TPrimitiveType.DATETIMEV2, true),
     TIMEV2("TIMEV2", 8, TPrimitiveType.TIMEV2, false),
+    TIMESTAMPTZ("TIMESTAMPTZ", 8, TPrimitiveType.TIMESTAMPTZ, false),
     LAMBDA_FUNCTION("LAMBDA_FUNCTION", 16, TPrimitiveType.LAMBDA_FUNCTION, false),
 
     // sizeof(CollectionValue)
@@ -621,8 +622,19 @@ public enum PrimitiveType {
         builder.put(TIMEV2, DATEV2);
         builder.put(TIMEV2, DATETIMEV2);
 
+
+        // TIMESTAMPTZ
+
+        builder.put(TIMESTAMPTZ, TIMESTAMPTZ);
+        builder.put(TIMESTAMPTZ, DATETIMEV2);
+
         // VARBINARY
         builder.put(VARBINARY, VARBINARY);
+
+        // TIMESTAMPTZ
+
+        builder.put(TIMESTAMPTZ, TIMESTAMPTZ);
+        builder.put(TIMESTAMPTZ, DATETIMEV2);
 
         implicitCastMap = builder.build();
     }
@@ -777,6 +789,8 @@ public enum PrimitiveType {
                 return DECIMAL256;
             case TIMEV2:
                 return TIMEV2;
+            case TIMESTAMPTZ:
+                return TIMESTAMPTZ;
             case VARCHAR:
                 return VARCHAR;
             case JSONB:
@@ -878,6 +892,10 @@ public enum PrimitiveType {
 
     public boolean isDateV2Type() {
         return (this == DATEV2 || this == DATETIMEV2);
+    }
+
+    public boolean isTimeStampTzType() {
+        return this == TIMESTAMPTZ;
     }
 
     public boolean isArrayType() {
