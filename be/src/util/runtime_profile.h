@@ -36,6 +36,8 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <type_traits> // added
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -221,7 +223,7 @@ public:
             counter.set_name(name);
             counter.set_value(this->value());
             counter.set_type(unit_to_proto(this->type()));
-            counter.set_level(this->value());
+            counter.set_level(this->level()); // fixed: was set to value()
             return counter;
         }
 
@@ -230,7 +232,7 @@ public:
             std::ostream& stream = *s;
             stream << prefix << "   - " << name << ": "
                    << PrettyPrinter::print(_value.load(std::memory_order_relaxed), type())
-                   << std::endl;
+                   << '\n'; // avoid std::endl flushing
         }
 
         TUnit::type type() const { return _type; }
@@ -287,7 +289,7 @@ public:
             counter.set_name(name);
             counter.set_value(current_value());
             counter.set_type(unit_to_proto(this->type()));
-            counter.set_level(this->value());
+            counter.set_level(this->level()); // fixed: was set to value()
             return counter;
         }
 
@@ -310,7 +312,7 @@ public:
             stream << prefix << "   - " << name
                    << " Current: " << PrettyPrinter::print(current_value(), type()) << " (Peak: "
                    << PrettyPrinter::print(_value.load(std::memory_order_relaxed), type()) << ")"
-                   << std::endl;
+                   << '\n'; // avoid std::endl flushing
         }
 
         /// Tries to increase the current value by delta. If current_value() + delta
@@ -400,7 +402,8 @@ public:
 
         Counter* clone() const override {
             std::lock_guard<std::mutex> l(_mutex);
-            return new ConditionCounter(type(), _condition_func, _condition, value(), level());
+            // fixed parameter order: (type, func, level, condition, value)
+            return new ConditionCounter(type(), _condition_func, level(), _condition, _value);
         }
 
         int64_t value() const override {
@@ -654,7 +657,7 @@ private:
     std::unique_ptr<ObjectPool> _pool;
 
     // Pool for allocated counters. These counters are shared with some other objects.
-    std::map<std::string, std::shared_ptr<HighWaterMarkCounter>> _shared_counter_pool;
+    std::unordered_map<std::string, std::shared_ptr<HighWaterMarkCounter>> _shared_counter_pool;
 
     // Name for this runtime profile.
     std::string _name;
@@ -675,12 +678,12 @@ private:
 
     // Map from counter names to counters.  The profile owns the memory for the
     // counters.
-    using CounterMap = std::map<std::string, Counter*>;
+    using CounterMap = std::unordered_map<std::string, Counter*>;
     CounterMap _counter_map;
 
     // Map from parent counter name to a set of child counter name.
     // All top level counters are the child of RuntimeProfile::ROOT_COUNTER (root).
-    using ChildCounterMap = std::map<std::string, std::set<std::string>>;
+    using ChildCounterMap = std::unordered_map<std::string, std::set<std::string>>;
     ChildCounterMap _child_counter_map;
 
     // protects _counter_map, _counter_child_map and _bucketing_counters
@@ -689,14 +692,14 @@ private:
     // Child profiles.  Does not own memory.
     // We record children in both a map (to facilitate updates) and a vector
     // (to print things in the order they were registered)
-    using ChildMap = std::map<std::string, RuntimeProfile*>;
+    using ChildMap = std::unordered_map<std::string, RuntimeProfile*>;
     ChildMap _child_map;
     // vector of (profile, indentation flag)
     using ChildVector = std::vector<std::pair<RuntimeProfile*, bool>>;
     ChildVector _children;
     mutable std::mutex _children_lock; // protects _child_map and _children
 
-    using InfoStrings = std::map<std::string, std::string>;
+    using InfoStrings = std::unordered_map<std::string, std::string>;
     InfoStrings _info_strings;
 
     // Keeps track of the order in which InfoStrings are displayed when printed
@@ -777,7 +780,14 @@ public:
 
     void start() { _sw.start(); }
 
-    bool is_cancelled() { return _is_cancelled != nullptr && *_is_cancelled; }
+    bool is_cancelled() {
+        if (_is_cancelled == nullptr) return false;
+        if constexpr (std::is_same_v<Bool, std::atomic_bool>) {
+            return _is_cancelled->load(std::memory_order_relaxed);
+        } else {
+            return *_is_cancelled;
+        }
+    }
 
     void UpdateCounter() {
         if (_counter != nullptr && !is_cancelled()) {
@@ -812,7 +822,13 @@ class ScopedRawTimer {
 public:
     ScopedRawTimer(C* counter) : _counter(counter) { _sw.start(); }
     // Update counter when object is destroyed
-    ~ScopedRawTimer() { *_counter += _sw.elapsed_time(); }
+    ~ScopedRawTimer() {
+        if constexpr (std::is_same_v<C, std::atomic<int64_t>>) {
+            _counter->fetch_add(_sw.elapsed_time(), std::memory_order_relaxed);
+        } else {
+            *_counter += _sw.elapsed_time();
+        }
+    }
 
     // Disable copy constructor and assignment
     ScopedRawTimer(const ScopedRawTimer& timer) = delete;
