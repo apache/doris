@@ -79,8 +79,6 @@ public:
     }
 };
 
-const std::string DISTINCT_FUNCTION_PREFIX = "multi_distinct_";
-
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator = [&](const std::string& name, const DataTypes& types,
                                            const bool result_is_nullable,
