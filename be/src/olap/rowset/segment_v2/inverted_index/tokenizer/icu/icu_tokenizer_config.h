@@ -17,32 +17,21 @@
 
 #pragma once
 
-#include <unicode/utext.h>
+#include "icu_common.h"
 
-#include "CLucene.h"
-#include "CLucene/analysis/AnalysisHeader.h"
-#include "CLucene/analysis/icu/ICUCommon.h"
+namespace doris::segment_v2::inverted_index {
 
-using namespace lucene::analysis;
-
-namespace doris::segment_v2 {
-
-class BasicTokenizer : public Tokenizer {
+class ICUTokenizerConfig {
 public:
-    BasicTokenizer();
-    BasicTokenizer(bool lowercase, bool ownReader);
-    ~BasicTokenizer() override = default;
+    ICUTokenizerConfig() = default;
+    virtual ~ICUTokenizerConfig() = default;
 
-    Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
+    virtual void initialize(const std::string& dictPath) = 0;
+    virtual icu::BreakIterator* get_break_iterator(int32_t script) = 0;
+    virtual bool combine_cj() = 0;
 
-    void cut();
-
-private:
-    int32_t _buffer_index = 0;
-    int32_t _data_len = 0;
-    std::string _buffer;
-    std::vector<std::string_view> _tokens_text;
+    static const int32_t EMOJI_SEQUENCE_STATUS = 299;
 };
+using ICUTokenizerConfigPtr = std::shared_ptr<ICUTokenizerConfig>;
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index
