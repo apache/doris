@@ -356,6 +356,26 @@ suite("test_prepared_stmt", "nonConcurrent") {
         stmt_read.setString(2, "2")
         stmt_read.setString(3, "3")
         qe_select26 stmt_read
+
+        sql """drop table if exists date_trunc_test"""
+        sql """ CREATE TABLE IF NOT EXISTS `date_trunc_test` (
+              `pk` int NULL,
+              `value` datetime NOT NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`pk`)
+            DISTRIBUTED BY HASH(`pk`) BUCKETS 10
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+        """
+        sql """insert into date_trunc_test values (1, "2025-09-21 15:43:25") """
+        stmt_read = prepareStatement "select date_trunc(value, ?) from date_trunc_test"
+        stmt_read.setString(1, "year")
+        qe_select27 stmt_read
+        stmt_read = prepareStatement "select date_trunc(?, ?) from date_trunc_test"
+        stmt_read.setString(1, "year")
+        stmt_read.setString(2, "2020-01-01 11:22:33")
+        qe_select28 stmt_read
     }
 
     // test stmtId overflow
