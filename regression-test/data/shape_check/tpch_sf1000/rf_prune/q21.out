@@ -10,11 +10,11 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------hashJoin[RIGHT_SEMI_JOIN colocated] hashCondition=((l2.l_orderkey = l1.l_orderkey)) otherCondition=(( not (l_suppkey = l_suppkey))) build RFs:RF4 l_orderkey->[l_orderkey]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[lineitem] apply RFs: RF4
+--------------------PhysicalOlapScan[lineitem(l2)] apply RFs: RF4
 ------------------hashJoin[RIGHT_ANTI_JOIN colocated] hashCondition=((l3.l_orderkey = l1.l_orderkey)) otherCondition=(( not (l_suppkey = l_suppkey))) build RFs:RF3 l_orderkey->[l_orderkey]
 --------------------PhysicalProject
 ----------------------filter((l3.l_receiptdate > l3.l_commitdate))
-------------------------PhysicalOlapScan[lineitem] apply RFs: RF3
+------------------------PhysicalOlapScan[lineitem(l3)] apply RFs: RF3
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = l1.l_orderkey)) otherCondition=() build RFs:RF2 l_orderkey->[o_orderkey]
 ------------------------PhysicalProject
@@ -24,7 +24,7 @@ PhysicalResultSink
 --------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = l1.l_suppkey)) otherCondition=() build RFs:RF1 s_suppkey->[l_suppkey]
 ----------------------------PhysicalProject
 ------------------------------filter((l1.l_receiptdate > l1.l_commitdate))
---------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
+--------------------------------PhysicalOlapScan[lineitem(l1)] apply RFs: RF1
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF0 n_nationkey->[s_nationkey]
 --------------------------------PhysicalProject

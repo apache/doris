@@ -57,18 +57,29 @@ public class PhysicalEsScan extends PhysicalCatalogRelation {
     public PhysicalEsScan(RelationId id, TableIf table, List<String> qualifier,
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics) {
+        this(id, table, qualifier, distributionSpec, groupExpression, logicalProperties,
+                physicalProperties, statistics, "");
+    }
+
+    /**
+     * Constructor for PhysicalEsScan.
+     */
+    public PhysicalEsScan(RelationId id, TableIf table, List<String> qualifier,
+            DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics,
+            String tableAlias) {
         super(id, PlanType.PHYSICAL_ES_SCAN, table, qualifier, groupExpression, logicalProperties,
-                physicalProperties, statistics, ImmutableList.of());
+                physicalProperties, statistics, ImmutableList.of(), tableAlias);
         this.distributionSpec = distributionSpec;
     }
 
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalEsScan",
-            "qualified", Utils.qualifiedName(qualifier, table.getName()),
-            "output", getOutput(),
-            "stats", statistics
-        );
+                "qualified", Utils.qualifiedName(qualifier, table.getName()),
+                "alias", tableAlias,
+                "output", getOutput(),
+                "stats", statistics);
     }
 
     @Override
@@ -79,20 +90,20 @@ public class PhysicalEsScan extends PhysicalCatalogRelation {
     @Override
     public PhysicalEsScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalEsScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties());
+                groupExpression, getLogicalProperties(), null, null, tableAlias);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalEsScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, logicalProperties.get());
+                groupExpression, logicalProperties.get(), null, null, tableAlias);
     }
 
     @Override
     public PhysicalEsScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-                                                           Statistics statsDeriveResult) {
+            Statistics statsDeriveResult) {
         return new PhysicalEsScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties(), physicalProperties, statsDeriveResult);
+                groupExpression, getLogicalProperties(), physicalProperties, statsDeriveResult, tableAlias);
     }
 }

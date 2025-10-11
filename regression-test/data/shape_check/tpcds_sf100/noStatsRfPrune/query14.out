@@ -15,10 +15,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[item]
+--------------------------PhysicalOlapScan[item(iws)]
 --------------------PhysicalProject
 ----------------------filter((d3.d_year <= 2002) and (d3.d_year >= 2000))
-------------------------PhysicalOlapScan[date_dim]
+------------------------PhysicalOlapScan[date_dim(d3)]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
@@ -29,10 +29,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2 RF3
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[item] RFV2: RF19
+--------------------------PhysicalOlapScan[item(ics)] RFV2: RF19
 --------------------PhysicalProject
 ----------------------filter((d2.d_year <= 2002) and (d2.d_year >= 2000))
-------------------------PhysicalOlapScan[date_dim]
+------------------------PhysicalOlapScan[date_dim(d2)]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------hashAgg[LOCAL]
@@ -43,10 +43,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[store_sales] apply RFs: RF5
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[item] RFV2: RF20
+--------------------------PhysicalOlapScan[item(iss)] RFV2: RF20
 --------------------PhysicalProject
 ----------------------filter((d1.d_year <= 2002) and (d1.d_year >= 2000))
-------------------------PhysicalOlapScan[date_dim]
+------------------------PhysicalOlapScan[date_dim(d1)]
 --------PhysicalProject
 ----------PhysicalOlapScan[item]
 --PhysicalCteAnchor ( cteId=CTEId#1 )
