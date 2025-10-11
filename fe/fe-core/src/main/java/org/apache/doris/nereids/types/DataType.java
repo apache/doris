@@ -77,6 +77,7 @@ public abstract class DataType {
                     .put(Type.DATEV2.getPrimitiveType(), DateType.INSTANCE)
                     .put(Type.DATETIME.getPrimitiveType(), DateTimeType.INSTANCE)
                     .put(Type.DATETIMEV2.getPrimitiveType(), DateTimeV2Type.SYSTEM_DEFAULT)
+                    .put(Type.TIMESTAMPTZ.getPrimitiveType(), TimeStampTzType.INSTANCE)
                     .put(Type.DECIMALV2.getPrimitiveType(), DecimalV2Type.SYSTEM_DEFAULT)
                     .put(Type.DECIMAL32.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
                     .put(Type.DECIMAL64.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
@@ -348,6 +349,9 @@ public abstract class DataType {
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
                 break;
+            case "timestamptz":
+                dataType = TimeStampTzType.INSTANCE;
+                break;
             case "hll":
                 dataType = HllType.INSTANCE;
                 break;
@@ -413,6 +417,7 @@ public abstract class DataType {
             case DATEV2: return DateV2Type.INSTANCE;
             case DATE: return DateType.INSTANCE;
             case TIMEV2: return TimeV2Type.of(((ScalarType) type).getScalarScale());
+            case TIMESTAMPTZ: return TimeStampTzType.INSTANCE;
             case HLL: return HllType.INSTANCE;
             case BITMAP: return BitmapType.INSTANCE;
             case QUANTILE_STATE: return QuantileStateType.INSTANCE;
@@ -605,6 +610,10 @@ public abstract class DataType {
 
     public boolean isTimeType() {
         return this instanceof TimeV2Type;
+    }
+
+    public boolean isTimeStampTzType() {
+        return this instanceof TimeStampTzType;
     }
 
     public boolean isNullType() {

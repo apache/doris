@@ -147,6 +147,8 @@ public class ScalarType extends Type {
                 return createDatetimeV2Type(scale);
             case TIMEV2:
                 return createTimeV2Type(scale);
+            case TIMESTAMPTZ:
+                return createTimeStampTzType();
             case VARBINARY:
                 return createVarbinaryType(len);
             default:
@@ -204,6 +206,8 @@ public class ScalarType extends Type {
                 return DEFAULT_DATETIMEV2;
             case TIMEV2:
                 return TIMEV2;
+            case TIMESTAMPTZ:
+                return createTimeStampTzType();
             case DECIMAL32:
                 return DEFAULT_DECIMAL32;
             case DECIMAL64:
@@ -457,6 +461,14 @@ public class ScalarType extends Type {
     }
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
+    public static ScalarType createTimeStampTzType() {
+        ScalarType type = new ScalarType(PrimitiveType.TIMESTAMPTZ);
+        type.precision = 0;
+        type.scale = 0;
+        return type;
+    }
+
+    @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createDatetimeType() {
         if (!Config.enable_date_conversion) {
             return new ScalarType(PrimitiveType.DATETIME);
@@ -601,8 +613,10 @@ public class ScalarType extends Type {
             return "decimalv3(" + precision + "," + scale + ")";
         } else  if (type == PrimitiveType.DATETIMEV2) {
             return "datetimev2(" + scale + ")";
-        } else  if (type == PrimitiveType.TIMEV2) {
+        } else if (type == PrimitiveType.TIMEV2) {
             return "timev2(" + scale + ")";
+        } else if (type == PrimitiveType.TIMESTAMPTZ) {
+            return "timestamptz";
         } else if (type == PrimitiveType.VARCHAR) {
             if (isWildcardVarchar()) {
                 return "varchar(" + MAX_VARCHAR_LENGTH + ")";
@@ -669,6 +683,9 @@ public class ScalarType extends Type {
                 break;
             case TIMEV2:
                 stringBuilder.append("time").append("(").append(scale).append(")");
+                break;
+            case TIMESTAMPTZ:
+                stringBuilder.append("timestamptz");
                 break;
             case BOOLEAN:
                 return "boolean";
