@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.ManageSnapshots;
@@ -823,10 +824,15 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private Namespace getNamespace(String dbName) {
+        return getNamespace(externalCatalogName, dbName);
+    }
+
+    @VisibleForTesting
+    public static Namespace getNamespace(Optional<String> catalogName, String dbName) {
         String[] splits = Splitter.on(".").omitEmptyStrings().trimResults().splitToList(dbName).toArray(new String[0]);
-        if (externalCatalogName.isPresent()) {
+        if (catalogName.isPresent()) {
             splits = Arrays.copyOf(splits, splits.length + 1);
-            splits[splits.length - 1] = externalCatalogName.get();
+            splits[splits.length - 1] = catalogName.get();
         }
         return Namespace.of(splits);
     }
