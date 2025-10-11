@@ -1019,7 +1019,7 @@ under the License.
             <dependency>
                 <groupId>org.wildfly.common</groupId>
                 <artifactId>wildfly-common</artifactId>
-                <version>${wildfly.common.version}</version>
+                <version>${wildfly-common.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
             <dependency>
