@@ -66,6 +66,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "inject_hdfs_vault_p0," +
     "variant_p0/nested," +
     "plsql_p0," + // plsql is not developped any more, add by sk.
+    "restore_p0," + // 
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 max_failure_num = 50
