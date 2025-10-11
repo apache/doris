@@ -135,11 +135,11 @@ suite("test_streaming_insert_job_alter") {
 
     qt_select """ SELECT * FROM ${tableName} order by c1 """
 
-//    sql """
-//        DROP JOB IF EXISTS where jobname =  '${jobName}'
-//    """
-//
-//    def jobCountRsp = sql """select count(1) from jobs("type"="insert")  where Name ='${jobName}'"""
-//    assert jobCountRsp.get(0).get(0) == 0
+    sql """
+        DROP JOB IF EXISTS where jobname =  '${jobName}'
+    """
+
+    def jobCountRsp = sql """select count(1) from jobs("type"="insert")  where Name ='${jobName}'"""
+    assert jobCountRsp.get(0).get(0) == 0
 
 }
