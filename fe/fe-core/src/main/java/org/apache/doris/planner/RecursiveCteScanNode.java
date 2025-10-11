@@ -17,12 +17,12 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
-import org.apache.doris.thrift.TDataGenScanRange;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
@@ -63,18 +63,13 @@ public class RecursiveCteScanNode extends ScanNode {
         Collections.shuffle(backendList);
         Backend selectedBackend = backendList.get(0);
 
-        // create a dummy scan range
-        TScanRange scanRange = new TScanRange();
-        TDataGenScanRange dataGenScanRange = new TDataGenScanRange();
-        scanRange.setDataGenScanRange(dataGenScanRange);
-
         // create scan range locations
-        TScanRangeLocations locations = new TScanRangeLocations();
         TScanRangeLocation location = new TScanRangeLocation();
         location.setBackendId(selectedBackend.getId());
         location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
+        TScanRangeLocations locations = new TScanRangeLocations();
         locations.addToLocations(location);
-        locations.setScanRange(scanRange);
+        locations.setScanRange(new TScanRange());
         scanRangeLocations.add(locations);
     }
 
@@ -96,8 +91,11 @@ public class RecursiveCteScanNode extends ScanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(prefix).append("Recursive Cte: ").append(getTableIf().getName());
-        output.append("\n");
+        output.append(prefix).append("Recursive Cte: ").append(getTableIf().getName()).append("\n");
+        if (!conjuncts.isEmpty()) {
+            Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
+            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+        }
         return output.toString();
     }
 

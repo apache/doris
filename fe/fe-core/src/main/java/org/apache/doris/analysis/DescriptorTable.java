@@ -20,6 +20,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.RecursiveCteTempTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.IdGenerator;
@@ -212,6 +213,10 @@ public class DescriptorTable {
         }
 
         for (TableIf tbl : referencedTbls.values()) {
+            if (tbl instanceof RecursiveCteTempTable) {
+                // skip recursive cte temp table
+                continue;
+            }
             result.addToTableDescriptors(tbl.toThrift());
         }
         thriftDescTable = result;
