@@ -1829,34 +1829,14 @@ class Suite implements GroovyInterceptable {
         if (!isCloudMode()) {
             return false;
         }
-
-        if (Strings.isNullOrEmpty(context.config.metaServiceHttpAddress)
-                || Strings.isNullOrEmpty(context.config.instanceId)
-                || Strings.isNullOrEmpty(context.config.metaServiceToken)) {
+        try {
+            sql "show storage vault"
+        } catch (Exception e) {
+            logger.info("show storage vault failed: {}", e.getMessage())
+            Assert.assertTrue(e.getMessage().contains("Your cloud instance doesn't support storage vault"))
             return false;
         }
-
-        boolean ret = false;
-        def getInstanceInfo = { check_func ->
-            httpTest {
-                endpoint context.config.metaServiceHttpAddress
-                uri "/MetaService/http/get_instance?token=${context.config.metaServiceToken}&instance_id=${context.config.instanceId}"
-                op "get"
-                check check_func
-            }
-        }
-        getInstanceInfo.call() {
-            respCode, body ->
-                String respCodeValue = "${respCode}".toString();
-                if (!respCodeValue.equals("200")) {
-                    return;
-                }
-                def json = parseJson(body)
-                if (json.result.containsKey("enable_storage_vault") && json.result.enable_storage_vault) {
-                    ret = true;
-                }
-        }
-        return ret;
+        return true;
     }
 
     boolean isGroupCommitMode() {
