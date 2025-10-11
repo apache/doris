@@ -36,7 +36,7 @@ Usage: $0 <shell_options> <framework_options>
      -s                                run a specified suite
      -g                                run a specified group
      -d                                run a specified directory
-     -f                                run a specified file (will be converted to -d and -s automatically)
+     -f                                run a specified file (only when the file name equals the suite name; will be converted to -d and -s automatically)
      -h                                **print all framework options usage**
      -xs                               exclude the specified suite
      -xg                               exclude the specified group
