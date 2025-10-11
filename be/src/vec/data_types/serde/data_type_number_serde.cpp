@@ -33,6 +33,7 @@
 #include "vec/functions/cast/cast_to_boolean.h"
 #include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
+#include "vec/runtime/timestamptz_value.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -491,6 +492,10 @@ Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
         } else {
             buf_ret = result.push_double(data[col_index]);
         }
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        TimestampTzValue tz_value(data[col_index]);
+        DCHECK(options.timezone != nullptr);
+        buf_ret = result.push_timestamptz(tz_value, *options.timezone);
     }
     if (UNLIKELY(buf_ret != 0)) {
         return Status::InternalError("pack mysql buffer failed.");
@@ -903,7 +908,8 @@ void value_to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType value
     } else if constexpr (T == TYPE_IPV4 || T == TYPE_IPV6) {
         CastToString::push_ip(value, bw);
     } else {
-        static_assert(std::is_same_v<decltype(T), void>, "non-exhaustive visitor!");
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "value_to_string not implemented for type: {}", type_to_string(T));
     }
 }
 
@@ -946,4 +952,5 @@ template class DataTypeNumberSerDe<TYPE_IPV4>;
 template class DataTypeNumberSerDe<TYPE_IPV6>;
 template class DataTypeNumberSerDe<TYPE_TIME>;
 template class DataTypeNumberSerDe<TYPE_TIMEV2>;
+template class DataTypeNumberSerDe<TYPE_TIMESTAMPTZ>;
 } // namespace doris::vectorized
