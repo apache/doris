@@ -1182,7 +1182,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitAlterJob(DorisParser.AlterJobContext ctx) {
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
-        String executeSql = getOriginSql(ctx.supportedDmlStatement());
+        String executeSql = ctx.supportedDmlStatement() != null ? getOriginSql(ctx.supportedDmlStatement()) : "";
         return new AlterJobCommand(ctx.jobName.getText(), properties, executeSql);
     }
 
