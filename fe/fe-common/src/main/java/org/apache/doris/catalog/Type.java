@@ -69,6 +69,7 @@ public abstract class Type {
     public static final ScalarType DATETIME = new ScalarType(PrimitiveType.DATETIME);
     public static final ScalarType DATEV2 = new ScalarType(PrimitiveType.DATEV2);
     public static final ScalarType TIMEV2 = new ScalarType(PrimitiveType.TIMEV2);
+    public static final ScalarType TIMESTAMPTZ = new ScalarType(PrimitiveType.TIMESTAMPTZ);
     public static final ScalarType STRING = ScalarType.createStringType();
     public static final ScalarType VARBINARY = ScalarType.createVarbinaryType(-1);
     public static final ScalarType DEFAULT_DECIMALV2 = ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
@@ -503,6 +504,10 @@ public abstract class Type {
         return false;
     }
 
+    public boolean isTimeStampTz() {
+        return isScalarType(PrimitiveType.TIMESTAMPTZ);
+    }
+
     public boolean isWildcardDecimal() {
         return false;
     }
@@ -809,6 +814,8 @@ public abstract class Type {
                 return Type.DATETIMEV2;
             case TIMEV2:
                 return Type.TIMEV2;
+            case TIMESTAMPTZ:
+                return Type.TIMESTAMPTZ;
             case DECIMALV2:
                 return Type.DECIMALV2;
             case DECIMAL32:

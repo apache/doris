@@ -101,9 +101,13 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         // StringLike to other type is always nullable.
         if (childDataType.isStringLikeType() && !targetType.isStringLikeType()) {
             return true;
-        } else if ((childDataType.isDateTimeType() || childDataType.isDateTimeV2Type())
+        } else if ((childDataType.isDateTimeType() || childDataType.isDateTimeV2Type()
+                || childDataType.isTimeStampTzType())
                 && (targetType.isDateTimeType() || targetType.isDateTimeV2Type())) {
             // datetime to datetime is always nullable
+            return true;
+        } else if (childDataType.isDateTimeV2Type() && targetType.isTimeStampTzType()) {
+            // Datetime to timestamptz is always nullable
             return true;
         } else if (childDataType.isTimeType()) {
             // time to tinyint, smallint, int and time is always nullable.
