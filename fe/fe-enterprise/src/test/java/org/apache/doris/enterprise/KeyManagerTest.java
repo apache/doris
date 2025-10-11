@@ -26,8 +26,11 @@ import org.apache.doris.encryption.EncryptionKey.KeyType;
 import org.apache.doris.encryption.KeyManagerStore;
 import org.apache.doris.encryption.RootKeyInfo;
 import org.apache.doris.encryption.RootKeyInfo.RootKeyType;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AdminRotateTdeRootKeyCommand;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
@@ -72,7 +75,8 @@ public class KeyManagerTest {
     }
 
     @Test
-    public void testRotateRootKey(@Mocked Env env, @Mocked EditLog editLog) {
+    public void testRotateRootKey(@Mocked Env env, @Mocked EditLog editLog, @Mocked ConnectContext ctx,
+            @Mocked AccessControllerManager accessMgr) {
         KeyManager manager = new KeyManager();
         RootKeyProvider provider = new MockedRootKeyProvider();
 
@@ -110,6 +114,18 @@ public class KeyManagerTest {
                 env.getEditLog();
                 minTimes = 0;
                 result = editLog;
+            }
+
+            {
+                ConnectContext.get();
+                minTimes = 0;
+                result = ctx;
+            }
+
+            {
+                accessMgr.checkGlobalPriv(ctx, PrivPredicate.ADMIN);
+                minTimes = 0;
+                result = true;
             }
         };
 
@@ -151,6 +167,21 @@ public class KeyManagerTest {
 
         properties.clear();
         properties.put(AdminRotateTdeRootKeyCommand.DORIS_TDE_KEY_PROVIDER, "local");
+        try {
+            manager.rotateRootKey(properties);
+            Assert.fail();
+        } catch (Exception e) {
+            // do nothing
+        }
+
+        new Expectations() {
+            {
+                accessMgr.checkGlobalPriv(ctx, PrivPredicate.ADMIN);
+                minTimes = 1;
+                result = false;
+            }
+        };
+
         try {
             manager.rotateRootKey(properties);
             Assert.fail();
