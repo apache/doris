@@ -67,6 +67,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+// !FIXME: Here we should consider using MutableBlock, due to potential data reorganization
 Status OlapTableBlockConvertor::validate_and_convert_block(
         RuntimeState* state, vectorized::Block* input_block,
         std::shared_ptr<vectorized::Block>& block, vectorized::VExprContextSPtrs output_vexpr_ctxs,
@@ -235,35 +236,12 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         }
 
         if (invalid_count) {
-            if (state->enable_insert_strict()) {
-                for (size_t j = 0; j < row_count; ++j) {
-                    auto row = rows ? (*rows)[j] : j;
-                    if (need_to_validate(j, row)) {
-                        auto str_val = column_string->get_data_at(j);
-                        bool invalid = str_val.size > limit;
-                        if (invalid) {
-                            if (str_val.size > len) {
-                                fmt::format_to(error_msg, "{}",
-                                               "the length of input is too long than schema. ");
-                                fmt::format_to(error_msg, "first 32 bytes of input str: [{}] ",
-                                               str_val.to_prefix(32));
-                                fmt::format_to(error_msg, "schema length: {}; ", len);
-                                fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
-                            } else if (str_val.size > limit) {
-                                fmt::format_to(
-                                        error_msg, "{}",
-                                        "the length of input string is too long than vec schema. ");
-                                fmt::format_to(error_msg, "first 32 bytes of input str: [{}] ",
-                                               str_val.to_prefix(32));
-                                fmt::format_to(error_msg, "schema length: {}; ", len);
-                                fmt::format_to(error_msg, "limit length: {}; ", limit);
-                                fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
-                            }
-                            RETURN_IF_ERROR(set_invalid_and_append_error_msg(row));
-                        }
-                    }
-                }
-            } else if (type_str) {
+            // For string column, if in non-strict load mode(for both insert stmt and stream load),
+            // truncate the string to schema len.
+            // After truncation, still need to check if byte len of each row exceed the schema len,
+            // because currently the schema len is defined in bytes, and substring works by unit of chars.
+            // This is a workaround for now, need to improve it after better support of multi-byte chars.
+            if (type_str && !state->enable_insert_strict()) {
                 ColumnsWithTypeAndName argument_template;
                 auto pos_type = DataTypeFactory::instance().create_data_type(
                         FieldType::OLAP_FIELD_TYPE_INT, 0, 0);
@@ -287,6 +265,41 @@ Status OlapTableBlockConvertor::_internal_validate_column(
                 RETURN_IF_ERROR(func->execute(nullptr, tmp_block, {0, 1, 2}, 3, row_count));
                 block->get_by_position(slot_index).column =
                         std::move(tmp_block.get_by_position(3).column);
+                const auto* tmp_column_ptr =
+                        vectorized::check_and_get_column<vectorized::ColumnNullable>(
+                                *block->get_by_position(slot_index).column);
+                const auto& tmp_real_column_ptr =
+                        tmp_column_ptr == nullptr ? block->get_by_position(slot_index).column
+                                                  : (tmp_column_ptr->get_nested_column_ptr());
+                column_string =
+                        assert_cast<const vectorized::ColumnString*>(tmp_real_column_ptr.get());
+            }
+            for (size_t j = 0; j < row_count; ++j) {
+                auto row = rows ? (*rows)[j] : j;
+                if (need_to_validate(j, row)) {
+                    auto str_val = column_string->get_data_at(j);
+                    bool invalid = str_val.size > limit;
+                    if (invalid) {
+                        if (str_val.size > len) {
+                            fmt::format_to(error_msg, "{}",
+                                           "the length of input is too long than schema. ");
+                            fmt::format_to(error_msg, "first 32 bytes of input str: [{}] ",
+                                           str_val.to_prefix(32));
+                            fmt::format_to(error_msg, "schema length: {}; ", len);
+                            fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
+                        } else if (str_val.size > limit) {
+                            fmt::format_to(
+                                    error_msg, "{}",
+                                    "the length of input string is too long than vec schema. ");
+                            fmt::format_to(error_msg, "first 32 bytes of input str: [{}] ",
+                                           str_val.to_prefix(32));
+                            fmt::format_to(error_msg, "schema length: {}; ", len);
+                            fmt::format_to(error_msg, "limit length: {}; ", limit);
+                            fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
+                        }
+                        RETURN_IF_ERROR(set_invalid_and_append_error_msg(row));
+                    }
+                }
             }
         }
         return Status::OK();
@@ -321,6 +334,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         break;
     }
     case TYPE_DECIMALV2: {
+        // column_decimal utilizes the ColumnPtr from the block* block in _validate_data and can be modified.
         auto* column_decimal = const_cast<vectorized::ColumnDecimal128V2*>(
                 assert_cast<const vectorized::ColumnDecimal128V2*>(real_column_ptr.get()));
         const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
@@ -362,9 +376,8 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     }
     case TYPE_DECIMAL32: {
 #define CHECK_VALIDATION_FOR_DECIMALV3(DecimalType)                                               \
-    auto column_decimal = const_cast<vectorized::ColumnDecimal<DecimalType::PType>*>(             \
-            assert_cast<const vectorized::ColumnDecimal<DecimalType::PType>*>(                    \
-                    real_column_ptr.get()));                                                      \
+    auto column_decimal = assert_cast<const vectorized::ColumnDecimal<DecimalType::PType>*>(      \
+            real_column_ptr.get());                                                               \
     const auto& max_decimal = _get_decimalv3_min_or_max<DecimalType, false>(type);                \
     const auto& min_decimal = _get_decimalv3_min_or_max<DecimalType, true>(type);                 \
     const auto* __restrict datas = column_decimal->get_data().data();                             \
@@ -431,6 +444,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     }
     case TYPE_MAP: {
         const auto* column_map = assert_cast<const vectorized::ColumnMap*>(real_column_ptr.get());
+        // column_map utilizes the ColumnPtr from the block* block in _validate_data and can be modified.
         RETURN_IF_ERROR((const_cast<ColumnMap*>(column_map))->deduplicate_keys(true));
 
         const auto* type_map =

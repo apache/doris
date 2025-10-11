@@ -57,14 +57,14 @@ public:
         }
     }
 
-    BitmapValue bitmap_calculate() {
+    BitmapValue bitmap_calculate() const {
         std::stack<BitmapValue> values;
         std::string bitmap_key;
         for (int i = 0; i < _polish.length(); i++) {
             char c = _polish.at(i);
             if (c == ' ') {
                 if (bitmap_key.length() > 0) {
-                    values.push(_bitmaps[bitmap_key]);
+                    values.push(_bitmaps.at(bitmap_key));
                     bitmap_key.clear();
                 }
             } else if (c != '&' && c != '|' && c != '^' && c != '-' && c != '\\') {
@@ -75,7 +75,7 @@ public:
                 continue;
             } else {
                 if (bitmap_key.length() > 0) {
-                    values.push(_bitmaps[bitmap_key]);
+                    values.push(_bitmaps.at(bitmap_key));
                     bitmap_key.clear();
                 }
                 if (values.size() >= 2) {
@@ -91,7 +91,7 @@ public:
         }
         BitmapValue result;
         if (bitmap_key.length() > 0) {
-            result |= _bitmaps[bitmap_key];
+            result |= _bitmaps.at(bitmap_key);
         } else if (!values.empty()) {
             result |= values.top();
         }
@@ -99,7 +99,7 @@ public:
     }
 
     // calculate the bitmap value by expr bitmap calculate
-    int64_t bitmap_calculate_count() {
+    int64_t bitmap_calculate_count() const {
         if (_bitmaps.empty()) {
             return 0;
         }
@@ -193,7 +193,8 @@ private:
         return print_stack(polish);
     }
 
-    void bitmap_calculate(BitmapValue& op_a, BitmapValue& op_b, char op, BitmapValue& result) {
+    void bitmap_calculate(BitmapValue& op_a, BitmapValue& op_b, char op,
+                          BitmapValue& result) const {
         result |= op_b;
         switch (op) {
         case '&':

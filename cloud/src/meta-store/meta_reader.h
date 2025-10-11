@@ -165,11 +165,54 @@ public:
                                   int64_t end_version, std::vector<RowsetMetaCloudPB>* rowset_metas,
                                   bool snapshot = false);
 
+    // Get all tablet rowset metas for the given rowset version range [start_version, end_version].
+    //
+    // The `rowset_metas` will be filled with the RowsetMetaCloudPB for each version at versionstamp in the range,
+    // in ascending order.
+    TxnErrorCode get_all_tablet_rowset_metas(int64_t start_version, int64_t end_version,
+                                             std::vector<RowsetMetaCloudPB>* rowset_metas,
+                                             bool snapshot);
+    TxnErrorCode get_all_tablet_rowset_metas(Transaction* txn, int64_t start_version,
+                                             int64_t end_version,
+                                             std::vector<RowsetMetaCloudPB>* rowset_metas,
+                                             bool snapshot);
+
     // Get the load rowset meta for the given tablet_id and version.
     TxnErrorCode get_load_rowset_meta(int64_t tablet_id, int64_t version,
-                                      RowsetMetaCloudPB* rowset_meta, bool snapshot = false);
+                                      RowsetMetaCloudPB* rowset_meta, bool snapshot = false) {
+        Versionstamp versionstamp;
+        return get_load_rowset_meta(tablet_id, version, rowset_meta, &versionstamp, snapshot);
+    }
     TxnErrorCode get_load_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
-                                      RowsetMetaCloudPB* rowset_meta, bool snapshot = false);
+                                      RowsetMetaCloudPB* rowset_meta, bool snapshot = false) {
+        Versionstamp versionstamp;
+        return get_load_rowset_meta(txn, tablet_id, version, rowset_meta, &versionstamp, snapshot);
+    }
+    TxnErrorCode get_load_rowset_meta(int64_t tablet_id, int64_t version,
+                                      RowsetMetaCloudPB* rowset_meta, Versionstamp* versionstamp,
+                                      bool snapshot = false);
+    TxnErrorCode get_load_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                      RowsetMetaCloudPB* rowset_meta, Versionstamp* versionstamp,
+                                      bool snapshot = false);
+
+    // Get the compact rowset meta for the given tablet_id and version.
+    TxnErrorCode get_compact_rowset_meta(int64_t tablet_id, int64_t version,
+                                         RowsetMetaCloudPB* rowset_meta, bool snapshot = false) {
+        Versionstamp versionstamp;
+        return get_compact_rowset_meta(tablet_id, version, rowset_meta, &versionstamp, snapshot);
+    }
+    TxnErrorCode get_compact_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                         RowsetMetaCloudPB* rowset_meta, bool snapshot = false) {
+        Versionstamp versionstamp;
+        return get_compact_rowset_meta(txn, tablet_id, version, rowset_meta, &versionstamp,
+                                       snapshot);
+    }
+    TxnErrorCode get_compact_rowset_meta(int64_t tablet_id, int64_t version,
+                                         RowsetMetaCloudPB* rowset_meta, Versionstamp* versionstamp,
+                                         bool snapshot = false);
+    TxnErrorCode get_compact_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
+                                         RowsetMetaCloudPB* rowset_meta, Versionstamp* versionstamp,
+                                         bool snapshot = false);
 
     // Get the load rowset metas for the given tablet_id.
     TxnErrorCode get_load_rowset_metas(

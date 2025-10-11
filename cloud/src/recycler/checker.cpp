@@ -248,6 +248,12 @@ int Checker::start() {
                 }
             }
 
+            if (config::enable_mvcc_meta_key_check) {
+                if (int ret = checker->do_mvcc_rowset_meta_key_check(); ret != 0) {
+                    success = false;
+                }
+            }
+
             // If instance checker has been aborted, don't finish this job
             if (!checker->stopped()) {
                 finish_instance_recycle_job(txn_kv_.get(), check_job_key, instance.instance_id(),
@@ -2056,10 +2062,21 @@ int InstanceChecker::scan_and_handle_kv(
         return -1;
     }
     std::unique_ptr<RangeGetIterator> it;
+    int limit = 10000;
+    TEST_SYNC_POINT_CALLBACK("InstanceChecker:scan_and_handle_kv:limit", &limit);
     do {
-        err = txn->get(start_key, end_key, &it);
+        err = txn->get(start_key, end_key, &it, false, limit);
+        TEST_SYNC_POINT_CALLBACK("InstanceChecker:scan_and_handle_kv:get_err", &err);
+        if (err == TxnErrorCode::TXN_TOO_OLD) {
+            LOG(WARNING) << "failed to get range kv, err=txn too old, "
+                         << " now fallback to non snapshot scan";
+            err = txn_kv_->create_txn(&txn);
+            if (err == TxnErrorCode::TXN_OK) {
+                err = txn->get(start_key, end_key, &it);
+            }
+        }
         if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to get tablet idx, ret=" << err;
+            LOG(WARNING) << "internal error, failed to get range kv, err=" << err;
             return -1;
         }
 
