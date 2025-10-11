@@ -718,11 +718,11 @@ public class PlanChecker {
     }
 
     public PlanChecker checkExplain(String sql, Consumer<NereidsPlanner> consumer) {
-        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
-        NereidsPlanner nereidsPlanner = new NereidsPlanner(
-                statementContext);
         connectContext.setStatementContext(statementContext);
+
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
         LogicalPlanAdapter adapter = LogicalPlanAdapter.of(parsed);
         adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN, false));
         SessionVariable sessionVariable = connectContext.getSessionVariable();
@@ -745,10 +745,11 @@ public class PlanChecker {
     }
 
     public PlanChecker checkPlannerResult(String sql, Consumer<NereidsPlanner> consumer) {
-        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
-        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
         connectContext.setStatementContext(statementContext);
+
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         try {
             nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
