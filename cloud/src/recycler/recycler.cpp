@@ -1937,8 +1937,8 @@ int InstanceRecycler::delete_rowset_data(
     for (const auto& [resource_id, tablet_id, rowset_id] : rowsets_delete_by_prefix) {
         LOG_INFO(
                 "delete rowset {} by prefix because it's in BEGIN_PARTIAL_UPDATE state, "
-                "resource_id={}, tablet_id={}, instance_id={}",
-                rowset_id, resource_id, tablet_id, instance_id_);
+                "resource_id={}, tablet_id={}, instance_id={}, task_type={}",
+                rowset_id, resource_id, tablet_id, instance_id_, metrics_context.operation_type);
         concurrent_delete_executor.add([&]() -> int {
             int ret = delete_rowset_data(resource_id, tablet_id, rowset_id);
             if (!ret) {
@@ -2153,6 +2153,7 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
                 .tag("max rowset creation time", max_rowset_creation_time)
                 .tag("min rowset expiration time", min_rowset_expiration_time)
                 .tag("max rowset expiration time", max_rowset_expiration_time)
+                .tag("task type", metrics_context.operation_type)
                 .tag("ret", ret);
     };
 
@@ -2291,7 +2292,8 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
                     int res = accessor_ptr->delete_directory(tablet_path_prefix(tablet_id));
                     if (res != 0) {
                         LOG(WARNING) << "failed to delete rowset data of tablet " << tablet_id
-                                     << " path=" << accessor_ptr->uri();
+                                     << " path=" << accessor_ptr->uri()
+                                     << " task type=" << metrics_context.operation_type;
                         return std::make_pair(-1, rs_id);
                     }
                     return std::make_pair(0, rs_id);
@@ -2501,7 +2503,8 @@ int InstanceRecycler::recycle_rowsets() {
             // 0x01 "recycle" ${instance_id} "rowset" ${tablet_id} ${rowset_id} -> RecycleRowsetPB
             const auto& rowset_id = std::get<std::string>(std::get<0>(out[4]));
             LOG(INFO) << "delete rowset data, instance_id=" << instance_id_
-                      << " tablet_id=" << rowset.tablet_id() << " rowset_id=" << rowset_id;
+                      << " tablet_id=" << rowset.tablet_id() << " rowset_id=" << rowset_id
+                      << " task_type=" << metrics_context.operation_type;
             if (delete_rowset_data_by_prefix(std::string(k), rowset.resource_id(),
                                              rowset.tablet_id(), rowset_id) != 0) {
                 return -1;
@@ -2533,7 +2536,8 @@ int InstanceRecycler::recycle_rowsets() {
                   << "] txn_id=" << rowset_meta->txn_id()
                   << " type=" << RecycleRowsetPB_Type_Name(rowset.type())
                   << " rowset_meta_size=" << v.size()
-                  << " creation_time=" << rowset_meta->creation_time();
+                  << " creation_time=" << rowset_meta->creation_time()
+                  << " task_type=" << metrics_context.operation_type;
         if (rowset.type() == RecycleRowsetPB::PREPARE) {
             // unable to calculate file path, can only be deleted by rowset id prefix
             num_prepare += 1;
@@ -2835,7 +2839,8 @@ int InstanceRecycler::recycle_tmp_rowsets() {
 
     auto handle_rowset_kv = [&num_scanned, &num_expired, &tmp_rowset_keys, &tmp_rowsets,
                              &expired_rowset_size, &total_rowset_key_size, &total_rowset_value_size,
-                             &earlest_ts, this](std::string_view k, std::string_view v) -> int {
+                             &earlest_ts, this,
+                             &metrics_context](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
         total_rowset_key_size += k.size();
         total_rowset_value_size += v.size();
@@ -2884,7 +2889,8 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                   << " version=[" << rowset.start_version() << '-' << rowset.end_version()
                   << "] txn_id=" << rowset.txn_id() << " rowset_meta_size=" << v.size()
                   << " creation_time=" << rowset.creation_time() << " num_scanned=" << num_scanned
-                  << " num_expired=" << num_expired;
+                  << " num_expired=" << num_expired
+                  << " task_type=" << metrics_context.operation_type;
 
         tmp_rowset_keys.emplace_back(k.data(), k.size());
 
