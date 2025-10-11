@@ -32,6 +32,10 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * @deprecated LakeSoul catalog support has been deprecated and will be removed in a future version.
+ */
+@Deprecated
 public class LakeSoulExternalCatalog extends ExternalCatalog {
 
     private static final Logger LOG = LogManager.getLogger(LakeSoulExternalCatalog.class);
