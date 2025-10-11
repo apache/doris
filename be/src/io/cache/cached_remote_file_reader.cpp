@@ -454,13 +454,6 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 }
                 stats_async.bytes_write_into_file_cache += block_size;
             }
-
-//            // update stats increment in this reading procedure for file cache metrics
-//            FileCacheStatistics fcache_stats_increment;
-//            _update_stats(stats_async, &fcache_stats_increment, is_inverted_index);
-//            io::FileCacheMetrics::instance().update(&fcache_stats_increment);
-//
-//            BlockFileCache::file_cache_fill_buffer_size.fetch_sub(buffer_size);
         };
         auto taskSPtr = std::make_shared<decltype(task)>(std::move(task));
         Status submit_status =
