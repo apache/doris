@@ -218,7 +218,7 @@ public class ExpressionUtils {
             }
         }
 
-        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
+        List<Expression> exprList = ImmutableList.copyOf(distinctExpressions);
         if (exprList.isEmpty()) {
             return BooleanLiteral.TRUE;
         } else if (exprList.size() == 1) {
@@ -266,7 +266,7 @@ public class ExpressionUtils {
             }
         }
 
-        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
+        List<Expression> exprList = ImmutableList.copyOf(distinctExpressions);
         if (exprList.isEmpty()) {
             return BooleanLiteral.FALSE;
         } else if (exprList.size() == 1) {
@@ -290,6 +290,10 @@ public class ExpressionUtils {
         } else {
             return BooleanLiteral.TRUE;
         }
+    }
+
+    public static Expression notIsNull(Expression expression) {
+        return new Not(new IsNull(expression));
     }
 
     public static Expression toInPredicateOrEqualTo(Expression reference, Collection<? extends Expression> values) {

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
 
@@ -30,6 +31,7 @@ import java.util.Objects;
 public class NullLiteral extends Literal implements ComparableLiteral {
 
     public static final NullLiteral INSTANCE = new NullLiteral();
+    public static final NullLiteral BOOLEAN_INSTANCE = new NullLiteral(BooleanType.INSTANCE);
 
     public NullLiteral() {
         super(NullType.INSTANCE);
