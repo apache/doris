@@ -454,6 +454,9 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 }
                 stats_async.bytes_write_into_file_cache += block_size;
             }
+
+            (void)buffer_size;
+            (void)is_inverted_index;
         };
         auto taskSPtr = std::make_shared<decltype(task)>(std::move(task));
         Status submit_status =
