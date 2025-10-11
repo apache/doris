@@ -256,6 +256,11 @@ void Field::create(const Field& field) {
         create_concrete<TYPE_DATEV2>(
                 field.template get<typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType>());
         return;
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
+        create_concrete<TYPE_TIMESTAMPTZ>(
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::NearestFieldType>());
+        return;
     case PrimitiveType::TYPE_DATETIME:
     case PrimitiveType::TYPE_DATE:
     case PrimitiveType::TYPE_BOOLEAN:
@@ -573,6 +578,11 @@ void Field::assign(const Field& field) {
     case PrimitiveType::TYPE_DATEV2:
         assign_concrete<TYPE_DATEV2>(
                 field.template get<typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType>());
+        return;
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
+        assign_concrete<TYPE_TIMESTAMPTZ>(
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_BOOLEAN:
     case PrimitiveType::TYPE_TINYINT:
@@ -902,6 +912,8 @@ std::string Field::to_string() const {
             const typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType& rhs);         \
     template void Field::FUNC_NAME<TYPE_DATETIMEV2>(                                         \
             const typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType& rhs);     \
+    template void Field::FUNC_NAME<TYPE_TIMESTAMPTZ>(                                        \
+            const typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::NearestFieldType& rhs);    \
     template void Field::FUNC_NAME<TYPE_DECIMAL32>(                                          \
             const typename PrimitiveTypeTraits<TYPE_DECIMAL32>::NearestFieldType& rhs);      \
     template void Field::FUNC_NAME<TYPE_DECIMAL64>(                                          \
