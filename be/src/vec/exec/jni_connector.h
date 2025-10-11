@@ -33,6 +33,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/types.h"
+#include "util/jni-util.h"
 #include "util/profile_collector.h"
 #include "util/runtime_profile.h"
 #include "util/string_util.h"
@@ -302,17 +303,18 @@ private:
 
     bool _closed = false;
     bool _scanner_opened = false;
-    jclass _jni_scanner_cls = nullptr;
-    jobject _jni_scanner_obj = nullptr;
-    jmethodID _jni_scanner_open = nullptr;
-    jmethodID _jni_scanner_get_append_data_time = nullptr;
-    jmethodID _jni_scanner_get_create_vector_table_time = nullptr;
-    jmethodID _jni_scanner_get_next_batch = nullptr;
-    jmethodID _jni_scanner_get_table_schema = nullptr;
-    jmethodID _jni_scanner_close = nullptr;
-    jmethodID _jni_scanner_release_column = nullptr;
-    jmethodID _jni_scanner_release_table = nullptr;
-    jmethodID _jni_scanner_get_statistics = nullptr;
+
+    Jni::GlobalClass _jni_scanner_cls;
+    Jni::GlobalObject _jni_scanner_obj;
+    Jni::MethodId _jni_scanner_open;
+    Jni::MethodId _jni_scanner_get_append_data_time;
+    Jni::MethodId _jni_scanner_get_create_vector_table_time;
+    Jni::MethodId _jni_scanner_get_next_batch;
+    Jni::MethodId _jni_scanner_get_table_schema;
+    Jni::MethodId _jni_scanner_close;
+    Jni::MethodId _jni_scanner_release_column;
+    Jni::MethodId _jni_scanner_release_table;
+    Jni::MethodId _jni_scanner_get_statistics;
 
     TableMetaAddress _table_meta;
 
