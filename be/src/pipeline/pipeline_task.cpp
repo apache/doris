@@ -383,9 +383,13 @@ void PipelineTask::terminate() {
 Status PipelineTask::execute(bool* done) {
     if (!_need_to_revoke_memory && (_exec_state != State::RUNNABLE || _blocked_dep != nullptr))
             [[unlikely]] {
-        return Status::InternalError("Pipeline task is not runnable! Task info: {}",
-                                     debug_string());
+        if (nullptr == _blocked_dep) {
+            return Status::InternalError("Pipeline task is not runnable! Task info: {}",
+                                         debug_string());
+        }
+        return Status::OK();
     }
+
     auto fragment_context = _fragment_context.lock();
     if (!fragment_context) {
         return Status::InternalError("Fragment already finished! Query: {}", print_id(_query_id));
@@ -481,8 +485,12 @@ Status PipelineTask::execute(bool* done) {
         }
 
         if (_need_to_revoke_memory) {
-            _need_to_revoke_memory = false;
-            return _sink->revoke_memory(_state, _spill_context);
+            Defer spill_context_release_defer {[&]() {
+                _spill_context.reset();
+                _need_to_revoke_memory = false;
+            }};
+            RETURN_IF_ERROR(_sink->revoke_memory(_state, _spill_context));
+            continue;
         }
 
         if (time_spent > _exec_time_slice) {
@@ -805,12 +813,18 @@ size_t PipelineTask::get_revocable_size() const {
 }
 
 Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_context) {
+    DCHECK(spill_context);
     if (is_finalized()) {
-        if (spill_context) {
-            spill_context->on_task_finished();
-            VLOG_DEBUG << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
-                       << " finalized";
-        }
+        spill_context->on_task_finished();
+        VLOG_DEBUG << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
+                   << " finalized";
+        return Status::OK();
+    }
+
+    if (_spill_context) {
+        LOG(INFO) << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
+                  << " is already spilling";
+        spill_context->on_task_finished();
         return Status::OK();
     }
 
@@ -818,9 +832,17 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
     if (revocable_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
         _need_to_revoke_memory = true;
         _spill_context = spill_context;
+
+        auto* dep = _blocked_dep;
+        if (dep) {
+            dep->remove_blocked_task(shared_from_this());
+            _blocked_dep = nullptr;
+        }
+
+        RETURN_IF_ERROR(_state_transition(PipelineTask::State::RUNNABLE));
         RETURN_IF_ERROR(
                 _state->get_query_ctx()->get_pipe_exec_scheduler()->submit(shared_from_this()));
-    } else if (spill_context) {
+    } else {
         spill_context->on_task_finished();
         LOG(INFO) << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
                   << " has not enough data to revoke: " << revocable_size;
@@ -830,7 +852,13 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
 
 Status PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */) {
     // call by dependency
-    DCHECK_EQ(_blocked_dep, dep) << "dep : " << dep->debug_string(0) << "task: " << debug_string();
+#ifndef NDEBUG
+    // `_blocked_dep` will be set to nullptr in revoke_memory.
+    if (_blocked_dep != nullptr) {
+        DCHECK_EQ(_blocked_dep, dep)
+                << "dep : " << dep->debug_string(0) << "task: " << debug_string();
+    }
+#endif
     _blocked_dep = nullptr;
     auto holder = std::dynamic_pointer_cast<PipelineTask>(shared_from_this());
     RETURN_IF_ERROR(_state_transition(PipelineTask::State::RUNNABLE));
