@@ -41,6 +41,7 @@ import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -113,9 +114,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     // get them in doInitialize() to ensure internal consistency of ScanNode
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
     private Map<String, String> backendStorageProperties;
-
-    // Custom file scan tasks for rewrite operations
-    private List<FileScanTask> customFileScanTasks = null;
 
     // for test
     @VisibleForTesting
@@ -254,21 +252,22 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     /**
-     * Reset file scan tasks to a custom list for rewrite operations.
-     * This method allows the rewrite executor to specify exactly which files
-     * should be scanned, overriding the normal table scan planning.
+     * Get FileScanTasks from StatementContext for rewrite operations.
+     * This allows setting file scan tasks before the plan is generated.
      */
-    public void resetFileScanTasks(List<FileScanTask> tasks) {
-        LOG.info("Resetting file scan tasks to {} custom tasks for rewrite operation", tasks.size());
-        this.customFileScanTasks = new ArrayList<>(tasks);
+    private List<FileScanTask> getFileScanTasksFromContext() {
+        ConnectContext ctx = ConnectContext.get();
+        Preconditions.checkNotNull(ctx);
+        Preconditions.checkNotNull(ctx.getStatementContext());
 
-        // Log the files that will be scanned
-        if (LOG.isDebugEnabled()) {
-            for (FileScanTask task : tasks) {
-                LOG.debug("Custom file scan task: {}, size: {} bytes",
-                         task.file().location(), task.file().fileSizeInBytes());
-            }
+        // Get the rewrite file scan tasks from statement context
+        List<FileScanTask> tasks = ctx.getStatementContext().getAndClearIcebergRewriteFileScanTasks();
+        if (tasks != null && !tasks.isEmpty()) {
+            LOG.info("Retrieved {} file scan tasks from context for table {}",
+                    tasks.size(), icebergTable.name());
+            return new ArrayList<>(tasks);
         }
+        return null;
     }
 
     @Override
@@ -404,8 +403,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         List<Split> splits = new ArrayList<>();
 
         // Use custom file scan tasks if available (for rewrite operations)
+        List<FileScanTask> customFileScanTasks = getFileScanTasksFromContext();
         if (customFileScanTasks != null) {
-            LOG.info("Using {} custom file scan tasks for rewrite operation", customFileScanTasks.size());
             for (FileScanTask task : customFileScanTasks) {
                 splits.add(createIcebergSplit(task));
             }

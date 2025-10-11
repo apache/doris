@@ -29,7 +29,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.metrics.Event;
@@ -509,6 +508,9 @@ public class SessionVariable implements Serializable, Writable {
 
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
+
+    // Target file size in bytes for Iceberg write operations
+    public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
@@ -2131,6 +2133,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
+
+    // Target file size for Iceberg write operations
+    // Default 0 means use config::iceberg_sink_max_file_size
+    @VariableMgr.VarAttr(name = ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES, needForward = true)
+    public long icebergWriteTargetFileSizeBytes = 0L;
 
     @VariableMgr.VarAttr(
             name = NUM_PARTITIONS_IN_BATCH_MODE,
@@ -4146,6 +4153,14 @@ public class SessionVariable implements Serializable, Writable {
         this.fileSplitSize = fileSplitSize;
     }
 
+    public long getIcebergWriteTargetFileSizeBytes() {
+        return icebergWriteTargetFileSizeBytes;
+    }
+
+    public void setIcebergWriteTargetFileSizeBytes(long icebergWriteTargetFileSizeBytes) {
+        this.icebergWriteTargetFileSizeBytes = icebergWriteTargetFileSizeBytes;
+    }
+
     public int getNumPartitionsInBatchMode() {
         return numPartitionsInBatchMode;
     }
@@ -4389,8 +4404,7 @@ public class SessionVariable implements Serializable, Writable {
             // TODO: support other sink
             if (!(logicalPlan instanceof UnboundResultSink
                     || logicalPlan instanceof LogicalFileSink
-                    || logicalPlan instanceof InsertIntoTableCommand
-                    || logicalPlan instanceof UnboundIcebergTableSink)) {
+                    || logicalPlan instanceof InsertIntoTableCommand)) {
                 return false;
             }
         }
@@ -4882,6 +4896,10 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
         tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
         tResult.setEnableExtendedRegex(enableExtendedRegex);
+
+        // Set Iceberg write target file size
+        tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);
+
         return tResult;
     }
 

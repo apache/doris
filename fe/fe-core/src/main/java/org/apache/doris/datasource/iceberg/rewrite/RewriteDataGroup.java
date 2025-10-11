@@ -21,9 +21,7 @@ import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileScanTask;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Group of file scan tasks to be rewritten together
@@ -31,18 +29,12 @@ import java.util.Set;
 public class RewriteDataGroup {
     private final List<FileScanTask> tasks;
     private long totalSize;
+    private int deleteFileCount;
 
     public RewriteDataGroup() {
         this.tasks = new ArrayList<>();
         this.totalSize = 0;
-    }
-
-    /**
-     * Check if a task can be added to this group
-     */
-    public boolean canAddTask(FileScanTask task, RewriteDataFileManager.Parameters parameters) {
-        long taskSize = task.file().fileSizeInBytes();
-        return (totalSize + taskSize) <= parameters.getMaxFileGroupSizeBytes();
+        this.deleteFileCount = 0;
     }
 
     /**
@@ -51,6 +43,9 @@ public class RewriteDataGroup {
     public void addTask(FileScanTask task) {
         tasks.add(task);
         totalSize += task.file().fileSizeInBytes();
+        if (task.deletes() != null) {
+            deleteFileCount += task.deletes().size();
+        }
     }
 
     /**
@@ -75,10 +70,17 @@ public class RewriteDataGroup {
     }
 
     /**
+     * Get total number of delete files in this group
+     */
+    public int getDeleteFileCount() {
+        return deleteFileCount;
+    }
+
+    /**
      * Get all data files in this group
      */
-    public Set<DataFile> getDataFiles() {
-        Set<DataFile> dataFiles = new HashSet<>();
+    public List<DataFile> getDataFiles() {
+        List<DataFile> dataFiles = new ArrayList<>();
         for (FileScanTask task : tasks) {
             dataFiles.add(task.file());
         }
@@ -97,6 +99,7 @@ public class RewriteDataGroup {
         return "RewriteDataGroup{"
                 + "taskCount=" + tasks.size()
                 + ", totalSize=" + totalSize
+                + ", deleteFileCount=" + deleteFileCount
                 + '}';
     }
 }

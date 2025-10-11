@@ -17,57 +17,31 @@
 
 package org.apache.doris.datasource.iceberg.rewrite;
 
-import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
-import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
-import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
-import org.apache.doris.nereids.trees.plans.commands.insert.IcebergRewriteExecutor;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.planner.ScanNode;
+import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.Coordinator;
-import org.apache.doris.qe.CoordinatorContext;
-import org.apache.doris.qe.NereidsCoordinator;
-import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.scheduler.exception.JobException;
+import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Executes INSERT-SELECT statements for Iceberg data file rewriting.
- *
- * Execution Flow:
- * 1. initialize() - Prepare SQL template and parse INSERT INTO ... SELECT
- * statement once
- * 2. executeGroup() - Execute rewrite for each file group using pre-parsed
- * components
- * 3. Collect execution statistics and return results
- *
- * The executor generates SQL: INSERT INTO catalog.db.table SELECT * FROM
- * catalog.db.table
- * and customizes the scan to target specific files in each RewriteDataGroup.
  */
 public class RewriteDataFileExecutor {
     private static final Logger LOG = LogManager.getLogger(RewriteDataFileExecutor.class);
 
     private final IcebergExternalTable dorisTable;
     private final ConnectContext connectContext;
-
-    // Pre-prepared execution context
-    private boolean initialized = false;
-    private StatementBase parsedStmt;
-    private LogicalPlan logicalPlan;
 
     public RewriteDataFileExecutor(IcebergExternalTable dorisTable,
             ConnectContext connectContext) {
@@ -76,234 +50,164 @@ public class RewriteDataFileExecutor {
     }
 
     /**
-     * Initialize the executor with manually constructed logical plan
+     * Execute rewrite for multiple groups concurrently
      */
-    public void initialize() throws UserException {
-        if (initialized) {
-            return;
+    public RewriteResult executeGroupsConcurrently(List<RewriteDataGroup> groups, long targetFileSizeBytes)
+            throws UserException {
+        // Begin transaction
+        long transactionId = dorisTable.getCatalog().getTransactionManager().begin();
+        IcebergTransaction transaction = (IcebergTransaction) dorisTable.getCatalog().getTransactionManager()
+                .getTransaction(transactionId);
+        transaction.beginRewrite(dorisTable);
+
+        // Register files to delete
+        for (RewriteDataGroup group : groups) {
+            transaction.updateRewriteFiles(Lists.newArrayList(group.getDataFiles()));
         }
 
-        LOG.info("Initializing rewrite executor for table: {}", dorisTable.getName());
+        // Create result collector and tasks
+        List<RewriteGroupTask> tasks = Lists.newArrayList();
+        RewriteResultCollector resultCollector = new RewriteResultCollector(groups.size(), tasks);
+
+        // Create tasks with callbacks
+        for (RewriteDataGroup group : groups) {
+            RewriteGroupTask task = new RewriteGroupTask(
+                    group,
+                    transactionId,
+                    dorisTable,
+                    connectContext,
+                    targetFileSizeBytes,
+                    new RewriteGroupTask.RewriteResultCallback() {
+                        @Override
+                        public void onTaskCompleted(Long taskId) {
+                            resultCollector.onTaskCompleted(taskId);
+                        }
+
+                        @Override
+                        public void onTaskFailed(Long taskId, Exception error) {
+                            resultCollector.onTaskFailed(taskId, error);
+                        }
+                    });
+            tasks.add(task);
+        }
+
+        // Submit tasks to TransientTaskManager
+        try {
+            for (TransientTaskExecutor task : tasks) {
+                Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(task);
+            }
+        } catch (JobException e) {
+            throw new UserException("Failed to submit rewrite tasks: " + e.getMessage(), e);
+        }
+
+        // Wait for all tasks to complete
+        waitForTasksCompletion(resultCollector, groups.size());
+
+        // Finish rewrite operation
+        transaction.finishRewrite();
+
+        // Collect statistics from transaction after all tasks are completed
+        int rewrittenDataFilesCount = groups.stream().mapToInt(group -> group.getDataFiles().size()).sum();
+        // this should after finishRewrite
+        int addedDataFilesCount = transaction.getFilesToAddCount();
+        long rewrittenBytesCount = groups.stream().mapToLong(group -> group.getTotalSize()).sum();
+        int removedDeleteFilesCount = groups.stream().mapToInt(group -> group.getDeleteFileCount()).sum();
+
+        // Commit transaction
+        transaction.commit();
+
+        return new RewriteResult(rewrittenDataFilesCount, addedDataFilesCount,
+                rewrittenBytesCount, removedDeleteFilesCount);
+    }
+
+    /**
+     * Wait for all tasks to complete using notification mechanism
+     */
+    private void waitForTasksCompletion(RewriteResultCollector collector, int totalTasks)
+            throws UserException {
+        LOG.info("Waiting for {} rewrite tasks to complete using notification mechanism", totalTasks);
+
+        int maxWaitTime = connectContext.getSessionVariable().getInsertTimeoutS();
 
         try {
-            // Manually construct logical plan for INSERT INTO ... SELECT ...
-            this.logicalPlan = buildRewriteLogicalPlan();
+            boolean completed = collector.await(maxWaitTime, TimeUnit.SECONDS);
 
-            // Create LogicalPlanAdapter
-            LogicalPlanAdapter adapter = new LogicalPlanAdapter(logicalPlan, connectContext.getStatementContext());
-            adapter.setOrigStmt(new org.apache.doris.qe.OriginStatement("INSERT INTO "
-                    + dorisTable.getName() + " SELECT * FROM " + dorisTable.getName(), 0));
-            this.parsedStmt = adapter;
-
-            if (!(logicalPlan instanceof UnboundIcebergTableSink)) {
-                throw new UserException("Expected UnboundIcebergTableSink, got: " + logicalPlan.getClass());
+            if (!completed) {
+                LOG.warn("Rewrite tasks did not complete within timeout of {} seconds", maxWaitTime);
+                throw new UserException("Rewrite tasks did not complete within timeout");
             }
-            this.initialized = true;
 
-            LOG.debug("Initialized executor with manually constructed logical plan");
+            // Check if any task failed
+            if (collector.getFirstError() != null) {
+                LOG.warn("Rewrite tasks failed: {}", collector.getFirstError().getMessage());
+                throw new UserException("Some rewrite tasks failed: " + collector.getFirstError().getMessage(),
+                        collector.getFirstError());
+            }
 
-        } catch (Exception e) {
-            LOG.error("Failed to initialize rewrite executor", e);
-            throw new UserException("Failed to initialize rewrite executor: " + e.getMessage());
+            LOG.info("All {} rewrite tasks completed successfully", totalTasks);
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.warn("Wait for tasks completion was interrupted", e);
+            throw new UserException("Wait for tasks completion was interrupted", e);
         }
     }
 
     /**
-     * Execute rewrite for a single group
+     * Result collector for concurrent rewrite tasks
      */
-    public RewriteResult executeGroup(RewriteDataGroup group) throws UserException {
-        if (!initialized) {
-            throw new UserException("Executor not initialized. Call initialize() first.");
+    private static class RewriteResultCollector {
+        private final int expectedTasks;
+        private final AtomicInteger completedTasks = new AtomicInteger(0);
+        private final AtomicInteger failedTasks = new AtomicInteger(0);
+        private volatile Exception firstError = null;
+        private final CountDownLatch completionLatch;
+        private final List<RewriteGroupTask> allTasks;
+
+        public RewriteResultCollector(int expectedTasks, List<RewriteGroupTask> tasks) {
+            this.expectedTasks = expectedTasks;
+            this.completionLatch = new CountDownLatch(expectedTasks);
+            this.allTasks = tasks;
         }
 
-        LOG.info("Executing rewrite for group with {} tasks, total size: {} bytes",
-                group.getTaskCount(), group.getTotalSize());
+        public synchronized void onTaskCompleted(Long taskId) {
+            int completed = completedTasks.incrementAndGet();
+            LOG.info("Task {} completed ({}/{})", taskId, completed, expectedTasks);
+            completionLatch.countDown();
+        }
 
-        StmtExecutor executor = null;
-        try {
-            // Step 1: Create StmtExecutor using pre-parsed statement
-            executor = new StmtExecutor(connectContext, parsedStmt);
+        public synchronized void onTaskFailed(Long taskId, Exception error) {
+            int failed = failedTasks.incrementAndGet();
+            if (firstError == null) {
+                firstError = error;
 
-            // Step 2: Execute the customized insert operation using pre-parsed components
-            RewriteResult result = executeInsertWithGroup(executor, group);
+                // Cancel all other tasks immediately when first failure occurs
+                LOG.warn("Task {} failed, cancelling all other tasks", taskId);
+                cancelAllOtherTasks(taskId);
+            }
+            LOG.warn("Task {} failed ({}/{}): {}", taskId, failed, expectedTasks, error.getMessage());
+            completionLatch.countDown();
+        }
 
-            LOG.info("Completed rewrite execution for group with {} tasks", group.getTaskCount());
-
-            return result;
-
-        } catch (Exception e) {
-            LOG.error("Failed to execute rewrite group: ", e);
-            throw new UserException("Rewrite group execution failed: " + e.getMessage());
-        } finally {
-            // Clean up resources
-            if (executor != null) {
-                try {
-                    executor.finalizeQuery();
-                } catch (Exception e) {
-                    LOG.warn("Failed to finalize query executor: ", e);
+        private void cancelAllOtherTasks(Long failedTaskId) {
+            for (RewriteGroupTask task : allTasks) {
+                if (!task.getId().equals(failedTaskId)) {
+                    try {
+                        task.cancel();
+                        LOG.info("Cancelled task {}", task.getId());
+                    } catch (Exception e) {
+                        LOG.warn("Failed to cancel task {}: {}", task.getId(), e.getMessage());
+                    }
                 }
             }
         }
-    }
 
-    /**
-     * Execute insert operation with specific group customization
-     */
-    private RewriteResult executeInsertWithGroup(StmtExecutor executor, RewriteDataGroup group) throws Exception {
-
-        // Create IcebergRewriteExecutor directly
-        IcebergRewriteExecutor insertExecutor = createRewriteExecutor(executor, group);
-
-        // Execute the insert operation
-        if (!insertExecutor.isEmptyInsert()) {
-            insertExecutor.beginTransaction();
-            insertExecutor.executeSingleInsert(executor, System.currentTimeMillis());
+        public boolean await(long timeout, TimeUnit unit) throws InterruptedException {
+            return completionLatch.await(timeout, unit);
         }
 
-        // Collect execution statistics and rewrite information
-        RewriteResult result = collectRewriteResult(insertExecutor, group);
-        return result;
-    }
-
-    /**
-     * Create IcebergRewriteExecutor for rewrite operations
-     */
-    private IcebergRewriteExecutor createRewriteExecutor(StmtExecutor executor, RewriteDataGroup group)
-            throws UserException {
-        try {
-            // Create NereidsPlanner for the logical plan
-            NereidsPlanner planner = new NereidsPlanner(connectContext.getStatementContext());
-
-            // Plan the logical plan to get physical plan and fragments
-            planner.plan(parsedStmt, connectContext.getSessionVariable().toThrift());
-
-            // Create IcebergRewriteExecutor directly
-            String label = String.format("rewrite_label_%x_%x", connectContext.queryId().hi,
-                    connectContext.queryId().lo);
-            IcebergRewriteExecutor rewriteExecutor = new IcebergRewriteExecutor(
-                    connectContext,
-                    dorisTable,
-                    label,
-                    planner,
-                    Optional.empty(), // insertCtx
-                    false // emptyInsert
-            );
-
-            // Customize the executor for this specific group
-            customizeInsertExecutorForRewrite(rewriteExecutor, group);
-
-            return rewriteExecutor;
-
-        } catch (Exception e) {
-            LOG.error("Failed to create rewrite executor", e);
-            throw new UserException("Failed to create rewrite executor: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Customize insert executor for Iceberg file rewrite
-     */
-    private void customizeInsertExecutorForRewrite(
-            IcebergRewriteExecutor insertExecutor,
-            RewriteDataGroup group) throws Exception {
-
-        LOG.debug("Customizing insert executor for rewrite with {} tasks", group.getTaskCount());
-
-        // Get the coordinator from the insert executor
-        Coordinator coordinator = insertExecutor.getCoordinator();
-        if (coordinator == null) {
-            throw new UserException("No coordinator found in insert executor");
-        }
-
-        // Access coordinator context to get scan nodes
-        Preconditions.checkState(coordinator instanceof NereidsCoordinator,
-                "Expected NereidsCoordinator, got: " + coordinator.getClass());
-        NereidsCoordinator nereidsCoordinator = (NereidsCoordinator) coordinator;
-        CoordinatorContext context = nereidsCoordinator.getCoordinatorContext();
-        Preconditions.checkState(context != null && context.scanNodes != null && context.scanNodes.size() == 1,
-                "No scan nodes found in coordinator context");
-
-        // Find and customize IcebergScanNode
-        ScanNode scanNode = context.scanNodes.get(0);
-        Preconditions.checkState(scanNode instanceof IcebergScanNode,
-                "Expected IcebergScanNode, got: " + scanNode.getClass());
-        ((IcebergScanNode) scanNode).resetFileScanTasks(group.getTasks());
-    }
-
-    /**
-     * Collect rewrite result from insert executor
-     */
-    private RewriteResult collectRewriteResult(IcebergRewriteExecutor insertExecutor, RewriteDataGroup group) {
-        try {
-            // Get execution statistics from the executor
-            long processedRows = insertExecutor.getLoadedRows();
-
-            // Get detailed file information from IcebergTransaction
-            RewriteFileInfo fileInfo = insertExecutor.getRewriteFileInfo();
-
-            // Create rewrite result with collected information
-            RewriteResult result = new RewriteResult(
-                    fileInfo.getFilesToDeleteCount(),    // rewrittenDataFilesCount (files to delete)
-                    fileInfo.getFilesToAddCount(),       // addedDataFilesCount (files to add)
-                    fileInfo.getFilesToDeleteSize(),     // rewrittenBytesCount (size of files to delete)
-                    0                                   // removedDeleteFilesCount (no delete files in rewrite)
-            );
-
-            LOG.info("Rewrite completed for group: {} files to delete, {} files to add, {} rows processed, "
-                    + "{} bytes deleted, {} bytes added",
-                    fileInfo.getFilesToDeleteCount(), fileInfo.getFilesToAddCount(),
-                    processedRows, fileInfo.getFilesToDeleteSize(), fileInfo.getFilesToAddSize());
-
-            return result;
-
-        } catch (Exception e) {
-            LOG.warn("Failed to collect rewrite result, using fallback: ", e);
-            // Fallback to basic result
-            return new RewriteResult(group.getTaskCount(), group.getTaskCount(),
-                    group.getTotalSize(), 0);
-        }
-    }
-
-    /**
-     * Build logical plan for rewrite operation (INSERT INTO ... SELECT ...)
-     */
-    private LogicalPlan buildRewriteLogicalPlan() throws UserException {
-        try {
-            // Build table name parts
-            List<String> tableNameParts = ImmutableList.of(
-                    dorisTable.getCatalog().getName(),
-                    dorisTable.getDbName(),
-                    dorisTable.getName());
-
-            // Create UnboundRelation for SELECT part (source table)
-            UnboundRelation sourceRelation = new UnboundRelation(
-                    StatementScopeIdGenerator.newRelationId(),
-                    tableNameParts,
-                    ImmutableList.of(), // partitions
-                    false, // isTemporary
-                    ImmutableList.of(), // tabletIds
-                    ImmutableList.of(), // hints
-                    Optional.empty(), // orderKeys
-                    Optional.empty() // limit
-            );
-
-            // Create UnboundIcebergTableSink for INSERT part (target table)
-            UnboundIcebergTableSink<?> tableSink = new UnboundIcebergTableSink<>(
-                    tableNameParts,
-                    ImmutableList.of(), // colNames (empty means all columns)
-                    ImmutableList.of(), // hints
-                    ImmutableList.of(), // partitions
-                    DMLCommandType.INSERT,
-                    Optional.empty(), // labelName
-                    Optional.empty(), // branchName
-                    sourceRelation);
-
-            // Return the table sink as the logical plan (not a command)
-            return tableSink;
-
-        } catch (Exception e) {
-            LOG.error("Failed to build rewrite logical plan", e);
-            throw new UserException("Failed to build rewrite logical plan: " + e.getMessage());
+        public Exception getFirstError() {
+            return firstError;
         }
     }
 }

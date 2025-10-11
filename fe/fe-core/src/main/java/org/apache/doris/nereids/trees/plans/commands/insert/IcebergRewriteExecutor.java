@@ -18,16 +18,10 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergTransaction;
-import org.apache.doris.datasource.iceberg.rewrite.RewriteFileInfo;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.TransactionType;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Optional;
 
@@ -38,7 +32,6 @@ import java.util.Optional;
  * rewrite-specific transaction logic instead of insert transaction logic.
  */
 public class IcebergRewriteExecutor extends BaseExternalTableInsertExecutor {
-    private static final Logger LOG = LogManager.getLogger(IcebergRewriteExecutor.class);
 
     /**
      * constructor
@@ -46,36 +39,22 @@ public class IcebergRewriteExecutor extends BaseExternalTableInsertExecutor {
     public IcebergRewriteExecutor(ConnectContext ctx, IcebergExternalTable table,
             String labelName, NereidsPlanner planner,
             Optional<InsertCommandContext> insertCtx,
-            boolean emptyInsert) {
-        super(ctx, table, labelName, planner, insertCtx, emptyInsert);
+            boolean emptyInsert, long jobId) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
     }
 
     @Override
     protected void beforeExec() throws UserException {
-        IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        transaction.beginRewrite((ExternalTable) table);
+        // do nothing, the transaction is not managed by IcebergRewriteExecutor
     }
 
     @Override
     protected void doBeforeCommit() throws UserException {
-        IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        this.loadedRows = transaction.getUpdateCnt();
-        transaction.finishRewrite();
+        // do nothing, the transaction is not managed by IcebergRewriteExecutor
     }
 
     @Override
     protected TransactionType transactionType() {
         return TransactionType.ICEBERG;
-    }
-
-    /**
-     * Get rewrite file information from the associated IcebergTransaction
-     *
-     * @return RewriteFileInfo containing file statistics
-     * @throws UserException if transaction is not available
-     */
-    public RewriteFileInfo getRewriteFileInfo() throws UserException {
-        IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        return transaction.getRewriteFileInfo();
     }
 }
