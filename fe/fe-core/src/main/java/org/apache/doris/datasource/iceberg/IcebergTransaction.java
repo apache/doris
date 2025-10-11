@@ -24,6 +24,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteFileInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TIcebergCommitData;
@@ -33,11 +34,13 @@ import org.apache.doris.transaction.Transaction;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.iceberg.AppendFiles;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.OverwriteFiles;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.ReplacePartitions;
+import org.apache.iceberg.RewriteFiles;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.CloseableIterable;
@@ -58,12 +61,16 @@ public class IcebergTransaction implements Transaction {
     private final IcebergMetadataOps ops;
     private Table table;
 
-
     private org.apache.iceberg.Transaction transaction;
     private final List<TIcebergCommitData> commitDataList = Lists.newArrayList();
 
     private IcebergInsertCommandContext insertCtx;
     private String branchName;
+
+    // Rewrite operation support
+    private final List<DataFile> filesToDelete = Lists.newArrayList();
+    private final List<DataFile> filesToAdd = Lists.newArrayList();
+    private boolean isRewriteMode = false;
 
     public IcebergTransaction(IcebergMetadataOps ops) {
         this.ops = ops;
@@ -72,6 +79,12 @@ public class IcebergTransaction implements Transaction {
     public void updateIcebergCommitData(List<TIcebergCommitData> commitDataList) {
         synchronized (this) {
             this.commitDataList.addAll(commitDataList);
+        }
+    }
+
+    public void updateRewriteFiles(List<DataFile> filesToDelete) {
+        synchronized (this) {
+            this.filesToDelete.addAll(filesToDelete);
         }
     }
 
@@ -89,8 +102,8 @@ public class IcebergTransaction implements Transaction {
                         throw new RuntimeException(branchName + " is not founded in " + dorisTable.getName());
                     } else if (!branchRef.isBranch()) {
                         throw new RuntimeException(
-                            branchName
-                                + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
+                                branchName
+                                        + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
                     }
                 }
                 this.transaction = table.newTransaction();
@@ -100,6 +113,110 @@ public class IcebergTransaction implements Transaction {
                     + "because: " + e.getMessage(), e);
         }
 
+    }
+
+    /**
+     * Begin rewrite transaction for data file rewrite operations
+     */
+    public void beginRewrite(ExternalTable dorisTable) throws UserException {
+        // For rewrite operations, we work directly on the main table
+        this.branchName = null;
+        this.isRewriteMode = true;
+
+        try {
+            ops.getExecutionAuthenticator().execute(() -> {
+                // create and start the iceberg transaction
+                this.table = IcebergUtils.getIcebergTable(dorisTable);
+
+                // For rewrite operations, we work directly on the main table
+                // No branch information needed
+                this.transaction = table.newTransaction();
+                LOG.info("Started rewrite transaction for table: {} (main table)",
+                        dorisTable.getName());
+                return null;
+            });
+        } catch (Exception e) {
+            throw new UserException("Failed to begin rewrite for iceberg table " + dorisTable.getName()
+                    + " because: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Finish rewrite operation by committing all file changes using RewriteFiles
+     * API
+     */
+    public void finishRewrite() {
+        // TODO: refactor IcebergTransaction to make code cleaner
+        convertCommitDataListToDataFilesToAdd();
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Finishing rewrite with {} files to delete and {} files to add",
+                    filesToDelete.size(), filesToAdd.size());
+        }
+
+        try {
+            ops.getExecutionAuthenticator().execute(() -> {
+                updateManifestAfterRewrite();
+                return null;
+            });
+        } catch (Exception e) {
+            LOG.error("Failed to finish rewrite transaction", e);
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void convertCommitDataListToDataFilesToAdd() {
+        if (commitDataList.isEmpty()) {
+            LOG.debug("No commit data to convert for rewrite operation");
+            return;
+        }
+
+        // Get table specification information
+        PartitionSpec spec = transaction.table().spec();
+        FileFormat fileFormat = IcebergUtils.getFileFormat(transaction.table());
+
+        // Convert commit data to DataFile objects using the same logic as insert
+        WriteResult writeResult = IcebergWriterHelper.convertToWriterResult(fileFormat, spec, commitDataList);
+
+        // Add the generated DataFiles to filesToAdd list
+        synchronized (filesToAdd) {
+            for (DataFile dataFile : writeResult.dataFiles()) {
+                filesToAdd.add(dataFile);
+            }
+        }
+
+        LOG.info("Converted {} commit data entries to {} DataFiles for rewrite operation",
+                commitDataList.size(), writeResult.dataFiles().length);
+    }
+
+    private void updateManifestAfterRewrite() {
+        if (filesToDelete.isEmpty() && filesToAdd.isEmpty()) {
+            LOG.info("No files to rewrite, skipping commit");
+            return;
+        }
+
+        RewriteFiles rewriteFiles = transaction.newRewrite();
+
+        // For rewrite operations, we work directly on the main table
+        rewriteFiles = rewriteFiles.scanManifestsWith(ops.getThreadPoolWithPreAuth());
+
+        // Add files to delete
+        for (DataFile dataFile : filesToDelete) {
+            rewriteFiles.deleteFile(dataFile);
+        }
+
+        // Add files to add
+        for (DataFile dataFile : filesToAdd) {
+            rewriteFiles.addFile(dataFile);
+        }
+
+        // Commit the rewrite operation
+        rewriteFiles.commit();
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Rewrite committed with {} files deleted and {} files added",
+                    filesToDelete.size(), filesToAdd.size());
+        }
     }
 
     public void finishInsert(NameMapping nameMapping) {
@@ -154,11 +271,85 @@ public class IcebergTransaction implements Transaction {
 
     @Override
     public void rollback() {
-        //do nothing
+        if (isRewriteMode) {
+            // Clear the collected files for rewrite mode
+            synchronized (filesToDelete) {
+                filesToDelete.clear();
+            }
+            synchronized (filesToAdd) {
+                filesToAdd.clear();
+            }
+            LOG.info("Rewrite transaction rolled back");
+        }
+        // For insert mode, do nothing as original implementation
     }
 
     public long getUpdateCnt() {
         return commitDataList.stream().mapToLong(TIcebergCommitData::getRowCount).sum();
+    }
+
+    /**
+     * Get the number of files that will be deleted in rewrite operation
+     */
+    public int getFilesToDeleteCount() {
+        synchronized (filesToDelete) {
+            return filesToDelete.size();
+        }
+    }
+
+    /**
+     * Get the number of files that will be added in rewrite operation
+     */
+    public int getFilesToAddCount() {
+        synchronized (filesToAdd) {
+            return filesToAdd.size();
+        }
+    }
+
+    /**
+     * Get the total size of files to be deleted in rewrite operation
+     */
+    public long getFilesToDeleteSize() {
+        synchronized (filesToDelete) {
+            return filesToDelete.stream().mapToLong(DataFile::fileSizeInBytes).sum();
+        }
+    }
+
+    /**
+     * Get the total size of files to be added in rewrite operation
+     */
+    public long getFilesToAddSize() {
+        synchronized (filesToAdd) {
+            return filesToAdd.stream().mapToLong(DataFile::fileSizeInBytes).sum();
+        }
+    }
+
+    /**
+     * Get the total number of rows processed in this transaction
+     */
+    public long getTotalRowsProcessed() {
+        return commitDataList.stream().mapToLong(TIcebergCommitData::getRowCount).sum();
+    }
+
+    /**
+     * Get the total number of files processed in this transaction
+     */
+    public int getTotalFilesProcessed() {
+        return commitDataList.size();
+    }
+
+    /**
+     * Get detailed file information for rewrite operation
+     */
+    public RewriteFileInfo getRewriteFileInfo() {
+        return new RewriteFileInfo(
+            getFilesToDeleteCount(),
+            getFilesToAddCount(),
+            getFilesToDeleteSize(),
+            getFilesToAddSize(),
+            getTotalRowsProcessed(),
+            getTotalFilesProcessed()
+        );
     }
 
     private void commitAppendTxn(List<WriteResult> pendingResults) {
@@ -174,7 +365,6 @@ public class IcebergTransaction implements Transaction {
         }
         appendFiles.commit();
     }
-
 
     private void commitReplaceTxn(List<WriteResult> pendingResults) {
         if (pendingResults.isEmpty()) {
