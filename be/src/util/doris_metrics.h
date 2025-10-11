@@ -258,6 +258,7 @@ public:
     IntCounter* ann_index_in_memory_cnt = nullptr;
     IntCounter* ann_index_in_memory_rows_cnt = nullptr;
     IntCounter* ann_index_construction = nullptr;
+    IntCounter* ann_index_build_index_threads = nullptr;
 
     IntGauge* runtime_filter_consumer_num = nullptr;
     IntGauge* runtime_filter_consumer_ready_num = nullptr;
