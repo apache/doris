@@ -18,7 +18,11 @@
 #include "http/action/check_encryption_action.h"
 
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
+#include <google/protobuf/util/json_util.h>
+#include <json2pb/pb_to_json.h>
 
+#include <cstdint>
 #include <exception>
 #include <memory>
 #include <shared_mutex>
@@ -27,6 +31,7 @@
 
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
+#include "common/status.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_status.h"
@@ -40,6 +45,7 @@
 namespace doris {
 
 const std::string TABLET_ID = "tablet_id";
+const std::string GET_FOOTER = "get_footer";
 
 CheckEncryptionAction::CheckEncryptionAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
                                              TPrivilegeType::type type)
@@ -95,7 +101,7 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
                 return;
             }
             std::vector<uint8_t> magic_code_buf;
-            magic_code_buf.reserve(sizeof(uint64_t));
+            magic_code_buf.resize(sizeof(uint64_t));
             Slice magic_code(magic_code_buf.data(), sizeof(uint64_t));
             size_t bytes_read;
             st = reader->read_at(reader->size() - sizeof(uint64_t), magic_code, &bytes_read);
@@ -115,6 +121,50 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
         return is_encrypted;
     }
     return st;
+}
+
+Result<std::string> get_last_encrypt_footer(const BaseTabletSPtr& tablet) {
+    std::shared_lock l(tablet->get_header_lock());
+    auto rs = tablet->get_rowset_with_max_version();
+    if (rs->num_segments() == 0) {
+        return "{}";
+    }
+    auto maybe_seg_path = rs->segment_path(0);
+    if (!maybe_seg_path) {
+        return ResultError(maybe_seg_path.error());
+    }
+    auto rs_meta = rs->rowset_meta();
+    if (config::is_cloud_mode() && rs_meta->start_version() == 0 && rs_meta->end_version() == 1) {
+        return "{}";
+    }
+    auto fs = rs_meta->physical_fs();
+    io::FileReaderSPtr reader;
+    RETURN_IF_ERROR_RESULT(fs->open_file(maybe_seg_path.value(), &reader));
+
+    std::vector<uint8_t> pb_len_buf;
+    pb_len_buf.reserve(sizeof(uint64_t));
+    Slice pb_len_slice(pb_len_buf.data(), sizeof(uint64_t));
+    size_t bytes_read;
+    RETURN_IF_ERROR_RESULT(
+            reader->read_at(reader->size() - 256 + sizeof(uint8_t), pb_len_slice, &bytes_read));
+    auto info_pb_size = decode_fixed64_le(pb_len_buf.data());
+
+    std::vector<uint8_t> info_pb_buf;
+    info_pb_buf.resize(info_pb_size);
+    Slice pb_slice(info_pb_buf.data(), info_pb_size);
+    RETURN_IF_ERROR_RESULT(reader->read_at(
+            reader->size() - 256 + sizeof(uint8_t) + sizeof(uint64_t), pb_slice, &bytes_read));
+
+    FileEncryptionInfoPB info_pb;
+    if (!info_pb.ParseFromArray(info_pb_buf.data(), info_pb_buf.size())) {
+        return ResultError(Status::Corruption("parse encryption info failed"));
+    }
+    std::string json;
+    google::protobuf::util::JsonPrintOptions opts;
+    opts.add_whitespace = false;
+    opts.preserve_proto_field_names = true;
+    auto st = google::protobuf::util::MessageToJsonString(info_pb, &json, opts);
+    return json;
 }
 
 Status sync_meta(const CloudTabletSPtr& tablet) {
