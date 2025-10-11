@@ -141,9 +141,10 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        constexpr bool Nullable = std::is_same_v<FromDataType, ToDataType> &&
-                                  (IsTimeV2Type<FromDataType> || IsDateTimeV2Type<FromDataType>) &&
-                                  CastMode == CastModeType::NonStrictMode;
+        constexpr bool Nullable =
+                std::is_same_v<FromDataType, ToDataType> &&
+                (IsTimeV2Type<FromDataType> || IsDateTimeV2Type<FromDataType>)&&CastMode ==
+                        CastModeType::NonStrictMode;
 
         const auto* col_from = check_and_get_column<typename FromDataType::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());

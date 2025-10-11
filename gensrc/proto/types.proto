@@ -119,6 +119,7 @@ message PGenericType {
         IPV4 = 39;
         IPV6 = 40;
         VARBINARY = 41;
+        TIMESTAMPTZ = 42;
         UNKNOWN = 999;
     }
     required TypeId id = 2;
