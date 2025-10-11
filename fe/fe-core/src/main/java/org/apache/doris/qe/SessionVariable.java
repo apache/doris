@@ -3028,6 +3028,7 @@ public class SessionVariable implements Serializable, Writable {
     public void initFuzzyModeVariables() {
         Random random = new SecureRandom();
         this.feDebug = true;
+        this.enableConditionCache = Config.pull_request_id % 2 == 0;
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
