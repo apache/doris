@@ -5097,6 +5097,110 @@ private:
     }
 };
 
+class FunctionExportSet : public IFunction {
+public:
+    static constexpr auto name = "export_set";
+    static FunctionPtr create() { return std::make_shared<FunctionExportSet>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto res_col = ColumnString::create();
+
+        const size_t arg_size = arguments.size();
+        std::vector<ColumnPtr> arg_col(arg_size);
+        std::vector<uint8_t> is_const(arg_size);
+        for (size_t i = 0; i < arg_size; ++i) {
+            std::tie(arg_col[i], is_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
+
+        const auto& bit_col = assert_cast<const ColumnInt128&>(*arg_col[0]);
+        const auto& on_col = assert_cast<const ColumnString&>(*arg_col[1]);
+        const auto& off_col = assert_cast<const ColumnString&>(*arg_col[2]);
+
+        const ColumnString* separator_col = nullptr;
+        const ColumnInt32* num_bits_col = nullptr;
+        if (arg_size > 3) {
+            separator_col = &assert_cast<const ColumnString&>(*arg_col[3]);
+            if (arg_size == 5) {
+                num_bits_col = &assert_cast<const ColumnInt32&>(*arg_col[4]);
+            }
+        }
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const auto bit_value = bit_col.get_element(index_check_const(i, is_const[0]));
+            uint64_t bit;
+            if (bit_value > ULLONG_MAX) {
+                bit = LLONG_MAX;
+            } else if (bit_value < LLONG_MIN) {
+                bit = LLONG_MIN;
+            } else {
+                bit = static_cast<uint64_t>(bit_value);
+            }
+            StringRef on = on_col.get_data_at(index_check_const(i, is_const[1]));
+            StringRef off = off_col.get_data_at(index_check_const(i, is_const[2]));
+            StringRef separator(",", 1);
+            int8_t num_of_bits = 64;
+
+            if (separator_col) {
+                separator = separator_col->get_data_at(index_check_const(i, is_const[3]));
+                if (num_bits_col) {
+                    int32_t num_of_bits_tmp =
+                            num_bits_col->get_element(index_check_const(i, is_const[4]));
+                    if (num_of_bits_tmp >= 0 && num_of_bits_tmp <= 64) {
+                        num_of_bits = static_cast<int8_t>(num_of_bits_tmp);
+                    }
+                }
+            }
+            execute_single(bit, on, off, separator, num_of_bits, *res_col);
+        }
+        block.replace_by_position(result, std::move(res_col));
+        return Status::OK();
+    }
+
+private:
+    void execute_single(uint64_t bit, const StringRef& on, const StringRef& off,
+                        const StringRef& separator, int8_t num_of_bits,
+                        ColumnString& res_col) const {
+        ColumnString::Chars data;
+        data.reserve(std::max(on.size, off.size) * num_of_bits +
+                     separator.size * (num_of_bits - 1));
+
+        while (bit && num_of_bits) {
+            if (bit & 1) {
+                data.insert(on.data, on.data + on.size);
+            } else {
+                data.insert(off.data, off.data + off.size);
+            }
+            bit >>= 1;
+            if (--num_of_bits) {
+                data.insert(separator.data, separator.data + separator.size);
+            }
+        }
+
+        if (num_of_bits > 0) {
+            ColumnString::Chars off_sep_combo;
+            off_sep_combo.reserve(separator.size + off.size);
+            off_sep_combo.insert(off_sep_combo.end(), off.data, off.data + off.size);
+            off_sep_combo.insert(off_sep_combo.end(), separator.data,
+                                 separator.data + separator.size);
+
+            for (size_t i = 0; i < num_of_bits; ++i) {
+                data.insert(off_sep_combo.data(), off_sep_combo.data() + off_sep_combo.size());
+            }
+            data.erase(data.end() - separator.size, data.end());
+        }
+
+        res_col.insert_data(reinterpret_cast<const char*>(data.data()), data.size());
+    }
+};
+
 // ATTN: for debug only
 // compute crc32 hash value as the same way in `VOlapTablePartitionParam::find_tablets()`
 class FunctionCrc32Internal : public IFunction {
