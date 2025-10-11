@@ -165,6 +165,12 @@ public:
         _rowset_meta_pb.set_index_disk_size(index_disk_size);
     }
 
+    int64_t common_index_size() const { return _rowset_meta_pb.common_index_size(); }
+
+    void set_common_index_size(int64_t common_index_size) {
+        _rowset_meta_pb.set_common_index_size(common_index_size);
+    }
+
     void zone_maps(std::vector<ZoneMap>* zone_maps) {
         for (const ZoneMap& zone_map : _rowset_meta_pb.zone_maps()) {
             zone_maps->push_back(zone_map);
@@ -417,6 +423,16 @@ public:
 
     void add_inverted_index_files_info(
             const std::vector<const InvertedIndexFileInfo*>& idx_file_info);
+
+    // Get column data page stats for this rowset
+    const auto& column_data_page_stats() const {
+        return _rowset_meta_pb.column_data_page_stats();
+    }
+
+    // Add column data page stats to this rowset
+    void add_column_data_page_stats(const ColumnDataPageStatsPB& stats) {
+        *_rowset_meta_pb.add_column_data_page_stats() = stats;
+    }
 
     int64_t get_metadata_size() const override;
 
