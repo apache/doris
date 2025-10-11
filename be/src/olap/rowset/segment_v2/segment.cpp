@@ -791,6 +791,20 @@ Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>
     return _column_reader_cache->get_column_reader(col_uid, column_reader, stats);
 }
 
+Status Segment::get_column_data_page_stats(std::vector<ColumnDataPageStatsPB>* column_stats,
+                                           OlapReaderStatistics* stats) {
+    std::shared_ptr<SegmentFooterPB> footer_pb_shared;
+    RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, stats));
+
+    column_stats->clear();
+    column_stats->reserve(footer_pb_shared->column_data_page_stats_size());
+    for (const auto& stat : footer_pb_shared->column_data_page_stats()) {
+        column_stats->push_back(stat);
+    }
+
+    return Status::OK();
+}
+
 Status Segment::get_column_reader(const TabletColumn& col,
                                   std::shared_ptr<ColumnReader>* column_reader,
                                   OlapReaderStatistics* stats) {

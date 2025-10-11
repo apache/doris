@@ -634,6 +634,18 @@ public class SchemaTable extends Table {
                                     .column("REFRESH_INTERVAL_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
+            .put("column_data_sizes",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "column_data_sizes", TableType.SCHEMA,
+                            builder().column("BACKEND_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TABLE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("ROWSET_ID", ScalarType.createVarchar(64))
+                                    .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("COLUMN_UNIQUE_ID", ScalarType.createType(PrimitiveType.INT))
+                                    .column("COLUMN_NAME", ScalarType.createVarchar(64))
+                                    .column("COLUMN_TYPE", ScalarType.createVarchar(64))
+                                    .column("DATA_PAGE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build())
+            )
             .put("routine_load_jobs",
                     new SchemaTable(SystemIdGenerator.getNextId(), "routine_load_jobs", TableType.SCHEMA,
                             builder().column("JOB_ID", ScalarType.createStringType())
