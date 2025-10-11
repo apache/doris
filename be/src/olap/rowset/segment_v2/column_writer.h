@@ -59,7 +59,7 @@ struct ColumnWriterOptions {
     size_t dict_page_size = STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
     // store compressed page only when space saving is above the threshold.
     // space saving = 1 - compressed_size / uncompressed_size
-    double compression_min_space_saving = config::compression_min_space_saving;
+    double compression_min_space_saving = 0.1;
     bool need_zone_map = false;
     bool need_bitmap_index = false;
     bool need_bloom_filter = false;
