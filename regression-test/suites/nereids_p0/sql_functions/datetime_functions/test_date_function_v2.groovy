@@ -86,4 +86,45 @@ suite("test_date_function_v2") {
     testFoldConst("select microseconds_diff('2023-10-15 00:00:00', '2023-10-14 00:00:00.1');")
     qt_sql_diff14 "select microseconds_diff('2023-10-15 00:00:00', '2023-10-14 00:00:00');"
     testFoldConst("select microseconds_diff('2023-10-15 00:00:00', '2023-10-14 00:00:00');")
+
+    def getFormatTable = "get_format_table_test"
+    sql """ DROP TABLE IF EXISTS ${getFormatTable} """
+    sql """ CREATE TABLE ${getFormatTable} (
+                id INT,
+                lc VARCHAR(10)
+            ) DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES ( "replication_num" = "1" ); """
+    sql """ INSERT INTO ${getFormatTable} VALUES
+            (1, 'USA'), (2, 'JIS'), (3, 'ISO'), (4, 'EUR'),
+            (5, 'INTERNAL'), (6, 'Doris'); """
+
+    qt_get_format_date """ SELECT GET_FORMAT(DATE, lc) FROM ${getFormatTable} ORDER BY id; """
+    qt_get_format_datetime """ SELECT GET_FORMAT(DATETIME, lc) FROM ${getFormatTable} ORDER BY id; """
+    qt_get_format_time """ SELECT GET_FORMAT(TIME, lc) FROM ${getFormatTable} ORDER BY id; """
+    test {
+        sql """ SELECT GET_FORMAT(DATA, 'USA'); """
+        exception "Format type only support DATE, DATETIME and TIME"
+    }
+
+    sql """ DROP TABLE IF EXISTS ${getFormatTable} """
+
+    testFoldConst("SELECT GET_FORMAT(DATE, 'USA');")
+    testFoldConst("SELECT GET_FORMAT(DATE, 'JIS');")
+    testFoldConst("SELECT GET_FORMAT(DATE, 'ISO');")
+    testFoldConst("SELECT GET_FORMAT(DATE, 'EUR');")
+    testFoldConst("SELECT GET_FORMAT(DATE, 'INTERNAL');")
+    testFoldConst("SELECT GET_FORMAT(DATE, 'Doris');")
+    testFoldConst("SELECT GET_FORMAT(DATETIME, 'USA');")
+    testFoldConst("SELECT GET_FORMAT(DATETIME, 'JIS');")
+    testFoldConst("SELECT GET_FORMAT(DATETIME, 'ISO');")
+    testFoldConst("SELECT GET_FORMAT(DATETIME, 'EUR');")
+    testFoldConst("SELECT GET_FORMAT(DATETIME, 'INTERNAL');")
+    testFoldConst("SELECT GET_FORMAT(DATETIME, 'Doris');")
+    testFoldConst("SELECT GET_FORMAT(TIME, 'USA');")
+    testFoldConst("SELECT GET_FORMAT(TIME, 'JIS');")
+    testFoldConst("SELECT GET_FORMAT(TIME, 'ISO');")
+    testFoldConst("SELECT GET_FORMAT(TIME, 'EUR');")
+    testFoldConst("SELECT GET_FORMAT(TIME, 'INTERNAL');")
+    testFoldConst("SELECT GET_FORMAT(TIME, 'Doris');")
 }
