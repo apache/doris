@@ -135,7 +135,10 @@ public:
     int task_id() const { return _index; };
     bool is_finalized() const { return _finalized; }
 
-    void set_wake_up_early() { _wake_up_early = true; }
+    void set_wake_up_early(PipelineId wake_by = -1) {
+        _wake_up_early = true;
+        _wake_by = wake_by;
+    }
 
     void clear_blocking_state() {
         auto fragment = _fragment_context.lock();
@@ -319,6 +322,7 @@ private:
     const std::string _pipeline_name;
     // PipelineTask maybe hold by TaskQueue
     std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
+    int _wake_by = -1;
 };
 
 using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;
