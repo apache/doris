@@ -110,7 +110,7 @@ public:
             local_state._shared_state->source_dep->block();
 
             if (last_round_offset == local_state._blocks.size() ||
-                local_state._shared_state->_current_round >= max_recursion_depth) {
+                local_state._shared_state->_current_round >= _max_recursion_depth) {
                 _ready_to_return = true;
             } else {
                 RETURN_IF_ERROR(_recursive_process(state, last_round_offset));
@@ -143,6 +143,10 @@ private:
 
     Status _send_reset_fragments(RuntimeState* state) const {
         for (auto fragment : _fragments_to_reset) {
+            if (state->fragment_id() == fragment.fragment_id) {
+                return Status::InternalError("Fragment {} contains a recursive CTE node",
+                                             fragment.fragment_id);
+            }
             auto stub =
                     state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(
                             fragment.addr);
@@ -306,7 +310,7 @@ private:
 
     bool _ready_to_return = false;
 
-    const int max_recursion_depth = 10;
+    int _max_recursion_depth = 0;
 };
 
 } // namespace pipeline

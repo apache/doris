@@ -57,6 +57,9 @@ Status RecCTESourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 Status RecCTESourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(Base::init(tnode, state));
     DCHECK(tnode.__isset.rec_cte_node);
+
+    _max_recursion_depth = state->cte_max_recursion_depth();
+
     {
         const auto& texprs = tnode.rec_cte_node.result_expr_lists[1];
         vectorized::VExprContextSPtrs ctxs;

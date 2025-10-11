@@ -2028,7 +2028,7 @@ Status PipelineFragmentContext::reset(ThreadPool* thread_pool) {
         }
     }
 
-    _is_fragment_instance_closed = true;
+    _close_fragment_instance();
     _release_resource();
     RETURN_IF_ERROR(_build_and_prepare_full_pipeline(thread_pool));
 

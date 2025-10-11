@@ -69,6 +69,17 @@ public:
                         const DescriptorTbl& descs)
             : OperatorX<RecCTEScanLocalState>(pool, tnode, operator_id, descs) {}
 
+    Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
+                                    bool* eos) override {
+        auto* local_state = state->get_local_state(operator_id());
+        vectorized::Block input_block;
+        RETURN_IF_ERROR(get_block(state, &input_block, eos));
+        RETURN_IF_ERROR(do_projections(state, &input_block, block));
+        RETURN_IF_ERROR(
+                local_state->filter_block(local_state->conjuncts(), block, block->columns()));
+        return Status::OK();
+    }
+
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
         auto& local_state = get_local_state(state);
         if (local_state._blocks.empty()) {
@@ -77,9 +88,6 @@ public:
         }
         *block = std::move(local_state._blocks.back());
         local_state._blocks.pop_back();
-
-        RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
-        local_state.reached_limit(block, eos);
         return Status::OK();
     }
 
