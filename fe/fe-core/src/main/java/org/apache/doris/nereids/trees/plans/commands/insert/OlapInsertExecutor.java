@@ -309,9 +309,6 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 userIdentity = statement.getUserInfo();
             }
             EtlJobType etlJobType = EtlJobType.INSERT;
-            if (0 != jobId) {
-                etlJobType = EtlJobType.INSERT_JOB;
-            }
             if (!Config.enable_nereids_load) {
                 // just record for loadv2 here
                 ctx.getEnv().getLoadManager()
