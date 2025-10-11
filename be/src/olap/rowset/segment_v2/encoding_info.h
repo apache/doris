@@ -101,39 +101,15 @@ public:
     ~EncodingInfoResolver();
 
     EncodingTypePB get_default_encoding(FieldType type, bool optimize_value_seek) const {
-        if (!optimize_value_seek) {
-            if (config::all_use_plain_encoding) {
-                return PLAIN_ENCODING;
-            }
-        }
         auto& encoding_map =
                 optimize_value_seek ? _value_seek_encoding_map : _default_encoding_type_map;
         auto it = encoding_map.find(type);
         if (it != encoding_map.end()) {
             EncodingTypePB encoding = it->second;
             // For binary types, use PLAIN_ENCODING_V2 if config::use_plain_binary_v2 is true
-            if (config::use_plain_binary_v2 && encoding == PLAIN_ENCODING &&
-                (type == FieldType::OLAP_FIELD_TYPE_CHAR ||
-                 type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
-                 type == FieldType::OLAP_FIELD_TYPE_STRING ||
-                 type == FieldType::OLAP_FIELD_TYPE_HLL ||
-                 type == FieldType::OLAP_FIELD_TYPE_BITMAP ||
-                 type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE ||
-                 type == FieldType::OLAP_FIELD_TYPE_AGG_STATE ||
-                 type == FieldType::OLAP_FIELD_TYPE_JSONB ||
-                 type == FieldType::OLAP_FIELD_TYPE_VARIANT)) {
+            if (encoding == PLAIN_ENCODING && config::use_plain_binary_v2 &&
+                _encoding_map.contains(std::make_pair(type, PLAIN_ENCODING_V2))) {
                 return PLAIN_ENCODING_V2;
-            }
-            // For integer numeric types, don't use BIT_SHUFFLE if config::numeric_not_use_bitshuffle is true
-            if (config::numeric_not_use_bitshuffle && encoding == BIT_SHUFFLE &&
-                (type == FieldType::OLAP_FIELD_TYPE_TINYINT ||
-                 type == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
-                 type == FieldType::OLAP_FIELD_TYPE_INT ||
-                 type == FieldType::OLAP_FIELD_TYPE_BIGINT ||
-                 type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT ||
-                 type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT ||
-                 type == FieldType::OLAP_FIELD_TYPE_LARGEINT)) {
-                return PLAIN_ENCODING;
             }
             return encoding;
         }
