@@ -2952,6 +2952,7 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
             (append_sign_manually ? 1 : 0) + integer_str_len + 1 + frac_str_len;
 
     StringRef result = context->create_temp_string_val(whole_decimal_str_len);
+    // Modify a string passed via stringref
     char* result_data = const_cast<char*>(result.data);
 
     if (append_sign_manually) {
@@ -2970,6 +2971,7 @@ static StringRef do_money_format(FunctionContext* context, const std::string& va
     bool is_positive = (value[0] != '-');
     int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
     StringRef result = context->create_temp_string_val(result_len);
+    // Modify a string passed via stringref
     char* result_data = const_cast<char*>(result.data);
     if (!is_positive) {
         *result_data = '-';
@@ -3079,6 +3081,7 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
                                         (decimal_places > 0 ? 1 : 0) + frac_str_len;
 
     StringRef result = context->create_temp_string_val(whole_decimal_str_len);
+    // Modify a string passed via stringref
     char* result_data = const_cast<char*>(result.data);
 
     if (append_sign_manually) {
@@ -3749,8 +3752,7 @@ struct ReverseImpl {
             int64_t src_len = offsets[i] - offsets[i - 1];
             std::string dst;
             dst.resize(src_len);
-            simd::VStringFunctions::reverse(StringRef((uint8_t*)src_str, src_len),
-                                            StringRef((uint8_t*)dst.data(), src_len));
+            simd::VStringFunctions::reverse(StringRef((uint8_t*)src_str, src_len), &dst);
             StringOP::push_value_string(std::string_view(dst.data(), src_len), i, res_data,
                                         res_offsets);
         }
