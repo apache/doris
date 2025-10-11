@@ -84,10 +84,10 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                        Column whereColumn,
                        int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
                        short rollupShortKeyColumnCount,
-                       OriginStatement origStmt) throws AnalysisException {
+                       OriginStatement origStmt, Map<String, List<String>> sequenceMapping) throws AnalysisException {
         super(rawSql, jobId, dbId, tableId, tableName, timeoutMs, baseIndexId,
                 rollupIndexId, baseIndexName, rollupIndexName, rollupSchema, whereColumn,
-                baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt);
+                baseSchemaHash, rollupSchemaHash, rollupKeysType, rollupShortKeyColumnCount, origStmt, sequenceMapping);
         ConnectContext context = ConnectContext.get();
         if (context != null) {
             String clusterName = "";
@@ -233,7 +233,8 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     tbl.rowStorePageSize(),
                                     tbl.variantEnableFlattenNested(), null,
                                     tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
-                                    tbl.storageDictPageSize(), true);
+                                    tbl.storageDictPageSize(), true,
+                                    tbl.getColumnSeqMapping());
                 requestBuilder.addTabletMetas(builder);
             } // end for rollupTablets
             requestBuilder.setDbId(dbId);
