@@ -44,7 +44,9 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
           _finished(false),
           _data_page_builder(nullptr),
           _dict_builder(nullptr),
-          _encoding_type(DICT_ENCODING) {}
+          _encoding_type(DICT_ENCODING),
+          _fallback_encoding_type(config::use_plain_binary_v2 ? PLAIN_ENCODING_V2
+                                                              : PLAIN_ENCODING) {}
 
 Status BinaryDictPageBuilder::init() {
     // initially use DICT_ENCODING
@@ -169,7 +171,9 @@ Status BinaryDictPageBuilder::reset() {
 
         if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
             PageBuilder* data_page_builder_ptr = nullptr;
-            if (config::use_plain_binary_v2) {
+            DCHECK(_fallback_encoding_type == PLAIN_ENCODING ||
+                   _fallback_encoding_type == PLAIN_ENCODING_V2);
+            if (_fallback_encoding_type == PLAIN_ENCODING_V2) {
                 RETURN_IF_ERROR(
                         BinaryPlainPageV2Builder<FieldType::OLAP_FIELD_TYPE_VARCHAR>::create(
                                 &data_page_builder_ptr, _options));
