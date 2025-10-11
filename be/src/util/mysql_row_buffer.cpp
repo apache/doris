@@ -36,6 +36,7 @@
 #include "vec/functions/cast/cast_to_string.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
+#include "vec/runtime/timestamptz_value.h"
 #include "vec/runtime/vdatetime_value.h" // IWYU pragma: keep
 
 namespace doris {
@@ -505,6 +506,13 @@ template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_ipv6(const IPv6Value& ipv6_val) {
     auto ipv6_str = ipv6_val.to_string();
     return push_string(ipv6_str.c_str(), ipv6_str.length());
+}
+
+template <bool is_binary_format>
+int MysqlRowBuffer<is_binary_format>::push_timestamptz(const TimestampTzValue& tz,
+                                                       const cctz::time_zone& local_time_zone) {
+    auto tz_str = tz.to_string(local_time_zone);
+    return push_string(tz_str.c_str(), tz_str.length());
 }
 
 template <bool is_binary_format>

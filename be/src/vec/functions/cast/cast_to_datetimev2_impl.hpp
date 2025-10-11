@@ -37,6 +37,11 @@ namespace doris::vectorized {
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+enum class DataTimeCastEnumType {
+    DATE_TIME,
+    TIMESTAMP_TZ,
+};
+
 template <bool IsStrict>
 [[nodiscard]] inline static bool init_microsecond(int64_t frac_input, uint32_t frac_length,
                                                   DateV2Value<DateTimeV2ValueType>& val,
@@ -175,7 +180,7 @@ struct CastToDatetimeV2 {
 
     // this code follow rules of strict mode, but whether it RUNNING IN strict mode or not depends on the `IsStrict`
     // parameter. if it's false, we dont set error code for performance and we dont need.
-    template <bool IsStrict>
+    template <bool IsStrict, DataTimeCastEnumType type = DataTimeCastEnumType::DATE_TIME>
     static inline bool from_string_strict_mode(const StringRef& str,
                                                DateV2Value<DateTimeV2ValueType>& res,
                                                const cctz::time_zone* local_time_zone,
@@ -191,6 +196,7 @@ struct CastToDatetimeV2 {
                                                                   to_scale, params);
     }
 
+    template <DataTimeCastEnumType type = DataTimeCastEnumType::DATE_TIME>
     static inline bool from_string_non_strict_mode_impl(const StringRef& str,
                                                         DateV2Value<DateTimeV2ValueType>& res,
                                                         const cctz::time_zone* local_time_zone,
@@ -317,7 +323,7 @@ inline bool CastToDatetimeV2::from_integer(T input, DateV2Value<DateTimeV2ValueT
 <alpha>          ::= "A" | … | "Z" | "a" | … | "z"
 <whitespace>     ::= " " | "\t" | "\n" | "\r" | "\v" | "\f"
 */
-template <bool IsStrict>
+template <bool IsStrict, DataTimeCastEnumType type>
 inline bool CastToDatetimeV2::from_string_strict_mode(const StringRef& str,
                                                       DateV2Value<DateTimeV2ValueType>& res,
                                                       const cctz::time_zone* local_time_zone,
@@ -368,7 +374,7 @@ inline bool CastToDatetimeV2::from_string_strict_mode(const StringRef& str,
         has_second = true;
         if (ptr == end) {
             // no fraction or timezone part, just return.
-            return true;
+            goto NO_TIMEZHONE_PART;
         }
         goto FRAC;
     }
@@ -475,7 +481,7 @@ inline bool CastToDatetimeV2::from_string_strict_mode(const StringRef& str,
         res.unchecked_set_time_unit<TimeUnit::MINUTE>(0);
         res.unchecked_set_time_unit<TimeUnit::SECOND>(0);
         res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
-        return true;
+        goto NO_TIMEZHONE_PART;
     }
 
     SET_PARAMS_RET_FALSE_IFN(consume_one_delimiter(ptr, end),
@@ -491,7 +497,7 @@ inline bool CastToDatetimeV2::from_string_strict_mode(const StringRef& str,
                              part[0]);
     if (ptr == end) {
         // no minute part, just return.
-        return true;
+        goto NO_TIMEZHONE_PART;
     }
     if (*ptr == ':') {
         // with hour:minute:second
@@ -630,22 +636,58 @@ FRAC:
         cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                res.hour(), res.minute(), res.second()};
 
-        auto given = cctz::convert(cs, parsed_tz);
-        auto local = cctz::convert(given, *local_time_zone);
-        res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
-        res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
-        res.unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)local.day());
-        res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)local.hour());
-        res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
-        res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
+        if constexpr (type == DataTimeCastEnumType::DATE_TIME) {
+            // if not timestamptz, the given time is in local_time_zone
+            SET_PARAMS_RET_FALSE_IFN(
+                    local_time_zone != nullptr,
+                    "local time zone required for datetime string without timezone");
+            auto given = cctz::convert(cs, parsed_tz);
+            auto local = cctz::convert(given, *local_time_zone);
+            res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
+            res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
+            res.unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)local.day());
+            res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)local.hour());
+            res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
+            res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
+        } else {
+            // if timestamptz, the given time is in UTC
+            auto given = cctz::convert(cs, parsed_tz);
+            auto utc = cctz::convert(given, cctz::utc_time_zone());
+            res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)utc.year());
+            res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)utc.month());
+            res.unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)utc.day());
+            res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)utc.hour());
+            res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)utc.minute());
+            res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)utc.second());
+        }
         SET_PARAMS_RET_FALSE_IFN(res.year() <= 9999, "datetime year {} out of range [0, 9999]",
-                                 res.year());
-
+        res.year());
         static_cast<void>(skip_any_whitespace(ptr, end));
         SET_PARAMS_RET_FALSE_IFN(ptr == end,
                                  "invalid datetime string '{}', extra characters after timezone",
                                  std::string {ptr, end});
+
+        return true;
     }
+
+NO_TIMEZHONE_PART:
+    if constexpr (type == DataTimeCastEnumType::TIMESTAMP_TZ) {
+        // use local time zone to convert to UTC
+        SET_PARAMS_RET_FALSE_IFN(local_time_zone != nullptr,
+                                 "local time zone required for datetime string without timezone");
+        cctz::civil_second cs {res.year(), res.month(),  res.day(),
+                               res.hour(), res.minute(), res.second()};
+
+        auto local = cctz::convert(cs, *local_time_zone);
+        auto utc = cctz::convert(local, cctz::utc_time_zone());
+        res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)utc.year());
+        res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)utc.month());
+        res.unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)utc.day());
+        res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)utc.hour());
+        res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)utc.minute());
+        res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)utc.second());
+    }
+
     return true;
 }
 
@@ -691,6 +733,8 @@ FRAC:
 
 <alpha>          ::= "A" | … | "Z" | "a" | … | "z"
 */
+
+template <DataTimeCastEnumType type>
 inline bool CastToDatetimeV2::from_string_non_strict_mode_impl(
         const StringRef& str, DateV2Value<DateTimeV2ValueType>& res,
         const cctz::time_zone* local_time_zone, uint32_t to_scale, CastParameters& params) {
@@ -746,7 +790,7 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_impl(
         res.unchecked_set_time_unit<TimeUnit::MINUTE>(0);
         res.unchecked_set_time_unit<TimeUnit::SECOND>(0);
         res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
-        return true;
+        goto NO_TIMEZHONE_PART;
     }
 
     PROPAGATE_FALSE(consume_one_delimiter(ptr, end));
@@ -871,16 +915,39 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_impl(
         cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                res.hour(), res.minute(), res.second()};
 
-        auto given = cctz::convert(cs, parsed_tz);
-        auto local = cctz::convert(given, *local_time_zone);
-        res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
-        res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
-        res.unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)local.day());
-        res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)local.hour());
-        res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
-        res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
+        if constexpr (type == DataTimeCastEnumType::DATE_TIME) {
+            // if not timestamptz, the given time is in local_time_zone
+            SET_PARAMS_RET_FALSE_IFN(
+                    local_time_zone != nullptr,
+                    "local time zone required for datetime string without timezone");
+            auto given = cctz::convert(cs, parsed_tz);
+            auto local = cctz::convert(given, *local_time_zone);
+            res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
+            res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
+            res.unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)local.day());
+            res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)local.hour());
+            res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
+            res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
+        } else {
+            // if timestamptz, the given time is in UTC
+            auto given = cctz::convert(cs, parsed_tz);
+            auto utc = cctz::convert(given, cctz::utc_time_zone());
+            res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)utc.year());
+            res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)utc.month());
+            res.unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)utc.day());
+            res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)utc.hour());
+            res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)utc.minute());
+            res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)utc.second());
+        }
         SET_PARAMS_RET_FALSE_IFN(res.year() <= 9999, "datetime year {} out of range [0, 9999]",
                                  res.year());
+
+        static_cast<void>(skip_any_whitespace(ptr, end));
+        SET_PARAMS_RET_FALSE_IFN(ptr == end,
+                                 "invalid datetime string '{}', extra characters after parsing",
+                                 std::string {ptr, end});
+
+        return true;
     }
 
     // skip trailing whitespace
@@ -888,6 +955,24 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_impl(
     SET_PARAMS_RET_FALSE_IFN(ptr == end,
                              "invalid datetime string '{}', extra characters after parsing",
                              std::string {ptr, end});
+
+NO_TIMEZHONE_PART:
+    if constexpr (type == DataTimeCastEnumType::TIMESTAMP_TZ) {
+        // use local time zone to convert to UTC
+        SET_PARAMS_RET_FALSE_IFN(local_time_zone != nullptr,
+                                 "local time zone required for datetime string without timezone");
+        cctz::civil_second cs {res.year(), res.month(),  res.day(),
+                               res.hour(), res.minute(), res.second()};
+
+        auto local = cctz::convert(cs, *local_time_zone);
+        auto utc = cctz::convert(local, cctz::utc_time_zone());
+        res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)utc.year());
+        res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)utc.month());
+        res.unchecked_set_time_unit<TimeUnit::DAY>((uint32_t)utc.day());
+        res.unchecked_set_time_unit<TimeUnit::HOUR>((uint32_t)utc.hour());
+        res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)utc.minute());
+        res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)utc.second());
+    }
 
     return true;
 }
