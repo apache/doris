@@ -37,7 +37,7 @@ export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 
 . "${DORIS_HOME}/env.sh"
-
+export BUILD_AZURE=ON
 # Check args
 usage() {
     echo "
@@ -442,7 +442,7 @@ if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
 fi
 
 if [[ "$(echo "${DISABLE_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
-    BUILD_AZURE='OFF'
+    BUILD_AZURE='ON'
 fi
 
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
