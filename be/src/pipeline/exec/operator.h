@@ -609,6 +609,8 @@ public:
     // For agg/sort/join sink.
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
+    virtual bool rerunable() const { return false; }
+
     Status init(const TDataSink& tsink) override;
     [[nodiscard]] virtual Status init(ExchangeType type, const int num_buckets,
                                       const bool use_global_hash_shuffle,

@@ -518,8 +518,7 @@ std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::build_pipeline_profil
         std::size_t pipeline_size) {
     std::unique_lock lc(_pipeline_profile_lock);
     if (!_pipeline_id_to_profile.empty()) {
-        throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "build_pipeline_profile can only be called once.");
+        return _pipeline_id_to_profile;
     }
     _pipeline_id_to_profile.resize(pipeline_size);
     {

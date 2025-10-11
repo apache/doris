@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCte;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -211,6 +212,47 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             return plan.accept(this, context);
         }
         return pruneChildren(plan, new RoaringBitmap());
+    }
+
+    @Override
+    public Plan visitLogicalRecursiveCte(LogicalRecursiveCte recursiveCte, PruneContext context) {
+        // LogicalRecursiveCte is basically like LogicalUnion, so just do same as LogicalUnion
+        if (recursiveCte.getQualifier() == Qualifier.DISTINCT) {
+            return skipPruneThisAndFirstLevelChildren(recursiveCte);
+        }
+        LogicalRecursiveCte prunedOutputRecursiveCte = pruneRecursiveCteOutput(recursiveCte, context);
+        // start prune children of recursiveCte
+        List<Slot> originOutput = recursiveCte.getOutput();
+        Set<Slot> prunedOutput = prunedOutputRecursiveCte.getOutputSet();
+        List<Integer> prunedOutputIndexes = IntStream.range(0, originOutput.size())
+                .filter(index -> prunedOutput.contains(originOutput.get(index)))
+                .boxed()
+                .collect(ImmutableList.toImmutableList());
+
+        ImmutableList.Builder<Plan> prunedChildren = ImmutableList.builder();
+        ImmutableList.Builder<List<SlotReference>> prunedChildrenOutputs = ImmutableList.builder();
+        for (int i = 0; i < prunedOutputRecursiveCte.arity(); i++) {
+            List<SlotReference> regularChildOutputs = prunedOutputRecursiveCte.getRegularChildOutput(i);
+
+            RoaringBitmap prunedChildOutputExprIds = new RoaringBitmap();
+            Builder<SlotReference> prunedChildOutputBuilder
+                    = ImmutableList.builderWithExpectedSize(regularChildOutputs.size());
+            for (Integer index : prunedOutputIndexes) {
+                SlotReference slot = regularChildOutputs.get(index);
+                prunedChildOutputBuilder.add(slot);
+                prunedChildOutputExprIds.add(slot.getExprId().asInt());
+            }
+
+            List<SlotReference> prunedChildOutput = prunedChildOutputBuilder.build();
+            Plan prunedChild = doPruneChild(
+                    prunedOutputRecursiveCte, prunedOutputRecursiveCte.child(i), prunedChildOutputExprIds,
+                    prunedChildOutput, true
+            );
+            prunedChildrenOutputs.add(prunedChildOutput);
+            prunedChildren.add(prunedChild);
+        }
+        return prunedOutputRecursiveCte.withChildrenAndTheirOutputs(prunedChildren.build(),
+                prunedChildrenOutputs.build());
     }
 
     // union can not prune children by the common logic, we must override visit method to write special code.
@@ -400,6 +442,70 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             return plan;
         } else {
             return withPrunedOutput.apply(prunedOutputs);
+        }
+    }
+
+    private LogicalRecursiveCte pruneRecursiveCteOutput(LogicalRecursiveCte recursiveCte, PruneContext context) {
+        List<NamedExpression> originOutput = recursiveCte.getOutputs();
+        if (originOutput.isEmpty()) {
+            return recursiveCte;
+        }
+        List<NamedExpression> prunedOutputs = Lists.newArrayList();
+        List<List<NamedExpression>> constantExprsList = recursiveCte.getConstantExprsList();
+        List<List<SlotReference>> regularChildrenOutputs = recursiveCte.getRegularChildrenOutputs();
+        List<Plan> children = recursiveCte.children();
+        List<Integer> extractColumnIndex = Lists.newArrayList();
+        for (int i = 0; i < originOutput.size(); i++) {
+            NamedExpression output = originOutput.get(i);
+            if (context.requiredSlotsIds.contains(output.getExprId().asInt())) {
+                prunedOutputs.add(output);
+                extractColumnIndex.add(i);
+            }
+        }
+
+        ImmutableList.Builder<List<NamedExpression>> prunedConstantExprsList
+                = ImmutableList.builderWithExpectedSize(constantExprsList.size());
+        if (prunedOutputs.isEmpty()) {
+            // process prune all columns
+            NamedExpression originSlot = originOutput.get(0);
+            prunedOutputs = ImmutableList.of(new SlotReference(originSlot.getExprId(), originSlot.getName(),
+                    TinyIntType.INSTANCE, false, originSlot.getQualifier()));
+            regularChildrenOutputs = Lists.newArrayListWithCapacity(regularChildrenOutputs.size());
+            children = Lists.newArrayListWithCapacity(children.size());
+            for (int i = 0; i < recursiveCte.getArity(); i++) {
+                Plan child = recursiveCte.child(i);
+                List<NamedExpression> newProjectOutput = ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1)));
+                LogicalProject<?> project;
+                if (child instanceof LogicalProject) {
+                    LogicalProject<Plan> childProject = (LogicalProject<Plan>) child;
+                    List<NamedExpression> mergeProjections = PlanUtils.mergeProjections(
+                            childProject.getProjects(), newProjectOutput);
+                    project = new LogicalProject<>(mergeProjections, childProject.child());
+                } else {
+                    project = new LogicalProject<>(newProjectOutput, child);
+                }
+                regularChildrenOutputs.add((List) project.getOutput());
+                children.add(project);
+            }
+            for (int i = 0; i < constantExprsList.size(); i++) {
+                prunedConstantExprsList.add(ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1))));
+            }
+        } else {
+            int len = extractColumnIndex.size();
+            for (List<NamedExpression> row : constantExprsList) {
+                ImmutableList.Builder<NamedExpression> newRow = ImmutableList.builderWithExpectedSize(len);
+                for (int idx : extractColumnIndex) {
+                    newRow.add(row.get(idx));
+                }
+                prunedConstantExprsList.add(newRow.build());
+            }
+        }
+
+        if (prunedOutputs.equals(originOutput) && !context.requiredSlotsIds.isEmpty()) {
+            return recursiveCte;
+        } else {
+            return recursiveCte.withNewOutputsChildrenAndConstExprsList(prunedOutputs, children,
+                    regularChildrenOutputs, prunedConstantExprsList.build());
         }
     }
 

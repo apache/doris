@@ -29,6 +29,19 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
+inline Status materialize_block(const vectorized::VExprContextSPtrs& exprs,
+                                vectorized::Block* src_block, vectorized::Block* res_block) {
+    vectorized::ColumnsWithTypeAndName colunms;
+    for (const auto& expr : exprs) {
+        int result_column_id = -1;
+        RETURN_IF_ERROR(expr->execute(src_block, &result_column_id));
+        colunms.emplace_back(src_block->get_by_position(result_column_id));
+        src_block->get_by_position(result_column_id).column = nullptr;
+    }
+    *res_block = {colunms};
+    return Status::OK();
+}
+
 namespace pipeline {
 class DataQueue;
 
@@ -153,25 +166,14 @@ private:
                     vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
                                                                                row_descriptor());
             vectorized::Block res;
-            RETURN_IF_ERROR(materialize_block(state, input_block, child_id, &res));
+            auto& local_state = get_local_state(state);
+            {
+                SCOPED_TIMER(local_state._expr_timer);
+                RETURN_IF_ERROR(materialize_block(local_state._child_expr, input_block, &res));
+            }
+            local_state._child_row_idx += res.rows();
             RETURN_IF_ERROR(mblock.merge(res));
         }
-        return Status::OK();
-    }
-
-    Status materialize_block(RuntimeState* state, vectorized::Block* src_block, int child_idx,
-                             vectorized::Block* res_block) {
-        auto& local_state = get_local_state(state);
-        SCOPED_TIMER(local_state._expr_timer);
-        const auto& child_exprs = local_state._child_expr;
-        vectorized::ColumnsWithTypeAndName colunms;
-        for (size_t i = 0; i < child_exprs.size(); ++i) {
-            int result_column_id = -1;
-            RETURN_IF_ERROR(child_exprs[i]->execute(src_block, &result_column_id));
-            colunms.emplace_back(src_block->get_by_position(result_column_id));
-        }
-        local_state._child_row_idx += src_block->rows();
-        *res_block = {colunms};
         return Status::OK();
     }
 };
