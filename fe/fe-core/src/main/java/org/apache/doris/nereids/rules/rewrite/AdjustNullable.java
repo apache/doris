@@ -291,6 +291,53 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     }
 
     @Override
+    public Plan visitLogicalRecursiveCte(LogicalRecursiveCte recursiveCte, Map<ExprId, Slot> replaceMap) {
+        recursiveCte = (LogicalRecursiveCte) super.visit(recursiveCte, replaceMap);
+        ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
+        List<Boolean> inputNullable = null;
+        if (!recursiveCte.children().isEmpty()) {
+            inputNullable = Lists.newArrayListWithCapacity(recursiveCte.getOutputs().size());
+            for (int i = 0; i < recursiveCte.getOutputs().size(); i++) {
+                inputNullable.add(false);
+            }
+            for (int i = 0; i < recursiveCte.arity(); i++) {
+                List<Slot> childOutput = recursiveCte.child(i).getOutput();
+                List<SlotReference> setChildOutput = recursiveCte.getRegularChildOutput(i);
+                ImmutableList.Builder<SlotReference> newChildOutputs = ImmutableList.builder();
+                for (int j = 0; j < setChildOutput.size(); j++) {
+                    for (Slot slot : childOutput) {
+                        if (slot.getExprId().equals(setChildOutput.get(j).getExprId())) {
+                            inputNullable.set(j, slot.nullable() || inputNullable.get(j));
+                            newChildOutputs.add((SlotReference) slot);
+                            break;
+                        }
+                    }
+                }
+                newChildrenOutputs.add(newChildOutputs.build());
+            }
+        }
+        if (inputNullable == null) {
+            // this is a fail-safe
+            // means there is no children and having no getConstantExprsList
+            // no way to update the nullable flag, so just do nothing
+            return recursiveCte;
+        }
+        List<NamedExpression> outputs = recursiveCte.getOutputs();
+        List<NamedExpression> newOutputs = Lists.newArrayListWithCapacity(outputs.size());
+        for (int i = 0; i < inputNullable.size(); i++) {
+            NamedExpression ne = outputs.get(i);
+            Slot slot = ne instanceof Alias ? (Slot) ((Alias) ne).child() : (Slot) ne;
+            slot = slot.withNullable(inputNullable.get(i));
+            NamedExpression newOutput = ne instanceof Alias ? (NamedExpression) ne.withChildren(slot) : slot;
+            newOutputs.add(newOutput);
+            replaceMap.put(newOutput.getExprId(), newOutput.toSlot());
+        }
+        return recursiveCte.withNewOutputs(newOutputs)
+                .withChildrenAndTheirOutputs(recursiveCte.children(), newChildrenOutputs.build())
+                .recomputeLogicalProperties();
+    }
+
+    @Override
     public Plan visitLogicalSetOperation(LogicalSetOperation setOperation, Map<ExprId, Slot> replaceMap) {
         setOperation = (LogicalSetOperation) super.visit(setOperation, replaceMap);
         ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
@@ -327,22 +374,6 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                 }
             }
             for (List<NamedExpression> constantExprs : logicalUnion.getConstantExprsList()) {
-                for (int j = 0; j < constantExprs.size(); j++) {
-                    inputNullable.set(j, inputNullable.get(j) || constantExprs.get(j).nullable());
-                }
-            }
-        } else if (setOperation instanceof LogicalRecursiveCte) {
-            // LogicalRecursiveCte is basically like LogicalUnion, so just do same as LogicalUnion
-            LogicalRecursiveCte logicalRecursiveCte = (LogicalRecursiveCte) setOperation;
-            if (!logicalRecursiveCte.getConstantExprsList().isEmpty() && setOperation.children().isEmpty()) {
-                int outputSize = logicalRecursiveCte.getConstantExprsList().get(0).size();
-                // create the inputNullable list and fill it with all FALSE values
-                inputNullable = Lists.newArrayListWithCapacity(outputSize);
-                for (int i = 0; i < outputSize; i++) {
-                    inputNullable.add(false);
-                }
-            }
-            for (List<NamedExpression> constantExprs : logicalRecursiveCte.getConstantExprsList()) {
                 for (int j = 0; j < constantExprs.size(); j++) {
                     inputNullable.set(j, inputNullable.get(j) || constantExprs.get(j).nullable());
                 }

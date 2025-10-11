@@ -19,19 +19,24 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.algebra.Union;
+import org.apache.doris.nereids.trees.plans.algebra.RecursiveCte;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -56,68 +61,126 @@ import java.util.Set;
 /**
  * LogicalRecursiveCte is basically like LogicalUnion
  */
-public class LogicalRecursiveCte extends LogicalSetOperation implements Union, OutputPrunable {
-
-    // in doris, we use union node to present one row relation
-    private final List<List<NamedExpression>> constantExprsList;
-    // When there is an agg on the union and there is a filter on the agg,
-    // it is necessary to keep the filter on the agg and push the filter down to each child of the union.
-    private final boolean hasPushedFilter;
+public class LogicalRecursiveCte extends AbstractLogicalPlan implements RecursiveCte, OutputPrunable {
+    protected final List<NamedExpression> outputs;
+    protected final List<List<SlotReference>> regularChildrenOutputs;
+    private final boolean isUnionAll;
 
     /** LogicalRecursiveCte */
-    public LogicalRecursiveCte(Qualifier qualifier, List<Plan> children) {
-        this(qualifier, ImmutableList.of(), children);
+    public LogicalRecursiveCte(boolean isUnionAll, List<Plan> children) {
+        this(isUnionAll, ImmutableList.of(), ImmutableList.of(), children);
     }
 
     /** LogicalRecursiveCte */
-    public LogicalRecursiveCte(Qualifier qualifier, List<List<NamedExpression>> constantExprsList,
-            List<Plan> children) {
-        this(qualifier, ImmutableList.of(), ImmutableList.of(), constantExprsList, false, children);
-    }
-
-    /** LogicalRecursiveCte */
-    public LogicalRecursiveCte(Qualifier qualifier, List<NamedExpression> outputs,
-            List<List<SlotReference>> childrenOutputs,
-            List<List<NamedExpression>> constantExprsList, boolean hasPushedFilter, List<Plan> children) {
-        this(qualifier, outputs, childrenOutputs, constantExprsList, hasPushedFilter, Optional.empty(),
+    public LogicalRecursiveCte(boolean isUnionAll, List<NamedExpression> outputs,
+            List<List<SlotReference>> childrenOutputs, List<Plan> children) {
+        this(isUnionAll, outputs, childrenOutputs, Optional.empty(),
                 Optional.empty(),
                 children);
     }
 
     /** LogicalRecursiveCte */
-    public LogicalRecursiveCte(Qualifier qualifier, List<NamedExpression> outputs,
+    public LogicalRecursiveCte(boolean isUnionAll, List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs,
-            List<List<NamedExpression>> constantExprsList, boolean hasPushedFilter,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Plan> children) {
-        super(PlanType.LOGICAL_RECURSIVE_CTE, qualifier, outputs, childrenOutputs,
-                groupExpression, logicalProperties, children);
-        this.hasPushedFilter = hasPushedFilter;
-        this.constantExprsList = Utils.fastToImmutableList(
-                Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
-    }
-
-    public boolean hasPushedFilter() {
-        return hasPushedFilter;
-    }
-
-    public List<List<NamedExpression>> getConstantExprsList() {
-        return constantExprsList;
+        super(PlanType.LOGICAL_RECURSIVE_CTE, groupExpression, logicalProperties, children);
+        this.isUnionAll = isUnionAll;
+        this.outputs = ImmutableList.copyOf(outputs);
+        this.regularChildrenOutputs = ImmutableList.copyOf(childrenOutputs);
     }
 
     @Override
-    public List<? extends Expression> getExpressions() {
-        return constantExprsList.stream().flatMap(List::stream).collect(ImmutableList.toImmutableList());
+    public boolean isUnionAll() {
+        return isUnionAll;
+    }
+
+    @Override
+    public List<SlotReference> getRegularChildOutput(int i) {
+        return regularChildrenOutputs.get(i);
+    }
+
+    @Override
+    public List<List<SlotReference>> getRegularChildrenOutputs() {
+        return regularChildrenOutputs;
+    }
+
+    public List<List<NamedExpression>> collectChildrenProjections() {
+        return castCommonDataTypeOutputs();
+    }
+
+    private List<List<NamedExpression>> castCommonDataTypeOutputs() {
+        int childOutputSize = child(0).getOutput().size();
+        ImmutableList.Builder<NamedExpression> newLeftOutputs = ImmutableList.builderWithExpectedSize(
+                childOutputSize);
+        ImmutableList.Builder<NamedExpression> newRightOutputs = ImmutableList.builderWithExpectedSize(
+                childOutputSize
+        );
+        // Ensure that the output types of the left and right children are consistent and expand upward.
+        for (int i = 0; i < childOutputSize; ++i) {
+            Slot left = child(0).getOutput().get(i);
+            Slot right = child(1).getOutput().get(i);
+            DataType compatibleType;
+            try {
+                compatibleType = LogicalSetOperation.getAssignmentCompatibleType(left.getDataType(),
+                        right.getDataType());
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        "Can not find compatible type for " + left + " and " + right + ", " + e.getMessage());
+            }
+            Expression newLeft = TypeCoercionUtils.castIfNotSameTypeStrict(left, compatibleType);
+            Expression newRight = TypeCoercionUtils.castIfNotSameTypeStrict(right, compatibleType);
+            if (newLeft instanceof Cast) {
+                newLeft = new Alias(newLeft, left.getName());
+            }
+            if (newRight instanceof Cast) {
+                newRight = new Alias(newRight, right.getName());
+            }
+            newLeftOutputs.add((NamedExpression) newLeft);
+            newRightOutputs.add((NamedExpression) newRight);
+        }
+
+        return ImmutableList.of(newLeftOutputs.build(), newRightOutputs.build());
+    }
+
+    /**
+     * Generate new output for Recursive Cte.
+     */
+    public List<NamedExpression> buildNewOutputs() {
+        List<Slot> slots = resetNullableForLeftOutputs();
+        ImmutableList.Builder<NamedExpression> newOutputs = ImmutableList.builderWithExpectedSize(slots.size());
+
+        for (int i = 0; i < slots.size(); i++) {
+            Slot slot = slots.get(i);
+            ExprId exprId = i < outputs.size() ? outputs.get(i).getExprId() : StatementScopeIdGenerator.newExprId();
+            newOutputs.add(
+                    new SlotReference(exprId, slot.toSql(), slot.getDataType(), slot.nullable(), ImmutableList.of())
+            );
+        }
+        return newOutputs.build();
+    }
+
+    // If the right child is nullable, need to ensure that the left child is also nullable
+    private List<Slot> resetNullableForLeftOutputs() {
+        int rightChildOutputSize = child(1).getOutput().size();
+        ImmutableList.Builder<Slot> resetNullableForLeftOutputs
+                = ImmutableList.builderWithExpectedSize(rightChildOutputSize);
+        for (int i = 0; i < rightChildOutputSize; ++i) {
+            if (child(1).getOutput().get(i).nullable() && !child(0).getOutput().get(i).nullable()) {
+                resetNullableForLeftOutputs.add(child(0).getOutput().get(i).withNullable(true));
+            } else {
+                resetNullableForLeftOutputs.add(child(0).getOutput().get(i));
+            }
+        }
+        return resetNullableForLeftOutputs.build();
     }
 
     @Override
     public String toString() {
         return Utils.toSqlStringSkipNull("LogicalRecursiveCte",
-                "qualifier", qualifier,
+                "isUnionAll", isUnionAll,
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs,
-                "constantExprsList", constantExprsList,
-                "hasPushedFilter", hasPushedFilter,
                 "stats", statistics);
     }
 
@@ -130,13 +193,13 @@ public class LogicalRecursiveCte extends LogicalSetOperation implements Union, O
             return false;
         }
         LogicalRecursiveCte that = (LogicalRecursiveCte) o;
-        return super.equals(that) && hasPushedFilter == that.hasPushedFilter
-                && Objects.equals(constantExprsList, that.constantExprsList);
+        return isUnionAll == that.isUnionAll && Objects.equals(outputs, that.outputs)
+                && Objects.equals(regularChildrenOutputs, that.regularChildrenOutputs);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), hasPushedFilter, constantExprsList);
+        return Objects.hash(isUnionAll, outputs, regularChildrenOutputs);
     }
 
     @Override
@@ -145,64 +208,58 @@ public class LogicalRecursiveCte extends LogicalSetOperation implements Union, O
     }
 
     @Override
-    public LogicalRecursiveCte withChildren(List<Plan> children) {
-        return new LogicalRecursiveCte(qualifier, outputs, regularChildrenOutputs,
-                constantExprsList, hasPushedFilter, children);
+    public List<? extends Expression> getExpressions() {
+        return regularChildrenOutputs.stream().flatMap(List::stream).collect(ImmutableList.toImmutableList());
     }
 
     @Override
-    public LogicalSetOperation withChildrenAndTheirOutputs(List<Plan> children,
+    public List<Slot> computeOutput() {
+        return outputs.stream()
+                .map(NamedExpression::toSlot)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public LogicalRecursiveCte withChildren(List<Plan> children) {
+        return new LogicalRecursiveCte(isUnionAll, outputs, regularChildrenOutputs, children);
+    }
+
+    public LogicalRecursiveCte withChildrenAndTheirOutputs(List<Plan> children,
             List<List<SlotReference>> childrenOutputs) {
         Preconditions.checkArgument(children.size() == childrenOutputs.size(),
                 "children size %s is not equals with children outputs size %s",
                 children.size(), childrenOutputs.size());
-        return new LogicalRecursiveCte(qualifier, outputs, childrenOutputs, constantExprsList, hasPushedFilter,
-                children);
+        return new LogicalRecursiveCte(isUnionAll, outputs, childrenOutputs, children);
     }
 
     @Override
     public LogicalRecursiveCte withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalRecursiveCte(qualifier, outputs, regularChildrenOutputs, constantExprsList, hasPushedFilter,
+        return new LogicalRecursiveCte(isUnionAll, outputs, regularChildrenOutputs,
                 groupExpression, Optional.of(getLogicalProperties()), children);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalRecursiveCte(qualifier, outputs, regularChildrenOutputs, constantExprsList, hasPushedFilter,
+        return new LogicalRecursiveCte(isUnionAll, outputs, regularChildrenOutputs,
                 groupExpression, logicalProperties, children);
     }
 
-    @Override
     public LogicalRecursiveCte withNewOutputs(List<NamedExpression> newOutputs) {
-        return new LogicalRecursiveCte(qualifier, newOutputs, regularChildrenOutputs, constantExprsList,
-                hasPushedFilter, Optional.empty(), Optional.empty(), children);
-    }
-
-    public LogicalRecursiveCte withNewOutputsAndConstExprsList(List<NamedExpression> newOutputs,
-            List<List<NamedExpression>> constantExprsList) {
-        return new LogicalRecursiveCte(qualifier, newOutputs, regularChildrenOutputs, constantExprsList,
-                hasPushedFilter, Optional.empty(), Optional.empty(), children);
-    }
-
-    public LogicalRecursiveCte withChildrenAndConstExprsList(List<Plan> children,
-            List<List<SlotReference>> childrenOutputs, List<List<NamedExpression>> constantExprsList) {
-        return new LogicalRecursiveCte(qualifier, outputs, childrenOutputs, constantExprsList, hasPushedFilter,
-                children);
-    }
-
-    public LogicalRecursiveCte withNewOutputsChildrenAndConstExprsList(List<NamedExpression> newOutputs,
-            List<Plan> children,
-            List<List<SlotReference>> childrenOutputs,
-            List<List<NamedExpression>> constantExprsList) {
-        return new LogicalRecursiveCte(qualifier, newOutputs, childrenOutputs, constantExprsList,
-                hasPushedFilter, Optional.empty(), Optional.empty(), children);
-    }
-
-    public LogicalRecursiveCte withAllQualifier() {
-        return new LogicalRecursiveCte(Qualifier.ALL, outputs, regularChildrenOutputs, constantExprsList,
-                hasPushedFilter,
+        return new LogicalRecursiveCte(isUnionAll, newOutputs, regularChildrenOutputs,
                 Optional.empty(), Optional.empty(), children);
+    }
+
+    public LogicalRecursiveCte withNewOutputsAndChildren(List<NamedExpression> newOutputs,
+                                                         List<Plan> children,
+                                                         List<List<SlotReference>> childrenOutputs) {
+        return new LogicalRecursiveCte(isUnionAll, newOutputs, childrenOutputs,
+                Optional.empty(), Optional.empty(), children);
+    }
+
+    @Override
+    public List<NamedExpression> getOutputs() {
+        return outputs;
     }
 
     @Override
@@ -212,7 +269,7 @@ public class LogicalRecursiveCte extends LogicalSetOperation implements Union, O
 
     @Override
     public void computeUnique(DataTrait.Builder builder) {
-        if (qualifier == Qualifier.DISTINCT) {
+        if (!isUnionAll) {
             builder.addUniqueSlot(ImmutableSet.copyOf(getOutput()));
         }
     }
@@ -224,19 +281,6 @@ public class LogicalRecursiveCte extends LogicalSetOperation implements Union, O
                         ConnectContext.get().getStatementContext(), this, PhysicalProperties.ANY)));
         for (int i = 0; i < getOutputs().size(); i++) {
             Optional<Literal> value = Optional.empty();
-            if (!constantExprsList.isEmpty()) {
-                value = ExpressionUtils.checkConstantExpr(constantExprsList.get(0).get(i), context);
-                if (!value.isPresent()) {
-                    continue;
-                }
-                final int fi = i;
-                Literal literal = value.get();
-                if (constantExprsList.stream()
-                        .map(exprs -> ExpressionUtils.checkConstantExpr(exprs.get(fi), context))
-                        .anyMatch(val -> !val.isPresent() || !val.get().equals(literal))) {
-                    continue;
-                }
-            }
             for (int childIdx = 0; childIdx < children.size(); childIdx++) {
                 // TODO: use originOutputs = child(childIdx).getOutput() ?
                 List<? extends Slot> originOutputs = regularChildrenOutputs.get(childIdx);
@@ -267,10 +311,7 @@ public class LogicalRecursiveCte extends LogicalSetOperation implements Union, O
 
     @Override
     public boolean hasUnboundExpression() {
-        if (!constantExprsList.isEmpty() && children.isEmpty()) {
-            return false;
-        }
-        return super.hasUnboundExpression();
+        return outputs.isEmpty();
     }
 
     private List<BitSet> mapSlotToIndex(Plan plan, List<Set<Slot>> equalSlotsList) {
@@ -384,7 +425,7 @@ public class LogicalRecursiveCte extends LogicalSetOperation implements Union, O
             Expression otherConstant = namedExpression.child(0);
             nullable |= otherConstant.nullable();
             DataType otherDataType = otherConstant.getDataType();
-            commonDataType = getAssignmentCompatibleType(commonDataType, otherDataType);
+            commonDataType = LogicalSetOperation.getAssignmentCompatibleType(commonDataType, otherDataType);
         }
         return Pair.of(commonDataType, nullable);
     }
