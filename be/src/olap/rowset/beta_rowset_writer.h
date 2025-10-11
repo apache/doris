@@ -252,10 +252,6 @@ protected:
     std::map<uint32_t, SegmentStatistics> _segid_statistics_map;
     mutable std::mutex _segid_statistics_map_mutex;
 
-    // Aggregated column data page statistics across all segments
-    std::map<int32_t, ColumnDataPageStatsPB> _column_data_page_stats_map;
-    mutable std::mutex _column_data_page_stats_mutex;
-
     bool _is_pending = false;
     bool _already_built = false;
 

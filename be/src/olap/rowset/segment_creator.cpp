@@ -256,7 +256,6 @@ Status SegmentFlusher::_flush_segment_writer(
     segstat.data_size = segment_file_size;
     segstat.index_size = inverted_index_file_size;
     segstat.key_bounds = key_bounds;
-    segstat.column_data_page_stats = writer->get_column_data_page_stats();
 
     writer.reset();
 

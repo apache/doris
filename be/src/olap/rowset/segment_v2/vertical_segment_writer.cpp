@@ -935,7 +935,7 @@ Status VerticalSegmentWriter::write_batch() {
         }
 
         // Collect column data page statistics after column writers finish
-        _collect_column_statistics();
+        _collect_column_data_page_stats();
 
         return Status::OK();
     }
@@ -991,7 +991,7 @@ Status VerticalSegmentWriter::write_batch() {
     }
 
     // Collect column data page statistics after all column writers finish
-    _collect_column_statistics();
+    _collect_column_data_page_stats();
 
     for (auto& data : _batched_blocks) {
         _olap_data_convertor->set_source_content(data.block, data.row_pos, data.num_rows);
@@ -1337,6 +1337,11 @@ Status VerticalSegmentWriter::_write_primary_key_index() {
 Status VerticalSegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
 
+    // Add column data page statistics to footer
+    for (const auto& [column_unique_id, col_stat] : _column_data_page_stats) {
+        _footer.add_column_data_page_stats()->CopyFrom(col_stat);
+    }
+
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     VLOG_DEBUG << "footer " << _footer.DebugString();
     std::string footer_buf;
@@ -1403,19 +1408,27 @@ inline bool VerticalSegmentWriter::_is_mow_with_cluster_key() {
     return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
 
-void VerticalSegmentWriter::_collect_column_statistics() {
-    _column_data_page_stats.clear();
-    _column_data_page_stats.reserve(_tablet_schema->num_columns());
-
+void VerticalSegmentWriter::_collect_column_data_page_stats() {
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
         const auto& column = _tablet_schema->column(cid);
+        int32_t column_unique_id = column.unique_id();
+
         if (cid < _column_writers.size() && _column_writers[cid] != nullptr) {
-            ColumnDataPageStatsPB stats;
-            stats.set_column_unique_id(column.unique_id());
-            stats.set_column_name(column.name());
-            stats.set_column_type(fmt::format("{}", column.type()));
-            stats.set_data_page_size(_column_writers[cid]->get_data_page_size());
-            _column_data_page_stats.push_back(std::move(stats));
+            // Check if we already have stats for this column
+            auto it = _column_data_page_stats.find(column_unique_id);
+            if (it != _column_data_page_stats.end()) {
+                // Accumulate data page size for this column
+                it->second.set_data_page_size(it->second.data_page_size() +
+                                              _column_writers[cid]->get_data_page_size());
+            } else {
+                // First time collecting stats for this column
+                ColumnDataPageStatsPB stats;
+                stats.set_column_unique_id(column_unique_id);
+                stats.set_column_name(column.name());
+                stats.set_column_type(TabletColumn::get_string_by_field_type(column.type()));
+                stats.set_data_page_size(_column_writers[cid]->get_data_page_size());
+                _column_data_page_stats[column_unique_id] = std::move(stats);
+            }
         }
     }
 }

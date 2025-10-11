@@ -57,7 +57,6 @@ private:
     Status _flush_columns(segment_v2::SegmentWriter* segment_writer, bool is_key = false);
     Status _create_segment_writer(const std::vector<uint32_t>& column_ids, bool is_key,
                                   std::unique_ptr<segment_v2::SegmentWriter>* writer);
-    void _collect_column_statistics(segment_v2::SegmentWriter* segment_writer);
 
     std::vector<std::unique_ptr<segment_v2::SegmentWriter>> _segment_writers;
     size_t _cur_writer_idx = 0;

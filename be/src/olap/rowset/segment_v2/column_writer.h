@@ -377,7 +377,11 @@ public:
 
     // Get the total size of data pages for this column
     uint64_t get_data_page_size() const override {
-        return 0; // TODO
+        return (is_nullable() ? _null_writer->get_data_page_size() : 0) +
+               std::accumulate(_sub_column_writers.begin(), _sub_column_writers.end(), 0ULL,
+                               [](uint64_t sum, const std::unique_ptr<ColumnWriter>& writer) {
+                                   return sum + writer->get_data_page_size();
+                               });
     }
 
 private:
@@ -433,7 +437,9 @@ public:
 
     // Get the total size of data pages for this column
     uint64_t get_data_page_size() const override {
-        return 0; // TODO
+        return _offset_writer->get_data_page_size() +
+               (is_nullable() ? _null_writer->get_data_page_size() : 0) +
+               _item_writer->get_data_page_size();
     }
 
 private:
@@ -496,7 +502,12 @@ public:
 
     // Get the total size of data pages for this column
     uint64_t get_data_page_size() const override {
-        return 0; // TODO
+        return _offsets_writer->get_data_page_size() +
+               (is_nullable() ? _null_writer->get_data_page_size() : 0) +
+               std::accumulate(_kv_writers.begin(), _kv_writers.end(), 0ULL,
+                               [](uint64_t sum, const std::unique_ptr<ColumnWriter>& writer) {
+                                   return sum + writer->get_data_page_size();
+                               });
     }
 
 private:
@@ -588,7 +599,9 @@ public:
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
     // Get the total size of data pages for this column
-    uint64_t get_data_page_size() const override;
+    uint64_t get_data_page_size() const override {
+        return 0; // TODO
+    }
 
     Status append_nulls(size_t num_rows) override {
         return Status::NotSupported("variant writer can not append_nulls");

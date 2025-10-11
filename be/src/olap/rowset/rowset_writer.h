@@ -43,7 +43,6 @@ struct SegmentStatistics {
     int64_t data_size;
     int64_t index_size;
     KeyBoundsPB key_bounds;
-    std::vector<ColumnDataPageStatsPB> column_data_page_stats;
 
     SegmentStatistics() = default;
 
@@ -51,20 +50,13 @@ struct SegmentStatistics {
             : row_num(pb.row_num()),
               data_size(pb.data_size()),
               index_size(pb.index_size()),
-              key_bounds(pb.key_bounds()) {
-        for (const auto& col_stat : pb.column_data_page_stats()) {
-            column_data_page_stats.push_back(col_stat);
-        }
-    }
+              key_bounds(pb.key_bounds()) {}
 
     void to_pb(SegmentStatisticsPB* segstat_pb) const {
         segstat_pb->set_row_num(row_num);
         segstat_pb->set_data_size(data_size);
         segstat_pb->set_index_size(index_size);
         segstat_pb->mutable_key_bounds()->CopyFrom(key_bounds);
-        for (const auto& col_stat : column_data_page_stats) {
-            segstat_pb->add_column_data_page_stats()->CopyFrom(col_stat);
-        }
     }
 
     std::string to_string() {

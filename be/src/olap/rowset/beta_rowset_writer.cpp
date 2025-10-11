@@ -886,14 +886,6 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
             segments_encoded_key_bounds.push_back(itr.second.key_bounds);
         }
     }
-
-    // Add aggregated column data page statistics to rowset meta
-    {
-        std::lock_guard<std::mutex> lock(_column_data_page_stats_mutex);
-        for (const auto& col_stat : _column_data_page_stats_map) {
-            rowset_meta->add_column_data_page_stats(col_stat.second);
-        }
-    }
     for (auto& key_bound : _segments_encoded_key_bounds) {
         segments_encoded_key_bounds.push_back(key_bound);
     }
@@ -1080,23 +1072,6 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
             _segment_num_rows.resize(segment_id + 1);
         }
         _segment_num_rows[segid_offset] = cast_set<uint32_t>(segstat.row_num);
-    }
-
-    // Aggregate column data page statistics
-    {
-        std::lock_guard<std::mutex> lock(_column_data_page_stats_mutex);
-        for (const auto& col_stat : segstat.column_data_page_stats) {
-            int32_t column_id = col_stat.column_unique_id();
-            auto it = _column_data_page_stats_map.find(column_id);
-            if (it == _column_data_page_stats_map.end()) {
-                // First time seeing this column
-                _column_data_page_stats_map[column_id] = col_stat;
-            } else {
-                // Aggregate the data page size
-                int64_t new_size = it->second.data_page_size() + col_stat.data_page_size();
-                it->second.set_data_page_size(new_size);
-            }
-        }
     }
     VLOG_DEBUG << "_segid_statistics_map add new record. segment_id:" << segment_id
                << " row_num:" << segstat.row_num << " data_size:" << segstat.data_size

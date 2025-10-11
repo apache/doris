@@ -418,16 +418,6 @@ public:
     void add_inverted_index_files_info(
             const std::vector<const InvertedIndexFileInfo*>& idx_file_info);
 
-    // Get column data page stats for this rowset
-    const auto& column_data_page_stats() const {
-        return _rowset_meta_pb.column_data_page_stats();
-    }
-
-    // Add column data page stats to this rowset
-    void add_column_data_page_stats(const ColumnDataPageStatsPB& stats) {
-        *_rowset_meta_pb.add_column_data_page_stats() = stats;
-    }
-
     int64_t get_metadata_size() const override;
 
     // Because the member field '_handle' is a raw pointer, use member func 'init' to replace copy ctor

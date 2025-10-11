@@ -636,7 +636,7 @@ Status ScalarColumnWriter::write_data() {
                 {dict_body.slice()}, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
     }
-    _data_page_size = _file_writer->bytes_appended() - offset;
+    _data_page_size += _file_writer->bytes_appended() - offset;
     _page_builder.reset();
     return Status::OK();
 }
@@ -1251,10 +1251,6 @@ Status VariantColumnWriter::write_inverted_index() {
 }
 Status VariantColumnWriter::write_bloom_filter_index() {
     return _impl->write_bloom_filter_index();
-}
-
-uint64_t VariantColumnWriter::get_data_page_size() const {
-    return 0; // TODO
 }
 
 Status VariantColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
