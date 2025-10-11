@@ -745,7 +745,21 @@ template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, vectorized::Block* block,
                                              bool eos) {
-    return _writer->sink(block, eos);
+    return _writer->sink(state, block, eos);
+}
+
+template <typename Writer, typename Parent>
+    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
+std::string AsyncWriterSink<Writer, Parent>::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}", _parent->debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer,
+                   ", closed: {}, data_queue_size: {}, eos: "
+                   "{}, thread_submitted: {}, status: {}, thread_quit_point: {}",
+                   _writer->closed(), _writer->data_queue_size(), _writer->eos(),
+                   _writer->thread_submitted(), _writer->get_writer_status().to_string(),
+                   _writer->thread_quit_point());
+    return fmt::to_string(debug_string_buffer);
 }
 
 template <typename Writer, typename Parent>
