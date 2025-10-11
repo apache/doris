@@ -579,7 +579,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     }
 
                     // primary backend is alive or dead not long
-                    Backend be = replica.getPrimaryBackend(cluster);
+                    Backend be = replica.getPrimaryBackend(cluster, false);
                     if (be != null && (be.isQueryAvailable()
                             || (!be.isQueryDisabled() && be.getLastUpdateMs() > needRehashDeadTime))) {
                         beIds.add(be.getId());
@@ -614,6 +614,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
                         continue;
                     }
 
+                    LOG.debug("clusterId {} tablet {} change primary backend from {} to {}",
+                            cluster, tablet.getId(), be == null ? -1 : be.getId(), beId);
                     tabletToInfightTask.remove(taskKey);
 
                     ((CloudReplica) replica).updateClusterToPrimaryBe(cluster, beId);
@@ -705,7 +707,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                         continue;
                     }
 
-                    Backend be = replica.getPrimaryBackend(cluster);
+                    Backend be = replica.getPrimaryBackend(cluster, false);
                     long beId = be == null ? -1L : be.getId();
                     if (!allBes.contains(beId)) {
                         continue;
