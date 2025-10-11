@@ -55,13 +55,6 @@ namespace doris::vectorized {
 bool DataTypeDateV2::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
-std::string DataTypeDateV2::to_string(UInt32 int_val) const {
-    DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
-
-    char buf[64];
-    val.to_string(buf); // DateTime to_string the end is /0
-    return std::string {buf};
-}
 
 MutableColumnPtr DataTypeDateV2::create_column() const {
     return DataTypeNumberBase<PrimitiveType::TYPE_DATEV2>::create_column();
@@ -101,14 +94,7 @@ bool DataTypeDateTimeV2::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this) &&
            _scale == static_cast<const DataTypeDateTimeV2&>(rhs)._scale;
 }
-std::string DataTypeDateTimeV2::to_string(UInt64 int_val) const {
-    DateV2Value<DateTimeV2ValueType> val =
-            binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
 
-    char buf[64];
-    val.to_string(buf, _scale);
-    return buf; // DateTime to_string the end is /0
-}
 void DataTypeDateTimeV2::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
     col_meta->mutable_decimal_param()->set_scale(_scale);

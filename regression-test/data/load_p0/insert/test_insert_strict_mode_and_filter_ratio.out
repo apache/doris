@@ -78,3 +78,15 @@
 
 -- !sql_string_exceed_len_strict1 --
 
+-- !sql_mb_string_exceed_len_non_strict0 --
+
+-- !sql_mb_string_exceed_len_non_strict1 --
+1	a
+2	b
+3	c
+4	d
+5	e
+6	f
+
+-- !sql_mb_string_exceed_len_strict0 --
+

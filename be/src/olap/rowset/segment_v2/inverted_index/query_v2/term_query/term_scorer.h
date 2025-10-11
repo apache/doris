@@ -17,17 +17,26 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
+#include <optional>
+#include <roaring/roaring.hh>
+
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
 #include "olap/rowset/segment_v2/inverted_index/similarity/similarity.h"
+#include "olap/rowset/segment_v2/inverted_index_iterator.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 template <typename SegmentPostingsPtr>
 class TermScorer final : public Scorer {
 public:
-    TermScorer(SegmentPostingsPtr segment_postings, SimilarityPtr similarity)
-            : _segment_postings(std::move(segment_postings)), _similarity(std::move(similarity)) {}
+    TermScorer(SegmentPostingsPtr segment_postings, SimilarityPtr similarity,
+               std::string logical_field = {})
+            : _segment_postings(std::move(segment_postings)),
+              _similarity(std::move(similarity)),
+              _logical_field(std::move(logical_field)) {}
 
     uint32_t advance() override { return _segment_postings->advance(); }
     uint32_t seek(uint32_t target) override { return _segment_postings->seek(target); }
@@ -40,9 +49,58 @@ public:
         return _similarity->score(static_cast<float>(freq), norm);
     }
 
+    bool has_null_bitmap(const NullBitmapResolver* resolver = nullptr) override {
+        _ensure_null_bitmap(resolver);
+        return _null_bitmap.has_value() && !_null_bitmap->isEmpty();
+    }
+
+    const roaring::Roaring* get_null_bitmap(const NullBitmapResolver* resolver = nullptr) override {
+        _ensure_null_bitmap(resolver);
+        return _null_bitmap ? &(*_null_bitmap) : nullptr;
+    }
+
 private:
+    void _ensure_null_bitmap(const NullBitmapResolver* resolver) {
+        if (_null_bitmap_checked) {
+            return;
+        }
+
+        if (resolver == nullptr || _logical_field.empty()) {
+            LOG(WARNING) << "TermScorer: Null bitmap resolver or logical field is empty";
+            return;
+        }
+
+        _null_bitmap_checked = true;
+
+        auto iterator = resolver->iterator_for(*this, _logical_field);
+        if (iterator == nullptr) {
+            return;
+        }
+
+        auto has_null_result = iterator->has_null();
+        if (!has_null_result.has_value() || !has_null_result.value()) {
+            return;
+        }
+
+        segment_v2::InvertedIndexQueryCacheHandle cache_handle;
+        auto status = iterator->read_null_bitmap(&cache_handle);
+        if (!status.ok()) {
+            LOG(WARNING) << "TermScorer failed to read null bitmap for field '" << _logical_field
+                         << "': " << status.to_string();
+            return;
+        }
+
+        auto bitmap_ptr = cache_handle.get_bitmap();
+        if (bitmap_ptr != nullptr) {
+            _null_bitmap = *bitmap_ptr;
+        }
+    }
+
     SegmentPostingsPtr _segment_postings;
     SimilarityPtr _similarity;
+    std::string _logical_field = {};
+    bool _null_bitmap_checked = false;
+    std::optional<roaring::Roaring> _null_bitmap;
 };
 
 using TS_Base = std::shared_ptr<TermScorer<std::shared_ptr<SegmentPostings<TermDocsPtr>>>>;

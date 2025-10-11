@@ -616,6 +616,10 @@ public class Util {
         }
         final String upperCaseType = compressType.toUpperCase();
         try {
+            // for compatibility, convert lz4 to lz4frame
+            if (upperCaseType.equals("LZ4")) {
+                return TFileCompressType.LZ4FRAME;
+            }
             return TFileCompressType.valueOf(upperCaseType);
         } catch (IllegalArgumentException e) {
             throw new AnalysisException("Unknown compression type: " + compressType);
@@ -650,15 +654,18 @@ public class Util {
 
     public static String getRootCauseMessage(Throwable t) {
         String rootCause = "unknown";
+        if (t == null) {
+            return rootCause;
+        }
         Throwable p = t;
-        while (p != null) {
-            String message = p.getMessage();
-            if (message == null) {
-                rootCause = p.getClass().getName();
-            } else {
-                rootCause = p.getClass().getName() + ": " + p.getMessage();
-            }
+        while (p.getCause() != null) {
             p = p.getCause();
+        }
+        String message = p.getMessage();
+        if (message == null) {
+            rootCause = p.getClass().getName();
+        } else {
+            rootCause = p.getClass().getName() + ": " + message;
         }
         return rootCause;
     }
