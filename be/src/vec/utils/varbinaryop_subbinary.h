@@ -79,12 +79,11 @@ private:
             int start_value = start->get_data()[index_check_const<start_const>(i)];
             int len_value = len->get_data()[index_check_const<len_const>(i)];
 
-            bool start_out_of_range = start_value > binary_size;
+            bool start_out_of_range = (start_value > binary_size) || (start_value < -binary_size);
             bool len_non_positive = len_value <= 0;
-            bool start_too_negative = start_value < -binary_size;
             bool input_empty = binary_size == 0;
 
-            if (start_out_of_range || len_non_positive || start_too_negative || input_empty) {
+            if (start_out_of_range || len_non_positive || input_empty) {
                 res->insert_default();
                 continue;
             }

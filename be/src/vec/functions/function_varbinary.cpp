@@ -41,7 +41,7 @@
 #include "vec/utils/stringop_substring.h"
 
 namespace doris::vectorized {
-#include "common/compile_check_avoid_begin.h"
+#include "common/compile_check_begin.h"
 
 class FunctionToBinary : public IFunction {
 public:
@@ -164,9 +164,9 @@ struct VarbinaryLengthImpl {
 
     static Status vector(const PaddedPODArray<doris::StringView>& data,
                          PaddedPODArray<Int32>& res) {
-        int rows_count = data.size();
+        size_t rows_count = data.size();
         res.resize(rows_count);
-        for (int i = 0; i < rows_count; ++i) {
+        for (size_t i = 0; i < rows_count; ++i) {
             res[i] = data[i].size();
         }
         return Status::OK();
@@ -325,5 +325,5 @@ void register_function_binary(SimpleFunctionFactory& factory) {
     factory.register_alias("to_binary", "to_hex");
 }
 
-#include "common/compile_check_avoid_end.h"
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

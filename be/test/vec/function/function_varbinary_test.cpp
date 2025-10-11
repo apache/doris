@@ -107,7 +107,7 @@ TEST(function_binary_test, function_from_base64_binary_test) {
     check_function_all_arg_comb<DataTypeVarbinary, true>(func_name, input_types, data_set);
 }
 
-TEST(function_binary_test, function_binary_substr_test) {
+TEST(function_binary_test, function_subbinary_test) {
     std::string func_name = "sub_binary";
 
     {
