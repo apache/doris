@@ -120,9 +120,6 @@ public:
     std::map<std::string, TypeDescriptor> target_cast_type_for_variants;
     RowRanges row_ranges;
     size_t topn_limit = 0;
-    // Cache for sparse column data to avoid redundant reads
-    // col_unique_id -> cached column_ptr
-    std::unordered_map<int32_t, vectorized::ColumnPtr> sparse_column_cache;
 };
 
 struct CompactionSampleInfo {

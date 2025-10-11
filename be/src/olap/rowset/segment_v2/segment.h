@@ -38,6 +38,7 @@
 #include "olap/page_cache.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/page_handle.h"
+#include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
@@ -108,16 +109,11 @@ public:
 
     uint32_t num_rows() const { return _num_rows; }
 
+    // if variant_sparse_column_cache is nullptr, means the sparse column cache is not used
     Status new_column_iterator(const TabletColumn& tablet_column,
-                               std::unique_ptr<ColumnIterator>* iter,
-                               const StorageReadOptions* opt);
-
-    // Status new_column_iterator_with_path(const TabletColumn& tablet_column,
-    //                                      std::unique_ptr<ColumnIterator>* iter,
-    //                                      const StorageReadOptions* opt);
-
-    Status new_column_iterator(int32_t unique_id, const StorageReadOptions* opt,
-                               std::unique_ptr<ColumnIterator>* iter);
+                               std::unique_ptr<ColumnIterator>* iter, const StorageReadOptions* opt,
+                               const std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>*
+                                       variant_sparse_column_cache = nullptr);
 
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column,
                                      const StorageReadOptions& read_options,
