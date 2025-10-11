@@ -20,12 +20,15 @@ package org.apache.doris.analysis;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.info.TableNameInfo;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.doris.info.TableNameInfo;
 
 import java.util.Map;
 
+/**
+ * DropIndexClause
+ */
 public class DropIndexClause extends AlterTableClause {
     private final String indexName;
     private final TableNameInfo tableName;
@@ -84,6 +87,9 @@ public class DropIndexClause extends AlterTableClause {
         return toSql(alter);
     }
 
+    /**
+     * toSql
+     */
     public String toSql(boolean alter) {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("DROP INDEX ").append("`" + indexName + "`");
