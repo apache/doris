@@ -118,7 +118,7 @@ public class AwsKmsRootKeyProvider extends KmsRootKeyProvider {
             throw new RuntimeException("describeKey failed", kmsEx);
         } catch (Exception e) {
             LOG.error("Unexpected error in describeKey: {}", e.getMessage(), e);
-            throw new RuntimeException("describeKey failed", e);
+            throw new RuntimeException("describeKey failed: " + e.getMessage(), e);
         }
     }
 

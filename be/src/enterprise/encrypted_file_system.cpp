@@ -114,7 +114,7 @@ Status EncryptedFileSystem::open_file_impl(const Path& file, FileReaderSPtr* rea
 
     size_t bytes_read;
     std::vector<uint8_t> footer_buf;
-    footer_buf.reserve(ENCRYPT_FOOTER_LENGTH);
+    footer_buf.resize(ENCRYPT_FOOTER_LENGTH);
     Slice footer(footer_buf.data(), ENCRYPT_FOOTER_LENGTH);
 
     IOContext dummy_io_ctx;
