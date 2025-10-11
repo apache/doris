@@ -257,6 +257,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     case PGenericType::DATETIME:
         nested = std::make_shared<DataTypeDateTime>();
         break;
+    case PGenericType::TIMESTAMPTZ:
+        nested = std::make_shared<DataTypeTimeStampTz>();
+        break;
     case PGenericType::DECIMAL32:
         nested = std::make_shared<DataTypeDecimal32>(pcolumn.decimal_param().precision(),
                                                      pcolumn.decimal_param().scale());
