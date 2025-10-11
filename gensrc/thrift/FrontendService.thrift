@@ -201,11 +201,18 @@ struct TQueryStatistics {
     11: optional i64 scan_bytes_from_remote_storage
     12: optional i64 spill_write_bytes_to_local_storage
     13: optional i64 spill_read_bytes_from_local_storage
+    14: optional i64 bytes_write_into_cache
+}
+
+struct TQueryStatisticsResult {
+    1: optional bool query_finished
+    2: optional TQueryStatistics statistics
 }
 
 struct TReportWorkloadRuntimeStatusParams {
     1: optional i64 backend_id
-    2: optional map<string, TQueryStatistics> query_statistics_map
+    2: optional map<string, TQueryStatistics> query_statistics_map // deprecated
+    3: optional map<string, TQueryStatisticsResult> query_statistics_result_map
 }
 
 struct TQueryProfile {

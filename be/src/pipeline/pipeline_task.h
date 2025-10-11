@@ -120,14 +120,17 @@ public:
         return _op_shared_states[id].get();
     }
 
-    Status wake_up(Dependency* dep);
+    Status wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */);
 
     DataSinkOperatorPtr sink() const { return _sink; }
 
     int task_id() const { return _index; };
     bool is_finalized() const { return _exec_state == State::FINALIZED; }
 
-    void set_wake_up_early() { _wake_up_early = true; }
+    void set_wake_up_early(PipelineId wake_by = -1) {
+        _wake_up_early = true;
+        _wake_by = wake_by;
+    }
 
     // Execution phase should be terminated. This is called if this task is canceled or waken up early.
     void terminate();
@@ -166,7 +169,7 @@ public:
     [[nodiscard]] size_t get_revocable_size() const;
     [[nodiscard]] Status revoke_memory(const std::shared_ptr<SpillContext>& spill_context);
 
-    Status blocked(Dependency* dependency) {
+    Status blocked(Dependency* dependency, std::unique_lock<std::mutex>& /* dep_lock */) {
         DCHECK_EQ(_blocked_dep, nullptr) << "task: " << debug_string();
         _blocked_dep = dependency;
         return _state_transition(PipelineTask::State::BLOCKED);
@@ -309,6 +312,7 @@ private:
     MonotonicStopWatch _state_change_watcher;
     std::atomic<bool> _spilling = false;
     const std::string _pipeline_name;
+    int _wake_by = -1;
 };
 
 using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;

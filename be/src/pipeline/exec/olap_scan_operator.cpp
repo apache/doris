@@ -642,6 +642,7 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
             return Status::OK();
         }
         COUNTER_UPDATE(_sync_rowset_timer, _sync_cloud_tablets_watcher.elapsed_time());
+        RETURN_IF_ERROR(_cloud_tablet_future.get());
         auto total_rowsets = std::accumulate(
                 _tablets.cbegin(), _tablets.cend(), 0LL,
                 [](long long acc, const auto& tabletWithVersion) {

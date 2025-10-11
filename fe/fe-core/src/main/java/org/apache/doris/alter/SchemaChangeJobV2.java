@@ -485,7 +485,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         }
 
         tbl.readLock();
-        Map<Object, Object> objectPool = new ConcurrentHashMap<Object, Object>();
         String vaultId = tbl.getStorageVaultId();
         try {
             long expiration = (createTimeMs + timeoutMs) / 1000;
@@ -497,6 +496,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
             }
 
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
+            // Create object pool per MaterializedIndex
+            Map<Long, Map<Object, Object>> indexObjectPoolMap = Maps.newHashMap();
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
                 Preconditions.checkNotNull(partition, partitionId);
@@ -509,6 +510,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                 for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
                     long shadowIdxId = entry.getKey();
                     MaterializedIndex shadowIdx = entry.getValue();
+
+                    // Get or create object pool for this MaterializedIndex
+                    Map<Object, Object> objectPool = indexObjectPoolMap.get(shadowIdxId);
+                    if (objectPool == null) {
+                        objectPool = new ConcurrentHashMap<Object, Object>();
+                        indexObjectPoolMap.put(shadowIdxId, objectPool);
+                    }
                     long originIdxId = indexIdMap.get(shadowIdxId);
                     Map<String, Expr> defineExprs = Maps.newHashMap();
                     List<Column> fullSchema = tbl.getSchemaByIndexId(originIdxId, true);

@@ -70,7 +70,14 @@ ready_probe_with_tls()
     webserver_port=${webserver_port:=$DEFAULT_WEBSERVER_PORT}
     local fqdn=`hostname -f`
     local url="https://${fqdn}:${webserver_port}/api/health"
-    local res=$(curl --tlsv1.2 --cert $TLS_CERTIFICATE_PATH --cacert $TLS_CA_CERTIFICATE_PATH --key $TLS_PRIVATE_KEY_PATH -s $url)
+    local response=$(curl --tlsv1.2 --cert $TLS_CERTIFICATE_PATH --cacert $TLS_CA_CERTIFICATE_PATH --key $TLS_PRIVATE_KEY_PATH -s -w "\n%{http_code}" $url)
+    local http_code=$(echo "$response" | tail -n1)
+
+    if [[ "$http_code" != "200" ]]; then
+        exit 1
+    fi
+
+    local res=$(echo "$response" | sed '$d')
     local status=$(jq -r ".status" <<< $res)
     if [[ "x$status" == "xOK" ]]; then
         exit 0
@@ -85,7 +92,15 @@ ready_probe_with_no_tls()
     webserver_port=${webserver_port:=$DEFAULT_WEBSERVER_PORT}
     local ip=`hostname -i | awk '{print $1}'`
     local url="http://${ip}:${webserver_port}/api/health"
-    local res=$(curl -s $url)
+
+    local response=$(curl -s -w "\n%{http_code}" $url)
+    local http_code=$(echo "$response" | tail -n1)
+
+    if [[ "$http_code" != "200" ]]; then
+        exit 1
+    fi
+
+    local res=$(echo "$response" | sed '$d')
     local status=$(jq -r ".status" <<< $res)
     if [[ "x$status" == "xOK" ]]; then
         exit 0

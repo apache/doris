@@ -26,9 +26,9 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -41,7 +41,7 @@ import java.util.Objects;
  * syntax:
  * DROP CACHED STATS TableName;
  */
-public class DropCachedStatsCommand extends DropCommand {
+public class DropCachedStatsCommand extends Command implements NoForward {
     private final TableNameInfo tableNameInfo;
     private long catalogId;
     private long dbId;
@@ -54,7 +54,7 @@ public class DropCachedStatsCommand extends DropCommand {
     }
 
     @Override
-    public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         ctx.getEnv().getAnalysisManager().dropCachedStats(catalogId, dbId, tblId);
     }

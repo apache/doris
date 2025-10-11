@@ -53,7 +53,7 @@ suite('test_lru_persist', 'docker') {
     options.feConfigs += ['example_conf_k1=v1', 'example_conf_k2=v2']
     options.beConfigs += ['enable_file_cache=true', 'enable_java_support=false', 'file_cache_enter_disk_resource_limit_mode_percent=99',
                           'file_cache_background_lru_dump_interval_ms=2000', 'file_cache_background_lru_log_replay_interval_ms=500',
-                          'disable_auto_compation=true', 'file_cache_enter_need_evict_cache_in_advance_percent=99',
+                          'disable_auto_compaction=true', 'file_cache_enter_need_evict_cache_in_advance_percent=99',
                           'file_cache_background_lru_dump_update_cnt_threshold=0'
                         ]
 
@@ -62,6 +62,9 @@ suite('test_lru_persist', 'docker') {
         cluster.checkFeIsAlive(1, true)
         cluster.checkBeIsAlive(1, true)
         sql '''set global enable_auto_analyze=false'''
+        sql '''set global enable_audit_plugin=false''' // not working currently, so use below two to work around
+        sql '''set global audit_plugin_max_batch_bytes=5000000000'''
+        sql '''set global audit_plugin_max_batch_interval_sec=10000000'''
 
         sql '''create table tb1 (k int) DISTRIBUTED BY HASH(k) BUCKETS 10 properties ("replication_num"="1")'''
         sql '''insert into tb1 values (1),(2),(3)'''
@@ -88,6 +91,7 @@ suite('test_lru_persist', 'docker') {
         def normalAfter = "md5sum ${cachePath}/lru_dump_normal.tail".execute().text.trim().split()[0]
         logger.info("normalAfter: ${normalAfter}")
 
+        sql '''show data'''
         assert normalBefore == normalAfter
 
         // remove dump file

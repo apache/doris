@@ -60,6 +60,7 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vmap_literal.h"
 #include "vec/exprs/vmatch_predicate.h"
+#include "vec/exprs/vsearch.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
 #include "vec/utils/util.hpp"
@@ -514,6 +515,10 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             expr = VInfoFunc::create_shared(expr_node);
             break;
         }
+        case TExprNodeType::SEARCH_EXPR: {
+            expr = VSearchExpr::create_shared(expr_node);
+            break;
+        }
         default:
             return Status::InternalError("Unknown expr node type: {}", expr_node.node_type);
         }
@@ -903,6 +908,8 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
             auto* column_literal = assert_cast<VLiteral*>(child.get());
             arguments.emplace_back(column_literal->get_column_ptr(),
                                    column_literal->get_data_type(), column_literal->expr_name());
+        } else if (child->can_push_down_to_index()) {
+            RETURN_IF_ERROR(child->evaluate_inverted_index(context, segment_num_rows));
         } else {
             return Status::OK(); // others cases
         }

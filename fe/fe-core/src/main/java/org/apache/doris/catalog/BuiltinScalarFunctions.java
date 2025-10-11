@@ -399,6 +399,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Rpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Rtrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecToTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
@@ -882,6 +883,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(QuartersDiff.class, "quarters_diff"),
             scalar(QuarterFloor.class, "quarter_floor"),
             scalar(QuartersSub.class, "quarters_sub"),
+            scalar(Search.class, "search"),
             scalar(Radians.class, "radians"),
             scalar(Random.class, "rand", "random"),
             scalar(Regexp.class, "regexp"),

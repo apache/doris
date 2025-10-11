@@ -221,26 +221,25 @@ void CloudWarmUpManager::handle_jobs() {
             auto tablet_meta = tablet->tablet_meta();
             auto rs_metas = snapshot_rs_metas(tablet.get());
             for (auto& [_, rs] : rs_metas) {
+                auto storage_resource = rs->remote_storage_resource();
+                if (!storage_resource) {
+                    LOG(WARNING) << storage_resource.error();
+                    continue;
+                }
+
+                int64_t expiration_time =
+                        tablet_meta->ttl_seconds() == 0 || rs->newest_write_timestamp() <= 0
+                                ? 0
+                                : rs->newest_write_timestamp() + tablet_meta->ttl_seconds();
+                if (expiration_time <= UnixSeconds()) {
+                    expiration_time = 0;
+                }
+                if (!tablet->add_rowset_warmup_state(*rs, WarmUpState::TRIGGERED_BY_JOB)) {
+                    LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
+                              << ", skip it";
+                    continue;
+                }
                 for (int64_t seg_id = 0; seg_id < rs->num_segments(); seg_id++) {
-                    auto storage_resource = rs->remote_storage_resource();
-                    if (!storage_resource) {
-                        LOG(WARNING) << storage_resource.error();
-                        continue;
-                    }
-
-                    int64_t expiration_time =
-                            tablet_meta->ttl_seconds() == 0 || rs->newest_write_timestamp() <= 0
-                                    ? 0
-                                    : rs->newest_write_timestamp() + tablet_meta->ttl_seconds();
-                    if (expiration_time <= UnixSeconds()) {
-                        expiration_time = 0;
-                    }
-                    if (!tablet->add_rowset_warmup_state(*rs, WarmUpState::TRIGGERED_BY_JOB)) {
-                        LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
-                                  << ", skip it";
-                        continue;
-                    }
-
                     // 1st. download segment files
                     submit_download_tasks(
                             storage_resource.value()->remote_segment_path(*rs, seg_id),

@@ -215,7 +215,8 @@ public class CloudReplica extends Replica {
         ConnectContext context = ConnectContext.get();
         if (context != null) {
             // TODO(wb) rethinking whether should update err status.
-            cluster = context.getCloudCluster();
+            cluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getPhysicalCluster(context.getCloudCluster());
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get compute group by context {}", cluster);

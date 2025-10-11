@@ -335,7 +335,7 @@ public class IcebergRestPropertiesTest {
         // Test that non-glue signing names don't require additional properties
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
-        props.put("iceberg.rest.signing-name", "custom-service");
+        props.put("iceberg.rest.signing", "custom-service");
 
         IcebergRestProperties restProps = new IcebergRestProperties(props);
         restProps.initNormalizeAndCheckProps(); // Should not throw
@@ -347,6 +347,16 @@ public class IcebergRestPropertiesTest {
         Assertions.assertFalse(catalogProps.containsKey("rest.access-key-id"));
         Assertions.assertFalse(catalogProps.containsKey("rest.secret-access-key"));
         Assertions.assertFalse(catalogProps.containsKey("rest.sigv4-enabled"));
+        props.put("iceberg.rest.signing-name", "custom-service");
+        restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps(); // Should not throw
+        catalogProps = restProps.getIcebergRestCatalogProperties();
+        // Should not contain glue-specific properties
+        Assertions.assertTrue(catalogProps.containsKey("rest.signing-name"));
+        Assertions.assertTrue(catalogProps.containsKey("rest.signing-region"));
+        Assertions.assertTrue(catalogProps.containsKey("rest.access-key-id"));
+        Assertions.assertTrue(catalogProps.containsKey("rest.secret-access-key"));
+        Assertions.assertTrue(catalogProps.containsKey("rest.sigv4-enabled"));
     }
 
     @Test

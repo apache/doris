@@ -46,6 +46,7 @@
 #include "pipeline/exec/analytic_sink_operator.h"
 #include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
+#include "pipeline/exec/blackhole_sink_operator.h"
 #include "pipeline/exec/cache_sink_operator.h"
 #include "pipeline/exec/cache_source_operator.h"
 #include "pipeline/exec/datagen_operator.h"
@@ -104,6 +105,8 @@
 #include "pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/result_block_buffer.h"
+#include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/thread_context.h"
@@ -1040,10 +1043,8 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
     }
     case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
         DCHECK(thrift_sink.__isset.olap_table_sink);
-#ifndef NDEBUG
         DCHECK(state->get_query_ctx() != nullptr);
         state->get_query_ctx()->query_mem_tracker()->is_group_commit_load = true;
-#endif
         _sink = std::make_shared<GroupCommitBlockSinkOperatorX>(next_sink_operator_id(), row_desc,
                                                                 output_exprs);
         break;
@@ -1163,6 +1164,14 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         }
         break;
     }
+    case TDataSinkType::BLACKHOLE_SINK: {
+        if (!thrift_sink.__isset.blackhole_sink) {
+            return Status::InternalError("Missing blackhole sink.");
+        }
+
+        _sink.reset(new BlackholeSinkOperatorX(next_sink_operator_id()));
+        break;
+    }
     default:
         return Status::InternalError("Unsuported sink type in pipeline: {}", thrift_sink.type);
     }
@@ -1193,10 +1202,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::GROUP_COMMIT_SCAN_NODE: {
-#ifndef NDEBUG
         DCHECK(_query_ctx != nullptr);
         _query_ctx->query_mem_tracker()->is_group_commit_load = true;
-#endif
         op = std::make_shared<GroupCommitOperatorX>(pool, tnode, next_operator_id(), descs,
                                                     _num_instances);
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
@@ -1786,7 +1793,7 @@ void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
     if (_pip_id_to_pipeline[pipeline_id]->close_task()) {
         if (_dag.contains(pipeline_id)) {
             for (auto dep : _dag[pipeline_id]) {
-                _pip_id_to_pipeline[dep]->make_all_runnable();
+                _pip_id_to_pipeline[dep]->make_all_runnable(pipeline_id);
             }
         }
     }
