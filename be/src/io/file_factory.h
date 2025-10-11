@@ -114,7 +114,7 @@ public:
         case TStorageBackendType::S3:
             return TFileType::FILE_S3;
         case TStorageBackendType::AZURE:
-            return TFileType::FILE_S3;        
+            return TFileType::FILE_S3; 
         case TStorageBackendType::BROKER:
             return TFileType::FILE_BROKER;
         case TStorageBackendType::HDFS:
