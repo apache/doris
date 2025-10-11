@@ -360,11 +360,6 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<Plan> children = recursiveCte.children().stream()
                 .map(c -> c.accept(this, context))
                 .collect(ImmutableList.toImmutableList());
-        List<List<NamedExpression>> constantExprsList = recursiveCte.getConstantExprsList().stream()
-                .map(l -> l.stream()
-                        .map(e -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(e, context))
-                        .collect(ImmutableList.toImmutableList()))
-                .collect(ImmutableList.toImmutableList());
         List<NamedExpression> outputs = recursiveCte.getOutputs().stream()
                 .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
@@ -373,8 +368,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                         .map(o -> (SlotReference) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                         .collect(ImmutableList.toImmutableList()))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalRecursiveCte(recursiveCte.getQualifier(), outputs, childrenOutputs,
-                constantExprsList, recursiveCte.hasPushedFilter(), children);
+        return new LogicalRecursiveCte(recursiveCte.isUnionAll(), outputs, childrenOutputs, children);
     }
 
     @Override

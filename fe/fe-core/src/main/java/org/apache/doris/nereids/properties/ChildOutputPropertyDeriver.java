@@ -151,7 +151,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalRecursiveCteScan(PhysicalRecursiveCteScan cteScan, PlanContext context) {
-        return PhysicalProperties.GATHER;
+        return PhysicalProperties.MUST_SHUFFLE;
     }
 
     /**
