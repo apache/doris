@@ -94,6 +94,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMonthsBetween>();
     factory.register_function<FunctionTime>();
     factory.register_function<FunctionGetFormat>();
+    factory.register_function<FunctionPeriodUnion<PeriodAddImpl>>();
+    factory.register_function<FunctionPeriodUnion<PeriodDiffImpl>>();
 
     // alias
     factory.register_alias("days_add", "date_add");

@@ -1378,5 +1378,236 @@ private:
     static constexpr auto TIME_NAME = "TIME";
 };
 
+
+class PeriodHelper {
+protected:
+    // For two digit year, 70-99 -> 1970-1999, 00-69 -> 2000-2069
+    // this rule is same as MySQL
+    static constexpr int YY_PART_YEAR = 70;
+    static Status valid_period(int64_t period) {
+        if (period <= 0 || (period % 100) == 0 || (period % 100) > 12) {
+            return Status::InvalidArgument("Period function got invalid period: {}", period);
+        }
+        return Status::OK();
+    }
+
+    static int64_t check_and_convert_period_to_month(uint64_t period) {
+        THROW_IF_ERROR(valid_period(period));
+        uint64_t year = period / 100;
+        if (year < 100) {
+            year += (year >= YY_PART_YEAR) ? 1900 : 2000;
+        }
+        return year * 12LL + (period % 100) - 1;
+    }
+
+    static int64_t convert_month_to_period(uint64_t month) {
+        uint64_t year = month / 12;
+        if (year < 100) {
+            year += (year >= YY_PART_YEAR) ? 1900 : 2000;
+        }
+        return year * 100 + month % 12 + 1;
+    }
+};
+
+template <typename Impl>
+class FunctionPeriodUnion : public IFunction {
+public:
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionPeriodUnion>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    bool use_default_implementation_for_nulls() const override { return false; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto res_col = ColumnInt64::create();
+        auto null_map = ColumnUInt8::create();
+        res_col->reserve(input_rows_count);
+        auto& null_map_data = null_map->get_data();
+        null_map_data.resize_fill(input_rows_count, 0);
+
+        const auto& [left_col, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_col, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        std::visit(
+                [&](auto left_const, auto left_nullable, auto right_const, auto right_nullable) {
+                    vector_execute<left_const, left_nullable, right_const, right_nullable>(
+                            left_col, right_col, res_col, null_map, input_rows_count, block,
+                            result);
+                },
+                vectorized::make_bool_variant(left_const),
+                vectorized::make_bool_variant(is_column_nullable(*left_col)),
+                vectorized::make_bool_variant(right_const),
+                vectorized::make_bool_variant(is_column_nullable(*right_col)));
+        return Status::OK();
+    }
+
+private:
+    template <bool left_const, bool left_nullable, bool right_const, bool right_nullable>
+    void vector_execute(const ColumnPtr& left_col, const ColumnPtr& right_col,
+                        ColumnInt64::MutablePtr& res_col, ColumnUInt8::MutablePtr& null_map,
+                        size_t input_rows_count, Block& block, uint32_t result) const {
+        if constexpr (left_const) {
+            if (left_col->is_null_at(0)) {
+                res_col->insert_many_defaults(input_rows_count);
+                null_map->get_data().assign(input_rows_count, (UInt8)1);
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(res_col), std::move(null_map)));
+                return;
+            }
+
+            int64_t left_val = assert_cast<const ColumnInt64&>(*left_col).get_element(0);
+            auto& null_map_data = null_map->get_data();
+            if constexpr (right_nullable) {
+                const auto* right_nullable_col =
+                        check_and_get_column<ColumnNullable>(right_col.get());
+                const auto& right_data =
+                        assert_cast<const ColumnInt64&>(right_nullable_col->get_nested_column())
+                                .get_data();
+                const auto& right_null_map = right_nullable_col->get_null_map_data();
+                for (int i = 0; i < input_rows_count; ++i) {
+                    if (right_null_map[i]) {
+                        res_col->insert_default();
+                        null_map_data[i] = 1;
+                    } else {
+                        Impl::execute(left_val, right_data[i], *res_col);
+                    }
+                }
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(res_col), std::move(null_map)));
+            } else {
+                const auto& right_data = assert_cast<const ColumnInt64&>(*right_col).get_data();
+                for (int i = 0; i < input_rows_count; ++i) {
+                    Impl::execute(left_val, right_data[i], *res_col);
+                }
+                block.replace_by_position(result, std::move(res_col));
+            }
+        } else if constexpr (left_nullable) {
+            const auto* nullable_left_col = check_and_get_column<ColumnNullable>(left_col.get());
+            const auto& left_data =
+                    assert_cast<const ColumnInt64&>(nullable_left_col->get_nested_column())
+                            .get_data();
+            const auto& left_null_map = nullable_left_col->get_null_map_data();
+            auto& null_map_data = null_map->get_data();
+
+            if constexpr (right_const) {
+                if (right_col->is_null_at(0)) {
+                    res_col->insert_many_defaults(input_rows_count);
+                    null_map->get_data().assign(input_rows_count, (UInt8)1);
+                    block.replace_by_position(result, ColumnNullable::create(std::move(res_col),
+                                                                             std::move(null_map)));
+                    return;
+                }
+
+                int64_t right_val = assert_cast<const ColumnInt64&>(*right_col).get_element(0);
+                for (int i = 0; i < input_rows_count; ++i) {
+                    if (left_null_map[i]) {
+                        res_col->insert_default();
+                        null_map_data[i] = 1;
+                    } else {
+                        Impl::execute(left_data[i], right_val, *res_col);
+                    }
+                }
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(res_col), std::move(null_map)));
+            } else if constexpr (right_nullable) {
+                const auto* right_nullable_col =
+                        check_and_get_column<ColumnNullable>(right_col.get());
+                const auto& right_data =
+                        assert_cast<const ColumnInt64&>(right_nullable_col->get_nested_column())
+                                .get_data();
+                const auto& right_null_map = right_nullable_col->get_null_map_data();
+                for (int i = 0; i < input_rows_count; ++i) {
+                    if (left_null_map[i] || right_null_map[i]) {
+                        res_col->insert_default();
+                        null_map_data[i] = 1;
+                    } else {
+                        Impl::execute(left_data[i], right_data[i], *res_col);
+                    }
+                }
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(res_col), std::move(null_map)));
+            } else {
+                const auto& right_data = assert_cast<const ColumnInt64&>(*right_col).get_data();
+                for (int i = 0; i < input_rows_count; ++i) {
+                    if (left_null_map[i]) {
+                        res_col->insert_default();
+                        null_map_data[i] = 1;
+                    } else {
+                        Impl::execute(left_data[i], right_data[i], *res_col);
+                    }
+                }
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(res_col), std::move(null_map)));
+            }
+        } else {
+            const auto& left_data = assert_cast<const ColumnInt64&>(*left_col).get_data();
+            auto& null_map_data = null_map->get_data();
+
+            if constexpr (right_const) {
+                if (right_col->is_null_at(0)) {
+                    res_col->insert_many_defaults(input_rows_count);
+                    null_map->get_data().assign(input_rows_count, (UInt8)1);
+                    block.replace_by_position(result, ColumnNullable::create(std::move(res_col),
+                                                                             std::move(null_map)));
+                    return;
+                }
+
+                int64_t right_val = assert_cast<const ColumnInt64&>(*right_col).get_element(0);
+                for (int i = 0; i < input_rows_count; ++i) {
+                    Impl::execute(left_data[i], right_val, *res_col);
+                }
+                block.replace_by_position(result, std::move(res_col));
+            } else if constexpr (right_nullable) {
+                const auto* right_nullable_col =
+                        check_and_get_column<ColumnNullable>(right_col.get());
+                const auto& right_data =
+                        assert_cast<const ColumnInt64&>(right_nullable_col->get_nested_column())
+                                .get_data();
+                const auto& right_null_map = right_nullable_col->get_null_map_data();
+                for (int i = 0; i < input_rows_count; ++i) {
+                    if (right_null_map[i]) {
+                        res_col->insert_default();
+                        null_map_data[i] = 1;
+                    } else {
+                        Impl::execute(left_data[i], right_data[i], *res_col);
+                    }
+                }
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(res_col), std::move(null_map)));
+            } else {
+                const auto& right_data = assert_cast<const ColumnInt64&>(*right_col).get_data();
+                for (int i = 0; i < input_rows_count; ++i) {
+                    Impl::execute(left_data[i], right_data[i], *res_col);
+                }
+                block.replace_by_position(result, std::move(res_col));
+            }
+        }
+    }
+};
+
+class PeriodAddImpl : public PeriodHelper {
+public:
+    static constexpr auto name = "period_add";
+    static void execute(int64_t period, int64_t months, ColumnInt64& res_col) {
+        res_col.insert_value(
+                convert_month_to_period(check_and_convert_period_to_month(period) + months));
+    }
+};
+
+class PeriodDiffImpl : public PeriodHelper {
+public:
+    static constexpr auto name = "period_diff";
+    static void execute(int64_t period1, int64_t period2, ColumnInt64& res_col) {
+        res_col.insert_value(check_and_convert_period_to_month(period1) -
+                             check_and_convert_period_to_month(period2));
+    }
+};
+
 #include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized
