@@ -64,6 +64,7 @@
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_timestamptz.h"
 #include "vec/data_types/data_type_varbinary.h"
 #include "vec/data_types/data_type_variant.h"
 
@@ -433,6 +434,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         break;
     case TYPE_TIMEV2:
         nested = std::make_shared<vectorized::DataTypeTimeV2>(scale);
+        break;
+    case TYPE_TIMESTAMPTZ:
+        nested = std::make_shared<vectorized::DataTypeTimeStampTz>();
         break;
     case TYPE_DOUBLE:
         nested = std::make_shared<vectorized::DataTypeFloat64>();

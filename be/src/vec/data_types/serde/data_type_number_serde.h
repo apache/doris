@@ -49,7 +49,7 @@ class Arena;
 template <PrimitiveType T>
 class DataTypeNumberSerDe : public DataTypeSerDe {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
-                  T == TYPE_TIME || T == TYPE_TIMEV2);
+                  T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ);
 
 public:
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
