@@ -537,6 +537,25 @@ February
 
 -- !sql --
 767891
+123456
+1
+999999
+
+-- !sql --
+767891	1999-01-02T10:11:12.767891
+999999	2024-12-31T23:59:59.999999
+
+-- !sql --
+1	2024-01-01T00:00:00.000001
+
+-- !sql_second_simple --
+56
+
+-- !sql_second_datetime_with_micro --
+56
+
+-- !sql_microsecond_datetime_with_micro --
+789123
 
 -- !sql --
 1	2022-08-01
