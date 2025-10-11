@@ -38,7 +38,7 @@ import java.util.Objects;
 /**
  * alter job command.
  */
-public class AlterJobCommand extends AlterCommand implements ForwardWithSync {
+public class AlterJobCommand extends AlterCommand implements ForwardWithSync, NeedAuditEncryption {
     // exclude job name prefix, which is used by inner job
     private static final String excludeJobNamePrefix = "inner_";
     private final String jobName;
@@ -79,7 +79,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync {
             StreamingInsertJob updateJob = (StreamingInsertJob) job;
             // update sql
             if (StringUtils.isNotEmpty(sql)) {
-                updateJob.setExecuteSql(sql);
+                updateJob.updateExecuteSql(sql);
             }
             // update properties
             if (!properties.isEmpty()) {
@@ -133,4 +133,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync {
         return false;
     }
 
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
+    }
 }
