@@ -123,8 +123,7 @@ Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& seg
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
-                                 vectorized::Block* block, size_t row_offset,
-                                 size_t row_num) {
+                                 vectorized::Block* block, size_t row_offset, size_t row_num) {
     RETURN_IF_ERROR(segment_writer->batch_block(block, row_offset, row_num));
     RETURN_IF_ERROR(segment_writer->write_batch());
     _num_rows_written += row_num;
