@@ -297,6 +297,10 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         checkJobParamsInternal();
     }
 
+    /**
+     * STOPPED status should not change to any status,
+     * any status can change to STOPPED.
+     */
     public void updateJobStatus(JobStatus newJobStatus) throws JobException {
         if (null == newJobStatus) {
             throw new IllegalArgumentException("jobStatus cannot be null");
@@ -306,11 +310,14 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         }
         String errorMsg = String.format("Can't update job %s status to the %s status",
                 jobStatus.name(), newJobStatus.name());
+        if (newJobStatus.equals(JobStatus.PENDING) && jobStatus.equals(JobStatus.STOPPED)) {
+            throw new IllegalArgumentException(errorMsg);
+        }
         if (newJobStatus.equals(JobStatus.RUNNING)
                 && (!jobStatus.equals(JobStatus.PAUSED) && !jobStatus.equals(JobStatus.PENDING))) {
             throw new IllegalArgumentException(errorMsg);
         }
-        if (newJobStatus.equals(JobStatus.STOPPED) && !jobStatus.equals(JobStatus.RUNNING)) {
+        if (newJobStatus.equals(JobStatus.PAUSED) && jobStatus.equals(JobStatus.STOPPED)) {
             throw new IllegalArgumentException(errorMsg);
         }
         if (newJobStatus.equals(JobStatus.FINISHED)) {
