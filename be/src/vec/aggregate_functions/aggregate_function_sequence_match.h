@@ -128,6 +128,7 @@ public:
         conditions_met |= other.conditions_met;
     }
 
+    // todo: rethink the sort method.
     void sort() {
         if (sorted) return;
 
@@ -676,6 +677,7 @@ public:
             output.push_back(false);
             return;
         }
+        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         this->data(const_cast<AggregateDataPtr>(place)).sort();
 
         const auto& data_ref = this->data(place);
@@ -722,6 +724,7 @@ public:
             output.push_back(0);
             return;
         }
+        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         this->data(const_cast<AggregateDataPtr>(place)).sort();
         output.push_back(count(place));
     }

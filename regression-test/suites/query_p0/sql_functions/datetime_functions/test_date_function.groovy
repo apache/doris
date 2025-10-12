@@ -226,6 +226,22 @@ suite("test_date_function") {
     // TIME CURTIME()
     def curtime_result = sql """ SELECT CURTIME() """
     assertTrue(curtime_result[0].size() == 1)
+    def curtime_with_arg = sql """ SELECT CAST(CURTIME(3) AS STRING) """
+    assertTrue(curtime_with_arg[0].size() == 1)
+    assertTrue(curtime_with_arg[0][0].contains('.'))
+
+    curtime_with_arg = sql """ SELECT CAST(CURTIME(0) AS STRING) """
+    assertTrue(curtime_with_arg[0].size() == 1)
+    assertFalse(curtime_with_arg[0][0].contains('.'))
+
+    test {
+        sql """ SELECT CURTIME(114514);"""
+        exception "Can not find the compatibility function signature: current_time(INT)"
+    }
+    test {
+        sql """ SELECT CURTIME(7); """
+        exception "The precision must be between 0 and 6"
+    }
 
     sql """ insert into ${tableName} values ("2010-11-30 23:59:59") """
     // DATE_ADD
