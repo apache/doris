@@ -312,7 +312,8 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             if (0 != jobId) {
                 etlJobType = EtlJobType.INSERT_JOB;
             }
-            if (!Config.enable_nereids_load) {
+            // Do not register job if job id is -1.
+            if (!Config.enable_nereids_load && jobId != -1) {
                 // just record for loadv2 here
                 ctx.getEnv().getLoadManager()
                         .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
