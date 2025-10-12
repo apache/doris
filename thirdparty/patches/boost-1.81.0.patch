@@ -1,0 +1,55 @@
+diff --git a/boost/process/detail/posix/handles.hpp b/boost/process/detail/posix/handles.hpp
+--- a/boost/process/detail/posix/handles.hpp	(revision 7f5047ffe14705b36c5efadc6aa52cb800a0c0e2)
++++ b/boost/process/detail/posix/handles.hpp	(revision 5b7b1df26f50556680bc4daaaa1e4e1d1a06887d)
+@@ -33,7 +33,7 @@
+     else
+         ec.clear();
+ 
+-    auto my_fd = ::dirfd(dir.get());
++    auto my_fd = dirfd(dir.get());
+ 
+     struct ::dirent * ent_p;
+ 
+@@ -117,7 +117,7 @@
+             return;
+         }
+ 
+-        auto my_fd = ::dirfd(dir);
++        auto my_fd = dirfd(dir);
+         struct ::dirent * ent_p;
+ 
+         while ((ent_p = readdir(dir)) != nullptr)
+Index: src/boost_1_81_0/boost/process/detail/posix/wait_for_exit.hpp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/boost/process/detail/posix/wait_for_exit.hpp b/boost/process/detail/posix/wait_for_exit.hpp
+--- a/boost/process/detail/posix/wait_for_exit.hpp	(revision 7f5047ffe14705b36c5efadc6aa52cb800a0c0e2)
++++ b/boost/process/detail/posix/wait_for_exit.hpp	(revision 5b7b1df26f50556680bc4daaaa1e4e1d1a06887d)
+@@ -109,7 +109,7 @@
+     do
+     {
+         auto ts = get_timespec(time_out - Clock::now());
+-        auto ret_sig = ::sigtimedwait(&sigset, nullptr, &ts);
++        auto ret_sig = sigtimedwait(&sigset, nullptr, &ts);
+         errno = 0;
+         ret = ::waitpid(p.pid, &status, WNOHANG);
+ 
+Index: src/boost_1_81_0/boost/process/v2/posix/detail/close_handles.ipp
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/boost/process/v2/posix/detail/close_handles.ipp b/boost/process/v2/posix/detail/close_handles.ipp
+--- a/boost/process/v2/posix/detail/close_handles.ipp	(revision 7f5047ffe14705b36c5efadc6aa52cb800a0c0e2)
++++ b/boost/process/v2/posix/detail/close_handles.ipp	(revision 5b7b1df26f50556680bc4daaaa1e4e1d1a06887d)
+@@ -157,7 +157,7 @@
+         return ;
+     }
+ 
+-    auto dir_fd = ::dirfd(dir.get());
++    auto dir_fd = dirfd(dir.get());
+     if (dir_fd == -1)
+     {
+         ec = BOOST_PROCESS_V2_NAMESPACE::detail::get_last_error();

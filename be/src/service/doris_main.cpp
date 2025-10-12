@@ -305,6 +305,7 @@ struct Checker {
         ;
 
 int main(int argc, char** argv) {
+    doris::pyudf::python_udf_server_manager.clean_at_beginning();
     doris::signal::InstallFailureSignalHandler();
     // create StackTraceCache Instance, at the beginning, other static destructors may use.
     StackTrace::createCache();

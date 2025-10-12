@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOut
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplitOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdtf;
 
 /**
  * visitor function for all table generating function.
@@ -125,4 +126,7 @@ public interface TableGeneratingFunctionVisitor<R, C> {
         return visitTableGeneratingFunction(explodeJsonArrayJsonOuter, context);
     }
 
+    default R visitPythonUdtf(PythonUdtf udtf, C context) {
+        return visitTableGeneratingFunction(udtf, context);
+    }
 }

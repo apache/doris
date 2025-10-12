@@ -17,7 +17,9 @@
 #include <ucontext.h>
 #include <unistd.h>
 #else
-#define _DARWIN_C_SOURCE
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE 1
+#endif
 #include <netinet/in.h>
 #include <sys/_types/_u_int.h>
 #include <sys/sysctl.h>

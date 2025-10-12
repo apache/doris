@@ -168,6 +168,21 @@ public class ScalarFunction extends Function {
         return fn;
     }
 
+    public ScalarFunction(ScalarFunction other) {
+        super(other);
+        if (other == null) {
+            return;
+        }
+        symbolName = other.symbolName;
+        prepareFnSymbol = other.prepareFnSymbol;
+        closeFnSymbol = other.closeFnSymbol;
+    }
+
+    @Override
+    public Function clone() {
+        return new ScalarFunction(this);
+    }
+
     public void setSymbolName(String s) {
         symbolName = s;
     }
@@ -222,6 +237,9 @@ public class ScalarFunction extends Function {
         } else {
             sb.append(",\n  \"OBJECT_FILE\"=")
                     .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
+            if (getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+                sb.append(",\n  \"BATCH_SIZ$\"=").append("\"" + batchSize + "\"");
+            }
         }
         sb.append(",\n  \"TYPE\"=").append("\"" + this.getBinaryType() + "\"");
         sb.append("\n);");
@@ -232,11 +250,18 @@ public class ScalarFunction extends Function {
     public TFunction toThrift(Type realReturnType, Type[] realArgTypes, Boolean[] realArgTypeNullables) {
         TFunction fn = super.toThrift(realReturnType, realArgTypes, realArgTypeNullables);
         fn.setScalarFn(new TScalarFunction());
-        if (getBinaryType() == TFunctionBinaryType.JAVA_UDF || getBinaryType() == TFunctionBinaryType.RPC) {
+        if (getBinaryType() == TFunctionBinaryType.JAVA_UDF || getBinaryType() == TFunctionBinaryType.RPC
+                || getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
             fn.getScalarFn().setSymbol(symbolName);
         } else {
             fn.getScalarFn().setSymbol("");
         }
+        if (getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+            if (ConnectContext.get().getSessionVariable().getPythonUDFNullOnFailure()) {
+                fn.setPythonUdfNullOnFailure(true);
+            }
+        }
+        fn.setBatchSize(batchSize);
         return fn;
     }
 

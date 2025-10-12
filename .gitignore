@@ -73,7 +73,8 @@ regression-test/conf/regression-conf-custom.groovy
 regression-test/framework/bin/*
 regression-test/framework/src/main/groovy/org/apache/doris/thrift
 regression-test/certificate.p12
-
+regression-test/suites/pythonudf_p0/udf_scripts/*.zip
+regression-test/suites/pythonudf_p0/udtf_scripts/*.zip
 samples/doris-demo/remote-udf-python-demo/*_pb2.py
 samples/doris-demo/remote-udf-python-demo/*_pb2_grpc.py
 samples/doris-demo/remote-udf-cpp-demo/*.o

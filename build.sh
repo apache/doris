@@ -128,6 +128,7 @@ if ! OPTS="$(getopt \
     -l 'coverage' \
     -l 'help' \
     -l 'output:' \
+    -l 'python-udf' \
     -o 'hj:' \
     -- "$@")"; then
     usage
@@ -228,6 +229,10 @@ else
         --be-extension-ignore)
             BE_EXTENSION_IGNORE="$2"
             shift 2
+            ;;
+        --python-udf)
+            BUILD_PYTHON_UDF=1
+            shift
             ;;
         --)
             shift
@@ -671,6 +676,7 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
     cp -r -p "${DORIS_HOME}/be/output/dict" "${DORIS_OUTPUT}/be/"
+    cp -r -p "${DORIS_HOME}/be/output/lib/python" "${DORIS_OUTPUT}/be/lib"
 
     if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
@@ -780,6 +786,17 @@ if [[ "${BUILD_BROKER}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker"/* "${DORIS_OUTPUT}/apache_hdfs_broker"/
     copy_common_files "${DORIS_OUTPUT}/apache_hdfs_broker/"
     cd "${DORIS_HOME}"
+fi
+
+if [[ "${BUILD_PYTHON_UDF}" -eq 1 ]]; then
+    echo "Building doris python udf ..."
+    cd "${DORIS_HOME}/be/src/vec/functions/python/server"
+    mkdir -p build
+    cd build
+    cmake -DCMAKE_BUILD_TYPE=Release ..
+    make doris_py_udf -j "${PARALLEL}"
+    make install
+    echo "doris python udf has been built and installed."
 fi
 
 echo "***************************************"

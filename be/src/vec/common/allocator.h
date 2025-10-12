@@ -49,7 +49,9 @@
 
 #if !defined(__APPLE__) && !defined(__FreeBSD__)
 #else
-#define _DARWIN_C_SOURCE
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE 1
+#endif
 #endif
 
 #include <sys/mman.h>

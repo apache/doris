@@ -36,7 +36,7 @@ build_version_rc_version="rc04"
 build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}-${build_version_rc_version}"
 
 # This version is used to check FeMetaVersion is not changed during release
-build_fe_meta_version=129
+build_fe_meta_version=131
 unset LANG
 unset LC_CTYPE
 

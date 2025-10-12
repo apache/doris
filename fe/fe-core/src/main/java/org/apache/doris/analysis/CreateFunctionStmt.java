@@ -95,6 +95,7 @@ public class CreateFunctionStmt extends DdlStmt {
     public static final String MERGE_METHOD_NAME = "merge";
     public static final String GETVALUE_METHOD_NAME = "getValue";
     public static final String STATE_CLASS_NAME = "State";
+    public static final String PYUDF_BATCH_SIZE = "batch_size";
     // add for java udf check return type nullable mode, always_nullable or always_not_nullable
     public static final String IS_RETURN_NULL = "always_nullable";
     private static final Logger LOG = LogManager.getLogger(CreateFunctionStmt.class);
@@ -104,6 +105,7 @@ public class CreateFunctionStmt extends DdlStmt {
     private final FunctionName functionName;
     private final boolean isAggregate;
     private final boolean isAlias;
+    private boolean isTableFunction;
     private final FunctionArgsDef argsDef;
     private final TypeDef returnType;
     private TypeDef intermediateType;
@@ -140,8 +142,16 @@ public class CreateFunctionStmt extends DdlStmt {
             this.properties = ImmutableSortedMap.copyOf(properties, String.CASE_INSENSITIVE_ORDER);
         }
         this.isAlias = false;
+        this.isTableFunction = false;
         this.parameters = ImmutableList.of();
         this.originFunction = null;
+    }
+
+    public CreateFunctionStmt(SetType type, boolean ifNotExists, FunctionName functionName,
+            FunctionArgsDef argsDef,
+            TypeDef returnType, TypeDef intermediateType, Map<String, String> properties) {
+        this(type, ifNotExists, false, functionName, argsDef, returnType, intermediateType, properties);
+        this.isTableFunction = true;
     }
 
     public CreateFunctionStmt(SetType type, boolean ifNotExists, FunctionName functionName, FunctionArgsDef argsDef,
@@ -158,6 +168,7 @@ public class CreateFunctionStmt extends DdlStmt {
         }
         this.originFunction = originFunction;
         this.isAggregate = false;
+        this.isTableFunction = false;
         this.returnType = new TypeDef(Type.VARCHAR);
         this.properties = ImmutableSortedMap.of();
     }
@@ -197,6 +208,8 @@ public class CreateFunctionStmt extends DdlStmt {
                     analyzeUda();
                 } else if (isAlias) {
                     analyzeAliasFunction();
+                } else if (isTableFunction) {
+                    analyzeTableFunction();
                 } else {
                     analyzeUdf();
                 }
@@ -208,6 +221,8 @@ public class CreateFunctionStmt extends DdlStmt {
                 analyzeUda();
             } else if (isAlias) {
                 analyzeAliasFunction();
+            } else if (isTableFunction) {
+                analyzeTableFunction();
             } else {
                 analyzeUdf();
             }
@@ -298,6 +313,27 @@ public class CreateFunctionStmt extends DdlStmt {
         }
     }
 
+    private void analyzeTableFunction() throws AnalysisException {
+        if (binaryType != TFunctionBinaryType.PYTHON_UDF) {
+            throw new AnalysisException("Currently only Python UDTF is supported.");
+        }
+        String symbol = properties.get(SYMBOL_KEY);
+        if (Strings.isNullOrEmpty(symbol)) {
+            throw new AnalysisException("No 'symbol' in properties");
+        }
+        if (!returnType.getType().isArrayType()) {
+            throw new AnalysisException("Python UDTF return type must be array type");
+        }
+        URI location = URI.create(userFile);
+        function = ScalarFunction.createUdf(binaryType,
+                functionName, argsDef.getArgTypes(),
+                ((ArrayType) (returnType.getType())).getItemType(), argsDef.isVariadic(),
+                location, symbol, null, null);
+        function.setChecksum(checksum);
+        function.setNullableMode(returnNullMode);
+        function.setUDTFunction(true);
+    }
+
     private void analyzeUda() throws AnalysisException {
         AggregateFunction.AggregateFunctionBuilder builder
                 = AggregateFunction.AggregateFunctionBuilder.createUdfBuilder();
@@ -351,6 +387,8 @@ public class CreateFunctionStmt extends DdlStmt {
                 throw new AnalysisException("No 'symbol' in properties of java-udaf");
             }
             analyzeJavaUdaf(symbol);
+        } else if (binaryType == TFunctionBinaryType.PYTHON_UDF) {
+            throw new AnalysisException("Currently the python udaf is not supported.");
         }
         function = builder.initFnSymbol(initFnSymbol).updateFnSymbol(updateFnSymbol).mergeFnSymbol(mergeFnSymbol)
                 .serializeFnSymbol(serializeFnSymbol).finalizeFnSymbol(finalizeFnSymbol)
@@ -390,6 +428,11 @@ public class CreateFunctionStmt extends DdlStmt {
                 location, symbol, prepareFnSymbol, closeFnSymbol);
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
+
+        String batchSize = properties.get(PYUDF_BATCH_SIZE);
+        if (!Strings.isNullOrEmpty(batchSize)) {
+            function.setBatchSize(Integer.parseInt(batchSize));
+        }
     }
 
     private void analyzeJavaUdaf(String clazz) throws AnalysisException {
@@ -788,6 +831,7 @@ public class CreateFunctionStmt extends DdlStmt {
 
     @Override
     public String toSql() {
+        LOG.info("inside to sql of {}", functionName);
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("CREATE ");
         if (isAggregate) {

@@ -551,4 +551,24 @@ public class TableFunctionPlanTest {
         Assert.assertFalse(explainString.contains("Unexpected exception: org.apache.doris.analysis.FunctionCallExpr"
                 + " cannot be cast to org.apache.doris.analysis.SlotRef"));
     }
+
+    @Test
+    public void testLateralViewWithDatabaseQualifiedFunction() throws Exception {
+        // Case: Test lateral view with a database-qualified function (e.g., `db.udtf`)
+        String sql = "desc verbose select /*+ SET_VAR(enable_nereids_planner=false) */ k1, e1 "
+                + "from db1.tbl1 lateral view db1.explode_split(k2, ',') tmp as e1;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+
+        // Verify that the table function node is correctly generated
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "TABLE FUNCTION NODE"));
+
+        // Verify that the function name includes the database prefix
+        Assert.assertTrue(explainString.contains("table function: db1.explode_split(`db1`.`tbl1`.`k2`, ',')"));
+
+        // Verify the lateral view tuple and output slots
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
+        Assert.assertTrue(explainString.contains("output slot id: 1 2"));
+        Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=VARCHAR"));
+    }
 }

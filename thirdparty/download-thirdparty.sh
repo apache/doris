@@ -434,3 +434,16 @@ if [[ "${KRB5_SOURCE}" = "krb5-1.19" ]]; then
     cd -
 fi
 echo "Finished patching ${KRB5_SOURCE}"
+
+# patch boost
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    if [[ "${BOOST_SOURCE}" = "boost_1_81_0" ]]; then
+        cd "${TP_SOURCE_DIR}/${BOOST_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/boost-1.81.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${BOOST_SOURCE}"
+fi

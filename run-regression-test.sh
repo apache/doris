@@ -162,6 +162,15 @@ if [[ "${RUN}" -ne 1 ]]; then
     exit 0
 fi
 
+# Build python udf/udtf test scripts.
+cd "${DORIS_HOME}"/regression-test/suites/pythonudf_p0/udf_scripts
+rm -f pyudf.zip
+zip pyudf.zip *.py
+cd "${DORIS_HOME}"/regression-test/suites/pythonudf_p0/udtf_scripts
+rm -f pyudtf.zip
+zip pyudtf.zip *.py
+cd "${DORIS_HOME}"
+
 if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     echo "===== Build Regression Test Framework ====="
 

@@ -139,6 +139,12 @@ public class Function implements Writable {
     // If true, this function is global function
     protected boolean isGlobal = false;
 
+    // If true, this function is table function
+    protected boolean isUDTFunction = false;
+
+    // Batch size for pyudf
+    protected int batchSize = 1;
+
     // Only used for serialization
     protected Function() {
     }
@@ -347,6 +353,10 @@ public class Function implements Writable {
                 Preconditions.checkState(false);
                 return false;
         }
+        this.checksum = other.checksum;
+        this.isGlobal = other.isGlobal;
+        this.isUDTFunction = other.isUDTFunction;
+        this.batchSize = other.batchSize;
     }
 
     /**
@@ -563,6 +573,8 @@ public class Function implements Writable {
             fn.setChecksum(checksum);
         }
         fn.setVectorized(vectorized);
+        fn.setIsUdtfFunction(isUDTFunction);
+        fn.setBatchSize(batchSize);
         return fn;
     }
 
@@ -671,6 +683,9 @@ public class Function implements Writable {
         IOUtils.writeOptionString(output, libUrl);
         IOUtils.writeOptionString(output, checksum);
         output.writeUTF(nullableMode.toString());
+        output.writeBoolean(isUDTFunction);
+        output.writeInt(batchSize);
+        LOG.info("write batch size= {}", batchSize);
     }
 
     @Override
@@ -708,6 +723,12 @@ public class Function implements Writable {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_126) {
             nullableMode = NullableMode.valueOf(input.readUTF());
         }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_130) {
+            isUDTFunction = input.readBoolean();
+        }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_131) {
+            batchSize = input.readInt();
+        }
     }
 
     public static Function read(DataInput input) throws IOException {
@@ -744,7 +765,11 @@ public class Function implements Writable {
             // function type
             // intermediate type
             if (this instanceof ScalarFunction) {
-                row.add("Scalar");
+                if (isUDTFunction()) {
+                    row.add("TABLES");
+                } else {
+                    row.add("Scalar");
+                }
                 row.add("NULL");
             } else if (this instanceof AliasFunction) {
                 row.add("Alias");
@@ -773,6 +798,22 @@ public class Function implements Writable {
 
     public NullableMode getNullableMode() {
         return nullableMode;
+    }
+
+    public void setUDTFunction(boolean isUDTFunction) {
+        this.isUDTFunction = isUDTFunction;
+    }
+
+    public boolean isUDTFunction() {
+        return this.isUDTFunction;
+    }
+
+    public void setBatchSize(int batchSize) {
+        this.batchSize = batchSize;
+    }
+
+    public int getBatchSize() {
+        return this.batchSize;
     }
 
     // Try to serialize this function and write to nowhere.
