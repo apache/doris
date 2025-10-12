@@ -407,6 +407,8 @@ struct TQueryOptions {
   172: optional bool enable_prefer_cached_rowset
   173: optional i64 query_freshness_tolerance_ms
 
+  175: optional bool enable_fuzzy_blockable_task = false;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
