@@ -996,9 +996,6 @@ public class VariableMgr {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER,
                     String.valueOf(true));
-            VariableMgr.refreshDefaultSessionVariables(updateInfo,
-                    SessionVariable.ENABLE_PIPELINE_X_ENGINE,
-                    String.valueOf(true));
         }
         if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_101) {
             if (StatisticsUtil.getAutoAnalyzeTableWidthThreshold()
