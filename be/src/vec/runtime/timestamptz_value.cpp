@@ -17,7 +17,6 @@
 
 #include "timestamptz_value.h"
 
-#include "common/status.h"
 #include "vec/functions/cast/cast_to_datetimev2_impl.hpp"
 
 namespace doris {
@@ -63,16 +62,13 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz) const {
     int offset_hours = time_offset / 3600;
     int offset_mins = (std::abs(time_offset) % 3600) / 60;
 
-    char buf[48];
-
     /// TODO: We could directly use datetime's to_string here. In the future,
     /// when we support a function like 'show datetime with timezone',
     /// we can reuse this implementation.
-    snprintf(buf, sizeof(buf), "%04ld-%02d-%02d %02d:%02d:%02d.%06d %c%02d:%02d", civ.year(),
-             civ.month(), civ.day(), civ.hour(), civ.minute(), civ.second(), _utc_dt.microsecond(),
-             (offset_hours >= 0 ? '+' : '-'), std::abs(offset_hours), offset_mins);
-
-    return {buf};
+    return fmt::format("{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d} {:c}{:02d}:{:02d}",
+                       civ.year(), civ.month(), civ.day(), civ.hour(), civ.minute(), civ.second(),
+                       _utc_dt.microsecond(), (offset_hours >= 0 ? '+' : '-'),
+                       std::abs(offset_hours), offset_mins);
 }
 
 bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& dt,
