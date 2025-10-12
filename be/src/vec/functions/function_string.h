@@ -5113,51 +5113,51 @@ public:
         auto res_col = ColumnString::create();
 
         const size_t arg_size = arguments.size();
-        std::vector<ColumnPtr> arg_col(arg_size);
-        std::vector<uint8_t> is_const(arg_size);
-        for (size_t i = 0; i < arg_size; ++i) {
-            std::tie(arg_col[i], is_const[i]) =
-                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        bool col_const[5];
+        ColumnPtr arg_cols[5];
+        for (int i = 0; i < arg_size; ++i) {
+            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        }
+        arg_cols[0] = col_const[0] ? static_cast<const ColumnConst&>(
+                                             *block.get_by_position(arguments[0]).column)
+                                             .convert_to_full_column()
+                                   : block.get_by_position(arguments[0]).column;
+        if (arg_size == 3) {
+            default_preprocess_parameter_columns(arg_cols, col_const, {1, 2}, block, arguments);
+        } else if (arg_size == 4) {
+            default_preprocess_parameter_columns(arg_cols, col_const, {1, 2, 3}, block, arguments);
+        } else if (arg_size == 5) {
+            default_preprocess_parameter_columns(arg_cols, col_const, {1, 2, 3, 4}, block,
+                                                 arguments);
         }
 
-        const auto& bit_col = assert_cast<const ColumnInt128&>(*arg_col[0]);
-        const auto& on_col = assert_cast<const ColumnString&>(*arg_col[1]);
-        const auto& off_col = assert_cast<const ColumnString&>(*arg_col[2]);
-
-        const ColumnString* separator_col = nullptr;
+        const auto* bit_col = assert_cast<const ColumnInt128*>(arg_cols[0].get());
+        const auto* on_col = assert_cast<const ColumnString*>(arg_cols[1].get());
+        const auto* off_col = assert_cast<const ColumnString*>(arg_cols[2].get());
+        const ColumnString* sep_col = nullptr;
         const ColumnInt32* num_bits_col = nullptr;
         if (arg_size > 3) {
-            separator_col = &assert_cast<const ColumnString&>(*arg_col[3]);
+            sep_col = assert_cast<const ColumnString*>(arg_cols[3].get());
             if (arg_size == 5) {
-                num_bits_col = &assert_cast<const ColumnInt32&>(*arg_col[4]);
+                num_bits_col = assert_cast<const ColumnInt32*>(arg_cols[4].get());
             }
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            const auto bit_value = bit_col.get_element(index_check_const(i, is_const[0]));
-            uint64_t bit;
-            if (bit_value > ULLONG_MAX) {
-                bit = LLONG_MAX;
-            } else if (bit_value < LLONG_MIN) {
-                bit = LLONG_MIN;
-            } else {
-                bit = static_cast<uint64_t>(bit_value);
-            }
-            StringRef on = on_col.get_data_at(index_check_const(i, is_const[1]));
-            StringRef off = off_col.get_data_at(index_check_const(i, is_const[2]));
+            uint64_t bit = check_and_get_bit(bit_col->get_element(i));
+            StringRef on = on_col->get_data_at(col_const[1] ? 0 : i);
+            StringRef off = off_col->get_data_at(col_const[2] ? 0 : i);
             StringRef separator(",", 1);
             int8_t num_of_bits = 64;
 
-            if (separator_col) {
-                separator = separator_col->get_data_at(index_check_const(i, is_const[3]));
-                if (num_bits_col) {
-                    int32_t num_of_bits_tmp =
-                            num_bits_col->get_element(index_check_const(i, is_const[4]));
-                    if (num_of_bits_tmp >= 0 && num_of_bits_tmp <= 64) {
-                        num_of_bits = static_cast<int8_t>(num_of_bits_tmp);
-                    }
+            if (arg_size > 3) {
+                separator = sep_col->get_data_at(col_const[3] ? 0 : i);
+                if (arg_size == 5) {
+                    num_of_bits = check_and_get_num_of_bits(
+                            num_bits_col->get_element(col_const[4] ? 0 : i));
                 }
             }
+
             execute_single(bit, on, off, separator, num_of_bits, *res_col);
         }
         block.replace_by_position(result, std::move(res_col));
@@ -5165,6 +5165,27 @@ public:
     }
 
 private:
+    /* The valid range of the input `bit` parameter should be [-2^63, 2^64 - 1]
+     * If it exceeds this range, the MAX/MIN values of the signed 64-bit integer are used for calculation
+     * This behavior is consistent with MySQL.
+     */
+    uint64_t check_and_get_bit(__int128 col_bit_val) const {
+        if (col_bit_val > ULLONG_MAX) {
+            return LLONG_MAX;
+        } else if (col_bit_val < LLONG_MIN) {
+            return LLONG_MIN;
+        }
+        return static_cast<uint64_t>(col_bit_val);
+    }
+
+    // If the input value is not in the range [0, 64], return default value 64
+    int8_t check_and_get_num_of_bits(int32_t col_num_of_bits_val) const {
+        if (col_num_of_bits_val >= 0 && col_num_of_bits_val <= 64) {
+            return static_cast<int8_t>(col_num_of_bits_val);
+        }
+        return 64;
+    }
+
     void execute_single(uint64_t bit, const StringRef& on, const StringRef& off,
                         const StringRef& separator, int8_t num_of_bits,
                         ColumnString& res_col) const {
