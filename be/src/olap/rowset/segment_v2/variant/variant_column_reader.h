@@ -170,10 +170,10 @@ public:
                 uint64_t num_rows, io::FileReaderSPtr file_reader);
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
-                        StorageReadOptions* opt) override;
+                        const StorageReadOptions* opt) override;
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
-                        StorageReadOptions* opt, ColumnReaderCache* column_reader_cache,
+                        const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache,
                         PathToSparseColumnCache* sparse_column_cache_ptr = nullptr);
 
     virtual const SubcolumnColumnMetaInfo::Node* get_subcolumn_meta_by_path(
@@ -212,7 +212,7 @@ private:
                                               const StorageReadOptions* opt,
                                               ColumnReaderCache* column_reader_cache);
     Status _new_iterator_with_flat_leaves(
-            ColumnIteratorUPtr* iterator, const TabletColumn& col, StorageReadOptions* opts,
+            ColumnIteratorUPtr* iterator, const TabletColumn& col, const StorageReadOptions* opts,
             bool exceeded_sparse_column_limit, bool existed_in_sparse_column,
             ColumnReaderCache* column_reader_cache,
             PathToSparseColumnCache* sparse_column_cache_ptr = nullptr);
@@ -223,7 +223,7 @@ private:
                                        const SubcolumnColumnMetaInfo::Node* root,
                                        ColumnReaderCache* column_reader_cache,
                                        OlapReaderStatistics* stats);
-    Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, StorageReadOptions* opts,
+    Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, const StorageReadOptions* opts,
                                        const TabletColumn& target_col,
                                        SparseColumnCacheSPtr sparse_column_cache,
                                        ColumnReaderCache* column_reader_cache);

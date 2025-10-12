@@ -37,7 +37,7 @@ public:
 
     ~LazyInitSegmentIterator() override = default;
 
-    Status init(StorageReadOptions& opts) override;
+    Status init(const StorageReadOptions& opts) override;
 
     Status next_batch(Block* block) override {
         if (UNLIKELY(_need_lazy_init)) {

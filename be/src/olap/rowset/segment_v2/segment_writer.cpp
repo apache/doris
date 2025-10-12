@@ -375,7 +375,7 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
     }
 }
 
-void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
+void SegmentWriter::_serialize_block_to_row_column(const vectorized::Block& block) {
     if (block.rows() == 0) {
         return;
     }
@@ -666,7 +666,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     return Status::OK();
 }
 
-Status SegmentWriter::append_block(vectorized::Block* block, size_t row_pos, size_t num_rows) {
+Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
+                                   size_t num_rows) {
     if (_opts.rowset_ctx->partial_update_info &&
         _opts.rowset_ctx->partial_update_info->is_partial_update() &&
         _opts.write_type == DataWriteType::TYPE_DIRECT &&

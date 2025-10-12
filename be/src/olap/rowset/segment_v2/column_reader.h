@@ -163,7 +163,7 @@ public:
 
     // create a new column iterator. Client should delete returned iterator
     virtual Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
-                                StorageReadOptions*);
+                                const StorageReadOptions*);
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_array_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_struct_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);

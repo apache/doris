@@ -149,7 +149,7 @@ public:
     // Input options may contain scan range in which this scan.
     // Return Status::OK() if init successfully,
     // Return other error otherwise
-    virtual Status init(StorageReadOptions& opts) {
+    virtual Status init(const StorageReadOptions& opts) {
         return Status::NotSupported("to be implemented");
     }
 

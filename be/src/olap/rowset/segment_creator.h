@@ -145,9 +145,9 @@ private:
     }
     Status _internal_parse_variant_columns(vectorized::Block& block);
     Status _add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
-                     vectorized::Block* block, size_t row_offset, size_t row_num);
+                     const vectorized::Block* block, size_t row_offset, size_t row_num);
     Status _add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
-                     vectorized::Block* block, size_t row_offset, size_t row_num);
+                    vectorized::Block* block, size_t row_offset, size_t row_num);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
                                   int32_t segment_id, bool no_compression = false);
     Status _create_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,

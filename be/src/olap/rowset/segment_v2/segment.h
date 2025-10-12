@@ -99,7 +99,7 @@ public:
     int64_t get_metadata_size() const override;
     void update_metadata_size();
 
-    Status new_iterator(SchemaSPtr schema, StorageReadOptions& read_options,
+    Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);
 
     static Status new_default_iterator(const TabletColumn& tablet_column,
@@ -113,7 +113,7 @@ public:
 
     // if variant_sparse_column_cache is nullptr, means the sparse column cache is not used
     Status new_column_iterator(const TabletColumn& tablet_column,
-                               std::unique_ptr<ColumnIterator>* iter, StorageReadOptions* opt,
+                               std::unique_ptr<ColumnIterator>* iter, const StorageReadOptions* opt,
                                const std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>*
                                        variant_sparse_column_cache = nullptr);
 
