@@ -20,6 +20,7 @@
 #include <bthread/countdown_event.h>
 
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
@@ -228,7 +229,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             expiration_time = 0;
         }
 
-        if (!tablet->add_rowset_warmup_state(rs_meta, WarmUpState::TRIGGERED_BY_JOB)) {
+        if (!tablet->add_rowset_warmup_state(rs_meta, WarmUpTriggerSource::EVENT_DRIVEN)) {
             LOG(INFO) << "found duplicate warmup task for rowset " << rowset_id.to_string()
                       << ", skip it";
             continue;
@@ -279,8 +280,9 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                     LOG(WARNING) << "download segment failed, tablet_id: " << tablet_id
                                  << " rowset_id: " << rowset_id.to_string() << ", error: " << st;
                 }
-                if (tablet->complete_rowset_segment_warmup(rowset_id, st, 1, 0) ==
-                    WarmUpState::DONE) {
+                if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
+                                                           rowset_id, st, 1, 0)
+                            .trigger_source == WarmUpTriggerSource::EVENT_DRIVEN) {
                     VLOG_DEBUG << "warmup rowset " << version.to_string() << "("
                                << rowset_id.to_string() << ") completed";
                 }
@@ -352,8 +354,9 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                         LOG(WARNING) << "download inverted index failed, tablet_id: " << tablet_id
                                      << " rowset_id: " << rowset_id << ", error: " << st;
                     }
-                    if (tablet->complete_rowset_segment_warmup(rowset_id, st, 0, 1) ==
-                        WarmUpState::DONE) {
+                    if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
+                                                               rowset_id, st, 0, 1)
+                                .trigger_source == WarmUpTriggerSource::EVENT_DRIVEN) {
                         VLOG_DEBUG << "warmup rowset " << version.to_string() << "("
                                    << rowset_id.to_string() << ") completed";
                     }
@@ -373,7 +376,8 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                 };
                 g_file_cache_event_driven_warm_up_submitted_index_num << 1;
                 g_file_cache_event_driven_warm_up_submitted_index_size << idx_size;
-                tablet->update_rowset_warmup_state_inverted_idx_num(rowset_id, 1);
+                tablet->update_rowset_warmup_state_inverted_idx_num(
+                        WarmUpTriggerSource::EVENT_DRIVEN, rowset_id, 1);
                 if (wait) {
                     wait->add_count();
                 }
