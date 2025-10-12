@@ -341,27 +341,7 @@ public:
     }
 
 private:
-    const Node* find_impl(const PathInData& path, bool find_exact) const {
-        if (!root) {
-            return nullptr;
-        }
-
-        const auto& parts = path.get_parts();
-        const Node* current_node = root.get();
-
-        for (const auto& part : parts) {
-            auto it = current_node->children.find(StringRef {part.key.data(), part.key.size()});
-            if (it == current_node->children.end()) {
-                return find_exact ? nullptr : current_node;
-            }
-
-            current_node = it->second.get();
-        }
-
-        return current_node;
-    }
-
-    Node* find_impl(const PathInData& path, bool find_exact) {
+    Node* find_impl(const PathInData& path, bool find_exact) const {
         if (!root) {
             return nullptr;
         }

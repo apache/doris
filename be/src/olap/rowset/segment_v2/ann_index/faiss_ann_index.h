@@ -170,6 +170,8 @@ public:
      */
     FaissVectorIndex();
 
+    ~FaissVectorIndex();
+
     void train(vectorized::Int64 n, const float* x) override;
 
     /**

@@ -76,6 +76,7 @@ void register_function_utility(SimpleFunctionFactory& factory);
 void register_function_json(SimpleFunctionFactory& factory);
 void register_function_jsonb(SimpleFunctionFactory& factory);
 void register_function_to_json(SimpleFunctionFactory& factory);
+void register_function_json_transform(SimpleFunctionFactory& factory);
 void register_function_hash(SimpleFunctionFactory& factory);
 void register_function_ifnull(SimpleFunctionFactory& factory);
 void register_function_like(SimpleFunctionFactory& factory);
@@ -110,6 +111,7 @@ void register_function_url(SimpleFunctionFactory& factory);
 void register_function_ip(SimpleFunctionFactory& factory);
 void register_function_format(SimpleFunctionFactory& factory);
 void register_function_multi_match(SimpleFunctionFactory& factory);
+void register_function_search(SimpleFunctionFactory& factory);
 void register_function_split_by_regexp(SimpleFunctionFactory& factory);
 void register_function_assert_true(SimpleFunctionFactory& factory);
 void register_function_compress(SimpleFunctionFactory& factory);
@@ -119,6 +121,7 @@ void register_function_dict_get_many(SimpleFunctionFactory& factory);
 void register_function_ai(SimpleFunctionFactory& factory);
 void register_function_score(SimpleFunctionFactory& factory);
 void register_function_variant_type(SimpleFunctionFactory& factory);
+void register_function_binary(SimpleFunctionFactory& factory);
 void register_function_soundex(SimpleFunctionFactory& factory);
 
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
@@ -329,6 +332,7 @@ public:
             register_function_ignore(instance);
             register_function_variant_element(instance);
             register_function_multi_match(instance);
+            register_function_search(instance);
             register_function_split_by_regexp(instance);
             register_function_assert_true(instance);
             register_function_bit_test(instance);
@@ -338,7 +342,9 @@ public:
             register_function_dict_get_many(instance);
             register_function_ai(instance);
             register_function_score(instance);
+            register_function_binary(instance);
             register_function_soundex(instance);
+            register_function_json_transform(instance);
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
             register_function_throw_exception(instance);
 #endif

@@ -613,6 +613,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String LOW_MEMORY_MODE_BUFFER_LIMIT = "low_memory_mode_buffer_limit";
     public static final String DUMP_HEAP_PROFILE_WHEN_MEM_LIMIT_EXCEEDED = "dump_heap_profile_when_mem_limit_exceeded";
 
+    public static final String ENABLE_FUZZY_BLOCKABLE_TASK = "enable_fuzzy_blockable_task";
+
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
 
     public static final String HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS
@@ -730,6 +732,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
+    public static final String COMPUTE_GROUP = "compute_group";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
     public static final String CLOUD_PARTITION_VERSION_CACHE_TTL_MS =
             "cloud_partition_version_cache_ttl_ms";
@@ -864,6 +867,8 @@ public class SessionVariable implements Serializable, Writable {
                                                             "default_variant_max_sparse_column_statistics_size";
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
+
+    public static final String MERGE_IO_READ_SLICE_SIZE = "merge_io_read_slice_size";
 
     public static final String ENABLE_PREFER_CACHED_ROWSET = "enable_prefer_cached_rowset";
     public static final String QUERY_FRESHNESS_TOLERANCE_MS = "query_freshness_tolerance_ms";
@@ -1504,7 +1509,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = "topn_lazy_materialization_threshold", needForward = true,
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL)
-    public int topNLazyMaterializationThreshold = 512 * 1024;
+    public int topNLazyMaterializationThreshold = 1024;
 
     public boolean enableTopnLazyMaterialization() {
         return ConnectContext.get() != null
@@ -2582,6 +2587,11 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkAggPhase")
     public int aggPhase = 0;
 
+
+    @VariableMgr.VarAttr(name = MERGE_IO_READ_SLICE_SIZE, description = {"调整 READ_SLICE_SIZE 大小，降低 Merge IO 读放大影响",
+            "Make the READ_SLICE_SIZE variable configurable to reduce the impact caused by read amplification."})
+    public int mergeReadSliceSize = 8388608;
+
     public void setAggPhase(int phase) {
         aggPhase = phase;
     }
@@ -2692,7 +2702,7 @@ public class SessionVariable implements Serializable, Writable {
 
 
     // CLOUD_VARIABLES_BEGIN
-    @VariableMgr.VarAttr(name = CLOUD_CLUSTER)
+    @VariableMgr.VarAttr(name = CLOUD_CLUSTER, alias = {COMPUTE_GROUP})
     public String cloudCluster = "";
     @VariableMgr.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
     public boolean disableEmptyPartitionPrune = false;
@@ -2786,6 +2796,10 @@ public class SessionVariable implements Serializable, Writable {
                             + "The default value is false."},
             needForward = true)
     public boolean dumpHeapProfileWhenMemLimitExceeded = false;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_FUZZY_BLOCKABLE_TASK, fuzzy = true)
+    public boolean enableFuzzyBlockableTask = false;
 
     @VariableMgr.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, needForward = true, description = {
             "在CTAS中，如果 CHAR / VARCHAR 列不来自于源表，是否是将这一列的长度设置为 MAX，即65533。默认为 true。",
@@ -3107,7 +3121,7 @@ public class SessionVariable implements Serializable, Writable {
                 this.batchSize = 1024;
                 this.enableFoldConstantByBe = false;
             }
-
+            this.enableFuzzyBlockableTask = random.nextBoolean();
         }
         this.runtimeFilterWaitInfinitely = random.nextBoolean();
 
@@ -3115,26 +3129,28 @@ public class SessionVariable implements Serializable, Writable {
         this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
 
         // for spill to disk
-        switch (randomInt % 4) {
-            case 0:
-                this.spillMinRevocableMem = 0;
-                break;
-            case 1:
-                this.spillMinRevocableMem = 1;
-                break;
-            case 2:
-                this.spillMinRevocableMem = 1024 * 1024;
-                break;
-            case 3:
-            default:
-                this.spillMinRevocableMem = 100L * 1024 * 1024;
-                break;
-        }
+        if (Config.fuzzy_test_type.equals("p0")) {
+            switch (randomInt % 4) {
+                case 0:
+                    this.spillMinRevocableMem = 0;
+                    break;
+                case 1:
+                    this.spillMinRevocableMem = 1;
+                    break;
+                case 2:
+                    this.spillMinRevocableMem = 1024 * 1024;
+                    break;
+                case 3:
+                default:
+                    this.spillMinRevocableMem = 100L * 1024 * 1024;
+                    break;
+            }
 
-        randomInt = random.nextInt(99);
-        this.enableSpill = randomInt % 4 != 0;
-        this.enableForceSpill = randomInt % 3 == 0;
-        this.enableReserveMemory = randomInt % 5 != 0;
+            randomInt = random.nextInt(99);
+            this.enableSpill = randomInt % 4 != 0;
+            this.enableForceSpill = randomInt % 3 == 0;
+            this.enableReserveMemory = randomInt % 5 != 0;
+        }
 
         // random pre materialized view rewrite strategy
         randomInt = random.nextInt(3);
@@ -4583,6 +4599,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setRuntimeBloomFilterMinSize(runtimeBloomFilterMinSize);
         tResult.setRuntimeBloomFilterMaxSize(runtimeBloomFilterMaxSize);
         tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
+        tResult.setEnableFuzzyBlockableTask(enableFuzzyBlockableTask);
 
         if (cpuResourceLimit > 0) {
             TResourceLimit resourceLimit = new TResourceLimit();
@@ -4703,7 +4720,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswEfSearch(hnswEFSearch);
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
-
+        tResult.setMergeReadSliceSize(mergeReadSliceSize);
         return tResult;
     }
 

@@ -56,7 +56,6 @@ private:
 };
 
 // Note: the cache_lock is scoped, so do not add do...while(0) here.
-#ifdef ENABLE_CACHE_LOCK_DEBUG
 #define SCOPED_CACHE_LOCK(MUTEX, cache)                                                           \
     std::chrono::time_point<std::chrono::steady_clock> start_time =                               \
             std::chrono::steady_clock::now();                                                     \
@@ -71,9 +70,6 @@ private:
                      << get_stack_trace() << std::endl;                                           \
     }                                                                                             \
     LockScopedTimer cache_lock_timer;
-#else
-#define SCOPED_CACHE_LOCK(MUTEX, cache) std::lock_guard cache_lock(MUTEX);
-#endif
 
 class FSFileCacheStorage;
 
@@ -114,6 +110,8 @@ struct FileBlockCell {
 
     FileBlockCell& operator=(const FileBlockCell&) = delete;
     FileBlockCell(const FileBlockCell&) = delete;
+
+    size_t dowloading_size() const { return file_block->_downloaded_size; }
 };
 
 class BlockFileCache {
@@ -337,6 +335,9 @@ public:
                 _cache_capacity_metrics->get_value() - _cur_cache_size_metrics->get_value(), 0);
     }
 
+    Status report_file_cache_inconsistency(std::vector<std::string>& results);
+    Status check_file_cache_consistency(InconsistencyContext& inconsistency_context);
+
 private:
     LRUQueue& get_queue(FileCacheType type);
     const LRUQueue& get_queue(FileCacheType type) const;
@@ -454,6 +455,8 @@ private:
     Status parse_one_lru_entry(std::ifstream& in, std::string& filename, UInt128Wrapper& hash,
                                size_t& offset, size_t& size);
     void remove_lru_dump_files();
+
+    void clear_need_update_lru_blocks();
 
     // info
     std::string _cache_base_path;
