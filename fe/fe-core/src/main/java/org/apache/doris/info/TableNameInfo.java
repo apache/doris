@@ -244,15 +244,15 @@ public class TableNameInfo {
      * equals
      */
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
+    public boolean equals(Object other) {
+        if (this == other) {
             return true;
         }
-        if (o == null || getClass() != o.getClass()) {
+        if (other == null || getClass() != other.getClass()) {
             return false;
         }
-        TableNameInfo that = (TableNameInfo) o;
-        return tbl.equals(that.tbl) && db.equals(that.db) && ctl.equals(that.ctl);
+        TableNameInfo that = (TableNameInfo) other;
+        return toString().equals(that.toString());
     }
 
     /**
