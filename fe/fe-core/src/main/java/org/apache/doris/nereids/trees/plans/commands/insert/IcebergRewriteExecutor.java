@@ -78,4 +78,13 @@ public class IcebergRewriteExecutor extends BaseExternalTableInsertExecutor {
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
         return transaction.getRewriteFileInfo();
     }
+
+    /**
+     * Get the insert command context
+     *
+     * @return InsertCommandContext
+     */
+    public Optional<InsertCommandContext> getInsertCtx() {
+        return insertCtx;
+    }
 }

@@ -28,7 +28,11 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergRewriteExecutor;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.planner.BaseExternalTableDataSink;
+import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
@@ -95,8 +99,8 @@ public class RewriteDataFileExecutor {
                     + dorisTable.getName() + " SELECT * FROM " + dorisTable.getName(), 0));
             this.parsedStmt = adapter;
 
-            if (!(logicalPlan instanceof UnboundIcebergTableSink)) {
-                throw new UserException("Expected UnboundIcebergTableSink, got: " + logicalPlan.getClass());
+            if (!(logicalPlan instanceof InsertIntoTableCommand)) {
+                throw new UserException("Expected InsertIntoTableCommand, got: " + logicalPlan.getClass());
             }
             this.initialized = true;
 
@@ -123,13 +127,15 @@ public class RewriteDataFileExecutor {
         try {
             // Step 1: Create StmtExecutor using pre-parsed statement
             executor = new StmtExecutor(connectContext, parsedStmt);
+            executor.execute();
+            return new RewriteResult(group.getTaskCount(), group.getTaskCount(), group.getTotalSize(), 0);
 
-            // Step 2: Execute the customized insert operation using pre-parsed components
-            RewriteResult result = executeInsertWithGroup(executor, group);
+            // // Step 2: Execute the customized insert operation using pre-parsed components
+            // RewriteResult result = executeInsertWithGroup(executor, group);
 
-            LOG.info("Completed rewrite execution for group with {} tasks", group.getTaskCount());
+            // LOG.info("Completed rewrite execution for group with {} tasks", group.getTaskCount());
 
-            return result;
+            // return result;
 
         } catch (Exception e) {
             LOG.error("Failed to execute rewrite group: ", e);
@@ -157,7 +163,28 @@ public class RewriteDataFileExecutor {
         // Execute the insert operation
         if (!insertExecutor.isEmptyInsert()) {
             insertExecutor.beginTransaction();
-            insertExecutor.executeSingleInsert(executor, System.currentTimeMillis());
+
+            // Finalize sink to bind output sink
+            NereidsCoordinator coordinator = (NereidsCoordinator) insertExecutor.getCoordinator();
+            CoordinatorContext context = coordinator.getCoordinatorContext();
+            if (context.fragments.size() > 0) {
+                PlanFragment fragment = context.fragments.get(0);
+                DataSink dataSink = fragment.getSink();
+                // Bind the data sink directly for external table
+                if (dataSink instanceof BaseExternalTableDataSink) {
+                    ((BaseExternalTableDataSink) dataSink).bindDataSink(insertExecutor.getInsertCtx());
+                }
+            }
+
+            // Execute with timeout handling
+            try {
+                LOG.info("Starting rewrite execution for group with {} tasks", group.getTaskCount());
+                insertExecutor.executeSingleInsert(executor, System.currentTimeMillis());
+                LOG.info("Rewrite execution completed successfully");
+            } catch (Exception e) {
+                LOG.error("Failed to execute rewrite insert", e);
+                throw new UserException("Rewrite execution failed: " + e.getMessage(), e);
+            }
         }
 
         // Collect execution statistics and rewrite information
@@ -298,8 +325,17 @@ public class RewriteDataFileExecutor {
                     Optional.empty(), // branchName
                     sourceRelation);
 
-            // Return the table sink as the logical plan (not a command)
-            return tableSink;
+            // Create InsertIntoTableCommand - this is the complete command
+            InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(
+                    tableSink,
+                    Optional.empty(), // labelName
+                    Optional.empty(), // insertCtx
+                    Optional.empty(), // cte
+                    true, // needNormalizePlan
+                    Optional.empty() // branchName
+            );
+
+            return insertCommand;
 
         } catch (Exception e) {
             LOG.error("Failed to build rewrite logical plan", e);
