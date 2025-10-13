@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCreateClusterSnapshotC
 import org.apache.doris.nereids.trees.plans.commands.AdminDropClusterSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminRotateTdeRootKeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetAutoClusterSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetClusterSnapshotFeatureSwitchCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
@@ -131,6 +132,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.EmptyCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExecuteActionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
@@ -144,7 +146,6 @@ import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillQueryCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.LockTablesCommand;
-import org.apache.doris.nereids.trees.plans.commands.OptimizeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
@@ -655,8 +656,8 @@ public interface CommandVisitor<R, C> {
         return visitCommand(alterTableCommand, context);
     }
 
-    default R visitOptimizeTableCommand(OptimizeTableCommand optimizeTableCommand, C context) {
-        return visitCommand(optimizeTableCommand, context);
+    default R visitExecuteActionCommand(ExecuteActionCommand command, C context) {
+        return visitCommand(command, context);
     }
 
     default R visitShowGrantsCommand(ShowGrantsCommand showGrantsCommand, C context) {
@@ -1455,6 +1456,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropMaterializedViewCommand(DropMaterializedViewCommand dropMaterializedViewCommand, C context) {
         return visitCommand(dropMaterializedViewCommand, context);
+    }
+
+    default R visitAdminRotateTdeRootKeyCommand(AdminRotateTdeRootKeyCommand rotateTdeRootKeyCommand, C context) {
+        return visitCommand(rotateTdeRootKeyCommand, context);
     }
 
     default R visitEmptyCommand(EmptyCommand emptyCommand, C context) {

@@ -1567,6 +1567,9 @@ Status CloudMetaMgr::prepare_tablet_job(const TabletJobInfoPB& job, StartTabletJ
 Status CloudMetaMgr::commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJobResponse* res) {
     VLOG_DEBUG << "commit_tablet_job: " << job.ShortDebugString();
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::commit_tablet_job", Status::OK(), job, res);
+    DBUG_EXECUTE_IF("CloudMetaMgr::commit_tablet_job.fail", {
+        return Status::InternalError<false>("inject CloudMetaMgr::commit_tablet_job.fail");
+    });
 
     FinishTabletJobRequest req;
     req.mutable_job()->CopyFrom(job);

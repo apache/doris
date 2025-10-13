@@ -248,11 +248,15 @@ void ColumnNullable::serialize_vec(StringRef* keys, size_t num_rows) const {
     const bool has_null = simd::contain_byte(get_null_map_data().data(), num_rows, 1);
     if (has_null) {
         for (size_t i = 0; i < num_rows; ++i) {
+            // Used in hash_map_context.h, this address is allocated via Arena,
+            // but passed through StringRef, so using const_cast is acceptable.
             keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
         }
     } else {
         const auto& arr = get_null_map_data();
         for (size_t i = 0; i < num_rows; ++i) {
+            // Used in hash_map_context.h, this address is allocated via Arena,
+            // but passed through StringRef, so using const_cast is acceptable.
             memcpy_fixed<NullMap::value_type>(const_cast<char*>(keys[i].data + keys[i].size),
                                               (char*)&arr[i]);
             keys[i].size += sizeof(NullMap::value_type);
@@ -357,13 +361,12 @@ size_t ColumnNullable::filter(const Filter& filter) {
 
 Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
     auto* nullable_col_ptr = assert_cast<ColumnNullable*>(col_ptr);
-    ColumnPtr nest_col_ptr = nullable_col_ptr->_nested_column;
+    WrappedPtr nest_col_ptr = nullable_col_ptr->_nested_column;
 
     /// `get_null_map_data` will set `_need_update_has_null` to true
     auto& res_nullmap = nullable_col_ptr->get_null_map_data();
 
-    RETURN_IF_ERROR(get_nested_column().filter_by_selector(
-            sel, sel_size, const_cast<doris::vectorized::IColumn*>(nest_col_ptr.get())));
+    RETURN_IF_ERROR(get_nested_column().filter_by_selector(sel, sel_size, nest_col_ptr.get()));
     DCHECK(res_nullmap.empty());
     res_nullmap.resize(sel_size);
     auto& cur_nullmap = get_null_map_column().get_data();

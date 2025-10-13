@@ -19,6 +19,9 @@
 // and modified by Doris
 
 #pragma once
+#include <cstdint>
+#include <vector>
+
 #include "io/io_common.h"
 #include "vec/common/uint128.h"
 
@@ -39,7 +42,6 @@ enum FileCacheType {
     DISPOSABLE = 0,
     TTL = 3,
 };
-
 std::string cache_type_to_surfix(FileCacheType type);
 FileCacheType surfix_to_cache_type(const std::string& str);
 
@@ -251,6 +253,49 @@ public:
     std::unordered_map<std::pair<UInt128Wrapper, size_t>, Iterator, HashFileKeyAndOffset> map;
     size_t cache_size = 0;
     int64_t hot_data_interval {0};
+};
+struct FileCacheInfo {
+    UInt128Wrapper hash {0};
+    uint64_t expiration_time {0};
+    uint64_t size {0};
+    size_t offset {0};
+    bool is_tmp {false};
+    FileCacheType cache_type {NORMAL};
+
+    std::string to_string() const;
+};
+
+class InconsistencyType {
+    uint32_t type;
+
+public:
+    enum : uint32_t {
+        // No anomaly
+        NONE = 0,
+        // Missing a block cache metadata in _files
+        NOT_LOADED = 1 << 0,
+        // A block cache is missing in storage
+        MISSING_IN_STORAGE = 1 << 1,
+        // Size of a block cache recorded in _files is inconsistent with the storage
+        SIZE_INCONSISTENT = 1 << 2,
+        // Cache type of a block cache recorded in _files is inconsistent with the storage
+        CACHE_TYPE_INCONSISTENT = 1 << 3,
+        // Expiration time of a block cache recorded in _files is inconsistent with the storage
+        EXPIRATION_TIME_INCONSISTENT = 1 << 4,
+        // File in storage has a _tmp suffix, but the state of block cache in _files is not set to downloading
+        TMP_FILE_EXPECT_DOWNLOADING_STATE = 1 << 5
+    };
+    InconsistencyType(uint32_t t = 0) : type(t) {}
+    operator uint32_t&() { return type; }
+
+    std::string to_string() const;
+};
+
+struct InconsistencyContext {
+    // The infos in _files of BlockFileCache.
+    std::vector<FileCacheInfo> infos_in_manager;
+    std::vector<FileCacheInfo> infos_in_storage;
+    std::vector<InconsistencyType> types;
 };
 
 } // namespace doris::io

@@ -314,4 +314,12 @@ ObjectStorageResponse AzureObjClient::check_versioning(const std::string& bucket
     return {0};
 }
 
+ObjectStorageResponse AzureObjClient::abort_multipart_upload(ObjectStoragePathRef path,
+                                                             const std::string& upload_id) {
+    LOG_WARNING("abort_multipart_upload not implemented")
+            .tag("path", path.bucket + "/" + path.key)
+            .tag("upload_id", upload_id);
+    return {-1};
+}
+
 } // namespace doris::cloud

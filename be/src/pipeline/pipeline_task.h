@@ -120,7 +120,7 @@ public:
         return _op_shared_states[id].get();
     }
 
-    Status wake_up(Dependency* dep);
+    Status wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */);
 
     DataSinkOperatorPtr sink() const { return _sink; }
 
@@ -169,7 +169,7 @@ public:
     [[nodiscard]] size_t get_revocable_size() const;
     [[nodiscard]] Status revoke_memory(const std::shared_ptr<SpillContext>& spill_context);
 
-    Status blocked(Dependency* dependency) {
+    Status blocked(Dependency* dependency, std::unique_lock<std::mutex>& /* dep_lock */) {
         DCHECK_EQ(_blocked_dep, nullptr) << "task: " << debug_string();
         _blocked_dep = dependency;
         return _state_transition(PipelineTask::State::BLOCKED);

@@ -15,12 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.nereids.trees.expressions.functions.executable;
 
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -123,5 +125,27 @@ class DateTimeExtractAndTransformTest {
         Assertions.assertEquals(new TinyIntLiteral((byte) 9), DateTimeExtractAndTransform.weekOfYear(dtx2));
         Assertions.assertEquals(new TinyIntLiteral((byte) 9), DateTimeExtractAndTransform.weekOfYear(dtx3));
         Assertions.assertEquals(new TinyIntLiteral((byte) 9), DateTimeExtractAndTransform.weekOfYear(dtx4));
+    }
+
+    @Test
+    void testDateTruncScale() {
+        DateTimeV2Literal literal = new DateTimeV2Literal(DateTimeV2Type.of(3), 2025, 9, 25, 14, 57, 36, 123);
+        StringLiteral unit = new StringLiteral("HOUR");
+        DateTimeV2Literal result = (DateTimeV2Literal) DateTimeExtractAndTransform.dateTrunc(literal, unit);
+        Assertions.assertEquals(3, result.getScale());
+        result = (DateTimeV2Literal) DateTimeExtractAndTransform.dateTrunc(unit, literal);
+        Assertions.assertEquals(3, result.getScale());
+    }
+
+    @Test
+    void testFromSecondSacle() {
+        BigIntLiteral second = new BigIntLiteral(10000);
+        DateTimeV2Literal result;
+        result = (DateTimeV2Literal) DateTimeExtractAndTransform.fromSecond(second);
+        Assertions.assertEquals(0, result.getScale());
+        result = (DateTimeV2Literal) DateTimeExtractAndTransform.fromMilliSecond(second);
+        Assertions.assertEquals(3, result.getScale());
+        result = (DateTimeV2Literal) DateTimeExtractAndTransform.fromMicroSecond(second);
+        Assertions.assertEquals(6, result.getScale());
     }
 }

@@ -48,6 +48,7 @@ struct SpaceSavingArena<StringRef> {
 
     void free(StringRef key) {
         if (key.data) {
+            // const_cast used for arena memory reclamation, no further modifications will occur
             arena.free(const_cast<char*>(key.data), key.size);
         }
     }

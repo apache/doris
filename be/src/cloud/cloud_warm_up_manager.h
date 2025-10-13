@@ -39,13 +39,6 @@ enum class DownloadType {
     S3,
 };
 
-enum class WarmUpState : int {
-    NONE,
-    TRIGGERED_BY_SYNC_ROWSET,
-    TRIGGERED_BY_JOB,
-    DONE,
-};
-
 struct JobMeta {
     JobMeta() = default;
     JobMeta(const TJobMeta& meta);
