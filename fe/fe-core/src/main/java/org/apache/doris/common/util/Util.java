@@ -654,15 +654,18 @@ public class Util {
 
     public static String getRootCauseMessage(Throwable t) {
         String rootCause = "unknown";
+        if (t == null) {
+            return rootCause;
+        }
         Throwable p = t;
-        while (p != null) {
-            String message = p.getMessage();
-            if (message == null) {
-                rootCause = p.getClass().getName();
-            } else {
-                rootCause = p.getClass().getName() + ": " + p.getMessage();
-            }
+        while (p.getCause() != null) {
             p = p.getCause();
+        }
+        String message = p.getMessage();
+        if (message == null) {
+            rootCause = p.getClass().getName();
+        } else {
+            rootCause = p.getClass().getName() + ": " + message;
         }
         return rootCause;
     }

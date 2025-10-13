@@ -21,15 +21,15 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.commands.optimize.OptimizeAction;
+import org.apache.doris.nereids.trees.plans.commands.execute.ExecuteAction;
 
 import java.util.Map;
 import java.util.Optional;
 
 /**
- * Factory for creating Iceberg-specific OPTIMIZE TABLE actions.
+ * Factory for creating Iceberg-specific EXECUTE TABLE actions.
  */
-public class IcebergOptimizeActionFactory {
+public class IcebergExecuteActionFactory {
 
     // Iceberg procedure names (mapped to action types)
     public static final String ROLLBACK_TO_SNAPSHOT = "rollback_to_snapshot";
@@ -41,7 +41,7 @@ public class IcebergOptimizeActionFactory {
     public static final String REWRITE_DATA_FILES = "rewrite_data_files";
 
     /**
-     * Create an Iceberg-specific OptimizeAction instance.
+     * Create an Iceberg-specific ExecuteAction instance.
      *
      * @param actionType         the type of action to create (corresponds to
      *                           Iceberg procedure name)
@@ -50,10 +50,10 @@ public class IcebergOptimizeActionFactory {
      * @param partitionNamesInfo partition information
      * @param whereCondition     where condition for filtering
      * @param table              the Iceberg table to operate on
-     * @return OptimizeAction instance that wraps Iceberg procedure calls
+     * @return ExecuteAction instance that wraps Iceberg procedure calls
      * @throws DdlException if action creation fails
      */
-    public static OptimizeAction createAction(String actionType, Map<String, String> properties,
+    public static ExecuteAction createAction(String actionType, Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
             Optional<Expression> whereCondition,
             IcebergExternalTable table) throws DdlException {
