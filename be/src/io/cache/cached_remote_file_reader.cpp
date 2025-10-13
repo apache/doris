@@ -308,10 +308,13 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             }
         } else {
             // atomically reserve buffer space and get the previous size
-            old_buffer_size = BlockFileCache::file_cache_fill_buffer_size.fetch_add(buffer_size);
+            old_buffer_size =
+                    BlockFileCache::BlockFileCache::file_cache_fill_buffer_size_sptr.get()
+                            ->fetch_add(buffer_size);
             // fill cache synchronously if the reservation would exceed the limit
             if (old_buffer_size + buffer_size > config::file_cache_fill_buffer_max_size) {
-                BlockFileCache::file_cache_fill_buffer_size.fetch_sub(buffer_size);
+                BlockFileCache::BlockFileCache::file_cache_fill_buffer_size_sptr.get()->fetch_sub(
+                        buffer_size);
                 for (auto& block : empty_blocks) {
                     if (block->state() == FileBlock::State::SKIP_CACHE) {
                         continue;
@@ -329,6 +332,14 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                     } else {
                         _insert_file_reader(block);
                     }
+                    stats.bytes_write_into_file_cache += block_size;
+                }
+            } else {
+                for (auto& block : empty_blocks) {
+                    if (block->state() == FileBlock::State::SKIP_CACHE) {
+                        continue;
+                    }
+                    size_t block_size = block->range().size();
                     stats.bytes_write_into_file_cache += block_size;
                 }
             }
@@ -423,23 +434,19 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     g_read_cache_indirect_total_bytes << *bytes_read;
     if (config::enable_file_cache_fill_async &&
         old_buffer_size + buffer_size <= config::file_cache_fill_buffer_max_size) {
-        bool is_inverted_index = io_ctx->is_inverted_index;
         /*
          * Capturing variable holder is necessary to ensure its destructor is called after the async
          * file_cache_fill thread completes
          */
-        auto task = [this, empty_start, buffer_size, is_inverted_index,
-                     _empty_blocks = std::move(empty_blocks), _buffer = std::move(buffer_moved),
-                     _holder = std::move(holder)]() {
+        auto task = [this, empty_start, buffer_size, _empty_blocks = std::move(empty_blocks),
+                     _buffer = std::move(buffer_moved), _holder = std::move(holder)]() {
             // variable _holder must be visited
             (void)_holder;
 
-            ReadStatistics stats_async;
             for (auto& block : _empty_blocks) {
                 if (block->state() == FileBlock::State::SKIP_CACHE) {
                     continue;
                 }
-                SCOPED_RAW_TIMER(&stats_async.local_write_timer);
                 char* cur_ptr = _buffer.get() + block->range().left - empty_start;
                 size_t block_size = block->range().size();
                 Status st = block->append(Slice(cur_ptr, block_size));
@@ -452,11 +459,9 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 } else {
                     _insert_file_reader(block);
                 }
-                stats_async.bytes_write_into_file_cache += block_size;
             }
 
-            (void)buffer_size;
-            (void)is_inverted_index;
+            BlockFileCache::file_cache_fill_buffer_size_sptr.get()->fetch_sub(buffer_size);
         };
         auto taskSPtr = std::make_shared<decltype(task)>(std::move(task));
         Status submit_status =

@@ -335,7 +335,7 @@ public:
                 _cache_capacity_metrics->get_value() - _cur_cache_size_metrics->get_value(), 0);
     }
 
-    static std::atomic<size_t> file_cache_fill_buffer_size;
+    static std::shared_ptr<std::atomic<size_t>> file_cache_fill_buffer_size_sptr;
     Status report_file_cache_inconsistency(std::vector<std::string>& results);
     Status check_file_cache_consistency(InconsistencyContext& inconsistency_context);
 
