@@ -82,20 +82,20 @@ public class MTMVPartitionUtil {
      * @param refreshContext
      * @param partitionName
      * @param tables
-     * @param excludedTriggerTables
+     * @param excludedTables excluded tables when comparing partition version
      * @return
      * @throws AnalysisException
      */
     public static boolean isMTMVPartitionSync(MTMVRefreshContext refreshContext, String partitionName,
             Set<BaseTableInfo> tables,
-            Set<TableName> excludedTriggerTables) throws AnalysisException {
+            Set<TableName> excludedTables) throws AnalysisException {
         MTMV mtmv = refreshContext.getMtmv();
         Set<String> relatedPartitionNames = refreshContext.getPartitionMappings().get(partitionName);
         boolean isSyncWithPartition = true;
         if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
             // if follow base table, not need compare with related table, only should compare with related partition
-            excludedTriggerTables.add(new TableName(relatedTable));
+            excludedTables.add(new TableName(relatedTable));
             if (CollectionUtils.isEmpty(relatedPartitionNames)) {
                 LOG.warn("can not found related partition, partitionId: {}, mtmvName: {}, relatedTableName: {}",
                         partitionName, mtmv.getName(), relatedTable.getName());
@@ -104,7 +104,7 @@ public class MTMVPartitionUtil {
             isSyncWithPartition = isSyncWithPartitions(refreshContext, partitionName, relatedPartitionNames);
         }
         return isSyncWithPartition && isSyncWithAllBaseTables(refreshContext, partitionName, tables,
-                excludedTriggerTables);
+                excludedTables);
 
     }
 
