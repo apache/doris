@@ -442,6 +442,8 @@ public:
 
     static const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column);
 
+    static const uint8_t* deserialize_binary_to_field(const uint8_t* data, Field& field, FieldInfo& info);
+
     // static std::pair<Field, FieldInfo> deserialize_binary_to_field(const uint8_t* data, size_t size) {
     //     Field res;
     //     FieldInfo info_res = {
