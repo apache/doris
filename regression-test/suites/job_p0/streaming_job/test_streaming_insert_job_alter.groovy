@@ -60,7 +60,7 @@ suite("test_streaming_insert_job_alter") {
         Awaitility.await().atMost(300, SECONDS)
                 .pollInterval(1, SECONDS).until(
                 {
-                    print("check job status pause")
+                    log.info("check job status pause")
                     def jobSuccendCount = sql """ select status from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                     // check job status pause
                     jobSuccendCount.size() == 1 && 'PAUSED' == jobSuccendCount.get(0).get(0)
@@ -69,8 +69,8 @@ suite("test_streaming_insert_job_alter") {
     } catch (Exception ex){
         def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
         def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
-        println("show job: " + showjob)
-        println("show task: " + showtask)
+        log.info("show job: " + showjob)
+        log.info("show task: " + showtask)
         throw ex;
     }
 
@@ -110,28 +110,33 @@ suite("test_streaming_insert_job_alter") {
         RESUME JOB where jobname =  '${jobName}'
     """
 
+    def resumeJobInfo = sql """
+        select * from jobs("type"="insert") where Name='${jobName}'
+    """
+    log.info("resume jobInfo: " + resumeJobInfo)
+
     try {
         Awaitility.await().atMost(300, SECONDS)
                 .pollInterval(1, SECONDS).until(
                 {
-                    print("check job status running")
-                    def jobSuccendCount = sql """ select status, SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+                    def jobCountStatus = sql """ select status, SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+                    log.info("check job status running: " + jobCountStatus)
                     // check job status running
-                    jobSuccendCount.size() == 1 && 'RUNNING' == jobSuccendCount.get(0).get(0) && jobSuccendCount.get(0).get(0) >= '1'
+                    jobCountStatus.size() == 1 && 'RUNNING' == jobCountStatus.get(0).get(0) && jobCountStatus.get(0).get(0) >= '1'
                 }
         )
     } catch (Exception ex){
         def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
         def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
-        println("show job: " + showjob)
-        println("show task: " + showtask)
+        log.info("show job: " + showjob)
+        log.info("show task: " + showtask)
         throw ex;
     }
 
-    def tmp = sql """
+    def runningJobInfo = sql """
         select * from jobs("type"="insert") where Name='${jobName}'
     """
-    println("job tmp: " + tmp)
+    log.info("running jobInfo: " + runningJobInfo)
 
     def jobOffset = sql """
         select currentOffset from jobs("type"="insert") where Name='${jobName}'
