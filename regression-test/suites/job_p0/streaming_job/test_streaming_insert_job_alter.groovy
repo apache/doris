@@ -1,7 +1,3 @@
-import org.awaitility.Awaitility
-
-import static java.util.concurrent.TimeUnit.SECONDS
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -18,6 +14,10 @@ import static java.util.concurrent.TimeUnit.SECONDS
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+import org.awaitility.Awaitility
+
+import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_streaming_insert_job_alter") {
     def tableName = "test_streaming_insert_job_alter_tbl"
