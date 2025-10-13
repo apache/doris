@@ -35,6 +35,10 @@
 // IWYU pragma: no_include <emmintrin.h>
 #include "util/sse_util.hpp"
 
+#ifdef __aarch64__
+#include <arm_neon.h>
+#endif
+
 namespace doris {
 #include "common/compile_check_begin.h"
 
@@ -119,6 +123,52 @@ void BlockBloomFilter::close() {
     }
 }
 
+#ifdef __aarch64__
+// A static helper function for the arm64 methods. Turns a 32-bit hash into a 256-bit
+// Bucket with 1 single 1-bit set in each 32-bit lane.
+static inline ALWAYS_INLINE uint32x4x2_t make_mask(const uint32_t hash) {
+    const uint32x4_t ones = vdupq_n_u32(1);
+    constexpr uint32_t c[8] = {BLOOM_HASH_CONSTANTS};
+    const uint32x4x2_t rehash = vld1q_u32_x2(c);
+    // Load hash, repeated 4 times.
+    uint32x4_t hash_data = vdupq_n_u32(hash);
+
+    // Multiply-shift hashing ala Dietzfelbinger et al.: multiply 'hash' by eight different
+    // odd constants, then keep the 5 most significant bits from each product.
+    int32x4x2_t t;
+    t.val[0] = vreinterpretq_s32_u32(vshrq_n_u32(vmulq_u32(rehash.val[0], hash_data), 27));
+    t.val[1] = vreinterpretq_s32_u32(vshrq_n_u32(vmulq_u32(rehash.val[1], hash_data), 27));
+
+    // Use these 5 bits to shift a single bit to a location in each 32-bit lane
+    uint32x4x2_t res;
+    res.val[0] = vshlq_u32(ones, t.val[0]);
+    res.val[1] = vshlq_u32(ones, t.val[1]);
+    return res;
+}
+
+void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t hash) noexcept {
+    const uint32x4x2_t mask = make_mask(hash);
+    uint32x4x2_t* addr = &(reinterpret_cast<uint32x4x2_t*>(_directory)[bucket_idx]);
+    auto* bucket = reinterpret_cast<uint32_t*>(addr);
+    uint32x4x2_t data = vld1q_u32_x2(bucket);
+    data.val[0] = vorrq_u32(data.val[0], mask.val[0]);
+    data.val[1] = vorrq_u32(data.val[1], mask.val[1]);
+    vst1q_u32_x2(bucket, data);
+}
+
+bool BlockBloomFilter::bucket_find(const uint32_t bucket_idx, const uint32_t hash) const noexcept {
+    const uint32x4x2_t mask = make_mask(hash);
+    uint32x4x2_t* addr = &(reinterpret_cast<uint32x4x2_t*>(_directory)[bucket_idx]);
+    auto* bucket = reinterpret_cast<uint32_t*>(addr);
+    uint32x4x2_t data = vld1q_u32_x2(bucket);
+    // We should return true if 'bucket' has a one wherever 'mask' does.
+    uint32x4_t t0 = vtstq_u32(data.val[0], mask.val[0]);
+    uint32x4_t t1 = vtstq_u32(data.val[1], mask.val[1]);
+    int64x2_t t = vreinterpretq_s64_u32(vandq_u32(t0, t1));
+    int64_t a = vgetq_lane_s64(t, 0) & vgetq_lane_s64(t, 1);
+    return a == -1;
+}
+#elif defined(__x86_64__)
 void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t hash) noexcept {
     // new_bucket will be all zeros except for eight 1-bits, one in each 32-bit word. It is
     // 16-byte aligned so it can be read as a __m128i using aligned SIMD loads in the second
@@ -138,38 +188,16 @@ void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t h
 }
 
 bool BlockBloomFilter::bucket_find(const uint32_t bucket_idx, const uint32_t hash) const noexcept {
-#if defined(__ARM_NEON)
-    uint32x4_t masks[2];
-
-    uint32x4_t directory_1 = vld1q_u32(&_directory[bucket_idx][0]);
-    uint32x4_t directory_2 = vld1q_u32(&_directory[bucket_idx][4]);
-
-    make_find_mask(hash, masks);
-    // The condition for returning true is that all the bits in _directory[bucket_idx][i] specified by masks[i] are 1.
-    // This can be equivalently expressed as all the bits in not( _directory[bucket_idx][i]) specified by masks[i] are 0.
-    // vbicq_u32(vec1, vec2) : Result of (vec1 AND NOT vec2)
-    // If true is returned, out_1 and out_2 should be all zeros.
-    uint32x4_t out_1 = vbicq_u32(masks[0], directory_1);
-    uint32x4_t out_2 = vbicq_u32(masks[1], directory_2);
-
-    out_1 = vorrq_u32(out_1, out_2);
-
-    uint32x2_t low = vget_low_u32(out_1);
-    uint32x2_t high = vget_high_u32(out_1);
-    low = vorr_u32(low, high);
-    uint32_t res = vget_lane_u32(low, 0) | vget_lane_u32(low, 1);
-    return !(res);
-#else
-    uint32_t masks[kBucketWords];
-    make_find_mask(hash, masks);
     for (int i = 0; i < kBucketWords; ++i) {
-        if ((DCHECK_NOTNULL(_directory)[bucket_idx][i] & masks[i]) == 0) {
+        BucketWord hval = (kRehash[i] * hash) >> ((1 << kLogBucketWordBits) - kLogBucketWordBits);
+        hval = 1U << hval;
+        if (!(DCHECK_NOTNULL(_directory)[bucket_idx][i] & hval)) {
             return false;
         }
     }
     return true;
-#endif
 }
+#endif
 
 void BlockBloomFilter::insert_no_avx2(const uint32_t hash) noexcept {
     _always_false = false;
@@ -214,7 +242,25 @@ Status BlockBloomFilter::or_equal_array(size_t n, const uint8_t* __restrict__ in
 
 void BlockBloomFilter::or_equal_array_no_avx2(size_t n, const uint8_t* __restrict__ in,
                                               uint8_t* __restrict__ out) {
-#if defined(__SSE4_2__) || defined(__aarch64__)
+#ifdef __aarch64__
+    // The trivial loop out[i] |= in[i] should auto-vectorize with gcc at -O3, but it is not
+    // written in a way that is very friendly to auto-vectorization. Instead, we manually
+    // vectorize, increasing the speed by up to 56x.
+    const uint8_t* simd_in = in;
+    const uint8_t* const simd_in_end = in + n;
+    uint8_t* simd_out = out;
+    // in.directory has a size (in bytes) that is a multiple of 32. Since sizeof(uint8x16_t)
+    // == 16, we can do two vorq's in each iteration without checking array bounds.
+    while (simd_in != simd_in_end) {
+        uint8x16x2_t a = vld1q_u8_x2(simd_in);
+        uint8x16x2_t b = vld1q_u8_x2(simd_out);
+        b.val[0] = vorrq_u8(b.val[0], a.val[0]);
+        b.val[1] = vorrq_u8(b.val[1], a.val[1]);
+        vst1q_u8_x2(simd_out, b);
+        simd_out += 32;
+        simd_in += 32;
+    }
+#elif defined(__x86_64__)
     // The trivial loop out[i] |= in[i] should auto-vectorize with gcc at -O3, but it is not
     // written in a way that is very friendly to auto-vectorization. Instead, we manually
     // vectorize, increasing the speed by up to 56x.
