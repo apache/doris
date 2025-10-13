@@ -38,7 +38,7 @@ suite("test_stream_load_host_ipv46", "p0") {
 
         file 'test_json.csv'
         set "column_separator", ","
-        set "columns", "id,v1,v2,v3=json_extract_int(v1, '$'),v4=json_extract_string(v2, '$.k')"
+        set "columns", "id,v1,v2,v3=json_extract_int(v1, '\$'),v4=json_extract_string(v2, '\$.k')"
 
         // Force redirect policy to direct, still validate Host header at L521-526
         set "redirect-policy", "direct"
@@ -62,7 +62,7 @@ suite("test_stream_load_host_ipv46", "p0") {
 
         file 'test_json.csv'
         set "column_separator", ","
-        set "columns", "id,v1,v2,v3=json_extract_int(v1, '$'),v4=json_extract_string(v2, '$.k')"
+        set "columns", "id,v1,v2,v3=json_extract_int(v1, '\$'),v4=json_extract_string(v2, '\$.k')"
 
         // Force redirect policy to direct, still validate Host header at L521-526
         set "redirect-policy", "direct"
