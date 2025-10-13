@@ -87,9 +87,9 @@ public class ShowQueuedAnalyzeJobsCommand extends ShowCommand {
         this.tableNameInfo = tableName == null ? null : new TableNameInfo(tableName);
         this.stateKey = stateKey;
         this.stateValue = stateValue;
-        ctl = "";
-        db = "";
-        table = "";
+        ctl = null;
+        db = null;
+        table = null;
     }
 
     private void validate(ConnectContext ctx) throws AnalysisException {

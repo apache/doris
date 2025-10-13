@@ -7373,7 +7373,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowQueuedAnalyzeJobs(ShowQueuedAnalyzeJobsContext ctx) {
-        List<String> tableName = ctx.tableName == null ? new ArrayList<>() : visitMultipartIdentifier(ctx.tableName);
+        List<String> tableName = ctx.tableName == null ? null : visitMultipartIdentifier(ctx.tableName);
         String stateKey = ctx.stateKey == null ? null : stripQuotes(ctx.stateKey.getText());
         String stateValue = ctx.stateValue == null ? null : stripQuotes(ctx.stateValue.getText());
         return new ShowQueuedAnalyzeJobsCommand(tableName, stateKey, stateValue);
