@@ -199,12 +199,6 @@ bool BlockBloomFilter::bucket_find(const uint32_t bucket_idx, const uint32_t has
 }
 #endif
 
-void BlockBloomFilter::insert_no_avx2(const uint32_t hash) noexcept {
-    _always_false = false;
-    const uint32_t bucket_idx = rehash32to32(hash) & _directory_mask;
-    bucket_insert(bucket_idx, hash);
-}
-
 // To set 8 bits in an 32-byte Bloom filter, we set one bit in each 32-bit uint32_t. This
 // is a "split Bloom filter", and it has approximately the same false positive probability
 // as standard a Bloom filter; See Mitzenmacher's "Bloom Filters and Such". It also has

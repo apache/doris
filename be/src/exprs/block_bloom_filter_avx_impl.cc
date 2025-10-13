@@ -40,12 +40,6 @@ void BlockBloomFilter::bucket_insert_avx2(const uint32_t bucket_idx, const uint3
     _mm256_zeroupper();
 }
 
-void BlockBloomFilter::insert_avx2(const uint32_t hash) noexcept {
-    _always_false = false;
-    const uint32_t bucket_idx = rehash32to32(hash) & _directory_mask;
-    bucket_insert_avx2(bucket_idx, hash);
-}
-
 void BlockBloomFilter::or_equal_array_avx2(size_t n, const uint8_t* __restrict__ in,
                                            uint8_t* __restrict__ out) {
     static constexpr size_t kAVXRegisterBytes = sizeof(__m256d);

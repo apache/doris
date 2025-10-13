@@ -162,7 +162,7 @@ private:
     // log2(number of bits in a BucketWord)
     static constexpr int kLogBucketWordBits = 5;
     static constexpr BucketWord kBucketWordMask = (1 << kLogBucketWordBits) - 1;
-    
+
     // log2(number of bytes in a bucket)
     static constexpr int kLogBucketByteSize = 5;
     // Bucket size in bytes.
@@ -189,9 +189,6 @@ private:
     // Helper function for public Init() variants.
     Status init_internal(int log_space_bytes, uint32_t hash_seed);
 
-    // Same as Insert(), but skips the CPU check and assumes that AVX2 is not available.
-    void insert_no_avx2(uint32_t hash) noexcept;
-
     // Does the actual work of Insert(). bucket_idx is the index of the bucket to insert
     // into and 'hash' is the value passed to Insert().
     void bucket_insert(uint32_t bucket_idx, uint32_t hash) noexcept;
@@ -208,9 +205,6 @@ private:
                                         uint8_t* __restrict__ out);
 
 #ifdef __AVX2__
-    // Same as Insert(), but skips the CPU check and assumes that AVX2 is available.
-    void insert_avx2(uint32_t hash) noexcept __attribute__((__target__("avx2")));
-
     // A faster SIMD version of BucketInsert().
     void bucket_insert_avx2(uint32_t bucket_idx, uint32_t hash) noexcept
             __attribute__((__target__("avx2")));
