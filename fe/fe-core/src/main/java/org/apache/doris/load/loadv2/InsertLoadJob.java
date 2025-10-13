@@ -57,6 +57,10 @@ public class InsertLoadJob extends LoadJob {
         super(EtlJobType.INSERT, dbId, label);
     }
 
+    public InsertLoadJob(long dbId, String label, long jobId) {
+        super(EtlJobType.INSERT, dbId, label, jobId);
+    }
+
     public InsertLoadJob(String label, long transactionId, long dbId, long tableId,
             long createTimestamp, String failMsg, String trackingUrl, String firstErrorMsg,
             UserIdentity userInfo) throws MetaNotFoundException {

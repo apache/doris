@@ -656,10 +656,6 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
         auto port = uri.GetQuery("port");
         auto user = uri.GetQuery("user");
         auto password = uri.GetQuery("password");
-        LOG(INFO) << " host " << *host;
-        LOG(INFO) << " port " << *port;
-        LOG(INFO) << " user " << *user;
-        LOG(INFO) << " instance " << *instance_id;
         if (instance_id == nullptr || instance_id->empty() || host == nullptr || host->empty() ||
             port == nullptr || port->empty() || password == nullptr || user == nullptr ||
             user->empty()) {
@@ -668,6 +664,10 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
             status_code = 400;
             return;
         }
+        LOG(INFO) << " host " << *host;
+        LOG(INFO) << " port " << *port;
+        LOG(INFO) << " user " << *user;
+        LOG(INFO) << " instance " << *instance_id;
         check_meta(txn_kv_, *instance_id, *host, *port, *user, *password, msg);
         status_code = 200;
         response_body = msg;

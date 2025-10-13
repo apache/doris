@@ -354,6 +354,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NormalCdf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NormalizeJsonNumbersToDouble;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NotNullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
@@ -421,6 +422,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Decrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Encrypt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SortJsonbObjectKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Soundex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Space;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
@@ -858,6 +860,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(NextDay.class, "next_day"),
             scalar(NonNullable.class, "non_nullable"),
             scalar(NormalCdf.class, "normal_cdf"),
+            scalar(NormalizeJsonNumbersToDouble.class, "normalize_json_numbers_to_double"),
+            scalar(NormalizeJsonNumbersToDouble.class, "normalize_jsonb_numbers_to_double"),
             scalar(NotNullOrEmpty.class, "not_null_or_empty"),
             scalar(NgramSearch.class, "ngram_search"),
             scalar(Now.class, "now", "current_timestamp", "localtime", "localtimestamp"),
@@ -932,6 +936,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Sm3sum.class, "sm3sum"),
             scalar(Sm4Decrypt.class, "sm4_decrypt"),
             scalar(Sm4Encrypt.class, "sm4_encrypt"),
+            scalar(SortJsonbObjectKeys.class, "sort_json_object_keys"),
+            scalar(SortJsonbObjectKeys.class, "sort_jsonb_object_keys"),
             scalar(Soundex.class, "soundex"),
             scalar(Space.class, "space"),
             scalar(SplitByChar.class, "split_by_char"),
