@@ -115,6 +115,7 @@ Status ExprPushDownHelper::convert_predicates(const VExprSPtrs& exprs,
                 break;
             }
             }
+            break;
         }
         case TExprNodeType::COMPOUND_PRED: {
             switch (expr->op()) {
@@ -134,6 +135,7 @@ Status ExprPushDownHelper::convert_predicates(const VExprSPtrs& exprs,
                 break;
             }
             }
+            break;
         }
         case TExprNodeType::FUNCTION_CALL: {
             auto fn_name = expr->fn().name.function_name;
