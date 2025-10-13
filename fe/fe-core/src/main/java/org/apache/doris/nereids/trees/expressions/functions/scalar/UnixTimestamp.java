@@ -28,9 +28,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
@@ -51,9 +49,7 @@ public class UnixTimestamp extends ScalarFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(),
             FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DateTimeV2Type.WILDCARD),
             FunctionSignature.ret(BigIntType.INSTANCE).args(DateV2Type.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DateType.INSTANCE),
-            FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(18, 6)).args(VarcharType.SYSTEM_DEFAULT,
+                    FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(18, 6)).args(VarcharType.SYSTEM_DEFAULT,
                     VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(18, 6)).args(StringType.INSTANCE,
                     StringType.INSTANCE)
