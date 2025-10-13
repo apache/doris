@@ -593,9 +593,9 @@ std::string PipelineTask::debug_string() {
     fmt::format_to(
             debug_string_buffer,
             "PipelineTask[this = {}, id = {}, open = {}, eos = {}, finalized = {}, dry run = "
-            "{}, _wake_up_early = {}, is running = {}]",
+            "{}, _wake_up_early = {}, _wake_up_by = {}, is running = {}]",
             (void*)this, _index, _opened, _eos, _finalized, _dry_run, _wake_up_early.load(),
-            is_running());
+            _wake_by, is_running());
     std::unique_lock<std::mutex> lc(_dependency_lock);
     auto* cur_blocked_dep = _blocked_dep;
     auto fragment = _fragment_context.lock();
