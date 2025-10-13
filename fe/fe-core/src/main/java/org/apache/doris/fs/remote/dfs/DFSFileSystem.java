@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -510,7 +511,9 @@ public class DFSFileSystem extends RemoteFileSystem {
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
             URI pathUri = URI.create(remotePath);
-            Path pathPattern = new Path(pathUri.getLocation());
+            LOG.info("Refrain 1 : {}", pathUri.getLocation());
+            LOG.info("Refrian 2 : {}", S3Util.extendGlobs(pathUri.getLocation()));
+            Path pathPattern = new Path(S3Util.extendGlobs(pathUri.getLocation()));
             FileSystem fileSystem = nativeFileSystem(pathPattern);
             FileStatus[] files = hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.globStatus(pathPattern));
             if (files == null) {

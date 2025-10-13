@@ -36,6 +36,10 @@ suite("test_s3_tvf_number_range", "p0,external") {
         PROPERTIES("replication_num" = "1");
     """
 
+    //////////////////////////////////////////////////////////////////////
+    //                              TEST FOR S3 
+    //////////////////////////////////////////////////////////////////////
+
     // Test 1: Single range expansion {1..3} - should load {1,2,3}
     try {
         sql """ INSERT INTO ${test_table}
@@ -311,5 +315,84 @@ suite("test_s3_tvf_number_range", "p0,external") {
     } finally {
     }
 
+    //////////////////////////////////////////////////////////////////////
+    //                              TEST FOR HDFS
+    //////////////////////////////////////////////////////////////////////
+
+    if (enableHdfs()) {
+        try {
+            // Get HDFS configuration
+            def hdfsFs = getHdfsFs()
+            def hdfsUser = getHdfsUser()
+            def hdfsPasswd = getHdfsPasswd()
+            
+            // Upload test data files to HDFS
+            // The uploadToHdfs method takes a relative path from regression-test/data/
+            // and uploads to HDFS with the same relative path
+            def hdfsPath1 = uploadToHdfs("external_table_p0/tvf/hdfs_data_1.txt")
+            def hdfsPath2 = uploadToHdfs("external_table_p0/tvf/hdfs_data_2.txt")
+            def hdfsPath3 = uploadToHdfs("external_table_p0/tvf/hdfs_data_3.txt")
+            
+            logger.info("Uploaded test files to HDFS: ${hdfsPath1}, ${hdfsPath2}, ${hdfsPath3}")
+            
+            // Helper closure to check load result
+            def check_hdfs_load_result = {checklabel ->
+                def max_try_milli_secs = 10000
+                def success = false
+                while(max_try_milli_secs) {
+                    def result = sql """ SHOW LOAD WHERE LABEL = '${checklabel}' """
+                    if (result.size() > 0) {
+                        def state = result[0][2]  // State column
+                        if (state == "FINISHED") {
+                            sql "sync"
+                            success = true
+                            break
+                        } else if (state == "CANCELLED") {
+                            logger.error("HDFS load job ${checklabel} was cancelled: ${result[0]}")
+                            break
+                        }
+                    }
+                     sleep(1000) // wait 1 second every time
+                    max_try_milli_secs-=1000
+                }
+                
+                if (!success) {
+                    def result = sql """ SHOW LOAD WHERE LABEL = '${checklabel}' """
+                    logger.error("HDFS load job ${checklabel} failed or timeout. Status: ${result}")
+                }
+            }
+            
+            // Test 12: HDFS Broker Load Single range {1..3} - should load {1,2,3}
+            try {
+                sql """ TRUNCATE TABLE ${test_table} """
+                
+                def label = "test_hdfs_load_range_" + System.currentTimeMillis()
+                // Use the returned HDFS path pattern
+                def hdfsDataPath = "${hdfsFs}/external_table_p0/tvf/hdfs_data_{1..3}.csv"
+                
+                sql """
+                    LOAD LABEL ${label} (
+                        DATA INFILE("${hdfsDataPath}")
+                        INTO TABLE ${test_table}
+                        COLUMNS TERMINATED BY ","
+                        FORMAT AS "csv"
+                        (a, b)
+                    ) 
+                    WITH HDFS (
+                        "username" = "${hdfsUser}",
+                        "password" = "${hdfsPasswd}",
+                        "fs.defaultFS"="${hdfsFs}"
+                    );
+                """
+                
+                check_hdfs_load_result.call(label)
+                qt_test12_data """ SELECT * FROM ${test_table} ORDER BY a, b """
+                
+            } finally {
+            }
+            
+        } finally {
+        }
+    }
     sql """ DROP TABLE IF EXISTS ${test_table} """
 }
