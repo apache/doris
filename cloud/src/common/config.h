@@ -366,4 +366,7 @@ CONF_mBool(enable_logging_conflict_keys, "false");
 // Default is 1 hour (3600 seconds).
 CONF_Int64(prune_aborted_snapshot_seconds, "3600"); // 1h
 
+CONF_mString(aws_credentials_provider_version, "v2");
+CONF_Validator(aws_credentials_provider_version,
+               [](const std::string& config) -> bool { return config == "v1" || config == "v2"; });
 } // namespace doris::cloud::config
