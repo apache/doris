@@ -128,6 +128,11 @@ suite("test_streaming_insert_job_alter") {
         throw ex;
     }
 
+    def tmp = sql """
+        select * from jobs("type"="insert") where Name='${jobName}'
+    """
+    println("job tmp: " + tmp)
+
     def jobOffset = sql """
         select currentOffset from jobs("type"="insert") where Name='${jobName}'
     """
