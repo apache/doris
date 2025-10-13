@@ -143,10 +143,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.originTvfProps = currentTvf.getProperties().getMap();
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
         } catch (AnalysisException ae) {
-            log.error("parse streaming insert job failed, props: {}", properties, ae);
+            log.warn("parse streaming insert job failed, props: {}", properties, ae);
             throw new RuntimeException(ae.getMessage());
         } catch (Exception ex) {
-            log.error("init streaming insert job failed, sql: {}", getExecuteSql(), ex);
+            log.warn("init streaming insert job failed, sql: {}", getExecuteSql(), ex);
             throw new RuntimeException(ex.getMessage());
         }
     }
