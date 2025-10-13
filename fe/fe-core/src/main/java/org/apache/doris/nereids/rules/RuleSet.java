@@ -80,6 +80,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalOlapTableSinkToPhysi
 import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhysicalOneRowRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalPartitionTopNToPhysicalPartitionTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
+import org.apache.doris.nereids.rules.implementation.LogicalRecursiveCteRecursiveChildToPhysicalRecursiveCteRecursiveChild;
 import org.apache.doris.nereids.rules.implementation.LogicalRecursiveCteScanToPhysicalRecursiveCteScan;
 import org.apache.doris.nereids.rules.implementation.LogicalRecursiveCteToPhysicalRecursiveCte;
 import org.apache.doris.nereids.rules.implementation.LogicalRepeatToPhysicalRepeat;
@@ -213,6 +214,7 @@ public class RuleSet {
             .add(SplitAggMultiPhase.INSTANCE)
             .add(SplitAggMultiPhaseWithoutGbyKey.INSTANCE)
             .add(new LogicalRecursiveCteToPhysicalRecursiveCte())
+            .add(new LogicalRecursiveCteRecursiveChildToPhysicalRecursiveCteRecursiveChild())
             .add(new LogicalUnionToPhysicalUnion())
             .add(new LogicalExceptToPhysicalExcept())
             .add(new LogicalIntersectToPhysicalIntersect())

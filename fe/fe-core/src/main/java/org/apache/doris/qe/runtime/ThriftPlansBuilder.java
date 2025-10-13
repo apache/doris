@@ -633,7 +633,7 @@ public class ThriftPlansBuilder {
 
                 List<TRecCTETarget> targets = new ArrayList<>();
                 List<TRecCTEResetInfo> fragmentsToReset = new ArrayList<>();
-                // PhysicalPlanTranslator will swap recursiveCteNodes's child fragment,
+                // PhysicalPlanTranslator will swap recursiveCteNode's child fragment,
                 // so we get recursive one by 1st child
                 List<PlanFragment> childFragments = new ArrayList<>();
                 planFragment.getChild(0).collectAll(PlanFragment.class::isInstance, childFragments);
