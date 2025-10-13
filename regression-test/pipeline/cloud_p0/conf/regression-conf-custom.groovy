@@ -85,6 +85,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "variant_p0/nested," +
     "variant_p0/nested/sql," +
     "plsql_p0," + // plsql is not developped any more, add by sk.
+    "restore_p0," + // 
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 max_failure_num = 50

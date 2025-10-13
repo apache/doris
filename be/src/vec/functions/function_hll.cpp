@@ -275,7 +275,7 @@ struct HllToBase64 {
         offsets.resize(size);
         size_t output_char_size = 0;
         for (size_t i = 0; i < size; ++i) {
-            auto& hll_val = const_cast<HyperLogLog&>(data[i]);
+            auto& hll_val = data[i];
             auto ser_size = hll_val.max_serialized_size();
             output_char_size += (int)(4.0 * ceil((double)ser_size / 3.0));
         }
@@ -288,7 +288,7 @@ struct HllToBase64 {
         std::string ser_buff;
         size_t encoded_offset = 0;
         for (size_t i = 0; i < size; ++i) {
-            auto& hll_val = const_cast<HyperLogLog&>(data[i]);
+            auto& hll_val = data[i];
 
             cur_ser_size = hll_val.max_serialized_size();
             if (cur_ser_size > last_ser_size) {

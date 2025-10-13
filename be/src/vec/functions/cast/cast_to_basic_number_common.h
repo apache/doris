@@ -328,13 +328,8 @@ struct CastToFloat {
     static inline bool _from_decimalv3(const FromCppT& from, UInt32 from_scale, ToCppT& to,
                                        const typename FromCppT::NativeType& scale_multiplier,
                                        CastParameters& params) {
-        if constexpr (IsDecimal256<FromCppT>) {
-            to = static_cast<ToCppT>(static_cast<long double>(from.value) /
-                                     static_cast<long double>(scale_multiplier));
-        } else {
-            to = static_cast<ToCppT>(static_cast<double>(from.value) /
-                                     static_cast<double>(scale_multiplier));
-        }
+        to = static_cast<ToCppT>(static_cast<double>(from.value) /
+                                 static_cast<double>(scale_multiplier));
         return true;
     }
     // cast from date and datetime to float/double, will not overflow

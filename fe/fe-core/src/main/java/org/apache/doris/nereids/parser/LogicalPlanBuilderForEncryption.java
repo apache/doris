@@ -21,6 +21,8 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.DorisParser.InsertTableContext;
+import org.apache.doris.nereids.DorisParser.SupportedDmlStatementContext;
 import org.apache.doris.nereids.trees.plans.commands.info.SetVarOp;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
@@ -126,6 +128,24 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
                     properties.stop.getStopIndex());
         }
         return super.visitTableValuedFunction(ctx);
+    }
+
+    // create job select tvf
+    @Override
+    public LogicalPlan visitCreateScheduledJob(DorisParser.CreateScheduledJobContext ctx) {
+        SupportedDmlStatementContext supportedDmlStatementContext = ctx.supportedDmlStatement();
+        visitInsertTable((InsertTableContext) supportedDmlStatementContext);
+        return super.visitCreateScheduledJob(ctx);
+    }
+
+    // alter job select tvf
+    @Override
+    public LogicalPlan visitAlterJob(DorisParser.AlterJobContext ctx) {
+        SupportedDmlStatementContext supportedDmlStatementContext = ctx.supportedDmlStatement();
+        if (ctx.supportedDmlStatement() != null) {
+            visitInsertTable((InsertTableContext) supportedDmlStatementContext);
+        }
+        return super.visitAlterJob(ctx);
     }
 
     private void encryptProperty(Map<String, String> properties, int start, int stop) {

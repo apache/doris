@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands.optimize;
+package org.apache.doris.nereids.trees.plans.commands.execute;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.TableIf;
@@ -29,12 +29,12 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Interface for all OPTIMIZE TABLE actions in Doris.
- * This provides a generic framework for implementing different optimization
+ * Interface for all EXECUTE TABLE actions in Doris.
+ * This provides a generic framework for implementing different execution
  * strategies across various table engines (internal tables, external tables,
  * etc.).
  */
-public interface OptimizeAction {
+public interface ExecuteAction {
     /**
      * Validate the action parameters and permissions.
      *
@@ -83,16 +83,16 @@ public interface OptimizeAction {
     Map<String, String> getProperties();
 
     /**
-     * Get partition information if specified.
+     * Get partition names info if specified.
      *
-     * @return optional partition names info
+     * @return partition names info
      */
     Optional<PartitionNamesInfo> getPartitionNamesInfo();
 
     /**
-     * Get WHERE condition if specified.
+     * Get where condition if specified.
      *
-     * @return optional where condition expression
+     * @return where condition
      */
     Optional<Expression> getWhereCondition();
 }
