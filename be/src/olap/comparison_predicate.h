@@ -167,6 +167,32 @@ public:
         }
     }
 
+    bool evaluate_and(const vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        vectorized::Field min_field;
+        vectorized::Field max_field;
+        if (!vectorized::ParquetPredicate::get_min_max_value(
+                    statistic->col_schema, statistic->encoded_min_value,
+                    statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)) {
+            return false;
+        };
+        T min_value = min_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+        T max_value = max_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+
+        if constexpr (PT == PredicateType::EQ) {
+            return _operator(Compare::less_equal(min_value, _value) &&
+                                     Compare::greater_equal(max_value, _value),
+                             true);
+        } else if constexpr (PT == PredicateType::NE) {
+            return _operator(Compare::equal(min_value, _value) && Compare::equal(max_value, _value),
+                             true);
+        } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
+            return _operator(min_value, _value);
+        } else {
+            static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
+            return _operator(max_value, _value);
+        }
+    }
+
     bool is_always_true(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (statistic.first->is_null() || statistic.second->is_null()) {
             return false;

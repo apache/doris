@@ -27,6 +27,7 @@
 #include "runtime/define_primitive_type.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
+#include "vec/exec/format/parquet/parquet_pred_cmp.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
 using namespace doris::segment_v2;
@@ -222,6 +223,12 @@ public:
     }
 
     virtual bool can_do_bloom_filter(bool ngram) const { return false; }
+
+    virtual bool evaluate_and(const vectorized::ParquetPredicate::ColumnStat* statistic) const {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "ParquetPredicate is not supported by this predicate!");
+        return true;
+    }
 
     // used to evaluate pre read column in lazy materialization
     // now only support integer/float
