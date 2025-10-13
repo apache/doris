@@ -390,6 +390,7 @@ public:
 
 struct ColumnIdResult {
     std::set<uint64_t> column_ids;
+    std::set<uint64_t> filter_column_ids;
     std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node; // Added table info node
 
     ColumnIdResult() = default; // Add default constructor
@@ -397,6 +398,13 @@ struct ColumnIdResult {
     ColumnIdResult(std::set<uint64_t> column_ids_,
                    std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ = nullptr)
             : column_ids(std::move(column_ids_)), table_info_node(std::move(table_info_node_)) {}
+    
+    ColumnIdResult(std::set<uint64_t> column_ids_,
+                   std::set<uint64_t> filter_column_ids_,
+                   std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ = nullptr)
+            : column_ids(std::move(column_ids_)), 
+              filter_column_ids(std::move(filter_column_ids_)),
+              table_info_node(std::move(table_info_node_)) {}
 };
 
 #include "common/compile_check_end.h"

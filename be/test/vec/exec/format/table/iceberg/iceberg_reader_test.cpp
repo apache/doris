@@ -68,6 +68,392 @@ protected:
 
     void TearDown() override { cache.reset(); }
 
+    // Helper function to create complex struct types for testing
+    void createComplexStructTypes(DataTypePtr& coordinates_struct_type,
+                                  DataTypePtr& address_struct_type,
+                                  DataTypePtr& phone_struct_type,
+                                  DataTypePtr& contact_struct_type,
+                                  DataTypePtr& hobby_element_struct_type,
+                                  DataTypePtr& hobbies_array_type,
+                                  DataTypePtr& profile_struct_type,
+                                  DataTypePtr& name_type) {
+        // Create name column type (direct field)
+        name_type = make_nullable(std::make_shared<DataTypeString>());
+
+        // First create coordinates struct type
+        std::vector<DataTypePtr> coordinates_types = {
+            make_nullable(std::make_shared<DataTypeFloat64>()), // lat (field ID 10)
+            make_nullable(std::make_shared<DataTypeFloat64>())  // lng (field ID 11)
+        };
+        std::vector<std::string> coordinates_names = {"lat", "lng"};
+        coordinates_struct_type =
+            make_nullable(std::make_shared<DataTypeStruct>(coordinates_types, coordinates_names));
+
+        // Create address struct type (with street, city, coordinates)
+        std::vector<DataTypePtr> address_types = {
+            make_nullable(std::make_shared<DataTypeString>()), // street (field ID 7)
+            make_nullable(std::make_shared<DataTypeString>()), // city (field ID 8)
+            coordinates_struct_type                            // coordinates (field ID 9)
+        };
+        std::vector<std::string> address_names = {"street", "city", "coordinates"};
+        address_struct_type =
+            make_nullable(std::make_shared<DataTypeStruct>(address_types, address_names));
+
+        // Create phone struct type
+        std::vector<DataTypePtr> phone_types = {
+            make_nullable(std::make_shared<DataTypeString>()), // country_code (field ID 14)
+            make_nullable(std::make_shared<DataTypeString>())  // number (field ID 15)
+        };
+        std::vector<std::string> phone_names = {"country_code", "number"};
+        phone_struct_type =
+            make_nullable(std::make_shared<DataTypeStruct>(phone_types, phone_names));
+
+        // Create contact struct type (with email, phone)
+        std::vector<DataTypePtr> contact_types = {
+            make_nullable(std::make_shared<DataTypeString>()), // email (field ID 12)
+            phone_struct_type                                  // phone (field ID 13)
+        };
+        std::vector<std::string> contact_names = {"email", "phone"};
+        contact_struct_type =
+            make_nullable(std::make_shared<DataTypeStruct>(contact_types, contact_names));
+
+        // Create hobby element struct type for array elements
+        std::vector<DataTypePtr> hobby_element_types = {
+            make_nullable(std::make_shared<DataTypeString>()), // name (field ID 17)
+            make_nullable(std::make_shared<DataTypeInt32>())   // level (field ID 18)
+        };
+        std::vector<std::string> hobby_element_names = {"name", "level"};
+        hobby_element_struct_type = make_nullable(
+            std::make_shared<DataTypeStruct>(hobby_element_types, hobby_element_names));
+
+        // Create hobbies array type
+        hobbies_array_type =
+            make_nullable(std::make_shared<DataTypeArray>(hobby_element_struct_type));
+
+        // Create complete profile struct type (with address, contact, hobbies)
+        std::vector<DataTypePtr> profile_types = {
+            address_struct_type, // address (field ID 4)
+            contact_struct_type, // contact (field ID 5)
+            hobbies_array_type   // hobbies (field ID 6)
+        };
+        std::vector<std::string> profile_names = {"address", "contact", "hobbies"};
+        profile_struct_type =
+            make_nullable(std::make_shared<DataTypeStruct>(profile_types, profile_names));
+    }
+
+    // Helper function to create tuple descriptor
+    const TupleDescriptor* createTupleDescriptor(DescriptorTbl** desc_tbl,
+                                                 ObjectPool& obj_pool,
+                                                 TDescriptorTable& t_desc_table,
+                                                 TTableDescriptor& t_table_desc) {
+        std::vector<std::string> table_column_names = {"name", "profile"};
+        std::vector<TPrimitiveType::type> table_column_types = {
+            TPrimitiveType::STRING, TPrimitiveType::STRUCT // profile 用 STRUCT 类型
+        };
+
+        // Create table descriptor with complex schema
+        auto create_table_desc = [](TDescriptorTable& t_desc_table, TTableDescriptor& t_table_desc,
+                                    const std::vector<std::string>& table_column_names,
+                                    const std::vector<TPrimitiveType::type>& types) {
+            t_table_desc.__set_id(0);
+            t_table_desc.__set_tableType(TTableType::OLAP_TABLE);
+            t_table_desc.__set_numCols(0);
+            t_table_desc.__set_numClusteringCols(0);
+            t_desc_table.tableDescriptors.push_back(t_table_desc);
+            t_desc_table.__isset.tableDescriptors = true;
+            // 需要和 table_column_names 顺序一致的 iceberg_id
+            std::vector<int32_t> iceberg_ids = {2, 3}; // name:2, profile:3
+            for (int i = 0; i < table_column_names.size(); i++) {
+                TSlotDescriptor tslot_desc;
+                tslot_desc.__set_id(i);
+                tslot_desc.__set_parent(0);
+                tslot_desc.__set_col_unique_id(iceberg_ids[i]);
+                TTypeDesc type;
+                if (table_column_names[i] == "profile") {
+                    // STRUCT/ARRAY 节点设置 contains_nulls，SCALAR 节点不设置
+                    TTypeNode struct_node;
+                    struct_node.__set_type(TTypeNodeType::STRUCT);
+                    std::vector<TStructField> struct_fields;
+                    TStructField address_field;
+                    address_field.__set_name("address");
+                    address_field.__set_contains_null(true);
+                    struct_fields.push_back(address_field);
+                    TStructField contact_field;
+                    contact_field.__set_name("contact");
+                    contact_field.__set_contains_null(true);
+                    struct_fields.push_back(contact_field);
+                    TStructField hobbies_field;
+                    hobbies_field.__set_name("hobbies");
+                    hobbies_field.__set_contains_null(true);
+                    struct_fields.push_back(hobbies_field);
+                    struct_node.__set_struct_fields(struct_fields);
+                    type.types.push_back(struct_node);
+                    TTypeNode address_node;
+                    address_node.__set_type(TTypeNodeType::STRUCT);
+                    std::vector<TStructField> address_fields;
+                    TStructField street_field;
+                    street_field.__set_name("street");
+                    street_field.__set_contains_null(true);
+                    address_fields.push_back(street_field);
+                    TStructField city_field;
+                    city_field.__set_name("city");
+                    city_field.__set_contains_null(true);
+                    address_fields.push_back(city_field);
+                    TStructField coordinates_field;
+                    coordinates_field.__set_name("coordinates");
+                    coordinates_field.__set_contains_null(true);
+                    address_fields.push_back(coordinates_field);
+                    address_node.__set_struct_fields(address_fields);
+                    type.types.push_back(address_node);
+                    TTypeNode street_node;
+                    street_node.__set_type(TTypeNodeType::SCALAR);
+                    TScalarType street_scalar;
+                    street_scalar.__set_type(TPrimitiveType::STRING);
+                    street_node.__set_scalar_type(street_scalar);
+                    type.types.push_back(street_node);
+                    TTypeNode city_node;
+                    city_node.__set_type(TTypeNodeType::SCALAR);
+                    TScalarType city_scalar;
+                    city_scalar.__set_type(TPrimitiveType::STRING);
+                    city_node.__set_scalar_type(city_scalar);
+                    type.types.push_back(city_node);
+                    TTypeNode coordinates_node;
+                    coordinates_node.__set_type(TTypeNodeType::STRUCT);
+                    std::vector<TStructField> coordinates_fields;
+                    TStructField lat_field;
+                    lat_field.__set_name("lat");
+                    lat_field.__set_contains_null(true);
+                    coordinates_fields.push_back(lat_field);
+                    TStructField lng_field;
+                    lng_field.__set_name("lng");
+                    lng_field.__set_contains_null(true);
+                    coordinates_fields.push_back(lng_field);
+                    coordinates_node.__set_struct_fields(coordinates_fields);
+                    type.types.push_back(coordinates_node);
+                    TTypeNode lat_node;
+                    lat_node.__set_type(TTypeNodeType::SCALAR);
+                    TScalarType lat_scalar;
+                    lat_scalar.__set_type(TPrimitiveType::DOUBLE);
+                    lat_node.__set_scalar_type(lat_scalar);
+                    type.types.push_back(lat_node);
+                    TTypeNode lng_node;
+                    lng_node.__set_type(TTypeNodeType::SCALAR);
+                    TScalarType lng_scalar;
+                    lng_scalar.__set_type(TPrimitiveType::DOUBLE);
+                    lng_node.__set_scalar_type(lng_scalar);
+                    type.types.push_back(lng_node);
+                    TTypeNode contact_node;
+                    contact_node.__set_type(TTypeNodeType::STRUCT);
+                    std::vector<TStructField> contact_fields;
+                    TStructField email_field;
+                    email_field.__set_name("email");
+                    email_field.__set_contains_null(true);
+                    contact_fields.push_back(email_field);
+                    TStructField phone_field;
+                    phone_field.__set_name("phone");
+                    phone_field.__set_contains_null(true);
+                    contact_fields.push_back(phone_field);
+                    contact_node.__set_struct_fields(contact_fields);
+                    type.types.push_back(contact_node);
+                    TTypeNode email_node;
+                    email_node.__set_type(TTypeNodeType::SCALAR);
+                    TScalarType email_scalar;
+                    email_scalar.__set_type(TPrimitiveType::STRING);
+                    email_node.__set_scalar_type(email_scalar);
+                    type.types.push_back(email_node);
+                    TTypeNode phone_node;
+                    phone_node.__set_type(TTypeNodeType::STRUCT);
+                    std::vector<TStructField> phone_fields;
+                    TStructField country_code_field;
+                    country_code_field.__set_name("country_code");
+                    country_code_field.__set_contains_null(true);
+                    phone_fields.push_back(country_code_field);
+                    TStructField number_field;
+                    number_field.__set_name("number");
+                    number_field.__set_contains_null(true);
+                    phone_fields.push_back(number_field);
+                    phone_node.__set_struct_fields(phone_fields);
+                    type.types.push_back(phone_node);
+                    TTypeNode country_code_node;
+                    country_code_node.__set_type(TTypeNodeType::SCALAR);
+                    TScalarType country_code_scalar;
+                    country_code_scalar.__set_type(TPrimitiveType::STRING);
+                    country_code_node.__set_scalar_type(country_code_scalar);
+                    type.types.push_back(country_code_node);
+                    TTypeNode number_node;
+                    number_node.__set_type(TTypeNodeType::SCALAR);
+                    TScalarType number_scalar;
+                    number_scalar.__set_type(TPrimitiveType::STRING);
+                    number_node.__set_scalar_type(number_scalar);
+                    type.types.push_back(number_node);
+                    TTypeNode hobbies_node;
+                    hobbies_node.__set_type(TTypeNodeType::ARRAY);
+                    hobbies_node.__set_contains_nulls({true});
+                    type.types.push_back(hobbies_node);
+                    TTypeNode hobby_element_node;
+                    hobby_element_node.__set_type(TTypeNodeType::STRUCT);
+                    std::vector<TStructField> hobby_element_fields;
+                    TStructField hobby_name_field;
+                    hobby_name_field.__set_name("name");
+                    hobby_name_field.__set_contains_null(true);
+                    hobby_element_fields.push_back(hobby_name_field);
+                    TStructField hobby_level_field;
+                    hobby_level_field.__set_name("level");
+                    hobby_level_field.__set_contains_null(true);
+                    hobby_element_fields.push_back(hobby_level_field);
+                    hobby_element_node.__set_struct_fields(hobby_element_fields);
+                    type.types.push_back(hobby_element_node);
+                    TTypeNode hobby_name_node;
+                    hobby_name_node.__set_type(TTypeNodeType::SCALAR);
+                    TScalarType hobby_name_scalar;
+                    hobby_name_scalar.__set_type(TPrimitiveType::STRING);
+                    hobby_name_node.__set_scalar_type(hobby_name_scalar);
+                    type.types.push_back(hobby_name_node);
+                    TTypeNode hobby_level_node;
+                    hobby_level_node.__set_type(TTypeNodeType::SCALAR);
+                    TScalarType hobby_level_scalar;
+                    hobby_level_scalar.__set_type(TPrimitiveType::INT);
+                    hobby_level_node.__set_scalar_type(hobby_level_scalar);
+                    type.types.push_back(hobby_level_node);
+                    tslot_desc.__set_slotType(type);
+                } else {
+                    // 普通类型
+                    TTypeNode node;
+                    node.__set_type(TTypeNodeType::SCALAR);
+                    TScalarType scalar_type;
+                    scalar_type.__set_type(types[i]);
+                    node.__set_scalar_type(scalar_type);
+                    type.types.push_back(node);
+                    tslot_desc.__set_slotType(type);
+                }
+                tslot_desc.__set_columnPos(0);
+                tslot_desc.__set_byteOffset(0);
+                tslot_desc.__set_nullIndicatorByte(0);
+                tslot_desc.__set_nullIndicatorBit(-1);
+                tslot_desc.__set_colName(table_column_names[i]);
+                tslot_desc.__set_slotIdx(0);
+                tslot_desc.__set_isMaterialized(true);
+                // 设置 column_access_paths，仅对 profile 字段
+                if (table_column_names[i] == "profile") {
+                    TColumnAccessPaths access_paths;
+                    access_paths.__set_type(doris::TAccessPathType::NAME);
+                    std::vector<TColumnNameAccessPath> paths;
+                    // address.coordinates.lat
+                    TColumnNameAccessPath path1;
+                    path1.__set_path({"4", "9", "10"});
+                    path1.__set_is_predicate(false);
+                    paths.push_back(path1);
+                    // address.coordinates.lng
+                    TColumnNameAccessPath path2;
+                    path2.__set_path({"4", "9", "11"});
+                    path2.__set_is_predicate(false);
+                    paths.push_back(path2);
+                    // contact.email
+                    TColumnNameAccessPath path3;
+                    path3.__set_path({"5", "12"});
+                    path3.__set_is_predicate(false);
+                    paths.push_back(path3);
+                    // hobbies[].element.level
+                    TColumnNameAccessPath path4;
+                    path4.__set_path({"6", "16", "18"});
+                    path4.__set_is_predicate(false);
+                    paths.push_back(path4);
+                    access_paths.__set_name_access_paths(paths);
+                    tslot_desc.__set_column_access_paths(access_paths);
+                }
+                t_desc_table.slotDescriptors.push_back(tslot_desc);
+            }
+            t_desc_table.__isset.slotDescriptors = true;
+            TTupleDescriptor t_tuple_desc;
+            t_tuple_desc.__set_id(0);
+            t_tuple_desc.__set_byteSize(16);
+            t_tuple_desc.__set_numNullBytes(0);
+            t_tuple_desc.__set_tableId(0);
+            t_tuple_desc.__isset.tableId = true;
+            t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
+        };
+
+        create_table_desc(t_desc_table, t_table_desc, table_column_names, table_column_types);
+        EXPECT_TRUE(DescriptorTbl::create(&obj_pool, t_desc_table, desc_tbl).ok());
+        return (*desc_tbl)->get_tuple_descriptor(0);
+    }
+
+    // Helper function to verify test results
+    void verifyTestResults(Block& block, size_t read_rows) {
+        // Verify that we read some data
+        EXPECT_GT(read_rows, 0) << "Should read at least one row";
+        EXPECT_EQ(block.rows(), read_rows);
+
+        // Verify column count matches expected (2 columns: name, profile)
+        EXPECT_EQ(block.columns(), 2);
+
+        // Verify column names and types
+        auto columns_with_names = block.get_columns_with_type_and_name();
+        std::vector<std::string> expected_column_names = {"name", "profile"};
+        for (size_t i = 0; i < expected_column_names.size(); i++) {
+            EXPECT_EQ(columns_with_names[i].name, expected_column_names[i]);
+        }
+
+        // Verify column types
+        EXPECT_TRUE(columns_with_names[0].type->get_name().find("String") !=
+                    std::string::npos); // name is STRING
+        EXPECT_TRUE(columns_with_names[1].type->get_name().find("Struct") !=
+                    std::string::npos); // profile is STRUCT
+
+        // Print row count for each column and nested subcolumns
+        std::cout << "Block rows: " << block.rows() << std::endl;
+
+        // Helper function to recursively print column row counts
+        std::function<void(const ColumnPtr&, const DataTypePtr&, const std::string&, int)>
+                print_column_rows = [&](const ColumnPtr& col, const DataTypePtr& type,
+                                        const std::string& name, int depth) {
+                    std::string indent(depth * 2, ' ');
+                    std::cout << indent << name << " row count: " << col->size() << std::endl;
+
+                    // Check if it's a nullable column
+                    if (const auto* nullable_col = typeid_cast<const ColumnNullable*>(col.get())) {
+                        auto nested_type =
+                                assert_cast<const DataTypeNullable*>(type.get())->get_nested_type();
+
+                        // Only add ".nested" suffix for non-leaf (complex) nullable columns
+                        // Leaf columns like String, Int, etc. should not get the ".nested" suffix
+                        bool is_complex_type =
+                                (typeid_cast<const DataTypeStruct*>(nested_type.get()) != nullptr) ||
+                                (typeid_cast<const DataTypeArray*>(nested_type.get()) != nullptr) ||
+                                (typeid_cast<const DataTypeMap*>(nested_type.get()) != nullptr);
+
+                        std::string nested_name = is_complex_type ? name + ".nested" : name;
+                        print_column_rows(nullable_col->get_nested_column_ptr(), nested_type,
+                                          nested_name, depth + (is_complex_type ? 1 : 0));
+                    }
+                    // Check if it's a struct column
+                    else if (const auto* struct_col = typeid_cast<const ColumnStruct*>(col.get())) {
+                        auto struct_type = assert_cast<const DataTypeStruct*>(type.get());
+                        for (size_t i = 0; i < struct_col->tuple_size(); ++i) {
+                            std::string field_name = struct_type->get_element_name(i);
+                            auto field_type = struct_type->get_element(i);
+                            print_column_rows(struct_col->get_column_ptr(i), field_type,
+                                              name + "." + field_name, depth + 1);
+                        }
+                    }
+                    // Check if it's an array column
+                    else if (const auto* array_col = typeid_cast<const ColumnArray*>(col.get())) {
+                        auto array_type = assert_cast<const DataTypeArray*>(type.get());
+                        auto element_type = array_type->get_nested_type();
+                        print_column_rows(array_col->get_data_ptr(), element_type, name + ".data",
+                                          depth + 1);
+                    }
+                };
+
+        // Print row counts for all columns
+        for (size_t i = 0; i < block.columns(); ++i) {
+            const auto& column_with_name = block.get_by_position(i);
+            print_column_rows(column_with_name.column, column_with_name.type, column_with_name.name, 0);
+            EXPECT_EQ(column_with_name.column->size(), block.rows())
+                    << "Column " << column_with_name.name << " size mismatch";
+        }
+    }
+
     std::unique_ptr<doris::FileMetaCache> cache;
     cctz::time_zone timezone_obj;
 };
@@ -135,48 +521,6 @@ TEST_F(IcebergReaderTest, ReadIcebergParquetFile) {
     }
     }
     */
-    // TDescriptorTable t_desc_table;
-    // TTableDescriptor t_table_desc;
-
-    // // Create struct type for address field
-    // TTypeDesc address_struct_type;
-    // address_struct_type.types.resize(4); // One for the struct itself + 3 for the fields
-
-    // // Main struct node
-    // address_struct_type.types[0].__set_type(TTypeNodeType::STRUCT);
-    // address_struct_type.types[0].__set_struct_fields(std::vector<TStructField>());
-
-    // // Add struct fields: street, city, country
-    // TStructField street_field;
-    // street_field.name = "street";
-    // street_field.contains_null = true;
-    // address_struct_type.types[0].struct_fields.push_back(street_field);
-
-    // TStructField city_field;
-    // city_field.name = "city";
-    // city_field.contains_null = true;
-    // address_struct_type.types[0].struct_fields.push_back(city_field);
-
-    // TStructField country_field;
-    // country_field.name = "country";
-    // country_field.contains_null = true;
-    // address_struct_type.types[0].struct_fields.push_back(country_field);
-
-    // // Add type nodes for each field (street, city, country - all strings)
-    // for (int i = 1; i <= 3; i++) {
-    //     address_struct_type.types[i].__set_type(TTypeNodeType::SCALAR);
-    //     address_struct_type.types[i].__set_scalar_type(TScalarType());
-    //     address_struct_type.types[i].scalar_type.__set_type(TPrimitiveType::STRING);
-    // }
-
-    // // Create table descriptor with complex schema
-    // create_iceberg_table_desc_complex(t_desc_table, t_table_desc, address_struct_type);
-
-    // DescriptorTbl* desc_tbl;
-    // ObjectPool obj_pool;
-    // ASSERT_TRUE(DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl).ok());
-
-    // auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
 
     // Open the Iceberg Parquet test file
     auto local_fs = io::global_local_filesystem();
@@ -192,7 +536,6 @@ TEST_F(IcebergReaderTest, ReadIcebergParquetFile) {
 
     // Setup runtime state
     RuntimeState runtime_state((TQueryGlobals()));
-    // runtime_state.set_desc_tbl(desc_tbl);
 
     // Setup scan parameters
     TFileScanRangeParams scan_params;
@@ -210,15 +553,12 @@ TEST_F(IcebergReaderTest, ReadIcebergParquetFile) {
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
 
-    // IOContext io_ctx;
-
     auto generic_reader = ParquetReader::create_unique(&profile, scan_params, scan_range, 1024,
                                                        &ctz, nullptr, &runtime_state, cache.get());
     ASSERT_NE(generic_reader, nullptr);
 
     // Set file reader for the generic reader
     auto parquet_reader = static_cast<ParquetReader*>(generic_reader.get());
-
     parquet_reader->set_file_reader(file_reader);
 
     // Create IcebergParquetReader
@@ -226,304 +566,20 @@ TEST_F(IcebergReaderTest, ReadIcebergParquetFile) {
             std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range, nullptr,
             nullptr, cache.get());
 
-    // Add name column (direct field)
-    auto name_type = make_nullable(std::make_shared<DataTypeString>());
+    // Create complex struct types using helper function
+    DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
+    DataTypePtr contact_struct_type, hobby_element_struct_type, hobbies_array_type;
+    DataTypePtr profile_struct_type, name_type;
+    createComplexStructTypes(coordinates_struct_type, address_struct_type, phone_struct_type,
+                             contact_struct_type, hobby_element_struct_type, hobbies_array_type,
+                             profile_struct_type, name_type);
 
-    // Create complete profile struct type matching the Iceberg schema
-    // First create coordinates struct type
-    std::vector<DataTypePtr> coordinates_types = {
-            make_nullable(std::make_shared<DataTypeFloat64>()), // lat (field ID 10)
-            make_nullable(std::make_shared<DataTypeFloat64>())  // lng (field ID 11)
-    };
-    std::vector<std::string> coordinates_names = {"lat", "lng"};
-    auto coordinates_struct_type =
-            make_nullable(std::make_shared<DataTypeStruct>(coordinates_types, coordinates_names));
-
-    // Create address struct type (with street, city, coordinates)
-    std::vector<DataTypePtr> address_types = {
-            make_nullable(std::make_shared<DataTypeString>()), // street (field ID 7)
-            make_nullable(std::make_shared<DataTypeString>()), // city (field ID 8)
-            coordinates_struct_type                            // coordinates (field ID 9)
-    };
-    std::vector<std::string> address_names = {"street", "city", "coordinates"};
-    auto address_struct_type =
-            make_nullable(std::make_shared<DataTypeStruct>(address_types, address_names));
-
-    // Create phone struct type
-    std::vector<DataTypePtr> phone_types = {
-            make_nullable(std::make_shared<DataTypeString>()), // country_code (field ID 14)
-            make_nullable(std::make_shared<DataTypeString>())  // number (field ID 15)
-    };
-    std::vector<std::string> phone_names = {"country_code", "number"};
-    auto phone_struct_type =
-            make_nullable(std::make_shared<DataTypeStruct>(phone_types, phone_names));
-
-    // Create contact struct type (with email, phone)
-    std::vector<DataTypePtr> contact_types = {
-            make_nullable(std::make_shared<DataTypeString>()), // email (field ID 12)
-            phone_struct_type                                  // phone (field ID 13)
-    };
-    std::vector<std::string> contact_names = {"email", "phone"};
-    auto contact_struct_type =
-            make_nullable(std::make_shared<DataTypeStruct>(contact_types, contact_names));
-
-    // Create hobby element struct type for array elements
-    std::vector<DataTypePtr> hobby_element_types = {
-            make_nullable(std::make_shared<DataTypeString>()), // name (field ID 17)
-            make_nullable(std::make_shared<DataTypeInt32>())   // level (field ID 18)
-    };
-    std::vector<std::string> hobby_element_names = {"name", "level"};
-    auto hobby_element_struct_type = make_nullable(
-            std::make_shared<DataTypeStruct>(hobby_element_types, hobby_element_names));
-
-    // Create hobbies array type
-    auto hobbies_array_type =
-            make_nullable(std::make_shared<DataTypeArray>(hobby_element_struct_type));
-
-    // Create complete profile struct type (with address, contact, hobbies)
-    std::vector<DataTypePtr> profile_types = {
-            address_struct_type, // address (field ID 4)
-            contact_struct_type, // contact (field ID 5)
-            hobbies_array_type   // hobbies (field ID 6)
-    };
-    std::vector<std::string> profile_names = {"address", "contact", "hobbies"};
-    auto profile_struct_type =
-            make_nullable(std::make_shared<DataTypeStruct>(profile_types, profile_names));
-
-    // ----------- 构造 tuple_descriptor -------------
-    TDescriptorTable t_desc_table;
-    TTableDescriptor t_table_desc;
-    std::vector<std::string> table_column_names = {"name", "profile"};
-    std::vector<TPrimitiveType::type> table_column_types = {
-            TPrimitiveType::STRING, TPrimitiveType::STRUCT // profile 用 STRUCT 类型
-    };
-    // 复用 parquet_reader_test.cpp 的 create_table_desc 方法
-    auto create_table_desc = [](TDescriptorTable& t_desc_table, TTableDescriptor& t_table_desc,
-                                const std::vector<std::string>& table_column_names,
-                                const std::vector<TPrimitiveType::type>& types) {
-        t_table_desc.__set_id(0);
-        t_table_desc.__set_tableType(TTableType::OLAP_TABLE);
-        t_table_desc.__set_numCols(0);
-        t_table_desc.__set_numClusteringCols(0);
-        t_desc_table.tableDescriptors.push_back(t_table_desc);
-        t_desc_table.__isset.tableDescriptors = true;
-        // 需要和 table_column_names 顺序一致的 iceberg_id
-        std::vector<int32_t> iceberg_ids = {2, 3}; // name:2, profile:3
-        for (int i = 0; i < table_column_names.size(); i++) {
-            TSlotDescriptor tslot_desc;
-            tslot_desc.__set_id(i);
-            tslot_desc.__set_parent(0);
-            tslot_desc.__set_col_unique_id(iceberg_ids[i]);
-            TTypeDesc type;
-            if (table_column_names[i] == "profile") {
-                // STRUCT/ARRAY 节点设置 contains_nulls，SCALAR 节点不设置
-                TTypeNode struct_node;
-                struct_node.__set_type(TTypeNodeType::STRUCT);
-                std::vector<TStructField> struct_fields;
-                TStructField address_field;
-                address_field.__set_name("address");
-                address_field.__set_contains_null(true);
-                struct_fields.push_back(address_field);
-                TStructField contact_field;
-                contact_field.__set_name("contact");
-                contact_field.__set_contains_null(true);
-                struct_fields.push_back(contact_field);
-                TStructField hobbies_field;
-                hobbies_field.__set_name("hobbies");
-                hobbies_field.__set_contains_null(true);
-                struct_fields.push_back(hobbies_field);
-                struct_node.__set_struct_fields(struct_fields);
-                type.types.push_back(struct_node);
-                TTypeNode address_node;
-                address_node.__set_type(TTypeNodeType::STRUCT);
-                std::vector<TStructField> address_fields;
-                TStructField street_field;
-                street_field.__set_name("street");
-                street_field.__set_contains_null(true);
-                address_fields.push_back(street_field);
-                TStructField city_field;
-                city_field.__set_name("city");
-                city_field.__set_contains_null(true);
-                address_fields.push_back(city_field);
-                TStructField coordinates_field;
-                coordinates_field.__set_name("coordinates");
-                coordinates_field.__set_contains_null(true);
-                address_fields.push_back(coordinates_field);
-                address_node.__set_struct_fields(address_fields);
-                type.types.push_back(address_node);
-                TTypeNode street_node;
-                street_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType street_scalar;
-                street_scalar.__set_type(TPrimitiveType::STRING);
-                street_node.__set_scalar_type(street_scalar);
-                type.types.push_back(street_node);
-                TTypeNode city_node;
-                city_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType city_scalar;
-                city_scalar.__set_type(TPrimitiveType::STRING);
-                city_node.__set_scalar_type(city_scalar);
-                type.types.push_back(city_node);
-                TTypeNode coordinates_node;
-                coordinates_node.__set_type(TTypeNodeType::STRUCT);
-                std::vector<TStructField> coordinates_fields;
-                TStructField lat_field;
-                lat_field.__set_name("lat");
-                lat_field.__set_contains_null(true);
-                coordinates_fields.push_back(lat_field);
-                TStructField lng_field;
-                lng_field.__set_name("lng");
-                lng_field.__set_contains_null(true);
-                coordinates_fields.push_back(lng_field);
-                coordinates_node.__set_struct_fields(coordinates_fields);
-                type.types.push_back(coordinates_node);
-                TTypeNode lat_node;
-                lat_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType lat_scalar;
-                lat_scalar.__set_type(TPrimitiveType::DOUBLE);
-                lat_node.__set_scalar_type(lat_scalar);
-                type.types.push_back(lat_node);
-                TTypeNode lng_node;
-                lng_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType lng_scalar;
-                lng_scalar.__set_type(TPrimitiveType::DOUBLE);
-                lng_node.__set_scalar_type(lng_scalar);
-                type.types.push_back(lng_node);
-                TTypeNode contact_node;
-                contact_node.__set_type(TTypeNodeType::STRUCT);
-                std::vector<TStructField> contact_fields;
-                TStructField email_field;
-                email_field.__set_name("email");
-                email_field.__set_contains_null(true);
-                contact_fields.push_back(email_field);
-                TStructField phone_field;
-                phone_field.__set_name("phone");
-                phone_field.__set_contains_null(true);
-                contact_fields.push_back(phone_field);
-                contact_node.__set_struct_fields(contact_fields);
-                type.types.push_back(contact_node);
-                TTypeNode email_node;
-                email_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType email_scalar;
-                email_scalar.__set_type(TPrimitiveType::STRING);
-                email_node.__set_scalar_type(email_scalar);
-                type.types.push_back(email_node);
-                TTypeNode phone_node;
-                phone_node.__set_type(TTypeNodeType::STRUCT);
-                std::vector<TStructField> phone_fields;
-                TStructField country_code_field;
-                country_code_field.__set_name("country_code");
-                country_code_field.__set_contains_null(true);
-                phone_fields.push_back(country_code_field);
-                TStructField number_field;
-                number_field.__set_name("number");
-                number_field.__set_contains_null(true);
-                phone_fields.push_back(number_field);
-                phone_node.__set_struct_fields(phone_fields);
-                type.types.push_back(phone_node);
-                TTypeNode country_code_node;
-                country_code_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType country_code_scalar;
-                country_code_scalar.__set_type(TPrimitiveType::STRING);
-                country_code_node.__set_scalar_type(country_code_scalar);
-                type.types.push_back(country_code_node);
-                TTypeNode number_node;
-                number_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType number_scalar;
-                number_scalar.__set_type(TPrimitiveType::STRING);
-                number_node.__set_scalar_type(number_scalar);
-                type.types.push_back(number_node);
-                TTypeNode hobbies_node;
-                hobbies_node.__set_type(TTypeNodeType::ARRAY);
-                hobbies_node.__set_contains_nulls({true});
-                type.types.push_back(hobbies_node);
-                TTypeNode hobby_element_node;
-                hobby_element_node.__set_type(TTypeNodeType::STRUCT);
-                std::vector<TStructField> hobby_element_fields;
-                TStructField hobby_name_field;
-                hobby_name_field.__set_name("name");
-                hobby_name_field.__set_contains_null(true);
-                hobby_element_fields.push_back(hobby_name_field);
-                TStructField hobby_level_field;
-                hobby_level_field.__set_name("level");
-                hobby_level_field.__set_contains_null(true);
-                hobby_element_fields.push_back(hobby_level_field);
-                hobby_element_node.__set_struct_fields(hobby_element_fields);
-                type.types.push_back(hobby_element_node);
-                TTypeNode hobby_name_node;
-                hobby_name_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType hobby_name_scalar;
-                hobby_name_scalar.__set_type(TPrimitiveType::STRING);
-                hobby_name_node.__set_scalar_type(hobby_name_scalar);
-                type.types.push_back(hobby_name_node);
-                TTypeNode hobby_level_node;
-                hobby_level_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType hobby_level_scalar;
-                hobby_level_scalar.__set_type(TPrimitiveType::INT);
-                hobby_level_node.__set_scalar_type(hobby_level_scalar);
-                type.types.push_back(hobby_level_node);
-                tslot_desc.__set_slotType(type);
-            } else {
-                // 普通类型
-                TTypeNode node;
-                node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType scalar_type;
-                scalar_type.__set_type(types[i]);
-                node.__set_scalar_type(scalar_type);
-                type.types.push_back(node);
-                tslot_desc.__set_slotType(type);
-            }
-            tslot_desc.__set_columnPos(0);
-            tslot_desc.__set_byteOffset(0);
-            tslot_desc.__set_nullIndicatorByte(0);
-            tslot_desc.__set_nullIndicatorBit(-1);
-            tslot_desc.__set_colName(table_column_names[i]);
-            tslot_desc.__set_slotIdx(0);
-            tslot_desc.__set_isMaterialized(true);
-            // 设置 column_access_paths，仅对 profile 字段
-            if (table_column_names[i] == "profile") {
-                TColumnAccessPaths access_paths;
-                access_paths.__set_type(doris::TAccessPathType::NAME);
-                std::vector<TColumnNameAccessPath> paths;
-                // address.coordinates.lat
-                TColumnNameAccessPath path1;
-                path1.__set_path({"4", "9", "10"});
-                path1.__set_is_predicate(false);
-                paths.push_back(path1);
-                // address.coordinates.lng
-                TColumnNameAccessPath path2;
-                path2.__set_path({"4", "9", "11"});
-                path2.__set_is_predicate(false);
-                paths.push_back(path2);
-                // contact.email
-                TColumnNameAccessPath path3;
-                path3.__set_path({"5", "12"});
-                path3.__set_is_predicate(false);
-                paths.push_back(path3);
-                // hobbies[].element.level
-                TColumnNameAccessPath path4;
-                path4.__set_path({"6", "16", "18"});
-                path4.__set_is_predicate(false);
-                paths.push_back(path4);
-                access_paths.__set_name_access_paths(paths);
-                tslot_desc.__set_column_access_paths(access_paths);
-            }
-            t_desc_table.slotDescriptors.push_back(tslot_desc);
-        }
-        t_desc_table.__isset.slotDescriptors = true;
-        TTupleDescriptor t_tuple_desc;
-        t_tuple_desc.__set_id(0);
-        t_tuple_desc.__set_byteSize(16);
-        t_tuple_desc.__set_numNullBytes(0);
-        t_tuple_desc.__set_tableId(0);
-        t_tuple_desc.__isset.tableId = true;
-        t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
-    };
-    create_table_desc(t_desc_table, t_table_desc, table_column_names, table_column_types);
+    // Create tuple descriptor using helper function
     DescriptorTbl* desc_tbl;
     ObjectPool obj_pool;
-    ASSERT_TRUE(DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl).ok());
-    const TupleDescriptor* tuple_descriptor = desc_tbl->get_tuple_descriptor(0);
-    // ----------- 构造 tuple_descriptor 结束 -------------
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    const TupleDescriptor* tuple_descriptor = createTupleDescriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc);
 
     VExprContextSPtrs conjuncts; // Empty conjuncts for this test
     std::vector<std::string> table_col_names = {"name", "profile"};
@@ -545,7 +601,6 @@ TEST_F(IcebergReaderTest, ReadIcebergParquetFile) {
 
     // Create block for reading nested structure (not flattened)
     Block block;
-
     {
         MutableColumnPtr name_column = name_type->create_column();
         block.insert(ColumnWithTypeAndName(std::move(name_column), name_type, "name"));
@@ -561,78 +616,8 @@ TEST_F(IcebergReaderTest, ReadIcebergParquetFile) {
     st = iceberg_reader->get_next_block(&block, &read_rows, &eof);
     ASSERT_TRUE(st.ok()) << st;
 
-    // Verify that we read some data
-    EXPECT_GT(read_rows, 0) << "Should read at least one row";
-    EXPECT_EQ(block.rows(), read_rows);
-
-    // Verify column count matches expected (2 columns: name, profile)
-    EXPECT_EQ(block.columns(), 2);
-
-    // Verify column names and types
-    auto columns_with_names = block.get_columns_with_type_and_name();
-    std::vector<std::string> expected_column_names = {"name", "profile"};
-    for (size_t i = 0; i < expected_column_names.size(); i++) {
-        EXPECT_EQ(columns_with_names[i].name, expected_column_names[i]);
-    }
-
-    // Verify column types
-    EXPECT_TRUE(columns_with_names[0].type->get_name().find("String") !=
-                std::string::npos); // name is STRING
-    EXPECT_TRUE(columns_with_names[1].type->get_name().find("Struct") !=
-                std::string::npos); // profile is STRUCT
-
-    // Print row count for each column and nested subcolumns
-    std::cout << "Block rows: " << block.rows() << std::endl;
-
-    // Helper function to recursively print column row counts
-    std::function<void(const ColumnPtr&, const DataTypePtr&, const std::string&, int)>
-            print_column_rows = [&](const ColumnPtr& col, const DataTypePtr& type,
-                                    const std::string& name, int depth) {
-                std::string indent(depth * 2, ' ');
-                std::cout << indent << name << " row count: " << col->size() << std::endl;
-
-                // Check if it's a nullable column
-                if (const auto* nullable_col = typeid_cast<const ColumnNullable*>(col.get())) {
-                    auto nested_type =
-                            assert_cast<const DataTypeNullable*>(type.get())->get_nested_type();
-
-                    // Only add ".nested" suffix for non-leaf (complex) nullable columns
-                    // Leaf columns like String, Int, etc. should not get the ".nested" suffix
-                    bool is_complex_type =
-                            (typeid_cast<const DataTypeStruct*>(nested_type.get()) != nullptr) ||
-                            (typeid_cast<const DataTypeArray*>(nested_type.get()) != nullptr) ||
-                            (typeid_cast<const DataTypeMap*>(nested_type.get()) != nullptr);
-
-                    std::string nested_name = is_complex_type ? name + ".nested" : name;
-                    print_column_rows(nullable_col->get_nested_column_ptr(), nested_type,
-                                      nested_name, depth + (is_complex_type ? 1 : 0));
-                }
-                // Check if it's a struct column
-                else if (const auto* struct_col = typeid_cast<const ColumnStruct*>(col.get())) {
-                    auto struct_type = assert_cast<const DataTypeStruct*>(type.get());
-                    for (size_t i = 0; i < struct_col->tuple_size(); ++i) {
-                        std::string field_name = struct_type->get_element_name(i);
-                        auto field_type = struct_type->get_element(i);
-                        print_column_rows(struct_col->get_column_ptr(i), field_type,
-                                          name + "." + field_name, depth + 1);
-                    }
-                }
-                // Check if it's an array column
-                else if (const auto* array_col = typeid_cast<const ColumnArray*>(col.get())) {
-                    auto array_type = assert_cast<const DataTypeArray*>(type.get());
-                    auto element_type = array_type->get_nested_type();
-                    print_column_rows(array_col->get_data_ptr(), element_type, name + ".data",
-                                      depth + 1);
-                }
-            };
-
-    // Print row counts for all columns
-    for (size_t i = 0; i < block.columns(); ++i) {
-        const auto& column_with_name = block.get_by_position(i);
-        print_column_rows(column_with_name.column, column_with_name.type, column_with_name.name, 0);
-        EXPECT_EQ(column_with_name.column->size(), block.rows())
-                << "Column " << column_with_name.name << " size mismatch";
-    }
+    // Verify test results using helper function
+    verifyTestResults(block, read_rows);
 }
 
 // Test reading real Iceberg Orc file using IcebergTableReader
@@ -673,50 +658,8 @@ TEST_F(IcebergReaderTest, ReadIcebergOrcFile) {
     }
     }
     */
-    // TDescriptorTable t_desc_table;
-    // TTableDescriptor t_table_desc;
 
-    // // Create struct type for address field
-    // TTypeDesc address_struct_type;
-    // address_struct_type.types.resize(4); // One for the struct itself + 3 for the fields
-
-    // // Main struct node
-    // address_struct_type.types[0].__set_type(TTypeNodeType::STRUCT);
-    // address_struct_type.types[0].__set_struct_fields(std::vector<TStructField>());
-
-    // // Add struct fields: street, city, country
-    // TStructField street_field;
-    // street_field.name = "street";
-    // street_field.contains_null = true;
-    // address_struct_type.types[0].struct_fields.push_back(street_field);
-
-    // TStructField city_field;
-    // city_field.name = "city";
-    // city_field.contains_null = true;
-    // address_struct_type.types[0].struct_fields.push_back(city_field);
-
-    // TStructField country_field;
-    // country_field.name = "country";
-    // country_field.contains_null = true;
-    // address_struct_type.types[0].struct_fields.push_back(country_field);
-
-    // // Add type nodes for each field (street, city, country - all strings)
-    // for (int i = 1; i <= 3; i++) {
-    //     address_struct_type.types[i].__set_type(TTypeNodeType::SCALAR);
-    //     address_struct_type.types[i].__set_scalar_type(TScalarType());
-    //     address_struct_type.types[i].scalar_type.__set_type(TPrimitiveType::STRING);
-    // }
-
-    // // Create table descriptor with complex schema
-    // create_iceberg_table_desc_complex(t_desc_table, t_table_desc, address_struct_type);
-
-    // DescriptorTbl* desc_tbl;
-    // ObjectPool obj_pool;
-    // ASSERT_TRUE(DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl).ok());
-
-    // auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
-
-    // Open the Iceberg Parquet test file
+    // Open the Iceberg Orc test file
     auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr file_reader;
     std::string test_file =
@@ -730,7 +673,6 @@ TEST_F(IcebergReaderTest, ReadIcebergOrcFile) {
 
     // Setup runtime state
     RuntimeState runtime_state((TQueryGlobals()));
-    // runtime_state.set_desc_tbl(desc_tbl);
 
     // Setup scan parameters
     TFileScanRangeParams scan_params;
@@ -748,8 +690,6 @@ TEST_F(IcebergReaderTest, ReadIcebergOrcFile) {
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
 
-    // IOContext io_ctx;
-
     auto generic_reader = OrcReader::create_unique(&profile, &runtime_state, scan_params,
                                                    scan_range, 1024, "CST", nullptr, cache.get());
     ASSERT_NE(generic_reader, nullptr);
@@ -759,304 +699,20 @@ TEST_F(IcebergReaderTest, ReadIcebergOrcFile) {
             std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range, nullptr,
             nullptr, cache.get());
 
-    // Add name column (direct field)
-    auto name_type = make_nullable(std::make_shared<DataTypeString>());
+    // Create complex struct types using helper function
+    DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
+    DataTypePtr contact_struct_type, hobby_element_struct_type, hobbies_array_type;
+    DataTypePtr profile_struct_type, name_type;
+    createComplexStructTypes(coordinates_struct_type, address_struct_type, phone_struct_type,
+                             contact_struct_type, hobby_element_struct_type, hobbies_array_type,
+                             profile_struct_type, name_type);
 
-    // Create complete profile struct type matching the Iceberg schema
-    // First create coordinates struct type
-    std::vector<DataTypePtr> coordinates_types = {
-            make_nullable(std::make_shared<DataTypeFloat64>()), // lat (field ID 10)
-            make_nullable(std::make_shared<DataTypeFloat64>())  // lng (field ID 11)
-    };
-    std::vector<std::string> coordinates_names = {"lat", "lng"};
-    auto coordinates_struct_type =
-            make_nullable(std::make_shared<DataTypeStruct>(coordinates_types, coordinates_names));
-
-    // Create address struct type (with street, city, coordinates)
-    std::vector<DataTypePtr> address_types = {
-            make_nullable(std::make_shared<DataTypeString>()), // street (field ID 7)
-            make_nullable(std::make_shared<DataTypeString>()), // city (field ID 8)
-            coordinates_struct_type                            // coordinates (field ID 9)
-    };
-    std::vector<std::string> address_names = {"street", "city", "coordinates"};
-    auto address_struct_type =
-            make_nullable(std::make_shared<DataTypeStruct>(address_types, address_names));
-
-    // Create phone struct type
-    std::vector<DataTypePtr> phone_types = {
-            make_nullable(std::make_shared<DataTypeString>()), // country_code (field ID 14)
-            make_nullable(std::make_shared<DataTypeString>())  // number (field ID 15)
-    };
-    std::vector<std::string> phone_names = {"country_code", "number"};
-    auto phone_struct_type =
-            make_nullable(std::make_shared<DataTypeStruct>(phone_types, phone_names));
-
-    // Create contact struct type (with email, phone)
-    std::vector<DataTypePtr> contact_types = {
-            make_nullable(std::make_shared<DataTypeString>()), // email (field ID 12)
-            phone_struct_type                                  // phone (field ID 13)
-    };
-    std::vector<std::string> contact_names = {"email", "phone"};
-    auto contact_struct_type =
-            make_nullable(std::make_shared<DataTypeStruct>(contact_types, contact_names));
-
-    // Create hobby element struct type for array elements
-    std::vector<DataTypePtr> hobby_element_types = {
-            make_nullable(std::make_shared<DataTypeString>()), // name (field ID 17)
-            make_nullable(std::make_shared<DataTypeInt32>())   // level (field ID 18)
-    };
-    std::vector<std::string> hobby_element_names = {"name", "level"};
-    auto hobby_element_struct_type = make_nullable(
-            std::make_shared<DataTypeStruct>(hobby_element_types, hobby_element_names));
-
-    // Create hobbies array type
-    auto hobbies_array_type =
-            make_nullable(std::make_shared<DataTypeArray>(hobby_element_struct_type));
-
-    // Create complete profile struct type (with address, contact, hobbies)
-    std::vector<DataTypePtr> profile_types = {
-            address_struct_type, // address (field ID 4)
-            contact_struct_type, // contact (field ID 5)
-            hobbies_array_type   // hobbies (field ID 6)
-    };
-    std::vector<std::string> profile_names = {"address", "contact", "hobbies"};
-    auto profile_struct_type =
-            make_nullable(std::make_shared<DataTypeStruct>(profile_types, profile_names));
-
-    // ----------- 构造 tuple_descriptor -------------
-    TDescriptorTable t_desc_table;
-    TTableDescriptor t_table_desc;
-    std::vector<std::string> table_column_names = {"name", "profile"};
-    std::vector<TPrimitiveType::type> table_column_types = {
-            TPrimitiveType::STRING, TPrimitiveType::STRUCT // profile 用 STRUCT 类型
-    };
-    // 复用 parquet_reader_test.cpp 的 create_table_desc 方法
-    auto create_table_desc = [](TDescriptorTable& t_desc_table, TTableDescriptor& t_table_desc,
-                                const std::vector<std::string>& table_column_names,
-                                const std::vector<TPrimitiveType::type>& types) {
-        t_table_desc.__set_id(0);
-        t_table_desc.__set_tableType(TTableType::OLAP_TABLE);
-        t_table_desc.__set_numCols(0);
-        t_table_desc.__set_numClusteringCols(0);
-        t_desc_table.tableDescriptors.push_back(t_table_desc);
-        t_desc_table.__isset.tableDescriptors = true;
-        // 需要和 table_column_names 顺序一致的 iceberg_id
-        std::vector<int32_t> iceberg_ids = {2, 3}; // name:2, profile:3
-        for (int i = 0; i < table_column_names.size(); i++) {
-            TSlotDescriptor tslot_desc;
-            tslot_desc.__set_id(i);
-            tslot_desc.__set_parent(0);
-            tslot_desc.__set_col_unique_id(iceberg_ids[i]);
-            TTypeDesc type;
-            if (table_column_names[i] == "profile") {
-                // STRUCT/ARRAY 节点设置 contains_nulls，SCALAR 节点不设置
-                TTypeNode struct_node;
-                struct_node.__set_type(TTypeNodeType::STRUCT);
-                std::vector<TStructField> struct_fields;
-                TStructField address_field;
-                address_field.__set_name("address");
-                address_field.__set_contains_null(true);
-                struct_fields.push_back(address_field);
-                TStructField contact_field;
-                contact_field.__set_name("contact");
-                contact_field.__set_contains_null(true);
-                struct_fields.push_back(contact_field);
-                TStructField hobbies_field;
-                hobbies_field.__set_name("hobbies");
-                hobbies_field.__set_contains_null(true);
-                struct_fields.push_back(hobbies_field);
-                struct_node.__set_struct_fields(struct_fields);
-                type.types.push_back(struct_node);
-                TTypeNode address_node;
-                address_node.__set_type(TTypeNodeType::STRUCT);
-                std::vector<TStructField> address_fields;
-                TStructField street_field;
-                street_field.__set_name("street");
-                street_field.__set_contains_null(true);
-                address_fields.push_back(street_field);
-                TStructField city_field;
-                city_field.__set_name("city");
-                city_field.__set_contains_null(true);
-                address_fields.push_back(city_field);
-                TStructField coordinates_field;
-                coordinates_field.__set_name("coordinates");
-                coordinates_field.__set_contains_null(true);
-                address_fields.push_back(coordinates_field);
-                address_node.__set_struct_fields(address_fields);
-                type.types.push_back(address_node);
-                TTypeNode street_node;
-                street_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType street_scalar;
-                street_scalar.__set_type(TPrimitiveType::STRING);
-                street_node.__set_scalar_type(street_scalar);
-                type.types.push_back(street_node);
-                TTypeNode city_node;
-                city_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType city_scalar;
-                city_scalar.__set_type(TPrimitiveType::STRING);
-                city_node.__set_scalar_type(city_scalar);
-                type.types.push_back(city_node);
-                TTypeNode coordinates_node;
-                coordinates_node.__set_type(TTypeNodeType::STRUCT);
-                std::vector<TStructField> coordinates_fields;
-                TStructField lat_field;
-                lat_field.__set_name("lat");
-                lat_field.__set_contains_null(true);
-                coordinates_fields.push_back(lat_field);
-                TStructField lng_field;
-                lng_field.__set_name("lng");
-                lng_field.__set_contains_null(true);
-                coordinates_fields.push_back(lng_field);
-                coordinates_node.__set_struct_fields(coordinates_fields);
-                type.types.push_back(coordinates_node);
-                TTypeNode lat_node;
-                lat_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType lat_scalar;
-                lat_scalar.__set_type(TPrimitiveType::DOUBLE);
-                lat_node.__set_scalar_type(lat_scalar);
-                type.types.push_back(lat_node);
-                TTypeNode lng_node;
-                lng_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType lng_scalar;
-                lng_scalar.__set_type(TPrimitiveType::DOUBLE);
-                lng_node.__set_scalar_type(lng_scalar);
-                type.types.push_back(lng_node);
-                TTypeNode contact_node;
-                contact_node.__set_type(TTypeNodeType::STRUCT);
-                std::vector<TStructField> contact_fields;
-                TStructField email_field;
-                email_field.__set_name("email");
-                email_field.__set_contains_null(true);
-                contact_fields.push_back(email_field);
-                TStructField phone_field;
-                phone_field.__set_name("phone");
-                phone_field.__set_contains_null(true);
-                contact_fields.push_back(phone_field);
-                contact_node.__set_struct_fields(contact_fields);
-                type.types.push_back(contact_node);
-                TTypeNode email_node;
-                email_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType email_scalar;
-                email_scalar.__set_type(TPrimitiveType::STRING);
-                email_node.__set_scalar_type(email_scalar);
-                type.types.push_back(email_node);
-                TTypeNode phone_node;
-                phone_node.__set_type(TTypeNodeType::STRUCT);
-                std::vector<TStructField> phone_fields;
-                TStructField country_code_field;
-                country_code_field.__set_name("country_code");
-                country_code_field.__set_contains_null(true);
-                phone_fields.push_back(country_code_field);
-                TStructField number_field;
-                number_field.__set_name("number");
-                number_field.__set_contains_null(true);
-                phone_fields.push_back(number_field);
-                phone_node.__set_struct_fields(phone_fields);
-                type.types.push_back(phone_node);
-                TTypeNode country_code_node;
-                country_code_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType country_code_scalar;
-                country_code_scalar.__set_type(TPrimitiveType::STRING);
-                country_code_node.__set_scalar_type(country_code_scalar);
-                type.types.push_back(country_code_node);
-                TTypeNode number_node;
-                number_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType number_scalar;
-                number_scalar.__set_type(TPrimitiveType::STRING);
-                number_node.__set_scalar_type(number_scalar);
-                type.types.push_back(number_node);
-                TTypeNode hobbies_node;
-                hobbies_node.__set_type(TTypeNodeType::ARRAY);
-                hobbies_node.__set_contains_nulls({true});
-                type.types.push_back(hobbies_node);
-                TTypeNode hobby_element_node;
-                hobby_element_node.__set_type(TTypeNodeType::STRUCT);
-                std::vector<TStructField> hobby_element_fields;
-                TStructField hobby_name_field;
-                hobby_name_field.__set_name("name");
-                hobby_name_field.__set_contains_null(true);
-                hobby_element_fields.push_back(hobby_name_field);
-                TStructField hobby_level_field;
-                hobby_level_field.__set_name("level");
-                hobby_level_field.__set_contains_null(true);
-                hobby_element_fields.push_back(hobby_level_field);
-                hobby_element_node.__set_struct_fields(hobby_element_fields);
-                type.types.push_back(hobby_element_node);
-                TTypeNode hobby_name_node;
-                hobby_name_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType hobby_name_scalar;
-                hobby_name_scalar.__set_type(TPrimitiveType::STRING);
-                hobby_name_node.__set_scalar_type(hobby_name_scalar);
-                type.types.push_back(hobby_name_node);
-                TTypeNode hobby_level_node;
-                hobby_level_node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType hobby_level_scalar;
-                hobby_level_scalar.__set_type(TPrimitiveType::INT);
-                hobby_level_node.__set_scalar_type(hobby_level_scalar);
-                type.types.push_back(hobby_level_node);
-                tslot_desc.__set_slotType(type);
-            } else {
-                // 普通类型
-                TTypeNode node;
-                node.__set_type(TTypeNodeType::SCALAR);
-                TScalarType scalar_type;
-                scalar_type.__set_type(types[i]);
-                node.__set_scalar_type(scalar_type);
-                type.types.push_back(node);
-                tslot_desc.__set_slotType(type);
-            }
-            tslot_desc.__set_columnPos(0);
-            tslot_desc.__set_byteOffset(0);
-            tslot_desc.__set_nullIndicatorByte(0);
-            tslot_desc.__set_nullIndicatorBit(-1);
-            tslot_desc.__set_colName(table_column_names[i]);
-            tslot_desc.__set_slotIdx(0);
-            tslot_desc.__set_isMaterialized(true);
-            // 设置 column_access_paths，仅对 profile 字段
-            if (table_column_names[i] == "profile") {
-                TColumnAccessPaths access_paths;
-                access_paths.__set_type(doris::TAccessPathType::NAME);
-                std::vector<TColumnNameAccessPath> paths;
-                // address.coordinates.lat
-                TColumnNameAccessPath path1;
-                path1.__set_path({"4", "9", "10"});
-                path1.__set_is_predicate(false);
-                paths.push_back(path1);
-                // address.coordinates.lng
-                TColumnNameAccessPath path2;
-                path2.__set_path({"4", "9", "11"});
-                path2.__set_is_predicate(false);
-                paths.push_back(path2);
-                // contact.email
-                TColumnNameAccessPath path3;
-                path3.__set_path({"5", "12"});
-                path3.__set_is_predicate(false);
-                paths.push_back(path3);
-                // hobbies[].element.level
-                TColumnNameAccessPath path4;
-                path4.__set_path({"6", "16", "18"});
-                path4.__set_is_predicate(false);
-                paths.push_back(path4);
-                access_paths.__set_name_access_paths(paths);
-                tslot_desc.__set_column_access_paths(access_paths);
-            }
-            t_desc_table.slotDescriptors.push_back(tslot_desc);
-        }
-        t_desc_table.__isset.slotDescriptors = true;
-        TTupleDescriptor t_tuple_desc;
-        t_tuple_desc.__set_id(0);
-        t_tuple_desc.__set_byteSize(16);
-        t_tuple_desc.__set_numNullBytes(0);
-        t_tuple_desc.__set_tableId(0);
-        t_tuple_desc.__isset.tableId = true;
-        t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
-    };
-    create_table_desc(t_desc_table, t_table_desc, table_column_names, table_column_types);
+    // Create tuple descriptor using helper function
     DescriptorTbl* desc_tbl;
     ObjectPool obj_pool;
-    ASSERT_TRUE(DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl).ok());
-    const TupleDescriptor* tuple_descriptor = desc_tbl->get_tuple_descriptor(0);
-    // ----------- 构造 tuple_descriptor 结束 -------------
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    const TupleDescriptor* tuple_descriptor = createTupleDescriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc);
 
     VExprContextSPtrs conjuncts; // Empty conjuncts for this test
     std::vector<std::string> table_col_names = {"name", "profile"};
@@ -1078,7 +734,6 @@ TEST_F(IcebergReaderTest, ReadIcebergOrcFile) {
 
     // Create block for reading nested structure (not flattened)
     Block block;
-
     {
         MutableColumnPtr name_column = name_type->create_column();
         block.insert(ColumnWithTypeAndName(std::move(name_column), name_type, "name"));
@@ -1094,78 +749,8 @@ TEST_F(IcebergReaderTest, ReadIcebergOrcFile) {
     st = iceberg_reader->get_next_block(&block, &read_rows, &eof);
     ASSERT_TRUE(st.ok()) << st;
 
-    // Verify that we read some data
-    EXPECT_GT(read_rows, 0) << "Should read at least one row";
-    EXPECT_EQ(block.rows(), read_rows);
-
-    // Verify column count matches expected (2 columns: name, profile)
-    EXPECT_EQ(block.columns(), 2);
-
-    // Verify column names and types
-    auto columns_with_names = block.get_columns_with_type_and_name();
-    std::vector<std::string> expected_column_names = {"name", "profile"};
-    for (size_t i = 0; i < expected_column_names.size(); i++) {
-        EXPECT_EQ(columns_with_names[i].name, expected_column_names[i]);
-    }
-
-    // Verify column types
-    EXPECT_TRUE(columns_with_names[0].type->get_name().find("String") !=
-                std::string::npos); // name is STRING
-    EXPECT_TRUE(columns_with_names[1].type->get_name().find("Struct") !=
-                std::string::npos); // profile is STRUCT
-
-    // Print row count for each column and nested subcolumns
-    std::cout << "Block rows: " << block.rows() << std::endl;
-
-    // Helper function to recursively print column row counts
-    std::function<void(const ColumnPtr&, const DataTypePtr&, const std::string&, int)>
-            print_column_rows = [&](const ColumnPtr& col, const DataTypePtr& type,
-                                    const std::string& name, int depth) {
-                std::string indent(depth * 2, ' ');
-                std::cout << indent << name << " row count: " << col->size() << std::endl;
-
-                // Check if it's a nullable column
-                if (const auto* nullable_col = typeid_cast<const ColumnNullable*>(col.get())) {
-                    auto nested_type =
-                            assert_cast<const DataTypeNullable*>(type.get())->get_nested_type();
-
-                    // Only add ".nested" suffix for non-leaf (complex) nullable columns
-                    // Leaf columns like String, Int, etc. should not get the ".nested" suffix
-                    bool is_complex_type =
-                            (typeid_cast<const DataTypeStruct*>(nested_type.get()) != nullptr) ||
-                            (typeid_cast<const DataTypeArray*>(nested_type.get()) != nullptr) ||
-                            (typeid_cast<const DataTypeMap*>(nested_type.get()) != nullptr);
-
-                    std::string nested_name = is_complex_type ? name + ".nested" : name;
-                    print_column_rows(nullable_col->get_nested_column_ptr(), nested_type,
-                                      nested_name, depth + (is_complex_type ? 1 : 0));
-                }
-                // Check if it's a struct column
-                else if (const auto* struct_col = typeid_cast<const ColumnStruct*>(col.get())) {
-                    auto struct_type = assert_cast<const DataTypeStruct*>(type.get());
-                    for (size_t i = 0; i < struct_col->tuple_size(); ++i) {
-                        std::string field_name = struct_type->get_element_name(i);
-                        auto field_type = struct_type->get_element(i);
-                        print_column_rows(struct_col->get_column_ptr(i), field_type,
-                                          name + "." + field_name, depth + 1);
-                    }
-                }
-                // Check if it's an array column
-                else if (const auto* array_col = typeid_cast<const ColumnArray*>(col.get())) {
-                    auto array_type = assert_cast<const DataTypeArray*>(type.get());
-                    auto element_type = array_type->get_nested_type();
-                    print_column_rows(array_col->get_data_ptr(), element_type, name + ".data",
-                                      depth + 1);
-                }
-            };
-
-    // Print row counts for all columns
-    for (size_t i = 0; i < block.columns(); ++i) {
-        const auto& column_with_name = block.get_by_position(i);
-        print_column_rows(column_with_name.column, column_with_name.type, column_with_name.name, 0);
-        EXPECT_EQ(column_with_name.column->size(), block.rows())
-                << "Column " << column_with_name.name << " size mismatch";
-    }
+    // Verify test results using helper function
+    verifyTestResults(block, read_rows);
 }
 
 } // namespace doris::vectorized::table

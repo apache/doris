@@ -48,8 +48,8 @@ Status ByteStreamSplitDecoder::_decode_values(MutableColumnPtr& doris_column,
 
     size_t primitive_length = remove_nullable(data_type)->get_size_of_value_in_memory();
     size_t data_index = doris_column->size() * primitive_length;
-    size_t scale_size = (select_vector.num_values() - select_vector.num_filtered()) *
-                        (_type_length / primitive_length);
+    // Reserve space for ALL values (including filtered ones) in lazy materialization
+    size_t scale_size = select_vector.num_values() * (_type_length / primitive_length);
     doris_column->resize(doris_column->size() + scale_size);
     char* raw_data = const_cast<char*>(doris_column->get_raw_data().data);
     ColumnSelectVector::DataReadType read_type;
@@ -71,11 +71,17 @@ Status ByteStreamSplitDecoder::_decode_values(MutableColumnPtr& doris_column,
             break;
         }
         case ColumnSelectVector::FILTERED_CONTENT: {
-            _offset += _type_length * run_length;
+            // In lazy materialization, keep filtered rows (fill with data to maintain row count)
+            byte_stream_split_decode(reinterpret_cast<const uint8_t*>(_data->get_data()),
+                                     _type_length, _offset / _type_length, run_length, stride,
+                                     reinterpret_cast<uint8_t*>(raw_data) + data_index);
+            _offset += run_length * _type_length;
+            data_index += run_length * _type_length;
             break;
         }
         case ColumnSelectVector::FILTERED_NULL: {
-            // do nothing
+            // In lazy materialization, keep filtered null rows (fill with zeros/nulls to maintain row count)
+            data_index += run_length * _type_length;
             break;
         }
         }

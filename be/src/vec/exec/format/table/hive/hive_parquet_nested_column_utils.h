@@ -33,23 +33,14 @@ struct FieldSchema;
 
 class HiveParquetNestedColumnUtils {
 public:
-    struct SchemaAndColumnResult {
-        std::shared_ptr<TableSchemaChangeHelper::Node> schema_node;
-        std::set<uint64_t> column_ids;
-
-        SchemaAndColumnResult(std::shared_ptr<TableSchemaChangeHelper::Node> node,
-                              std::set<uint64_t> ids)
-                : schema_node(std::move(node)), column_ids(std::move(ids)) {}
-    };
-
-    static SchemaAndColumnResult _extract_schema_and_columns_efficiently(
+    static ColumnIdResult extract_schema_and_columns_efficiently(
             const FieldDescriptor* field_desc,
-            const std::unordered_map<std::string, std::vector<std::vector<std::string>>>&
+            const std::unordered_map<std::string, std::vector<TColumnNameAccessPath>>&
                     paths_by_table_name);
 
-    static SchemaAndColumnResult _extract_schema_and_columns_efficiently_by_top_level_col_index(
+    static ColumnIdResult extract_schema_and_columns_efficiently_by_top_level_col_index(
             const FieldDescriptor* field_desc,
-            const std::unordered_map<int, std::vector<std::vector<std::string>>>&
+            const std::unordered_map<int, std::vector<TColumnNameAccessPath>>&
                     paths_by_table_index);
 
     //     static std::shared_ptr<TableSchemaChangeHelper::Node> _build_table_schema_node_from_field_schema(
@@ -59,13 +50,14 @@ public:
     //     static std::shared_ptr<TableSchemaChangeHelper::Node> _build_full_table_schema_node(
     //             const FieldSchema& field_schema);
 
+private:
     static void _extract_nested_column_ids_efficiently(
-            const FieldSchema& field_schema, const std::vector<std::vector<std::string>>& paths,
-            std::set<uint64_t>& column_ids);
+            const FieldSchema& field_schema, const std::vector<TColumnNameAccessPath>& paths,
+            std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids);
 
-    static SchemaAndColumnResult _extract_schema_and_columns_efficiently_by_index(
-            const FieldDescriptor* field_desc,
-            const std::unordered_map<int, std::vector<std::vector<int>>>& paths_by_table_index);
+//     static ColumnIdResult _extract_schema_and_columns_efficiently_by_index(
+//             const FieldDescriptor* field_desc,
+//             const std::unordered_map<int, std::vector<std::vector<int>>>& paths_by_table_index);
 
     //     static std::shared_ptr<TableSchemaChangeHelper::Node> _build_table_schema_node_from_field_schema(
     //             const FieldSchema& field_schema,
@@ -74,9 +66,9 @@ public:
     //     static std::shared_ptr<TableSchemaChangeHelper::Node> _build_full_table_schema_node(
     //             const FieldSchema& field_schema);
 
-    static void _extract_nested_column_ids_efficiently_by_index(
-            const FieldSchema& field_schema, const std::vector<std::vector<int>>& paths,
-            std::set<uint64_t>& column_ids);
+//     static void _extract_nested_column_ids_efficiently_by_index(
+//             const FieldSchema& field_schema, const std::vector<std::vector<int>>& paths,
+//             std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids);
 };
 
 } // namespace vectorized

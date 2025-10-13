@@ -320,7 +320,8 @@ Status ParquetReader::init_reader(
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
         std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr, bool filter_groups,
-        const std::set<uint64_t>& column_ids) {
+        const std::set<uint64_t>& column_ids,
+        const std::set<uint64_t>& filter_column_ids) {
     _tuple_descriptor = tuple_descriptor;
     _row_descriptor = row_descriptor;
     _colname_to_slot_id = colname_to_slot_id;
@@ -330,6 +331,7 @@ Status ParquetReader::init_reader(
     _table_info_node_ptr = table_info_node_ptr;
     _filter_groups = filter_groups;
     _column_ids = column_ids;
+    _filter_column_ids = filter_column_ids;
 
     RETURN_IF_ERROR(_open_file());
     _t_metadata = &(_file_metadata->to_thrift());
@@ -654,6 +656,40 @@ Status ParquetReader::set_fill_columns(
 
     const FieldDescriptor& schema = _file_metadata->schema();
 
+    // Lambda function to check if a nested column has partial predicates
+    // Partial predicates means: some sub-columns are used in predicates (is_predicate=true)
+    // while others are not (is_predicate=false). In this case, we need to:
+    // 1. First read only the predicate sub-columns for filtering
+    // 2. Then read the non-predicate sub-columns for lazy materialization
+    auto check_partial_predicates = [](const SlotDescriptor* slot_desc) -> bool {
+        if (!slot_desc || !slot_desc->column_access_paths().__isset.name_access_paths) {
+            return false;
+        }
+        
+        const auto& name_paths = slot_desc->column_access_paths().name_access_paths;
+        if (name_paths.empty()) {
+            return false;
+        }
+        
+        bool has_predicate_path = false;
+        bool has_non_predicate_path = false;
+        
+        for (const auto& path : name_paths) {
+            if (path.is_predicate) {
+                has_predicate_path = true;
+            } else {
+                has_non_predicate_path = true;
+            }
+            
+            // Early exit: found both types
+            if (has_predicate_path && has_non_predicate_path) {
+                return true;
+            }
+        }
+        
+        return false;
+    };
+
     for (auto& read_table_col : _read_table_columns) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_table_col);
 
@@ -668,6 +704,20 @@ Status ParquetReader::set_fill_columns(
             if (iter == predicate_columns.end()) {
                 _lazy_read_ctx.lazy_read_columns.emplace_back(read_table_col);
             } else {
+                // Column is in predicate
+                const auto* slot_desc = _tuple_descriptor->slots()[iter->second.first];
+                
+                // Check if this nested column has partial predicates
+                if (check_partial_predicates(slot_desc)) {
+                    // Add to partial_predicate_columns for special handling in lazy materialization
+                    // In first pass: read predicate sub-columns
+                    // In second pass: read non-predicate sub-columns
+                    _lazy_read_ctx.partial_predicate_columns.emplace_back(iter->first);
+                    
+                    LOG(INFO) << "Column '" << read_table_col 
+                              << "' has partial predicates, will use two-phase reading";
+                }
+                
                 _lazy_read_ctx.predicate_columns.first.emplace_back(iter->first);
                 _lazy_read_ctx.predicate_columns.second.emplace_back(iter->second.second);
                 _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
@@ -706,8 +756,14 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
+    // Enable lazy materialization if:
+    // 1. Lazy materialization is enabled AND
+    // 2. There are predicate columns AND
+    // 3. There are lazy read columns OR partial predicate columns
+    // Partial predicate columns need two-phase reading even without lazy_read_columns
     if (_enable_lazy_mat && _lazy_read_ctx.predicate_columns.first.size() > 0 &&
-        _lazy_read_ctx.lazy_read_columns.size() > 0) {
+        (_lazy_read_ctx.lazy_read_columns.size() > 0 || 
+         !_lazy_read_ctx.partial_predicate_columns.empty())) {
         _lazy_read_ctx.can_lazy_read = true;
     }
 
@@ -885,7 +941,8 @@ Status ParquetReader::_next_row_group_reader() {
                                                  group_file_reader, _io_ctx->file_reader_stats)
                                        : group_file_reader,
                                _read_table_columns, row_group_index.row_group_id, row_group, _ctz,
-                               _io_ctx, position_delete_ctx, _lazy_read_ctx, _state, _column_ids));
+                               _io_ctx, position_delete_ctx, _lazy_read_ctx, _state, _column_ids,
+                               _filter_column_ids));
     _row_group_eof = false;
 
     _current_group_reader->set_current_row_group_idx(row_group_index);

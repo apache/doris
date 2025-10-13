@@ -140,11 +140,19 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
             break;
         }
         case ColumnSelectVector::FILTERED_CONTENT: {
-            dict_index += run_length;
+            // In lazy materialization, keep filtered rows (fill with dict data to maintain row count)
+            std::vector<StringRef> string_values;
+            string_values.reserve(run_length);
+            for (size_t i = 0; i < run_length; ++i) {
+                string_values.emplace_back(_dict_items[_indexes[dict_index++]]);
+            }
+            doris_column->insert_many_strings_overflow(string_values.data(), run_length,
+                                                       _max_value_length);
             break;
         }
         case ColumnSelectVector::FILTERED_NULL: {
-            // do nothing
+            // In lazy materialization, keep filtered null rows (fill with defaults to maintain row count)
+            doris_column->insert_many_defaults(run_length);
             break;
         }
         }

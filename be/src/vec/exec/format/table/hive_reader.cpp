@@ -89,11 +89,12 @@ Status HiveOrcReader::init_reader(
 
     // const auto& file_col_names = column_id_result.column_names;
     const auto& column_ids = column_id_result.column_ids;
+    const auto& filter_column_ids = column_id_result.filter_column_ids;
 
     return orc_reader->init_reader(&read_table_col_names, table_col_name_to_value_range, conjuncts,
                                    false, tuple_descriptor, row_descriptor,
                                    not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts,
-                                   table_info_node_ptr, column_ids);
+                                   table_info_node_ptr, column_ids, filter_column_ids);
 }
 
 ColumnIdResult HiveOrcReader::_create_column_ids_and_names(
@@ -102,7 +103,7 @@ ColumnIdResult HiveOrcReader::_create_column_ids_and_names(
     std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
 
     if (!orc_type) {
-        return ColumnIdResult(std::move(column_ids), schema_node);
+        return ColumnIdResult();
     }
 
     // First, assign column IDs to the field descriptor
@@ -114,7 +115,7 @@ ColumnIdResult HiveOrcReader::_create_column_ids_and_names(
     // OrcNestedColumnUtils::_build_iceberg_id_mapping(orc_type, iceberg_id_to_orc_type);
 
     // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
-    std::unordered_map<std::string, std::vector<std::vector<std::string>>> paths_by_table_name;
+    std::unordered_map<std::string, std::vector<TColumnNameAccessPath>> paths_by_table_name;
 
     for (const auto* slot : tuple_descriptor->slots()) {
         // 假设 slot->column_access_paths() 返回 vector<vector<int>>，每个 path 代表一个 iceberg id 路径
@@ -128,26 +129,22 @@ ColumnIdResult HiveOrcReader::_create_column_ids_and_names(
                         [](const TColumnNameAccessPath& access_path) {
                             return access_path.path.empty();
                         })) {
-            paths_by_table_name[slot->col_name()].push_back(std::vector<std::string>());
+            TColumnNameAccessPath empty_path;
+            empty_path.path = std::vector<std::string>();
+            empty_path.is_predicate = false;
+            paths_by_table_name[slot->col_name()].push_back(empty_path);
         } else {
             // Add all paths for this field ID
             for (const auto& name_access_path : column_access_paths.name_access_paths) {
-                // // Convert string path to int path
-                // std::vector<std::string> string_path;
-                // // Simple conversion: convert string to int directly
-                // for (const auto& path_element : name_access_path.path) {
-                //     string_path.push_back(path_element);
-                // }
-                paths_by_table_name[slot->col_name()].push_back(name_access_path.path);
+                paths_by_table_name[slot->col_name()].push_back(name_access_path);
             }
         }
     }
 
     // Use the new merged efficient method
-    auto result = HiveOrcNestedColumnUtils::_extract_schema_and_columns_efficiently(
+    return HiveOrcNestedColumnUtils::extract_schema_and_columns_efficiently(
             orc_type, paths_by_table_name);
 
-    return ColumnIdResult(std::move(result.column_ids), result.schema_node);
 }
 
 ColumnIdResult HiveOrcReader::_create_column_ids_and_names_by_top_level_col_index(
@@ -156,7 +153,7 @@ ColumnIdResult HiveOrcReader::_create_column_ids_and_names_by_top_level_col_inde
     std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
 
     if (!orc_type) {
-        return ColumnIdResult(std::move(column_ids), schema_node);
+        return ColumnIdResult();
     }
 
     // First, assign column IDs to the field descriptor
@@ -168,7 +165,7 @@ ColumnIdResult HiveOrcReader::_create_column_ids_and_names_by_top_level_col_inde
     // OrcNestedColumnUtils::_build_iceberg_id_mapping(orc_type, iceberg_id_to_orc_type);
 
     // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
-    std::unordered_map<int, std::vector<std::vector<std::string>>> paths_by_table_index;
+    std::unordered_map<int, std::vector<TColumnNameAccessPath>> paths_by_table_index;
 
     for (const auto* slot : tuple_descriptor->slots()) {
         // 假设 slot->column_access_paths() 返回 vector<vector<int>>，每个 path 代表一个 iceberg id 路径
@@ -182,88 +179,81 @@ ColumnIdResult HiveOrcReader::_create_column_ids_and_names_by_top_level_col_inde
                         [](const TColumnNameAccessPath& access_path) {
                             return access_path.path.empty();
                         })) {
-            paths_by_table_index[slot->col_pos()].push_back(std::vector<std::string>());
+            TColumnNameAccessPath empty_path;
+            empty_path.path = std::vector<std::string>();
+            empty_path.is_predicate = false;
+            paths_by_table_index[slot->col_pos()].push_back(empty_path);
         } else {
             // Add all paths for this field ID
             for (const auto& name_access_path : column_access_paths.name_access_paths) {
-                // // Convert string path to int path
-                // std::vector<std::string> string_path;
-                // // Simple conversion: convert string to int directly
-                // for (const auto& path_element : name_access_path.path) {
-                //     string_path.push_back(path_element);
-                // }
-                paths_by_table_index[slot->col_pos()].push_back(name_access_path.path);
+                paths_by_table_index[slot->col_pos()].push_back(name_access_path);
             }
         }
     }
 
     // Use the new merged efficient method
-    auto result = HiveOrcNestedColumnUtils::
-            _extract_schema_and_columns_efficiently_by_top_level_col_index(orc_type,
+    return HiveOrcNestedColumnUtils::
+            extract_schema_and_columns_efficiently_by_top_level_col_index(orc_type,
                                                                            paths_by_table_index);
-
-    return ColumnIdResult(std::move(result.column_ids), result.schema_node);
 }
 
-ColumnIdResult HiveOrcReader::_create_column_ids_and_names_by_index(
-        const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor) {
-    std::set<uint64_t> column_ids;
-    std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
+// ColumnIdResult HiveOrcReader::_create_column_ids_and_names_by_index(
+//         const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor) {
+//     std::set<uint64_t> column_ids;
+//     std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
 
-    if (!orc_type) {
-        return ColumnIdResult(std::move(column_ids), schema_node);
-    }
+//     if (!orc_type) {
+//         return ColumnIdResult();
+//     }
 
-    // First, assign column IDs to the field descriptor
-    // auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
-    // mutable_field_desc->assign_ids();
+//     // First, assign column IDs to the field descriptor
+//     // auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
+//     // mutable_field_desc->assign_ids();
 
-    // Create a mapping from iceberg field_id to orc type for quick lookup - similar to create_iceberg_projected_layout
-    // std::map<int, const orc::Type*> iceberg_id_to_orc_type;
-    // OrcNestedColumnUtils::_build_iceberg_id_mapping(orc_type, iceberg_id_to_orc_type);
+//     // Create a mapping from iceberg field_id to orc type for quick lookup - similar to create_iceberg_projected_layout
+//     // std::map<int, const orc::Type*> iceberg_id_to_orc_type;
+//     // OrcNestedColumnUtils::_build_iceberg_id_mapping(orc_type, iceberg_id_to_orc_type);
 
-    // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
-    std::unordered_map<int, std::vector<std::vector<int>>> paths_by_table_index;
+//     // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
+//     std::unordered_map<int, std::vector<std::vector<int>>> paths_by_table_index;
 
-    for (const auto* slot : tuple_descriptor->slots()) {
-        // 假设 slot->column_access_paths() 返回 vector<vector<int>>，每个 path 代表一个 iceberg id 路径
-        const auto& column_access_paths = slot->column_access_paths();
+//     for (const auto* slot : tuple_descriptor->slots()) {
+//         // 假设 slot->column_access_paths() 返回 vector<vector<int>>，每个 path 代表一个 iceberg id 路径
+//         const auto& column_access_paths = slot->column_access_paths();
 
-        // If column_paths is empty or has empty paths, we need the entire column
-        if ((!column_access_paths.__isset.name_access_paths) ||
-            column_access_paths.name_access_paths.empty() ||
-            std::any_of(column_access_paths.name_access_paths.begin(),
-                        column_access_paths.name_access_paths.end(),
-                        [](const TColumnNameAccessPath& access_path) {
-                            return access_path.path.empty();
-                        })) {
-            paths_by_table_index[slot->col_pos()].push_back(std::vector<int>());
-        } else {
-            // Add all paths for this field ID
-            for (const auto& name_access_path : column_access_paths.name_access_paths) {
-                // Convert string path to int path
-                std::vector<int> int_path;
-                // Simple conversion: convert string to int directly
-                for (const auto& path_element : name_access_path.path) {
-                    try {
-                        // Convert string to int directly
-                        int_path.push_back(std::stoi(path_element));
-                    } catch (const std::exception& /* e */) {
-                        // If conversion fails, use 0 as default
-                        int_path.push_back(0);
-                    }
-                }
-                paths_by_table_index[slot->col_pos()].push_back(int_path);
-            }
-        }
-    }
+//         // If column_paths is empty or has empty paths, we need the entire column
+//         if ((!column_access_paths.__isset.name_access_paths) ||
+//             column_access_paths.name_access_paths.empty() ||
+//             std::any_of(column_access_paths.name_access_paths.begin(),
+//                         column_access_paths.name_access_paths.end(),
+//                         [](const TColumnNameAccessPath& access_path) {
+//                             return access_path.path.empty();
+//                         })) {
+//             paths_by_table_index[slot->col_pos()].push_back(std::vector<int>());
+//         } else {
+//             // Add all paths for this field ID
+//             for (const auto& name_access_path : column_access_paths.name_access_paths) {
+//                 // Convert string path to int path
+//                 std::vector<int> int_path;
+//                 // Simple conversion: convert string to int directly
+//                 for (const auto& path_element : name_access_path.path) {
+//                     try {
+//                         // Convert string to int directly
+//                         int_path.push_back(std::stoi(path_element));
+//                     } catch (const std::exception& /* e */) {
+//                         // If conversion fails, use 0 as default
+//                         int_path.push_back(0);
+//                     }
+//                 }
+//                 paths_by_table_index[slot->col_pos()].push_back(int_path);
+//             }
+//         }
+//     }
 
-    // Use the new merged efficient method
-    auto result = HiveOrcNestedColumnUtils::_extract_schema_and_columns_efficiently_by_index(
-            orc_type, paths_by_table_index);
-
-    return ColumnIdResult(std::move(result.column_ids), result.schema_node);
-}
+//     // Use the new merged efficient method
+//     return HiveOrcNestedColumnUtils::extract_schema_and_columns_efficiently_by_index(
+//             orc_type, paths_by_table_index);
+// }
 
 Status HiveParquetReader::init_reader(
         const std::vector<std::string>& read_table_col_names,
@@ -336,6 +326,7 @@ Status HiveParquetReader::init_reader(
     }
 
     const auto& column_ids = column_id_result.column_ids;
+    const auto& filter_column_ids = column_id_result.filter_column_ids;
 
     RETURN_IF_ERROR(init_row_filters());
     // std::vector<uint64_t> column_ids_vector(column_ids.begin(), column_ids.end());
@@ -343,7 +334,7 @@ Status HiveParquetReader::init_reader(
     return parquet_reader->init_reader(
             read_table_col_names, table_col_name_to_value_range, conjuncts, tuple_descriptor,
             row_descriptor, colname_to_slot_id, not_single_slot_filter_conjuncts,
-            slot_id_to_filter_conjuncts, table_info_node_ptr, true, column_ids);
+            slot_id_to_filter_conjuncts, table_info_node_ptr, true, column_ids, filter_column_ids);
 }
 
 ColumnIdResult HiveParquetReader::_create_column_ids_and_names(
@@ -352,7 +343,7 @@ ColumnIdResult HiveParquetReader::_create_column_ids_and_names(
     std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
 
     if (!field_desc) {
-        return ColumnIdResult(std::move(column_ids), schema_node);
+        return ColumnIdResult();
     }
 
     // First, assign column IDs to the field descriptor
@@ -362,8 +353,8 @@ ColumnIdResult HiveParquetReader::_create_column_ids_and_names(
     // Create a mapping from iceberg field_id to FieldSchema for quick lookup - similar to create_iceberg_projected_layout
 
     // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
-    std::unordered_map<std::string, std::vector<std::vector<std::string>>> paths_by_table_name;
-    std::unordered_map<int, std::vector<std::vector<std::string>>> paths_by_table_index;
+    std::unordered_map<std::string, std::vector<TColumnNameAccessPath>> paths_by_table_name;
+    std::unordered_map<int, std::vector<TColumnNameAccessPath>> paths_by_table_index;
     // std::unordered_map<int, std::string> field_id_to_table_name;
 
     for (const auto* slot : tuple_descriptor->slots()) {
@@ -380,34 +371,23 @@ ColumnIdResult HiveParquetReader::_create_column_ids_and_names(
                         [](const TColumnNameAccessPath& access_path) {
                             return access_path.path.empty();
                         })) {
-            paths_by_table_name[slot->col_name()].push_back(std::vector<std::string>());
-            paths_by_table_index[slot->col_pos()].push_back(std::vector<std::string>());
+            TColumnNameAccessPath empty_path;
+            empty_path.path = std::vector<std::string>();
+            empty_path.is_predicate = false;
+            paths_by_table_name[slot->col_name()].push_back(empty_path);
+            paths_by_table_index[slot->col_pos()].push_back(empty_path);
         } else {
             // Add all paths for this field ID
             for (const auto& name_access_path : column_access_paths.name_access_paths) {
-                // // Convert string path to int path
-                // std::vector<int> int_path;
-                // // Simple conversion: convert string to int directly
-                // for (const auto& path_element : name_access_path.path) {
-                //     try {
-                //         // Convert string to int directly
-                //         int_path.push_back(std::stoi(path_element));
-                //     } catch (const std::exception& /* e */) {
-                //         // If conversion fails, use 0 as default
-                //         int_path.push_back(0);
-                //     }
-                // }
-                paths_by_table_name[slot->col_name()].push_back(name_access_path.path);
-                paths_by_table_index[slot->col_pos()].push_back(name_access_path.path);
+                paths_by_table_name[slot->col_name()].push_back(name_access_path);
+                paths_by_table_index[slot->col_pos()].push_back(name_access_path);
             }
         }
     }
 
     // Use the new merged efficient method
-    auto result = HiveParquetNestedColumnUtils::_extract_schema_and_columns_efficiently(
+    return HiveParquetNestedColumnUtils::extract_schema_and_columns_efficiently(
             field_desc, paths_by_table_name);
-
-    return ColumnIdResult(std::move(result.column_ids), result.schema_node);
 }
 
 ColumnIdResult HiveParquetReader::_create_column_ids_and_names_by_top_level_col_index(
@@ -416,7 +396,7 @@ ColumnIdResult HiveParquetReader::_create_column_ids_and_names_by_top_level_col_
     std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
 
     if (!field_desc) {
-        return ColumnIdResult(std::move(column_ids), schema_node);
+        return ColumnIdResult();
     }
 
     // First, assign column IDs to the field descriptor
@@ -426,8 +406,8 @@ ColumnIdResult HiveParquetReader::_create_column_ids_and_names_by_top_level_col_
     // Create a mapping from iceberg field_id to FieldSchema for quick lookup - similar to create_iceberg_projected_layout
 
     // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
-    std::unordered_map<std::string, std::vector<std::vector<std::string>>> paths_by_table_name;
-    std::unordered_map<int, std::vector<std::vector<std::string>>> paths_by_table_index;
+    std::unordered_map<std::string, std::vector<TColumnNameAccessPath>> paths_by_table_name;
+    std::unordered_map<int, std::vector<TColumnNameAccessPath>> paths_by_table_index;
     // std::unordered_map<int, std::string> field_id_to_table_name;
 
     for (const auto* slot : tuple_descriptor->slots()) {
@@ -444,96 +424,82 @@ ColumnIdResult HiveParquetReader::_create_column_ids_and_names_by_top_level_col_
                         [](const TColumnNameAccessPath& access_path) {
                             return access_path.path.empty();
                         })) {
-            paths_by_table_index[slot->col_pos()].push_back(std::vector<std::string>());
+            TColumnNameAccessPath empty_path;
+            empty_path.path = std::vector<std::string>();
+            empty_path.is_predicate = false;
+            paths_by_table_index[slot->col_pos()].push_back(empty_path);
         } else {
             // Add all paths for this field ID
             for (const auto& name_access_path : column_access_paths.name_access_paths) {
-                // // Convert string path to int path
-                // std::vector<int> int_path;
-                // // Simple conversion: convert string to int directly
-                // for (const auto& path_element : name_access_path.path) {
-                //     try {
-                //         // Convert string to int directly
-                //         int_path.push_back(std::stoi(path_element));
-                //     } catch (const std::exception& /* e */) {
-                //         // If conversion fails, use 0 as default
-                //         int_path.push_back(0);
-                //     }
-                // }
-                paths_by_table_index[slot->col_pos()].push_back(name_access_path.path);
+                paths_by_table_index[slot->col_pos()].push_back(name_access_path);
             }
         }
     }
 
     // Use the new merged efficient method
-    auto result = HiveParquetNestedColumnUtils::
-            _extract_schema_and_columns_efficiently_by_top_level_col_index(field_desc,
+    return HiveParquetNestedColumnUtils::
+            extract_schema_and_columns_efficiently_by_top_level_col_index(field_desc,
                                                                            paths_by_table_index);
-
-    return ColumnIdResult(std::move(result.column_ids), result.schema_node);
 }
 
-ColumnIdResult HiveParquetReader::_create_column_ids_and_names_by_index(
-        const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor) {
-    std::set<uint64_t> column_ids;
-    std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
+// ColumnIdResult HiveParquetReader::_create_column_ids_and_names_by_index(
+//         const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor) {
+//     std::set<uint64_t> column_ids;
+//     std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
 
-    if (!field_desc) {
-        return ColumnIdResult(std::move(column_ids), schema_node);
-    }
+//     if (!field_desc) {
+//         return ColumnIdResult();
+//     }
 
-    // 为 FieldDescriptor 分配 column_id，确保后续可取到叶子列的 column_id
-    auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
-    mutable_field_desc->assign_ids();
+//     // 为 FieldDescriptor 分配 column_id，确保后续可取到叶子列的 column_id
+//     auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
+//     mutable_field_desc->assign_ids();
 
-    // Create a mapping from iceberg field_id to FieldSchema for quick lookup - similar to create_iceberg_projected_layout
+//     // Create a mapping from iceberg field_id to FieldSchema for quick lookup - similar to create_iceberg_projected_layout
 
-    // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
-    std::unordered_map<int, std::vector<std::vector<int>>> paths_by_table_index; // index to paths
+//     // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
+//     std::unordered_map<int, std::vector<std::vector<int>>> paths_by_table_index; // index to paths
 
-    for (int i = 0; i < tuple_descriptor->slots().size(); ++i) {
-        const auto* slot = tuple_descriptor->slots()[i];
-        // 假设 slot->column_access_paths() 返回 vector<vector<int>>，每个 path 代表一个 iceberg id 路径
-        const auto& column_access_paths = slot->column_access_paths();
+//     for (int i = 0; i < tuple_descriptor->slots().size(); ++i) {
+//         const auto* slot = tuple_descriptor->slots()[i];
+//         // 假设 slot->column_access_paths() 返回 vector<vector<int>>，每个 path 代表一个 iceberg id 路径
+//         const auto& column_access_paths = slot->column_access_paths();
 
-        // field_id_to_table_name[slot->col_unique_id()] = slot->col_name();
+//         // field_id_to_table_name[slot->col_unique_id()] = slot->col_name();
 
-        // If column_paths is empty or has empty paths, we need the entire column
-        if ((!column_access_paths.__isset.name_access_paths) ||
-            column_access_paths.name_access_paths.empty() ||
-            std::any_of(column_access_paths.name_access_paths.begin(),
-                        column_access_paths.name_access_paths.end(),
-                        [](const TColumnNameAccessPath& access_path) {
-                            return access_path.path.empty();
-                        })) {
-            paths_by_table_index[slot->col_pos()].push_back(std::vector<int>());
-        } else {
-            // Add all paths for this field ID
-            for (const auto& name_access_path : column_access_paths.name_access_paths) {
-                // Convert string path to int path
-                std::vector<int> int_path;
-                // Simple conversion: convert string to int directly
-                for (const auto& path_element : name_access_path.path) {
-                    try {
-                        // Convert string to int directly
-                        int_path.push_back(std::stoi(path_element));
-                    } catch (const std::exception& /* e */) {
-                        // If conversion fails, use 0 as default
-                        int_path.push_back(0);
-                    }
-                }
-                paths_by_table_index[slot->col_pos()].push_back(int_path);
-            }
-        }
-    }
+//         // If column_paths is empty or has empty paths, we need the entire column
+//         if ((!column_access_paths.__isset.name_access_paths) ||
+//             column_access_paths.name_access_paths.empty() ||
+//             std::any_of(column_access_paths.name_access_paths.begin(),
+//                         column_access_paths.name_access_paths.end(),
+//                         [](const TColumnNameAccessPath& access_path) {
+//                             return access_path.path.empty();
+//                         })) {
+//             paths_by_table_index[slot->col_pos()].push_back(std::vector<int>());
+//         } else {
+//             // Add all paths for this field ID
+//             for (const auto& name_access_path : column_access_paths.name_access_paths) {
+//                 // Convert string path to int path
+//                 std::vector<int> int_path;
+//                 // Simple conversion: convert string to int directly
+//                 for (const auto& path_element : name_access_path.path) {
+//                     try {
+//                         // Convert string to int directly
+//                         int_path.push_back(std::stoi(path_element));
+//                     } catch (const std::exception& /* e */) {
+//                         // If conversion fails, use 0 as default
+//                         int_path.push_back(0);
+//                     }
+//                 }
+//                 paths_by_table_index[slot->col_pos()].push_back(int_path);
+//             }
+//         }
+//     }
 
-    // Use the new merged efficient method
-    auto result = HiveParquetNestedColumnUtils::_extract_schema_and_columns_efficiently_by_index(
-            field_desc, paths_by_table_index);
-
-    // 这里不构建或返回 schema_node，因为 init_reader 中已基于索引构建了 table_info_node_ptr
-    return ColumnIdResult(std::move(result.column_ids), result.schema_node);
-}
+//     // Use the new merged efficient method
+//     return HiveParquetNestedColumnUtils::extract_schema_and_columns_efficiently_by_index(
+//             field_desc, paths_by_table_index);
+// }
 
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

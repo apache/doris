@@ -112,6 +112,12 @@ struct LazyReadContext {
     std::unordered_map<std::string, VExprContextSPtr> predicate_missing_columns;
     // lazy read missing columns or all missing columns
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+
+    std::vector<std::string> partial_predicate_columns;
+    
+    // Record the number of rows filled in filter phase for lazy materialization
+    // This is used to check if a column was already processed in filter phase
+    size_t filter_phase_rows = 0;
 };
 
 class OrcReader : public GenericReader {
@@ -159,7 +165,8 @@ public:
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
             std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr =
                     TableSchemaChangeHelper::ConstNode::get_instance(),
-            const std::set<uint64_t>& column_ids = {});
+            const std::set<uint64_t>& column_ids = {},
+            const std::set<uint64_t>& filter_column_ids = {});
 
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
@@ -341,14 +348,17 @@ private:
     void _init_system_properties();
     void _init_file_description();
 
-    template <bool is_filter = false>
+    template <bool is_filter = false, bool is_filter_phase = false>
     Status _fill_doris_data_column(const std::string& col_name, MutableColumnPtr& data_column,
                                    const DataTypePtr& data_type,
                                    std::shared_ptr<TableSchemaChangeHelper::Node> root_node,
                                    const orc::Type* orc_column_type,
                                    const orc::ColumnVectorBatch* cvb, size_t num_values);
 
-    template <bool is_filter = false>
+    // Template parameters:
+    // - is_filter: whether this is called during filter evaluation (used for dict filter)
+    // - is_filter_phase: true for filter/predicate read phase, false for lazy materialization phase
+    template <bool is_filter = false, bool is_filter_phase = false>
     Status _orc_column_to_doris_column(const std::string& col_name, ColumnPtr& doris_column,
                                        const DataTypePtr& data_type,
                                        std::shared_ptr<TableSchemaChangeHelper::Node> root_node,
@@ -676,6 +686,7 @@ private:
     size_t _decimal_scale_params_index;
 
     std::set<uint64_t> _column_ids;
+    std::set<uint64_t> _filter_column_ids;
     const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     bool _is_acid = false;
     std::unique_ptr<IColumn::Filter> _filter;

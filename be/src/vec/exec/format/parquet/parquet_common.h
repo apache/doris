@@ -154,22 +154,18 @@ public:
 
             _num_filtered = num_values - num_read;
 
-            if (null_map != nullptr && num_read > 0) {
+            // Fill null_map for ALL rows (including filtered ones) to maintain row count consistency
+            if (null_map != nullptr) {
                 NullMap& map_data_column = *null_map;
                 auto null_map_index = map_data_column.size();
-                map_data_column.resize(null_map_index + num_read);
+                map_data_column.resize(null_map_index + num_values);  // Resize to num_values, not num_read
 
-                if (_num_nulls == 0) {
-                    memset(map_data_column.data() + null_map_index, 0, num_read);
-                } else if (_num_nulls == num_values) {
-                    memset(map_data_column.data() + null_map_index, 1, num_read);
-                } else {
-                    for (i = 0; i < num_values; ++i) {
-                        if (_data_map[i] == CONTENT) {
-                            map_data_column[null_map_index++] = (UInt8) false;
-                        } else if (_data_map[i] == NULL_DATA) {
-                            map_data_column[null_map_index++] = (UInt8) true;
-                        }
+                // Fill null map for all rows based on _data_map
+                for (i = 0; i < num_values; ++i) {
+                    if (_data_map[i] == CONTENT || _data_map[i] == FILTERED_CONTENT) {
+                        map_data_column[null_map_index++] = (UInt8) false;
+                    } else {  // NULL_DATA or FILTERED_NULL
+                        map_data_column[null_map_index++] = (UInt8) true;
                     }
                 }
             }

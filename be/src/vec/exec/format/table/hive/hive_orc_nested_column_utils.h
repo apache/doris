@@ -34,38 +34,32 @@ namespace vectorized {
 
 class HiveOrcNestedColumnUtils {
 public:
-    struct SchemaAndColumnResult {
-        std::shared_ptr<TableSchemaChangeHelper::Node> schema_node;
-        std::set<uint64_t> column_ids;
-
-        SchemaAndColumnResult(std::shared_ptr<TableSchemaChangeHelper::Node> node,
-                              std::set<uint64_t> ids)
-                : schema_node(std::move(node)), column_ids(std::move(ids)) {}
-    };
-
-    static SchemaAndColumnResult _extract_schema_and_columns_efficiently(
+    static ColumnIdResult extract_schema_and_columns_efficiently(
             const orc::Type* orc_type,
-            const std::unordered_map<std::string, std::vector<std::vector<std::string>>>&
-                    paths_by_table_name);
+            const std::unordered_map<std::string, std::vector<TColumnNameAccessPath>>&
+                    paths_by_table_col_name);
 
-    static SchemaAndColumnResult _extract_schema_and_columns_efficiently_by_top_level_col_index(
+    static ColumnIdResult extract_schema_and_columns_efficiently_by_top_level_col_index(
             const orc::Type* orc_type,
-            const std::unordered_map<int, std::vector<std::vector<std::string>>>&
-                    paths_by_table_index);
+            const std::unordered_map<int, std::vector<TColumnNameAccessPath>>&
+                    paths_by_table_col_index);
 
-    static std::shared_ptr<TableSchemaChangeHelper::Node> _build_table_schema_node_from_type(
-            const orc::Type& type, const std::vector<std::vector<std::string>>& field_paths);
+//     static std::shared_ptr<TableSchemaChangeHelper::Node> _build_table_schema_node_from_type(
+//             const orc::Type& type, const std::vector<TColumnNameAccessPath>& field_paths);
 
-    static std::shared_ptr<TableSchemaChangeHelper::Node> _build_full_table_schema_node(
-            const orc::Type& type);
+//     static std::shared_ptr<TableSchemaChangeHelper::Node> _build_full_table_schema_node(
+//             const orc::Type& type);
 
+//     static ColumnIdResult extract_schema_and_columns_efficiently_by_index(
+//             const orc::Type* orc_type,
+//             const std::unordered_map<int, std::vector<std::vector<int>>>& paths_by_table_index);
+
+private:
     static void _extract_nested_column_ids_efficiently(
-            const orc::Type& type, const std::vector<std::vector<std::string>>& paths,
-            std::set<uint64_t>& column_ids);
+            const orc::Type& type, const std::vector<TColumnNameAccessPath>& paths,
+            std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids);
 
-    static SchemaAndColumnResult _extract_schema_and_columns_efficiently_by_index(
-            const orc::Type* orc_type,
-            const std::unordered_map<int, std::vector<std::vector<int>>>& paths_by_table_index);
+
 
     //     static std::shared_ptr<TableSchemaChangeHelper::Node> _build_table_schema_node_from_type(
     //             const orc::Type& type,
@@ -74,11 +68,10 @@ public:
     //     static std::shared_ptr<TableSchemaChangeHelper::Node> _build_full_table_schema_node(
     //             const orc::Type& type);
 
-    static void _extract_nested_column_ids_efficiently_by_index(
-            const orc::Type& type, const std::vector<std::vector<int>>& paths,
-            std::set<uint64_t>& column_ids);
+//     static void _extract_nested_column_ids_efficiently_by_index(
+//             const orc::Type& type, const std::vector<std::vector<int>>& paths,
+//             std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids);
 
-private:
 };
 
 } // namespace vectorized

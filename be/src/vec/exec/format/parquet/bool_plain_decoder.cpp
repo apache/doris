@@ -67,7 +67,8 @@ Status BoolPlainDecoder::_decode_values(MutableColumnPtr& doris_column, DataType
                                         ColumnSelectVector& select_vector, bool is_dict_filter) {
     auto& column_data = assert_cast<ColumnUInt8*>(doris_column.get())->get_data();
     size_t data_index = column_data.size();
-    column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
+    // Reserve space for ALL values (including filtered ones) in lazy materialization
+    column_data.resize(data_index + select_vector.num_values());
 
     ColumnSelectVector::DataReadType read_type;
     while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
@@ -87,16 +88,19 @@ Status BoolPlainDecoder::_decode_values(MutableColumnPtr& doris_column, DataType
             break;
         }
         case ColumnSelectVector::FILTERED_CONTENT: {
+            // In lazy materialization, keep filtered rows (fill with data to maintain row count)
             bool value;
-            for (int i = 0; i < run_length; ++i) {
+            for (size_t i = 0; i < run_length; ++i) {
                 if (UNLIKELY(!_decode_value(&value))) {
                     return Status::IOError("Can't read enough booleans in plain decoder");
                 }
+                column_data[data_index++] = (UInt8)value;
             }
             break;
         }
         case ColumnSelectVector::FILTERED_NULL: {
-            // do nothing
+            // In lazy materialization, keep filtered null rows (fill with zeros/nulls to maintain row count)
+            data_index += run_length;
             break;
         }
         }

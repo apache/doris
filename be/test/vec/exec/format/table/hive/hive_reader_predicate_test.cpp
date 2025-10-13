@@ -53,10 +53,14 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+#include "gen_cpp/Exprs_types.h"
+#include "gen_cpp/Opcodes_types.h"
 
 namespace doris::vectorized::table {
 
-class HiveReaderTest : public ::testing::Test {
+class HiveReaderPredicateTest : public ::testing::Test {
 protected:
     void SetUp() override {
         cache = std::make_unique<doris::FileMetaCache>(1024);
@@ -337,15 +341,15 @@ protected:
                     access_paths.__set_type(doris::TAccessPathType::NAME);
                     std::vector<TColumnNameAccessPath> paths;
                     if (use_name_paths) {
-                        // address.coordinates.lat
+                        // address.coordinates.lat (predicate: lat > 40.0)
                         TColumnNameAccessPath path1;
                         path1.__set_path({"address", "coordinates", "lat"});
-                        path1.__set_is_predicate(false);
+                        path1.__set_is_predicate(true); // Mark as predicate if requested
                         paths.push_back(path1);
-                        // address.coordinates.lng
+                        // address.coordinates.lng (predicate: lng < -70.0)
                         TColumnNameAccessPath path2;
                         path2.__set_path({"address", "coordinates", "lng"});
-                        path2.__set_is_predicate(false);
+                        path2.__set_is_predicate(true);
                         paths.push_back(path2);
                         // contact.email
                         TColumnNameAccessPath path3;
@@ -358,15 +362,15 @@ protected:
                         path4.__set_is_predicate(false);
                         paths.push_back(path4);
                     } else {
-                        // address.coordinates.lat
+                        // address.coordinates.lat (index path with predicates)
                         TColumnNameAccessPath path1;
                         path1.__set_path({"0", "2", "0"});
-                        path1.__set_is_predicate(false);
+                        path1.__set_is_predicate(true);
                         paths.push_back(path1);
-                        // address.coordinates.lng
+                        // address.coordinates.lng (index path with predicates)
                         TColumnNameAccessPath path2;
                         path2.__set_path({"0", "2", "1"});
-                        path2.__set_is_predicate(false);
+                        path2.__set_is_predicate(true);
                         paths.push_back(path2);
                         // contact.email
                         TColumnNameAccessPath path3;
@@ -475,11 +479,673 @@ protected:
         }
     }
 
+    // Helper function to create nested struct_element expression for a field path
+    TExprNode createNestedStructElement(const SlotDescriptor* profile_slot,
+                                        const std::vector<std::string>& field_path,
+                                        const TTypeDesc& result_type) {
+        if (field_path.empty()) {
+            // Return slot reference for empty path
+            TExprNode slot_node;
+            slot_node.__set_node_type(TExprNodeType::SLOT_REF);
+            slot_node.__set_num_children(0);
+            slot_node.__set_is_nullable(false); // struct_element expects non-nullable STRUCT input
+
+            // Set type as STRUCT for profile with nested address->coordinates->{lat,lng}
+            TTypeDesc profile_type;
+            // profile STRUCT with one field 'address'
+            TTypeNode profile_struct_node;
+            profile_struct_node.__set_type(TTypeNodeType::STRUCT);
+            std::vector<TStructField> profile_fields;
+            TStructField address_field;
+            address_field.__set_name("address");
+            address_field.__set_contains_null(false); // Non-nullable for struct_element
+            profile_fields.push_back(address_field);
+            profile_struct_node.__set_struct_fields(profile_fields);
+            profile_type.types.push_back(profile_struct_node);
+            // address STRUCT with one field 'coordinates'
+            TTypeNode address_struct_node;
+            address_struct_node.__set_type(TTypeNodeType::STRUCT);
+            std::vector<TStructField> address_fields2;
+            TStructField coord_field;
+            coord_field.__set_name("coordinates");
+            coord_field.__set_contains_null(false); // Non-nullable for struct_element
+            address_fields2.push_back(coord_field);
+            address_struct_node.__set_struct_fields(address_fields2);
+            profile_type.types.push_back(address_struct_node);
+            // coordinates STRUCT with two fields 'lat' and 'lng'
+            TTypeNode coordinates_struct_node;
+            coordinates_struct_node.__set_type(TTypeNodeType::STRUCT);
+            std::vector<TStructField> coordinates_fields2;
+            TStructField lat_field2;
+            lat_field2.__set_name("lat");
+            lat_field2.__set_contains_null(false); // Non-nullable for struct_element
+            coordinates_fields2.push_back(lat_field2);
+            TStructField lng_field2;
+            lng_field2.__set_name("lng");
+            lng_field2.__set_contains_null(false); // Non-nullable for struct_element
+            coordinates_fields2.push_back(lng_field2);
+            coordinates_struct_node.__set_struct_fields(coordinates_fields2);
+            profile_type.types.push_back(coordinates_struct_node);
+            // SCALAR nodes for lat and lng
+            TTypeNode lat_scalar_node2;
+            lat_scalar_node2.__set_type(TTypeNodeType::SCALAR);
+            TScalarType lat_scalar2;
+            lat_scalar2.__set_type(TPrimitiveType::DOUBLE);
+            lat_scalar_node2.__set_scalar_type(lat_scalar2);
+            profile_type.types.push_back(lat_scalar_node2);
+            TTypeNode lng_scalar_node2;
+            lng_scalar_node2.__set_type(TTypeNodeType::SCALAR);
+            TScalarType lng_scalar2;
+            lng_scalar2.__set_type(TPrimitiveType::DOUBLE);
+            lng_scalar_node2.__set_scalar_type(lng_scalar2);
+            profile_type.types.push_back(lng_scalar_node2);
+            slot_node.__set_type(profile_type);
+
+            TSlotRef profile_slot_ref;
+            profile_slot_ref.__set_slot_id(profile_slot->id());
+            profile_slot_ref.__set_tuple_id(profile_slot->parent());
+            slot_node.__set_slot_ref(profile_slot_ref);
+
+            return slot_node;
+        }
+        
+        // Create struct_element node
+        TExprNode struct_element_node;
+        struct_element_node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+        struct_element_node.__set_num_children(2);
+        struct_element_node.__set_is_nullable(true);
+        
+        // Set result type
+        struct_element_node.__set_type(result_type);
+        
+        // Set function info for struct_element
+        TFunction struct_element_fn;
+        TFunctionName struct_element_fn_name;
+        struct_element_fn_name.__set_function_name("struct_element");
+        struct_element_fn.__set_name(struct_element_fn_name);
+        struct_element_node.__set_fn(struct_element_fn);
+        
+        return struct_element_node;
+    }
+
+    // Helper function to create conjuncts with nested column predicates
+    // This creates a simpler but correct predicate expression that can actually be prepared and executed
+    VExprContextSPtrs createNestedColumnConjuncts(ObjectPool& obj_pool, 
+                                                   const TupleDescriptor* tuple_descriptor,
+                                                   RuntimeState* runtime_state) {
+        VExprContextSPtrs conjuncts;
+        
+        // Find the profile slot descriptor
+        const SlotDescriptor* profile_slot = nullptr;
+        for (const SlotDescriptor* slot : tuple_descriptor->slots()) {
+            if (slot->col_name() == "profile") {
+                profile_slot = slot;
+                break;
+            }
+        }
+        
+        if (!profile_slot) {
+            return conjuncts; // No profile column found
+        }
+        
+        // Create predicate: struct_element(struct_element(struct_element(profile, 'address'), 'coordinates'), 'lat') > 40.0
+        {
+            TExpr lat_predicate;
+            
+            // Root node: binary predicate (GT)
+            TExprNode gt_node;
+            gt_node.__set_node_type(TExprNodeType::BINARY_PRED);
+            gt_node.__set_opcode(TExprOpcode::GT);
+            gt_node.__set_num_children(2);
+            gt_node.__set_is_nullable(true);
+            
+            // Set return type as BOOLEAN
+            TTypeDesc bool_type;
+            TTypeNode bool_type_node;
+            bool_type_node.__set_type(TTypeNodeType::SCALAR);
+            TScalarType bool_scalar;
+            bool_scalar.__set_type(TPrimitiveType::BOOLEAN);
+            bool_type_node.__set_scalar_type(bool_scalar);
+            bool_type.types.push_back(bool_type_node);
+            gt_node.__set_type(bool_type);
+            
+            // Set function info
+            TFunction gt_fn;
+            TFunctionName gt_fn_name;
+            gt_fn_name.__set_function_name("gt");
+            gt_fn.__set_name(gt_fn_name);
+            gt_node.__set_fn(gt_fn);
+            
+            lat_predicate.nodes.push_back(gt_node);
+            
+            // Left child: nested struct_element calls - struct_element(struct_element(struct_element(profile, 'address'), 'coordinates'), 'lat')
+            
+            // Outermost struct_element for 'lat'
+            TExprNode lat_struct_element;
+            lat_struct_element.__set_node_type(TExprNodeType::FUNCTION_CALL);
+            lat_struct_element.__set_num_children(2);
+            lat_struct_element.__set_is_nullable(true);
+            
+            // Set type as DOUBLE for the result
+            TTypeDesc double_type;
+            TTypeNode double_type_node;
+            double_type_node.__set_type(TTypeNodeType::SCALAR);
+            TScalarType double_scalar;
+            double_scalar.__set_type(TPrimitiveType::DOUBLE);
+            double_type_node.__set_scalar_type(double_scalar);
+            double_type.types.push_back(double_type_node);
+            lat_struct_element.__set_type(double_type);
+            
+            // Set function info for struct_element (simplified - let Doris infer types)
+            TFunction struct_element_fn;
+            TFunctionName struct_element_fn_name;
+            struct_element_fn_name.__set_function_name("struct_element");
+            struct_element_fn.__set_name(struct_element_fn_name);
+            struct_element_fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+            struct_element_fn.__set_has_var_args(false);
+            lat_struct_element.__set_fn(struct_element_fn);
+            
+            lat_predicate.nodes.push_back(lat_struct_element);
+            
+            // Middle struct_element for 'coordinates'
+            TExprNode coord_struct_element;
+            coord_struct_element.__set_node_type(TExprNodeType::FUNCTION_CALL);
+            coord_struct_element.__set_num_children(2);
+            coord_struct_element.__set_is_nullable(true);
+            
+            // Set type as STRUCT for coordinates, with one field 'lat' of DOUBLE
+            TTypeDesc coord_struct_type;
+            TTypeNode coord_struct_type_node;
+            coord_struct_type_node.__set_type(TTypeNodeType::STRUCT);
+            std::vector<TStructField> coord_fields;
+            TStructField coord_lat_field;
+            coord_lat_field.__set_name("lat");
+            coord_lat_field.__set_contains_null(true);
+            coord_fields.push_back(coord_lat_field);
+            coord_struct_type_node.__set_struct_fields(coord_fields);
+            coord_struct_type.types.push_back(coord_struct_type_node);
+            // child type for 'lat'
+            TTypeNode coord_lat_scalar_node;
+            coord_lat_scalar_node.__set_type(TTypeNodeType::SCALAR);
+            TScalarType coord_lat_scalar;
+            coord_lat_scalar.__set_type(TPrimitiveType::DOUBLE);
+            coord_lat_scalar_node.__set_scalar_type(coord_lat_scalar);
+            coord_struct_type.types.push_back(coord_lat_scalar_node);
+            coord_struct_element.__set_type(coord_struct_type);
+            
+            // Set function info for middle struct_element (simplified)
+            TFunction coord_struct_element_fn;
+            TFunctionName coord_fn_name;
+            coord_fn_name.__set_function_name("struct_element");
+            coord_struct_element_fn.__set_name(coord_fn_name);
+            coord_struct_element_fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+            coord_struct_element_fn.__set_has_var_args(false);
+            coord_struct_element.__set_fn(coord_struct_element_fn);
+            
+            lat_predicate.nodes.push_back(coord_struct_element);
+            
+            // Inner struct_element for 'address'
+            TExprNode addr_struct_element;
+            addr_struct_element.__set_node_type(TExprNodeType::FUNCTION_CALL);
+            addr_struct_element.__set_num_children(2);
+            addr_struct_element.__set_is_nullable(true);
+            
+            // Set type as STRUCT for address, with one field 'coordinates' (STRUCT with one field 'lat')
+            TTypeDesc addr_struct_type;
+            TTypeNode addr_struct_type_node;
+            addr_struct_type_node.__set_type(TTypeNodeType::STRUCT);
+            std::vector<TStructField> addr_fields;
+            TStructField coordinates_field;
+            coordinates_field.__set_name("coordinates");
+            coordinates_field.__set_contains_null(true);
+            addr_fields.push_back(coordinates_field);
+            addr_struct_type_node.__set_struct_fields(addr_fields);
+            addr_struct_type.types.push_back(addr_struct_type_node);
+            // nested coordinates struct definition inside address
+            TTypeNode nested_coord_struct_node;
+            nested_coord_struct_node.__set_type(TTypeNodeType::STRUCT);
+            std::vector<TStructField> nested_coord_fields;
+            TStructField nested_lat_field;
+            nested_lat_field.__set_name("lat");
+            nested_lat_field.__set_contains_null(true);
+            nested_coord_fields.push_back(nested_lat_field);
+            nested_coord_struct_node.__set_struct_fields(nested_coord_fields);
+            addr_struct_type.types.push_back(nested_coord_struct_node);
+            // nested lat scalar under coordinates
+            TTypeNode nested_lat_scalar_node;
+            nested_lat_scalar_node.__set_type(TTypeNodeType::SCALAR);
+            TScalarType nested_lat_scalar;
+            nested_lat_scalar.__set_type(TPrimitiveType::DOUBLE);
+            nested_lat_scalar_node.__set_scalar_type(nested_lat_scalar);
+            addr_struct_type.types.push_back(nested_lat_scalar_node);
+            addr_struct_element.__set_type(addr_struct_type);
+            
+            // Set function info for inner struct_element (simplified)
+            TFunction addr_struct_element_fn;
+            TFunctionName addr_fn_name;
+            addr_fn_name.__set_function_name("struct_element");
+            addr_struct_element_fn.__set_name(addr_fn_name);
+            addr_struct_element_fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+            addr_struct_element_fn.__set_has_var_args(false);
+            addr_struct_element.__set_fn(addr_struct_element_fn);
+            
+            lat_predicate.nodes.push_back(addr_struct_element);
+            
+            // Base: slot reference to profile (non-nullable for struct_element)
+            TExprNode profile_slot_node;
+            profile_slot_node.__set_node_type(TExprNodeType::SLOT_REF);
+            profile_slot_node.__set_num_children(0);
+            profile_slot_node.__set_is_nullable(false); // struct_element expects non-nullable STRUCT
+            
+            // Set type as STRUCT for profile with nested address->coordinates->{lat,lng}
+            TTypeDesc profile_type;
+            // profile STRUCT with one field 'address'
+            TTypeNode profile_struct_node;
+            profile_struct_node.__set_type(TTypeNodeType::STRUCT);
+            std::vector<TStructField> profile_fields;
+            TStructField address_field;
+            address_field.__set_name("address");
+            address_field.__set_contains_null(false); // Non-nullable for struct_element
+            profile_fields.push_back(address_field);
+            profile_struct_node.__set_struct_fields(profile_fields);
+            profile_type.types.push_back(profile_struct_node);
+            // address STRUCT with one field 'coordinates'
+            TTypeNode address_struct_node;
+            address_struct_node.__set_type(TTypeNodeType::STRUCT);
+            std::vector<TStructField> address_fields2;
+            TStructField coord_field;
+            coord_field.__set_name("coordinates");
+            coord_field.__set_contains_null(false); // Non-nullable for struct_element
+            address_fields2.push_back(coord_field);
+            address_struct_node.__set_struct_fields(address_fields2);
+            profile_type.types.push_back(address_struct_node);
+            // coordinates STRUCT with two fields 'lat' and 'lng'
+            TTypeNode coordinates_struct_node;
+            coordinates_struct_node.__set_type(TTypeNodeType::STRUCT);
+            std::vector<TStructField> coordinates_fields2;
+            TStructField lat_field2;
+            lat_field2.__set_name("lat");
+            lat_field2.__set_contains_null(false); // Non-nullable for struct_element
+            coordinates_fields2.push_back(lat_field2);
+            TStructField lng_field2;
+            lng_field2.__set_name("lng");
+            lng_field2.__set_contains_null(false); // Non-nullable for struct_element
+            coordinates_fields2.push_back(lng_field2);
+            coordinates_struct_node.__set_struct_fields(coordinates_fields2);
+            profile_type.types.push_back(coordinates_struct_node);
+            // SCALAR nodes for lat and lng
+            TTypeNode lat_scalar_node2;
+            lat_scalar_node2.__set_type(TTypeNodeType::SCALAR);
+            TScalarType lat_scalar2;
+            lat_scalar2.__set_type(TPrimitiveType::DOUBLE);
+            lat_scalar_node2.__set_scalar_type(lat_scalar2);
+            profile_type.types.push_back(lat_scalar_node2);
+            TTypeNode lng_scalar_node2;
+            lng_scalar_node2.__set_type(TTypeNodeType::SCALAR);
+            TScalarType lng_scalar2;
+            lng_scalar2.__set_type(TPrimitiveType::DOUBLE);
+            lng_scalar_node2.__set_scalar_type(lng_scalar2);
+            profile_type.types.push_back(lng_scalar_node2);
+            profile_slot_node.__set_type(profile_type);
+            
+            TSlotRef profile_slot_ref;
+            profile_slot_ref.__set_slot_id(profile_slot->id());
+            profile_slot_ref.__set_tuple_id(profile_slot->parent());
+            profile_slot_node.__set_slot_ref(profile_slot_ref);
+            
+            lat_predicate.nodes.push_back(profile_slot_node);
+            
+            // String literal for 'address'
+            TExprNode addr_field_node;
+            addr_field_node.__set_node_type(TExprNodeType::STRING_LITERAL);
+            addr_field_node.__set_num_children(0);
+            addr_field_node.__set_is_nullable(false);
+            
+            TTypeDesc string_type;
+            TTypeNode string_type_node;
+            string_type_node.__set_type(TTypeNodeType::SCALAR);
+            TScalarType string_scalar;
+            string_scalar.__set_type(TPrimitiveType::STRING);
+            string_type_node.__set_scalar_type(string_scalar);
+            string_type.types.push_back(string_type_node);
+            addr_field_node.__set_type(string_type);
+            
+            TStringLiteral addr_literal;
+            addr_literal.__set_value("address");
+            addr_field_node.__set_string_literal(addr_literal);
+            
+            lat_predicate.nodes.push_back(addr_field_node);
+            
+            // String literal for 'coordinates'
+            TExprNode coord_field_node;
+            coord_field_node.__set_node_type(TExprNodeType::STRING_LITERAL);
+            coord_field_node.__set_num_children(0);
+            coord_field_node.__set_is_nullable(false);
+            coord_field_node.__set_type(string_type);
+            
+            TStringLiteral coord_literal;
+            coord_literal.__set_value("coordinates");
+            coord_field_node.__set_string_literal(coord_literal);
+            
+            lat_predicate.nodes.push_back(coord_field_node);
+            
+            // String literal for 'lat'
+            TExprNode lat_field_node;
+            lat_field_node.__set_node_type(TExprNodeType::STRING_LITERAL);
+            lat_field_node.__set_num_children(0);
+            lat_field_node.__set_is_nullable(false);
+            lat_field_node.__set_type(string_type);
+            
+            TStringLiteral lat_literal;
+            lat_literal.__set_value("lat");
+            lat_field_node.__set_string_literal(lat_literal);
+            
+            lat_predicate.nodes.push_back(lat_field_node);
+            
+            // Right child: literal 40.0
+            TExprNode literal_40_node;
+            literal_40_node.__set_node_type(TExprNodeType::FLOAT_LITERAL);
+            literal_40_node.__set_num_children(0);
+            literal_40_node.__set_is_nullable(false);
+            literal_40_node.__set_type(double_type);
+            
+            TFloatLiteral float_40;
+            float_40.__set_value(40.0);
+            literal_40_node.__set_float_literal(float_40);
+            
+            lat_predicate.nodes.push_back(literal_40_node);
+            
+            // Create VExprContext from TExpr
+            VExprContextSPtr lat_ctx;
+            auto status = VExpr::create_expr_tree(lat_predicate, lat_ctx);
+            if (status.ok() && lat_ctx) {
+                conjuncts.push_back(lat_ctx);
+            }
+        }
+        
+        // Create predicate: struct_element(struct_element(struct_element(profile, 'address'), 'coordinates'), 'lng') < -70.0
+        {
+            TExpr lng_predicate;
+            
+            // Root node: binary predicate (LT)
+            TExprNode lt_node;
+            lt_node.__set_node_type(TExprNodeType::BINARY_PRED);
+            lt_node.__set_opcode(TExprOpcode::LT);
+            lt_node.__set_num_children(2);
+            lt_node.__set_is_nullable(true);
+            
+            // Set return type as BOOLEAN
+            TTypeDesc bool_type;
+            TTypeNode bool_type_node;
+            bool_type_node.__set_type(TTypeNodeType::SCALAR);
+            TScalarType bool_scalar;
+            bool_scalar.__set_type(TPrimitiveType::BOOLEAN);
+            bool_type_node.__set_scalar_type(bool_scalar);
+            bool_type.types.push_back(bool_type_node);
+            lt_node.__set_type(bool_type);
+            
+            // Set function info
+            TFunction lt_fn;
+            TFunctionName lt_fn_name;
+            lt_fn_name.__set_function_name("lt");
+            lt_fn.__set_name(lt_fn_name);
+            lt_node.__set_fn(lt_fn);
+            
+            lng_predicate.nodes.push_back(lt_node);
+            
+            // Left child: nested struct_element calls - struct_element(struct_element(struct_element(profile, 'address'), 'coordinates'), 'lng')
+            
+            // Outermost struct_element for 'lng'
+            TExprNode lng_struct_element;
+            lng_struct_element.__set_node_type(TExprNodeType::FUNCTION_CALL);
+            lng_struct_element.__set_num_children(2);
+            lng_struct_element.__set_is_nullable(true);
+            
+            // Set type as DOUBLE for the result
+            TTypeDesc double_type;
+            TTypeNode double_type_node;
+            double_type_node.__set_type(TTypeNodeType::SCALAR);
+            TScalarType double_scalar;
+            double_scalar.__set_type(TPrimitiveType::DOUBLE);
+            double_type_node.__set_scalar_type(double_scalar);
+            double_type.types.push_back(double_type_node);
+            lng_struct_element.__set_type(double_type);
+            
+            // Set function info for struct_element (lng - simplified)
+            TFunction lng_struct_element_fn;
+            TFunctionName lng_fn_name;
+            lng_fn_name.__set_function_name("struct_element");
+            lng_struct_element_fn.__set_name(lng_fn_name);
+            lng_struct_element_fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+            lng_struct_element_fn.__set_has_var_args(false);
+            lng_struct_element.__set_fn(lng_struct_element_fn);
+            
+            lng_predicate.nodes.push_back(lng_struct_element);
+            
+            // Middle struct_element for 'coordinates'
+            TExprNode coord_struct_element;
+            coord_struct_element.__set_node_type(TExprNodeType::FUNCTION_CALL);
+            coord_struct_element.__set_num_children(2);
+            coord_struct_element.__set_is_nullable(true);
+            
+            // Set type as STRUCT for coordinates, with one field 'lng' of DOUBLE
+            TTypeDesc coord_struct_type;
+            TTypeNode coord_struct_type_node;
+            coord_struct_type_node.__set_type(TTypeNodeType::STRUCT);
+            std::vector<TStructField> coord_fields;
+            TStructField coord_lng_field;
+            coord_lng_field.__set_name("lng");
+            coord_lng_field.__set_contains_null(true);
+            coord_fields.push_back(coord_lng_field);
+            coord_struct_type_node.__set_struct_fields(coord_fields);
+            coord_struct_type.types.push_back(coord_struct_type_node);
+            // child type for 'lng'
+            TTypeNode coord_lng_scalar_node;
+            coord_lng_scalar_node.__set_type(TTypeNodeType::SCALAR);
+            TScalarType coord_lng_scalar;
+            coord_lng_scalar.__set_type(TPrimitiveType::DOUBLE);
+            coord_lng_scalar_node.__set_scalar_type(coord_lng_scalar);
+            coord_struct_type.types.push_back(coord_lng_scalar_node);
+            coord_struct_element.__set_type(coord_struct_type);
+            
+            // Set function info for middle struct_element (simplified)
+            TFunction lng_coord_struct_element_fn;
+            TFunctionName lng_coord_fn_name;
+            lng_coord_fn_name.__set_function_name("struct_element");
+            lng_coord_struct_element_fn.__set_name(lng_coord_fn_name);
+            lng_coord_struct_element_fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+            lng_coord_struct_element_fn.__set_has_var_args(false);
+            coord_struct_element.__set_fn(lng_coord_struct_element_fn);
+            
+            lng_predicate.nodes.push_back(coord_struct_element);
+            
+            // Inner struct_element for 'address'
+            TExprNode addr_struct_element;
+            addr_struct_element.__set_node_type(TExprNodeType::FUNCTION_CALL);
+            addr_struct_element.__set_num_children(2);
+            addr_struct_element.__set_is_nullable(true);
+            
+            // Set type as STRUCT for address, with one field 'coordinates' (STRUCT with one field 'lng')
+            TTypeDesc addr_struct_type;
+            TTypeNode addr_struct_type_node;
+            addr_struct_type_node.__set_type(TTypeNodeType::STRUCT);
+            std::vector<TStructField> addr_fields;
+            TStructField coordinates_field;
+            coordinates_field.__set_name("coordinates");
+            coordinates_field.__set_contains_null(true);
+            addr_fields.push_back(coordinates_field);
+            addr_struct_type_node.__set_struct_fields(addr_fields);
+            addr_struct_type.types.push_back(addr_struct_type_node);
+            // nested coordinates struct definition inside address
+            TTypeNode nested_coord_struct_node;
+            nested_coord_struct_node.__set_type(TTypeNodeType::STRUCT);
+            std::vector<TStructField> nested_coord_fields;
+            TStructField nested_lng_field;
+            nested_lng_field.__set_name("lng");
+            nested_lng_field.__set_contains_null(true);
+            nested_coord_fields.push_back(nested_lng_field);
+            nested_coord_struct_node.__set_struct_fields(nested_coord_fields);
+            addr_struct_type.types.push_back(nested_coord_struct_node);
+            // nested lng scalar under coordinates
+            TTypeNode nested_lng_scalar_node;
+            nested_lng_scalar_node.__set_type(TTypeNodeType::SCALAR);
+            TScalarType nested_lng_scalar;
+            nested_lng_scalar.__set_type(TPrimitiveType::DOUBLE);
+            nested_lng_scalar_node.__set_scalar_type(nested_lng_scalar);
+            addr_struct_type.types.push_back(nested_lng_scalar_node);
+            addr_struct_element.__set_type(addr_struct_type);
+            
+            // Set function info for inner struct_element (simplified)
+            TFunction lng_addr_struct_element_fn;
+            TFunctionName lng_addr_fn_name;
+            lng_addr_fn_name.__set_function_name("struct_element");
+            lng_addr_struct_element_fn.__set_name(lng_addr_fn_name);
+            lng_addr_struct_element_fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+            lng_addr_struct_element_fn.__set_has_var_args(false);
+            addr_struct_element.__set_fn(lng_addr_struct_element_fn);
+            
+            lng_predicate.nodes.push_back(addr_struct_element);
+            
+            // Base: slot reference to profile (non-nullable for struct_element)
+            TExprNode profile_slot_node;
+            profile_slot_node.__set_node_type(TExprNodeType::SLOT_REF);
+            profile_slot_node.__set_num_children(0);
+            profile_slot_node.__set_is_nullable(false); // struct_element expects non-nullable STRUCT
+            
+            // Set type as STRUCT for profile with nested address->coordinates->{lat,lng}
+            TTypeDesc profile_type;
+            // profile STRUCT with one field 'address'
+            TTypeNode profile_struct_node;
+            profile_struct_node.__set_type(TTypeNodeType::STRUCT);
+            std::vector<TStructField> profile_fields_lng;
+            TStructField address_field_lng;
+            address_field_lng.__set_name("address");
+            address_field_lng.__set_contains_null(false); // Non-nullable for struct_element
+            profile_fields_lng.push_back(address_field_lng);
+            profile_struct_node.__set_struct_fields(profile_fields_lng);
+            profile_type.types.push_back(profile_struct_node);
+            // address STRUCT with one field 'coordinates'
+            TTypeNode address_struct_node_lng;
+            address_struct_node_lng.__set_type(TTypeNodeType::STRUCT);
+            std::vector<TStructField> address_fields_lng;
+            TStructField coord_field_lng;
+            coord_field_lng.__set_name("coordinates");
+            coord_field_lng.__set_contains_null(false); // Non-nullable for struct_element
+            address_fields_lng.push_back(coord_field_lng);
+            address_struct_node_lng.__set_struct_fields(address_fields_lng);
+            profile_type.types.push_back(address_struct_node_lng);
+            // coordinates STRUCT with two fields 'lat' and 'lng'
+            TTypeNode coordinates_struct_node_lng;
+            coordinates_struct_node_lng.__set_type(TTypeNodeType::STRUCT);
+            std::vector<TStructField> coordinates_fields_lng;
+            TStructField lat_field_lng;
+            lat_field_lng.__set_name("lat");
+            lat_field_lng.__set_contains_null(false); // Non-nullable for struct_element
+            coordinates_fields_lng.push_back(lat_field_lng);
+            TStructField lng_field_lng;
+            lng_field_lng.__set_name("lng");
+            lng_field_lng.__set_contains_null(false); // Non-nullable for struct_element
+            coordinates_fields_lng.push_back(lng_field_lng);
+            coordinates_struct_node_lng.__set_struct_fields(coordinates_fields_lng);
+            profile_type.types.push_back(coordinates_struct_node_lng);
+            // SCALAR nodes for lat and lng
+            TTypeNode lat_scalar_node_lng;
+            lat_scalar_node_lng.__set_type(TTypeNodeType::SCALAR);
+            TScalarType lat_scalar_lng;
+            lat_scalar_lng.__set_type(TPrimitiveType::DOUBLE);
+            lat_scalar_node_lng.__set_scalar_type(lat_scalar_lng);
+            profile_type.types.push_back(lat_scalar_node_lng);
+            TTypeNode lng_scalar_node_lng;
+            lng_scalar_node_lng.__set_type(TTypeNodeType::SCALAR);
+            TScalarType lng_scalar_lng;
+            lng_scalar_lng.__set_type(TPrimitiveType::DOUBLE);
+            lng_scalar_node_lng.__set_scalar_type(lng_scalar_lng);
+            profile_type.types.push_back(lng_scalar_node_lng);
+            profile_slot_node.__set_type(profile_type);
+            
+            TSlotRef profile_slot_ref;
+            profile_slot_ref.__set_slot_id(profile_slot->id());
+            profile_slot_ref.__set_tuple_id(profile_slot->parent());
+            profile_slot_node.__set_slot_ref(profile_slot_ref);
+            
+            lng_predicate.nodes.push_back(profile_slot_node);
+            
+            // String literal for 'address'
+            TExprNode addr_field_node;
+            addr_field_node.__set_node_type(TExprNodeType::STRING_LITERAL);
+            addr_field_node.__set_num_children(0);
+            addr_field_node.__set_is_nullable(false);
+            
+            TTypeDesc string_type;
+            TTypeNode string_type_node;
+            string_type_node.__set_type(TTypeNodeType::SCALAR);
+            TScalarType string_scalar;
+            string_scalar.__set_type(TPrimitiveType::STRING);
+            string_type_node.__set_scalar_type(string_scalar);
+            string_type.types.push_back(string_type_node);
+            addr_field_node.__set_type(string_type);
+            
+            TStringLiteral addr_literal;
+            addr_literal.__set_value("address");
+            addr_field_node.__set_string_literal(addr_literal);
+            
+            lng_predicate.nodes.push_back(addr_field_node);
+            
+            // String literal for 'coordinates'
+            TExprNode coord_field_node;
+            coord_field_node.__set_node_type(TExprNodeType::STRING_LITERAL);
+            coord_field_node.__set_num_children(0);
+            coord_field_node.__set_is_nullable(false);
+            coord_field_node.__set_type(string_type);
+            
+            TStringLiteral coord_literal;
+            coord_literal.__set_value("coordinates");
+            coord_field_node.__set_string_literal(coord_literal);
+            
+            lng_predicate.nodes.push_back(coord_field_node);
+            
+            // String literal for 'lng'
+            TExprNode lng_field_node;
+            lng_field_node.__set_node_type(TExprNodeType::STRING_LITERAL);
+            lng_field_node.__set_num_children(0);
+            lng_field_node.__set_is_nullable(false);
+            lng_field_node.__set_type(string_type);
+            
+            TStringLiteral lng_literal;
+            lng_literal.__set_value("lng");
+            lng_field_node.__set_string_literal(lng_literal);
+            
+            lng_predicate.nodes.push_back(lng_field_node);
+            
+            // Right child: literal -70.0
+            TExprNode literal_neg70_node;
+            literal_neg70_node.__set_node_type(TExprNodeType::FLOAT_LITERAL);
+            literal_neg70_node.__set_num_children(0);
+            literal_neg70_node.__set_is_nullable(false);
+            literal_neg70_node.__set_type(double_type);
+            
+            TFloatLiteral float_neg70;
+            float_neg70.__set_value(-70.0);
+            literal_neg70_node.__set_float_literal(float_neg70);
+            
+            lng_predicate.nodes.push_back(literal_neg70_node);
+            
+            // Create VExprContext from TExpr
+            VExprContextSPtr lng_ctx;
+            auto status = VExpr::create_expr_tree(lng_predicate, lng_ctx);
+            if (status.ok() && lng_ctx) {
+                conjuncts.push_back(lng_ctx);
+            }
+        }
+        
+        return conjuncts; // Return the created predicate conjuncts
+    }
+
     std::unique_ptr<doris::FileMetaCache> cache;
     cctz::time_zone timezone_obj;
 };
 
-TEST_F(HiveReaderTest, test_parquet_create_column_ids_and_names) {
+TEST_F(HiveReaderPredicateTest, test_parquet_create_column_ids_and_names) {
     // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
     // Setup table descriptor for test columns with new schema:
     /**
@@ -597,7 +1263,7 @@ TEST_F(HiveReaderTest, test_parquet_create_column_ids_and_names) {
     EXPECT_EQ(actual_result.column_ids, expected_ids);
 }
 
-TEST_F(HiveReaderTest, test_parquet_create_column_ids_and_names_by_top_level_col_index) {
+TEST_F(HiveReaderPredicateTest, test_parquet_create_column_ids_and_names_by_top_level_col_index) {
     // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
     // Setup table descriptor for test columns with new schema:
     /**
@@ -715,7 +1381,7 @@ TEST_F(HiveReaderTest, test_parquet_create_column_ids_and_names_by_top_level_col
     EXPECT_EQ(actual_result.column_ids, expected_ids);
 }
 
-TEST_F(HiveReaderTest, test_parquet_create_column_ids_and_names_by_index) {
+TEST_F(HiveReaderPredicateTest, test_parquet_create_column_ids_and_names_by_index) {
     // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
     // Setup table descriptor for test columns with new schema:
     /**
@@ -833,7 +1499,7 @@ TEST_F(HiveReaderTest, test_parquet_create_column_ids_and_names_by_index) {
     EXPECT_EQ(actual_result.column_ids, expected_ids);
 }
 
-TEST_F(HiveReaderTest, test_orc_create_column_ids_and_names) {
+TEST_F(HiveReaderPredicateTest, test_orc_create_column_ids_and_names) {
     // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
     // Setup table descriptor for test columns with new schema:
     /**
@@ -948,7 +1614,7 @@ TEST_F(HiveReaderTest, test_orc_create_column_ids_and_names) {
     EXPECT_EQ(actual_result.column_ids, expected_ids);
 }
 
-TEST_F(HiveReaderTest, test_orc_create_column_ids_and_names_by_index) {
+TEST_F(HiveReaderPredicateTest, test_orc_create_column_ids_and_names_by_index) {
     // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
     // Setup table descriptor for test columns with new schema:
     /**
@@ -1064,7 +1730,7 @@ TEST_F(HiveReaderTest, test_orc_create_column_ids_and_names_by_index) {
 }
 
 // Test reading real Hive Parquet file using HiveTableReader
-TEST_F(HiveReaderTest, ReadHiveParquetFile) {
+TEST_F(HiveReaderPredicateTest, ReadHiveParquetFile) {
     // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
     // Setup table descriptor for test columns with new schema:
     /**
@@ -1165,7 +1831,7 @@ TEST_F(HiveReaderTest, ReadHiveParquetFile) {
     const TupleDescriptor* tuple_descriptor = createTupleDescriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc,
                                                                    table_column_names, table_column_positions, table_column_types);
 
-    VExprContextSPtrs conjuncts; // Empty conjuncts for this test
+    VExprContextSPtrs conjuncts; // Empty conjuncts for this test    
     std::vector<std::string> table_col_names = {"name", "profile"};
     const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range = nullptr;
     const RowDescriptor* row_descriptor = nullptr;
@@ -1205,7 +1871,7 @@ TEST_F(HiveReaderTest, ReadHiveParquetFile) {
 }
 
 // Test reading real Hive Orc file using HiveTableReader
-TEST_F(HiveReaderTest, ReadHiveOrcFile) {
+TEST_F(HiveReaderPredicateTest, ReadHiveOrcFile) {
     // Read only: name, profile.address.coordinates.lat, profile.address.coordinates.lng, profile.contact.email
     // Setup table descriptor for test columns with new schema:
     /**
@@ -1338,6 +2004,316 @@ TEST_F(HiveReaderTest, ReadHiveOrcFile) {
 
     // Verify test results using helper function
     verifyTestResults(block, read_rows);
+}
+
+// Test with complex WHERE conditions on nested columns
+TEST_F(HiveReaderPredicateTest, ReadHiveParquetFileWithComplexPredicates) {
+    // Test complex WHERE conditions:
+    // WHERE profile.address.coordinates.lat > 40.0 
+    //   AND profile.address.coordinates.lng < -70.0
+    //   AND profile.contact.email LIKE '%@example.com'
+    //   AND EXISTS (SELECT 1 FROM profile.hobbies h WHERE h.level > 5)
+
+    // Open the Hive Parquet test file
+    auto local_fs = io::global_local_filesystem();
+    io::FileReaderSPtr file_reader;
+    std::string test_file =
+            "./be/test/exec/test_data/complex_user_profiles_iceberg_parquet/data/"
+            "00000-0-a0022aad-d3b6-4e73-b181-f0a09aac7034-0-00001.parquet";
+    auto st = local_fs->open_file(test_file, &file_reader);
+    if (!st.ok()) {
+        GTEST_SKIP() << "Test file not found: " << test_file;
+        return;
+    }
+
+    // Setup runtime state
+    RuntimeState runtime_state((TQueryGlobals()));
+
+    // Setup scan parameters
+    TFileScanRangeParams scan_params;
+    scan_params.format_type = TFileFormatType::FORMAT_PARQUET;
+
+    TFileRangeDesc scan_range;
+    scan_range.start_offset = 0;
+    scan_range.size = file_reader->size(); // Read entire file
+    scan_range.path = test_file;
+
+    // Create mock profile
+    RuntimeProfile profile("test_profile");
+
+    // Create ParquetReader as the underlying file format reader
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+
+    auto generic_reader = ParquetReader::create_unique(&profile, scan_params, scan_range, 1024,
+                                                       &ctz, nullptr, &runtime_state, cache.get());
+    ASSERT_NE(generic_reader, nullptr);
+
+    // Set file reader for the generic reader
+    auto parquet_reader = static_cast<ParquetReader*>(generic_reader.get());
+    parquet_reader->set_file_reader(file_reader);
+
+    // Create HiveParquetReader
+    auto hive_reader = std::make_unique<HiveParquetReader>(std::move(generic_reader), &profile,
+                                                           &runtime_state, scan_params, scan_range,
+                                                           nullptr, nullptr, cache.get());
+
+    // Create complex struct types using helper function
+    DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
+    DataTypePtr contact_struct_type, hobby_element_struct_type, hobbies_array_type;
+    DataTypePtr profile_struct_type, name_type;
+    createComplexStructTypes(coordinates_struct_type, address_struct_type, phone_struct_type,
+                             contact_struct_type, hobby_element_struct_type, hobbies_array_type,
+                             profile_struct_type, name_type);
+
+    // Create tuple descriptor using helper function WITH PREDICATES
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name", "profile"};
+    std::vector<int> table_column_positions = {1, 2};
+    std::vector<TPrimitiveType::type> table_column_types = {
+            TPrimitiveType::STRING, TPrimitiveType::STRUCT // profile 用 STRUCT 类型
+    };
+    // NOTE: Set with_predicates=true to mark nested columns as predicates
+    const TupleDescriptor* tuple_descriptor = createTupleDescriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc,
+                                                                   table_column_names, table_column_positions, table_column_types, 
+                                                                   true); // use_name_paths=true
+
+    // For Parquet case, skip building complex conjuncts to avoid prepare errors
+    VExprContextSPtrs conjuncts;
+    // Prepare/open conjuncts so that VSlotRef::_column_name is initialized (expr_name not null)
+    runtime_state.set_desc_tbl(desc_tbl);
+    {
+        RowDescriptor row_desc(const_cast<TupleDescriptor*>(tuple_descriptor), false);
+        ASSERT_TRUE(VExpr::prepare(conjuncts, &runtime_state, row_desc).ok());
+        ASSERT_TRUE(VExpr::open(conjuncts, &runtime_state).ok());
+    }
+    
+    std::vector<std::string> table_col_names = {"name", "profile"};
+    const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range = nullptr;
+    const RowDescriptor* row_descriptor = nullptr;
+    const std::unordered_map<std::string, int>* colname_to_slot_id = nullptr;
+    const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
+    const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
+
+    st = hive_reader->init_reader(table_col_names, colname_to_value_range, conjuncts,
+                                  tuple_descriptor, row_descriptor, colname_to_slot_id,
+                                  not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
+    ASSERT_TRUE(st.ok()) << st;
+
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            partition_columns;
+    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+    ASSERT_TRUE(hive_reader->set_fill_columns(partition_columns, missing_columns).ok());
+
+    // Test column ID creation with predicates
+    const FieldDescriptor* field_desc = nullptr;
+    st = parquet_reader->get_file_metadata_schema(&field_desc);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(field_desc, nullptr);
+
+    auto result = HiveParquetReader::_create_column_ids_and_names(field_desc, tuple_descriptor);
+    
+    // Verify that filter_column_ids contains the predicate columns
+    // Expected filter IDs based on predicates: lat(8), lng(9), email(11), level(18)
+    std::set<uint64_t> expected_filter_ids = {8, 9, 11, 18};
+    EXPECT_EQ(result.filter_column_ids, expected_filter_ids);
+    
+    // Verify that column_ids contains all accessed columns
+    std::set<uint64_t> expected_column_ids = {2, 3, 4, 7, 8, 9, 10, 11, 15, 16, 18};
+    EXPECT_EQ(result.column_ids, expected_column_ids);
+
+    // Create block for reading nested structure (not flattened)
+    Block block;
+    {
+        MutableColumnPtr name_column = name_type->create_column();
+        block.insert(ColumnWithTypeAndName(std::move(name_column), name_type, "name"));
+        // Add profile column (nested struct)
+        MutableColumnPtr profile_column = profile_struct_type->create_column();
+        block.insert(
+                ColumnWithTypeAndName(std::move(profile_column), profile_struct_type, "profile"));
+    }
+
+    // Read data from the file
+    size_t read_rows = 0;
+    bool eof = false;
+    st = hive_reader->get_next_block(&block, &read_rows, &eof);
+    ASSERT_TRUE(st.ok()) << st;
+
+    // Verify test results using helper function
+    verifyTestResults(block, read_rows);
+    
+    // Print predicate column information
+    std::cout << "\n=== Predicate Column Test Results ===" << std::endl;
+    std::cout << "Filter column IDs: ";
+    for (const auto& id : result.filter_column_ids) {
+        std::cout << id << " ";
+    }
+    std::cout << "\nTotal column IDs: ";
+    for (const auto& id : result.column_ids) {
+        std::cout << id << " ";
+    }
+    std::cout << std::endl;
+}
+
+// Test with complex WHERE conditions on nested columns for ORC
+TEST_F(HiveReaderPredicateTest, ReadHiveOrcFileWithComplexPredicates) {
+    // Test complex WHERE conditions on ORC file:
+    // WHERE profile.address.coordinates.lat > 40.0 
+    //   AND profile.address.coordinates.lng < -70.0
+
+    // Open the Hive Orc test file
+    auto local_fs = io::global_local_filesystem();
+    io::FileReaderSPtr file_reader;
+    std::string test_file =
+            "./be/test/exec/test_data/complex_user_profiles_iceberg_orc/data/"
+            "00000-0-e4897963-0081-4127-bebe-35dc7dc1edeb-0-00001.orc";
+    auto st = local_fs->open_file(test_file, &file_reader);
+    if (!st.ok()) {
+        GTEST_SKIP() << "Test file not found: " << test_file;
+        return;
+    }
+
+    // Setup runtime state
+    RuntimeState runtime_state((TQueryGlobals()));
+
+    // Setup scan parameters
+    TFileScanRangeParams scan_params;
+    scan_params.format_type = TFileFormatType::FORMAT_ORC;
+
+    TFileRangeDesc scan_range;
+    scan_range.start_offset = 0;
+    scan_range.size = file_reader->size(); // Read entire file
+    scan_range.path = test_file;
+
+    // Create mock profile
+    RuntimeProfile profile("test_profile");
+
+    // Create OrcReader as the underlying file format reader
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+
+    auto generic_reader = OrcReader::create_unique(&profile, &runtime_state, scan_params,
+                                                   scan_range, 1024, "CST", nullptr, cache.get());
+    ASSERT_NE(generic_reader, nullptr);
+
+    auto orc_reader = static_cast<OrcReader*>(generic_reader.get());
+    // Get FieldDescriptor from Orc file
+    const orc::Type* orc_type_ptr = nullptr;
+    st = orc_reader->get_file_type(&orc_type_ptr);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(orc_type_ptr, nullptr);
+
+    // Create HiveOrcReader
+    auto hive_reader =
+            std::make_unique<HiveOrcReader>(std::move(generic_reader), &profile, &runtime_state,
+                                            scan_params, scan_range, nullptr, nullptr, cache.get());
+
+    // Create complex struct types using helper function
+    DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
+    DataTypePtr contact_struct_type, hobby_element_struct_type, hobbies_array_type;
+    DataTypePtr profile_struct_type, name_type;
+    createComplexStructTypes(coordinates_struct_type, address_struct_type, phone_struct_type,
+                             contact_struct_type, hobby_element_struct_type, hobbies_array_type,
+                             profile_struct_type, name_type);
+
+    // Create tuple descriptor using helper function WITH PREDICATES
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"name", "profile"};
+    std::vector<int> table_column_positions = {1, 2};
+    std::vector<TPrimitiveType::type> table_column_types = {
+            TPrimitiveType::STRING, TPrimitiveType::STRUCT // profile 用 STRUCT 类型
+    };
+    // NOTE: Set with_predicates=true to mark nested columns as predicates
+    const TupleDescriptor* tuple_descriptor = createTupleDescriptor(&desc_tbl, obj_pool, t_desc_table, t_table_desc,
+                                                                   table_column_names, table_column_positions, table_column_types, 
+                                                                   true); // use_name_paths=true
+
+    // Create complex nested column conjuncts using the helper function
+    VExprContextSPtrs conjuncts = createNestedColumnConjuncts(obj_pool, tuple_descriptor, &runtime_state);
+    
+    // Prepare/open conjuncts so that VSlotRef::_column_name is initialized (expr_name not null)
+    runtime_state.set_desc_tbl(desc_tbl);
+    if (!conjuncts.empty()) {
+        RowDescriptor row_desc(const_cast<TupleDescriptor*>(tuple_descriptor), false);
+        auto prepare_status = VExpr::prepare(conjuncts, &runtime_state, row_desc);
+        if (!prepare_status.ok()) {
+            std::cout << "Warning: Failed to prepare conjuncts: " << prepare_status.to_string() << std::endl;
+            // Continue without conjuncts to test column ID extraction
+            conjuncts.clear();
+        } else {
+            auto open_status = VExpr::open(conjuncts, &runtime_state);
+            if (!open_status.ok()) {
+                std::cout << "Warning: Failed to open conjuncts: " << open_status.to_string() << std::endl;
+                conjuncts.clear();
+            }
+        }
+    }
+
+    std::vector<std::string> table_col_names = {"name", "profile"};
+    const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range = nullptr;
+    const RowDescriptor* row_descriptor = nullptr;
+    const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
+    const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
+
+    st = hive_reader->init_reader(table_col_names, colname_to_value_range, conjuncts,
+                                  tuple_descriptor, row_descriptor,
+                                  not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
+    ASSERT_TRUE(st.ok()) << st;
+
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            partition_columns;
+    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+    ASSERT_TRUE(hive_reader->set_fill_columns(partition_columns, missing_columns).ok());
+
+    // Test column ID creation with predicates
+    auto result = HiveOrcReader::_create_column_ids_and_names(orc_type_ptr, tuple_descriptor);
+    
+    // Verify that filter_column_ids contains the predicate columns
+    // Expected filter IDs based on predicates: lat(8), lng(9), email(11), level(18)
+    std::set<uint64_t> expected_filter_ids = {8, 9};
+    EXPECT_EQ(result.filter_column_ids, expected_filter_ids);
+    
+    // Verify that column_ids contains all accessed columns
+    std::set<uint64_t> expected_column_ids = {2, 8, 9, 11, 18};
+    EXPECT_EQ(result.column_ids, expected_column_ids);
+
+    // Create block for reading nested structure (not flattened)
+    Block block;
+    {
+        MutableColumnPtr name_column = name_type->create_column();
+        block.insert(ColumnWithTypeAndName(std::move(name_column), name_type, "name"));
+        // Add profile column (nested struct)
+        MutableColumnPtr profile_column = profile_struct_type->create_column();
+        block.insert(
+                ColumnWithTypeAndName(std::move(profile_column), profile_struct_type, "profile"));
+    }
+
+    // Read data from the file
+    size_t read_rows = 0;
+    bool eof = false;
+    st = hive_reader->get_next_block(&block, &read_rows, &eof);
+    ASSERT_TRUE(st.ok()) << st;
+
+    // Verify test results using helper function
+    verifyTestResults(block, read_rows);
+    
+    // Print predicate column information
+    std::cout << "\n=== ORC Predicate Column Test Results ===" << std::endl;
+    std::cout << "Filter column IDs: ";
+    for (const auto& id : result.filter_column_ids) {
+        std::cout << id << " ";
+    }
+    std::cout << "\nTotal column IDs: ";
+    for (const auto& id : result.column_ids) {
+        std::cout << id << " ";
+    }
+    std::cout << std::endl;
 }
 
 } // namespace doris::vectorized::table

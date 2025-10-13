@@ -83,7 +83,10 @@ Status ByteArrayPlainDecoder::_decode_values(MutableColumnPtr& doris_column, Dat
             break;
         }
         case ColumnSelectVector::FILTERED_CONTENT: {
-            for (int i = 0; i < run_length; ++i) {
+            // In lazy materialization, keep filtered rows (fill with data to maintain row count)
+            std::vector<StringRef> string_values;
+            string_values.reserve(run_length);
+            for (size_t i = 0; i < run_length; ++i) {
                 if (UNLIKELY(_offset + 4 > _data->size)) {
                     return Status::IOError("Can't read byte array length from plain decoder");
                 }
@@ -93,12 +96,15 @@ Status ByteArrayPlainDecoder::_decode_values(MutableColumnPtr& doris_column, Dat
                 if (UNLIKELY(_offset + length) > _data->size) {
                     return Status::IOError("Can't read enough bytes in plain decoder");
                 }
+                string_values.emplace_back(_data->data + _offset, length);
                 _offset += length;
             }
+            doris_column->insert_many_strings(&string_values[0], run_length);
             break;
         }
         case ColumnSelectVector::FILTERED_NULL: {
-            // do nothing
+            // In lazy materialization, keep filtered null rows (fill with defaults to maintain row count)
+            doris_column->insert_many_defaults(run_length);
             break;
         }
         }

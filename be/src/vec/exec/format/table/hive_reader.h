@@ -74,8 +74,8 @@ private:
     static ColumnIdResult _create_column_ids_and_names_by_top_level_col_index(
             const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor);
 
-    static ColumnIdResult _create_column_ids_and_names_by_index(
-            const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor);
+//     static ColumnIdResult _create_column_ids_and_names_by_index(
+//             const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor);
 };
 
 class HiveParquetReader final : public HiveReader {
@@ -106,8 +106,8 @@ private:
     static ColumnIdResult _create_column_ids_and_names_by_top_level_col_index(
             const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor);
 
-    static ColumnIdResult _create_column_ids_and_names_by_index(
-            const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor);
+//     static ColumnIdResult _create_column_ids_and_names_by_index(
+//             const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor);
 };
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

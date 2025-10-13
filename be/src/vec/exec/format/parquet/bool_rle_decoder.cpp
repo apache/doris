@@ -71,7 +71,8 @@ Status BoolRLEDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePt
                                       ColumnSelectVector& select_vector, bool is_dict_filter) {
     auto& column_data = assert_cast<ColumnUInt8*>(doris_column.get())->get_data();
     size_t data_index = column_data.size();
-    column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
+    // Reserve space for ALL values (including filtered ones) in lazy materialization
+    column_data.resize(data_index + select_vector.num_values());
     size_t max_values = select_vector.num_values() - select_vector.num_nulls();
     _values.resize(max_values);
     if (!_decoder.get_values(_values.data(), max_values)) {
@@ -96,10 +97,19 @@ Status BoolRLEDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePt
             break;
         }
         case ColumnSelectVector::FILTERED_CONTENT: {
-            current_value_idx += run_length;
+            // In lazy materialization, keep filtered rows (fill with data to maintain row count)
+            bool value;
+            for (size_t i = 0; i < run_length; ++i) {
+                DCHECK(current_value_idx < max_values)
+                        << current_value_idx << " vs. " << max_values;
+                value = _values[current_value_idx++];
+                column_data[data_index++] = (UInt8)value;
+            }
             break;
         }
         case ColumnSelectVector::FILTERED_NULL: {
+            // In lazy materialization, keep filtered null rows (fill with zeros/nulls to maintain row count)
+            data_index += run_length;
             break;
         }
         }

@@ -55,36 +55,36 @@ std::string ColumnStruct::get_name() const {
 ColumnStruct::ColumnStruct(MutableColumns&& mutable_columns) {
     columns.reserve(mutable_columns.size());
     for (auto& column : mutable_columns) {
-        if (is_column_const(*column)) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "ColumnStruct cannot have ColumnConst as its element");
-            __builtin_unreachable();
-        }
+        // if (is_column_const(*column)) {
+        //     throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+        //                            "ColumnStruct cannot have ColumnConst as its element");
+        //     __builtin_unreachable();
+        // }
         columns.push_back(std::move(column));
     }
 }
 
 ColumnStruct::MutablePtr ColumnStruct::create(const Columns& columns) {
-    for (const auto& column : columns) {
-        if (is_column_const(*column)) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "ColumnStruct cannot have ColumnConst as its element");
-            __builtin_unreachable();
-        }
-    }
+    // for (const auto& column : columns) {
+        // if (is_column_const(*column)) {
+        //     throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+        //                            "ColumnStruct cannot have ColumnConst as its element");
+        //     __builtin_unreachable();
+        // }
+    // }
     auto column_struct = ColumnStruct::create(MutableColumns());
     column_struct->columns.assign(columns.begin(), columns.end());
     return column_struct;
 }
 
 ColumnStruct::MutablePtr ColumnStruct::create(const TupleColumns& tuple_columns) {
-    for (const auto& column : tuple_columns) {
-        if (is_column_const(*column)) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "ColumnStruct cannot have ColumnConst as its element");
-            __builtin_unreachable();
-        }
-    }
+    // for (const auto& column : tuple_columns) {
+    //     if (is_column_const(*column)) {
+    //         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+    //                                "ColumnStruct cannot have ColumnConst as its element");
+    //         __builtin_unreachable();
+    //     }
+    // }
     auto column_struct = ColumnStruct::create(MutableColumns());
     column_struct->columns = tuple_columns;
     return column_struct;

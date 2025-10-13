@@ -623,9 +623,40 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
         (*tbl)->_tbl_desc_map[static_cast<int32_t>(tdesc.id)] = desc;
     }
 
+    for (auto& tdesc : thrift_tbl.slotDescriptors) {
+        // HACK: Temporary workaround to set column_access_paths for "profile" column
+        if (tdesc.colName == "profile" && !tdesc.__isset.column_access_paths) {
+            TColumnAccessPaths access_paths;
+            access_paths.__set_type(doris::TAccessPathType::NAME);
+            std::vector<TColumnNameAccessPath> paths;
+            // address.coordinates.lat
+            TColumnNameAccessPath path1;
+            path1.__set_path({"address", "coordinates", "lat"});
+            path1.__set_is_predicate(true);
+            paths.push_back(path1);
+            // address.coordinates.lng
+            TColumnNameAccessPath path2;
+            path2.__set_path({"address", "coordinates", "lng"});
+            path2.__set_is_predicate(true);
+            paths.push_back(path2);
+            // contact.email
+            TColumnNameAccessPath path3;
+            path3.__set_path({"contact", "email"});
+            path3.__set_is_predicate(false);
+            paths.push_back(path3);
+            // hobbies[].element.level
+            TColumnNameAccessPath path4;
+            path4.__set_path({"hobbies", "*", "level"});
+            path4.__set_is_predicate(true);
+            paths.push_back(path4);
+            access_paths.__set_name_access_paths(paths);
+            const_cast<TSlotDescriptor&>(tdesc).__set_column_access_paths(access_paths);
+        }
+    }
+
     for (const auto& tdesc : thrift_tbl.tupleDescriptors) {
         TupleDescriptor* desc = pool->add(new TupleDescriptor(tdesc));
-
+        
         // fix up table pointer
         if (tdesc.__isset.tableId) {
             desc->_table_desc = (*tbl)->get_table_descriptor(static_cast<int32_t>(tdesc.tableId));
