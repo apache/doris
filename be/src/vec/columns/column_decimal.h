@@ -244,9 +244,13 @@ public:
                 elements_to_move * sizeof(value_type));
         data.resize(data.size() - length);
     }
-    size_t serialize_impl(char* pos, const size_t row) const override;
-    size_t deserialize_impl(const char* pos) override;
+    size_t serialize(char* pos, const size_t row) const override;
+    size_t deserialize(const char* pos) override;
     size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }
+    void serialize_vec_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
+                                     const uint8_t* __restrict null_map) const override;
+    void deserialize_vec_with_nullable(StringRef* keys, const size_t num_rows,
+                                       PaddedPODArray<UInt8>& null_map) override;
 
 protected:
     Container data;

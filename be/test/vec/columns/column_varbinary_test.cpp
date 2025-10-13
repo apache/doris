@@ -389,7 +389,7 @@ TEST_F(ColumnVarbinaryTest, SerializeValueIntoArenaAndImpl) {
     col->insert_data(small.data(), small.size());
     col->insert_data(big.data(), big.size());
 
-    // serialize_value_into_arena (covers serialize_impl indirectly)
+    // serialize_value_into_arena (covers serialize indirectly)
     Arena arena;
     const char* begin = nullptr;
     auto sr_inline = col->serialize_value_into_arena(0, arena, begin);
@@ -406,9 +406,9 @@ TEST_F(ColumnVarbinaryTest, SerializeValueIntoArenaAndImpl) {
     ASSERT_EQ(len_big, big.size());
     ASSERT_EQ(memcmp(sr_big.data + sizeof(uint32_t), big.data(), big.size()), 0);
 
-    // direct serialize_impl
+    // direct serialize
     char buf[4096];
-    size_t written = col->serialize_impl(buf, 1);
+    size_t written = col->serialize(buf, 1);
     ASSERT_EQ(written, big.size() + sizeof(uint32_t));
     uint32_t len_big2;
     memcpy(&len_big2, buf, sizeof(uint32_t));

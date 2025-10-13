@@ -163,7 +163,7 @@ void ColumnStruct::pop_back(size_t n) {
 StringRef ColumnStruct::serialize_value_into_arena(size_t n, Arena& arena,
                                                    char const*& begin) const {
     char* pos = arena.alloc_continue(serialize_size_at(n), begin);
-    return {pos, serialize_impl(pos, n)};
+    return {pos, serialize(pos, n)};
 }
 
 size_t ColumnStruct::serialize_size_at(size_t row) const {
@@ -175,18 +175,18 @@ size_t ColumnStruct::serialize_size_at(size_t row) const {
     return sz;
 }
 
-size_t ColumnStruct::deserialize_impl(const char* pos) {
+size_t ColumnStruct::deserialize(const char* pos) {
     size_t sz = 0;
     for (auto& column : columns) {
-        sz += column->deserialize_impl(pos + sz);
+        sz += column->deserialize(pos + sz);
     }
     return sz;
 }
 
-size_t ColumnStruct::serialize_impl(char* pos, const size_t row) const {
+size_t ColumnStruct::serialize(char* pos, const size_t row) const {
     size_t sz = 0;
     for (const auto& column : columns) {
-        sz += column->serialize_impl(pos + sz, row);
+        sz += column->serialize(pos + sz, row);
     }
 
     DCHECK_EQ(sz, serialize_size_at(row));
@@ -194,7 +194,7 @@ size_t ColumnStruct::serialize_impl(char* pos, const size_t row) const {
 }
 
 const char* ColumnStruct::deserialize_and_insert_from_arena(const char* pos) {
-    return pos + deserialize_impl(pos);
+    return pos + deserialize(pos);
 }
 
 int ColumnStruct::compare_at(size_t n, size_t m, const IColumn& rhs_,
@@ -438,13 +438,13 @@ void ColumnStruct::serialize_vec(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
         // Used in hash_map_context.h, this address is allocated via Arena,
         // but passed through StringRef, so using const_cast is acceptable.
-        keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
+        keys[i].size += serialize(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
 void ColumnStruct::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
-        auto sz = deserialize_impl(keys[i].data);
+        auto sz = deserialize(keys[i].data);
         keys[i].data += sz;
         keys[i].size -= sz;
     }

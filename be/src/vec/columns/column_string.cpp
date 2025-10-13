@@ -439,12 +439,12 @@ template <typename T>
 StringRef ColumnStr<T>::serialize_value_into_arena(size_t n, Arena& arena,
                                                    char const*& begin) const {
     char* pos = arena.alloc_continue(serialize_size_at(n), begin);
-    return {pos, serialize_impl(pos, n)};
+    return {pos, serialize(pos, n)};
 }
 
 template <typename T>
 const char* ColumnStr<T>::deserialize_and_insert_from_arena(const char* pos) {
-    return pos + deserialize_impl(pos);
+    return pos + deserialize(pos);
 }
 
 template <typename T>
@@ -463,12 +463,12 @@ void ColumnStr<T>::serialize_vec(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
         // Used in hash_map_context.h, this address is allocated via Arena,
         // but passed through StringRef, so using const_cast is acceptable.
-        keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
+        keys[i].size += serialize(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
 template <typename T>
-size_t ColumnStr<T>::serialize_impl(char* pos, const size_t row) const {
+size_t ColumnStr<T>::serialize(char* pos, const size_t row) const {
     auto offset(offset_at(row));
     auto string_size(size_at(row));
 
@@ -480,14 +480,14 @@ size_t ColumnStr<T>::serialize_impl(char* pos, const size_t row) const {
 template <typename T>
 void ColumnStr<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
-        auto sz = deserialize_impl(keys[i].data);
+        auto sz = deserialize(keys[i].data);
         keys[i].data += sz;
         keys[i].size -= sz;
     }
 }
 
 template <typename T>
-size_t ColumnStr<T>::deserialize_impl(const char* pos) {
+size_t ColumnStr<T>::deserialize(const char* pos) {
     const auto string_size = unaligned_load<uint32_t>(pos);
     pos += sizeof(string_size);
 
@@ -500,6 +500,50 @@ size_t ColumnStr<T>::deserialize_impl(const char* pos) {
     offsets.push_back(new_size);
     sanity_check_simple();
     return string_size + sizeof(string_size);
+}
+
+template <typename T>
+void ColumnStr<T>::serialize_vec_with_nullable(StringRef* keys, size_t num_rows,
+                                               const bool has_null,
+                                               const uint8_t* __restrict null_map) const {
+    if (has_null) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* dest = const_cast<char*>(keys[i].data + keys[i].size);
+            keys[i].size += sizeof(UInt8);
+            if (null_map[i]) {
+                // is null
+                *dest = true;
+                continue;
+            }
+            // not null
+            *dest = false;
+            keys[i].size += serialize(dest + sizeof(UInt8), i);
+        }
+    } else {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* dest = const_cast<char*>(keys[i].data + keys[i].size);
+            *dest = false;
+            keys[i].size += serialize(dest + sizeof(UInt8), i) + sizeof(UInt8);
+        }
+    }
+}
+
+template <typename T>
+void ColumnStr<T>::deserialize_vec_with_nullable(StringRef* keys, const size_t num_rows,
+                                                 PaddedPODArray<UInt8>& null_map) {
+    for (size_t i = 0; i != num_rows; ++i) {
+        UInt8 is_null = *reinterpret_cast<const UInt8*>(keys[i].data);
+        null_map.push_back(is_null);
+        keys[i].data += sizeof(UInt8);
+        keys[i].size -= sizeof(UInt8);
+        if (is_null) {
+            insert_default();
+            continue;
+        }
+        auto sz = deserialize(keys[i].data);
+        keys[i].data += sz;
+        keys[i].size -= sz;
+    }
 }
 
 template <typename T>

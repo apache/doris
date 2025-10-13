@@ -45,13 +45,13 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
-size_t ColumnVector<T>::serialize_impl(char* pos, const size_t row) const {
+size_t ColumnVector<T>::serialize(char* pos, const size_t row) const {
     memcpy_fixed<value_type>(pos, (char*)&data[row]);
     return sizeof(value_type);
 }
 
 template <PrimitiveType T>
-size_t ColumnVector<T>::deserialize_impl(const char* pos) {
+size_t ColumnVector<T>::deserialize(const char* pos) {
     data.push_back(unaligned_load<value_type>(pos));
     return sizeof(value_type);
 }
@@ -60,12 +60,12 @@ template <PrimitiveType T>
 StringRef ColumnVector<T>::serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const {
     auto* pos = arena.alloc_continue(sizeof(value_type), begin);
-    return {pos, serialize_impl(pos, n)};
+    return {pos, serialize(pos, n)};
 }
 
 template <PrimitiveType T>
 const char* ColumnVector<T>::deserialize_and_insert_from_arena(const char* pos) {
-    return pos + deserialize_impl(pos);
+    return pos + deserialize(pos);
 }
 
 template <PrimitiveType T>
@@ -78,36 +78,32 @@ void ColumnVector<T>::serialize_vec(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
         // Used in hash_map_context.h, this address is allocated via Arena,
         // but passed through StringRef, so using const_cast is acceptable.
-        keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
+        keys[i].size += serialize(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
 template <PrimitiveType T>
-void ColumnVector<T>::serialize_vec_with_null(StringRef* keys, size_t num_rows, bool has_null,
-                                              const uint8_t* __restrict null_map) const {
+void ColumnVector<T>::serialize_vec_with_nullable(StringRef* keys, size_t num_rows,
+                                                  const bool has_null,
+                                                  const uint8_t* __restrict null_map) const {
     if (has_null) {
         for (size_t i = 0; i < num_rows; ++i) {
             char* dest = const_cast<char*>(keys[i].data + keys[i].size);
+            keys[i].size += sizeof(UInt8);
             if (null_map[i]) {
                 // is null
                 *dest = true;
-                keys[i].size += sizeof(bool);
                 continue;
             }
             // not null
             *dest = false;
-            std::memcpy(dest + sizeof(bool), &data[i], sizeof(value_type));
-            keys[i].size += sizeof(value_type) + sizeof(bool);
+            keys[i].size += serialize(dest + sizeof(UInt8), i);
         }
     } else {
-        constexpr size_t value_size = sizeof(value_type);
-        static constexpr bool no_null = false;
-
         for (size_t i = 0; i < num_rows; ++i) {
             char* dest = const_cast<char*>(keys[i].data + keys[i].size);
-            *dest = no_null;
-            std::memcpy(dest + sizeof(bool), &data[i], value_size);
-            keys[i].size += value_size + sizeof(bool);
+            *dest = false;
+            keys[i].size += serialize(dest + sizeof(UInt8), i) + sizeof(UInt8);
         }
     }
 }
@@ -115,7 +111,25 @@ void ColumnVector<T>::serialize_vec_with_null(StringRef* keys, size_t num_rows, 
 template <PrimitiveType T>
 void ColumnVector<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
-        auto sz = deserialize_impl(keys[i].data);
+        auto sz = deserialize(keys[i].data);
+        keys[i].data += sz;
+        keys[i].size -= sz;
+    }
+}
+
+template <PrimitiveType T>
+void ColumnVector<T>::deserialize_vec_with_nullable(StringRef* keys, const size_t num_rows,
+                                                    PaddedPODArray<UInt8>& null_map) {
+    for (size_t i = 0; i != num_rows; ++i) {
+        UInt8 is_null = *reinterpret_cast<const UInt8*>(keys[i].data);
+        null_map.push_back(is_null);
+        keys[i].data += sizeof(UInt8);
+        keys[i].size -= sizeof(UInt8);
+        if (is_null) {
+            insert_default();
+            continue;
+        }
+        auto sz = deserialize(keys[i].data);
         keys[i].data += sz;
         keys[i].size -= sz;
     }

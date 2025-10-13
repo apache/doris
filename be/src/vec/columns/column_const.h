@@ -188,11 +188,11 @@ public:
                                          char const*& begin) const override {
         DCHECK_EQ(data->size(), 1);
         auto* pos = arena.alloc_continue(data->serialize_size_at(0), begin);
-        return {pos, serialize_impl(pos, n)};
+        return {pos, serialize(pos, n)};
     }
 
     const char* deserialize_and_insert_from_arena(const char* pos) override {
-        return pos + deserialize_impl(pos);
+        return pos + deserialize(pos);
     }
 
     size_t get_max_row_byte_size() const override { return data->get_max_row_byte_size(); }
@@ -202,7 +202,7 @@ public:
         for (size_t i = 0; i < num_rows; i++) {
             // Used in hash_map_context.h, this address is allocated via Arena,
             // but passed through StringRef, so using const_cast is acceptable.
-            serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
+            serialize(const_cast<char*>(keys[i].data + keys[i].size), i);
         }
     }
 
@@ -300,15 +300,13 @@ public:
         s = s - length;
     }
 
-    size_t serialize_impl(char* pos, const size_t row) const override {
-        return data->serialize_impl(pos, 0);
-    }
+    size_t serialize(char* pos, const size_t row) const override { return data->serialize(pos, 0); }
 
     size_t serialize_size_at(size_t row) const override { return data->serialize_size_at(0); }
 
-    size_t deserialize_impl(const char* pos) override {
+    size_t deserialize(const char* pos) override {
         ++s;
-        return data->deserialize_impl(pos);
+        return data->deserialize(pos);
     }
 
     void replace_float_special_values() override;

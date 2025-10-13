@@ -207,14 +207,14 @@ void ColumnNullable::insert_many_from(const IColumn& src, size_t position, size_
 StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
                                                      char const*& begin) const {
     auto* pos = arena.alloc_continue(serialize_size_at(n), begin);
-    return {pos, serialize_impl(pos, n)};
+    return {pos, serialize(pos, n)};
 }
 
 const char* ColumnNullable::deserialize_and_insert_from_arena(const char* pos) {
-    return pos + deserialize_impl(pos);
+    return pos + deserialize(pos);
 }
 
-size_t ColumnNullable::deserialize_impl(const char* pos) {
+size_t ColumnNullable::deserialize(const char* pos) {
     size_t sz = 0;
     UInt8 val = *reinterpret_cast<const UInt8*>(pos);
     sz += sizeof(val);
@@ -222,7 +222,7 @@ size_t ColumnNullable::deserialize_impl(const char* pos) {
     get_null_map_data().push_back(val);
 
     if (val == 0) {
-        sz += get_nested_column().deserialize_impl(pos + sz);
+        sz += get_nested_column().deserialize(pos + sz);
     } else {
         get_nested_column().insert_default();
     }
@@ -234,33 +234,27 @@ size_t ColumnNullable::get_max_row_byte_size() const {
     return flag_size + get_nested_column().get_max_row_byte_size();
 }
 
-size_t ColumnNullable::serialize_impl(char* pos, const size_t row) const {
+size_t ColumnNullable::serialize(char* pos, const size_t row) const {
     const auto& arr = get_null_map_data();
     memcpy_fixed<NullMap::value_type>(pos, (char*)&arr[row]);
     if (arr[row]) {
         return sizeof(NullMap::value_type);
     }
     return sizeof(NullMap::value_type) +
-           get_nested_column().serialize_impl(pos + sizeof(NullMap::value_type), row);
+           get_nested_column().serialize(pos + sizeof(NullMap::value_type), row);
 }
 
 void ColumnNullable::serialize_vec(StringRef* keys, size_t num_rows) const {
     const bool has_null = simd::contain_byte(get_null_map_data().data(), num_rows, 1);
     const auto* __restrict null_map =
             assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
-    _nested_column->serialize_vec_with_null(keys, num_rows, has_null, null_map);
+    _nested_column->serialize_vec_with_nullable(keys, num_rows, has_null, null_map);
 }
 
 void ColumnNullable::deserialize_vec(StringRef* keys, const size_t num_rows) {
-    auto& arr = get_null_map_data();
-    const size_t old_size = arr.size();
-    arr.reserve(old_size + num_rows);
-
-    for (size_t i = 0; i != num_rows; ++i) {
-        auto sz = deserialize_impl(keys[i].data);
-        keys[i].data += sz;
-        keys[i].size -= sz;
-    }
+    auto& null_maps = get_null_map_data();
+    null_maps.reserve(null_maps.size() + num_rows);
+    _nested_column->deserialize_vec_with_nullable(keys, num_rows, null_maps);
 }
 
 void ColumnNullable::insert_range_from_ignore_overflow(const doris::vectorized::IColumn& src,

@@ -327,31 +327,32 @@ public:
                                "Method serialize_vec is not supported for " + get_name());
     }
 
-    virtual void serialize_vec_with_null(StringRef* keys, size_t num_rows, bool has_null,
-                                         const uint8_t* __restrict null_map) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method serialize_vec_with_null is not supported for " + get_name());
-    }
+    virtual void serialize_vec_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
+                                             const uint8_t* __restrict null_map) const;
 
     // This function deserializes group-by keys into column in the vectorized way.
     virtual void deserialize_vec(StringRef* keys, const size_t num_rows) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method deserialize_vec is not supported for " + get_name());
     }
+
+    virtual void deserialize_vec_with_nullable(StringRef* keys, const size_t num_rows,
+                                               PaddedPODArray<UInt8>& null_map);
+
     /// The exact size to serialize the `row`-th row data in this column.
     virtual size_t serialize_size_at(size_t row) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Column {} should not be serialized.", get_name());
     }
-    /// `serialize_impl` is the implementation to serialize a column into a continuous memory.
-    virtual size_t serialize_impl(char* pos, const size_t row) const {
+    /// `serialize` is the implementation to serialize a column into a continuous memory.
+    virtual size_t serialize(char* pos, const size_t row) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method serialize_impl is not supported for " + get_name());
+                               "Method serialize is not supported for " + get_name());
     }
-    /// `deserialize_impl` will deserialize data which is serialized by `serialize_impl`.
-    virtual size_t deserialize_impl(const char* pos) {
+    /// `deserialize` will deserialize data which is serialized by `serialize`.
+    virtual size_t deserialize(const char* pos) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method deserialize_impl is not supported for " + get_name());
+                               "Method deserialize is not supported for " + get_name());
     }
 
     /// Return the size of largest row.
