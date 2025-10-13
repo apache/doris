@@ -90,8 +90,8 @@ ready_probe_with_no_tls()
 {
     local webserver_port=$(parse_config_file_with_key "webserver_port")
     webserver_port=${webserver_port:=$DEFAULT_WEBSERVER_PORT}
-    local ip=`hostname -i | awk '{print $1}'`
-    local url="http://${ip}:${webserver_port}/api/health"
+    local host=`hostname -f`
+    local url="http://${host}:${webserver_port}/api/health"
 
     local response=$(curl -s -w "\n%{http_code}" $url)
     local http_code=$(echo "$response" | tail -n1)
