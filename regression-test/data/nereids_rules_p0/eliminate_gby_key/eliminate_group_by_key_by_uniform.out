@@ -305,7 +305,7 @@ cherry	3
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----hashJoin[INNER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
-------PhysicalOlapScan[test1]
+------PhysicalOlapScan[test1(t1)]
 ------filter((test2.b = 105))
 --------PhysicalOlapScan[test2]
 
