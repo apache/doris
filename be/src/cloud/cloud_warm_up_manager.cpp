@@ -104,6 +104,11 @@ CloudWarmUpManager::~CloudWarmUpManager() {
     if (_download_thread.joinable()) {
         _download_thread.join();
     }
+
+    for (auto& shard : _balanced_tablets_shards) {
+        std::lock_guard<std::mutex> lock(shard.mtx);
+        shard.tablets.clear();
+    }
 }
 
 std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas(BaseTablet* tablet) {
@@ -780,6 +785,129 @@ void CloudWarmUpManager::_recycle_cache(int64_t tablet_id,
         brpc::Controller cntl;
         PRecycleCacheResponse response;
         brpc_stub->recycle_cache(&cntl, &request, &response, nullptr);
+    }
+}
+
+// Balance warm up cache management methods implementation
+void CloudWarmUpManager::record_balanced_tablet(int64_t tablet_id, const std::string& host,
+                                                int32_t brpc_port) {
+    auto& shard = get_shard(tablet_id);
+    std::lock_guard<std::mutex> lock(shard.mtx);
+    JobMeta meta;
+    meta.be_ip = host;
+    meta.brpc_port = brpc_port;
+    meta.ctime = std::chrono::system_clock::now();
+    shard.tablets.emplace(tablet_id, std::move(meta));
+    VLOG_DEBUG << "Recorded balanced warm up cache tablet: tablet_id=" << tablet_id
+               << ", host=" << host << ":" << brpc_port;
+}
+
+std::optional<std::pair<std::string, int32_t>> CloudWarmUpManager::get_balanced_tablet_info(
+        int64_t tablet_id) {
+    auto& shard = get_shard(tablet_id);
+    std::lock_guard<std::mutex> lock(shard.mtx);
+    auto it = shard.tablets.find(tablet_id);
+    if (it == shard.tablets.end()) {
+        return std::nullopt;
+    }
+    if (is_balanced_tablet_expired(it->second.ctime)) {
+        auto now = std::chrono::system_clock::now();
+        VLOG_DEBUG << "Expired balanced warm up cache tablet: tablet_id=" << it->first << ", age="
+                   << std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second.ctime)
+                              .count()
+                   << "ms";
+        shard.tablets.erase(it);
+        return std::nullopt;
+    }
+    return std::make_pair(it->second.be_ip, it->second.brpc_port);
+}
+
+void CloudWarmUpManager::remove_balanced_tablet(int64_t tablet_id) {
+    auto& shard = get_shard(tablet_id);
+    std::lock_guard<std::mutex> lock(shard.mtx);
+    auto it = shard.tablets.find(tablet_id);
+    if (it != shard.tablets.end()) {
+        VLOG_DEBUG << "Removed balanced warm up cache tablet: tablet_id=" << tablet_id;
+        shard.tablets.erase(it);
+    }
+}
+
+void CloudWarmUpManager::remove_balanced_tablets(const std::vector<int64_t>& tablet_ids) {
+    // Group tablet_ids by shard to minimize lock contention
+    std::array<std::vector<int64_t>, SHARD_COUNT> shard_groups;
+    for (int64_t tablet_id : tablet_ids) {
+        shard_groups[get_shard_index(tablet_id)].push_back(tablet_id);
+    }
+
+    // Process each shard
+    for (size_t i = 0; i < SHARD_COUNT; ++i) {
+        if (shard_groups[i].empty()) continue;
+
+        auto& shard = _balanced_tablets_shards[i];
+        std::lock_guard<std::mutex> lock(shard.mtx);
+        for (int64_t tablet_id : shard_groups[i]) {
+            auto it = shard.tablets.find(tablet_id);
+            if (it != shard.tablets.end()) {
+                VLOG_DEBUG << "Removed balanced warm up cache tablet: tablet_id=" << tablet_id;
+                shard.tablets.erase(it);
+            }
+        }
+    }
+}
+
+bool CloudWarmUpManager::is_balanced_tablet_expired(
+        const std::chrono::system_clock::time_point& ctime) const {
+    return std::chrono::system_clock::now() - ctime >
+           std::chrono::milliseconds(g_tablet_report_inactive_duration_ms);
+}
+
+std::unordered_map<int64_t, std::pair<std::string, int32_t>>
+CloudWarmUpManager::get_all_balanced_tablets() const {
+    std::unordered_map<int64_t, std::pair<std::string, int32_t>> result;
+
+    // Lock all shards to get consistent snapshot
+    std::array<std::unique_lock<std::mutex>, SHARD_COUNT> locks;
+    for (size_t i = 0; i < SHARD_COUNT; ++i) {
+        locks[i] = std::unique_lock<std::mutex>(_balanced_tablets_shards[i].mtx);
+    }
+
+    for (const auto& shard : _balanced_tablets_shards) {
+        for (const auto& [tablet_id, entry] : shard.tablets) {
+            result.emplace(tablet_id, std::make_pair(entry.be_ip, entry.brpc_port));
+        }
+    }
+    return result;
+}
+
+void CloudWarmUpManager::clear_expired_balanced_tablets() {
+    size_t total_removed_count = 0;
+
+    // Process each shard independently
+    for (auto& shard : _balanced_tablets_shards) {
+        std::lock_guard<std::mutex> lock(shard.mtx);
+        auto it = shard.tablets.begin();
+        size_t removed_count = 0;
+
+        while (it != shard.tablets.end()) {
+            if (is_balanced_tablet_expired(it->second.ctime)) {
+                VLOG_DEBUG << "Clearing expired balanced warm up cache tablet: tablet_id="
+                           << it->first << ", age="
+                           << std::chrono::duration_cast<std::chrono::milliseconds>(
+                                      std::chrono::system_clock::now() - it->second.ctime)
+                                      .count()
+                           << "ms";
+                it = shard.tablets.erase(it);
+                removed_count++;
+            } else {
+                ++it;
+            }
+        }
+        total_removed_count += removed_count;
+    }
+
+    if (total_removed_count > 0) {
+        VLOG_DEBUG << "Cleared " << total_removed_count
+                   << " expired balanced warm up cache tablets";
     }
 }
 
