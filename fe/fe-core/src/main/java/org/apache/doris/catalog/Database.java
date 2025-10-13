@@ -54,6 +54,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -140,6 +141,12 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     @SerializedName(value = "cn")
     private String ctlName;
 
+    @SerializedName(value = "createUser")
+    private String createUser;
+
+    @SerializedName(value = "createTime")
+    private long createTime;
+
     public Database() {
         this(0, null);
     }
@@ -162,6 +169,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.dbEncryptKey = new DatabaseEncryptKey();
+        this.createTime = Instant.now().getEpochSecond();
     }
 
     // DO NOT use it except for replaying OP_CREATE_DB
@@ -314,6 +322,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         if (PropertyAnalyzer.hasBinlogConfig(dbProperties.getProperties())) {
             binlogConfig = dbProperties.getBinlogConfig();
         }
+    }
+
+    public String getCreateUser() {
+        return createUser;
+    }
+
+    public void setCreateUser(String createUser) {
+        this.createUser = createUser;
     }
 
     public long getUsedDataQuota() {
