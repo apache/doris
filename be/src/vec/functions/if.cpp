@@ -202,6 +202,12 @@ public:
                               const ColumnWithTypeAndName& then_col,
                               const ColumnWithTypeAndName& else_col, uint32_t result,
                               Status& status) const {
+        if (then_col.type->get_primitive_type() != else_col.type->get_primitive_type()) {
+            return Status::InternalError(
+                    "then and else column type must be same for function {} , but got {} , {}",
+                    get_name(), then_col.type->get_name(), else_col.type->get_name());
+        }
+
         auto res_column =
                 NumIfImpl<PType>::execute_if(cond_col->get_data(), then_col.column, else_col.column,
                                              block.get_by_position(result).type->get_scale());
@@ -517,10 +523,6 @@ public:
             block.get_by_position(result).column =
                     cond_const_col->get_value<UInt8>() ? arg_then.column : arg_else.column;
             return Status::OK();
-        }
-
-        if (arg_then.type->get_primitive_type() != arg_else.type->get_primitive_type()) {
-            return Status::InternalError("then and else column type must be same");
         }
 
         Status vec_exec;
