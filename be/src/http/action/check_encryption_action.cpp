@@ -156,7 +156,7 @@ Result<std::string> get_last_encrypt_footer(const BaseTabletSPtr& tablet) {
             reader->size() - 256 + sizeof(uint8_t) + sizeof(uint64_t), pb_slice, &bytes_read));
 
     FileEncryptionInfoPB info_pb;
-    if (!info_pb.ParseFromArray(info_pb_buf.data(), info_pb_buf.size())) {
+    if (!info_pb.ParseFromArray(info_pb_buf.data(), static_cast<int>(info_pb_buf.size()))) {
         return ResultError(Status::Corruption("parse encryption info failed"));
     }
     std::string json;
@@ -193,6 +193,15 @@ void CheckEncryptionAction::handle(HttpRequest* req) {
         return;
     }
 
+    bool is_get_footer = false;
+    if (auto get_footer_flag = req->param(GET_FOOTER); get_footer_flag == "true") {
+        is_get_footer = true;
+    } else if (get_footer_flag != "false") {
+        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST,
+                                "param `get_footer` must be a boolean type");
+        return;
+    }
+
     auto maybe_tablet = ExecEnv::get_tablet(tablet_id);
     if (!maybe_tablet) {
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, maybe_tablet.error().to_string());
@@ -212,9 +221,22 @@ void CheckEncryptionAction::handle(HttpRequest* req) {
 
     auto maybe_is_encrypted = is_tablet_encrypted(tablet);
     if (maybe_is_encrypted.has_value()) {
-        HttpChannel::send_reply(
-                req, HttpStatus::OK,
-                maybe_is_encrypted.value() ? "all encrypted" : "some are not encrypted");
+        req->add_output_header(HttpHeaders::CONTENT_TYPE, HttpHeaders::JSON_TYPE.data());
+        std::string result = R"({"status":)";
+        result += maybe_is_encrypted.value() ? R"("all encrypted")" : R"("some are not encrypted")";
+        if (is_get_footer) {
+            auto maybe_footer = get_last_encrypt_footer(tablet);
+            if (!maybe_footer) {
+                HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,
+                                        maybe_footer.error().to_json());
+                return;
+            }
+            result += R"(,"footer":)";
+            result += maybe_footer.value();
+        }
+        result += "}";
+
+        HttpChannel::send_reply(req, HttpStatus::OK, result);
         return;
     }
     HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,
