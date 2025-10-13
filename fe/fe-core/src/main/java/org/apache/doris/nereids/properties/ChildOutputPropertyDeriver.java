@@ -53,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCte;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteRecursiveChild;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
@@ -151,7 +152,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
     @Override
     public PhysicalProperties visitPhysicalRecursiveCteScan(PhysicalRecursiveCteScan cteScan, PlanContext context) {
-        return PhysicalProperties.MUST_SHUFFLE;
+        return PhysicalProperties.ANY;
     }
 
     /**
@@ -473,6 +474,13 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     @Override
     public PhysicalProperties visitPhysicalRecursiveCte(PhysicalRecursiveCte recursiveCte, PlanContext context) {
         return PhysicalProperties.GATHER;
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalRecursiveCteRecursiveChild(
+            PhysicalRecursiveCteRecursiveChild<? extends Plan> recursiveChild,
+            PlanContext context) {
+        return PhysicalProperties.MUST_SHUFFLE;
     }
 
     @Override
