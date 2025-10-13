@@ -63,6 +63,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaTablesScanner::_s_tbls_columns = {
         {"CHECKSUM", TYPE_BIGINT, sizeof(int64_t), true},
         {"CREATE_OPTIONS", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TABLE_COMMENT", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"CREATE_USER", TYPE_VARCHAR, sizeof(StringRef), true},
 };
 
 SchemaTablesScanner::SchemaTablesScanner()
@@ -354,6 +355,21 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
             datas[i] = strs.data() + i;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 20, datas));
+    }
+    // create_user
+    {
+        std::vector<StringRef> strs(table_num);
+        for (int i = 0; i < table_num; ++i) {
+            const TTableStatus& tbl_status = _table_result.tables[i];
+            if (tbl_status.__isset.create_user) {
+                const std::string* src = &tbl_status.create_user;
+                strs[i] = StringRef(src->c_str(), src->size());
+                datas[i] = strs.data() + i;
+            } else {
+                datas[i] = nullptr;
+            }
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 21, datas));
     }
     return Status::OK();
 }

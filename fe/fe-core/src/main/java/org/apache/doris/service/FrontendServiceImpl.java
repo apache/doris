@@ -698,6 +698,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             status.setDataLength(table.getDataLength());
                             status.setAvgRowLength(table.getAvgRowLength());
                             status.setIndexLength(table.getIndexLength());
+                            if (table.getCreateUser() != null) {
+                                status.setCreateUser(table.getCreateUser());
+                            }
                             if (table instanceof View) {
                                 status.setDdlSql(((View) table).getInlineViewDef());
                             }

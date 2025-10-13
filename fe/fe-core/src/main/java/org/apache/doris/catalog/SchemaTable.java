@@ -79,7 +79,8 @@ public class SchemaTable extends Table {
                                     .column("TABLE_COLLATION", ScalarType.createVarchar(MY_CS_NAME_SIZE))
                                     .column("CHECKSUM", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("CREATE_OPTIONS", ScalarType.createVarchar(255))
-                                    .column("TABLE_COMMENT", ScalarType.createVarchar(2048)).build()))
+                                    .column("TABLE_COMMENT", ScalarType.createVarchar(2048))
+                                    .column("CREATE_USER", ScalarType.createVarchar(NAME_CHAR_LEN)).build()))
             .put("table_privileges",
                     new SchemaTable(SystemIdGenerator.getNextId(), "table_privileges", TableType.SCHEMA,
                             builder().column("GRANTEE", ScalarType.createVarchar(GRANTEE_len))

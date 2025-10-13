@@ -136,6 +136,7 @@ struct TTableStatus {
     12: optional i64 avg_row_length
     13: optional i64 data_length;
     14: optional i64 index_length;
+    15: optional string create_user
 }
 
 struct TListTableStatusResult {

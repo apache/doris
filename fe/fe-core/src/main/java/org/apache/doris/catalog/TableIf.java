@@ -164,6 +164,11 @@ public interface TableIf {
 
     long getUpdateTime();
 
+    //creator of the table, may be null for some table types
+    default String getCreateUser() {
+        return null;
+    }
+
     long getRowCount();
 
     // Get the row count from cache,
