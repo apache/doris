@@ -116,10 +116,32 @@ public:
 
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
-    const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column,
-                                                size_t size) const override;
+
+    static const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column);
+
+    static const uint8_t* deserialize_binary_to_field(const uint8_t* data, Field& field, FieldInfo& info);
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
+
+
+//     static std::pair<Field, FieldInfo> deserialize_from_binary(const ColumnString* value, size_t row) {
+//         const auto& data_ref = value->get_data_at(row);
+//         const char* data = data_ref.data;
+//         DCHECK(data_ref.size > 1);
+//         const FieldType type = static_cast<FieldType>(*reinterpret_cast<const uint8_t*>(data++));
+//         Field res;
+//         FieldInfo info_res = {
+//             .scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type),
+//             .have_nulls = false,
+//             .need_convert = false,
+//             .num_dimensions = 0,
+//         };
+        
+//         DCHECK_EQ(end - data_ref.data, data_ref.size)
+//             << "FieldType: " << (int)type << " data_ref.size: " << data_ref.size << " end: " << end
+//             << " data: " << data;
+//         return {std::move(res), std::move(info_res)};
+//     }
 
 private:
     template <bool is_binary_format>

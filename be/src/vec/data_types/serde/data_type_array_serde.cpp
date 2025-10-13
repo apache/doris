@@ -528,13 +528,10 @@ void DataTypeArraySerDe::write_one_cell_to_binary(const IColumn& src_column,
 }
 
 const uint8_t* DataTypeArraySerDe::deserialize_binary_to_column(const uint8_t* data,
-                                                                IColumn& column,
-                                                                size_t size) const {
+                                                                IColumn& column)  {
     auto& array_col = assert_cast<ColumnArray&>(column);
     auto& offsets = array_col.get_offsets();
     auto& nested_column = array_col.get_data();
-    const uint8_t type = *data++;
-    DCHECK_EQ(type, (const uint8_t)FieldType::OLAP_FIELD_TYPE_ARRAY);
     const size_t nested_size = unaligned_load<size_t>(data);
     data += sizeof(size_t);
     if (nested_size == 0) [[unlikely]] {
@@ -543,11 +540,29 @@ const uint8_t* DataTypeArraySerDe::deserialize_binary_to_column(const uint8_t* d
     }
 
     for (size_t i = 0; i < nested_size; ++i) {
-        const uint8_t* new_data =
-                nested_serde->deserialize_binary_to_column(data, nested_column, i);
+        const uint8_t* new_data = DataTypeSerDe::deserialize_binary_to_column(data, nested_column);
         data = new_data;
     }
     offsets.push_back(offsets.back() + nested_size);
+    return data;
+}
+
+const uint8_t* DataTypeArraySerDe::deserialize_binary_to_field(const uint8_t* data, Field& field, FieldInfo& info) {
+    const size_t nested_size = unaligned_load<size_t>(data);
+    data += sizeof(size_t);
+    field = Field::create_field<TYPE_ARRAY>(Array(nested_size));
+    info.num_dimensions++;
+    auto& array = field.get<Array>();
+    info.scalar_type_id = PrimitiveType::TYPE_NULL;
+    for (size_t i = 0; i < size; ++i) {
+        Field nested_field;
+        FieldInfo nested_info;
+        data = DataTypeSerDe::deserialize_binary_to_field(data, nested_field, nested_info);
+        array[i] = std::move(nested_field);
+        if (nested_info.scalar_type_id != PrimitiveType::TYPE_NULL) {
+            info.scalar_type_id = nested_info.scalar_type_id;
+        }
+    }
     return data;
 }
 

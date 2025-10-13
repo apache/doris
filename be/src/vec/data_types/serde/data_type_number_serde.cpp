@@ -772,12 +772,12 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
 
 template <PrimitiveType T>
 const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_column(const uint8_t* data,
-                                                                    IColumn& column,
-                                                                    size_t size) const {
-    const uint8_t type = *data++;
-    DCHECK_EQ(type, (const uint8_t)TabletColumn::get_field_type_by_type(T));
+                                                                    IColumn& column) {
     auto& col = assert_cast<ColumnType&>(column);
-    if constexpr (T == TYPE_TINYINT || T == TYPE_BOOLEAN) {
+    if constexpr (T == TYPE_BOOLEAN) {
+        col.insert_value(unaligned_load<UInt8>(data));
+        data += sizeof(UInt8);
+    } else if constexpr (T == TYPE_TINYINT) {
         col.insert_value(unaligned_load<Int8>(data));
         data += sizeof(Int8);
     } else if constexpr (T == TYPE_SMALLINT) {
@@ -798,6 +798,19 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_column(const uint8_
     } else if constexpr (T == TYPE_DOUBLE) {
         col.insert_value(unaligned_load<Float64>(data));
         data += sizeof(Float64);
+    } else if constexpr (T == TYPE_IPV4) {
+        col.insert_value(unaligned_load<UInt32>(data));
+        data += sizeof(UInt32);
+    } else if constexpr (T == TYPE_IPV6) {
+        col.insert_value(unaligned_load<Int128>(data));
+        data += sizeof(Int128);
+    } else if constexpr (T == TYPE_DATEV2) {
+        col.insert_value(unaligned_load<UInt32>(data));
+        data += sizeof(UInt32);
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        data += sizeof(uint8_t);
+        col.insert_value(unaligned_load<UInt64>(data));
+        data += sizeof(UInt64);
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "deserialize_binary_to_column with type '{}'", type_to_string(T));

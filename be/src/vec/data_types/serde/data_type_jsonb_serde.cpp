@@ -331,11 +331,8 @@ void DataTypeJsonbSerDe::write_one_cell_to_binary(const IColumn& src_column,
 }
 
 const uint8_t* DataTypeJsonbSerDe::deserialize_binary_to_column(const uint8_t* data,
-                                                                IColumn& column,
-                                                                size_t size) const {
+                                                                IColumn& column) {
     auto& col = assert_cast<ColumnString&>(column);
-    const uint8_t type = *data++;
-    DCHECK_EQ(type, (const uint8_t)FieldType::OLAP_FIELD_TYPE_JSONB);
     const size_t data_size = unaligned_load<size_t>(data);
     data += sizeof(size_t);
     col.insert_data(reinterpret_cast<const char*>(data), data_size);

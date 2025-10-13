@@ -2526,18 +2526,36 @@ void ColumnVariant::Subcolumn::deserialize_from_sparse_column(const ColumnString
     const auto& data_ref = value->get_data_at(row);
     const auto* start_data = reinterpret_cast<const uint8_t*>(data_ref.data);
     const PrimitiveType type =
-            TabletColumn::get_primitive_type_by_field_type(static_cast<FieldType>(*start_data++));
+            TabletColumn::get_primitive_type_by_field_type(static_cast<FieldType>(*start_data));
     if (type == least_common_type.get_type_id()) {
-        ++num_rows;
-        auto& nullable_serde =
-                        assert_cast<DataTypeNullableSerDe&, TypeCheckOnRelease::DISABLE>(*least_common_type.get_serde());
-        const uint8_t* end_data = nullable_serde.deserialize_binary_to_column(
-                reinterpret_cast<const uint8_t*>(data_ref.data), *data[data.size() - 1],
-                data_ref.size);
-        DCHECK_EQ(end_data - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
+        if (type == PrimitiveType::TYPE_ARRAY) {
+            const auto* nested_start_data = start_data + 1;
+            const PrimitiveType nested_type =
+                    TabletColumn::get_primitive_type_by_field_type(static_cast<FieldType>(*nested_start_data));
+            if (nested_type != least_common_type.get_base_type_id()) {
+                Field res;
+                FieldInfo info;
+                const uint8_t* end_data = DataTypeSerDe::deserialize_binary_to_field(start_data, res, info);
+                CHECK_EQ(end_data - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
+                insert(std::move(res), std::move(info));
+            } else {
+                CHECK(data.size() > 0);
+                const uint8_t* end_data = DataTypeSerDe::deserialize_binary_to_column(start_data, *data.back());
+                CHECK_EQ(end_data - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
+                ++num_rows;
+            }
+        } else {
+            CHECK(data.size() > 0);
+            const uint8_t* end_data = DataTypeSerDe::deserialize_binary_to_column(start_data, *data.back());
+            CHECK_EQ(end_data - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
+            ++num_rows;
+        }
     } else {
-        const auto& res_data = ColumnVariant::deserialize_from_sparse_column(value, row);
-        insert(res_data.first, res_data.second);
+        Field res;
+        FieldInfo info;
+        DataTypeSerDe::deserialize_binary_to_field(start_data, res, info);
+        insert(std::move(res), std::move(info));
+        CHECK_EQ(end_data - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
     }
 }
 

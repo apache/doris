@@ -654,6 +654,64 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_binary(const IColumn& src_column
            data_ref.data, data_ref.size);
 }
 
+template <PrimitiveType T>
+const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_column(const uint8_t* data, IColumn& column) {
+    auto& col = assert_cast<ColumnDecimal<T>&>(column);
+    data += sizeof(uint8_t);
+    data += sizeof(uint8_t);
+    if constexpr (T == TYPE_DECIMAL32) {
+        col.insert_value(unaligned_load<Int32>(data));
+        data += sizeof(Int32);
+    } else if constexpr (T == TYPE_DECIMAL64) {
+        col.insert_value(unaligned_load<Int64>(data));
+        data += sizeof(Int64);
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        col.insert_value(unaligned_load<Int128>(data));
+        data += sizeof(Int128);
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        col.insert_value(Decimal256(unaligned_load<wide::Int256>(data)));
+        data += sizeof(wide::Int256);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "deserialize_binary_to_column with type " + column.get_name());
+    }
+    return data;
+}
+
+const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_field(const uint8_t* data, Field& field, FieldInfo& info) {
+    if constexpr (T == TYPE_DECIMAL32) {
+        const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
+        data += sizeof(uint8_t);
+        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+        data += sizeof(uint8_t);
+        Int32 v = unaligned_load<Int32>(data);
+        field = Field::create_field<TYPE_DECIMAL32>(Decimal32(v));
+        info.precision = static_cast<int>(precision);
+        info.scale = static_cast<int>(scale);
+        data += sizeof(Int32);
+    } else if constexpr (T == TYPE_DECIMAL64) {
+        const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
+        data += sizeof(uint8_t);
+        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+        data += sizeof(uint8_t);
+        Int64 v = unaligned_load<Int64>(data);
+        res = Field::create_field<TYPE_DECIMAL64>(Decimal64(v));
+        info_res.precision = static_cast<int>(precision);
+        info_res.scale = static_cast<int>(scale);
+        end = data + sizeof(Int64);
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        field = Field::create_field<TYPE_DECIMAL128I>(unaligned_load<Int128>(data));
+        data += sizeof(Int128);
+    } else if constexpr (T == TYPE_DECIMAL256) {
+        field = Field::create_field<TYPE_DECIMAL256>(Decimal256(unaligned_load<wide::Int256>(data)));
+        data += sizeof(wide::Int256);
+    } else {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "deserialize_binary_to_field with type " + column.get_name());
+    }
+    return data;
+}
+
 template class DataTypeDecimalSerDe<TYPE_DECIMAL32>;
 template class DataTypeDecimalSerDe<TYPE_DECIMAL64>;
 template class DataTypeDecimalSerDe<TYPE_DECIMAL128I>;

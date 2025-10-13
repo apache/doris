@@ -80,8 +80,7 @@ public:
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
 
-    const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column,
-                                                size_t size) const override;
+    static const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column);
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
 

@@ -132,6 +132,9 @@ public:
 
     void to_string_batch(const IColumn& column, ColumnString& column_to) const override;
 
+    static const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column);
+
+    static const uint8_t* deserialize_binary_to_field(const uint8_t* data, Field& field, FieldInfo& info);
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

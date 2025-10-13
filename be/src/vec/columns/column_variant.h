@@ -69,25 +69,6 @@ namespace doris::vectorized {
 #define ENABLE_CHECK_CONSISTENCY(this) (this)->check_consistency()
 #endif
 
-/// Info that represents a scalar or array field in a decomposed view.
-/// It allows to recreate field with different number
-/// of dimensions or nullability.
-struct FieldInfo {
-    /// The common type id of of all scalars in field.
-    PrimitiveType scalar_type_id = PrimitiveType::INVALID_TYPE;
-    /// Do we have NULL scalar in field.
-    bool have_nulls = false;
-    /// If true then we have scalars with different types in array and
-    /// we need to convert scalars to the common type.
-    bool need_convert = false;
-    /// Number of dimension in array. 0 if field is scalar.
-    size_t num_dimensions = 0;
-
-    // decimal info
-    int scale = 0;
-    int precision = 0;
-};
-
 /** A column that represents object with dynamic set of subcolumns.
  *  Subcolumns are identified by paths in document and are stored in
  *  a trie-like structure. ColumnVariant is not suitable for writing into tables
