@@ -75,7 +75,6 @@ import org.springframework.web.servlet.view.RedirectView;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -519,11 +518,15 @@ public class LoadAction extends RestBaseController {
             throw new LoadException("Invalid header host: " + reqHostStr);
         }
 
-        URI reqURI = URI.create("http://" + reqHostStr);
-        String reqHost = reqURI.getHost();
-        if (reqHost == null) {
+        String reqHost = "";
+        String[] pair = reqHostStr.split(":");
+        if (pair.length == 1) {
+            reqHost = pair[0];
+        } else if (pair.length == 2) {
+            reqHost = pair[0];
+        } else {
             LOG.info("Invalid header host: {}", reqHostStr);
-            throw new LoadException("Invalid header host: " + reqHostStr);
+            throw new LoadException("Invalid header host: " + reqHost);
         }
 
         // User specified redirect policy
@@ -584,45 +587,25 @@ public class LoadAction extends RestBaseController {
     }
 
     private Pair<String, Integer> splitHostAndPort(String hostPort) throws AnalysisException {
-        if (hostPort == null) {
-            LOG.info("empty endpoint");
-            throw new AnalysisException("empty endpoint: null");
-        }
-        final String raw = hostPort.trim();
-        if (raw.isEmpty()) {
+        hostPort = hostPort.replaceAll("\\s+", "");
+        if (hostPort.isEmpty()) {
             LOG.info("empty endpoint");
             throw new AnalysisException("empty endpoint: " + hostPort);
         }
-        final URI uri;
-        try {
-            uri = new URI("http://" + raw);
-        } catch (URISyntaxException e) {
-            LOG.info("Invalid endpoint: {}", hostPort);
-            throw new AnalysisException("Invalid endpoint: " + hostPort, e);
-        }
-        String host = uri.getHost();
-        int port = uri.getPort();
 
-        if (host == null || host.isEmpty()) {
-            LOG.info("Invalid endpoint (unable to parse host): {}", hostPort);
+        String[] pair = hostPort.split(":");
+        if (pair.length != 2) {
+            LOG.info("Invalid endpoint: {}", hostPort);
             throw new AnalysisException("Invalid endpoint: " + hostPort);
         }
-        if (port == -1) {
-            LOG.info("Invalid endpoint (missing port): {}", hostPort);
-            throw new AnalysisException("Invalid endpoint: " + hostPort);
-        }
+
+        int port = Integer.parseInt(pair[1]);
         if (port <= 0 || port >= 65536) {
-            LOG.info("Invalid endpoint port: {}", port);
-            throw new AnalysisException("Invalid endpoint port: " + port);
+            LOG.info("Invalid endpoint port: {}", pair[1]);
+            throw new AnalysisException("Invalid endpoint port: " + pair[1]);
         }
-        // RFC 6874: In a URI, the '%' in the zone-id must be written as "%25"; after parsing,
-        // in common scenarios it should be restored back to '%'
-        // For example, input "[fe80::1%25eth0]:8040" -> host "fe80::1%25eth0", which we then
-        // decode to "fe80::1%eth0"
-        if (host.contains("%25")) {
-            host = host.replace("%25", "%");
-        }
-        return Pair.of(host, port);
+
+        return Pair.of(pair[0], port);
     }
 
     // NOTE: This function can only be used for AuditlogPlugin stream load for now.
