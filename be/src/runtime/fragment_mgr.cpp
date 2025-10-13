@@ -962,6 +962,7 @@ void FragmentMgr::cancel_worker() {
 
         std::unordered_map<std::shared_ptr<PBackendService_Stub>, BrpcItem> brpc_stub_with_queries;
         {
+            std::vector<std::shared_ptr<QueryContext>> contexts;
             _query_ctx_map.apply([&](phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>>&
                                              map) -> Status {
                 for (auto it = map.begin(); it != map.end();) {
@@ -969,6 +970,7 @@ void FragmentMgr::cancel_worker() {
                         if (q_ctx->is_timeout(now)) {
                             LOG_WARNING("Query {} is timeout", print_id(it->first));
                             queries_timeout.push_back(it->first);
+                            contexts.push_back(q_ctx);
                         } else if (config::enable_brpc_connection_check) {
                             auto brpc_stubs = q_ctx->get_using_brpc_stubs();
                             for (auto& item : brpc_stubs) {
@@ -999,11 +1001,13 @@ void FragmentMgr::cancel_worker() {
                            "starting? "
                         << "We will not cancel any outdated queries in this situation.";
             } else {
+                std::vector<std::shared_ptr<QueryContext>> q_contexts;
                 _query_ctx_map.apply([&](phmap::flat_hash_map<TUniqueId,
                                                               std::weak_ptr<QueryContext>>& map)
                                              -> Status {
                     for (const auto& it : map) {
                         if (auto q_ctx = it.second.lock()) {
+                            q_contexts.push_back(q_ctx);
                             const int64_t fe_process_uuid = q_ctx->get_fe_process_uuid();
 
                             if (fe_process_uuid == 0) {
