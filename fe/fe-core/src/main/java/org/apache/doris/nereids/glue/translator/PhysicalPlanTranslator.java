@@ -157,6 +157,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCte;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteRecursiveChild;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
@@ -1079,9 +1080,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         TableIf table = recursiveCteScan.getTable();
         List<Slot> slots = ImmutableList.copyOf(recursiveCteScan.getOutput());
-        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
 
-        RecursiveCteScanNode scanNode = new RecursiveCteScanNode(context.nextPlanNodeId(), tupleDescriptor);
+        RecursiveCteScanNode scanNode = new RecursiveCteScanNode(table != null ? table.getName() : "",
+                context.nextPlanNodeId(), tupleDescriptor);
         scanNode.setNereidsId(recursiveCteScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(recursiveCteScan.getId(), scanNode.getId());
         Utils.execWithUncheckedException(scanNode::initScanRangeLocations);
@@ -2339,6 +2341,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         return recursiveCteFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalRecursiveCteRecursiveChild(
+            PhysicalRecursiveCteRecursiveChild<? extends Plan> recursiveChild,
+            PlanTranslatorContext context) {
+        return recursiveChild.child().accept(this, context);
     }
 
     /**

@@ -38,9 +38,11 @@ import java.util.List;
 
 // Full scan of recursive cte temp table
 public class RecursiveCteScanNode extends ScanNode {
+    private final String recursiveCteName;
 
-    public RecursiveCteScanNode(PlanNodeId id, TupleDescriptor desc) {
+    public RecursiveCteScanNode(String recursiveCteName, PlanNodeId id, TupleDescriptor desc) {
         super(id, desc, "RECURSIVE_CTE_SCAN", StatisticalType.CTE_SCAN_NODE);
+        this.recursiveCteName = recursiveCteName;
     }
 
     public void initScanRangeLocations() throws UserException {
@@ -91,7 +93,7 @@ public class RecursiveCteScanNode extends ScanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(prefix).append("Recursive Cte: ").append(getTableIf().getName()).append("\n");
+        output.append(prefix).append("Recursive Cte: ").append(recursiveCteName).append("\n");
         if (!conjuncts.isEmpty()) {
             Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
             output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
