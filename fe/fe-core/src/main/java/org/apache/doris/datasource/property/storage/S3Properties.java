@@ -213,6 +213,11 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         convertGlueToS3EndpointIfNeeded();
     }
 
+    @Override
+    boolean isEndpointCheckRequired() {
+        return false;
+    }
+
     /**
      * Guess if the storage properties is for this storage type.
      * Subclass should override this method to provide the correct implementation.
