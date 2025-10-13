@@ -1139,7 +1139,7 @@ DECLARE_Bool(enable_file_cache);
 DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
-DECLARE_Bool(enable_file_cache_query_limit);
+DECLARE_mBool(enable_file_cache_query_limit);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 DECLARE_mBool(enable_evict_file_cache_in_advance);
@@ -1150,6 +1150,10 @@ DECLARE_mInt64(file_cache_evict_in_advance_batch_bytes);
 DECLARE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold);
 DECLARE_mBool(enable_read_cache_file_directly);
 DECLARE_Bool(file_cache_enable_evict_from_other_queue_by_size);
+// Add a new config to control whether to allow evicting from other queue when enable_file_cache_query_limit
+DECLARE_mBool(file_cache_query_limit_enable_evict_from_other_queue);
+// limit the max size of query cache on disk
+DECLARE_mInt64(file_cache_query_limit_bytes);
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DECLARE_Bool(enable_ttl_cache_evict_using_lru);
