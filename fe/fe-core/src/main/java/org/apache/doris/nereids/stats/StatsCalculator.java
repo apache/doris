@@ -92,6 +92,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCte;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteRecursiveChild;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
@@ -127,6 +128,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCte;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteRecursiveChild;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
@@ -932,6 +934,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitLogicalRecursiveCteRecursiveChild(LogicalRecursiveCteRecursiveChild recursiveChild,
+            Void context) {
+        return groupExpression.childStatistics(0);
+    }
+
+    @Override
     public Statistics visitLogicalUnion(
             LogicalUnion union, Void context) {
         return computeUnion(union,
@@ -1111,6 +1119,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public Statistics visitPhysicalRecursiveCte(PhysicalRecursiveCte recursiveCte, Void context) {
         return computeRecursiveCte(recursiveCte, groupExpression.children()
                 .stream().map(Group::getStatistics).collect(Collectors.toList()));
+    }
+
+    @Override
+    public Statistics visitPhysicalRecursiveCteRecursiveChild(PhysicalRecursiveCteRecursiveChild recursiveChild,
+            Void context) {
+        return groupExpression.childStatistics(0);
     }
 
     @Override
