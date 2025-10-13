@@ -211,7 +211,7 @@ public:
                              OlapReaderStatistics* stats);
 
     // Get column data page statistics from segment footer
-    Status get_column_data_page_stats(std::vector<ColumnDataPageStatsPB>* column_stats,
+    Status get_column_data_page_stats(std::vector<ColumnDataStatsPB>* column_stats,
                                       OlapReaderStatistics* stats = nullptr);
 
 private:

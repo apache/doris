@@ -81,7 +81,7 @@ suite("test_query_sys_column_data_sizes", "query,p0") {
             COLUMN_NAME,
             COLUMN_TYPE,
             COUNT(DISTINCT ROWSET_ID) as rowset_count,
-            SUM(DATA_PAGE_SIZE) as total_data_page_size
+            SUM(COMPRESSED_DATA_SIZE) as data_size
         FROM information_schema.column_data_sizes
         WHERE TABLET_ID = ${tabletId}
         GROUP BY COLUMN_NAME, COLUMN_TYPE
@@ -103,7 +103,7 @@ suite("test_query_sys_column_data_sizes", "query,p0") {
             COLUMN_NAME,
             COLUMN_TYPE,
             COUNT(DISTINCT ROWSET_ID) as rowset_count,
-            SUM(DATA_PAGE_SIZE) as total_data_page_size
+            SUM(COMPRESSED_DATA_SIZE) as data_size
         FROM information_schema.column_data_sizes
         WHERE TABLET_ID = ${tabletId}
         GROUP BY COLUMN_NAME, COLUMN_TYPE

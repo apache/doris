@@ -1418,15 +1418,16 @@ void VerticalSegmentWriter::_collect_column_data_page_stats() {
             auto it = _column_data_page_stats.find(column_unique_id);
             if (it != _column_data_page_stats.end()) {
                 // Accumulate data page size for this column
-                it->second.set_data_page_size(it->second.data_page_size() +
-                                              _column_writers[cid]->get_data_page_size());
+                it->second.set_total_data_pages_size(
+                        it->second.total_data_pages_size() +
+                        _column_writers[cid]->get_total_data_pages_size());
             } else {
                 // First time collecting stats for this column
-                ColumnDataPageStatsPB stats;
+                ColumnDataStatsPB stats;
                 stats.set_column_unique_id(column_unique_id);
                 stats.set_column_name(column.name());
                 stats.set_column_type(TabletColumn::get_string_by_field_type(column.type()));
-                stats.set_data_page_size(_column_writers[cid]->get_data_page_size());
+                stats.set_total_data_pages_size(_column_writers[cid]->get_total_data_pages_size());
                 _column_data_page_stats[column_unique_id] = std::move(stats);
             }
         }

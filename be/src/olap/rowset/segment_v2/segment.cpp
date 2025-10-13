@@ -791,7 +791,7 @@ Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>
     return _column_reader_cache->get_column_reader(col_uid, column_reader, stats);
 }
 
-Status Segment::get_column_data_page_stats(std::vector<ColumnDataPageStatsPB>* column_stats,
+Status Segment::get_column_data_page_stats(std::vector<ColumnDataStatsPB>* column_stats,
                                            OlapReaderStatistics* stats) {
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
     RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, stats));

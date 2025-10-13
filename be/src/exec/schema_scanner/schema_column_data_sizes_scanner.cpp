@@ -63,7 +63,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaColumnDataSizesScanner::_s_tbls_col
         {"COLUMN_UNIQUE_ID", TYPE_INT, sizeof(int32_t), true},
         {"COLUMN_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"COLUMN_TYPE", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"DATA_PAGE_SIZE", TYPE_BIGINT, sizeof(int64_t), true},
+        {"COMPRESSED_DATA_SIZE", TYPE_BIGINT, sizeof(int64_t), true},
 };
 
 SchemaColumnDataSizesScanner::SchemaColumnDataSizesScanner()
@@ -100,7 +100,7 @@ Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
 
             // Map to aggregate column stats by column_unique_id across all segments in this rowset
             // Key: column_unique_id, Value: aggregated stats
-            std::map<int32_t, segment_v2::ColumnDataPageStatsPB> aggregated_stats;
+            std::map<int32_t, segment_v2::ColumnDataStatsPB> aggregated_stats;
 
             // Load all segments at once
             std::vector<segment_v2::SegmentSharedPtr> segments;
@@ -114,7 +114,7 @@ Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
 
             // Get column data page stats from each segment footer and aggregate by column_unique_id
             for (const auto& segment : segments) {
-                std::vector<segment_v2::ColumnDataPageStatsPB> column_stats;
+                std::vector<segment_v2::ColumnDataStatsPB> column_stats;
                 st = segment->get_column_data_page_stats(&column_stats);
                 if (!st.ok()) {
                     continue;
@@ -129,8 +129,8 @@ Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
                         aggregated_stats[col_uid] = stat;
                     } else {
                         // Accumulate data_page_size for this column
-                        it->second.set_data_page_size(it->second.data_page_size() +
-                                                      stat.data_page_size());
+                        it->second.set_total_data_pages_size(it->second.total_data_pages_size() +
+                                                             stat.total_data_pages_size());
                     }
                 }
             }
@@ -145,7 +145,7 @@ Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
                 info.column_unique_id = stat.column_unique_id();
                 info.column_name = stat.column_name();
                 info.column_type = stat.column_type();
-                info.data_page_size = stat.data_page_size();
+                info.data_page_size = stat.total_data_pages_size();
 
                 _column_data_sizes.emplace_back(info);
             }

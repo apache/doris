@@ -267,7 +267,7 @@ private:
     BlockAggregator _block_aggregator;
 
     // Column data page statistics, keyed by column unique id
-    std::map<int32_t, ColumnDataPageStatsPB> _column_data_page_stats;
+    std::map<int32_t, ColumnDataStatsPB> _column_data_page_stats;
 };
 
 } // namespace segment_v2

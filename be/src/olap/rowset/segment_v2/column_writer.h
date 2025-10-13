@@ -182,7 +182,7 @@ public:
     virtual ordinal_t get_next_rowid() const = 0;
 
     // Get the total size of data pages for this column
-    virtual uint64_t get_data_page_size() const = 0;
+    virtual uint64_t get_total_data_pages_size() const = 0;
 
     // used for append not null data.
     virtual Status append_data(const uint8_t** ptr, size_t num_rows) = 0;
@@ -234,7 +234,7 @@ public:
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
     // Get the total size of data pages for this column
-    uint64_t get_data_page_size() const override { return _data_page_size; }
+    uint64_t get_total_data_pages_size() const override { return _data_page_size; }
 
     void register_flush_page_callback(FlushPageCallback* flush_page_callback) {
         _new_page_callback = flush_page_callback;
@@ -376,11 +376,11 @@ public:
     ordinal_t get_next_rowid() const override { return _sub_column_writers[0]->get_next_rowid(); }
 
     // Get the total size of data pages for this column
-    uint64_t get_data_page_size() const override {
-        return (is_nullable() ? _null_writer->get_data_page_size() : 0) +
+    uint64_t get_total_data_pages_size() const override {
+        return (is_nullable() ? _null_writer->get_total_data_pages_size() : 0) +
                std::accumulate(_sub_column_writers.begin(), _sub_column_writers.end(), 0ULL,
                                [](uint64_t sum, const std::unique_ptr<ColumnWriter>& writer) {
-                                   return sum + writer->get_data_page_size();
+                                   return sum + writer->get_total_data_pages_size();
                                });
     }
 
@@ -436,10 +436,10 @@ public:
     ordinal_t get_next_rowid() const override { return _offset_writer->get_next_rowid(); }
 
     // Get the total size of data pages for this column
-    uint64_t get_data_page_size() const override {
-        return _offset_writer->get_data_page_size() +
-               (is_nullable() ? _null_writer->get_data_page_size() : 0) +
-               _item_writer->get_data_page_size();
+    uint64_t get_total_data_pages_size() const override {
+        return _offset_writer->get_total_data_pages_size() +
+               (is_nullable() ? _null_writer->get_total_data_pages_size() : 0) +
+               _item_writer->get_total_data_pages_size();
     }
 
 private:
@@ -501,12 +501,12 @@ public:
     ordinal_t get_next_rowid() const override { return _offsets_writer->get_next_rowid(); }
 
     // Get the total size of data pages for this column
-    uint64_t get_data_page_size() const override {
-        return _offsets_writer->get_data_page_size() +
-               (is_nullable() ? _null_writer->get_data_page_size() : 0) +
+    uint64_t get_total_data_pages_size() const override {
+        return _offsets_writer->get_total_data_pages_size() +
+               (is_nullable() ? _null_writer->get_total_data_pages_size() : 0) +
                std::accumulate(_kv_writers.begin(), _kv_writers.end(), 0ULL,
                                [](uint64_t sum, const std::unique_ptr<ColumnWriter>& writer) {
-                                   return sum + writer->get_data_page_size();
+                                   return sum + writer->get_total_data_pages_size();
                                });
     }
 
@@ -545,7 +545,7 @@ public:
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
     // Get the total size of data pages for this column
-    uint64_t get_data_page_size() const override {
+    uint64_t get_total_data_pages_size() const override {
         return 0; // TODO
     }
 
@@ -599,7 +599,7 @@ public:
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
     // Get the total size of data pages for this column
-    uint64_t get_data_page_size() const override {
+    uint64_t get_total_data_pages_size() const override {
         return 0; // TODO
     }
 

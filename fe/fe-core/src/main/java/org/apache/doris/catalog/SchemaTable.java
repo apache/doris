@@ -643,7 +643,7 @@ public class SchemaTable extends Table {
                                     .column("COLUMN_UNIQUE_ID", ScalarType.createType(PrimitiveType.INT))
                                     .column("COLUMN_NAME", ScalarType.createVarchar(64))
                                     .column("COLUMN_TYPE", ScalarType.createVarchar(64))
-                                    .column("DATA_PAGE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("COMPRESSED_DATA_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
             .put("routine_load_jobs",

@@ -226,11 +226,11 @@ message PrimaryKeyIndexMetaPB {
 }
 
 // Column data page statistics for a single column
-message ColumnDataPageStatsPB {
+message ColumnDataStatsPB {
     optional int32 column_unique_id = 1;
     optional string column_name = 2;
     optional string column_type = 3;
-    optional int64 data_page_size = 4;
+    optional int64 total_data_pages_size = 4;
 }
 
 message SegmentFooterPB {
@@ -251,7 +251,7 @@ message SegmentFooterPB {
     optional PrimaryKeyIndexMetaPB primary_key_index_meta = 10;
 
     // Column data page statistics for this segment
-    repeated ColumnDataPageStatsPB column_data_page_stats = 11;
+    repeated ColumnDataStatsPB column_data_page_stats = 11;
 }
 
 message BTreeMetaPB {
