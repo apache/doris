@@ -8238,10 +8238,11 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_async) {
     config::enable_file_cache_fill_async = true;
     config::file_cache_fill_buffer_max_size = 10485760;
     if (doris::io::CachedRemoteFileReader::_file_cache_fill_thread_pool == nullptr) {
-        static_cast<void>(ThreadPoolBuilder("FileCacheWriteBackThreadPool")
-                                  .set_min_threads(1)
-                                  .set_max_threads(1)
-                                  .build(&doris::io::CachedRemoteFileReader::_file_cache_fill_thread_pool));
+        static_cast<void>(
+                ThreadPoolBuilder("FileCacheFillThreadPool")
+                        .set_min_threads(1)
+                        .set_max_threads(1)
+                        .build(&doris::io::CachedRemoteFileReader::_file_cache_fill_thread_pool));
     }
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -8277,8 +8278,8 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_async) {
         FileCacheStatistics stats;
         io_ctx.file_cache_stats = &stats;
         size_t bytes_read {0};
-        ASSERT_TRUE(reader.read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx)
-                            .ok());
+        ASSERT_TRUE(
+                reader.read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
         reporter.update(&stats);
     }
     EXPECT_TRUE(reader.close().ok());
@@ -8317,10 +8318,11 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_async_limit) {
     config::enable_file_cache_fill_async = true;
     config::file_cache_fill_buffer_max_size = 1048576;
     if (doris::io::CachedRemoteFileReader::_file_cache_fill_thread_pool == nullptr) {
-        static_cast<void>(ThreadPoolBuilder("FileCacheWriteBackThreadPool")
-                                  .set_min_threads(1)
-                                  .set_max_threads(1)
-                                  .build(&doris::io::CachedRemoteFileReader::_file_cache_fill_thread_pool));
+        static_cast<void>(
+                ThreadPoolBuilder("FileCacheFillThreadPool")
+                        .set_min_threads(1)
+                        .set_max_threads(1)
+                        .build(&doris::io::CachedRemoteFileReader::_file_cache_fill_thread_pool));
     }
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -8356,8 +8358,8 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_async_limit) {
         FileCacheStatistics stats;
         io_ctx.file_cache_stats = &stats;
         size_t bytes_read {0};
-        ASSERT_TRUE(reader.read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx)
-                            .ok());
+        ASSERT_TRUE(
+                reader.read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
         reporter.update(&stats);
     }
     {
