@@ -357,6 +357,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NormalCdf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NormalizeJsonNumbersToDouble;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NotNullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
@@ -421,6 +422,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Decrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Encrypt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SortJsonbObjectKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Soundex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Space;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
@@ -1597,6 +1599,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(jsonbValid, context);
     }
 
+    default R visitSortJsonbObjectKeys(SortJsonbObjectKeys sort, C context) {
+        return visitScalarFunction(sort, context);
+    }
+
     default R visitL1Distance(L1Distance l1Distance, C context) {
         return visitScalarFunction(l1Distance, context);
     }
@@ -1783,6 +1789,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitNormalCdf(NormalCdf normalCdf, C context) {
         return visitScalarFunction(normalCdf, context);
+    }
+
+    default R visitNormalizeJsonNumbersToDouble(NormalizeJsonNumbersToDouble func, C context) {
+        return visitScalarFunction(func, context);
     }
 
     default R visitNotNullOrEmpty(NotNullOrEmpty notNullOrEmpty, C context) {
@@ -2511,6 +2521,11 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMultiMatch(MultiMatch multiMatch, C context) {
         return visitScalarFunction(multiMatch, context);
+    }
+
+    default R visitSearch(org.apache.doris.nereids.trees.expressions.functions.scalar.Search search,
+            C context) {
+        return visitScalarFunction(search, context);
     }
 
     default R visitLastQueryId(LastQueryId queryId, C context) {
