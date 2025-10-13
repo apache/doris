@@ -125,7 +125,7 @@ void ColumnDecimal<T>::serialize_vec_with_nullable(StringRef* keys, size_t num_r
         for (size_t i = 0; i < num_rows; ++i) {
             char* dest = const_cast<char*>(keys[i].data + keys[i].size);
             *dest = false;
-            keys[i].size += serialize(dest + sizeof(UInt8), i);
+            keys[i].size += serialize(dest + sizeof(UInt8), i) + sizeof(UInt8);
         }
     }
 }
