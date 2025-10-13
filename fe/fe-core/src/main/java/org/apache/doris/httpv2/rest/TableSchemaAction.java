@@ -103,6 +103,7 @@ public class TableSchemaAction extends RestBaseController {
                             baseInfo.put("precision", scalarType.getPrecision() + "");
                             baseInfo.put("scale", scalarType.getScalarScale() + "");
                         }
+                        baseInfo.put("column_uid", String.valueOf(column.getUniqueId()));
                         baseInfo.put("type", primitiveType.toString());
                         baseInfo.put("comment", column.getComment());
                         baseInfo.put("name", column.getDisplayName());
@@ -115,6 +116,7 @@ public class TableSchemaAction extends RestBaseController {
                     resultMap.put("status", 200);
                     if (table instanceof OlapTable) {
                         resultMap.put("keysType", ((OlapTable) table).getKeysType().name());
+                        resultMap.put("schema_version", ((OlapTable) table).getBaseSchemaVersion());
                     }
                     resultMap.put("properties", propList);
                 } catch (Exception e) {
