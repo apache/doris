@@ -575,6 +575,13 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_export_set_31 """SELECT EXPORT_SET(-9223372036854775808, '1', '0');"""
     qt_export_set_32 """SELECT EXPORT_SET(-9223372036854775809, '1', '0');"""
     qt_export_set_33 """SELECT EXPORT_SET(-9223372036854775807, '1', '0');"""
+    qt_export_set_34 """SELECT id, EXPORT_SET(`bits`, `on`, `off`, ' ! ', `num_of_b`) FROM `test_export_set` ORDER BY `id`;"""
+    qt_export_set_35 """SELECT id, EXPORT_SET(`bits`, `on`, `off`, '|分隔符|', '17') FROM `test_export_set` ORDER BY `id`;"""
+    qt_export_set_36 """SELECT id, EXPORT_SET(5, `on`, '0', '#', 5) FROM `test_export_set` ORDER BY `id`;"""
+    qt_export_set_36 """SELECT id, EXPORT_SET(`bits`, `on`, `off`) FROM `test_export_set` ORDER BY `id`;"""
+    qt_export_set_37 """SELECT id, EXPORT_SET(-7, `on`, `off`) FROM `test_export_set` ORDER BY `id`;"""
+    qt_export_set_38 """SELECT id, EXPORT_SET(114514, '1', '0', `sep`) FROM `test_export_set` ORDER BY `id`;"""
+    qt_export_set_39 """SELECT id, EXPORT_SET(`bits`, `on`, '0', '世界!?你好')FROM `test_export_set` ORDER BY `id`;"""
     testFoldConst("SELECT EXPORT_SET(7, '1', '0');")
     testFoldConst("SELECT EXPORT_SET(7, '你好', '0', '?');")
     testFoldConst("SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 64), '1', '0');")

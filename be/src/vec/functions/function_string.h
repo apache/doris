@@ -5115,13 +5115,13 @@ public:
         const size_t arg_size = arguments.size();
         bool col_const[5];
         ColumnPtr arg_cols[5];
+        bool all_const = true;
         for (int i = 0; i < arg_size; ++i) {
             col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+            all_const = all_const && col_const[i];
         }
-        arg_cols[0] = col_const[0] ? static_cast<const ColumnConst&>(
-                                             *block.get_by_position(arguments[0]).column)
-                                             .convert_to_full_column()
-                                   : block.get_by_position(arguments[0]).column;
+        std::tie(arg_cols[0], col_const[0]) =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
         if (arg_size == 3) {
             default_preprocess_parameter_columns(arg_cols, col_const, {1, 2}, block, arguments);
         } else if (arg_size == 4) {
@@ -5144,17 +5144,20 @@ public:
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            uint64_t bit = check_and_get_bit(bit_col->get_element(i));
-            StringRef on = on_col->get_data_at(col_const[1] ? 0 : i);
-            StringRef off = off_col->get_data_at(col_const[2] ? 0 : i);
+            uint64_t bit =
+                    check_and_get_bit(bit_col->get_element(index_check_const(i, col_const[0])));
+
+            size_t idx_for_args = all_const ? 0 : i;
+            StringRef on = on_col->get_data_at(idx_for_args);
+            StringRef off = off_col->get_data_at(idx_for_args);
             StringRef separator(",", 1);
             int8_t num_of_bits = 64;
 
             if (arg_size > 3) {
-                separator = sep_col->get_data_at(col_const[3] ? 0 : i);
+                separator = sep_col->get_data_at(idx_for_args);
                 if (arg_size == 5) {
-                    num_of_bits = check_and_get_num_of_bits(
-                            num_bits_col->get_element(col_const[4] ? 0 : i));
+                    num_of_bits =
+                            check_and_get_num_of_bits(num_bits_col->get_element(idx_for_args));
                 }
             }
 
