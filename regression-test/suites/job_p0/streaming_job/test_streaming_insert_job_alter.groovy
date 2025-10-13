@@ -122,7 +122,7 @@ suite("test_streaming_insert_job_alter") {
                     def jobCountStatus = sql """ select status, SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                     log.info("check job status running: " + jobCountStatus)
                     // check job status running
-                    jobCountStatus.size() == 1 && 'RUNNING' == jobCountStatus.get(0).get(0) && jobCountStatus.get(0).get(0) >= '1'
+                    jobCountStatus.size() == 1 && jobCountStatus.get(0).get(0) == 'RUNNING' && jobCountStatus.get(0).get(1) >= '1'
                 }
         )
     } catch (Exception ex){
