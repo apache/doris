@@ -176,8 +176,8 @@ protected:
     // Decimalv2 will be converted to Decimal(27, 9) in memory when doing any calculations,
     // but when casting decimalv2 to string, it's better to keep the presion and
     // scale of it's original value in schema.
-    UInt32 original_precision = UINT32_MAX;
-    UInt32 original_scale = UINT32_MAX;
+    const UInt32 original_precision = UINT32_MAX;
+    const UInt32 original_scale = UINT32_MAX;
 
 public:
     [[nodiscard]] UInt32 get_original_precision() const {
