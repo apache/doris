@@ -25,7 +25,7 @@ void DataTypeQuantileStateSerDe::write_one_cell_to_jsonb(const IColumn& column, 
                                                          Arena& arena, int32_t col_id,
                                                          int64_t row_num) const {
     const auto& col = reinterpret_cast<const ColumnQuantileState&>(column);
-    auto& val = const_cast<QuantileState&>(col.get_element(row_num));
+    auto& val = col.get_element(row_num);
     size_t actual_size = val.get_serialized_size();
     auto* ptr = arena.alloc(actual_size);
     val.serialize((uint8_t*)ptr);

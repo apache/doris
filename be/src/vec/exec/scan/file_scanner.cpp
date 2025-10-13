@@ -1766,6 +1766,8 @@ void FileScanner::_collect_profile_before_close() {
         _profile != nullptr) {
         io::FileCacheProfileReporter cache_profile(_profile);
         cache_profile.update(_file_cache_statistics.get());
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
+                _file_cache_statistics->bytes_write_into_cache);
     }
 
     if (_cur_reader != nullptr) {

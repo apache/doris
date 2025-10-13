@@ -39,9 +39,9 @@ import java.util.List;
 public class FromMillisecond extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullLiteral, PropagateNullable,
         FromSecondMonotonic {
-    public static final DateTimeV2Type MillisecondDateTimeV2 = DateTimeV2Type.of(3);
+    public static final int RESULT_SCALE = 3;
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(MillisecondDateTimeV2).args(BigIntType.INSTANCE));
+            FunctionSignature.ret(DateTimeV2Type.of(RESULT_SCALE)).args(BigIntType.INSTANCE));
 
     public FromMillisecond(Expression arg0) {
         super("from_millisecond", arg0);

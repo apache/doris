@@ -110,6 +110,8 @@ struct FileBlockCell {
 
     FileBlockCell& operator=(const FileBlockCell&) = delete;
     FileBlockCell(const FileBlockCell&) = delete;
+
+    size_t dowloading_size() const { return file_block->_downloaded_size; }
 };
 
 class BlockFileCache {
@@ -334,6 +336,8 @@ public:
     }
 
     static std::atomic<size_t> file_cache_fill_buffer_size;
+    Status report_file_cache_inconsistency(std::vector<std::string>& results);
+    Status check_file_cache_consistency(InconsistencyContext& inconsistency_context);
 
 private:
     LRUQueue& get_queue(FileCacheType type);
