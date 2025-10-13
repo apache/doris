@@ -444,8 +444,8 @@ void RuntimeState::emplace_local_state(
 }
 
 doris::pipeline::PipelineXLocalStateBase* RuntimeState::get_local_state(int id) {
-    id = -id;
-    return _op_id_to_local_state[id].get();
+    DCHECK_GT(_op_id_to_local_state.size(), -id);
+    return _op_id_to_local_state[-id].get();
 }
 
 Result<RuntimeState::LocalState*> RuntimeState::get_local_state_result(int id) {
