@@ -167,6 +167,53 @@ public:
         }
     }
 
+    /**
+     * To figure out whether this page is matched partially or completely.
+     *
+     * 1. EQ: if `_value` belongs to the interval [min, max], return true to further compute each value in this page.
+     * 2. NE: return true to further compute each value in this page if some values not equal to `_value`.
+     * 3. LT|LE: if `_value` is greater than min, return true to further compute each value in this page.
+     * 4. GT|GE: if `_value` is less than max, return true to further compute each value in this page.
+     */
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        if (!(*statistic->get_stat_func)(statistic, column_id())) {
+            return true;
+        }
+        vectorized::Field min_field;
+        vectorized::Field max_field;
+        if (!vectorized::ParquetPredicate::get_min_max_value(
+                     statistic->col_schema, statistic->encoded_min_value,
+                     statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
+                     .ok()) {
+            return true;
+        };
+        T min_value;
+        T max_value;
+        if constexpr (is_int_or_bool(Type) || is_float_or_double(Type)) {
+            min_value =
+                    (typename PrimitiveTypeTraits<Type>::CppType)min_field
+                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
+            max_value =
+                    (typename PrimitiveTypeTraits<Type>::CppType)max_field
+                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
+        } else {
+            min_value = min_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+            max_value = max_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+        }
+
+        if constexpr (PT == PredicateType::EQ) {
+            return Compare::less_equal(min_value, _value) &&
+                   Compare::greater_equal(max_value, _value);
+        } else if constexpr (PT == PredicateType::NE) {
+            return !Compare::equal(min_value, _value) || !Compare::greater_equal(max_value, _value);
+        } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
+            return Compare::less_equal(min_value, _value);
+        } else {
+            static_assert(PT == PredicateType::GT || PT == PredicateType::GE);
+            return Compare::greater_equal(max_value, _value);
+        }
+    }
+
     bool is_always_true(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (statistic.first->is_null() || statistic.second->is_null()) {
             return false;
