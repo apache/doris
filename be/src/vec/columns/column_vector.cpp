@@ -21,6 +21,7 @@
 #include "vec/columns/column_vector.h"
 
 #include <fmt/format.h>
+#include <glog/logging.h>
 #include <pdqsort.h>
 
 #include <limits>
@@ -78,6 +79,36 @@ void ColumnVector<T>::serialize_vec(StringRef* keys, size_t num_rows) const {
         // Used in hash_map_context.h, this address is allocated via Arena,
         // but passed through StringRef, so using const_cast is acceptable.
         keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
+    }
+}
+
+template <PrimitiveType T>
+void ColumnVector<T>::serialize_vec_with_null(StringRef* keys, size_t num_rows, bool has_null,
+                                              const uint8_t* __restrict null_map) const {
+    if (has_null) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* dest = const_cast<char*>(keys[i].data + keys[i].size);
+            if (null_map[i]) {
+                // is null
+                *dest = true;
+                keys[i].size += sizeof(bool);
+                continue;
+            }
+            // not null
+            *dest = false;
+            std::memcpy(dest + sizeof(bool), &data[i], sizeof(value_type));
+            keys[i].size += sizeof(value_type) + sizeof(bool);
+        }
+    } else {
+        constexpr size_t value_size = sizeof(value_type);
+        static constexpr bool no_null = false;
+
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* dest = const_cast<char*>(keys[i].data + keys[i].size);
+            *dest = no_null;
+            std::memcpy(dest + sizeof(bool), &data[i], value_size);
+            keys[i].size += value_size + sizeof(bool);
+        }
     }
 }
 

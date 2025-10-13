@@ -327,6 +327,12 @@ public:
                                "Method serialize_vec is not supported for " + get_name());
     }
 
+    virtual void serialize_vec_with_null(StringRef* keys, size_t num_rows, bool has_null,
+                                         const uint8_t* __restrict null_map) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method serialize_vec_with_null is not supported for " + get_name());
+    }
+
     // This function deserializes group-by keys into column in the vectorized way.
     virtual void deserialize_vec(StringRef* keys, const size_t num_rows) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,

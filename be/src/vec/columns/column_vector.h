@@ -185,6 +185,8 @@ public:
     size_t get_max_row_byte_size() const override;
 
     void serialize_vec(StringRef* keys, size_t num_rows) const override;
+    void serialize_vec_with_null(StringRef* keys, size_t num_rows, bool has_null,
+                                 const uint8_t* __restrict null_map) const override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override {

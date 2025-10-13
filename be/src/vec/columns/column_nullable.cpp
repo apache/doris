@@ -246,23 +246,9 @@ size_t ColumnNullable::serialize_impl(char* pos, const size_t row) const {
 
 void ColumnNullable::serialize_vec(StringRef* keys, size_t num_rows) const {
     const bool has_null = simd::contain_byte(get_null_map_data().data(), num_rows, 1);
-    if (has_null) {
-        for (size_t i = 0; i < num_rows; ++i) {
-            // Used in hash_map_context.h, this address is allocated via Arena,
-            // but passed through StringRef, so using const_cast is acceptable.
-            keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
-        }
-    } else {
-        const auto& arr = get_null_map_data();
-        for (size_t i = 0; i < num_rows; ++i) {
-            // Used in hash_map_context.h, this address is allocated via Arena,
-            // but passed through StringRef, so using const_cast is acceptable.
-            memcpy_fixed<NullMap::value_type>(const_cast<char*>(keys[i].data + keys[i].size),
-                                              (char*)&arr[i]);
-            keys[i].size += sizeof(NullMap::value_type);
-        }
-        _nested_column->serialize_vec(keys, num_rows);
-    }
+    const auto* __restrict null_map =
+            assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
+    _nested_column->serialize_vec_with_null(keys, num_rows, has_null, null_map);
 }
 
 void ColumnNullable::deserialize_vec(StringRef* keys, const size_t num_rows) {
