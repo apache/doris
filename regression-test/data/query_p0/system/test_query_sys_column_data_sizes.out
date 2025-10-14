@@ -7,5 +7,6 @@ TABLET_ID	bigint	Yes	false	\N
 COLUMN_UNIQUE_ID	int	Yes	false	\N	
 COLUMN_NAME	varchar(64)	Yes	false	\N	
 COLUMN_TYPE	varchar(64)	Yes	false	\N	
-COMPRESSED_DATA_SIZE	bigint	Yes	false	\N	
+COMPRESSED_DATA_BYTES	bigint	Yes	false	\N	
+UNCOMPRESSED_DATA_BYTES	bigint	Yes	false	\N	
 

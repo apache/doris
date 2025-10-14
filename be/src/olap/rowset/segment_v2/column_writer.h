@@ -181,8 +181,8 @@ public:
 
     virtual ordinal_t get_next_rowid() const = 0;
 
-    virtual uint64_t get_total_uncompressed_data_pages_size() const = 0;
-    virtual uint64_t get_total_compressed_data_pages_size() const = 0;
+    virtual uint64_t get_total_uncompressed_data_pages_bytes() const = 0;
+    virtual uint64_t get_total_compressed_data_pages_bytes() const = 0;
 
     // used for append not null data.
     virtual Status append_data(const uint8_t** ptr, size_t num_rows) = 0;
@@ -236,11 +236,11 @@ public:
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
-    uint64_t get_total_uncompressed_data_pages_size() const override {
+    uint64_t get_total_uncompressed_data_pages_bytes() const override {
         return _total_uncompressed_data_pages_size;
     }
 
-    uint64_t get_total_compressed_data_pages_size() const override {
+    uint64_t get_total_compressed_data_pages_bytes() const override {
         return _total_compressed_data_pages_size;
     }
 
@@ -385,20 +385,22 @@ public:
 
     ordinal_t get_next_rowid() const override { return _sub_column_writers[0]->get_next_rowid(); }
 
-    uint64_t get_total_uncompressed_data_pages_size() const override {
-        return (is_nullable() ? _null_writer->get_total_uncompressed_data_pages_size() : 0) +
-               std::accumulate(_sub_column_writers.begin(), _sub_column_writers.end(), 0ULL,
-                               [](uint64_t sum, const std::unique_ptr<ColumnWriter>& writer) {
-                                   return sum + writer->get_total_uncompressed_data_pages_size();
-                               });
+    uint64_t get_total_uncompressed_data_pages_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_total_uncompressed_data_pages_bytes);
     }
 
-    uint64_t get_total_compressed_data_pages_size() const override {
-        return (is_nullable() ? _null_writer->get_total_compressed_data_pages_size() : 0) +
-               std::accumulate(_sub_column_writers.begin(), _sub_column_writers.end(), 0ULL,
-                               [](uint64_t sum, const std::unique_ptr<ColumnWriter>& writer) {
-                                   return sum + writer->get_total_compressed_data_pages_size();
-                               });
+    uint64_t get_total_compressed_data_pages_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_total_compressed_data_pages_bytes);
+    }
+
+private:
+    template <typename Func>
+    uint64_t _get_total_data_pages_bytes(Func func) const {
+        uint64_t size = is_nullable() ? std::invoke(func, _null_writer.get()) : 0;
+        for (const auto& writer : _sub_column_writers) {
+            size += std::invoke(func, writer.get());
+        }
+        return size;
     }
 
 private:
@@ -452,16 +454,23 @@ public:
     }
     ordinal_t get_next_rowid() const override { return _offset_writer->get_next_rowid(); }
 
-    uint64_t get_total_uncompressed_data_pages_size() const override {
-        return _offset_writer->get_total_uncompressed_data_pages_size() +
-               (is_nullable() ? _null_writer->get_total_uncompressed_data_pages_size() : 0) +
-               _item_writer->get_total_uncompressed_data_pages_size();
+    uint64_t get_total_uncompressed_data_pages_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_total_uncompressed_data_pages_bytes);
     }
 
-    uint64_t get_total_compressed_data_pages_size() const override {
-        return _offset_writer->get_total_compressed_data_pages_size() +
-               (is_nullable() ? _null_writer->get_total_compressed_data_pages_size() : 0) +
-               _item_writer->get_total_compressed_data_pages_size();
+    uint64_t get_total_compressed_data_pages_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_total_compressed_data_pages_bytes);
+    }
+
+private:
+    template <typename Func>
+    uint64_t _get_total_data_pages_bytes(Func func) const {
+        uint64_t size = std::invoke(func, _offset_writer.get());
+        if (is_nullable()) {
+            size += std::invoke(func, _null_writer.get());
+        }
+        size += std::invoke(func, _item_writer.get());
+        return size;
     }
 
 private:
@@ -522,22 +531,25 @@ public:
     // according key writer to get next rowid
     ordinal_t get_next_rowid() const override { return _offsets_writer->get_next_rowid(); }
 
-    uint64_t get_total_uncompressed_data_pages_size() const override {
-        return _offsets_writer->get_total_uncompressed_data_pages_size() +
-               (is_nullable() ? _null_writer->get_total_uncompressed_data_pages_size() : 0) +
-               std::accumulate(_kv_writers.begin(), _kv_writers.end(), 0ULL,
-                               [](uint64_t sum, const std::unique_ptr<ColumnWriter>& writer) {
-                                   return sum + writer->get_total_uncompressed_data_pages_size();
-                               });
+    uint64_t get_total_uncompressed_data_pages_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_total_uncompressed_data_pages_bytes);
     }
 
-    uint64_t get_total_compressed_data_pages_size() const override {
-        return _offsets_writer->get_total_compressed_data_pages_size() +
-               (is_nullable() ? _null_writer->get_total_compressed_data_pages_size() : 0) +
-               std::accumulate(_kv_writers.begin(), _kv_writers.end(), 0ULL,
-                               [](uint64_t sum, const std::unique_ptr<ColumnWriter>& writer) {
-                                   return sum + writer->get_total_compressed_data_pages_size();
-                               });
+    uint64_t get_total_compressed_data_pages_bytes() const override {
+        return _get_total_data_pages_bytes(&ColumnWriter::get_total_compressed_data_pages_bytes);
+    }
+
+private:
+    template <typename Func>
+    uint64_t _get_total_data_pages_bytes(Func func) const {
+        uint64_t size = std::invoke(func, _offsets_writer.get());
+        if (is_nullable()) {
+            size += std::invoke(func, _null_writer.get());
+        }
+        for (const auto& writer : _kv_writers) {
+            size += std::invoke(func, writer.get());
+        }
+        return size;
     }
 
 private:
@@ -574,11 +586,11 @@ public:
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
-    uint64_t get_total_uncompressed_data_pages_size() const override {
+    uint64_t get_total_uncompressed_data_pages_bytes() const override {
         return 0; // TODO
     }
 
-    uint64_t get_total_compressed_data_pages_size() const override {
+    uint64_t get_total_compressed_data_pages_bytes() const override {
         return 0; // TODO
     }
 
@@ -631,11 +643,11 @@ public:
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
-    uint64_t get_total_uncompressed_data_pages_size() const override {
+    uint64_t get_total_uncompressed_data_pages_bytes() const override {
         return 0; // TODO
     }
 
-    uint64_t get_total_compressed_data_pages_size() const override {
+    uint64_t get_total_compressed_data_pages_bytes() const override {
         return 0; // TODO
     }
 

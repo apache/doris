@@ -702,6 +702,9 @@ Status ScalarColumnWriter::finish_current_page() {
         RETURN_IF_ERROR(_bloom_filter_index_builder->flush());
     }
 
+    // Track raw data size before finishing the page
+    _total_uncompressed_data_pages_size += _page_builder->get_raw_data_size();
+
     // build data page body : encoded values + [nullmap]
     std::vector<Slice> body;
     OwnedSlice encoded_values;

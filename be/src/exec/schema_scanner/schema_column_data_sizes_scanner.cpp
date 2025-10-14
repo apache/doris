@@ -63,8 +63,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaColumnDataSizesScanner::_s_tbls_col
         {"COLUMN_UNIQUE_ID", TYPE_INT, sizeof(int32_t), true},
         {"COLUMN_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"COLUMN_TYPE", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"COMPRESSED_DATA_SIZE", TYPE_BIGINT, sizeof(int64_t), true},
-        {"UNCOMPRESSED_DATA_SIZE", TYPE_BIGINT, sizeof(int64_t), true},
+        {"COMPRESSED_DATA_BYTES", TYPE_BIGINT, sizeof(int64_t), true},
+        {"UNCOMPRESSED_DATA_BYTES", TYPE_BIGINT, sizeof(int64_t), true},
 };
 
 SchemaColumnDataSizesScanner::SchemaColumnDataSizesScanner()

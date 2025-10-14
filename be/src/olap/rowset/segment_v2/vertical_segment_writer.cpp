@@ -935,9 +935,9 @@ Status VerticalSegmentWriter::write_batch() {
 
             auto* column_meta = column_writer->get_column_meta();
             column_meta->set_compressed_data_bytes(
-                    column_writer->get_total_compressed_data_pages_size());
+                    column_writer->get_total_compressed_data_pages_bytes());
             column_meta->set_uncompressed_data_bytes(
-                    column_writer->get_total_uncompressed_data_pages_size());
+                    column_writer->get_total_uncompressed_data_pages_bytes());
         }
         return Status::OK();
     }
@@ -993,9 +993,9 @@ Status VerticalSegmentWriter::write_batch() {
 
         auto* column_meta = _column_writers[cid]->get_column_meta();
         column_meta->set_compressed_data_bytes(
-                _column_writers[cid]->get_total_compressed_data_pages_size());
+                _column_writers[cid]->get_total_compressed_data_pages_bytes());
         column_meta->set_uncompressed_data_bytes(
-                _column_writers[cid]->get_total_uncompressed_data_pages_size());
+                _column_writers[cid]->get_total_uncompressed_data_pages_bytes());
     }
 
     for (auto& data : _batched_blocks) {
