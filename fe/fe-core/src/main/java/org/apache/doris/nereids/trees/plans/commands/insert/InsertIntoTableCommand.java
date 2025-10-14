@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.TVFRelation;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -386,10 +387,14 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                             dataSink,
                             physicalSink,
                             () -> new OlapGroupCommitInsertExecutor(
-                                    ctx, olapTable, label, planner, insertCtx, emptyInsert, groupCommitBackend, jobId
+                                    ctx, olapTable, label, planner, insertCtx, emptyInsert, groupCommitBackend, -1
                             )
                     );
                 } else {
+                    // Do not register insert into value to LoadManager.
+                    if (getLogicalQuery().containsType(InlineTable.class)) {
+                        jobId = -1;
+                    }
                     executorFactory = ExecutorFactory.from(
                             planner,
                             dataSink,
