@@ -159,7 +159,10 @@ public class SchemaTable extends Table {
                             .column("DEFAULT_CHARACTER_SET_NAME", ScalarType.createVarchar(32))
                             .column("DEFAULT_COLLATION_NAME", ScalarType.createVarchar(32))
                             .column("SQL_PATH", ScalarType.createVarchar(512))
-                            .column("DEFAULT_ENCRYPTION", ScalarType.createVarchar(3)).build()))
+                            .column("DEFAULT_ENCRYPTION", ScalarType.createVarchar(3))
+                            .column("CREATE_USER", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("CREATE_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                            .build()))
             .put("session_variables",
                     new SchemaTable(SystemIdGenerator.getNextId(), "session_variables", TableType.SCHEMA,
                             builder().column("VARIABLE_NAME", ScalarType.createVarchar(64))

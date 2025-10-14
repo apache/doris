@@ -173,10 +173,44 @@ internal	test_query_sys_db_1	\N
 internal	test_query_sys_db_2	\N
 internal	test_query_sys_db_3	\N
 
+-- !desc_schemata --
+CATALOG_NAME	varchar(512)	Yes	false	\N	
+SCHEMA_NAME	varchar(32)	Yes	false	\N	
+DEFAULT_CHARACTER_SET_NAME	varchar(32)	Yes	false	\N	
+DEFAULT_COLLATION_NAME	varchar(32)	Yes	false	\N	
+SQL_PATH	varchar(512)	Yes	false	\N	
+DEFAULT_ENCRYPTION	varchar(3)	Yes	false	\N	
+CREATE_USER	varchar(64)	Yes	false	\N	
+CREATE_TIME	datetime	Yes	false	\N	
+
 -- !tables --
 internal	test_query_sys_tb_1	BASE TABLE	0	\N	0
 internal	test_query_sys_tb_2	BASE TABLE	0	\N	0
 internal	test_query_sys_tb_3	BASE TABLE	0	\N	0
+
+-- !desc_tables --
+TABLE_CATALOG	varchar(512)	Yes	false	\N	
+TABLE_SCHEMA	varchar(64)	Yes	false	\N	
+TABLE_NAME	varchar(64)	Yes	false	\N	
+TABLE_TYPE	varchar(64)	Yes	false	\N	
+ENGINE	varchar(64)	Yes	false	\N	
+VERSION	bigint	Yes	false	\N	
+ROW_FORMAT	varchar(10)	Yes	false	\N	
+TABLE_ROWS	bigint	Yes	false	\N	
+AVG_ROW_LENGTH	bigint	Yes	false	\N	
+DATA_LENGTH	bigint	Yes	false	\N	
+MAX_DATA_LENGTH	bigint	Yes	false	\N	
+INDEX_LENGTH	bigint	Yes	false	\N	
+DATA_FREE	bigint	Yes	false	\N	
+AUTO_INCREMENT	bigint	Yes	false	\N	
+CREATE_TIME	datetime	Yes	false	\N	
+UPDATE_TIME	datetime	Yes	false	\N	
+CHECK_TIME	datetime	Yes	false	\N	
+TABLE_COLLATION	varchar(32)	Yes	false	\N	
+CHECKSUM	bigint	Yes	false	\N	
+CREATE_OPTIONS	varchar(255)	Yes	false	\N	
+TABLE_COMMENT	varchar(2048)	Yes	false	\N	
+CREATE_USER	varchar(64)	Yes	false	\N	
 
 -- !session_variables --
 wait_timeout	30000
