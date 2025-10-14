@@ -41,6 +41,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * The node of logical plan for sub query and alias
@@ -125,6 +126,18 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         )).orElseGet(() -> Utils.toSqlString("LogicalSubQueryAlias",
                 "qualifier", qualifier
         ));
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(").append(child().toDigest()).append(") AS ");
+        sb.append(qualifier.get(0));
+        if (columnAliases.isPresent()) {
+            columnAliases.get().stream()
+                    .collect(Collectors.joining(", ", "(", ")"));
+        }
+        return sb.toString();
     }
 
     @Override
