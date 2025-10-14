@@ -689,4 +689,15 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             this.physicalSink = physicalSink;
         }
     }
+
+    @Override
+    public String toDigest() {
+        // if with cte, query will be print twice
+        StringBuilder sb = new StringBuilder();
+        sb.append(originLogicalQuery.toDigest());
+        if (cte.isPresent()) {
+            sb.append(" ").append(cte.get().toDigest());
+        }
+        return sb.toString();
+    }
 }
