@@ -556,15 +556,19 @@ DEFINE_mInt32(migration_task_timeout_secs, "300");
 DEFINE_Int64(migration_lock_timeout_ms, "1000");
 
 // tls enable flag
-DEFINE_mBool(enable_tls, "false");
+DEFINE_Bool(enable_tls, "false");
 // Path of certificate
-DEFINE_mString(tls_certificate_path, "");
+DEFINE_String(tls_certificate_path, "");
 // Path of private key
-DEFINE_mString(tls_private_key_path, "");
+DEFINE_String(tls_private_key_path, "");
+// Password protecting the private key
+DEFINE_String(tls_private_key_password, "");
 // Tls verify mode
-DEFINE_mString(tls_verify_mode, "verify_peer");
+DEFINE_String(tls_verify_mode, "verify_peer");
 // Path of ca certificate
-DEFINE_mString(tls_ca_certificate_path, "");
+DEFINE_String(tls_ca_certificate_path, "");
+// Tls certificate reload thread refresh cycle
+DEFINE_Int32(tls_cert_refresh_interval_seconds, "3600");
 
 // Port to start debug webserver on
 DEFINE_Int32(webserver_port, "8040");

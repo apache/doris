@@ -84,6 +84,11 @@ Status BRpcService::start(int port, int num_threads) {
     if (config::enable_tls) {
         options.mutable_ssl_options()->default_cert.certificate = config::tls_certificate_path;
         options.mutable_ssl_options()->default_cert.private_key = config::tls_private_key_path;
+        options.mutable_ssl_options()->default_cert.private_key_passwd =
+                config::tls_private_key_password;
+        options.mutable_ssl_options()->enable_certificate_reload = true;
+        options.mutable_ssl_options()->certificate_reload_interval_s =
+                config::tls_cert_refresh_interval_seconds;
         if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
             options.mutable_ssl_options()->verify.verify_depth = 2;
         } else if (config::tls_verify_mode == "verify_peer") {
@@ -99,6 +104,10 @@ Status BRpcService::start(int port, int num_threads) {
         options.mutable_ssl_options()->verify.ca_file_path = config::tls_ca_certificate_path;
         options.mutable_ssl_options()->alpns = "h2";
         options.force_ssl = true;
+    } else if (config::enable_https) {
+        auto* sslOptions = options.mutable_ssl_options();
+        sslOptions->default_cert.certificate = config::ssl_certificate_path;
+        sslOptions->default_cert.private_key = config::ssl_private_key_path;
     }
 
     options.has_builtin_services = config::enable_brpc_builtin_services;

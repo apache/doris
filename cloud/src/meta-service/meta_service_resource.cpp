@@ -4169,7 +4169,25 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
 
     static std::unordered_map<std::string, std::shared_ptr<MetaService_Stub>> stubs;
     static std::mutex mtx;
-
+    if (config::enable_tls) {
+        options.mutable_ssl_options()->client_cert.certificate = config::tls_certificate_path;
+        options.mutable_ssl_options()->client_cert.private_key = config::tls_private_key_path;
+        options.mutable_ssl_options()->client_cert.private_key_passwd =
+                config::tls_private_key_password;
+        if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
+            options.mutable_ssl_options()->verify.verify_depth = 2;
+        } else if (config::tls_verify_mode == "verify_peer") {
+            // nothing
+        } else if (config::tls_verify_mode == "verify_none") {
+            // nothing
+        } else {
+            LOG(WARNING) << fmt::format(
+                    "unknown verify_mode: {}, only support: verify_fail_if_no_peer_cert, "
+                    "verify_peer, verify_none",
+                    config::tls_verify_mode);
+        }
+        options.mutable_ssl_options()->verify.ca_file_path = config::tls_ca_certificate_path;
+    }
     std::vector<bthread_t> btids;
     btids.reserve(reg.items_size());
     for (int i = 0; i < reg.items_size(); ++i) {

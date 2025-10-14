@@ -261,10 +261,14 @@ CONF_Bool(enable_tls, "false");
 CONF_String(tls_certificate_path, "");
 // Path of private key
 CONF_String(tls_private_key_path, "");
+// Password of private key file
+CONF_String(tls_private_key_password, "");
 // Tls verify mode
 CONF_String(tls_verify_mode, "verify_peer");
 // Path of ca certificate
 CONF_String(tls_ca_certificate_path, "");
+// Tls certificate reload thread refresh cycle
+CONF_Int32(tls_cert_refresh_interval_seconds, "3600");
 // one of: Check.Valid=1 Check.Valid=0 Check.Expired=1 Check.Expired=0
 CONF_String(tls_fdb_verify_peers, "Check.Valid=1");
 

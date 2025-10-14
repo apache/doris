@@ -214,6 +214,8 @@ public:
         if (config::enable_tls) {
             options.mutable_ssl_options()->client_cert.certificate = config::tls_certificate_path;
             options.mutable_ssl_options()->client_cert.private_key = config::tls_private_key_path;
+            options.mutable_ssl_options()->client_cert.private_key_passwd =
+                    config::tls_private_key_password;
             if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
                 options.mutable_ssl_options()->verify.verify_depth = 2;
             } else if (config::tls_verify_mode == "verify_peer") {

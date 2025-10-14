@@ -330,8 +330,13 @@ int main(int argc, char** argv) {
     if (config::enable_tls) {
         options.mutable_ssl_options()->default_cert.certificate = config::tls_certificate_path;
         options.mutable_ssl_options()->default_cert.private_key = config::tls_private_key_path;
+        options.mutable_ssl_options()->default_cert.private_key_passwd =
+                config::tls_private_key_password;
+        options.mutable_ssl_options()->enable_certificate_reload = true;
+        options.mutable_ssl_options()->certificate_reload_interval_s =
+                config::tls_cert_refresh_interval_seconds;
         if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
-            options.mutable_ssl_options()->verify.verify_depth = 2;
+            options.mutable_ssl_options()->verify.verify_depth = 1;
         } else if (config::tls_verify_mode == "verify_peer") {
             // nothing
         } else if (config::tls_verify_mode == "verify_none") {
