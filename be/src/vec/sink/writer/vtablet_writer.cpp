@@ -94,9 +94,6 @@ class TExpr;
 namespace vectorized {
 #include "common/compile_check_begin.h"
 
-// Global state for tracking tablet switching across different stream load requests
-// Note: Removed global tablet switching state. Now each load job manages its own state locally.
-
 bvar::Adder<int64_t> g_sink_write_bytes;
 bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_bytes_per_second("sink_throughput_byte",
                                                                     &g_sink_write_bytes, 60);
