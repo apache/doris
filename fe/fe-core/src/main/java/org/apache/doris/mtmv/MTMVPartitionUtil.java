@@ -272,6 +272,10 @@ public class MTMVPartitionUtil {
             }
             if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE && pctTables.contains(
                     pctTable)) {
+                if (MapUtils.isEmpty(mappings)) {
+                    // can not found pct partition
+                    res.add(pctTable.getName());
+                }
                 Set<String> pctPartitions = mappings.get(pctTable);
                 if (CollectionUtils.isEmpty(pctPartitions)) {
                     continue;
@@ -320,12 +324,12 @@ public class MTMVPartitionUtil {
      *
      * @param context
      * @param mtmvPartitionName
-     * @param relatedPartitionNames
+     * @param pctPartitionNames
      * @return
      * @throws AnalysisException
      */
     public static boolean isSyncWithPartitions(MTMVRefreshContext context, String mtmvPartitionName,
-            Set<String> relatedPartitionNames, MTMVRelatedTableIf pctTable) throws AnalysisException {
+            Set<String> pctPartitionNames, MTMVRelatedTableIf pctTable) throws AnalysisException {
         MTMV mtmv = context.getMtmv();
         if (!pctTable.needAutoRefresh()) {
             return true;
@@ -334,22 +338,22 @@ public class MTMVPartitionUtil {
         BaseTableInfo pctTableInfo = new BaseTableInfo(pctTable);
         // check if partitions of related table is changed
         Set<String> snapshotPartitions = mtmv.getRefreshSnapshot()
-                .getSnapshotPartitions(mtmvPartitionName, pctTableInfo);
-        if (!Objects.equals(relatedPartitionNames, snapshotPartitions)) {
+                .getPctSnapshots(mtmvPartitionName, pctTableInfo);
+        if (!Objects.equals(pctPartitionNames, snapshotPartitions)) {
             return false;
         }
-        for (String relatedPartitionName : relatedPartitionNames) {
-            MTMVSnapshotIf relatedPartitionCurrentSnapshot = pctTable
-                    .getPartitionSnapshot(relatedPartitionName, context, MvccUtil.getSnapshotFromContext(pctTable));
+        for (String pctPartitionName : pctPartitionNames) {
+            MTMVSnapshotIf pctCurrentSnapshot = pctTable
+                    .getPartitionSnapshot(pctPartitionName, context, MvccUtil.getSnapshotFromContext(pctTable));
             if (LOG.isDebugEnabled()) {
                 LOG.debug(String.format("isSyncWithPartitions mvName is %s\n, mtmvPartitionName is %s\n, "
-                                + "mtmv refreshSnapshot is %s\n, relatedPartitionName is %s\n, "
-                                + "relatedPartitionCurrentSnapshot is %s", mtmv.getName(), mtmvPartitionName,
-                        mtmv.getRefreshSnapshot(), relatedPartitionName, relatedPartitionCurrentSnapshot));
+                                + "mtmv refreshSnapshot is %s\n, pctPartitionName is %s\n, "
+                                + "pctCurrentSnapshot is %s", mtmv.getName(), mtmvPartitionName,
+                        mtmv.getRefreshSnapshot(), pctPartitionName, pctCurrentSnapshot));
             }
             if (!mtmv.getRefreshSnapshot()
-                    .equalsWithRelatedPartition(mtmvPartitionName, relatedPartitionName,
-                            relatedPartitionCurrentSnapshot, pctTableInfo)) {
+                    .equalsWithPct(mtmvPartitionName, pctPartitionName,
+                            pctCurrentSnapshot, pctTableInfo)) {
                 return false;
             }
         }
@@ -552,18 +556,19 @@ public class MTMVPartitionUtil {
 
 
     private static MTMVRefreshPartitionSnapshot generatePartitionSnapshot(MTMVRefreshContext context,
-            Set<BaseTableInfo> baseTables, Map<MTMVRelatedTableIf, Set<String>> relatedPartitionNames)
+            Set<BaseTableInfo> baseTables, Map<MTMVRelatedTableIf, Set<String>> pctPartitionNames)
             throws AnalysisException {
         MTMV mtmv = context.getMtmv();
         MTMVRefreshPartitionSnapshot refreshPartitionSnapshot = new MTMVRefreshPartitionSnapshot();
         Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
         if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
-            for (MTMVRelatedTableIf relatedTable : pctTables) {
-                for (String relatedPartitionName : relatedPartitionNames.get(relatedTable)) {
-                    MTMVSnapshotIf partitionSnapshot = relatedTable.getPartitionSnapshot(relatedPartitionName, context,
-                            MvccUtil.getSnapshotFromContext(relatedTable));
-                    refreshPartitionSnapshot.getPctSnapshot(new BaseTableInfo(relatedTable))
-                            .put(relatedPartitionName, partitionSnapshot);
+            for (MTMVRelatedTableIf pctTable : pctTables) {
+                Map<String, MTMVSnapshotIf> pctSnapshot = refreshPartitionSnapshot.getPctSnapshot(
+                        new BaseTableInfo(pctTable));
+                for (String pctPartitionName : pctPartitionNames.get(pctTable)) {
+                    MTMVSnapshotIf partitionSnapshot = pctTable.getPartitionSnapshot(pctPartitionName, context,
+                            MvccUtil.getSnapshotFromContext(pctTable));
+                    pctSnapshot.put(pctPartitionName, partitionSnapshot);
                 }
             }
             // compatible old version

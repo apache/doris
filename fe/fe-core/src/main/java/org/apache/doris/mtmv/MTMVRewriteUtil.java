@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -114,7 +115,7 @@ public class MTMVRewriteUtil {
         }
         Set<String> res = Sets.newHashSet();
         Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
-        Map<Pair<MTMVRelatedTableIf, String>, String> relatedToMv = getRelatedToMv(
+        Map<Pair<MTMVRelatedTableIf, String>, String> relatedToMv = getPctToMv(
                 refreshContext.getPartitionMappings());
         for (Entry<List<String>, Set<String>> entry : queryUsedPartitions.entrySet()) {
             TableIf tableIf = MTMVUtil.getTable(entry.getKey());
@@ -135,7 +136,8 @@ public class MTMVRewriteUtil {
         return res;
     }
 
-    private static Map<Pair<MTMVRelatedTableIf, String>, String> getRelatedToMv(
+    @VisibleForTesting
+    public static Map<Pair<MTMVRelatedTableIf, String>, String> getPctToMv(
             Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings) {
         Map<Pair<MTMVRelatedTableIf, String>, String> res = Maps.newHashMap();
         for (Entry<String, Map<MTMVRelatedTableIf, Set<String>>> entry : partitionMappings.entrySet()) {

@@ -91,6 +91,9 @@ public class MTMVUtil {
     }
 
     public static TableIf getTable(List<String> names) throws AnalysisException {
+        if (names == null || names.size() != 3) {
+            throw new AnalysisException("size of names need 3, but names is:" + names);
+        }
         return Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(names.get(0))
                 .getDbOrAnalysisException(names.get(1))
