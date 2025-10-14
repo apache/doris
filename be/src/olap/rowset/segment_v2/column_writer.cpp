@@ -407,7 +407,7 @@ Status ColumnWriter::append(const uint8_t* nullmap, const void* data, size_t num
 
 ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts,
                                        std::unique_ptr<Field> field, io::FileWriter* file_writer)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable()),
+        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta),
           _opts(opts),
           _file_writer(file_writer),
           _data_size(0) {
@@ -794,7 +794,7 @@ StructColumnWriter::StructColumnWriter(
         const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
         ScalarColumnWriter* null_writer,
         std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable()), _opts(opts) {
+        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta), _opts(opts) {
     for (auto& sub_column_writer : sub_column_writers) {
         _sub_column_writers.push_back(std::move(sub_column_writer));
     }
@@ -903,7 +903,7 @@ ArrayColumnWriter::ArrayColumnWriter(const ColumnWriterOptions& opts, std::uniqu
                                      OffsetColumnWriter* offset_writer,
                                      ScalarColumnWriter* null_writer,
                                      std::unique_ptr<ColumnWriter> item_writer)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable()),
+        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta),
           _item_writer(std::move(item_writer)),
           _opts(opts) {
     _offset_writer.reset(offset_writer);
@@ -1075,7 +1075,7 @@ Status ArrayColumnWriter::finish_current_page() {
 MapColumnWriter::MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
                                  ScalarColumnWriter* null_writer, OffsetColumnWriter* offset_writer,
                                  std::vector<std::unique_ptr<ColumnWriter>>& kv_writers)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable()), _opts(opts) {
+        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta), _opts(opts) {
     CHECK_EQ(kv_writers.size(), 2);
     _offsets_writer.reset(offset_writer);
     if (is_nullable()) {
@@ -1212,7 +1212,7 @@ Status MapColumnWriter::write_inverted_index() {
 
 VariantColumnWriter::VariantColumnWriter(const ColumnWriterOptions& opts,
                                          const TabletColumn* column, std::unique_ptr<Field> field)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable()) {
+        : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta) {
     _impl = std::make_unique<VariantColumnWriterImpl>(opts, column);
 }
 

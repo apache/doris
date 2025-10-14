@@ -210,9 +210,7 @@ public:
     Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
                              OlapReaderStatistics* stats);
 
-    // Get column data page statistics from segment footer
-    Status get_column_data_page_stats(std::vector<ColumnDataStatsPB>* column_stats,
-                                      OlapReaderStatistics* stats = nullptr);
+    Status traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);

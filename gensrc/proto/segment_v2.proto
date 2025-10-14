@@ -213,6 +213,9 @@ message ColumnMetaPB {
     optional VariantStatisticsPB variant_statistics = 21; // only used in variant type
     optional int32 variant_max_subcolumns_count = 22 [default = 0];
     optional uint64 none_null_size = 23 [default = 0];
+
+    optional uint64 compressed_data_bytes = 24;
+    optional uint64 uncompressed_data_bytes = 25;
 }
 
 message PrimaryKeyIndexMetaPB {
@@ -223,14 +226,6 @@ message PrimaryKeyIndexMetaPB {
 
     optional bytes min_key = 3;
     optional bytes max_key = 4;
-}
-
-// Column data page statistics for a single column
-message ColumnDataStatsPB {
-    optional int32 column_unique_id = 1;
-    optional string column_name = 2;
-    optional string column_type = 3;
-    optional int64 total_data_pages_size = 4;
 }
 
 message SegmentFooterPB {
@@ -249,9 +244,6 @@ message SegmentFooterPB {
 
     // Primary key index meta
     optional PrimaryKeyIndexMetaPB primary_key_index_meta = 10;
-
-    // Column data page statistics for this segment
-    repeated ColumnDataStatsPB column_data_page_stats = 11;
 }
 
 message BTreeMetaPB {

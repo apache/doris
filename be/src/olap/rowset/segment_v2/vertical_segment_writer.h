@@ -202,9 +202,6 @@ private:
     bool _is_mow();
     bool _is_mow_with_cluster_key();
 
-    // Collect column data page statistics after write_data
-    void _collect_column_data_page_stats();
-
 private:
     friend class ::doris::BlockAggregator;
     uint32_t _segment_id;
@@ -265,9 +262,6 @@ private:
     std::vector<RowsInBlock> _batched_blocks;
 
     BlockAggregator _block_aggregator;
-
-    // Column data page statistics, keyed by column unique id
-    std::map<int32_t, ColumnDataStatsPB> _column_data_page_stats;
 };
 
 } // namespace segment_v2

@@ -1065,9 +1065,18 @@ void SegmentWriter::clear() {
 Status SegmentWriter::_write_data() {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->write_data());
+
+        auto* column_meta = column_writer->get_column_meta();
+        DCHECK(column_meta != nullptr);
+        column_meta->set_compressed_data_bytes(
+                (column_meta->has_compressed_data_bytes() ? column_meta->compressed_data_bytes()
+                                                          : 0) +
+                column_writer->get_total_compressed_data_pages_size());
+        column_meta->set_uncompressed_data_bytes(
+                (column_meta->has_uncompressed_data_bytes() ? column_meta->uncompressed_data_bytes()
+                                                            : 0) +
+                column_writer->get_total_uncompressed_data_pages_size());
     }
-    // Collect column data page statistics after all column writers finish write_data
-    _collect_column_data_page_stats();
     return Status::OK();
 }
 
@@ -1133,11 +1142,6 @@ Status SegmentWriter::_write_primary_key_index() {
 Status SegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
 
-    // Add column data page statistics to footer
-    for (const auto& [_, col_stat] : _column_data_page_stats) {
-        _footer.add_column_data_page_stats()->CopyFrom(col_stat);
-    }
-
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     std::string footer_buf;
     VLOG_DEBUG << "footer " << _footer.DebugString();
@@ -1171,33 +1175,6 @@ Slice SegmentWriter::min_encoded_key() {
 Slice SegmentWriter::max_encoded_key() {
     return (_primary_key_index_builder == nullptr) ? Slice(_max_key.data(), _max_key.size())
                                                    : _primary_key_index_builder->max_key();
-}
-
-void SegmentWriter::_collect_column_data_page_stats() {
-    for (uint32_t cid = 0; cid < _column_writers.size(); ++cid) {
-        if (_column_writers[cid] != nullptr) {
-            // flush a column group, the actual column id is in _column_ids
-            const auto& column = _tablet_schema->column(_column_ids[cid]);
-            int32_t column_unique_id = column.unique_id();
-
-            // Check if we already have stats for this column
-            auto it = _column_data_page_stats.find(column_unique_id);
-            if (it != _column_data_page_stats.end()) {
-                // Accumulate data page size for this column
-                it->second.set_total_data_pages_size(
-                        it->second.total_data_pages_size() +
-                        _column_writers[cid]->get_total_compressed_data_pages_size());
-            } else {
-                // First time collecting stats for this column
-                ColumnDataStatsPB stats;
-                stats.set_column_unique_id(column_unique_id);
-                stats.set_column_name(column.name());
-                stats.set_column_type(TabletColumn::get_string_by_field_type(column.type()));
-                stats.set_total_data_pages_size(_column_writers[cid]->get_total_compressed_data_pages_size());
-                _column_data_page_stats[column_unique_id] = std::move(stats);
-            }
-        }
-    }
 }
 
 void SegmentWriter::set_min_max_key(const Slice& key) {

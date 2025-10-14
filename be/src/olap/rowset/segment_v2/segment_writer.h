@@ -136,12 +136,6 @@ public:
     Slice min_encoded_key();
     Slice max_encoded_key();
 
-    // Get column data page statistics for the current segment
-    std::vector<ColumnDataStatsPB> get_column_data_page_stats() const;
-
-    // Collect column data page statistics after write_data
-    void _collect_column_data_page_stats();
-
     bool is_unique_key() { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
 
     void clear();
@@ -269,8 +263,6 @@ private:
     uint64_t _primary_keys_size = 0;
     // variant statistics calculator for efficient stats collection
     std::unique_ptr<VariantStatsCaculator> _variant_stats_calculator;
-    // Column data page statistics, keyed by column unique id
-    std::map<int32_t, ColumnDataStatsPB> _column_data_page_stats;
 };
 
 } // namespace segment_v2

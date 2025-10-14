@@ -121,8 +121,8 @@ public:
                                           const TabletColumn* column, io::FileWriter* file_writer,
                                           std::unique_ptr<ColumnWriter>* writer);
 
-    explicit ColumnWriter(std::unique_ptr<Field> field, bool is_nullable)
-            : _field(std::move(field)), _is_nullable(is_nullable) {}
+    explicit ColumnWriter(std::unique_ptr<Field> field, bool is_nullable, ColumnMetaPB* meta)
+            : _field(std::move(field)), _is_nullable(is_nullable), _column_meta(meta) {}
 
     virtual ~ColumnWriter() = default;
 
@@ -191,9 +191,12 @@ public:
 
     Field* get_field() const { return _field.get(); }
 
+    ColumnMetaPB* get_column_meta() const { return _column_meta; }
+
 private:
     std::unique_ptr<Field> _field;
     bool _is_nullable;
+    ColumnMetaPB* _column_meta;
     std::vector<uint8_t> _null_bitmap;
 };
 
