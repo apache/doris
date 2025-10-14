@@ -25,6 +25,9 @@ public enum EtlJobType {
     SPARK,
     COPY,
     LOCAL_FILE,
+    // create by job scheduler,inner use
+    @Deprecated
+    INSERT_JOB,
     INGESTION,
     UNKNOWN
 }

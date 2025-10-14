@@ -469,7 +469,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 // insertCtx is not useful for blackhole. so keep it empty is ok.
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
-                        () -> new BlackholeInsertExecutor(ctx, targetTableIf, label, planner, insertCtx, emptyInsert));
+                        () -> new BlackholeInsertExecutor(
+                                ctx, targetTableIf, label, planner, insertCtx, emptyInsert, jobId));
             } else {
                 // TODO: support other table types
                 throw new AnalysisException(
