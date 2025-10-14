@@ -336,6 +336,11 @@ public class PlanTranslatorContext {
         }
         this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
         slotDescriptor.setIsNullable(slotReference.nullable());
+
+        if (slotReference.getAllAccessPaths().isPresent()) {
+            slotDescriptor.setAllAccessPaths(slotReference.getAllAccessPaths().get());
+            slotDescriptor.setPredicateAccessPaths(slotReference.getPredicateAccessPaths().get());
+        }
         return slotDescriptor;
     }
 

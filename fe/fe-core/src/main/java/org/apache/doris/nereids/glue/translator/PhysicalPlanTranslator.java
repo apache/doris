@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.glue.translator;
 
-import org.apache.doris.analysis.AccessPathInfo;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.AnalyticWindow;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -75,7 +74,6 @@ import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
 import org.apache.doris.info.BaseTableRefInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.DistributionSpec;
@@ -174,7 +172,6 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.MapType;
-import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -249,7 +246,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -830,22 +826,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         OlapTable olapTable = olapScan.getTable();
         // generate real output tuple
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, olapTable, context);
-        StatementContext statementContext = context.getStatementContext();
-
         List<SlotDescriptor> slotDescriptors = tupleDescriptor.getSlots();
-        for (int i = 0; i < slots.size(); i++) {
-            Slot slot = slots.get(i);
-            if (slot.getDataType() instanceof NestedColumnPrunable) {
-                Optional<AccessPathInfo> accessPathInfo = statementContext.getAccessPathInfo(slot);
-                if (accessPathInfo.isPresent()) {
-                    SlotDescriptor slotDescriptor = slotDescriptors.get(i);
-                    AccessPathInfo accessPath = accessPathInfo.get();
-                    slotDescriptor.setType(accessPath.getPrunedType().toCatalogDataType());
-                    slotDescriptor.setAllAccessPaths(accessPath.getAllAccessPaths());
-                    slotDescriptor.setPredicateAccessPaths(accessPath.getPredicateAccessPaths());
-                }
-            }
-        }
 
         // put virtual column expr into slot desc
         Map<ExprId, Expression> slotToVirtualColumnMap = olapScan.getSlotToVirtualColumnMap();

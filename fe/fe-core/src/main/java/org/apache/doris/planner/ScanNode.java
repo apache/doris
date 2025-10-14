@@ -66,6 +66,7 @@ import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeRangeSet;
 import org.apache.commons.collections.map.CaseInsensitiveMap;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -555,6 +556,55 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                 .add("tblName", desc.getTable().getName())
                 .add("keyRanges", "")
                 .addValue(super.debugString()).toString();
+    }
+
+    protected void printNestedColumns(StringBuilder output, String prefix) {
+        boolean printNestedColumnsHeader = true;
+        for (SlotDescriptor slot : getTupleDesc().getSlots()) {
+            String prunedType = null;
+            if (!slot.getType().equals(slot.getColumn().getType())) {
+                prunedType = slot.getType().toString();
+            }
+
+            String allAccessPathsString = null;
+            if (slot.getAllAccessPaths() != null
+                    && slot.getAllAccessPaths().name_access_paths != null
+                    && !slot.getAllAccessPaths().name_access_paths.isEmpty()) {
+                allAccessPathsString = slot.getAllAccessPaths().name_access_paths
+                        .stream()
+                        .map(a -> StringUtils.join(a.path, "."))
+                        .collect(Collectors.joining(", "));
+            }
+            String predicateAccessPathsString = null;
+            if (slot.getPredicateAccessPaths() != null
+                    && slot.getPredicateAccessPaths().name_access_paths != null
+                    && !slot.getPredicateAccessPaths().name_access_paths.isEmpty()) {
+                predicateAccessPathsString = slot.getPredicateAccessPaths().name_access_paths
+                        .stream()
+                        .map(a -> StringUtils.join(a.path, "."))
+                        .collect(Collectors.joining(", "));
+            }
+            if (prunedType == null && allAccessPathsString == null &&  predicateAccessPathsString == null) {
+                continue;
+            }
+
+            if (printNestedColumnsHeader) {
+                output.append(prefix).append("nested columns:\n");
+                printNestedColumnsHeader = false;
+            }
+            output.append(prefix).append("  ").append(slot.getColumn().getName()).append(":\n");
+            output.append(prefix).append("    origin type: ").append(slot.getColumn().getType()).append("\n");
+            if (prunedType != null) {
+                output.append(prefix).append("    pruned type: ").append(prunedType).append("\n");
+            }
+            if (allAccessPathsString != null) {
+                output.append(prefix).append("    all access paths: [").append(allAccessPathsString).append("]\n");
+            }
+            if (predicateAccessPathsString != null) {
+                output.append(prefix).append("    predicate access paths: [")
+                        .append(predicateAccessPathsString).append("]\n");
+            }
+        }
     }
 
     public List<TupleId> getOutputTupleIds() {

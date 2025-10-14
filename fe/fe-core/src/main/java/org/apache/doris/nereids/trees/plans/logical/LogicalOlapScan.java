@@ -840,4 +840,20 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         }
         return replaceMap;
     }
+
+    /** withPrunedTypeSlots */
+    public LogicalOlapScan withPrunedTypeSlots(List<Slot> outputSlots) {
+        Map<Pair<Long, String>, Slot> replaceSlotMap = new HashMap<>();
+        for (Slot outputSlot : outputSlots) {
+            Pair<Long, String> key = Pair.of(selectedIndexId, outputSlot.getName());
+            replaceSlotMap.put(key, outputSlot);
+        }
+
+        return new LogicalOlapScan(relationId, (Table) table, qualifier,
+                Optional.empty(), Optional.empty(),
+                selectedPartitionIds, false, selectedTabletIds,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                hints, replaceSlotMap, tableSample, directMvScan, colToSubPathsMap, selectedTabletIds,
+                operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit, annOrderKeys, annLimit);
+    }
 }

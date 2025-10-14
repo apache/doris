@@ -19,8 +19,19 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.thrift.TAccessPathType;
@@ -33,10 +44,15 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.TreeSet;
+import java.util.function.Consumer;
 
-public class PruneNestedColumn extends TestWithFeService {
+public class PruneNestedColumnTest extends TestWithFeService {
     @BeforeAll
     public void createTable() throws Exception {
         createDatabase("test");
@@ -54,6 +70,23 @@ public class PruneNestedColumn extends TestWithFeService {
                 + "properties ('replication_num'='1')");
 
         connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
+        connectContext.getSessionVariable().enableNereidsTimeout = false;
+    }
+
+    @Test
+    public void testPruneArrayLambda() throws Exception {
+        // map_values(struct_element(s, 'data').*)[0].a
+        assertColumn("select struct_element(array_map(x -> map_values(x)[0], struct_element(s, 'data'))[0], 'a') from tbl",
+                "struct<data:array<map<int,struct<a:int>>>>",
+                ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select array_map((x, y) -> struct_element(map_values(x)[0], 'a') + struct_element(map_values(y)[0], 'b'), struct_element(s, 'data'), struct_element(s, 'data')) from tbl",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data", "*", "VALUES", "a"), path("s", "data", "*", "VALUES", "b")),
+                ImmutableList.of()
+        );
     }
 
     @Test
@@ -114,14 +147,6 @@ public class PruneNestedColumn extends TestWithFeService {
                 ImmutableList.of(path("s", "data", "*", "*", "b")),
                 ImmutableList.of()
         );
-        // assertColumn("select struct_element(struct_element(s, 'data')[1][1], 'b') from tbl where struct_element(s, 'city')='beijing",
-        //         "struct<data:array<map<int,struct<b:double>>>>",
-        //         predicatePath("city"),
-        //         path("data", "*", "*", "b")
-        // );
-
-        // assertColumn("select array_map(x -> x[2], struct_element(s, 'data')) from tbl", "struct<data:array<map<int,struct<a:int,b:double>>>>", path("data"));
-        // assertColumn("select array_map(x -> struct_element(x[2], 'b'), struct_element(s, 'data')) from tbl", "struct<data:array<map<int,struct<b:double>>>>", path("data", "*", "*", "b"));
     }
 
     @Test
@@ -207,10 +232,57 @@ public class PruneNestedColumn extends TestWithFeService {
         );
     }
 
+    @Test
+    public void testCte() throws Throwable {
+        assertColumn("with t as (select id, s from tbl) select struct_element(t1.s, 'city') from t t1 join t t2 on t1.id = t2.id",
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
+                ImmutableList.of()
+        );
+
+        assertColumn("with t as (select id, struct_element(s, 'city') as c from tbl) select t1.c from t t1 join t t2 on t1.id = t2.id",
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testUnion() throws Throwable {
+        assertColumn("select struct_element(s, 'city') from (select s from tbl union all select null)a",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select * from (select struct_element(s, 'city') from tbl union all select null)a",
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testCteAndUnion() throws Throwable {
+        assertColumn("with t as (select id, s from tbl) select struct_element(s, 'city') from (select * from t union all select 1, null) tmp",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s")),
+                ImmutableList.of()
+        );
+
+        assertColumn("with t as (select id, s from tbl) select * from (select struct_element(s, 'city') from t union all select null) tmp",
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
+                ImmutableList.of()
+        );
+    }
+
     private void assertColumn(String sql, String expectType,
             List<TColumnNameAccessPath> expectAllAccessPaths,
             List<TColumnNameAccessPath> expectPredicateAccessPaths) throws Exception {
-        List<SlotDescriptor> slotDescriptors = collectComplexSlots(sql);
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(sql);
+        PhysicalPlan physicalPlan = result.first;
+        List<SlotDescriptor> slotDescriptors = result.second;
         if (expectType == null) {
             Assertions.assertEquals(0, slotDescriptors.size());
             return;
@@ -230,11 +302,57 @@ public class PruneNestedColumn extends TestWithFeService {
         TreeSet<TColumnNameAccessPath> actualPredicateAccessPaths
                 = new TreeSet<>(slotDescriptors.get(0).getPredicateAccessPaths().name_access_paths);
         Assertions.assertEquals(expectPredicateAccessPathSet, actualPredicateAccessPaths);
+
+        Map<Integer, DataType> slotIdToDataTypes = new LinkedHashMap<>();
+        Consumer<Expression> assertHasSameType = e -> {
+            if (e instanceof NamedExpression) {
+                DataType dataType = slotIdToDataTypes.get(((NamedExpression) e).getExprId().asInt());
+                if (dataType != null) {
+                    Assertions.assertEquals(dataType, e.getDataType());
+                } else {
+                    slotIdToDataTypes.put(((NamedExpression) e).getExprId().asInt(), e.getDataType());
+                }
+            }
+        };
+
+        // assert same slot id has same type
+        physicalPlan.foreachUp(plan -> {
+            List<? extends Expression> expressions = ((PhysicalPlan) plan).getExpressions();
+            for (Expression expression : expressions) {
+                expression.foreach(e -> {
+                    assertHasSameType.accept((Expression) e);
+                    if (e instanceof Alias && e.child(0) instanceof Slot) {
+                        assertHasSameType.accept((Alias) e);
+                    } else if (e instanceof ArrayItemReference) {
+                        assertHasSameType.accept((ArrayItemReference) e);
+                    }
+                });
+            }
+
+            if (plan instanceof PhysicalCTEConsumer) {
+                for (Entry<Slot, Collection<Slot>> kv : ((PhysicalCTEConsumer) plan).getProducerToConsumerSlotMap()
+                        .asMap().entrySet()) {
+                    Slot producerSlot = kv.getKey();
+                    for (Slot consumerSlot : kv.getValue()) {
+                        Assertions.assertEquals(producerSlot.getDataType(), consumerSlot.getDataType());
+                    }
+                }
+            } else if (plan instanceof PhysicalUnion) {
+                List<Slot> output = ((PhysicalUnion) plan).getOutput();
+                for (List<SlotReference> regularChildrenOutput : ((PhysicalUnion) plan).getRegularChildrenOutputs()) {
+                    Assertions.assertEquals(output.size(), regularChildrenOutput.size());
+                    for (int i = 0; i < output.size(); i++) {
+                        Assertions.assertEquals(output.get(i).getDataType(), regularChildrenOutput.get(i).getDataType());
+                    }
+                }
+            }
+        });
     }
 
-    private List<SlotDescriptor> collectComplexSlots(String sql) throws Exception {
+    private Pair<PhysicalPlan, List<SlotDescriptor>> collectComplexSlots(String sql) throws Exception {
         NereidsPlanner planner = (NereidsPlanner) getSqlStmtExecutor(sql).planner();
         List<SlotDescriptor> complexSlots = new ArrayList<>();
+        PhysicalPlan physicalPlan = planner.getPhysicalPlan();
         for (PlanFragment fragment : planner.getFragments()) {
             List<OlapScanNode> olapScanNodes = fragment.getPlanRoot().collectInCurrentFragment(OlapScanNode.class::isInstance);
             for (OlapScanNode olapScanNode : olapScanNodes) {
@@ -247,7 +365,7 @@ public class PruneNestedColumn extends TestWithFeService {
                 }
             }
         }
-        return complexSlots;
+        return Pair.of(physicalPlan, complexSlots);
     }
 
     private TColumnNameAccessPath path(String... path) {

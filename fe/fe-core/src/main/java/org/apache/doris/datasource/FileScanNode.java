@@ -171,6 +171,8 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
         output.append(String.format("numNodes=%s", numNodes)).append("\n");
 
+        printNestedColumns(output, prefix);
+
         // pushdown agg
         output.append(prefix).append(String.format("pushdown agg=%s", pushDownAggNoGroupingOp));
         if (pushDownAggNoGroupingOp.equals(TPushAggOp.COUNT)) {
