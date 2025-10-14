@@ -94,6 +94,9 @@ public:
     // Asynchronously delete specified BlockMeta
     void delete_key(const BlockMetaKey& key);
 
+    // Clear all records from rocksdb and the async queue
+    void clear();
+
 private:
     void async_write_worker();
     std::string serialize_key(const BlockMetaKey& key) const;

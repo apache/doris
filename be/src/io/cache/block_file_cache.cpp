@@ -460,6 +460,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
         key.hash = hash;
         key.meta.type = context.cache_type;
         key.meta.expiration_time = context.expiration_time;
+        key.meta.tablet_id = context.tablet_id;
         _storage->load_blocks_directly_unlocked(this, key, cache_lock);
 
         it = _files.find(hash);
@@ -702,8 +703,9 @@ FileBlocks BlockFileCache::split_range_into_cells(const UInt128Wrapper& hash,
             key.offset = current_pos;
             key.meta.type = context.cache_type;
             key.meta.expiration_time = context.expiration_time;
-            auto file_block = std::make_shared<FileBlock>(
-                    key, current_size, this, FileBlock::State::SKIP_CACHE, context.tablet_id);
+            key.meta.tablet_id = context.tablet_id;
+            auto file_block = std::make_shared<FileBlock>(key, current_size, this,
+                                                          FileBlock::State::SKIP_CACHE);
             file_blocks.push_back(std::move(file_block));
         } else {
             auto* cell = add_cell(hash, context, current_pos, current_size, state, cache_lock);
@@ -861,8 +863,8 @@ FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& hash, const CacheC
     key.offset = offset;
     key.meta.type = context.cache_type;
     key.meta.expiration_time = context.expiration_time;
-    FileBlockCell cell(std::make_shared<FileBlock>(key, size, this, state, context.tablet_id),
-                       cache_lock);
+    key.meta.tablet_id = context.tablet_id;
+    FileBlockCell cell(std::make_shared<FileBlock>(key, size, this, state), cache_lock);
     Status st;
     if (context.expiration_time == 0 && context.cache_type == FileCacheType::TTL) {
         st = cell.file_block->change_cache_type_between_ttl_and_others(FileCacheType::NORMAL);
@@ -1458,6 +1460,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     auto offset = file_block->offset();
     auto type = file_block->cache_type();
     auto expiration_time = file_block->expiration_time();
+    auto tablet_id = file_block->tablet_id();
     auto* cell = get_cell(hash, offset, cache_lock);
     file_block->cell = nullptr;
     DCHECK(cell);
@@ -1478,6 +1481,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
         key.offset = offset;
         key.meta.type = type;
         key.meta.expiration_time = expiration_time;
+        key.meta.tablet_id = tablet_id;
         if (sync) {
             int64_t duration_ns = 0;
             Status st;

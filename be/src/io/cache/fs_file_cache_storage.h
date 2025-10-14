@@ -23,6 +23,7 @@
 #include <shared_mutex>
 #include <thread>
 
+#include "io/cache/cache_block_meta_store.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
 #include "io/fs/file_reader.h"
@@ -64,7 +65,7 @@ public:
     ~FSFileCacheStorage() override;
     Status init(BlockFileCache* _mgr) override;
     Status append(const FileCacheKey& key, const Slice& value) override;
-    Status finalize(const FileCacheKey& key) override;
+    Status finalize(const FileCacheKey& key, const size_t size) override;
     Status read(const FileCacheKey& key, size_t value_offset, Slice buffer) override;
     Status remove(const FileCacheKey& key) override;
     Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type) override;
@@ -122,6 +123,7 @@ private:
     std::mutex _mtx;
     std::unordered_map<FileWriterMapKey, FileWriterPtr, FileWriterMapKeyHash> _key_to_writer;
     std::shared_ptr<bvar::LatencyRecorder> _iterator_dir_retry_cnt;
+    std::unique_ptr<CacheBlockMetaStore> _meta_store;
 };
 
 } // namespace doris::io

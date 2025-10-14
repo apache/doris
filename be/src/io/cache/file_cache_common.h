@@ -105,6 +105,7 @@ struct KeyAndOffsetHash {
 struct KeyMeta {
     uint64_t expiration_time; // absolute time
     FileCacheType type;
+    int64_t tablet_id {0};
 };
 
 struct FileCacheKey {
