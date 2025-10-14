@@ -17,6 +17,7 @@
 
 #include "meta-store/meta_reader.h"
 
+#include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <limits>
@@ -556,9 +557,7 @@ TxnErrorCode MetaReader::get_partition_versions(Transaction* txn,
     return TxnErrorCode::TXN_OK;
 }
 
-TxnErrorCode MetaReader::get_all_tablet_rowset_metas(int64_t start_version, int64_t end_version,
-                                                     std::vector<RowsetMetaCloudPB>* rowset_metas,
-                                                     bool snapshot) {
+TxnErrorCode MetaReader::get_all_tablet_ids(std::vector<int64_t>* tablet_ids, bool snapshot) {
     DCHECK(txn_kv_) << "TxnKv must be set before calling";
     if (!txn_kv_) {
         return TxnErrorCode::TXN_INVALID_ARGUMENT;
@@ -568,110 +567,36 @@ TxnErrorCode MetaReader::get_all_tablet_rowset_metas(int64_t start_version, int6
     if (err != TxnErrorCode::TXN_OK) {
         return err;
     }
-    return get_all_tablet_rowset_metas(txn.get(), start_version, end_version, rowset_metas,
-                                       snapshot);
+    return get_all_tablet_ids(txn.get(), tablet_ids, snapshot);
 }
 
-TxnErrorCode MetaReader::get_all_tablet_rowset_metas(Transaction* txn, int64_t start_version,
-                                                     int64_t end_version,
-                                                     std::vector<RowsetMetaCloudPB>* rowset_metas,
-                                                     bool snapshot) {
-    std::map<int64_t, std::map<int64_t, RowsetMetaCloudPB>> rowset_graph;
-
+TxnErrorCode MetaReader::get_all_tablet_ids(Transaction* txn, std::vector<int64_t>* tablet_ids,
+                                            bool snapshot) {
     {
-        std::string start_key = versioned::meta_rowset_load_key({instance_id_, 0, 0});
+        std::string start_key = versioned::tablet_index_key({instance_id_, 0});
         std::string end_key =
-                versioned::meta_rowset_load_key({instance_id_, std::numeric_limits<int64_t>::max(),
-                                                 std::numeric_limits<int64_t>::max()});
+                versioned::tablet_index_key({instance_id_, std::numeric_limits<int64_t>::max()});
 
-        versioned::ReadDocumentMessagesOptions options;
+        // [start, end]
+        FullRangeGetOptions options;
+        options.prefetch = false;
         options.snapshot = snapshot;
-        options.snapshot_version = snapshot_version_;
-        options.exclude_begin_key = false;
-        options.exclude_end_key = false;
 
-        auto iter =
-                versioned::document_get_range<RowsetMetaCloudPB>(txn, start_key, end_key, options);
+        auto iter = txn->full_range_get(start_key, end_key, options);
         for (auto&& kvp = iter->next(); kvp.has_value(); kvp = iter->next()) {
-            auto&& [key, version, rowset_meta] = *kvp;
-
-            if (rowset_meta.start_version() >= start_version &&
-                rowset_meta.end_version() <= end_version) {
-                rowset_graph[rowset_meta.tablet_id()].emplace(rowset_meta.end_version(),
-                                                              std::move(rowset_meta));
-                min_read_versionstamp_ = std::min(min_read_versionstamp_, version);
-                DCHECK(version < snapshot_version_)
-                        << "version: " << version.to_string()
-                        << ", snapshot_version: " << snapshot_version_.to_string();
+            auto&& [key, value] = kvp.value();
+            TabletIndexPB tablet_idx;
+            if (!tablet_idx.ParseFromArray(value.data(), value.size())) {
+                LOG_ERROR("Failed to parse TabletIndexPB")
+                        .tag("instance_id", instance_id_)
+                        .tag("key", hex(key))
+                        .tag("value", hex(value));
+                return TxnErrorCode::TXN_INVALID_DATA;
             }
-        }
-        if (!iter->is_valid()) {
-            LOG_ERROR("failed to get loaded rowset metas at versionstamp")
-                    .tag("instance_id", instance_id_)
-                    .tag("start_version", start_version)
-                    .tag("end_version", end_version)
-                    .tag("error_code", iter->error_code());
-            return iter->error_code();
+
+            tablet_ids->emplace_back(tablet_idx.tablet_id());
         }
     }
-
-    {
-        std::string start_key = versioned::meta_rowset_compact_key({instance_id_, 0, 0});
-        std::string end_key = versioned::meta_rowset_compact_key(
-                {instance_id_, std::numeric_limits<int64_t>::max(),
-                 std::numeric_limits<int64_t>::max()});
-
-        versioned::ReadDocumentMessagesOptions options;
-        options.snapshot = snapshot;
-        options.snapshot_version = snapshot_version_;
-        options.exclude_begin_key = false;
-        options.exclude_end_key = false;
-
-        int64_t last_start_version = std::numeric_limits<int64_t>::max();
-        auto iter =
-                versioned::document_get_range<RowsetMetaCloudPB>(txn, start_key, end_key, options);
-        for (auto&& kvp = iter->next(); kvp.has_value(); kvp = iter->next()) {
-            auto&& [key, version, rowset_meta] = *kvp;
-            DCHECK(version < snapshot_version_)
-                    << "version: " << version.to_string()
-                    << ", snapshot_version: " << snapshot_version_.to_string();
-
-            auto tablet_id = rowset_meta.tablet_id();
-
-            if (rowset_meta.start_version() >= start_version &&
-                rowset_meta.end_version() <= end_version) {
-                int64_t rowset_start_version = rowset_meta.start_version();
-                int64_t rowset_end_version = rowset_meta.end_version();
-                if (last_start_version <= rowset_start_version) {
-                    continue;
-                }
-
-                min_read_versionstamp_ = std::min(min_read_versionstamp_, version);
-                last_start_version = rowset_start_version;
-                rowset_graph[tablet_id].erase(
-                        rowset_graph[tablet_id].lower_bound(rowset_start_version),
-                        rowset_graph[tablet_id].upper_bound(rowset_end_version));
-                rowset_graph[tablet_id].emplace(rowset_end_version, std::move(rowset_meta));
-            }
-        }
-        if (!iter->is_valid()) {
-            LOG_ERROR("failed to get compacted rowset metas at versionstamp")
-                    .tag("instance_id", instance_id_)
-                    .tag("start_version", start_version)
-                    .tag("end_version", end_version)
-                    .tag("error_code", iter->error_code());
-            return iter->error_code();
-        }
-    }
-
-    rowset_metas->clear();
-    rowset_metas->reserve(rowset_graph.size());
-    for (auto&& [tablet_id, versioned_metas] : rowset_graph) {
-        for (auto&& [version, rowset_meta] : versioned_metas) {
-            rowset_metas->emplace_back(std::move(rowset_meta));
-        }
-    }
-
     return TxnErrorCode::TXN_OK;
 }
 
