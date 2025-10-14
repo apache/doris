@@ -92,7 +92,6 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -445,7 +444,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             }
         } else {
             // null and null and null and ...
-            return new NullLiteral(BooleanType.INSTANCE);
+            return NullLiteral.BOOLEAN_INSTANCE;
         }
     }
 
@@ -491,7 +490,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             return or.withChildren(nonFalseLiteral);
         } else {
             // null or null
-            return new NullLiteral(BooleanType.INSTANCE);
+            return NullLiteral.BOOLEAN_INSTANCE;
         }
     }
 
@@ -649,7 +648,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         // now the inPredicate contains literal only.
         Expression value = inPredicate.child(0);
         if (value.isNullLiteral()) {
-            return new NullLiteral(BooleanType.INSTANCE);
+            return NullLiteral.BOOLEAN_INSTANCE;
         }
         boolean isOptionContainsNull = false;
         for (Expression item : inPredicate.getOptions()) {
@@ -660,7 +659,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             }
         }
         return isOptionContainsNull
-                ? new NullLiteral(BooleanType.INSTANCE)
+                ? NullLiteral.BOOLEAN_INSTANCE
                 : BooleanLiteral.FALSE;
     }
 
