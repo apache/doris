@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest.manager;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.CertificateManager;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Frontend;
@@ -38,22 +39,18 @@ import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.ssl.SSLContexts;
 import org.apache.http.util.EntityUtils;
 
-import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.UnrecoverableKeyException;
-import java.security.cert.CertificateException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import javax.net.ssl.SSLContext;
-import javax.servlet.http.HttpServletRequest;
 
 /*
  * used to forward http requests from manager to be.
@@ -135,13 +132,10 @@ public class HttpUtils {
             KeyStore keyStore;
             KeyStore trustStore;
             try {
-                keyStore = KeyStore.getInstance("JKS");
-                trustStore = KeyStore.getInstance("JKS");
-                InputStream keyInput = new FileInputStream(Config.tls_certificate_p12_path);
-                keyStore.load(keyInput, Config.tls_private_key_password.toCharArray());
-                InputStream trustInput = new FileInputStream(Config.tls_ca_certificate_p12_path);
-                trustStore.load(trustInput, Config.tls_private_key_password.toCharArray());
-            } catch (KeyStoreException | CertificateException | NoSuchAlgorithmException e) {
+                keyStore = CertificateManager.loadKeyStore(Config.tls_certificate_path,
+                        Config.tls_private_key_path, Config.tls_private_key_password.toCharArray());
+                trustStore = CertificateManager.loadTrustStore(Config.tls_ca_certificate_path);
+            } catch (Exception e) {
                 throw new RuntimeException(e);
             }
 

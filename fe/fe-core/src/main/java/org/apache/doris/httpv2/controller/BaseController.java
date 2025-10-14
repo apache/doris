@@ -337,6 +337,10 @@ public class BaseController {
             // this could be the result of redirection.
             return "https://" + NetUtils
                     .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.http_port);
+        } else if (Config.enable_https) {
+            // this could be the result of redirection.
+            return "https://" + NetUtils
+                    .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.https_port);
         } else {
             return "http://" + NetUtils
                     .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.http_port);

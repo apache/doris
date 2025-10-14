@@ -25,9 +25,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import com.google.common.collect.Maps;
 import org.apache.http.ssl.SSLContexts;
 
-import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.KeyManagementException;
@@ -35,7 +33,6 @@ import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.UnrecoverableKeyException;
-import java.security.cert.CertificateException;
 import java.util.Map;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
@@ -64,20 +61,15 @@ public class HttpURLUtil {
                 KeyStore trustStore;
                 SSLContext sslContext;
                 try {
-                    keyStore = KeyStore.getInstance("JKS");
-                    trustStore = KeyStore.getInstance("JKS");
-                    InputStream keyInput = new FileInputStream(Config.tls_certificate_p12_path);
-                    keyStore.load(keyInput, Config.tls_private_key_password.toCharArray());
-                    InputStream trustInput = new FileInputStream(Config.tls_ca_certificate_p12_path);
-                    trustStore.load(trustInput, Config.tls_private_key_password.toCharArray());
-                    keyInput.close();
-                    trustInput.close();
-                } catch (KeyStoreException | CertificateException | NoSuchAlgorithmException e) {
+                    keyStore = CertificateManager.loadKeyStore(Config.tls_certificate_path,
+                            Config.tls_private_key_path, Config.tls_private_key_password.toCharArray());
+                    trustStore = CertificateManager.loadTrustStore(Config.tls_ca_certificate_path);
+                } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
 
                 try {
-                    sslContext = SSLContexts.custom().setProtocol("TLSv1.2").setKeyStoreType("JKS")
+                    sslContext = SSLContexts.custom().setProtocol("TLSv1.2").setKeyStoreType("PKCS12")
                         .loadKeyMaterial(keyStore, Config.tls_private_key_password.toCharArray())
                         .loadTrustMaterial(trustStore, null)
                         .build();

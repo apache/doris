@@ -17,8 +17,10 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.util.X509TlsReloadableKeyManager;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import io.grpc.util.AdvancedTlsX509TrustManager;
 import org.apache.commons.pool2.BaseKeyedPooledObjectFactory;
 import org.apache.commons.pool2.PooledObject;
 import org.apache.commons.pool2.impl.DefaultPooledObject;
@@ -28,13 +30,17 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.protocol.TProtocol;
-import org.apache.thrift.transport.TSSLTransportFactory;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
 import org.apache.thrift.transport.TTransportException;
 import org.apache.thrift.transport.layered.TFramedTransport;
 
+import java.io.File;
 import java.lang.reflect.Constructor;
+import javax.net.ssl.KeyManager;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.TrustManager;
 
 public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
     private static final Logger LOG = LogManager.getLogger(GenericPool.class);
@@ -140,19 +146,23 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
             }
 
             TSocket clientSocket;
-            if (Config.enable_tls) { // new ImprovedTServerSocket(socketTransportArgs)
-                TSSLTransportFactory.TSSLTransportParameters sslParam =
-                        new TSSLTransportFactory.TSSLTransportParameters("TLSv1.2", null, false);
-                sslParam.setKeyStore(Config.tls_certificate_p12_path,
-                        Config.tls_private_key_password, "SunX509", "JKS");
-                sslParam.setTrustStore(Config.tls_ca_certificate_p12_path,
-                        Config.tls_private_key_password, "SunX509", "JKS");
-                try {
-                    LOG.info("Create Client Socket" + key.hostname + ":" + key.port);
-                    clientSocket = TSSLTransportFactory.getClientSocket(key.hostname, key.port, timeoutMs, sslParam);
-                } catch (TTransportException e) {
-                    throw new RuntimeException(e);
-                }
+            if (Config.enable_tls) {
+                AdvancedTlsX509TrustManager trustManager = AdvancedTlsX509TrustManager.newBuilder()
+                    .setVerification(
+                            AdvancedTlsX509TrustManager.Verification.CERTIFICATE_AND_HOST_NAME_VERIFICATION)
+                    .build();
+                trustManager.updateTrustCredentialsFromFile(new File(Config.tls_ca_certificate_path));
+
+                X509TlsReloadableKeyManager keyManager = new X509TlsReloadableKeyManager();
+                keyManager.updateIdentityCredentialsFromFile(new File(Config.tls_private_key_path),
+                        new File(Config.tls_certificate_path), Config.tls_private_key_password);
+
+                SSLContext sslContext = SSLContext.getInstance("TLSv1.2");
+                sslContext.init(new KeyManager[]{ keyManager },
+                        new TrustManager[]{ trustManager }, null);
+                SSLSocket socket = (SSLSocket) sslContext.getSocketFactory().createSocket(key.hostname, key.port);
+                socket.setSoTimeout(timeoutMs);
+                clientSocket = new TSocket(socket);
             } else {
                 clientSocket = new TSocket(key.hostname, key.port, timeoutMs);
             }

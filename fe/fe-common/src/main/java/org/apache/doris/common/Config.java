@@ -369,23 +369,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, description = {"开启TLS时认证的粒度", "Authentication granularity when enabling TLS"})
     public static String tls_verify_mode = "verify_peer";
 
-    @ConfField(mutable = false, description = {"证书路径, server以及client角色都会使用这个证书", ""})
+    @ConfField(mutable = false, description = {"证书路径, server以及client角色都会使用这个证书",
+            "The certificate path, server, and client roles will all utilize this certificate."})
     public static String tls_certificate_path = "";
 
-    @ConfField(mutable = false, description = {"私钥路径", ""})
+    @ConfField(mutable = false, description = {"私钥路径", "private key path"})
     public static String tls_private_key_path = "";
 
-    @ConfField(mutable = false, description = {"私钥文件的密码", ""})
+    @ConfField(mutable = false, description = {"私钥文件的密码", "private key password"})
     public static String tls_private_key_password = "";
 
-    @ConfField(mutable = false, description = {"CA 证书路径", ""})
+    @ConfField(mutable = false, description = {"CA 证书路径", "ca cert path"})
     public static String tls_ca_certificate_path = "";
 
-    @ConfField(mutable = false, description = {"p12证书路径, server以及client角色都会使用这个证书", ""})
-    public static String tls_certificate_p12_path = "";
-
-    @ConfField(mutable = false, description = {"p12 CA 证书路径", ""})
-    public static String tls_ca_certificate_p12_path = "";
+    @ConfField(mutable = false, description = {"证书轮转周期", "certificate rotation cycle"})
+    public static int tls_cert_refresh_interval_seconds = 3600;
 
     @ConfField(mutable = true, description = {"是否启用所有 http 接口的认证",
             "Whether to enable all http interface authentication"}, varType = VariableAnnotation.EXPERIMENTAL)
