@@ -1382,7 +1382,7 @@ Status FileScanner::_set_fill_or_truncate_columns(bool need_to_get_parsed_schema
         _slot_lower_name_to_col_type.emplace(to_lower(col_name), col_type);
     }
 
-    if (!_fill_partition_from_path && config::enable_partition_column_fallback) {
+    if (!_fill_partition_from_path && config::enable_iceberg_partition_column_fallback) {
         // check if the cols of _partition_col_descs are in _missing_cols
         // if so, set _fill_partition_from_path to true and remove the col from _missing_cols
         for (const auto& [col_name, col_type] : _partition_col_descs) {

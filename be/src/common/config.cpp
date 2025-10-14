@@ -1495,7 +1495,7 @@ DEFINE_mBool(skip_loading_stale_rowset_meta, "false");
 DEFINE_Bool(enable_file_logger, "true");
 
 // Enable partition column fallback when partition columns are missing from file
-DEFINE_Bool(enable_partition_column_fallback, "true");
+DEFINE_Bool(enable_iceberg_partition_column_fallback, "true");
 
 // The minimum row group size when exporting Parquet files. default 128MB
 DEFINE_Int64(min_row_group_size, "134217728");

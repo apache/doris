@@ -1556,7 +1556,7 @@ DECLARE_mBool(skip_loading_stale_rowset_meta);
 DECLARE_Bool(enable_file_logger);
 
 // Enable partition column fallback when partition columns are missing from file
-DECLARE_Bool(enable_partition_column_fallback);
+DECLARE_Bool(enable_iceberg_partition_column_fallback);
 
 // The minimum row group size when exporting Parquet files.
 DECLARE_Int64(min_row_group_size);
