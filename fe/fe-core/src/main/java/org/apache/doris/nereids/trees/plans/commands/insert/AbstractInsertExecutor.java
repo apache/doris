@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
@@ -77,8 +78,10 @@ public abstract class AbstractInsertExecutor {
             Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
         this.ctx = ctx;
         this.database = table.getDatabase();
-        this.insertLoadJob = new InsertLoadJob(database.getId(), labelName);
-        ctx.getEnv().getLoadManager().addLoadJob(insertLoadJob);
+        if (Env.getCurrentEnv().isMaster()) {
+            this.insertLoadJob = new InsertLoadJob(database.getId(), labelName);
+            ctx.getEnv().getLoadManager().addLoadJob(insertLoadJob);
+        }
         this.coordinator = EnvFactory.getInstance().createCoordinator(
                 ctx, planner, ctx.getStatsErrorEstimator(), insertLoadJob.getId());
         this.labelName = labelName;

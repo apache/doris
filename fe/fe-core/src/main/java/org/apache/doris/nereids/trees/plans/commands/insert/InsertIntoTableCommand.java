@@ -133,7 +133,11 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         this.cte = cte;
         this.needNormalizePlan = needNormalizePlan;
         this.branchName = branchName;
-        this.jobId = Env.getCurrentEnv().getNextId();
+        if (Env.getCurrentEnv().isMaster()) {
+            this.jobId = Env.getCurrentEnv().getNextId();
+        } else {
+            this.jobId = -1;
+        }
     }
 
     /**
