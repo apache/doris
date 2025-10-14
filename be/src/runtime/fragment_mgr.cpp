@@ -967,10 +967,10 @@ void FragmentMgr::cancel_worker() {
                                              map) -> Status {
                 for (auto it = map.begin(); it != map.end();) {
                     if (auto q_ctx = it->second.lock()) {
+                        contexts.push_back(q_ctx);
                         if (q_ctx->is_timeout(now)) {
                             LOG_WARNING("Query {} is timeout", print_id(it->first));
                             queries_timeout.push_back(it->first);
-                            contexts.push_back(q_ctx);
                         } else if (config::enable_brpc_connection_check) {
                             auto brpc_stubs = q_ctx->get_using_brpc_stubs();
                             for (auto& item : brpc_stubs) {
