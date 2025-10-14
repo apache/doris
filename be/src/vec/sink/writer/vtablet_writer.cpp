@@ -95,15 +95,7 @@ namespace vectorized {
 #include "common/compile_check_begin.h"
 
 // Global state for tracking tablet switching across different stream load requests
-struct TabletSwitchingState {
-    int64_t current_tablet_idx = 0;
-    int64_t current_tablet_rows = 0;
-    int64_t switching_threshold = 0;
-};
-
-// Global map to track tablet switching state per table partition (using partition_id as key)
-std::unordered_map<int64_t, TabletSwitchingState> g_tablet_switching_states;
-std::mutex g_tablet_switching_mutex;
+// Note: Removed global tablet switching state. Now each load job manages its own state locally.
 
 bvar::Adder<int64_t> g_sink_write_bytes;
 bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_bytes_per_second("sink_throughput_byte",
@@ -1485,21 +1477,17 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
                                     ? table_sink.random_tablet_switching_threshold
                                     : config::random_distribution_tablet_switching_threshold;
 
-        std::lock_guard<std::mutex> lock(g_tablet_switching_mutex);
+        // Initialize each partition with a random starting tablet and local state
         for (auto& partition : _vpartition->get_partitions()) {
-            auto& global_state = g_tablet_switching_states[partition->id];
-            if (global_state.switching_threshold == 0) {
-                global_state.switching_threshold = threshold;
-                global_state.current_tablet_idx = 0;
-                global_state.current_tablet_rows = 0;
-            }
-
-            const_cast<VOlapTablePartition*>(partition)->switching_threshold =
-                    global_state.switching_threshold;
+            const_cast<VOlapTablePartition*>(partition)->switching_threshold = threshold;
+            // Start from a random tablet for better load balancing across multiple load jobs
             const_cast<VOlapTablePartition*>(partition)->load_tablet_idx =
-                    global_state.current_tablet_idx;
-            const_cast<VOlapTablePartition*>(partition)->current_tablet_rows =
-                    global_state.current_tablet_rows;
+                    butil::fast_rand() % partition->num_buckets;
+            const_cast<VOlapTablePartition*>(partition)->current_tablet_rows = 0;
+            LOG(INFO) << "VTabletWriter init: partition_id=" << partition->id
+                      << ", switching_threshold=" << threshold
+                      << ", load_tablet_idx=" << partition->load_tablet_idx
+                      << ", num_buckets=" << partition->num_buckets;
         }
     }
 
