@@ -34,9 +34,13 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <chrono>
+#include <filesystem>
 #include <memory>
 #include <sstream>
+#include <thread>
 
+#include "common/certificate_manager.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "http/http_channel.h"
@@ -119,6 +123,7 @@ EvHttpServer::EvHttpServer(int port, int num_workers)
     evthread_use_pthreads();
     DCHECK_GT(_num_workers, 0);
     _event_bases.resize(_num_workers);
+    _evhttps.resize(_num_workers);
     for (int i = 0; i < _num_workers; ++i) {
         std::shared_ptr<event_base> base(event_base_new(),
                                          [](event_base* base) { event_base_free(base); });
@@ -142,8 +147,62 @@ EvHttpServer::~EvHttpServer() {
 #define CHECK_OPENSSL_ERR(cond, msg)                                                            \
     if (!(cond)) {                                                                              \
         LOG(ERROR) << (msg) << ": " << ERR_error_string(ERR_get_error(), nullptr) << std::endl; \
-        exit(1);                                                                                \
+        return nullptr;                                                                         \
     }
+
+SSL_CTX* EvHttpServer::_create_ssl_context() {
+    SSL_CTX* ssl_ctx = SSL_CTX_new(SSLv23_server_method());
+    CHECK_OPENSSL_ERR(ssl_ctx, "SSL_CTX_new failed");
+
+    SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv3 | SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1);
+
+    std::unique_ptr<X509, decltype(&X509_free)> cert_res(
+            CertificateManager::load_cert(config::tls_certificate_path), X509_free);
+    if (!cert_res) {
+        return nullptr;
+    }
+    std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> key_res(
+            CertificateManager::load_key(config::tls_private_key_path,
+                                         config::tls_private_key_password),
+            EVP_PKEY_free);
+    if (!key_res) {
+        return nullptr;
+    }
+
+    CHECK_OPENSSL_ERR(SSL_CTX_use_certificate(ssl_ctx, cert_res.get()) == 1,
+                      "Load server cert failed");
+    CHECK_OPENSSL_ERR(SSL_CTX_use_PrivateKey(ssl_ctx, key_res.get()) == 1,
+                      "Load server key failed");
+    CHECK_OPENSSL_ERR(SSL_CTX_check_private_key(ssl_ctx) == 1, "Check server key failed");
+
+    if (config::tls_verify_mode == CertificateManager::verify_fail_if_no_peer_cert) {
+        SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
+    } else if (config::tls_verify_mode == CertificateManager::verify_peer) {
+        SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, nullptr);
+    } else if (config::tls_verify_mode == CertificateManager::verify_none) {
+        SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, nullptr);
+    } else {
+        SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, nullptr);
+        LOG(WARNING) << fmt::format(
+                "unknown verify_mode: {}, only support: verify_fail_if_no_peer_cert, "
+                "verify_peer, verify_none",
+                config::tls_verify_mode);
+    }
+
+    std::unique_ptr<X509, decltype(&X509_free)> ca_res(
+            CertificateManager::load_ca(config::tls_ca_certificate_path), X509_free);
+    if (!ca_res) {
+        return nullptr;
+    }
+    X509_STORE* store = SSL_CTX_get_cert_store(ssl_ctx);
+    if (store == nullptr) {
+        CHECK_OPENSSL_ERR(false, "Load CA certificate failed");
+    }
+    int add_ret = X509_STORE_add_cert(store, ca_res.get());
+    CHECK_OPENSSL_ERR(add_ret == 1, "Load CA certificate failed");
+
+    return ssl_ctx;
+}
 
 void EvHttpServer::start() {
     _started = true;
@@ -156,37 +215,17 @@ void EvHttpServer::start() {
                               .build(&_workers));
     if (config::enable_tls) {
         init_ssl_library();
+        _ssl_ctx = _create_ssl_context();
 
-        ssl_ctx = SSL_CTX_new(SSLv23_server_method());
-        CHECK_OPENSSL_ERR(ssl_ctx, "SSL_CTX_new failed");
-        // only allowed TLSv1.2, v1.3
-        SSL_CTX_set_options(ssl_ctx, SSL_OP_SINGLE_DH_USE | SSL_OP_SINGLE_ECDH_USE |
-                                             SSL_OP_NO_SSLv3 | SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1);
-
-        CHECK_OPENSSL_ERR(
-                SSL_CTX_use_certificate_file(ssl_ctx, config::tls_certificate_path.c_str(),
-                                             SSL_FILETYPE_PEM) == 1,
-                "Load server cert failed");
-        CHECK_OPENSSL_ERR(SSL_CTX_use_PrivateKey_file(ssl_ctx, config::tls_private_key_path.c_str(),
-                                                      SSL_FILETYPE_PEM) == 1,
-                          "Load server key failed");
-        CHECK_OPENSSL_ERR(SSL_CTX_check_private_key(ssl_ctx) == 1, "Check server key failed");
-
-        if (config::tls_verify_mode == "verify_fail_if_no_peer_cert") {
-            SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
-        } else if (config::tls_verify_mode == "verify_peer") {
-            SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, nullptr);
-        } else if (config::tls_verify_mode == "verify_none") {
-            SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, nullptr);
-        } else {
-            throw Status::RuntimeError(
-                    "unknown verify_mode: {}, only support: verify_fail_if_no_peer_cert, "
-                    "verify_peer, verify_none",
-                    config::tls_verify_mode);
-        }
-
-        SSL_CTX_load_verify_locations(ssl_ctx, config::tls_ca_certificate_path.c_str(),
-                                      nullptr); // load CA certificate
+        // Start certificate monitoring thread
+        _cert_monitor_thread = std::thread([this] {
+#if defined(__linux__)
+            pthread_setname_np(pthread_self(), "libevent_cert_monitor");
+#elif defined(__APPLE__)
+            pthread_setname_np("libevent_cert_monitor");
+#endif
+            _check_cert_file_changes();
+        });
     }
     for (int i = 0; i < _num_workers; ++i) {
         auto status = _workers->submit_func([this, i]() {
@@ -201,10 +240,18 @@ void EvHttpServer::start() {
                                          [](evhttp* http) { evhttp_free(http); });
             CHECK(http != nullptr) << "Couldn't create an evhttp.";
 
+            // Store the evhttp object for SSL context updates
+            {
+                std::lock_guard lock(_evhttp_lock);
+                _evhttps[i] = http;
+            }
+
             auto res = evhttp_accept_socket(http.get(), _server_fd);
             CHECK(res >= 0) << "evhttp accept socket failed, res=" << res;
 
-            if (config::enable_tls) evhttp_set_bevcb(http.get(), bevcb, ssl_ctx);
+            if (config::enable_tls && _ssl_ctx != nullptr) {
+                evhttp_set_bevcb(http.get(), bevcb, _ssl_ctx);
+            }
 
             evhttp_set_newreqcb(http.get(), on_connection, this);
             evhttp_set_gencb(http.get(), on_request, this);
@@ -222,14 +269,148 @@ void EvHttpServer::stop() {
             event_base_loopbreak(_event_bases[i].get());
         }
     }
+    {
+        std::lock_guard<std::mutex> lock(_evhttp_lock);
+        _evhttps.clear();
+    }
     _workers->shutdown();
     _event_bases.clear();
     close(_server_fd);
-    if (config::enable_tls) SSL_CTX_free(ssl_ctx);
+    if (config::enable_tls) {
+        _stop_cert_monitor = true;
+        if (_cert_monitor_thread.joinable()) {
+            _cert_monitor_thread.join();
+        }
+        SSL_CTX_free(_ssl_ctx);
+
+        // Clean up all old SSL contexts
+        {
+            std::lock_guard<std::mutex> lock(_old_ssl_contexts_mutex);
+            while (!_old_ssl_contexts.empty()) {
+                SSL_CTX* old_ctx = _old_ssl_contexts.front();
+                _old_ssl_contexts.pop();
+                SSL_CTX_free(old_ctx);
+            }
+        }
+    }
     _started = false;
 }
 
 void EvHttpServer::join() {}
+
+bool EvHttpServer::_reload_cert() {
+    if (!config::enable_tls || !_started) {
+        LOG(WARNING) << "SSL not enabled or server not started, cannot reload SSL context";
+        return false;
+    }
+
+    LOG(INFO) << "Reloading SSL context for EvHttpServer...";
+
+    SSL_CTX* new_ssl_ctx = _create_ssl_context();
+    if (new_ssl_ctx == nullptr) {
+        LOG(WARNING) << "Failed to create new ssl context";
+        return false;
+    }
+    SSL_CTX* old_ssl_ctx = _ssl_ctx;
+    _ssl_ctx = new_ssl_ctx;
+
+    {
+        std::lock_guard lock(_evhttp_lock);
+        for (int i = 0; i < _num_workers; ++i) {
+            if (_evhttps[i]) {
+                evhttp_set_bevcb(_evhttps[i].get(), bevcb, new_ssl_ctx);
+                LOG(INFO) << "Updated SSL context for worker " << i;
+            }
+        }
+    }
+
+    // Store old SSL context for delayed release
+    {
+        std::lock_guard<std::mutex> lock(_old_ssl_contexts_mutex);
+        if (old_ssl_ctx != nullptr) {
+            _old_ssl_contexts.push(old_ssl_ctx);
+        }
+    }
+
+    // Clean up old contexts periodically
+    _cleanup_old_ssl_contexts();
+
+    LOG(INFO) << "SSL context reloaded successfully for EvHttpServer";
+    return true;
+}
+
+void EvHttpServer::_cleanup_old_ssl_contexts() {
+    std::lock_guard<std::mutex> lock(_old_ssl_contexts_mutex);
+    // Keep only the last 3 contexts to allow old connections to finish gracefully
+    while (_old_ssl_contexts.size() > 3) {
+        SSL_CTX* old_ctx = _old_ssl_contexts.front();
+        _old_ssl_contexts.pop();
+        SSL_CTX_free(old_ctx);
+    }
+}
+
+void EvHttpServer::_check_cert_file_changes() {
+    auto should_stop = [this]() { return _stop_cert_monitor.load(); };
+
+    CertificateManager::CertFileMonitorState cert_state;
+    CertificateManager::CertFileMonitorState key_state;
+    CertificateManager::CertFileMonitorState ca_state;
+
+    (void)CertificateManager::check_certificate_file(config::tls_certificate_path, &cert_state,
+                                                     "certificate file", should_stop);
+    (void)CertificateManager::check_certificate_file(config::tls_private_key_path, &key_state,
+                                                     "private key file", should_stop);
+    (void)CertificateManager::check_certificate_file(config::tls_ca_certificate_path, &ca_state,
+                                                     "CA certificate file", should_stop);
+
+    while (!_stop_cert_monitor.load()) {
+        std::this_thread::sleep_for(
+                std::chrono::seconds(config::tls_cert_refresh_interval_seconds));
+        if (_stop_cert_monitor.load()) {
+            break;
+        }
+
+        // the check_num is use for weather we 'can' do reload
+        // if ca change check_num |= 1 << 2
+        // if key change check_num |= 1 << 1
+        // if cert change check_num |= 1
+        // then we can determine the current situation based on the value of check_num
+        // if ca file changed, then cert and key also need change, the num is 7
+        // if user don't want change key file, only ca and cert change ,the num is 5
+        // if key changed, then cert also need change, the num is 3
+        // if only cert changed, the num is 1
+        // therefore, we can conclude that when check_num is odd, the certificate needs to be reloaded
+        // this approach can eliminate some instances of user error (compare bool value)
+        // it may also be used for finer-grained control in the future
+        auto prev_cert_state = cert_state;
+        auto prev_key_state = key_state;
+        auto prev_ca_state = ca_state;
+        int check_num = 0;
+
+        if (CertificateManager::check_certificate_file(config::tls_certificate_path, &cert_state,
+                                                       "certificate file", should_stop)) {
+            check_num |= 1;
+        }
+        if (CertificateManager::check_certificate_file(config::tls_private_key_path, &key_state,
+                                                       "private key file", should_stop)) {
+            check_num |= 1 << 1;
+        }
+        if (CertificateManager::check_certificate_file(config::tls_ca_certificate_path, &ca_state,
+                                                       "CA certificate file", should_stop)) {
+            check_num |= 1 << 2;
+        }
+
+        if ((check_num & 1) == 1) {
+            LOG(INFO) << "Certificate files changed, reloading SSL context...";
+            if (!_reload_cert()) {
+                cert_state = prev_cert_state;
+                key_state = prev_key_state;
+                ca_state = prev_ca_state;
+                LOG(WARNING) << "SSL context reload failed, will retry on next check";
+            }
+        }
+    }
+}
 
 Status EvHttpServer::_bind() {
     butil::EndPoint point;

@@ -21,7 +21,9 @@
 
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "common/status.h"
@@ -65,9 +67,21 @@ public:
 private:
     Status _bind();
     HttpHandler* _find_handler(HttpRequest* req);
+    void _check_cert_file_changes();
+    void _cleanup_old_ssl_contexts();
+    SSL_CTX* _create_ssl_context();
+    bool _reload_cert();
 
-private:
-    SSL_CTX* ssl_ctx;
+    SSL_CTX* _ssl_ctx;
+
+    // Certificate file monitoring
+    std::thread _cert_monitor_thread;
+    std::atomic<bool> _stop_cert_monitor {false};
+
+    // Keep old SSL contexts for delayed release
+    std::queue<SSL_CTX*> _old_ssl_contexts;
+    std::mutex _old_ssl_contexts_mutex;
+
     // input param
     std::string _host;
     int _port;
@@ -79,6 +93,8 @@ private:
     std::unique_ptr<ThreadPool> _workers;
     std::mutex _event_bases_lock; // protect _event_bases
     std::vector<std::shared_ptr<event_base>> _event_bases;
+    std::mutex _evhttp_lock; // protect _evhttps
+    std::vector<std::shared_ptr<evhttp>> _evhttps;
 
     std::mutex _handler_lock;
     PathTrie<HttpHandler*> _get_handlers;
