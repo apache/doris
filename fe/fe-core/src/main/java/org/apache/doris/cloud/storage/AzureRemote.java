@@ -218,9 +218,20 @@ public class AzureRemote extends RemoteBase {
             return;
         }
 
+        if (function != null) {
+            Pair<Boolean, String> result = function.apply("azure");
+            if (!result.first) {
+                LOG.warn("Failed to multipart upload object, file: {}, key: {}, reason: {}",
+                        file.getAbsolutePath(), key, result.second == null ? "" : result.second);
+                throw new DdlException("Failed to multi part upload object, reason: "
+                        + (result.second == null ? "" : result.second));
+            }
+        }
+
         long start = System.currentTimeMillis();
         initClient();
         // https://docs.azure.cn/zh-cn/storage/blobs/storage-blob-upload-java
+        // https://learn.microsoft.com/en-us/rest/api/storageservices/understanding-block-blobs--append-blobs--and-page-blobs
         ParallelTransferOptions parallelTransferOptions = new ParallelTransferOptions()
                 .setBlockSizeLong(Config.multi_part_upload_part_size_in_bytes)
                 .setMaxConcurrency(Config.multi_part_upload_pool_size)
@@ -236,6 +247,14 @@ public class AzureRemote extends RemoteBase {
                     System.currentTimeMillis() - start);
         } catch (Exception e) {
             LOG.warn("Failed to put object for Azure", e);
+            try {
+                // delete uncommitted blobs
+                // https://learn.microsoft.com/en-us/rest/api/storageservices/delete-blob?tabs=microsoft-entra-id#remarks
+                BlobClient blobClient = client.getBlobClient(key);
+                blobClient.deleteIfExists();
+            } catch (Exception ex) {
+                LOG.warn("Failed to delete object after multipart upload failed, key={}", key, ex);
+            }
             throw new DdlException("Failed to put object for Azure, Error message=" + e.getMessage());
         }
     }
