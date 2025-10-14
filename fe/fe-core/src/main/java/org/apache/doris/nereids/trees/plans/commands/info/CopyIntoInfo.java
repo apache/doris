@@ -214,8 +214,10 @@ public class CopyIntoInfo {
                 copyIntoProperties.getFileTypeIgnoreCompression());
         if (LOG.isDebugEnabled()) {
             LOG.debug("copy into params. sql: {}, fileColumns: {}, columnMappingList: {}, filter: {}",
-                    copyFromDesc.getFileColumns().toString(), copyFromDesc.getColumnMappingList().toString(),
-                    copyFromDesc.getFileFilterExpr().toString());
+                    originStmt,
+                    String.valueOf(copyFromDesc.getFileColumns()),
+                    String.valueOf(copyFromDesc.getColumnMappingList()),
+                    String.valueOf(copyFromDesc.getFileFilterExpr()));
         }
 
         List<String> nameParts = Lists.newArrayList();

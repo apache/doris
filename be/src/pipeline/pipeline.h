@@ -104,7 +104,7 @@ public:
         _tasks[i] = task;
     }
 
-    void make_all_runnable();
+    void make_all_runnable(PipelineId wake_by);
 
     void set_num_tasks(int num_tasks) {
         _num_tasks = num_tasks;
