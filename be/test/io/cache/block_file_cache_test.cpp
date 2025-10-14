@@ -3338,6 +3338,7 @@ TEST_F(BlockFileCacheTest, test_disposable) {
 TEST_F(BlockFileCacheTest, test_query_limit) {
     {
         config::enable_file_cache_query_limit = true;
+        config::enable_file_cache_fill_async = false;
         if (fs::exists(cache_base_path)) {
             fs::remove_all(cache_base_path);
         }
