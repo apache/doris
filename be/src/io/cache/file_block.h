@@ -63,8 +63,7 @@ public:
         SKIP_CACHE,
     };
 
-    FileBlock(const FileCacheKey& key, size_t size, BlockFileCache* mgr, State download_state,
-              int64_t tablet_id);
+    FileBlock(const FileCacheKey& key, size_t size, BlockFileCache* mgr, State download_state);
 
     ~FileBlock() = default;
 
@@ -114,6 +113,8 @@ public:
     bool is_downloader() const;
 
     FileCacheType cache_type() const { return _key.meta.type; }
+
+    int64_t tablet_id() const { return _key.meta.tablet_id; }
 
     static uint64_t get_caller_id();
 
@@ -170,7 +171,6 @@ private:
     bool _is_deleting {false};
 
     FileBlockCell* cell;
-    int64_t _tablet_id {0};
 };
 
 extern std::ostream& operator<<(std::ostream& os, const FileBlock::State& value);

@@ -37,12 +37,11 @@ std::ostream& operator<<(std::ostream& os, const FileBlock::State& value) {
 }
 
 FileBlock::FileBlock(const FileCacheKey& key, size_t size, BlockFileCache* mgr,
-                     State download_state, int64_t tablet_id)
+                     State download_state)
         : _block_range(key.offset, key.offset + size - 1),
           _download_state(download_state),
           _mgr(mgr),
-          _key(key),
-          _tablet_id(tablet_id) {
+          _key(key) {
     /// On creation, file block state can be EMPTY, DOWNLOADED, SKIP_CACHE.
     switch (_download_state) {
     case State::DOWNLOADING: {
@@ -115,7 +114,7 @@ void FileBlock::reset_downloader_impl(std::lock_guard<std::mutex>& block_lock) {
 Status FileBlock::set_downloaded(std::lock_guard<std::mutex>& /* block_lock */) {
     DCHECK(_download_state != State::DOWNLOADED);
     DCHECK_NE(_downloaded_size, 0);
-    Status status = _mgr->_storage->finalize(_key);
+    Status status = _mgr->_storage->finalize(_key, this->_block_range.size());
     if (status.ok()) [[likely]] {
         _download_state = State::DOWNLOADED;
     } else {

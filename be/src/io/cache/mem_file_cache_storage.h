@@ -36,7 +36,7 @@ public:
     ~MemFileCacheStorage() override;
     Status init(BlockFileCache* _mgr) override;
     Status append(const FileCacheKey& key, const Slice& value) override;
-    Status finalize(const FileCacheKey& key) override;
+    Status finalize(const FileCacheKey& key, const size_t size) override;
     Status read(const FileCacheKey& key, size_t value_offset, Slice buffer) override;
     Status remove(const FileCacheKey& key) override;
     Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type) override;
