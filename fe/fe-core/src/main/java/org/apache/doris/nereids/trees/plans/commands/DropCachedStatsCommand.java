@@ -41,7 +41,7 @@ import java.util.Objects;
  * syntax:
  * DROP CACHED STATS TableName;
  */
-public class DropCachedStatsCommand extends DropCommand {
+public class DropCachedStatsCommand extends Command implements NoForward {
     private final TableNameInfo tableNameInfo;
     private long catalogId;
     private long dbId;
@@ -54,7 +54,7 @@ public class DropCachedStatsCommand extends DropCommand {
     }
 
     @Override
-    public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         ctx.getEnv().getAnalysisManager().dropCachedStats(catalogId, dbId, tblId);
     }
