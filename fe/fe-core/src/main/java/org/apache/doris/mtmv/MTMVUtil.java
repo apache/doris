@@ -90,6 +90,13 @@ public class MTMVUtil {
         return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
     }
 
+    public static TableIf getTable(List<String> names) throws AnalysisException {
+        return Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrAnalysisException(names.get(0))
+                .getDbOrAnalysisException(names.get(1))
+                .getTableOrAnalysisException(names.get(2));
+    }
+
     /**
      * if base tables of mtmv contains external table
      *

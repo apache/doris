@@ -26,6 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -94,10 +95,11 @@ public class PartitionCompensator {
         Set<String> mvValidPartitionNameSet = new HashSet<>();
         Set<String> mvValidBaseTablePartitionNameSet = new HashSet<>();
         Set<String> mvValidHasDataRelatedBaseTableNameSet = new HashSet<>();
-        Pair<Map<String, Set<String>>, Map<String, String>> partitionMapping = mtmv.calculateDoublyPartitionMappings();
+        // mvPartitionName => pctTable => pctPartitionName
+        Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMapping = mtmv.calculatePartitionMappings();
         for (Partition mvValidPartition : mvValidPartitions) {
             mvValidPartitionNameSet.add(mvValidPartition.getName());
-            Set<String> relatedBaseTablePartitions = partitionMapping.key().get(mvValidPartition.getName());
+            Set<String> relatedBaseTablePartitions = partitionMapping.get(mvValidPartition.getName()).get("");
             if (relatedBaseTablePartitions != null) {
                 mvValidBaseTablePartitionNameSet.addAll(relatedBaseTablePartitions);
             }
@@ -125,7 +127,7 @@ public class PartitionCompensator {
         Sets.difference(rewrittenPlanUsePartitionNameSet, mvValidPartitionNameSet)
                 .copyInto(mvNeedRemovePartitionNameSet);
         for (String partitionName : mvNeedRemovePartitionNameSet) {
-            baseTableNeedUnionPartitionNameSet.addAll(partitionMapping.key().get(partitionName));
+            baseTableNeedUnionPartitionNameSet.addAll(partitionMapping.get(partitionName).get(""));
         }
         // If related base table create partitions or mv is created with ttl, need base table union
         Sets.difference(queryUsedBaseTablePartitionNameSet, mvValidBaseTablePartitionNameSet)

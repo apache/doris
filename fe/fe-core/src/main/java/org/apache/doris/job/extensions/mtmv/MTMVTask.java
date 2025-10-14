@@ -45,6 +45,7 @@ import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -210,12 +211,14 @@ public class MTMVTask extends AbstractTask {
                     checkColumnTypeIfChange(mtmv, ctx);
                 }
                 if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
-                    MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
-                    if (!relatedTable.isValidRelatedTable()) {
-                        throw new JobException("MTMV " + mtmv.getName() + "'s related table " + relatedTable.getName()
-                                + " is not a valid related table anymore, stop refreshing."
-                                + " e.g. Table has multiple partition columns"
-                                + " or including not supported transform functions.");
+                    Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
+                    for (MTMVRelatedTableIf pctTable : pctTables) {
+                        if (!pctTable.isValidRelatedTable()) {
+                            throw new JobException("MTMV " + mtmv.getName() + "'s pct table " + pctTable.getName()
+                                    + " is not a valid pct table anymore, stop refreshing."
+                                    + " e.g. Table has multiple partition columns"
+                                    + " or including not supported transform functions.");
+                        }
                     }
                     syncPartitions = MTMVPartitionUtil.alignMvPartition(mtmv);
                 }
@@ -611,8 +614,16 @@ public class MTMVTask extends AbstractTask {
     private Map<TableIf, String> getIncrementalTableMap() throws AnalysisException {
         Map<TableIf, String> tableWithPartKey = Maps.newHashMap();
         if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
-            tableWithPartKey
-                    .put(mtmv.getMvPartitionInfo().getRelatedTable(), mtmv.getMvPartitionInfo().getRelatedCol());
+            List<BaseColInfo> pctInfos = mtmv.getMvPartitionInfo().getPctInfos();
+            List<BaseColInfo> filteredNonPctTables = mtmv.getMvPartitionInfo().getFilteredNonPctTables();
+            for (BaseColInfo pctInfo : pctInfos) {
+                tableWithPartKey
+                        .put(MTMVUtil.getTable(pctInfo.getTableInfo()), pctInfo.getColName());
+            }
+            for (BaseColInfo pctInfo : filteredNonPctTables) {
+                tableWithPartKey
+                        .put(MTMVUtil.getTable(pctInfo.getTableInfo()), pctInfo.getColName());
+            }
         }
         return tableWithPartKey;
     }
