@@ -174,7 +174,12 @@ public class OlapTableSink extends DataSink {
         tSink.setLoadToSingleTablet(loadToSingleTablet);
         tSink.setTxnTimeoutS(txnExpirationS);
         if (randomTabletSwitchingThreshold > 0) {
+            LOG.info("OlapTableSink: setting tSink.setRandomTabletSwitchingThreshold = {}",
+                     randomTabletSwitchingThreshold);
             tSink.setRandomTabletSwitchingThreshold(randomTabletSwitchingThreshold);
+        } else {
+            LOG.info("OlapTableSink: randomTabletSwitchingThreshold <= 0, not setting. value = {}",
+                     randomTabletSwitchingThreshold);
         }
         String vaultId = dstTable.getStorageVaultId();
         if (vaultId != null && !vaultId.isEmpty()) {
@@ -213,8 +218,27 @@ public class OlapTableSink extends DataSink {
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS,
             int sendBatchParallelism, boolean loadToSingleTablet, boolean isStrictMode,
             long txnExpirationS, OlapInsertCommandContext olapInsertCtx) throws UserException {
+        // Read from session variable if available
+        long randomTabletSwitchingThreshold = 0L;
+        if (ConnectContext.get() != null) {
+            randomTabletSwitchingThreshold =
+                ConnectContext.get().getSessionVariable().getRandomDistributionTabletSwitchingThreshold();
+            LOG.info("OlapTableSink.init (legacy): reading from session variable, threshold = {}",
+                     randomTabletSwitchingThreshold);
+        }
         init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
-                isStrictMode, txnExpirationS);
+                isStrictMode, txnExpirationS, randomTabletSwitchingThreshold);
+    }
+
+    // init for nereids insert into with random tablet switching threshold
+    public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS,
+            int sendBatchParallelism, boolean loadToSingleTablet, boolean isStrictMode,
+            long txnExpirationS, long randomTabletSwitchingThreshold,
+            OlapInsertCommandContext olapInsertCtx) throws UserException {
+        LOG.info("OlapTableSink.init: received random_distribution_tablet_switching_threshold = {}",
+                 randomTabletSwitchingThreshold);
+        init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
+                isStrictMode, txnExpirationS, randomTabletSwitchingThreshold);
         for (Long partitionId : partitionIds) {
             Partition partition = dstTable.getPartition(partitionId);
             if (dstTable.getIndexNumber() != partition.getMaterializedIndices(IndexExtState.ALL).size()) {
