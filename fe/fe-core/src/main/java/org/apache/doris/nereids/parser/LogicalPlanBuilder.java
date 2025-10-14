@@ -28,7 +28,6 @@ import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LockTable;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.ResourceDesc;
@@ -2013,10 +2012,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<String> mutableColNames = colNames == null ? null : new ArrayList<>(colNames);
             List<String> mutableColumnsFromPath = columnsFromPath == null ? null : new ArrayList<>(columnsFromPath);
 
-            PartitionNames partitionNames = null;
+            PartitionNamesInfo partitionNamesInfo = null;
             if (ddc.partitionSpec() != null) {
                 Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ddc.partitionSpec());
-                partitionNames = new PartitionNames(partitionSpec.first, partitionSpec.second);
+                partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
             }
             // TODO: multi location
             List<String> multiFilePaths = new ArrayList<>();
@@ -2056,7 +2055,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     : visitPropertyClause(ddc.propertyClause());
             dataDescriptions.add(new NereidsDataDescription(
                     tableName,
-                    partitionNames,
+                    partitionNamesInfo,
                     filePaths,
                     mutableColNames,
                     new Separator(columnSeparator),
