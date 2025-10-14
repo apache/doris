@@ -18,27 +18,36 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.X509TlsReloadableKeyManager;
 
+import io.grpc.util.AdvancedTlsX509TrustManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.Closeable;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.security.GeneralSecurityException;
 import java.security.KeyManagementException;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.UnrecoverableKeyException;
 import java.security.cert.CertificateException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLEngineResult.HandshakeStatus;
 import javax.net.ssl.SSLException;
+import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 
 public class MysqlSslContext {
@@ -48,14 +57,16 @@ public class MysqlSslContext {
     private SSLContext sslContext;
     private String protocol;
     private ByteBuffer serverAppData;
-    private static final String keyStoreFile = Config.tls_certificate_p12_path;
-    private static final String trustStoreFile = Config.tls_ca_certificate_p12_path;
-    private static final String caCertificatePassword = Config.tls_private_key_password;
-    private static final String serverCertificatePassword = Config.tls_private_key_password;
-    private static final String trustStoreType = "JKS";
+    private static final String keyStoreFile = Config.mysql_ssl_default_server_certificate;
+    private static final String trustStoreFile = Config.mysql_ssl_default_ca_certificate;
+    private static final String caCertificatePassword = Config.mysql_ssl_default_ca_certificate_password;
+    private static final String serverCertificatePassword = Config.mysql_ssl_default_server_certificate_password;
+    private static final String trustStoreType = Config.ssl_trust_store_type;
     private ByteBuffer serverNetData;
     private ByteBuffer clientAppData;
     private ByteBuffer clientNetData;
+    private Closeable trustManagerCloseable;
+    private Closeable keyManagerCloseable;
 
     public MysqlSslContext(String protocol) {
         this.protocol = protocol;
@@ -67,6 +78,48 @@ public class MysqlSslContext {
     }
 
     private void initSslContext() {
+        if (Config.enable_tls) {
+            initSSLContextForTLS();
+            return;
+        }
+        initSSLContextForSSL();
+    }
+
+    private void initSSLContextForTLS() {
+        try {
+            AdvancedTlsX509TrustManager trustManager = AdvancedTlsX509TrustManager.newBuilder()
+                    .setVerification(AdvancedTlsX509TrustManager.Verification.CERTIFICATE_AND_HOST_NAME_VERIFICATION)
+                    .build();
+            trustManagerCloseable = trustManager.updateTrustCredentialsFromFile(
+                    new File(Config.tls_ca_certificate_path),
+                    Config.tls_cert_refresh_interval_seconds, TimeUnit.SECONDS,
+                    Executors.newSingleThreadScheduledExecutor(r -> {
+                        Thread t = new Thread(r, "MysqlSSL-TrustManager");
+                        t.setDaemon(true);
+                        return t;
+                    })
+            );
+
+            X509TlsReloadableKeyManager keyManager = new X509TlsReloadableKeyManager();
+            keyManagerCloseable = keyManager.updateIdentityCredentialsFromFile(
+                    new File(Config.tls_private_key_path), new File(Config.tls_certificate_path),
+                    Config.tls_private_key_password, Config.tls_cert_refresh_interval_seconds, TimeUnit.SECONDS,
+                    Executors.newSingleThreadScheduledExecutor(r -> {
+                        Thread t = new Thread(r, "MysqlSSL-KeyManager");
+                        t.setDaemon(true);
+                        return t;
+                    })
+            );
+            sslContext = SSLContext.getInstance(protocol);
+            sslContext.init(new KeyManager[]{ keyManager },
+                            new TrustManager[]{ trustManager },
+                            null);
+        } catch (IOException | GeneralSecurityException e) {
+            LOG.fatal("Failed to initialize SSL because", e);
+        }
+    }
+
+    private void initSSLContextForSSL() {
         try {
             KeyStore ks = KeyStore.getInstance(trustStoreType);
             KeyStore ts = KeyStore.getInstance(trustStoreType);
