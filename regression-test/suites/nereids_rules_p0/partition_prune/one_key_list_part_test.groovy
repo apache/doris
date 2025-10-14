@@ -20,6 +20,7 @@ suite("one_key_list_part_test") {
     String dbName = context.config.getDbNameByFile(context.file)
     sql """set partition_pruning_expand_threshold=1000;"""
     sql """SET enable_insert_strict = false;"""
+    sql """set enable_fold_constant_by_be=false;"""
 
     sql """drop table if exists key_1_fixed_list_int_part"""
     sql """create table key_1_fixed_list_int_part (a int, dt datetime, c varchar(100)) duplicate key(a)
