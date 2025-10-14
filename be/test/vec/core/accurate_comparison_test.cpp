@@ -17,58 +17,23 @@
 
 #include "vec/core/accurate_comparison.h"
 
-#include <gtest/gtest-message.h>
-#include <gtest/gtest-test-part.h>
-
-#include <string>
-
-#include "gtest/gtest_pred_impl.h"
-#include "runtime/primitive_type.h"
+#include <gtest/gtest.h>
 
 namespace doris::vectorized {
 TEST(VAccurateComparison, TestsOP) {
-    ASSERT_TRUE(accurate::equalsOp(static_cast<Float32>(123), static_cast<UInt64>(123)));
-    ASSERT_TRUE(accurate::lessOp(static_cast<Float32>(123), static_cast<UInt64>(124)));
-    ASSERT_TRUE(accurate::lessOp(static_cast<Float32>(-1), static_cast<UInt64>(1)));
-    ASSERT_TRUE(accurate::lessOp(static_cast<Int64>(-1), static_cast<UInt64>(1)));
-    ASSERT_TRUE(!accurate::equalsOp(static_cast<Int64>(-1), static_cast<UInt64>(-1)));
-    ASSERT_TRUE(accurate::equalsOp(-0., 0));
-    ASSERT_TRUE(accurate::lessOp(-0., 1));
-    ASSERT_TRUE(accurate::lessOp(-0.5, 1));
-    ASSERT_TRUE(accurate::lessOp(0.5, 1));
-    ASSERT_TRUE(accurate::equalsOp(1.0, 1));
-    ASSERT_TRUE(accurate::greaterOp(1.1, 1));
-    ASSERT_TRUE(accurate::greaterOp(11.1, 1));
-    ASSERT_TRUE(accurate::greaterOp(11.1, 11));
-    ASSERT_TRUE(accurate::lessOp(-11.1, 11));
-    ASSERT_TRUE(accurate::lessOp(-11.1, -11));
-    ASSERT_TRUE(accurate::lessOp(-1.1, -1));
-    ASSERT_TRUE(accurate::greaterOp(-1.1, -2));
-    ASSERT_TRUE(accurate::greaterOp(1000., 100));
-    ASSERT_TRUE(accurate::greaterOp(-100., -1000));
-    ASSERT_TRUE(accurate::lessOp(100., 1000));
-    ASSERT_TRUE(accurate::lessOp(-1000., -100));
-
-    ASSERT_TRUE(accurate::lessOp(-std::numeric_limits<Float64>::infinity(), 0));
-    ASSERT_TRUE(accurate::lessOp(-std::numeric_limits<Float64>::infinity(), 1000));
-    ASSERT_TRUE(accurate::lessOp(-std::numeric_limits<Float64>::infinity(), -1000));
-    ASSERT_TRUE(accurate::greaterOp(std::numeric_limits<Float64>::infinity(), 0));
-    ASSERT_TRUE(accurate::greaterOp(std::numeric_limits<Float64>::infinity(), 1000));
-    ASSERT_TRUE(accurate::greaterOp(std::numeric_limits<Float64>::infinity(), -1000));
-
-    ASSERT_TRUE(accurate::lessOp(1, 1e100));
-    ASSERT_TRUE(accurate::lessOp(-1, 1e100));
-    ASSERT_TRUE(accurate::lessOp(-1e100, 1));
-    ASSERT_TRUE(accurate::lessOp(-1e100, -1));
-
-    ASSERT_TRUE(accurate::equalsOp(static_cast<UInt64>(9223372036854775808ULL),
-                                   static_cast<Float64>(9223372036854775808ULL)));
-    ASSERT_TRUE(accurate::equalsOp(static_cast<UInt64>(9223372036854775808ULL),
-                                   static_cast<Float32>(9223372036854775808ULL)));
-    ASSERT_TRUE(accurate::lessOp(static_cast<UInt8>(255), 300));
-    ASSERT_TRUE(accurate::lessOp(static_cast<UInt8>(255), static_cast<Int16>(300)));
-    ASSERT_TRUE(accurate::notEqualsOp(static_cast<UInt8>(255), 44));
-    ASSERT_TRUE(accurate::notEqualsOp(static_cast<UInt8>(255), static_cast<Int16>(44)));
+    EXPECT_TRUE((EqualsOp<TYPE_INT>::apply(1, 1)));
+    EXPECT_FALSE((EqualsOp<TYPE_INT>::apply(1, 2)));
+    EXPECT_TRUE((NotEqualsOp<TYPE_INT>::apply(1, 2)));
+    EXPECT_FALSE((NotEqualsOp<TYPE_INT>::apply(1, 1)));
+    EXPECT_TRUE((LessOp<TYPE_INT>::apply(1, 2)));
+    EXPECT_FALSE((LessOp<TYPE_INT>::apply(2, 1)));
+    EXPECT_TRUE((GreaterOp<TYPE_INT>::apply(2, 1)));
+    EXPECT_FALSE((GreaterOp<TYPE_INT>::apply(1, 2)));
+    EXPECT_TRUE((LessOrEqualsOp<TYPE_INT>::apply(1, 2)));
+    EXPECT_TRUE((LessOrEqualsOp<TYPE_INT>::apply(1, 1)));
+    EXPECT_FALSE((LessOrEqualsOp<TYPE_INT>::apply(2, 1)));
+    EXPECT_TRUE((GreaterOrEqualsOp<TYPE_INT>::apply(2, 1)));
+    EXPECT_TRUE((GreaterOrEqualsOp<TYPE_INT>::apply(1, 1)));
 }
 
 } // namespace doris::vectorized

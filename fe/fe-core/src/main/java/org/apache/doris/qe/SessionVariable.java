@@ -4801,8 +4801,7 @@ public class SessionVariable implements Serializable, Writable {
                         field.set(this, root.get(attr.name()));
                         break;
                     case "double":
-                        // root.get(attr.name()) always return Double type, so need to convert it.
-                        field.set(this, Double.valueOf(root.get(attr.name()).toString()));
+                        field.set(this, root.get(attr.name()));
                         break;
                     case "String":
                         field.set(this, root.get(attr.name()));
@@ -4814,6 +4813,60 @@ public class SessionVariable implements Serializable, Writable {
             }
         } catch (Exception e) {
             throw new IOException("failed to read session variable: " + e.getMessage());
+        }
+    }
+
+    public void readFromMap(Map<String, String> sessionVarMap)  throws IOException {
+        try {
+            for (Field field : SessionVariable.class.getDeclaredFields()) {
+                VarAttr attr = field.getAnnotation(VarAttr.class);
+                if (attr == null) {
+                    continue;
+                }
+
+                if (!sessionVarMap.containsKey(attr.name())) {
+                    continue;
+                }
+
+                switch (field.getType().getSimpleName()) {
+                    case "boolean":
+                        String value = sessionVarMap.get(attr.name());
+                        if (value.equalsIgnoreCase("ON")
+                                || value.equalsIgnoreCase("TRUE")
+                                || value.equalsIgnoreCase("1")) {
+                            field.setBoolean(this, true);
+                        } else if (value.equalsIgnoreCase("OFF")
+                                || value.equalsIgnoreCase("FALSE")
+                                || value.equalsIgnoreCase("0")) {
+                            field.setBoolean(this, false);
+                        } else {
+                            throw new IllegalAccessException("Variable " + attr.name()
+                                    + " can't be set to the value of " + value);
+                        }
+                        break;
+                    case "int":
+                        field.set(this, Integer.valueOf(sessionVarMap.get(attr.name())));
+                        break;
+                    case "long":
+                        field.set(this, Long.valueOf(sessionVarMap.get(attr.name())));
+                        break;
+                    case "float":
+                        field.set(this, Float.valueOf(sessionVarMap.get(attr.name())));
+                        break;
+                    case "double":
+                        field.set(this, Double.valueOf(sessionVarMap.get(attr.name())));
+                        break;
+                    case "String":
+                        field.set(this, sessionVarMap.get(attr.name()));
+                        break;
+                    default:
+                        // Unsupported type variable.
+                        throw new IOException("invalid type: " + field.getType().getSimpleName());
+                }
+
+            }
+        } catch (Exception ex) {
+            throw new IOException("invalid session variable, " + ex.getMessage());
         }
     }
 

@@ -813,3 +813,31 @@ false	1	1989	1001	11011902	123.123	true	1989-03-21	1989-03-21T13:00	wangjuoo4	0.
 -- !coalesce10 --
 1
 
+-- !coalesce11 --
+{"k":"v"}
+
+-- !coalesce_json --
+1	{"k":123}
+2	{"k": 0}
+3	{"k":789}
+
+-- !coalesce_map --
+1	{"k":123}
+2	{"k":0}
+3	{"k":789}
+
+-- !coalesce_array --
+1	[123, 456]
+2	[0]
+3	[789]
+
+-- !coalesce_array2 --
+1	[123, 456]
+2	\N
+3	[789]
+
+-- !coalesce_struct --
+1	{"name":"Alice", "age":30}
+2	{"name":"Charlie", "age":18}
+3	{"name":"Bob", "age":25}
+

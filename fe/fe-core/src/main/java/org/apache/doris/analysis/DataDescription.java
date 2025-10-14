@@ -35,6 +35,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.load.NereidsLoadUtils;
@@ -357,7 +358,7 @@ public class DataDescription {
     }
 
     // data desc for mysql client
-    public DataDescription(TableName tableName,
+    public DataDescription(TableNameInfo tableName,
                            PartitionNames partitionNames,
                            String file,
                            boolean clientLocal,
