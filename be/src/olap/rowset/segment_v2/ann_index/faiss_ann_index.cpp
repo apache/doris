@@ -97,11 +97,7 @@ public:
     explicit ScopedThreadName(const std::string& new_name) {
         // POSIX limits thread names to 15 visible chars plus the null terminator.
         char current_name[16] = {0};
-#ifdef __APPLE__
         int ret = pthread_getname_np(pthread_self(), current_name, sizeof(current_name));
-#else
-        int ret = pthread_getname_np(pthread_self(), current_name, sizeof(current_name));
-#endif
         if (ret == 0) {
             _has_previous_name = true;
             _previous_name = current_name;
