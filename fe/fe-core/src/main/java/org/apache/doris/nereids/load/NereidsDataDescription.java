@@ -1060,7 +1060,7 @@ public class NereidsDataDescription {
         analyzeFilePaths();
 
         if (partitionNamesInfo != null) {
-            partitionNamesInfo.analyze();
+            partitionNamesInfo.validate();
         }
 
         analyzeColumns();
