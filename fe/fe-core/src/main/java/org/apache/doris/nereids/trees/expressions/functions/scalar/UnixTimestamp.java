@@ -49,8 +49,8 @@ public class UnixTimestamp extends ScalarFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(),
             FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DateTimeV2Type.WILDCARD),
             FunctionSignature.ret(BigIntType.INSTANCE).args(DateV2Type.INSTANCE),
-                    FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(18, 6)).args(VarcharType.SYSTEM_DEFAULT,
-                    VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(18, 6)).args(VarcharType.SYSTEM_DEFAULT,
+                            VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(DecimalV3Type.createDecimalV3Type(18, 6)).args(StringType.INSTANCE,
                     StringType.INSTANCE)
     );
