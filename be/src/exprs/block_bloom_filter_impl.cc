@@ -21,21 +21,23 @@
 #include <butil/iobuf.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <stdint.h>
 
 #include <algorithm>
 #include <climits> // IWYU pragma: keep
 #include <cmath>   // IWYU pragma: keep
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <string>
+#include <cstddef>
 
 #include "common/status.h"
 #include "exprs/block_bloom_filter.hpp"
 // IWYU pragma: no_include <emmintrin.h>
 #include "util/sse_util.hpp"
 
-#ifdef __aarch64__
+#ifdef __ARM_FEATURE_SVE
+#include <arm_sve.h>
+#elif defined(__ARM_NEON)
 #include <arm_neon.h>
 #endif
 
@@ -123,7 +125,51 @@ void BlockBloomFilter::close() {
     }
 }
 
-#ifdef __aarch64__
+#ifdef __ARM_FEATURE_SVE
+
+static constexpr uint32_t svRehash[8] __attribute__((aligned(32))) = {BLOOM_HASH_CONSTANTS};
+
+static inline ALWAYS_INLINE svuint32_t make_mask(svbool_t pg, const uint32_t base, const uint32_t hash) {
+    const svuint32_t vones = svdup_u32(1U);
+    const svuint32_t vhash = svdup_u32(hash);
+    svuint32_t vrehash = svld1(pg, svRehash + base);
+    svuint32_t vprod = svmul_u32_x(pg, vrehash, vhash);
+    svuint32_t vshr  = svlsr_n_u32_x(pg, vprod, 27);
+    return svlsl_u32_x(pg, vones, vshr);
+}
+
+void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t hash) noexcept {
+    uint32_t* bucket = _directory[bucket_idx];
+
+    uint32_t base = 0;
+    while (base < kBucketWords) {
+        svbool_t pg = svwhilelt_b32(base, (uint32_t)kBucketWords);
+        svuint32_t mask = make_mask(pg, base, hash);
+        svuint32_t data = svld1(pg, bucket + base);
+        data = svorr_u32_x(pg, data, mask);
+        svst1(pg, bucket + base, data);
+        base += svcntw();
+    }
+}
+
+bool BlockBloomFilter::bucket_find(uint32_t bucket_idx, uint32_t hash) const noexcept {
+    const uint32_t* bucket = _directory[bucket_idx];
+
+    uint32_t base = 0;
+    while (base < kBucketWords) {
+        svbool_t pg = svwhilelt_b32(base, (uint32_t)kBucketWords);
+        svuint32_t mask = make_mask(pg, base, hash);
+        svuint32_t data = svld1(pg, bucket + base);
+        data = svand_u32_x(pg, data, mask);
+        svbool_t zero = svcmpeq_n_u32(pg, data, 0U);
+        if (svptest_any(pg, zero)) {
+            return false;
+        }
+        base += svcntw();
+    }
+    return true;
+}
+#elif defined(__ARM_NEON)
 // A static helper function for the arm64 methods. Turns a 32-bit hash into a 256-bit
 // Bucket with 1 single 1-bit set in each 32-bit lane.
 static inline ALWAYS_INLINE uint32x4x2_t make_mask(const uint32_t hash) {
@@ -236,7 +282,16 @@ Status BlockBloomFilter::or_equal_array(size_t n, const uint8_t* __restrict__ in
 
 void BlockBloomFilter::or_equal_array_no_avx2(size_t n, const uint8_t* __restrict__ in,
                                               uint8_t* __restrict__ out) {
-#ifdef __aarch64__
+#ifdef __ARM_FEATURE_SVE
+    size_t base = 0;
+    while (base < n) {
+        svbool_t pg  = svwhilelt_b8(base, n);
+        svuint8_t a  = svld1(pg, in  + base);
+        svuint8_t b  = svld1(pg, out + base);
+        svst1(pg, out + base, svorr_u8_x(pg, b, a));
+        base += svcntb();
+    }
+#elif defined(__ARM_NEON)
     // The trivial loop out[i] |= in[i] should auto-vectorize with gcc at -O3, but it is not
     // written in a way that is very friendly to auto-vectorization. Instead, we manually
     // vectorize, increasing the speed by up to 56x.
