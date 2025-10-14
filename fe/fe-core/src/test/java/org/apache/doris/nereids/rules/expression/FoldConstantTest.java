@@ -104,8 +104,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
@@ -360,13 +358,16 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         rewritten = executor.rewrite(microsecondsAdd, context);
         Assertions.assertEquals(microsecondsAdd, rewritten);
 
-        ToDays toDays = new ToDays(DateLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)));
-        rewritten = executor.rewrite(toDays, context);
-        Assertions.assertEquals(new IntegerLiteral(366), rewritten);
-        toDays = new ToDays(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)));
+        ToDays toDays = new ToDays(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)));
         rewritten = executor.rewrite(toDays, context);
         Assertions.assertEquals(new IntegerLiteral(366), rewritten);
         toDays = new ToDays(DateV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 1, 1, 1)));
+        rewritten = executor.rewrite(toDays, context);
+        Assertions.assertEquals(new IntegerLiteral(3652424), rewritten);
+        toDays = new ToDays(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1), 0));
+        rewritten = executor.rewrite(toDays, context);
+        Assertions.assertEquals(new IntegerLiteral(366), rewritten);
+        toDays = new ToDays(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 1, 1, 1), 0));
         rewritten = executor.rewrite(toDays, context);
         Assertions.assertEquals(new IntegerLiteral(3652424), rewritten);
 
@@ -454,28 +455,20 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         rewritten = executor.rewrite(c, context);
         Assertions.assertTrue(new DateTimeV2Literal("9999-12-31 23:59:59.999999").compareTo((ComparableLiteral) rewritten) == 0);
 
-        DateFormat d = new DateFormat(DateTimeLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
-                StringLiteral.of("%y %m %d"));
-        rewritten = executor.rewrite(d, context);
-        Assertions.assertEquals(new VarcharLiteral("01 01 01"), rewritten);
-        d = new DateFormat(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
-                StringLiteral.of("%y %m %d"));
-        rewritten = executor.rewrite(d, context);
-        Assertions.assertEquals(new VarcharLiteral("01 01 01"), rewritten);
-        d = new DateFormat(DateLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
-                StringLiteral.of("%y %m %d"));
+        DateFormat d = new DateFormat(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                        StringLiteral.of("%y %m %d"));
         rewritten = executor.rewrite(d, context);
         Assertions.assertEquals(new VarcharLiteral("01 01 01"), rewritten);
         d = new DateFormat(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
-                StringLiteral.of("%y %m %d"));
+                        StringLiteral.of("%y %m %d"));
         rewritten = executor.rewrite(d, context);
         Assertions.assertEquals(new VarcharLiteral("01 01 01"), rewritten);
 
         d = new DateFormat(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
-                        StringLiteral.of(StringUtils.repeat("s", 128) + "   "));
-
+                        StringLiteral.of(StringUtils.repeat("s", 128) + " "));
         rewritten = executor.rewrite(d, context);
-        Assertions.assertEquals(new VarcharLiteral(StringUtils.repeat("s", 128) + "   "), rewritten);
+        Assertions.assertEquals(new VarcharLiteral(StringUtils.repeat("s", 128) + " "), rewritten);
+
         DateTrunc t = new DateTrunc(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                 StringLiteral.of("week"));
         rewritten = executor.rewrite(t, context);
@@ -1196,60 +1189,6 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    void testDateTypeDateTimeArithmeticFunctions() {
-        DateLiteral dateLiteral = new DateLiteral("1999-12-31");
-        VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
-
-        String[] answer = {
-                "1999", "4", "12", "6", "31", "365", "31",
-                "'1999-12-31'", "'1999-12-27'"
-        };
-        int answerIdx = 0;
-
-        Assertions.assertEquals(DateTimeExtractAndTransform.year(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.quarter(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.month(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfWeek(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfMonth(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfYear(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.day(dateLiteral).toSql(), answer[answerIdx++]);
-
-        Assertions.assertEquals(DateTimeExtractAndTransform.dateFormat(dateLiteral, format).toSql(),
-                answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.toMonday(dateLiteral).toSql(), answer[answerIdx++]);
-    }
-
-    @Test
-    void testDateTimeTypeDateTimeArithmeticFunctions() {
-        DateTimeLiteral dateLiteral = new DateTimeLiteral("1999-12-31 23:59:59");
-        VarcharLiteral format = new VarcharLiteral("%Y-%m-%d");
-
-        String[] answer = {
-                "1999", "4", "12", "6", "31", "365", "31", "23", "59", "59",
-                "'1999-12-31'", "'1999-12-27'", "'1999-12-31'", "730484", "'1999-12-31'"
-        };
-        int answerIdx = 0;
-
-        Assertions.assertEquals(DateTimeExtractAndTransform.year(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.quarter(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.month(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfWeek(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfMonth(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.dayOfYear(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.day(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.hour(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.minute(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.second(dateLiteral).toSql(), answer[answerIdx++]);
-
-        Assertions.assertEquals(DateTimeExtractAndTransform.dateFormat(dateLiteral, format).toSql(),
-                answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.toMonday(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.toDate(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.toDays(dateLiteral).toSql(), answer[answerIdx++]);
-        Assertions.assertEquals(DateTimeExtractAndTransform.date(dateLiteral).toSql(), answer[answerIdx]);
-    }
-
-    @Test
     void testDateV2TypeDateTimeArithmeticFunctions() {
         DateV2Literal dateLiteral = new DateV2Literal("1999-12-31");
         IntegerLiteral integerLiteral = new IntegerLiteral(30);
@@ -1364,11 +1303,11 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeExtractAndTransform.dateV2(dateLiteral).toSql(), answer[answerIdx]);
 
         Assertions.assertEquals("'2021 52 2021 52'", DateTimeExtractAndTransform.dateFormat(
-                new DateTimeLiteral("2022-01-01 00:12:42"),
-                new VarcharLiteral("%x %v %X %V")).toSql());
+                        new DateTimeV2Literal("2022-01-01 00:12:42"),
+                        new VarcharLiteral("%x %v %X %V")).toSql());
         Assertions.assertEquals("'2023 18 2023 19'", DateTimeExtractAndTransform.dateFormat(
-                new DateTimeLiteral("2023-05-07 02:41:42"),
-                new VarcharLiteral("%x %v %X %V")).toSql());
+                        new DateTimeV2Literal("2023-05-07 02:41:42"),
+                        new VarcharLiteral("%x %v %X %V")).toSql());
 
         Assertions.assertTrue(new DateTimeV2Literal("2021-01-01 12:12:14.000000").compareTo((ComparableLiteral) TimeRoundSeries
                 .secondCeil(new DateTimeV2Literal("2021-01-01 12:12:12.123"), new IntegerLiteral(2))) == 0);
@@ -1378,16 +1317,12 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
     void testDateDiff() {
-        DateTimeLiteral dateTimeLiteral = new DateTimeLiteral("2001-12-31 00:00:01");
         DateV2Literal dateV2Literal = new DateV2Literal("2001-12-31");
         DateTimeV2Literal dateTimeV2Literal = new DateTimeV2Literal("2001-12-31 00:00:01");
 
-        DateTimeLiteral dateTimeLiteral1 = new DateTimeLiteral("2006-12-31 00:00:01");
         DateV2Literal dateV2Literal1 = new DateV2Literal("2006-12-31");
         DateTimeV2Literal dateTimeV2Literal1 = new DateTimeV2Literal("2006-12-31 01:00:01");
 
-        Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeLiteral, dateTimeLiteral1).toSql(), "-1826");
-        Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeLiteral1, dateTimeLiteral).toSql(), "1826");
         Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateV2Literal, dateV2Literal1).toSql(), "-1826");
         Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateV2Literal1, dateV2Literal).toSql(), "1826");
         Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateV2Literal, dateTimeV2Literal1).toSql(), "-1826");
@@ -1442,7 +1377,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 new VarcharLiteral("%Y-%m-%d")
         ).toSql());
         Assertions.assertEquals(answer[answerIdx++], DateTimeExtractAndTransform.unixTimestamp(
-                new DateTimeLiteral("2001-12-21 12:34:53")
+                        new DateTimeV2Literal("2001-12-21 12:34:53")
         ).toSql());
         Assertions.assertEquals(answer[answerIdx], DateTimeExtractAndTransform.unixTimestamp(
                 new VarcharLiteral("2001-12-21"),
