@@ -144,10 +144,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
         } catch (AnalysisException ae) {
             log.warn("parse streaming insert job failed, props: {}", properties, ae);
-            throw new RuntimeException("parse streaming insert job failed, " +  ae.getMessage());
+            throw new RuntimeException(ae.getMessage());
         } catch (Exception ex) {
             log.warn("init streaming insert job failed, sql: {}", getExecuteSql(), ex);
-            throw new RuntimeException("init streaming insert job failed, " +  ex.getMessage());
+            throw new RuntimeException(ex.getMessage());
         }
     }
 
@@ -387,7 +387,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getFailedTaskCount().get())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getCanceledTaskCount().get())));
         trow.addToColumnValue(new TCell().setStringVal(getComment()));
-        trow.addToColumnValue(new TCell().setStringVal(properties != null
+        trow.addToColumnValue(new TCell().setStringVal(properties != null && !properties.isEmpty()
                 ? GsonUtils.GSON.toJson(properties) : FeConstants.null_string));
 
         if (offsetProvider != null && StringUtils.isNotEmpty(offsetProvider.getShowCurrentOffset())) {
