@@ -181,8 +181,8 @@ public:
 
     virtual ordinal_t get_next_rowid() const = 0;
 
-    // Get the total size of data pages for this column
-    virtual uint64_t get_total_data_pages_size() const = 0;
+    virtual uint64_t get_total_uncompressed_data_pages_size() const = 0;
+    virtual uint64_t get_total_compressed_data_pages_size() const = 0;
 
     // used for append not null data.
     virtual Status append_data(const uint8_t** ptr, size_t num_rows) = 0;
@@ -233,8 +233,13 @@ public:
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
-    // Get the total size of data pages for this column
-    uint64_t get_total_data_pages_size() const override { return _data_page_size; }
+    uint64_t get_total_uncompressed_data_pages_size() const override {
+        return _total_uncompressed_data_pages_size;
+    }
+
+    uint64_t get_total_compressed_data_pages_size() const override {
+        return _total_compressed_data_pages_size;
+    }
 
     void register_flush_page_callback(FlushPageCallback* flush_page_callback) {
         _new_page_callback = flush_page_callback;
@@ -293,7 +298,9 @@ private:
     // total size of data page list
     uint64_t _data_size;
 
-    uint64_t _data_page_size {0};
+    // TODO: collect from enderlying page builder
+    uint64_t _total_uncompressed_data_pages_size {0};
+    uint64_t _total_compressed_data_pages_size {0};
 
     // cached generated pages,
     std::vector<std::unique_ptr<Page>> _pages;
@@ -375,12 +382,19 @@ public:
 
     ordinal_t get_next_rowid() const override { return _sub_column_writers[0]->get_next_rowid(); }
 
-    // Get the total size of data pages for this column
-    uint64_t get_total_data_pages_size() const override {
-        return (is_nullable() ? _null_writer->get_total_data_pages_size() : 0) +
+    uint64_t get_total_uncompressed_data_pages_size() const override {
+        return (is_nullable() ? _null_writer->get_total_uncompressed_data_pages_size() : 0) +
                std::accumulate(_sub_column_writers.begin(), _sub_column_writers.end(), 0ULL,
                                [](uint64_t sum, const std::unique_ptr<ColumnWriter>& writer) {
-                                   return sum + writer->get_total_data_pages_size();
+                                   return sum + writer->get_total_uncompressed_data_pages_size();
+                               });
+    }
+
+    uint64_t get_total_compressed_data_pages_size() const override {
+        return (is_nullable() ? _null_writer->get_total_compressed_data_pages_size() : 0) +
+               std::accumulate(_sub_column_writers.begin(), _sub_column_writers.end(), 0ULL,
+                               [](uint64_t sum, const std::unique_ptr<ColumnWriter>& writer) {
+                                   return sum + writer->get_total_compressed_data_pages_size();
                                });
     }
 
@@ -435,11 +449,16 @@ public:
     }
     ordinal_t get_next_rowid() const override { return _offset_writer->get_next_rowid(); }
 
-    // Get the total size of data pages for this column
-    uint64_t get_total_data_pages_size() const override {
-        return _offset_writer->get_total_data_pages_size() +
-               (is_nullable() ? _null_writer->get_total_data_pages_size() : 0) +
-               _item_writer->get_total_data_pages_size();
+    uint64_t get_total_uncompressed_data_pages_size() const override {
+        return _offset_writer->get_total_uncompressed_data_pages_size() +
+               (is_nullable() ? _null_writer->get_total_uncompressed_data_pages_size() : 0) +
+               _item_writer->get_total_uncompressed_data_pages_size();
+    }
+
+    uint64_t get_total_compressed_data_pages_size() const override {
+        return _offset_writer->get_total_compressed_data_pages_size() +
+               (is_nullable() ? _null_writer->get_total_compressed_data_pages_size() : 0) +
+               _item_writer->get_total_compressed_data_pages_size();
     }
 
 private:
@@ -500,13 +519,21 @@ public:
     // according key writer to get next rowid
     ordinal_t get_next_rowid() const override { return _offsets_writer->get_next_rowid(); }
 
-    // Get the total size of data pages for this column
-    uint64_t get_total_data_pages_size() const override {
-        return _offsets_writer->get_total_data_pages_size() +
-               (is_nullable() ? _null_writer->get_total_data_pages_size() : 0) +
+    uint64_t get_total_uncompressed_data_pages_size() const override {
+        return _offsets_writer->get_total_uncompressed_data_pages_size() +
+               (is_nullable() ? _null_writer->get_total_uncompressed_data_pages_size() : 0) +
                std::accumulate(_kv_writers.begin(), _kv_writers.end(), 0ULL,
                                [](uint64_t sum, const std::unique_ptr<ColumnWriter>& writer) {
-                                   return sum + writer->get_total_data_pages_size();
+                                   return sum + writer->get_total_uncompressed_data_pages_size();
+                               });
+    }
+
+    uint64_t get_total_compressed_data_pages_size() const override {
+        return _offsets_writer->get_total_compressed_data_pages_size() +
+               (is_nullable() ? _null_writer->get_total_compressed_data_pages_size() : 0) +
+               std::accumulate(_kv_writers.begin(), _kv_writers.end(), 0ULL,
+                               [](uint64_t sum, const std::unique_ptr<ColumnWriter>& writer) {
+                                   return sum + writer->get_total_compressed_data_pages_size();
                                });
     }
 
@@ -544,8 +571,11 @@ public:
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
-    // Get the total size of data pages for this column
-    uint64_t get_total_data_pages_size() const override {
+    uint64_t get_total_uncompressed_data_pages_size() const override {
+        return 0; // TODO
+    }
+
+    uint64_t get_total_compressed_data_pages_size() const override {
         return 0; // TODO
     }
 
@@ -598,8 +628,11 @@ public:
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
-    // Get the total size of data pages for this column
-    uint64_t get_total_data_pages_size() const override {
+    uint64_t get_total_uncompressed_data_pages_size() const override {
+        return 0; // TODO
+    }
+
+    uint64_t get_total_compressed_data_pages_size() const override {
         return 0; // TODO
     }
 

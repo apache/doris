@@ -636,7 +636,7 @@ Status ScalarColumnWriter::write_data() {
                 {dict_body.slice()}, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
     }
-    _data_page_size += _file_writer->bytes_appended() - offset;
+    _total_compressed_data_pages_size += _file_writer->bytes_appended() - offset;
     _page_builder.reset();
     return Status::OK();
 }
