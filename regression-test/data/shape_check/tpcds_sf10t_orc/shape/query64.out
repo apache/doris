@@ -57,33 +57,33 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------------------------------------------------------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF19
 ------------------------------------------------------------------------PhysicalProject
 --------------------------------------------------------------------------filter(d_year IN (1999, 2000))
-----------------------------------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------------------------------------------PhysicalOlapScan[date_dim(d1)]
 --------------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------------PhysicalOlapScan[store]
 ----------------------------------------------------------------PhysicalProject
 ------------------------------------------------------------------PhysicalOlapScan[customer] apply RFs: RF8 RF9 RF11 RF14 RF16
 ------------------------------------------------------------PhysicalProject
---------------------------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------------------------------PhysicalOlapScan[date_dim(d2)]
 --------------------------------------------------------PhysicalProject
-----------------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------------------------PhysicalOlapScan[date_dim(d3)]
 ----------------------------------------------------PhysicalProject
-------------------------------------------------------PhysicalOlapScan[customer_demographics]
+------------------------------------------------------PhysicalOlapScan[customer_demographics(cd1)]
 ------------------------------------------------PhysicalProject
---------------------------------------------------PhysicalOlapScan[customer_demographics]
+--------------------------------------------------PhysicalOlapScan[customer_demographics(cd2)]
 --------------------------------------------PhysicalProject
 ----------------------------------------------PhysicalOlapScan[promotion]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[customer_address]
+------------------------------------------PhysicalOlapScan[customer_address(ad1)]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[customer_address]
+--------------------------------------PhysicalOlapScan[customer_address(ad2)]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF17
+----------------------------------PhysicalOlapScan[household_demographics(hd1)] apply RFs: RF17
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF18
+------------------------------PhysicalOlapScan[household_demographics(hd2)] apply RFs: RF18
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[income_band]
+--------------------------PhysicalOlapScan[income_band(ib1)]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[income_band]
+----------------------PhysicalOlapScan[income_band(ib2)]
 ----------------PhysicalProject
 ------------------filter((item.i_current_price <= 90.00) and (item.i_current_price >= 81.00) and i_color IN ('azure', 'blush', 'gainsboro', 'hot', 'lemon', 'misty'))
 --------------------PhysicalOlapScan[item]

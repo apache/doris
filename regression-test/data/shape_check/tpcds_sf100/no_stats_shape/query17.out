@@ -32,13 +32,13 @@ PhysicalResultSink
 --------------------------------------PhysicalOlapScan[item]
 --------------------------------PhysicalProject
 ----------------------------------filter((d1.d_quarter_name = '2001Q1'))
-------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------PhysicalOlapScan[date_dim(d1)]
 ----------------------------PhysicalProject
 ------------------------------filter(d_quarter_name IN ('2001Q1', '2001Q2', '2001Q3'))
---------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalOlapScan[date_dim(d2)]
 ------------------------PhysicalProject
 --------------------------filter(d_quarter_name IN ('2001Q1', '2001Q2', '2001Q3'))
-----------------------------PhysicalOlapScan[date_dim]
+----------------------------PhysicalOlapScan[date_dim(d3)]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[store]
 

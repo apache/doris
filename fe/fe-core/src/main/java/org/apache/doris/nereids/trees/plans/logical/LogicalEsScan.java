@@ -41,45 +41,60 @@ public class LogicalEsScan extends LogicalCatalogRelation {
      * Constructor for LogicalEsScan.
      */
     public LogicalEsScan(RelationId id, TableIf table, List<String> qualifier,
-                           List<NamedExpression> virtualColumns,
-                           Optional<GroupExpression> groupExpression,
-                           Optional<LogicalProperties> logicalProperties) {
+            List<NamedExpression> virtualColumns,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, String tableAlias) {
         super(id, PlanType.LOGICAL_ES_SCAN, table, qualifier,
-                ImmutableList.of(), virtualColumns, groupExpression, logicalProperties);
+                ImmutableList.of(), virtualColumns, groupExpression, logicalProperties, tableAlias);
+    }
+
+    public LogicalEsScan(RelationId id, TableIf table, List<String> qualifier,
+            List<NamedExpression> virtualColumns,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties) {
+        this(id, table, qualifier, virtualColumns, groupExpression, logicalProperties, "");
     }
 
     public LogicalEsScan(RelationId id, TableIf table, List<String> qualifier) {
-        this(id, table, qualifier, ImmutableList.of(), Optional.empty(), Optional.empty());
+        this(id, table, qualifier, ImmutableList.of(), Optional.empty(), Optional.empty(), "");
     }
 
     @Override
     public String toString() {
         return Utils.toSqlStringSkipNull("LogicalEsScan",
-            "qualified", qualifiedName(),
-            "output", getOutput(), "stats", statistics
-        );
+                "qualified", qualifiedName(),
+                "alias", tableAlias,
+                "output", getOutput(), "stats", statistics);
     }
 
     @Override
     public LogicalEsScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalEsScan(relationId, table, qualifier, virtualColumns,
-                groupExpression, Optional.of(getLogicalProperties()));
+                groupExpression, Optional.of(getLogicalProperties()), tableAlias);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalEsScan(relationId, table, qualifier, virtualColumns, groupExpression, logicalProperties);
+        return new LogicalEsScan(relationId, table, qualifier, virtualColumns, groupExpression, logicalProperties,
+                tableAlias);
     }
 
     @Override
     public LogicalEsScan withRelationId(RelationId relationId) {
-        return new LogicalEsScan(relationId, table, qualifier, virtualColumns, Optional.empty(), Optional.empty());
+        return new LogicalEsScan(relationId, table, qualifier, virtualColumns, Optional.empty(), Optional.empty(),
+                tableAlias);
     }
 
     @Override
     public LogicalEsScan withVirtualColumns(List<NamedExpression> virtualColumns) {
-        return new LogicalEsScan(relationId, table, qualifier, virtualColumns, Optional.empty(), Optional.empty());
+        return new LogicalEsScan(relationId, table, qualifier, virtualColumns, Optional.empty(), Optional.empty(),
+                tableAlias);
+    }
+
+    public LogicalEsScan withTableAlias(String tableAlias) {
+        return new LogicalEsScan(relationId, table, qualifier, virtualColumns, Optional.empty(),
+                Optional.of(getLogicalProperties()), tableAlias);
     }
 
     @Override
