@@ -56,6 +56,9 @@ const char* doris_build_time() {
 const char* doris_build_info() {
     return DORIS_BUILD_INFO;
 }
+const std::string doris_feature_list() {
+    return std::string(DORIS_FEATURE_LIST);
+}
 
 } // namespace version
 
