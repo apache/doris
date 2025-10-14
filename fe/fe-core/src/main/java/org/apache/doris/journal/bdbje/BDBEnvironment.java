@@ -114,16 +114,15 @@ public class BDBEnvironment {
 
         if (Config.enable_tls) {
             ReplicationSSLConfig sslConfig = new ReplicationSSLConfig();
-            sslConfig.setSSLKeyStore(Config.tls_certificate_p12_path);
-            sslConfig.setSSLKeyStorePassword(Config.tls_private_key_password);
-            sslConfig.setSSLKeyStoreType("JKS");
-            sslConfig.setSSLTrustStore(Config.tls_ca_certificate_p12_path);
+            sslConfig.setSSLPemCertFile(Config.tls_certificate_path);
+            sslConfig.setSSLPemKeyFile(Config.tls_private_key_path);
+            sslConfig.setSSLPemKeyPassword(Config.tls_private_key_password);
+            sslConfig.setSSLPemCaCertFile(Config.tls_ca_certificate_path);
             sslConfig.setSSLCipherSuites("TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384");
             sslConfig.setSSLProtocols("TLSv1.2,TLSv1.3");
-            sslConfig.setSSLTrustStoreType("JKS");
-            sslConfig.setSSLTrustStorePassword(Config.tls_private_key_password);
             sslConfig.setSSLAuthenticator("mirror");
             sslConfig.setSSLHostVerifier("mirror");
+            sslConfig.setSSLCertRefreshIntervalSeconds(Config.tls_cert_refresh_interval_seconds);
             replicationConfig.setRepNetConfig(sslConfig);
         }
 
