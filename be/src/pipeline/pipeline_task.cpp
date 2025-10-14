@@ -166,11 +166,8 @@ Status PipelineTask::_extract_dependencies() {
     read_dependencies.resize(_operators.size());
     size_t i = 0;
     for (auto& op : _operators) {
-        auto result = _state->get_local_state_result(op->operator_id());
-        if (!result) {
-            return result.error();
-        }
-        auto* local_state = result.value();
+        auto* local_state = _state->get_local_state(op->operator_id());
+        DCHECK(local_state);
         read_dependencies[i] = local_state->dependencies();
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
@@ -302,6 +299,13 @@ bool PipelineTask::is_blockable() const {
     // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
     // 2. Runtime filter dependencies are ready
     // 3. All tablets are loaded into local storage
+
+    if (_state->enable_fuzzy_blockable_task()) {
+        if ((_schedule_time + _task_idx) % 2 == 0) {
+            return true;
+        }
+    }
+
     return _need_to_revoke_memory ||
            std::ranges::any_of(_operators,
                                [&](OperatorPtr op) -> bool { return op->is_blockable(_state); }) ||
@@ -671,8 +675,8 @@ Status PipelineTask::finalize() {
         return Status::OK();
     }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
-    std::unique_lock<std::mutex> lc(_dependency_lock);
     RETURN_IF_ERROR(_state_transition(State::FINALIZED));
+    std::unique_lock<std::mutex> lc(_dependency_lock);
     _sink_shared_state.reset();
     _op_shared_states.clear();
     _shared_state_map.clear();
@@ -723,10 +727,11 @@ std::string PipelineTask::debug_string() {
 
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[id = {}, open = {}, eos = {}, state = {}, dry run = "
-                   "{}, _wake_up_early = {}, time elapsed since last state changing = {}s, spilling"
-                   " = {}, is running = {}]",
+                   "{}, _wake_up_early = {}, _wake_up_by = {}, time elapsed since last state "
+                   "changing = {}s, spilling = {}, is running = {}]",
                    _index, _opened, _eos, _to_string(_exec_state), _dry_run, _wake_up_early.load(),
-                   _state_change_watcher.elapsed_time() / NANOS_PER_SEC, _spilling, is_running());
+                   _wake_by, _state_change_watcher.elapsed_time() / NANOS_PER_SEC, _spilling,
+                   is_running());
     std::unique_lock<std::mutex> lc(_dependency_lock);
     auto* cur_blocked_dep = _blocked_dep;
     auto fragment = _fragment_context.lock();
@@ -820,7 +825,7 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
     return Status::OK();
 }
 
-Status PipelineTask::wake_up(Dependency* dep) {
+Status PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */) {
     // call by dependency
     DCHECK_EQ(_blocked_dep, dep) << "dep : " << dep->debug_string(0) << "task: " << debug_string();
     _blocked_dep = nullptr;

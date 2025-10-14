@@ -127,6 +127,7 @@ public class StreamingInsertTask {
 
         this.runningOffset = offsetProvider.getNextOffset(jobProperties, originTvfProps);
         InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
+        baseCommand.setJobId(getTaskId());
         StmtExecutor baseStmtExecutor =
                 new StmtExecutor(ctx, new LogicalPlanAdapter(baseCommand, ctx.getStatementContext()));
         baseCommand.initPlan(ctx, baseStmtExecutor, false);
@@ -135,7 +136,6 @@ public class StreamingInsertTask {
         }
         this.taskCommand = offsetProvider.rewriteTvfParams(baseCommand, runningOffset);
         this.taskCommand.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
-        this.taskCommand.setJobId(getTaskId());
         this.stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(taskCommand, ctx.getStatementContext()));
     }
 

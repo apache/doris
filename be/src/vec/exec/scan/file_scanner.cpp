@@ -170,6 +170,7 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
     RETURN_IF_ERROR(_init_io_ctx());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->file_reader_stats = _file_reader_stats.get();
+    _io_ctx->is_disposable = _state->query_options().disable_file_cache;
 
     if (_is_load) {
         _src_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
@@ -1766,6 +1767,8 @@ void FileScanner::_collect_profile_before_close() {
         _profile != nullptr) {
         io::FileCacheProfileReporter cache_profile(_profile);
         cache_profile.update(_file_cache_statistics.get());
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
+                _file_cache_statistics->bytes_write_into_cache);
     }
 
     if (_cur_reader != nullptr) {
