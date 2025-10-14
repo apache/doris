@@ -989,6 +989,7 @@ void FragmentMgr::cancel_worker() {
                 }
                 return Status::OK();
             });
+            std::vector<std::shared_ptr<QueryContext>> {}.swap(contexts);
 
             // We use a very conservative cancel strategy.
             // 0. If there are no running frontends, do not cancel any queries.
