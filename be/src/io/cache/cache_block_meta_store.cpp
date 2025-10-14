@@ -163,6 +163,39 @@ void CacheBlockMetaStore::delete_key(const BlockMetaKey& key) {
     _write_queue.enqueue(op);
 }
 
+void CacheBlockMetaStore::clear() {
+    // First, stop the async worker thread
+    _stop_worker.store(true, std::memory_order_release);
+    if (_write_thread.joinable()) {
+        _write_thread.join();
+    }
+
+    // Clear the write queue to remove any pending operations
+    WriteOperation op;
+    while (_write_queue.try_dequeue(op)) {
+        // Just discard all pending operations
+    }
+
+    // Delete all records from rocksdb
+    {
+        std::lock_guard<std::mutex> lock(_db_mutex);
+        if (_db) {
+            // Use DeleteRange to delete all keys
+            rocksdb::Slice start = "";
+            rocksdb::Slice end = "\xff\xff\xff\xff"; // Maximum byte sequence
+            rocksdb::Status status = _db->DeleteRange(rocksdb::WriteOptions(),
+                                                      _db->DefaultColumnFamily(), start, end);
+            if (!status.ok()) {
+                LOG(WARNING) << "Failed to delete range from rocksdb: " << status.ToString();
+            }
+        }
+    }
+
+    // Restart the async worker thread
+    _stop_worker.store(false, std::memory_order_release);
+    _write_thread = std::thread(&CacheBlockMetaStore::async_write_worker, this);
+}
+
 void CacheBlockMetaStore::async_write_worker() {
     while (!_stop_worker.load(std::memory_order_acquire)) {
         WriteOperation op;

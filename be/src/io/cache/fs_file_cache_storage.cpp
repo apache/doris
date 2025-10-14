@@ -106,6 +106,7 @@ Status FSFileCacheStorage::init(BlockFileCache* _mgr) {
     _iterator_dir_retry_cnt = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_fs_storage_iterator_dir_retry_cnt");
     _cache_base_path = _mgr->_cache_base_path;
+    _meta_store = std::make_unique<CacheBlockMetaStore>(_cache_base_path + "/meta", 1000);
     _cache_background_load_thread = std::thread([this, mgr = _mgr]() {
         auto mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
                                                             fmt::format("FileCacheVersionReader"));
@@ -159,7 +160,7 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
     return writer->append(value);
 }
 
-Status FSFileCacheStorage::finalize(const FileCacheKey& key) {
+Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) {
     FileWriterPtr file_writer;
     {
         std::lock_guard lock(_mtx);
@@ -174,7 +175,16 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key) {
     }
     std::string dir = get_path_in_local_cache(key.hash, key.meta.expiration_time);
     std::string true_file = get_path_in_local_cache(dir, key.offset, key.meta.type);
-    return fs->rename(file_writer->path(), true_file);
+    auto s = fs->rename(file_writer->path(), true_file);
+    if (!s.ok()) {
+        return s;
+    }
+
+    BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
+    BlockMeta meta(key.meta.type, size); // TODO: add ttl
+    _meta_store->put(mkey, meta);
+
+    return Status::OK();
 }
 
 Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Slice buffer) {
@@ -237,6 +247,8 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
             RETURN_IF_ERROR(fs->delete_file(file));
         }
     }
+    BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
+    _meta_store->delete_key(mkey);
     std::vector<FileInfo> files;
     bool exists {false};
     RETURN_IF_ERROR(fs->list(dir, true, &files, &exists));
@@ -844,11 +856,13 @@ Status FSFileCacheStorage::clear(std::string& msg) {
         ++total;
         std::string cache_key = key_it->path().string();
         auto st = global_local_filesystem()->delete_directory(cache_key);
+        //TODO
         if (st.ok()) continue;
         failed++;
         LOG(WARNING) << "failed to clear base_path=" << _cache_base_path
                      << " path_to_delete=" << cache_key << " error=" << st;
     }
+    _meta_store->clear();
     auto t1 = std::chrono::steady_clock::now();
     std::stringstream ss;
     ss << "finished clear file storage, path=" << _cache_base_path

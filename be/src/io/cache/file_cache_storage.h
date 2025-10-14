@@ -50,7 +50,7 @@ public:
     // append datas into block
     virtual Status append(const FileCacheKey& key, const Slice& value) = 0;
     // finalize the block
-    virtual Status finalize(const FileCacheKey& key) = 0;
+    virtual Status finalize(const FileCacheKey& key, const size_t size) = 0;
     // read the block
     virtual Status read(const FileCacheKey& key, size_t value_offset, Slice result) = 0;
     // remove the block

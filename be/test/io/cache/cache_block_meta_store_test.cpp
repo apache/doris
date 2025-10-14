@@ -331,4 +331,147 @@ TEST_F(CacheBlockMetaStoreTest, BlockMetaKeyEquality) {
     EXPECT_FALSE(key1 == key5);
 }
 
+TEST_F(CacheBlockMetaStoreTest, ClearAllRecords) {
+    // Add multiple records to the store
+    const int num_records = 10;
+    std::vector<BlockMetaKey> keys;
+
+    for (int i = 0; i < num_records; ++i) {
+        uint128_t hash = (static_cast<uint128_t>(i) << 64) | (i * 100);
+        BlockMetaKey key(1, UInt128Wrapper(hash), i * 1024);
+        BlockMeta meta(i % 3, 2048 * (i + 1));
+
+        keys.push_back(key);
+        meta_store_->put(key, meta);
+    }
+
+    // Wait for async operations to complete
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    // Verify all records are present
+    for (int i = 0; i < num_records; ++i) {
+        BlockMeta result = meta_store_->get(keys[i]);
+        EXPECT_EQ(result.type, i % 3);
+        EXPECT_EQ(result.size, 2048 * (i + 1));
+    }
+
+    // Clear all records
+    meta_store_->clear();
+
+    // Wait a bit for clear operation to complete
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Verify all records are gone
+    for (int i = 0; i < num_records; ++i) {
+        BlockMeta result = meta_store_->get(keys[i]);
+        EXPECT_EQ(result.type, 0);
+        EXPECT_EQ(result.size, 0);
+    }
+
+    // Verify range query returns no results
+    auto iterator = meta_store_->range_get(1);
+    EXPECT_FALSE(iterator->valid());
+}
+
+TEST_F(CacheBlockMetaStoreTest, ClearWithPendingAsyncOperations) {
+    // Add some records and immediately call clear
+    // This tests that pending operations in the queue are handled correctly
+
+    // Add a record
+    uint128_t hash1 = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key1(1, UInt128Wrapper(hash1), 0);
+    BlockMeta meta1(1, 1024);
+    meta_store_->put(key1, meta1);
+
+    // Immediately clear without waiting for async operation
+    meta_store_->clear();
+
+    // Wait a bit for operations to complete
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Verify the record was not written (cleared from queue)
+    BlockMeta result = meta_store_->get(key1);
+    EXPECT_EQ(result.type, 0);
+    EXPECT_EQ(result.size, 0);
+}
+
+TEST_F(CacheBlockMetaStoreTest, ClearAndThenAddNewRecords) {
+    // Test that after clear, the store can accept new records
+
+    // Add initial records
+    uint128_t hash1 = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key1(1, UInt128Wrapper(hash1), 0);
+    BlockMeta meta1(1, 1024);
+    meta_store_->put(key1, meta1);
+
+    // Wait for async operation
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Clear all records
+    meta_store_->clear();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Add new records after clear
+    uint128_t hash2 = (static_cast<uint128_t>(789) << 64) | 123;
+    BlockMetaKey key2(2, UInt128Wrapper(hash2), 1024);
+    BlockMeta meta2(2, 2048);
+    meta_store_->put(key2, meta2);
+
+    // Wait for async operation
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Verify old record is gone
+    BlockMeta result1 = meta_store_->get(key1);
+    EXPECT_EQ(result1.type, 0);
+    EXPECT_EQ(result1.size, 0);
+
+    // Verify new record is present
+    BlockMeta result2 = meta_store_->get(key2);
+    EXPECT_EQ(result2.type, 2);
+    EXPECT_EQ(result2.size, 2048);
+}
+
+TEST_F(CacheBlockMetaStoreTest, ClearMultipleTimes) {
+    // Test that clear can be called multiple times without issues
+
+    // Add a record
+    uint128_t hash = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key(1, UInt128Wrapper(hash), 0);
+    BlockMeta meta(1, 1024);
+    meta_store_->put(key, meta);
+
+    // Wait for async operation
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Clear multiple times
+    meta_store_->clear();
+    meta_store_->clear();
+    meta_store_->clear();
+
+    // Wait for operations to complete
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Verify record is gone
+    BlockMeta result = meta_store_->get(key);
+    EXPECT_EQ(result.type, 0);
+    EXPECT_EQ(result.size, 0);
+}
+
+TEST_F(CacheBlockMetaStoreTest, ClearEmptyStore) {
+    // Test clearing an empty store (should not crash or error)
+
+    // Clear without adding any records
+    meta_store_->clear();
+
+    // Wait a bit
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Verify store is still functional
+    uint128_t hash = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key(1, UInt128Wrapper(hash), 0);
+    BlockMeta result = meta_store_->get(key);
+    EXPECT_EQ(result.type, 0);
+    EXPECT_EQ(result.size, 0);
+}
+
 } // namespace doris::io
