@@ -249,7 +249,7 @@ int Checker::start() {
             }
 
             if (config::enable_mvcc_meta_key_check) {
-                if (int ret = checker->do_mvcc_rowset_meta_key_check(); ret != 0) {
+                if (int ret = checker->do_mvcc_meta_key_check(); ret != 0) {
                     success = false;
                 }
             }

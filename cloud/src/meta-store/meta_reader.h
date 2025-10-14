@@ -165,17 +165,13 @@ public:
                                   int64_t end_version, std::vector<RowsetMetaCloudPB>* rowset_metas,
                                   bool snapshot = false);
 
-    // Get all tablet rowset metas for the given rowset version range [start_version, end_version].
+    // Get all tablet ids from all versioned tablet index key.
     //
-    // The `rowset_metas` will be filled with the RowsetMetaCloudPB for each version at versionstamp in the range,
+    // The `tablet_ids` will be filled with the tablet_ids in the range,
     // in ascending order.
-    TxnErrorCode get_all_tablet_rowset_metas(int64_t start_version, int64_t end_version,
-                                             std::vector<RowsetMetaCloudPB>* rowset_metas,
-                                             bool snapshot);
-    TxnErrorCode get_all_tablet_rowset_metas(Transaction* txn, int64_t start_version,
-                                             int64_t end_version,
-                                             std::vector<RowsetMetaCloudPB>* rowset_metas,
-                                             bool snapshot);
+    TxnErrorCode get_all_tablet_ids(std::vector<int64_t>* tablet_ids, bool snapshot);
+    TxnErrorCode get_all_tablet_ids(Transaction* txn, std::vector<int64_t>* tablet_ids,
+                                    bool snapshot);
 
     // Get the load rowset meta for the given tablet_id and version.
     TxnErrorCode get_load_rowset_meta(int64_t tablet_id, int64_t version,

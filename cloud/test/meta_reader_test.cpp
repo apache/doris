@@ -17,6 +17,7 @@
 
 #include "meta-store/meta_reader.h"
 
+#include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest-death-test.h>
 #include <gtest/gtest.h>
@@ -2630,5 +2631,78 @@ TEST(MetaReaderTest, HasNoIndexes) {
                 meta_reader.has_no_indexes(txn.get(), db_id, table_id, &no_indexes, true);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         ASSERT_FALSE(no_indexes);
+    }
+}
+
+TEST(MetaReaderTest, GetAllTabletIds) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "test_instance";
+
+    // Prepare test data - multiple tablet metas
+    struct TestTabletMeta {
+        int64_t tablet_id;
+        int64_t table_id;
+        int64_t partition_id;
+        int64_t index_id;
+    };
+
+    std::vector<TestTabletMeta> test_tablets = {
+            {.tablet_id = 1001, .table_id = 2001, .partition_id = 3001, .index_id = 4001},
+            {.tablet_id = 1002, .table_id = 2001, .partition_id = 3001, .index_id = 4001},
+            {.tablet_id = 1003, .table_id = 2002, .partition_id = 3002, .index_id = 4002},
+            {.tablet_id = 1004, .table_id = 2002, .partition_id = 3003, .index_id = 4003},
+            {.tablet_id = 1005, .table_id = 2003, .partition_id = 3004, .index_id = 4004},
+    };
+
+    // Store original tablet metas for comparison
+    std::map<int64_t, TabletIndexPB> original_metas;
+
+    {
+        // Create and insert tablet metas
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (const auto& test_tablet : test_tablets) {
+            TabletIndexPB tablet_idx;
+            tablet_idx.set_tablet_id(test_tablet.tablet_id);
+            tablet_idx.set_table_id(test_tablet.table_id);
+            tablet_idx.set_partition_id(test_tablet.partition_id);
+            tablet_idx.set_index_id(test_tablet.index_id);
+
+            std::string tablet_key =
+                    versioned::tablet_index_key({instance_id, test_tablet.tablet_id});
+
+            // Store original for comparison
+            original_metas[test_tablet.tablet_id] = tablet_idx;
+
+            txn->put(tablet_key, tablet_idx.SerializeAsString());
+        }
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        MetaReader meta_reader(instance_id, txn_kv.get());
+
+        std::vector<int64_t> tablet_ids;
+        TxnErrorCode err = meta_reader.get_all_tablet_ids(&tablet_ids, false);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(tablet_ids.size(), test_tablets.size());
+
+        for (const auto& tablet_id : tablet_ids) {
+            TabletIndexPB tablet_idx;
+            std::string tablet_key = versioned::tablet_index_key({instance_id, tablet_id});
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+            std::string value;
+            ASSERT_EQ(txn->get(tablet_key, &value), TxnErrorCode::TXN_OK);
+            ASSERT_TRUE(tablet_idx.ParseFromString(value));
+            ASSERT_EQ(original_metas[tablet_id].table_id(), tablet_idx.table_id());
+            ASSERT_EQ(original_metas[tablet_id].partition_id(), tablet_idx.partition_id());
+            ASSERT_EQ(original_metas[tablet_id].index_id(), tablet_idx.index_id());
+            ASSERT_EQ(original_metas[tablet_id].tablet_id(), tablet_idx.tablet_id());
+        }
     }
 }
