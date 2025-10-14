@@ -36,7 +36,6 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-// Note: Removed global tablet switching state. Each load job now manages its own state locally.
 Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int rows,
                                       std::vector<VOlapTablePartition*>& partitions,
                                       std::vector<uint32_t>& tablet_index, std::vector<bool>& skip,
