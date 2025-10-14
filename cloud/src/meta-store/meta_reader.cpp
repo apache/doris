@@ -1111,6 +1111,28 @@ TxnErrorCode MetaReader::get_snapshots(
     return get_snapshots(txn.get(), snapshots);
 }
 
+TxnErrorCode MetaReader::get_snapshot(Transaction* txn, Versionstamp snapshot_versionstamp,
+                                      SnapshotPB* snapshot_pb, bool snapshot) {
+    std::string snapshot_key = versioned::snapshot_full_key({instance_id_});
+    std::string snapshot_full_key = encode_versioned_key(snapshot_key, snapshot_versionstamp);
+
+    std::string value;
+    TxnErrorCode err = txn->get(snapshot_full_key, &value, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+
+    if (snapshot_pb && !snapshot_pb->ParseFromString(value)) {
+        LOG_ERROR("Failed to parse SnapshotPB")
+                .tag("instance_id", instance_id_)
+                .tag("snapshot_versionstamp", snapshot_versionstamp.to_string())
+                .tag("key", hex(snapshot_full_key));
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+
+    return TxnErrorCode::TXN_OK;
+}
+
 TxnErrorCode MetaReader::has_snapshot_references(Versionstamp snapshot_version,
                                                  bool* has_references, bool snapshot) {
     DCHECK(txn_kv_) << "TxnKv must be set before calling";
@@ -1138,6 +1160,29 @@ TxnErrorCode MetaReader::has_snapshot_references(Transaction* txn, Versionstamp 
     }
     *has_references = it->has_next();
     return TxnErrorCode::TXN_OK;
+}
+
+int MetaReader::count_snapshot_references(Transaction* txn, Versionstamp snapshot_version,
+                                          bool snapshot) {
+    std::string snapshot_ref_key_start =
+            versioned::snapshot_reference_key_prefix(instance_id_, snapshot_version);
+    std::string snapshot_ref_key_end = snapshot_ref_key_start + '\xFF';
+
+    std::unique_ptr<RangeGetIterator> it;
+    TxnErrorCode err = txn->get(snapshot_ref_key_start, snapshot_ref_key_end, &it, snapshot, 100);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to get snapshot references for counting, snapshot_version="
+                     << snapshot_version.to_string();
+        return 0;
+    }
+
+    int count = 0;
+    while (it->has_next()) {
+        [[maybe_unused]] auto [key, value] = it->next();
+        count++;
+    }
+
+    return count;
 }
 
 TxnErrorCode MetaReader::get_load_rowset_metas(

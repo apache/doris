@@ -2075,6 +2075,7 @@ message CloneInstanceResponse {
     optional MetaServiceResponseStatus status = 1;
     // The info of the object store where snapshot images stored
     optional ObjectStoreInfoPB obj_info = 2;
+    // The URL of the snapshot image
     optional string image_url = 3;
 }
 
