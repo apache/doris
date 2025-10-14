@@ -18,6 +18,7 @@
 package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.CertificateManager;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.service.arrowflight.auth2.FlightBearerTokenAuthenticator;
 import org.apache.doris.service.arrowflight.sessions.FlightSessionsManager;
@@ -32,7 +33,7 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 
 /**
@@ -61,9 +62,11 @@ public class DorisFlightSqlService {
                     FlightServer.builder(allocator, Location.forGrpcInsecure("0.0.0.0", port), producer)
                     .headerAuthenticator(new FlightBearerTokenAuthenticator(flightTokenManager));
             if (Config.enable_tls) {
-                builder.useTls(new File(Config.tls_certificate_path), new File(Config.tls_private_key_path));
+                builder.useTls(new FileInputStream(Config.tls_certificate_path),
+                        CertificateManager.decryptPrivateKey(Config.tls_private_key_path,
+                                Config.tls_private_key_password.toCharArray()));
                 if (Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
-                    builder.useMTlsClientVerification(new File(Config.tls_ca_certificate_path));
+                    builder.useMTlsClientVerification(new FileInputStream(Config.tls_ca_certificate_path));
                 } else if (Config.tls_verify_mode.equals("verify_peer")) {
                     // nothing
                 } else if (Config.tls_verify_mode.equals("verify_none")) {
@@ -74,7 +77,7 @@ public class DorisFlightSqlService {
                 }
             }
             flightServer = builder.build();
-        } catch (IOException e) {
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
         LOG.info("Arrow Flight SQL service is created, port: {}, arrow_flight_max_connections: {}，"

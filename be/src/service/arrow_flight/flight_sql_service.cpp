@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "arrow/flight/sql/server.h"
+#include "common/certificate_manager.h"
 #include "common/config.h"
 #include "gutil/strings/split.h"
 #include "service/arrow_flight/arrow_flight_batch_reader.h"
@@ -159,7 +160,8 @@ Status FlightSqlServer::init(int port) {
 
         arrow::flight::CertKeyPair cert_pair;
         cert_pair.pem_cert = read_file(config::tls_certificate_path);
-        cert_pair.pem_key = read_file(config::tls_private_key_path);
+        cert_pair.pem_key = CertificateManager::load_key_string(config::tls_private_key_path,
+                                                                config::tls_private_key_password);
 
         flight_options.tls_certificates.push_back(cert_pair);
         flight_options.root_certificates = read_file(config::tls_ca_certificate_path);
