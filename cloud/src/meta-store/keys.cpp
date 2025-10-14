@@ -68,6 +68,8 @@ static const char* JOB_KEY_INFIX_RL_PROGRESS            = "routine_load_progress
 static const char* JOB_KEY_INFIX_STREAMING_JOB          = "streaming_job";
 static const char* JOB_KEY_INFIX_RESTORE_TABLET         = "restore_tablet";
 static const char* JOB_KEY_INFIX_RESTORE_ROWSET         = "restore_rowset";
+static const char* JOB_KEY_INFIX_SNAPSHOT_DATA_MIGRATOR = "snapshot_data_migrator";
+static const char* JOB_KEY_INFIX_SNAPSHOT_CHAIN_COMPACTOR = "snapshot_chain_compactor";
 
 static const char* COPY_JOB_KEY_INFIX                   = "job";
 static const char* COPY_FILE_KEY_INFIX                  = "loading_file";
@@ -146,7 +148,8 @@ static void encode_prefix(const T& t, std::string* key) {
         MetaDeleteBitmapInfo, MetaDeleteBitmapUpdateLockInfo, MetaPendingDeleteBitmapInfo, PartitionVersionKeyInfo,
         RecycleIndexKeyInfo, RecyclePartKeyInfo, RecycleRowsetKeyInfo, RecycleTxnKeyInfo, RecycleStageKeyInfo,
         StatsTabletKeyInfo, TableVersionKeyInfo, JobRestoreTabletKeyInfo, JobRestoreRowsetKeyInfo,
-        JobTabletKeyInfo, JobRecycleKeyInfo, RLJobProgressKeyInfo, StreamingJobKeyInfo,
+        JobTabletKeyInfo, JobRecycleKeyInfo, JobSnapshotDataMigratorKeyInfo, JobSnapshotChainCompactorKeyInfo,
+        RLJobProgressKeyInfo, StreamingJobKeyInfo,
         CopyJobKeyInfo, CopyFileKeyInfo,  StorageVaultKeyInfo, MetaSchemaPBDictionaryInfo,
         MowTabletJobInfo>);
 
@@ -183,6 +186,8 @@ static void encode_prefix(const T& t, std::string* key) {
         encode_bytes(STATS_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, JobTabletKeyInfo>
                       || std::is_same_v<T, JobRecycleKeyInfo>
+                      || std::is_same_v<T, JobSnapshotDataMigratorKeyInfo>
+                      || std::is_same_v<T, JobSnapshotChainCompactorKeyInfo>
                       || std::is_same_v<T, RLJobProgressKeyInfo>
                       || std::is_same_v<T, StreamingJobKeyInfo>) {
         encode_bytes(JOB_KEY_PREFIX, key);
@@ -457,6 +462,17 @@ void job_recycle_key(const JobRecycleKeyInfo& in, std::string* out) {
 void job_check_key(const JobRecycleKeyInfo& in, std::string* out) {
     encode_prefix(in, out);     // 0x01 "job" ${instance_id}
     encode_bytes("check", out); // "check"
+}
+
+void job_snapshot_data_migrator_key(const JobSnapshotDataMigratorKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                                  // 0x01 "job" ${instance_id}
+    encode_bytes(JOB_KEY_INFIX_SNAPSHOT_DATA_MIGRATOR, out); // "snapshot_data_migrator"
+}
+
+void job_snapshot_chain_compactor_key(const JobSnapshotChainCompactorKeyInfo& in,
+                                      std::string* out) {
+    encode_prefix(in, out);                                    // 0x01 "job" ${instance_id}
+    encode_bytes(JOB_KEY_INFIX_SNAPSHOT_CHAIN_COMPACTOR, out); // "snapshot_chain_compactor"
 }
 
 void rl_job_progress_key_info(const RLJobProgressKeyInfo& in, std::string* out) {
