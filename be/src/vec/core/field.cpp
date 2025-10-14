@@ -507,6 +507,65 @@ std::string_view Field::as_string_view() const {
 
 #undef MATCH_PRIMITIVE_TYPE
 
+#define MATCH_PRIMITIVE_TYPE(primite_type)                                                   \
+    if (type == primite_type) {                                                              \
+        const auto& v = get<typename PrimitiveTypeTraits<primite_type>::NearestFieldType>(); \
+        return std::to_string(v);                                                            \
+    }
+
+std::string Field::to_string() const {
+    if (type == PrimitiveType::TYPE_STRING || type == PrimitiveType::TYPE_VARCHAR ||
+        type == PrimitiveType::TYPE_CHAR) {
+        const auto& s = get<String>();
+        return {s.data(), s.size()};
+    }
+    if (type == TYPE_DECIMAL32) {
+        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DECIMAL32>::NearestFieldType>();
+        return v.get_value().to_string(v.get_scale());
+    }
+    if (type == TYPE_DECIMAL64) {
+        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DECIMAL64>::NearestFieldType>();
+        return v.get_value().to_string(v.get_scale());
+    }
+    if (type == TYPE_DECIMALV2) {
+        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DECIMALV2>::NearestFieldType>();
+        return v.get_value().to_string(v.get_scale());
+    }
+    if (type == TYPE_DECIMAL128I) {
+        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::NearestFieldType>();
+        return v.get_value().to_string(v.get_scale());
+    }
+    if (type == TYPE_DECIMAL256) {
+        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DECIMAL256>::NearestFieldType>();
+        return v.get_value().to_string(v.get_scale());
+    }
+    if (type == TYPE_LARGEINT) {
+        const auto& v = get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::NearestFieldType>();
+        return int128_to_string(v);
+    }
+    MATCH_PRIMITIVE_TYPE(TYPE_BOOLEAN);
+    MATCH_PRIMITIVE_TYPE(TYPE_TINYINT);
+    MATCH_PRIMITIVE_TYPE(TYPE_SMALLINT);
+    MATCH_PRIMITIVE_TYPE(TYPE_INT);
+    MATCH_PRIMITIVE_TYPE(TYPE_BIGINT);
+    MATCH_PRIMITIVE_TYPE(TYPE_FLOAT);
+    MATCH_PRIMITIVE_TYPE(TYPE_DOUBLE);
+    MATCH_PRIMITIVE_TYPE(TYPE_DATE);
+    MATCH_PRIMITIVE_TYPE(TYPE_DATETIME);
+    MATCH_PRIMITIVE_TYPE(TYPE_TIME);
+    MATCH_PRIMITIVE_TYPE(TYPE_DATEV2);
+    MATCH_PRIMITIVE_TYPE(TYPE_DATETIMEV2);
+    MATCH_PRIMITIVE_TYPE(TYPE_TIMEV2);
+    //    MATCH_PRIMITIVE_TYPE(TYPE_IPV4);
+    //    MATCH_PRIMITIVE_TYPE(TYPE_IPV6);
+    MATCH_PRIMITIVE_TYPE(TYPE_UINT32);
+    MATCH_PRIMITIVE_TYPE(TYPE_UINT64);
+    throw Exception(
+            Status::FatalError("type not supported for as_string_view, type={}", get_type_name()));
+}
+
+#undef MATCH_PRIMITIVE_TYPE
+
 #define DECLARE_FUNCTION(FUNC_NAME)                                                          \
     template void Field::FUNC_NAME<TYPE_NULL>(                                               \
             typename PrimitiveTypeTraits<TYPE_NULL>::NearestFieldType && rhs);               \

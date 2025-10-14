@@ -91,8 +91,7 @@ Status ExprPushDownHelper::convert_predicates(const VExprSPtrs& exprs,
             RETURN_IF_ERROR(_extract_predicates(expr, cid, data_type, values, parsed));
             if (parsed) {
                 // TODO(gabriel): Use string view
-                predicates.push_back(create(data_type, cid, std::string(values[0].as_string_view()),
-                                            false, arena));
+                predicates.push_back(create(data_type, cid, values[0].to_string(), false, arena));
             }
             break;
         }
@@ -104,7 +103,7 @@ Status ExprPushDownHelper::convert_predicates(const VExprSPtrs& exprs,
                     // TODO(gabriel): Use string view
                     std::vector<std::string> conditions(values.size());
                     for (size_t i = 0; i < conditions.size(); i++) {
-                        conditions[i] = std::string(values[i].as_string_view());
+                        conditions[i] = std::string(values[i].to_string());
                     }
                     predicates.push_back(create_list_predicate<PredicateType::IN_LIST>(
                             data_type, cid, conditions, false, arena));
