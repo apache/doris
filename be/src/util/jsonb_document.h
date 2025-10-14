@@ -953,6 +953,8 @@ struct ObjectVal : public ContainerVal {
 
     const_iterator end() const { return const_iterator((pointer)(payload + size)); }
 
+    std::vector<std::pair<StringRef, const JsonbValue*>> get_ordered_key_value_pairs() const;
+
 private:
     iterator internalSearch(const char* key, unsigned int klen) {
         const char* pch = payload;
