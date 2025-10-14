@@ -79,6 +79,7 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "util/string_util.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
 // #include "util/string_parser.hpp"
