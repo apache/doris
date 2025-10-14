@@ -95,7 +95,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
                 operativeSlots, ImmutableList.of(),
                 tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.empty(),
-                cachedOutputs, captureRelationSchema(table, scanParams, relationSnapshot), relationSnapshot);
+                cachedOutputs, captureRelationSchema(table, scanParams, relationSnapshot), relationSnapshot, "");
     }
 
     /**
@@ -122,7 +122,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<List<Slot>> cachedSlots, Optional<List<Column>> relationSchema) {
         this(id, table, qualifier, selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, logicalProperties, cachedSlots, relationSchema,
-                MvccUtil.getSnapshotFromContext(table));
+                MvccUtil.getSnapshotFromContext(table), "");
     }
 
     protected LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
@@ -131,9 +131,9 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             Optional<List<Slot>> cachedSlots, Optional<List<Column>> relationSchema,
-            Optional<MvccSnapshot> relationSnapshot) {
+            Optional<MvccSnapshot> relationSnapshot, String tableAlias) {
         super(id, PlanType.LOGICAL_FILE_SCAN, table, qualifier, operativeSlots, virtualColumns,
-                groupExpression, logicalProperties);
+                groupExpression, logicalProperties, tableAlias);
         this.selectedPartitions = selectedPartitions;
         this.tableSample = tableSample;
         this.tableSnapshot = tableSnapshot;
@@ -141,6 +141,31 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         this.cachedOutputs = cachedSlots;
         this.relationSchema = relationSchema;
         this.relationSnapshot = relationSnapshot;
+    }
+
+    /**
+     * Constructor for LogicalFileScan, kept for subclasses that were not updated with a table alias.
+     */
+    protected LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
+            SelectedPartitions selectedPartitions, Collection<Slot> operativeSlots,
+            List<NamedExpression> virtualColumns, Optional<TableSample> tableSample,
+            Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            Optional<List<Slot>> cachedSlots, Optional<List<Column>> relationSchema,
+            Optional<MvccSnapshot> relationSnapshot) {
+        this(id, table, qualifier, selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
+                scanParams, groupExpression, logicalProperties, cachedSlots, relationSchema,
+                relationSnapshot, "");
+    }
+
+    protected LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
+            SelectedPartitions selectedPartitions, Collection<Slot> operativeSlots,
+            List<NamedExpression> virtualColumns, Optional<TableSample> tableSample,
+            Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+        this(id, table, qualifier, selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
+                scanParams, groupExpression, logicalProperties, Optional.empty(), Optional.empty(),
+                MvccUtil.getSnapshotFromContext(table), "");
     }
 
     private static SelectedPartitions initialSelectedPartitions(
@@ -217,10 +242,10 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     public String toString() {
         return Utils.toSqlStringSkipNull("LogicalFileScan",
                 "qualified", qualifiedName(),
+                "alias", tableAlias,
                 "output", getOutput(),
                 "operativeCols", operativeSlots,
-                "stats", statistics
-        );
+                "stats", statistics);
     }
 
     @Override
@@ -228,7 +253,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.of(getLogicalProperties()),
-                cachedOutputs, relationSchema, relationSnapshot);
+                cachedOutputs, relationSchema, relationSnapshot, tableAlias);
     }
 
     @Override
@@ -237,14 +262,14 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, logicalProperties, cachedOutputs,
-                relationSchema, relationSnapshot);
+                relationSchema, relationSnapshot, tableAlias);
     }
 
     public LogicalFileScan withSelectedPartitions(SelectedPartitions selectedPartitions) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.of(getLogicalProperties()),
-                cachedOutputs, relationSchema, relationSnapshot);
+                cachedOutputs, relationSchema, relationSnapshot, tableAlias);
     }
 
     @Override
@@ -252,7 +277,15 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.empty(), cachedOutputs,
-                relationSchema, relationSnapshot);
+                relationSchema, relationSnapshot, tableAlias);
+    }
+
+    @Override
+    public LogicalFileScan withTableAlias(String tableAlias) {
+        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+                selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
+                scanParams, Optional.empty(), Optional.of(getLogicalProperties()), cachedOutputs,
+                relationSchema, relationSnapshot, tableAlias);
     }
 
     @Override
@@ -452,14 +485,14 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.of(getLogicalProperties()),
-                cachedOutputs, relationSchema, relationSnapshot);
+                cachedOutputs, relationSchema, relationSnapshot, tableAlias);
     }
 
     public LogicalFileScan withCachedOutput(List<Slot> cachedOutputs) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.empty(), Optional.of(cachedOutputs),
-                relationSchema, relationSnapshot);
+                relationSchema, relationSnapshot, tableAlias);
     }
 
     @Override
