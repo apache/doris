@@ -24,6 +24,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.thrift.TColumnAccessPaths;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -56,6 +57,8 @@ public class SlotReference extends Slot {
     // that need return original table and name for view not its original table if u query a view
     private final TableIf oneLevelTable;
     private final Column oneLevelColumn;
+    private final Optional<TColumnAccessPaths> allAccessPaths;
+    private final Optional<TColumnAccessPaths> predicateAccessPaths;
 
     public SlotReference(String name, DataType dataType) {
         this(StatementScopeIdGenerator.newExprId(), name, dataType, true, ImmutableList.of(),
@@ -92,6 +95,14 @@ public class SlotReference extends Slot {
                 subPath, Optional.empty());
     }
 
+    public SlotReference(ExprId exprId, Supplier<String> name, DataType dataType, boolean nullable,
+            List<String> qualifier, @Nullable TableIf originalTable, @Nullable Column originalColumn,
+            @Nullable TableIf oneLevelTable, Column oneLevelColumn,
+            List<String> subPath, Optional<Pair<Integer, Integer>> indexInSql) {
+        this(exprId, name, dataType, nullable, qualifier, originalTable, originalColumn, oneLevelTable,
+                oneLevelColumn, subPath, indexInSql, Optional.empty(), Optional.empty());
+    }
+
     /**
      * Constructor for SlotReference.
      *
@@ -106,7 +117,8 @@ public class SlotReference extends Slot {
     public SlotReference(ExprId exprId, Supplier<String> name, DataType dataType, boolean nullable,
             List<String> qualifier, @Nullable TableIf originalTable, @Nullable Column originalColumn,
             @Nullable TableIf oneLevelTable, Column oneLevelColumn,
-            List<String> subPath, Optional<Pair<Integer, Integer>> indexInSql) {
+            List<String> subPath, Optional<Pair<Integer, Integer>> indexInSql,
+            Optional<TColumnAccessPaths> allAccessPaths, Optional<TColumnAccessPaths> predicateAccessPaths) {
         super(indexInSql);
         this.exprId = exprId;
         this.name = name;
@@ -119,6 +131,8 @@ public class SlotReference extends Slot {
         this.oneLevelTable = oneLevelTable;
         this.oneLevelColumn = oneLevelColumn;
         this.subPath = Objects.requireNonNull(subPath, "subPath can not be null");
+        this.allAccessPaths = allAccessPaths;
+        this.predicateAccessPaths = predicateAccessPaths;
     }
 
     public static SlotReference of(String name, DataType type) {
@@ -341,5 +355,19 @@ public class SlotReference extends Slot {
 
     public boolean hasAutoInc() {
         return originalColumn != null ? originalColumn.isAutoInc() : false;
+    }
+
+    public SlotReference withAccessPaths(TColumnAccessPaths allAccessPaths, TColumnAccessPaths predicateAccessPaths) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifier,
+                originalTable, originalColumn, oneLevelTable, oneLevelColumn,
+                subPath, indexInSqlString, Optional.of(allAccessPaths), Optional.of(predicateAccessPaths));
+    }
+
+    public Optional<TColumnAccessPaths> getAllAccessPaths() {
+        return allAccessPaths;
+    }
+
+    public Optional<TColumnAccessPaths> getPredicateAccessPaths() {
+        return predicateAccessPaths;
     }
 }

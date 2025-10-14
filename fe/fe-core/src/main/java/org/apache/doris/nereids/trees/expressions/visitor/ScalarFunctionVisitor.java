@@ -54,10 +54,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayEnumerat
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExcept;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayExists;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirst;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFirstIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFlatten;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayJoin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLast;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLastIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAll;
@@ -632,6 +634,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(arrayFilter, context);
     }
 
+    default R visitArrayFirst(ArrayFirst arrayFirst, C context) {
+        return visitElementAt(arrayFirst, context);
+    }
+
     default R visitArrayFirstIndex(ArrayFirstIndex arrayFirstIndex, C context) {
         return visitScalarFunction(arrayFirstIndex, context);
     }
@@ -642,6 +648,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArrayJoin(ArrayJoin arrayJoin, C context) {
         return visitScalarFunction(arrayJoin, context);
+    }
+
+    default R visitArrayLast(ArrayLast arrayLast, C context) {
+        return visitElementAt(arrayLast, context);
     }
 
     default R visitArrayLastIndex(ArrayLastIndex arrayLastIndex, C context) {

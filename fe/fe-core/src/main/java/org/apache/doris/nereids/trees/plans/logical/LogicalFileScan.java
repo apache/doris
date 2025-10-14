@@ -51,16 +51,17 @@ public class LogicalFileScan extends LogicalCatalogRelation {
     protected final Optional<TableSample> tableSample;
     protected final Optional<TableSnapshot> tableSnapshot;
     protected final Optional<TableScanParams> scanParams;
+    protected final Optional<List<Slot>> cachedOutputs;
 
     public LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
-            Collection<Slot> operativeSlots,
-            Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
-            Optional<TableScanParams> scanParams) {
+                           Collection<Slot> operativeSlots,
+                           Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
+                           Optional<TableScanParams> scanParams, Optional<List<Slot>> cachedOutputs) {
         this(id, table, qualifier,
                 table.initSelectedPartitions(MvccUtil.getSnapshotFromContext(table)),
                 operativeSlots, ImmutableList.of(),
                 tableSample, tableSnapshot,
-                scanParams, Optional.empty(), Optional.empty());
+                scanParams, Optional.empty(), Optional.empty(), cachedOutputs);
     }
 
     /**
@@ -71,13 +72,14 @@ public class LogicalFileScan extends LogicalCatalogRelation {
             List<NamedExpression> virtualColumns, Optional<TableSample> tableSample,
             Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            String tableAlias) {
+            String tableAlias, Optional<List<Slot>> cachedSlots) {
         super(id, PlanType.LOGICAL_FILE_SCAN, table, qualifier, operativeSlots, virtualColumns,
                 groupExpression, logicalProperties, tableAlias);
         this.selectedPartitions = selectedPartitions;
         this.tableSample = tableSample;
         this.tableSnapshot = tableSnapshot;
         this.scanParams = scanParams;
+        this.cachedOutputs = cachedSlots;
     }
 
     protected LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
@@ -126,7 +128,7 @@ public class LogicalFileScan extends LogicalCatalogRelation {
     public LogicalFileScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, groupExpression, Optional.of(getLogicalProperties()), tableAlias);
+                scanParams, groupExpression, Optional.of(getLogicalProperties()), tableAlias, cachedOutputs);
     }
 
     @Override
@@ -134,26 +136,26 @@ public class LogicalFileScan extends LogicalCatalogRelation {
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, groupExpression, logicalProperties, tableAlias);
+                scanParams, groupExpression, logicalProperties, tableAlias, cachedOutputs);
     }
 
     public LogicalFileScan withSelectedPartitions(SelectedPartitions selectedPartitions) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias);
+                scanParams, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias, cachedOutputs);
     }
 
     @Override
     public LogicalFileScan withRelationId(RelationId relationId) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, Optional.empty(), Optional.empty(), tableAlias);
+                scanParams, Optional.empty(), Optional.empty(), tableAlias, cachedOutputs);
     }
 
     public LogicalFileScan withTableAlias(String tableAlias) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias);
+                scanParams, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias, cachedOutputs);
     }
 
     @Override
@@ -164,6 +166,19 @@ public class LogicalFileScan extends LogicalCatalogRelation {
     @Override
     public boolean equals(Object o) {
         return super.equals(o) && Objects.equals(selectedPartitions, ((LogicalFileScan) o).selectedPartitions);
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        if (cachedOutputs.isPresent()) {
+            return cachedOutputs.get();
+        }
+        return super.computeOutput();
+    }
+
+    @Override
+    public List<Slot> computeAsteriskOutput() {
+        return super.computeAsteriskOutput();
     }
 
     /**
@@ -223,7 +238,13 @@ public class LogicalFileScan extends LogicalCatalogRelation {
     public LogicalFileScan withOperativeSlots(Collection<Slot> operativeSlots) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, groupExpression, Optional.of(getLogicalProperties()));
+                scanParams, groupExpression, Optional.of(getLogicalProperties()), cachedOutputs);
+    }
+
+    public LogicalFileScan withCachedOutput(List<Slot> cachedOutputs) {
+        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+                selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
+                scanParams, groupExpression, Optional.empty(), Optional.of(cachedOutputs));
     }
 
     @Override

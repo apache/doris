@@ -93,6 +93,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -285,6 +286,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     }
                     outerScope.get().getCorrelatedSlots().add((Slot) firstBound);
                 }
+                if (firstBound.getDataType() instanceof NestedColumnPrunable) {
+                    context.cascadesContext.getStatementContext().setHasNestedColumns(true);
+                }
                 return firstBound;
             default:
                 if (enableExactMatch) {
@@ -304,6 +308,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                             .filter(bound -> unboundSlot.getNameParts().size() == bound.getQualifier().size() + 1)
                             .collect(Collectors.toList());
                     if (exactMatch.size() == 1) {
+                        if (exactMatch.get(0).getDataType() instanceof NestedColumnPrunable) {
+                            context.cascadesContext.getStatementContext().setHasNestedColumns(true);
+                        }
                         return exactMatch.get(0);
                     }
                 }
