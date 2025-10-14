@@ -91,8 +91,7 @@ public class CreateIndexOp extends AlterTableOp {
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
-        return new CreateIndexClause(tableName != null ? tableName.transferToTableName() : null,
-                indexDef.translateToLegacyIndexDef(), index, alter);
+        return new CreateIndexClause(tableName, indexDef.translateToLegacyIndexDef(), index, alter);
     }
 
     @Override

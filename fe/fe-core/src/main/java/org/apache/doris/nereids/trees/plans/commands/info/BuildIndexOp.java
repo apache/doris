@@ -163,8 +163,7 @@ public class BuildIndexOp extends AlterTableOp {
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
         indexDef.getIndexType();
-        return new BuildIndexClause(tableName.transferToTableName(), indexDef.translateToLegacyIndexDef(), index,
-                alter);
+        return new BuildIndexClause(tableName, indexDef.translateToLegacyIndexDef(), index, alter);
     }
 
     @Override
