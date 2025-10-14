@@ -40,6 +40,7 @@
 #include "faiss/Index.h"
 #include "faiss/IndexHNSW.h"
 #include "faiss/MetricType.h"
+#include "faiss/impl/FaissException.h"
 #include "faiss/impl/IDSelector.h"
 #include "faiss/impl/io.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index.h"
@@ -221,13 +222,31 @@ public:
     lucene::store::IndexInput* _input = nullptr;
 };
 
-void FaissVectorIndex::train(vectorized::Int64 n, const float* x) {
+doris::Status FaissVectorIndex::train(vectorized::Int64 n, const float* x) {
     DCHECK(x != nullptr);
     DCHECK(_index != nullptr);
+
+    // For PQ index, check if we have enough training data
+    if (_params.quantizer == FaissBuildParameter::Quantizer::PQ) {
+        int k = 1 << _params.pq_nbits;
+        if (n < k) {
+            // Not enough training data
+            LOG(WARNING) << "Not enough training data for PQ index: " << n << " < " << k;
+            return doris::Status::RuntimeError("Not enough training data for PQ index");
+        }
+    }
+
     ScopedThreadName scoped_name("faiss_train_idx");
     // Reserve OpenMP threads globally so concurrent builds stay under omp_threads_limit.
     ScopedOmpThreadBudget thread_budget;
-    _index->train(n, x);
+    omp_set_num_threads(config::omp_threads_limit);
+    try {
+        _index->train(n, x);
+    } catch (faiss::FaissException& e) {
+        return doris::Status::RuntimeError("exception occurred during training: {}", e.what());
+    }
+
+    return doris::Status::OK();
 }
 
 /** Add n vectors of dimension d to the index.
@@ -242,20 +261,27 @@ doris::Status FaissVectorIndex::add(vectorized::Int64 n, const float* vec) {
     DCHECK(vec != nullptr);
     DCHECK(_index != nullptr);
     ScopedThreadName scoped_name("faiss_build_idx");
-    // build index for every 1M rows, so that we can adjust thread usage dynamically.
-    for (vectorized::Int64 i = 0; i < n; i += 1'000'000) {
-        // Apply the same thread budget when adding vectors to limit concurrency.
-        ScopedOmpThreadBudget thread_budget;
-        DorisMetrics::instance()->ann_index_construction->increment(1);
-        vectorized::Int64 chunk_size = std::min(1'000'000L, n - i);
-        _index->add(chunk_size, vec + i * _dimension);
-        DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(chunk_size);
-        DorisMetrics::instance()->ann_index_construction->increment(-1);
+
+    try {
+        // build index for every 1M rows, so that we can adjust thread usage dynamically.
+        for (vectorized::Int64 i = 0; i < n; i += 1'000'000) {
+            // Apply the same thread budget when adding vectors to limit concurrency.
+            ScopedOmpThreadBudget thread_budget;
+            DorisMetrics::instance()->ann_index_construction->increment(1);
+            vectorized::Int64 chunk_size = std::min(1'000'000L, n - i);
+            _index->add(chunk_size, vec + i * _dimension);
+            DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(chunk_size);
+            DorisMetrics::instance()->ann_index_construction->increment(-1);
+        }
+    } catch (faiss::FaissException& e) {
+        return doris::Status::RuntimeError("exception occurred during adding: {}", e.what());
     }
+
     return doris::Status::OK();
 }
 
 void FaissVectorIndex::build(const FaissBuildParameter& params) {
+    _params = params;
     _dimension = params.dim;
     switch (params.metric_type) {
     case FaissBuildParameter::MetricType::L2:
@@ -294,6 +320,17 @@ void FaissVectorIndex::build(const FaissBuildParameter& params) {
                         faiss::METRIC_INNER_PRODUCT);
             }
         }
+        if (params.quantizer == FaissBuildParameter::Quantizer::PQ) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                hnsw_index = std::make_unique<faiss::IndexHNSWPQ>(
+                        params.dim, params.pq_m, params.max_degree, params.pq_nbits,
+                        faiss::METRIC_L2);
+            } else {
+                hnsw_index = std::make_unique<faiss::IndexHNSWPQ>(
+                        params.dim, params.pq_m, params.max_degree, params.pq_nbits,
+                        faiss::METRIC_INNER_PRODUCT);
+            }
+        }
         if (params.quantizer == FaissBuildParameter::Quantizer::FLAT) {
             if (params.metric_type == FaissBuildParameter::MetricType::L2) {
                 hnsw_index = std::make_unique<faiss::IndexHNSWFlat>(params.dim, params.max_degree,
@@ -304,6 +341,7 @@ void FaissVectorIndex::build(const FaissBuildParameter& params) {
             }
         }
         hnsw_index->hnsw.efConstruction = params.ef_construction;
+
         _index = std::move(hnsw_index);
     } else {
         throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Unsupported index type: {}",
