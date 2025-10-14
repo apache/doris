@@ -36,21 +36,21 @@ public class MTMVRefreshSnapshot {
         this.partitionSnapshots = Maps.newConcurrentMap();
     }
 
-    public boolean equalsWithRelatedPartition(String mtmvPartitionName, String relatedPartitionName,
+    public boolean equalsWithPct(String mtmvPartitionName, String pctPartitionName,
             MTMVSnapshotIf pctPartitionCurrentSnapshot, BaseTableInfo pctTableInfo) {
         MTMVRefreshPartitionSnapshot partitionSnapshot = partitionSnapshots.get(mtmvPartitionName);
         if (partitionSnapshot == null) {
             return false;
         }
         MTMVSnapshotIf pctPartitionSnapshot = partitionSnapshot.getPctSnapshot(pctTableInfo)
-                .get(relatedPartitionName);
+                .get(pctPartitionName);
         if (pctPartitionSnapshot == null) {
             return false;
         }
         return pctPartitionSnapshot.equals(pctPartitionCurrentSnapshot);
     }
 
-    public Set<String> getSnapshotPartitions(String mtmvPartitionName, BaseTableInfo pctTableInfo) {
+    public Set<String> getPctSnapshots(String mtmvPartitionName, BaseTableInfo pctTableInfo) {
         MTMVRefreshPartitionSnapshot partitionSnapshot = partitionSnapshots.get(mtmvPartitionName);
         if (partitionSnapshot == null) {
             return Sets.newHashSet();

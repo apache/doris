@@ -149,12 +149,12 @@ public class MTMVPartitionUtilTest {
                 minTimes = 0;
                 result = baseSnapshotIf;
 
-                refreshSnapshot.equalsWithRelatedPartition(anyString, anyString, (MTMVSnapshotIf) any,
+                refreshSnapshot.equalsWithPct(anyString, anyString, (MTMVSnapshotIf) any,
                         (BaseTableInfo) any);
                 minTimes = 0;
                 result = true;
 
-                refreshSnapshot.getSnapshotPartitions(anyString, (BaseTableInfo) any);
+                refreshSnapshot.getPctSnapshots(anyString, (BaseTableInfo) any);
                 minTimes = 0;
                 result = Sets.newHashSet("name2");
 
@@ -215,7 +215,7 @@ public class MTMVPartitionUtilTest {
     public void testIsSyncWithPartitionNotEqual() throws AnalysisException {
         new Expectations() {
             {
-                refreshSnapshot.getSnapshotPartitions(anyString, (BaseTableInfo) any);
+                refreshSnapshot.getPctSnapshots(anyString, (BaseTableInfo) any);
                 minTimes = 0;
                 result = Sets.newHashSet("name2", "name3");
             }
@@ -229,7 +229,7 @@ public class MTMVPartitionUtilTest {
     public void testIsSyncWithPartitionNotSync() throws AnalysisException {
         new Expectations() {
             {
-                refreshSnapshot.equalsWithRelatedPartition(anyString, anyString, (MTMVSnapshotIf) any,
+                refreshSnapshot.equalsWithPct(anyString, anyString, (MTMVSnapshotIf) any,
                         (BaseTableInfo) any);
                 minTimes = 0;
                 result = false;
