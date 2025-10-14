@@ -31,6 +31,8 @@ import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
+import software.amazon.awssdk.auth.credentials.ContainerCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
@@ -133,7 +135,7 @@ public class S3Util {
      * @param externalId  AWS External ID for cross-account role assumption security
      * @return
      */
-    private static AwsCredentialsProvider getAwsCredencialsProvider(URI endpoint, String region, String accessKey,
+    private static AwsCredentialsProvider getAwsCredencialsProviderV1(URI endpoint, String region, String accessKey,
             String secretKey, String sessionToken, String roleArn, String externalId) {
 
         if (!Strings.isNullOrEmpty(accessKey) && !Strings.isNullOrEmpty(secretKey)) {
@@ -147,7 +149,7 @@ public class S3Util {
 
         if (!Strings.isNullOrEmpty(roleArn)) {
             StsClient stsClient = StsClient.builder()
-                    .credentialsProvider(InstanceProfileCredentialsProvider.create())
+                    .credentialsProvider(DefaultCredentialsProvider.create())
                     .build();
 
             return StsAssumeRoleCredentialsProvider.builder()
@@ -159,11 +161,58 @@ public class S3Util {
                         }
                     }).build();
         }
-        return AwsCredentialsProviderChain.of(SystemPropertyCredentialsProvider.create(),
-                    EnvironmentVariableCredentialsProvider.create(),
-                    WebIdentityTokenFileCredentialsProvider.create(),
-                    ProfileCredentialsProvider.create(),
-                    InstanceProfileCredentialsProvider.create());
+        return DefaultCredentialsProvider.create();
+    }
+
+    private static AwsCredentialsProvider getAwsCredencialsProviderV2(URI endpoint, String region, String accessKey,
+            String secretKey, String sessionToken, String roleArn, String externalId) {
+
+        if (!Strings.isNullOrEmpty(accessKey) && !Strings.isNullOrEmpty(secretKey)) {
+            if (Strings.isNullOrEmpty(sessionToken)) {
+                return StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey));
+            } else {
+                return StaticCredentialsProvider.create(AwsSessionCredentials.create(accessKey,
+                        secretKey, sessionToken));
+            }
+        }
+
+        if (!Strings.isNullOrEmpty(roleArn)) {
+            StsClient stsClient = StsClient.builder()
+                    .credentialsProvider(AwsCredentialsProviderChain.of(
+                            WebIdentityTokenFileCredentialsProvider.create(),
+                            ContainerCredentialsProvider.create(),
+                            InstanceProfileCredentialsProvider.create(),
+                            SystemPropertyCredentialsProvider.create(),
+                            EnvironmentVariableCredentialsProvider.create(),
+                            ProfileCredentialsProvider.create()))
+                    .build();
+
+            return StsAssumeRoleCredentialsProvider.builder()
+                    .stsClient(stsClient)
+                    .refreshRequest(builder -> {
+                        builder.roleArn(roleArn).roleSessionName("aws-sdk-java-v2-fe");
+                        if (!Strings.isNullOrEmpty(externalId)) {
+                            builder.externalId(externalId);
+                        }
+                    }).build();
+        }
+        return AwsCredentialsProviderChain.of(
+                            WebIdentityTokenFileCredentialsProvider.create(),
+                            ContainerCredentialsProvider.create(),
+                            InstanceProfileCredentialsProvider.create(),
+                            SystemPropertyCredentialsProvider.create(),
+                            EnvironmentVariableCredentialsProvider.create(),
+                            ProfileCredentialsProvider.create());
+    }
+
+    private static AwsCredentialsProvider getAwsCredencialsProvider(URI endpoint, String region, String accessKey,
+                String secretKey, String sessionToken, String roleArn, String externalId) {
+        if (Config.aws_credentials_provider_version.equalsIgnoreCase("v2")) {
+            return getAwsCredencialsProviderV2(endpoint, region, accessKey, secretKey,
+                    sessionToken, roleArn, externalId);
+        }
+        return getAwsCredencialsProviderV1(endpoint, region, accessKey, secretKey,
+                sessionToken, roleArn, externalId);
     }
 
     public static S3Client buildS3Client(URI endpoint, String region, boolean isUsePathStyle,

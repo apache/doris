@@ -24,6 +24,7 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
@@ -46,7 +47,9 @@ import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -72,6 +75,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -166,16 +170,37 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     private UnboundTVFRelation getCurrentTvf() {
-        if (baseCommand == null) {
-            ConnectContext ctx = InsertTask.makeConnectContext(getCreateUser(), getCurrentDbName());
-            StatementContext statementContext = new StatementContext();
-            ctx.setStatementContext(statementContext);
-            this.baseCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(getExecuteSql());
-        }
+        initLogicalPlan(false);
         List<UnboundTVFRelation> allTVFRelation = baseCommand.getAllTVFRelation();
         Preconditions.checkArgument(allTVFRelation.size() == 1, "Only support one source in insert streaming job");
         UnboundTVFRelation unboundTVFRelation = allTVFRelation.get(0);
         return unboundTVFRelation;
+    }
+
+    private void makeConnectContext() {
+        ConnectContext ctx = InsertTask.makeConnectContext(getCreateUser(), getCurrentDbName());
+        StatementContext statementContext = new StatementContext();
+        ctx.setStatementContext(statementContext);
+    }
+
+    public void initLogicalPlan(boolean regen) {
+        if (regen || baseCommand == null) {
+            this.baseCommand = null;
+            makeConnectContext();
+            LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
+            this.baseCommand = (InsertIntoTableCommand) logicalPlan;
+        }
+    }
+
+    /**
+     * When alter updates SQL, it is necessary to
+     * update the command maintained in memory synchronously
+     * @param sql
+     */
+    public void updateExecuteSql(String sql) {
+        setExecuteSql(sql);
+        initLogicalPlan(true);
+        generateEncryptedSql();
     }
 
     @Override
@@ -354,7 +379,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(getJobConfig().getExecuteType().name()));
         trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         trow.addToColumnValue(new TCell().setStringVal(getJobStatus().name()));
-        trow.addToColumnValue(new TCell().setStringVal(getExecuteSql()));
+
+        trow.addToColumnValue(new TCell().setStringVal(StringUtils.isNotEmpty(getEncryptedSql())
+                ? getEncryptedSql() : generateEncryptedSql()));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getSucceedTaskCount().get())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getFailedTaskCount().get())));
@@ -380,6 +407,16 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(failureReason == null
                 ? FeConstants.null_string : failureReason.getMsg()));
         return trow;
+    }
+
+    private String generateEncryptedSql() {
+        makeConnectContext();
+        TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
+        new NereidsParser().parseForEncryption(getExecuteSql(), indexInSqlToString);
+        BaseViewInfo.rewriteSql(indexInSqlToString, getExecuteSql());
+        String encryptSql = BaseViewInfo.rewriteSql(indexInSqlToString, getExecuteSql());
+        setEncryptedSql(encryptSql);
+        return encryptSql;
     }
 
     @Override
