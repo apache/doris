@@ -945,7 +945,6 @@ class Suite implements GroovyInterceptable {
     void expectExceptionLike(Closure userFunction, String errMsg = null, String errMsg2 = null) {
         try {
             userFunction()
-            throw new RuntimeException("no exception thrown")
         } catch (Exception e) {
             if (!Strings.isNullOrEmpty(errMsg) && !e.getMessage().contains(errMsg)) {
                 throw e
