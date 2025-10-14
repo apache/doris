@@ -255,25 +255,31 @@ Status OlapTableBlockConvertor::_internal_validate_column(
             // This is a workaround for now, need to improve it after better support of multi-byte chars.
             if (type_str && !state->enable_insert_strict()) {
                 ColumnsWithTypeAndName argument_template;
+                auto input_type = orig_type;
+                if (orig_column->is_nullable()) {
+                    input_type = make_nullable(orig_type);
+                } else if (input_type->is_nullable()) {
+                    input_type = remove_nullable(input_type);
+                }
                 auto pos_type = DataTypeFactory::instance().create_data_type(
                         FieldType::OLAP_FIELD_TYPE_INT, 0, 0);
                 auto len_type = DataTypeFactory::instance().create_data_type(
                         FieldType::OLAP_FIELD_TYPE_INT, 0, 0);
-                argument_template.emplace_back(nullptr, orig_type, "string column");
+                argument_template.emplace_back(nullptr, input_type, "string column");
                 argument_template.emplace_back(nullptr, pos_type, "pos column");
                 argument_template.emplace_back(nullptr, len_type, "len column");
                 auto func = SimpleFunctionFactory::instance().get_function(
-                        "substring", argument_template, orig_type, {}, state->be_exec_version());
+                        "substring", argument_template, input_type, {}, state->be_exec_version());
                 if (!func) {
                     return Status::InternalError("get function substring failed");
                 }
                 auto pos_column = pos_type->create_column_const(row_count, to_field<TYPE_INT>(1));
                 auto len_column =
                         len_type->create_column_const(row_count, to_field<TYPE_INT>(limit));
-                Block tmp_block({{orig_column, orig_type, "string column"},
+                Block tmp_block({{orig_column, input_type, "string column"},
                                  {pos_column, pos_type, "pos"},
                                  {len_column, len_type, "len"},
-                                 {nullptr, orig_type, "result"}});
+                                 {nullptr, input_type, "result"}});
                 RETURN_IF_ERROR(func->execute(nullptr, tmp_block, {0, 1, 2}, 3, row_count));
                 orig_column = std::move(tmp_block.get_by_position(3).column);
                 const auto* tmp_column_ptr =
