@@ -24,11 +24,12 @@ suite("test_drop_and_add_node_and_cluster", "op, nonConcurrent") {
     def OpTimeout = 3600
     def DeltaTime = 30
     def UseTime = 0
+    String user = 'root'
 
     def wait_for_decommision_finish = { ip ->
         def finish_tag = false
         for(int t = DeltaTime; t <= OpTimeout; t += DeltaTime){
-            def conn = connect(user = 'root', password = '', url = context.config.jdbcUrl) {
+            def conn = connect(user, '', context.config.jdbcUrl) {
                 def backends = sql_return_maparray "show backends;"
                 for (def be : backends) {
                     def nowTmpNodeStatus = be.Status
@@ -54,7 +55,7 @@ suite("test_drop_and_add_node_and_cluster", "op, nonConcurrent") {
 
     def is_add_to_backends = { ip ->
         def is_add = false
-        def conn = connect(user = 'root', password = '', url = context.config.jdbcUrl) {
+        def conn = connect(user, '', context.config.jdbcUrl) {
             def backends = sql_return_maparray "show backends;"
             for (def be : backends) {
                 def nowTmpNodeStatus = be.Status
@@ -73,7 +74,7 @@ suite("test_drop_and_add_node_and_cluster", "op, nonConcurrent") {
 
     def is_add_to_clusters = { cluster_name ->
         def is_add = false
-        def conn = connect(user = 'root', password = '', url = context.config.jdbcUrl) {
+        def conn = connect(user, '', context.config.jdbcUrl) {
             def res = sql_return_maparray "show clusters;"
             for (def cluster : res) {
                 if (cluster.cluster == cluster_name) {
@@ -89,7 +90,7 @@ suite("test_drop_and_add_node_and_cluster", "op, nonConcurrent") {
     // setp1. init nodes and clusters
 
     // op case only run in root, get cluster basic info
-    def connRes = connect(user = 'root', password = '', url = context.config.jdbcUrl) {
+    def connRes = connect(user, '', context.config.jdbcUrl) {
         // get cluster info, record
         def res = sql_return_maparray "show clusters;"
         // cluster_res = [[cluster:CloudCluster0, is_current:TRUE, users:root], [cluster:CloudCluster1, is_current:FALSE, users:admin]]
