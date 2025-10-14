@@ -387,6 +387,12 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 sourceRepeat, Optional.empty(), Optional.empty(), child());
     }
 
+    public LogicalAggregate<Plan> withSourceRepeat(LogicalRepeat<?> sourceRepeat) {
+        return new LogicalAggregate<>(groupByExpressions, outputExpressions, normalized, ordinalIsResolved, generated,
+                hasPushed, Optional.ofNullable(sourceRepeat), Optional.empty(),
+                Optional.empty(), child());
+    }
+
     private boolean isUniqueGroupByUnique(NamedExpression namedExpression) {
         if (namedExpression.children().size() != 1) {
             return false;

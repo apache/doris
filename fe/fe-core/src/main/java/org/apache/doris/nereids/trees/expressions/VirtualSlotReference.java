@@ -156,6 +156,13 @@ public class VirtualSlotReference extends SlotReference implements SlotNotFromCh
                 originExpression, computeLongValueMethod);
     }
 
+    public VirtualSlotReference withOriginExpressionAndComputeLongValueMethod(
+            Optional<GroupingScalarFunction> originExpression,
+            Function<GroupingSetShapes, List<Long>> computeLongValueMethod) {
+        return new VirtualSlotReference(exprId, name.get(), dataType, nullable, qualifier,
+                originExpression, computeLongValueMethod);
+    }
+
     @Override
     public Slot withIndexInSql(Pair<Integer, Integer> index) {
         return this;

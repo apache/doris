@@ -29,12 +29,17 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /** replace SlotReference ExprId in logical plans */
 public class ExprIdRewriter extends ExpressionRewrite {
@@ -100,7 +105,43 @@ public class ExprIdRewriter extends ExpressionRewrite {
                                 lastId = newId;
                             }
                         }
-                    }).toRule(ExpressionRuleType.EXPR_ID_REWRITE_REPLACE)
+                    }).toRule(ExpressionRuleType.EXPR_ID_REWRITE_REPLACE),
+                    matchesType(VirtualSlotReference.class).thenApply(ctx -> {
+                        VirtualSlotReference virtualSlot = ctx.expr;
+                        Optional<GroupingScalarFunction> originExpression = virtualSlot.getOriginExpression();
+                        if (!originExpression.isPresent()) {
+                            return virtualSlot;
+                        }
+                        List<Expression> newChildren = new ArrayList<>();
+                        List<Expression> oldChildren = originExpression.get().children();
+                        for (Expression child : oldChildren) {
+                            newChildren.add(child.accept(new DefaultExpressionRewriter<Void>() {
+                                @Override
+                                public Expression visitSlotReference(SlotReference slot, Void context) {
+                                    ExprId newId = replaceMap.get(slot.getExprId());
+                                    if (newId == null) {
+                                        return slot;
+                                    }
+                                    ExprId lastId = newId;
+                                    while (true) {
+                                        newId = replaceMap.get(lastId);
+                                        if (newId == null) {
+                                            return slot.withExprId(lastId);
+                                        } else {
+                                            lastId = newId;
+                                        }
+                                    }
+                                }
+                            }, null));
+                        }
+                        if (!newChildren.equals(oldChildren)) {
+                            GroupingScalarFunction scalarFunction = originExpression.get().withChildren(newChildren);
+                            return virtualSlot.withOriginExpressionAndComputeLongValueMethod(
+                                    Optional.ofNullable(scalarFunction),
+                                    scalarFunction::computeVirtualSlotValue);
+                        }
+                        return virtualSlot;
+                    }).toRule(ExpressionRuleType.VIRTUAL_EXPR_ID_REWRITE_REPLACE)
             );
         }
     }
