@@ -17,10 +17,12 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.util.X509TlsReloadableKeyManager;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.collect.Sets;
+import io.grpc.util.AdvancedTlsX509TrustManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TConfiguration;
@@ -32,17 +34,25 @@ import org.apache.thrift.server.TThreadPoolServer;
 import org.apache.thrift.server.TThreadedSelectorServer;
 import org.apache.thrift.transport.TNonblockingServerSocket;
 import org.apache.thrift.transport.TNonblockingSocket;
-import org.apache.thrift.transport.TSSLTransportFactory;
 import org.apache.thrift.transport.TServerSocket;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransportException;
 
+import java.io.Closeable;
+import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Set;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import javax.net.ssl.KeyManager;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLServerSocket;
+import javax.net.ssl.SSLServerSocketFactory;
+import javax.net.ssl.TrustManager;
 
 public class ThriftServer {
     private static final Logger LOG = LogManager.getLogger(ThriftServer.class);
@@ -52,6 +62,8 @@ public class ThriftServer {
     private TServer server;
     private Thread serverThread;
     private Set<TNetworkAddress> connects;
+    private Closeable trustManagerCloseable;
+    private Closeable keyManagerCloseable;
 
     public static final String SIMPLE = "SIMPLE";
     public static final String THREADED_SELECTOR = "THREADED_SELECTOR";
@@ -113,27 +125,53 @@ public class ThriftServer {
 
         TServerSocket serverTransport;
         if (Config.enable_tls) {
-            TSSLTransportFactory.TSSLTransportParameters sslParam =
-                    new TSSLTransportFactory.TSSLTransportParameters("TLSv1.2", null, false);
-            sslParam.setKeyStore(Config.tls_certificate_p12_path, Config.tls_private_key_password,
-                    "SunX509", "JKS");
-            sslParam.setTrustStore(Config.tls_ca_certificate_p12_path, Config.tls_private_key_password,
-                    "SunX509", "JKS");
-            if (Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
-                sslParam.requireClientAuth(true);
-            } else if (Config.tls_verify_mode.equals("verify_peer")) {
-                // nothing
-            } else if (Config.tls_verify_mode.equals("verify_none")) {
-                // nothing
-            } else {
-                throw new RuntimeException("The verify mod error(support verify_peer, verify_none"
-                    + ", verify_fail_if_no_peer_cert)");
-            }
             try {
-                serverTransport = TSSLTransportFactory.getServerSocket(port, 0,
-                        new InetSocketAddress("0.0.0.0", port).getAddress(), sslParam);
-            } catch (TTransportException e) {
-                throw new RuntimeException(e);
+                AdvancedTlsX509TrustManager trustManager = AdvancedTlsX509TrustManager.newBuilder()
+                        .setVerification(
+                                AdvancedTlsX509TrustManager.Verification.CERTIFICATE_AND_HOST_NAME_VERIFICATION)
+                        .build();
+                trustManagerCloseable = trustManager.updateTrustCredentialsFromFile(
+                        new File(Config.tls_ca_certificate_path),
+                        Config.tls_cert_refresh_interval_seconds, TimeUnit.SECONDS,
+                        Executors.newSingleThreadScheduledExecutor(r -> {
+                            Thread t = new Thread(r, "ThriftServer-TrustManager");
+                            t.setDaemon(true);
+                            return t;
+                        })
+                );
+
+                X509TlsReloadableKeyManager keyManager = new X509TlsReloadableKeyManager();
+                keyManagerCloseable = keyManager.updateIdentityCredentialsFromFile(
+                        new File(Config.tls_private_key_path), new File(Config.tls_certificate_path),
+                        Config.tls_private_key_password, Config.tls_cert_refresh_interval_seconds, TimeUnit.SECONDS,
+                        Executors.newSingleThreadScheduledExecutor(r -> {
+                            Thread t = new Thread(r, "ThriftServer-KeyManager");
+                            t.setDaemon(true);
+                            return t;
+                        })
+                );
+
+                SSLContext sslContext = SSLContext.getInstance("TLSv1.2");
+                sslContext.init(new KeyManager[]{ keyManager },
+                        new TrustManager[]{ trustManager }, null);
+
+                SSLServerSocketFactory sslServerSocketFactory = sslContext.getServerSocketFactory();
+                SSLServerSocket sslServerSocket = (SSLServerSocket) sslServerSocketFactory.createServerSocket(port);
+                if (Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
+                    sslServerSocket.setNeedClientAuth(true);
+                } else if (Config.tls_verify_mode.equals("verify_peer")) {
+                    sslServerSocket.setWantClientAuth(true);
+                } else if (Config.tls_verify_mode.equals("verify_none")) {
+                    // nothing
+                } else {
+                    throw new RuntimeException("The verify mod error(support verify_peer, verify_none"
+                        + ", verify_fail_if_no_peer_cert)");
+                }
+
+                serverTransport = new TServerSocket(new TServerSocket.ServerSocketTransportArgs()
+                    .serverSocket(sslServerSocket));
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to init TLS thrift server", e);
             }
         } else {
             serverTransport = new ImprovedTServerSocket(socketTransportArgs);
@@ -185,19 +223,54 @@ public class ThriftServer {
 
         TServerSocket serverTransport;
         if (Config.enable_tls) {
-            boolean clientAuth = true; // TODO: from config
-            TSSLTransportFactory.TSSLTransportParameters sslParam =
-                    new TSSLTransportFactory.TSSLTransportParameters("TLSv1.2", null, clientAuth);
-            sslParam.setKeyStore(Config.tls_certificate_p12_path, Config.tls_private_key_password,
-                    "SunX509", "JKS");
-            sslParam.setTrustStore(Config.tls_ca_certificate_p12_path, Config.tls_private_key_password,
-                    "SunX509", "JKS");
             try {
-                LOG.info("TThreadPoolServer Socket" + port);
-                serverTransport = TSSLTransportFactory.getServerSocket(port, 0,
-                    new InetSocketAddress("0.0.0.0", port).getAddress(), sslParam);
-            } catch (TTransportException e) {
-                throw new RuntimeException(e);
+                AdvancedTlsX509TrustManager trustManager = AdvancedTlsX509TrustManager.newBuilder()
+                        .setVerification(
+                                AdvancedTlsX509TrustManager.Verification.CERTIFICATE_AND_HOST_NAME_VERIFICATION)
+                        .build();
+                trustManagerCloseable = trustManager.updateTrustCredentialsFromFile(
+                        new File(Config.tls_ca_certificate_path),
+                        Config.tls_cert_refresh_interval_seconds, TimeUnit.SECONDS,
+                        Executors.newSingleThreadScheduledExecutor(r -> {
+                            Thread t = new Thread(r, "ThriftServer-TrustManager");
+                            t.setDaemon(true);
+                            return t;
+                        })
+                );
+
+                X509TlsReloadableKeyManager keyManager = new X509TlsReloadableKeyManager();
+                keyManagerCloseable = keyManager.updateIdentityCredentialsFromFile(
+                        new File(Config.tls_private_key_path), new File(Config.tls_certificate_path),
+                        Config.tls_private_key_password, Config.tls_cert_refresh_interval_seconds, TimeUnit.SECONDS,
+                        Executors.newSingleThreadScheduledExecutor(r -> {
+                            Thread t = new Thread(r, "ThriftServer-KeyManager");
+                            t.setDaemon(true);
+                            return t;
+                        })
+                );
+
+                SSLContext sslContext = SSLContext.getInstance("TLSv1.2");
+                sslContext.init(new KeyManager[]{ keyManager },
+                                new TrustManager[]{ trustManager },
+                                null);
+
+                SSLServerSocketFactory sslServerSocketFactory = sslContext.getServerSocketFactory();
+                SSLServerSocket sslServerSocket = (SSLServerSocket) sslServerSocketFactory.createServerSocket(port);
+                if (Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
+                    sslServerSocket.setNeedClientAuth(true);
+                } else if (Config.tls_verify_mode.equals("verify_peer")) {
+                    sslServerSocket.setWantClientAuth(true);
+                } else if (Config.tls_verify_mode.equals("verify_none")) {
+                    // nothing
+                } else {
+                    throw new RuntimeException("The verify mod error(support verify_peer, verify_none"
+                        + ", verify_fail_if_no_peer_cert)");
+                }
+
+                serverTransport = new TServerSocket(new TServerSocket.ServerSocketTransportArgs()
+                        .serverSocket(sslServerSocket));
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to init TLS thrift server", e);
             }
         } else {
             serverTransport = new ImprovedTServerSocket(socketTransportArgs);
@@ -240,6 +313,23 @@ public class ThriftServer {
     public void stop() {
         if (server != null) {
             server.stop();
+        }
+        // Close certificate monitoring tasks
+        if (trustManagerCloseable != null) {
+            try {
+                trustManagerCloseable.close();
+                LOG.info("Stopped trust manager certificate monitoring");
+            } catch (Exception e) {
+                LOG.warn("Failed to close trust manager certificate monitoring", e);
+            }
+        }
+        if (keyManagerCloseable != null) {
+            try {
+                keyManagerCloseable.close();
+                LOG.info("Stopped key manager certificate monitoring");
+            } catch (Exception e) {
+                LOG.warn("Failed to close key manager certificate monitoring", e);
+            }
         }
     }
 

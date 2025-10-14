@@ -35,8 +35,11 @@ import org.apache.thrift.transport.TTransport;
 import org.apache.thrift.transport.TTransportException;
 import org.apache.thrift.transport.layered.TFramedTransport;
 
+import java.io.Closeable;
 import java.io.File;
 import java.lang.reflect.Constructor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocket;
@@ -49,12 +52,99 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
     private int timeoutMs;
     private boolean isNonBlockingIO;
 
+    // Global shared TLS managers for certificate hot-reload
+    private static volatile X509TlsReloadableKeyManager sharedKeyManager;
+    private static volatile AdvancedTlsX509TrustManager sharedTrustManager;
+    private static volatile Closeable keyManagerCloseable;
+    private static volatile Closeable trustManagerCloseable;
+    private static final Object tlsInitLock = new Object();
+
     public GenericPool(String className, GenericKeyedObjectPoolConfig config, int timeoutMs, boolean isNonBlockingIO) {
         this.className = "org.apache.doris.thrift." + className + "$Client";
         ThriftClientFactory factory = new ThriftClientFactory();
         pool = new GenericKeyedObjectPool<>(factory, config);
         this.timeoutMs = timeoutMs;
         this.isNonBlockingIO = isNonBlockingIO;
+
+        // Initialize global TLS managers
+        if (Config.enable_tls) {
+            initGlobalTlsManagers();
+        }
+    }
+
+    /**
+     * Initialize global shared TLS managers with certificate hot-reload support.
+     * This method is thread-safe and will only initialize once.
+     */
+    private static void initGlobalTlsManagers() {
+        if (sharedKeyManager == null || sharedTrustManager == null) {
+            synchronized (tlsInitLock) {
+                // Double-check locking
+                if (sharedKeyManager == null || sharedTrustManager == null) {
+                    try {
+                        // Initialize TrustManager with auto-reload
+                        sharedTrustManager = AdvancedTlsX509TrustManager.newBuilder()
+                            .setVerification(
+                                    AdvancedTlsX509TrustManager.Verification.CERTIFICATE_AND_HOST_NAME_VERIFICATION)
+                            .build();
+                        trustManagerCloseable = sharedTrustManager.updateTrustCredentialsFromFile(
+                                new File(Config.tls_ca_certificate_path),
+                                Config.tls_cert_refresh_interval_seconds, TimeUnit.SECONDS,
+                                Executors.newSingleThreadScheduledExecutor(r -> {
+                                    Thread t = new Thread(r, "GenericPool-TrustManager");
+                                    t.setDaemon(true);
+                                    return t;
+                                })
+                        );
+
+                        // Initialize KeyManager with auto-reload
+                        sharedKeyManager = new X509TlsReloadableKeyManager();
+                        keyManagerCloseable = sharedKeyManager.updateIdentityCredentialsFromFile(
+                                new File(Config.tls_private_key_path),
+                                new File(Config.tls_certificate_path),
+                                Config.tls_private_key_password,
+                                Config.tls_cert_refresh_interval_seconds, TimeUnit.SECONDS,
+                                Executors.newSingleThreadScheduledExecutor(r -> {
+                                    Thread t = new Thread(r, "GenericPool-KeyManager");
+                                    t.setDaemon(true);
+                                    return t;
+                                })
+                        );
+
+                        LOG.info("Initialized global TLS managers with certificate hot-reload for GenericPool");
+                    } catch (Exception e) {
+                        LOG.error("Failed to initialize global TLS managers", e);
+                        throw new RuntimeException("Failed to initialize TLS for GenericPool", e);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Stop certificate monitoring tasks. Should be called when shutting down.
+     */
+    public static void stopCertificateMonitoring() {
+        synchronized (tlsInitLock) {
+            if (trustManagerCloseable != null) {
+                try {
+                    trustManagerCloseable.close();
+                    LOG.info("Stopped GenericPool TrustManager certificate monitoring");
+                } catch (Exception e) {
+                    LOG.warn("Failed to close GenericPool TrustManager certificate monitoring", e);
+                }
+                trustManagerCloseable = null;
+            }
+            if (keyManagerCloseable != null) {
+                try {
+                    keyManagerCloseable.close();
+                    LOG.info("Stopped GenericPool KeyManager certificate monitoring");
+                } catch (Exception e) {
+                    LOG.warn("Failed to close GenericPool KeyManager certificate monitoring", e);
+                }
+                keyManagerCloseable = null;
+            }
+        }
     }
 
     public GenericPool(String className, GenericKeyedObjectPoolConfig config, int timeoutMs) {
@@ -147,19 +237,11 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
 
             TSocket clientSocket;
             if (Config.enable_tls) {
-                AdvancedTlsX509TrustManager trustManager = AdvancedTlsX509TrustManager.newBuilder()
-                    .setVerification(
-                            AdvancedTlsX509TrustManager.Verification.CERTIFICATE_AND_HOST_NAME_VERIFICATION)
-                    .build();
-                trustManager.updateTrustCredentialsFromFile(new File(Config.tls_ca_certificate_path));
-
-                X509TlsReloadableKeyManager keyManager = new X509TlsReloadableKeyManager();
-                keyManager.updateIdentityCredentialsFromFile(new File(Config.tls_private_key_path),
-                        new File(Config.tls_certificate_path), Config.tls_private_key_password);
-
+                // Use global shared TLS managers for certificate hot-reload
                 SSLContext sslContext = SSLContext.getInstance("TLSv1.2");
-                sslContext.init(new KeyManager[]{ keyManager },
-                        new TrustManager[]{ trustManager }, null);
+                sslContext.init(new KeyManager[]{ sharedKeyManager },
+                                new TrustManager[]{ sharedTrustManager },
+                                null);
                 SSLSocket socket = (SSLSocket) sslContext.getSocketFactory().createSocket(key.hostname, key.port);
                 socket.setSoTimeout(timeoutMs);
                 clientSocket = new TSocket(socket);

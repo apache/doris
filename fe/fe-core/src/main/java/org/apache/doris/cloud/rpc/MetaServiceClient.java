@@ -27,11 +27,11 @@ import com.google.gson.stream.JsonReader;
 import io.grpc.ConnectivityState;
 import io.grpc.ManagedChannel;
 import io.grpc.NameResolverRegistry;
-import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
-import io.grpc.netty.shaded.io.netty.channel.ChannelOption;
-import io.grpc.netty.shaded.io.netty.handler.ssl.ClientAuth;
-import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext;
-import io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder;
+import io.grpc.netty.NettyChannelBuilder;
+import io.netty.channel.ChannelOption;
+import io.netty.handler.ssl.ClientAuth;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -91,9 +91,16 @@ public class MetaServiceClient {
             SslContext sslContext;
 
             try {
-                SslContextBuilder sslBuilder = io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts.forClient()
-                        .trustManager(caFile)
-                        .keyManager(clientCertFile, clientKeyFile);
+                SslContextBuilder sslBuilder = io.grpc.netty.GrpcSslContexts.forClient()
+                        .trustManager(caFile);
+
+                String keyPassword = Config.tls_private_key_password;
+                if (keyPassword == null || keyPassword.isEmpty()) {
+                    sslBuilder.keyManager(clientCertFile, clientKeyFile);
+                } else {
+                    sslBuilder.keyManager(clientCertFile, clientKeyFile, keyPassword);
+                }
+
                 if (Config.tls_verify_mode.equals("verify_fail_if_no_peer_cert")) {
                     sslBuilder.clientAuth(ClientAuth.REQUIRE);
                 } else if (Config.tls_verify_mode.equals("verify_peer")) {

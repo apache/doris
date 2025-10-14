@@ -153,6 +153,9 @@ private:
     IntGauge* thrift_current_connections = nullptr;
     // Total connections made over the lifetime of this server
     IntCounter* thrift_connections_total = nullptr;
+
+    // SSL related members
+    std::shared_ptr<class ReloadableSSLSocketFactory> _reloadable_ssl_factory;
 };
 
 } // namespace doris
