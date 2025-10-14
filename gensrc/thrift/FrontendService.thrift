@@ -103,6 +103,8 @@ struct TGetDbsResult {
   2: optional list<string> catalogs
   3: optional list<i64> db_ids
   4: optional list<i64> catalog_ids
+  5: optional list<i64> create_times
+  6: optional list<string> create_users
 }
 
 // Arguments to getTableNames, which returns a list of tables that match an

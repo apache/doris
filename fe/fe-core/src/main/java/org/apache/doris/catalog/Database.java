@@ -328,6 +328,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return createUser;
     }
 
+    public long getCreateTime() {
+        return createTime;
+    }
+
     public void setCreateUser(String createUser) {
         this.createUser = createUser;
     }

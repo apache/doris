@@ -41,6 +41,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaSchemataScanner::_s_columns = {
         {"DEFAULT_COLLATION_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
         {"SQL_PATH", TYPE_VARCHAR, sizeof(StringRef), true},
         {"DEFAULT_ENCRYPTION", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"CREATE_USER", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"CREATE_TIME", TYPE_DATETIME, sizeof(int128_t), true},
 };
 
 SchemaSchemataScanner::SchemaSchemataScanner()
@@ -155,6 +157,43 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
             datas[i] = &str;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
+    }
+    // CREATE_USER
+    {
+        if (!_db_result.__isset.create_users) {
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, null_datas));
+        } else {
+            std::vector<StringRef> strs(dbs_num);
+            for (int i = 0; i < dbs_num; ++i) {
+                const std::string& src = _db_result.create_users[i];
+                if (src.empty()) {
+                    datas[i] = nullptr;
+                } else {
+                    strs[i] = StringRef(src.c_str(), src.size());
+                    datas[i] = strs.data() + i;
+                }
+            }
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, datas));
+        }
+    }
+
+    // CREATE_TIME
+    {
+        if (!_db_result.__isset.create_times) {
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, null_datas));
+        } else {
+            std::vector<VecDateTimeValue> srcs(dbs_num);
+            for (int i = 0; i < dbs_num; ++i) {
+                int64_t create_time = _db_result.create_times[i];
+                if (create_time <= 0) {
+                    datas[i] = nullptr;
+                } else {
+                    srcs[i].from_unixtime(create_time, _timezone_obj);
+                    datas[i] = srcs.data() + i;
+                }
+            }
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, datas));
+        }
     }
     return Status::OK();
 }
