@@ -99,7 +99,10 @@ public abstract class AbstractInsertExecutor {
         this.ctx = ctx;
         this.database = table.getDatabase();
         this.insertLoadJob = new InsertLoadJob(database.getId(), labelName, jobId);
-        ctx.getEnv().getLoadManager().addLoadJob(insertLoadJob);
+        // Do not add load job if job id is -1.
+        if (jobId != -1) {
+            ctx.getEnv().getLoadManager().addLoadJob(insertLoadJob);
+        }
         this.coordinator = EnvFactory.getInstance().createCoordinator(
                 ctx, planner, ctx.getStatsErrorEstimator(), insertLoadJob.getId());
         this.labelName = labelName;

@@ -29,13 +29,15 @@ import java.util.Optional;
 public class LogicalOdbcScanToPhysicalOdbcScan extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalOdbcScan().then(odbcScan ->
-            new PhysicalOdbcScan(
+        return logicalOdbcScan().then(odbcScan -> new PhysicalOdbcScan(
                 odbcScan.getRelationId(),
                 odbcScan.getTable(),
                 odbcScan.getQualifier(),
                 Optional.empty(),
-                odbcScan.getLogicalProperties())
-        ).toRule(RuleType.LOGICAL_ODBC_SCAN_TO_PHYSICAL_ODBC_SCAN_RULE);
+                odbcScan.getLogicalProperties(),
+                null,
+                null,
+                odbcScan.getOperativeSlots(),
+                odbcScan.getTableAlias())).toRule(RuleType.LOGICAL_ODBC_SCAN_TO_PHYSICAL_ODBC_SCAN_RULE);
     }
 }

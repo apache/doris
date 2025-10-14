@@ -17,16 +17,18 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.info.TableNameInfo;
+
 public class InsertTarget {
-    private final TableName tblName;
+    private final TableNameInfo tblName;
     private final PartitionNames partitionNames;
 
-    public InsertTarget(TableName tblName, PartitionNames partitionNames) {
+    public InsertTarget(TableNameInfo tblName, PartitionNames partitionNames) {
         this.tblName = tblName;
         this.partitionNames = partitionNames;
     }
 
-    public TableName getTblName() {
+    public TableNameInfo getTblName() {
         return tblName;
     }
 
