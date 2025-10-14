@@ -1046,15 +1046,16 @@ Status ParquetReader::_process_column_stat_filter(const tparquet::RowGroup& row_
         if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
             continue;
         }
-        ParquetPredicate::ColumnStat stat;
         const auto& file_col_name =
                 _table_info_node_ptr->children_file_column_name(slot->col_name());
         const FieldSchema* col_schema = _file_metadata->schema().get_column(file_col_name);
         int parquet_col_id = col_schema->physical_column_index;
         auto meta_data = row_group.columns[parquet_col_id].meta_data;
-
-        if (!ParquetPredicate::read_column_stats(col_schema, meta_data, &_ignored_stats,
-                                                 _t_metadata->created_by, &stat)) {
+        ParquetPredicate::ColumnStat stat;
+        stat.col_schema = col_schema;
+        stat.ctz = _ctz;
+        if (ParquetPredicate::read_column_stats(col_schema, meta_data, &_ignored_stats,
+                                                _t_metadata->created_by, &stat)) {
             for (const auto& predicate : predicates) {
                 if (!predicate->evaluate_and(&stat)) {
                     *filter_group = true;

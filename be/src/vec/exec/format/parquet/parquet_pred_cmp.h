@@ -160,17 +160,6 @@ public:
         const cctz::time_zone* ctz;
     };
 
-    enum OP {
-        EQ,
-        LT,
-        LE,
-        GT,
-        GE,
-        IS_NULL,
-        IS_NOT_NULL,
-        IN,
-    };
-
     static Status get_min_max_value(const FieldSchema* col_schema, const std::string& encoded_min,
                                     const std::string& encoded_max, const cctz::time_zone& ctz,
                                     Field* min_field, Field* max_field) {
