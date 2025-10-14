@@ -1435,6 +1435,9 @@ const ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn_with_cache(const Pa
 }
 
 ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& key, size_t key_index) {
+    // Since the cache stores const types, non-const versions cannot be used. const_cast must be employed to
+    // eliminate const semantics. As all nodes are created via std::make_shared<Node>, modifying them will
+    // not result in uninitialized behavior
     return const_cast<ColumnVariant::Subcolumn*>(get_subcolumn_with_cache(key, key_index));
 }
 
@@ -1444,12 +1447,12 @@ const ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& k
 }
 
 ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& key) {
-    const auto* node = subcolumns.find_leaf(key);
+    auto* node = subcolumns.find_leaf(key);
     if (node == nullptr) {
         VLOG_DEBUG << "There is no subcolumn " << key.get_path();
         return nullptr;
     }
-    return &const_cast<Subcolumns::Node*>(node)->data;
+    return &node->data;
 }
 
 bool ColumnVariant::has_subcolumn(const PathInData& key) const {
@@ -2071,7 +2074,7 @@ void ColumnVariant::finalize() {
     static_cast<void>(finalize(FinalizeMode::READ_MODE));
 }
 
-void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type) {
+void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type) const {
     auto& root = subcolumns.get_mutable_root()->data;
     if (!root.get_least_common_type()->equals(*expected_root_type)) {
         // make sure the root type is alawys as expected

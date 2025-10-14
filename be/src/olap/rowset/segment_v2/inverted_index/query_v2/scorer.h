@@ -18,10 +18,28 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/doc_set.h"
 
+namespace roaring {
+class Roaring;
+} // namespace roaring
+
+namespace doris::segment_v2 {
+class IndexIterator;
+} // namespace doris::segment_v2
+
 namespace doris::segment_v2::inverted_index::query_v2 {
+
+class Scorer;
+
+class NullBitmapResolver {
+public:
+    virtual ~NullBitmapResolver() = default;
+    virtual segment_v2::IndexIterator* iterator_for(const Scorer& scorer,
+                                                    const std::string& logical_field) const = 0;
+};
 
 class Scorer : public DocSet {
 public:
@@ -29,6 +47,12 @@ public:
     ~Scorer() override = default;
 
     virtual float score() = 0;
+
+    virtual bool has_null_bitmap(const NullBitmapResolver* /*resolver*/ = nullptr) { return false; }
+    virtual const roaring::Roaring* get_null_bitmap(
+            const NullBitmapResolver* /*resolver*/ = nullptr) {
+        return nullptr;
+    }
 };
 using ScorerPtr = std::shared_ptr<Scorer>;
 
@@ -43,6 +67,14 @@ public:
     uint32_t size_hint() const override { return 0; }
 
     float score() override { return 0.0F; }
+
+    bool has_null_bitmap(const NullBitmapResolver* /*resolver*/ = nullptr) override {
+        return false;
+    }
+    const roaring::Roaring* get_null_bitmap(
+            const NullBitmapResolver* /*resolver*/ = nullptr) override {
+        return nullptr;
+    }
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

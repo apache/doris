@@ -19,9 +19,42 @@ package org.apache.doris.encryption;
 
 import com.google.gson.annotations.SerializedName;
 
+import java.util.Objects;
+
 public class RootKeyInfo {
     public enum RootKeyType {
-        LOCAL, AWS_KMS;
+        LOCAL("local"),
+        AWS_KMS("aws_kms");
+
+        public static RootKeyType tryFrom(String name) {
+            Objects.requireNonNull(name);
+            if (LOCAL.name.equalsIgnoreCase(name)) {
+                return LOCAL;
+            }
+            if (AWS_KMS.name.equalsIgnoreCase(name)) {
+                return AWS_KMS;
+            }
+            throw new IllegalArgumentException("invalid name" + name);
+        }
+
+        RootKeyType(String name) {
+            this.name = name;
+        }
+
+        String name;
+    }
+
+    public RootKeyInfo() {}
+
+    public RootKeyInfo(RootKeyInfo info) {
+        this.type = info.type;
+        this.algorithm = info.algorithm;
+        this.region = info.region;
+        this.endpoint = info.endpoint;
+        this.cmkId = info.cmkId;
+        this.ak = info.ak;
+        this.sk = info.sk;
+        this.password = info.password;
     }
 
     @SerializedName(value = "type")
