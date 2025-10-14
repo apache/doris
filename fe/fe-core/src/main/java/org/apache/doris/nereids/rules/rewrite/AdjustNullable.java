@@ -78,9 +78,20 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     private static final Logger LOG = LogManager.getLogger(AdjustNullable.class);
 
     private final boolean isAnalyzedPhase;
+    /**
+     * When check is true, if we find a slot that is non-nullable in the plan,
+     * but we infer it should be nullable from the plan's subtree, and fe_debug is true,
+     * then throw an exception.
+     */
+    private final boolean check;
+
+    public AdjustNullable(boolean isAnalyzedPhase, boolean check) {
+        this.isAnalyzedPhase = isAnalyzedPhase;
+        this.check = check;
+    }
 
     public AdjustNullable(boolean isAnalyzedPhase) {
-        this.isAnalyzedPhase = isAnalyzedPhase;
+        this(isAnalyzedPhase, !isAnalyzedPhase);
     }
 
     @Override
@@ -448,7 +459,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     private <T extends Expression> Optional<T> updateExpression(T input,
             Map<ExprId, Slot> replaceMap, boolean debugCheck) {
         AtomicBoolean changed = new AtomicBoolean(false);
-        Expression replaced = doUpdateExpression(changed, input, replaceMap, !isAnalyzedPhase && debugCheck);
+        Expression replaced = doUpdateExpression(changed, input, replaceMap, check && debugCheck);
         return changed.get() ? Optional.of((T) replaced) : Optional.empty();
     }
 

@@ -8,9 +8,12 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[cs_item_sk]
-------------------PhysicalProject
---------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((catalog_sales.cs_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF2 i_item_sk->[cs_item_sk]
+------------------hashAgg[GLOBAL]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------hashAgg[LOCAL]
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = inventory.inv_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[inv_date_sk]
 ----------------------PhysicalProject
