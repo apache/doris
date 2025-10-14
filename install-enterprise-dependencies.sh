@@ -9,7 +9,7 @@ if [[ ! -f "${ZIP_PATH}" ]] || [[ "$(md5sum ${ZIP_PATH} | awk '{print $1}')" != 
 fi
 
 if [[ -f custom_env.sh ]]; then
-    source custom_env.sh
+    source ./custom_env.sh
 fi
 if [[ "$JAVA_HOME" == "" ]]; then
     echo "JAVA_HOME not set"
