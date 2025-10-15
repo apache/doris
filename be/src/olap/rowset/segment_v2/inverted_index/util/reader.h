@@ -17,34 +17,13 @@
 
 #pragma once
 
-#include <unicode/utext.h>
+#include <memory>
 
 #include "CLucene.h"
-#include "CLucene/analysis/AnalysisHeader.h"
-#include "composite_break_iterator.h"
-#include "default_icu_tokenizer_config.h"
-#include "icu_common.h"
+#include "CLucene/util/CLStreams.h"
 
-using namespace lucene::analysis;
+namespace doris::segment_v2::inverted_index {
 
-namespace doris::segment_v2 {
+using ReaderPtr = std::shared_ptr<lucene::util::Reader>;
 
-class ICUTokenizer : public Tokenizer {
-public:
-    ICUTokenizer();
-    ICUTokenizer(bool lowercase, bool ownReader);
-    ~ICUTokenizer() override = default;
-
-    void initialize(const std::string& dictPath);
-    Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
-
-private:
-    std::string utf8Str_;
-    icu::UnicodeString buffer_;
-
-    ICUTokenizerConfigPtr config_;
-    CompositeBreakIteratorPtr breaker_;
-};
-
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index

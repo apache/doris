@@ -17,20 +17,38 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/inverted_index/token_stream.h"
+#include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer.h"
+
+using namespace lucene::analysis;
 
 namespace doris::segment_v2::inverted_index {
 
-class DorisTokenFilter : public TokenFilter, public DorisTokenStream {
-public:
-    DorisTokenFilter(TokenStreamPtr in) : TokenFilter(nullptr), _in(std::move(in)) {}
-    ~DorisTokenFilter() override = default;
-
-    void reset() override { _in->reset(); }
-
-protected:
-    TokenStreamPtr _in;
+enum class BasicTokenizerMode {
+    L1 = 1, // English + numbers + Chinese tokenization
+    L2 = 2  // L1 + all Unicode characters tokenized
 };
-using TokenFilterPtr = std::shared_ptr<DorisTokenFilter>;
+
+class BasicTokenizer : public DorisTokenizer {
+public:
+    BasicTokenizer() = default;
+    BasicTokenizer(bool own_reader);
+    ~BasicTokenizer() override = default;
+
+    void initialize(BasicTokenizerMode mode);
+
+    Token* next(Token* token) override;
+    void reset() override;
+
+private:
+    template <BasicTokenizerMode mode>
+    void cut();
+
+    int32_t _buffer_index = 0;
+    int32_t _data_len = 0;
+    std::string _buffer;
+    std::vector<std::string_view> _tokens_text;
+
+    BasicTokenizerMode _mode = BasicTokenizerMode::L1;
+};
 
 } // namespace doris::segment_v2::inverted_index
