@@ -238,7 +238,18 @@ public:
         const size_t data_size = unaligned_load<size_t>(data);
         data += sizeof(size_t);
         col.insert_data(reinterpret_cast<const char*>(data), data_size);
-        return data + data_size;
+        data += data_size;
+        return data;
+    }
+
+    static const uint8_t* deserialize_binary_to_field(const uint8_t* data, Field& field,
+                                                      FieldInfo& info) {
+        const size_t data_size = unaligned_load<size_t>(data);
+        data += sizeof(size_t);
+        field = Field::create_field<TYPE_STRING>(
+                String(reinterpret_cast<const char*>(data), data_size));
+        data += data_size;
+        return data;
     }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;

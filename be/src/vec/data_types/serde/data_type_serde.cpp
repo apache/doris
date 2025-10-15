@@ -25,11 +25,11 @@
 #include "vec/columns/column.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/serde/data_type_jsonb_serde.h"
-#include "vec/data_types/serde/data_type_string_serde.h"
 #include "vec/data_types/serde/data_type_array_serde.h"
-#include "vec/data_types/serde/data_type_number_serde.h"
 #include "vec/data_types/serde/data_type_decimal_serde.h"
+#include "vec/data_types/serde/data_type_jsonb_serde.h"
+#include "vec/data_types/serde/data_type_number_serde.h"
+#include "vec/data_types/serde/data_type_string_serde.h"
 #include "vec/functions/cast/cast_base.h"
 namespace doris {
 namespace vectorized {
@@ -144,97 +144,116 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_column(const uint8_t* data, 
     const uint8_t* end = data;
     switch (type) {
     case FieldType::OLAP_FIELD_TYPE_STRING: {
-        end = DataTypeStringSerDe::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeStringSerDe::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_TINYINT: {
-        end = DataTypeNumberSerDe<TYPE_TINYINT>::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeNumberSerDe<TYPE_TINYINT>::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_SMALLINT: {
-        end = DataTypeNumberSerDe<TYPE_SMALLINT>::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeNumberSerDe<TYPE_SMALLINT>::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_INT: {
-        end = DataTypeNumberSerDe<TYPE_INT>::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeNumberSerDe<TYPE_INT>::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_BIGINT: {
-        end = DataTypeNumberSerDe<TYPE_BIGINT>::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeNumberSerDe<TYPE_BIGINT>::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_LARGEINT: {
-        end = DataTypeNumberSerDe<TYPE_LARGEINT>::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeNumberSerDe<TYPE_LARGEINT>::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_FLOAT: {
-        end = DataTypeNumberSerDe<TYPE_FLOAT>::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeNumberSerDe<TYPE_FLOAT>::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DOUBLE: {
-        end = DataTypeNumberSerDe<TYPE_DOUBLE>::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeNumberSerDe<TYPE_DOUBLE>::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_JSONB: {
-        end = DataTypeJsonbSerDe::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeJsonbSerDe::deserialize_binary_to_column(data,
+                                                               nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-        end = DataTypeArraySerDe::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeArraySerDe::deserialize_binary_to_column(data,
+                                                               nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_IPV4: {
-        end = DataTypeNumberSerDe<TYPE_IPV4>::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeNumberSerDe<TYPE_IPV4>::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_IPV6: {
-        end = DataTypeNumberSerDe<TYPE_IPV6>::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeNumberSerDe<TYPE_IPV6>::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DATEV2: {
-        end = DataTypeNumberSerDe<TYPE_DATEV2>::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeNumberSerDe<TYPE_DATEV2>::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
-        end = DataTypeNumberSerDe<TYPE_DATETIMEV2>::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeNumberSerDe<TYPE_DATETIMEV2>::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL32: {
-        end = DataTypeDecimalSerDe<TYPE_DECIMAL32>::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeDecimalSerDe<TYPE_DECIMAL32>::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL64: {
-        end = DataTypeDecimalSerDe<TYPE_DECIMAL64>::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeDecimalSerDe<TYPE_DECIMAL64>::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
-        end = DataTypeDecimalSerDe<TYPE_DECIMAL128I>::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeDecimalSerDe<TYPE_DECIMAL128I>::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
-        end = DataTypeDecimalSerDe<TYPE_DECIMAL256>::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeDecimalSerDe<TYPE_DECIMAL256>::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_BOOL: {
-        end = DataTypeNumberSerDe<TYPE_BOOLEAN>::deserialize_binary_to_column(data, nullable_column.get_nested_column());
+        end = DataTypeNumberSerDe<TYPE_BOOLEAN>::deserialize_binary_to_column(
+                data, nullable_column.get_nested_column());
         nullable_column.push_false_to_nullmap(1);
         break;
     }
@@ -245,90 +264,92 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_column(const uint8_t* data, 
     }
     default:
         throw doris::Exception(ErrorCode::OUT_OF_BOUND,
-                               "Type ({}) for deserialize_from_sparse_column is invalid", type);
+                               "Type ({}) for deserialize_binary_to_column is invalid", type);
     }
     return end;
 }
 
-const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, Field& field, FieldInfo& info) {
+const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, Field& field,
+                                                          FieldInfo& info) {
     const FieldType type = static_cast<FieldType>(*data++);
     info.scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type);
     const uint8_t* end = data;
     switch (type) {
     case FieldType::OLAP_FIELD_TYPE_STRING: {
-        end = DataTypeStringSerDe::deserialize_binary_to_column(data, field);
+        end = DataTypeStringSerDe::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_TINYINT: {
-        end = DataTypeNumberSerDe<TYPE_TINYINT>::deserialize_binary_to_column(data, field);
+        end = DataTypeNumberSerDe<TYPE_TINYINT>::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_SMALLINT: {
-        end = DataTypeNumberSerDe<TYPE_SMALLINT>::deserialize_binary_to_column(data, field);
+        end = DataTypeNumberSerDe<TYPE_SMALLINT>::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_INT: {
-        end = DataTypeNumberSerDe<TYPE_INT>::deserialize_binary_to_column(data, field);
+        end = DataTypeNumberSerDe<TYPE_INT>::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_BIGINT: {
-        end = DataTypeNumberSerDe<TYPE_BIGINT>::deserialize_binary_to_column(data, field);
+        end = DataTypeNumberSerDe<TYPE_BIGINT>::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_LARGEINT: {
-        end = DataTypeNumberSerDe<TYPE_LARGEINT>::deserialize_binary_to_column(data, field);
+        end = DataTypeNumberSerDe<TYPE_LARGEINT>::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_FLOAT: {
-        end = DataTypeNumberSerDe<TYPE_FLOAT>::deserialize_binary_to_column(data, field);
+        end = DataTypeNumberSerDe<TYPE_FLOAT>::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DOUBLE: {
-        end = DataTypeNumberSerDe<TYPE_DOUBLE>::deserialize_binary_to_column(data, field);
+        end = DataTypeNumberSerDe<TYPE_DOUBLE>::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_JSONB: {
-        end = DataTypeJsonbSerDe::deserialize_binary_to_column(data, field);
+        end = DataTypeJsonbSerDe::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-        end = DataTypeArraySerDe::deserialize_binary_to_column(data, field, info);
+        end = DataTypeArraySerDe::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_IPV4: {
-        end = DataTypeNumberSerDe<TYPE_IPV4>::deserialize_binary_to_column(data, field);
+        end = DataTypeNumberSerDe<TYPE_IPV4>::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_IPV6: {
-        end = DataTypeNumberSerDe<TYPE_IPV6>::deserialize_binary_to_column(data, field);
+        end = DataTypeNumberSerDe<TYPE_IPV6>::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DATEV2: {
-        end = DataTypeNumberSerDe<TYPE_DATEV2>::deserialize_binary_to_column(data, field);
+        end = DataTypeNumberSerDe<TYPE_DATEV2>::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
-        end = DataTypeNumberSerDe<TYPE_DATETIMEV2>::deserialize_binary_to_column(data, field);
+        end = DataTypeNumberSerDe<TYPE_DATETIMEV2>::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL32: {
-        end = DataTypeDecimalSerDe<TYPE_DECIMAL32>::deserialize_binary_to_column(data, field);
+        end = DataTypeDecimalSerDe<TYPE_DECIMAL32>::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL64: {
-        end = DataTypeDecimalSerDe<TYPE_DECIMAL64>::deserialize_binary_to_column(data, field);
+        end = DataTypeDecimalSerDe<TYPE_DECIMAL64>::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
-        end = DataTypeDecimalSerDe<TYPE_DECIMAL128I>::deserialize_binary_to_column(data, field);
+        end = DataTypeDecimalSerDe<TYPE_DECIMAL128I>::deserialize_binary_to_field(data, field,
+                                                                                  info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
-        end = DataTypeDecimalSerDe<TYPE_DECIMAL256>::deserialize_binary_to_column(data, field);
+        end = DataTypeDecimalSerDe<TYPE_DECIMAL256>::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_BOOL: {
-        end = DataTypeNumberSerDe<TYPE_BOOLEAN>::deserialize_binary_to_column(data, field);
+        end = DataTypeNumberSerDe<TYPE_BOOLEAN>::deserialize_binary_to_field(data, field, info);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_NONE: {
@@ -337,7 +358,7 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, F
     }
     default:
         throw doris::Exception(ErrorCode::OUT_OF_BOUND,
-                               "Type ({}) for deserialize_from_sparse_column is invalid", type);
+                               "Type ({}) for deserialize_binary_to_field is invalid", type);
     }
     return end;
 }

@@ -528,7 +528,7 @@ void DataTypeArraySerDe::write_one_cell_to_binary(const IColumn& src_column,
 }
 
 const uint8_t* DataTypeArraySerDe::deserialize_binary_to_column(const uint8_t* data,
-                                                                IColumn& column)  {
+                                                                IColumn& column) {
     auto& array_col = assert_cast<ColumnArray&>(column);
     auto& offsets = array_col.get_offsets();
     auto& nested_column = array_col.get_data();
@@ -547,22 +547,23 @@ const uint8_t* DataTypeArraySerDe::deserialize_binary_to_column(const uint8_t* d
     return data;
 }
 
-const uint8_t* DataTypeArraySerDe::deserialize_binary_to_field(const uint8_t* data, Field& field, FieldInfo& info) {
+const uint8_t* DataTypeArraySerDe::deserialize_binary_to_field(const uint8_t* data, Field& field,
+                                                               FieldInfo& info) {
     const size_t nested_size = unaligned_load<size_t>(data);
     data += sizeof(size_t);
     field = Field::create_field<TYPE_ARRAY>(Array(nested_size));
     info.num_dimensions++;
     auto& array = field.get<Array>();
-    info.scalar_type_id = PrimitiveType::TYPE_NULL;
-    for (size_t i = 0; i < size; ++i) {
+    PrimitiveType nested_type = PrimitiveType::TYPE_NULL;
+    for (size_t i = 0; i < nested_size; ++i) {
         Field nested_field;
-        FieldInfo nested_info;
-        data = DataTypeSerDe::deserialize_binary_to_field(data, nested_field, nested_info);
+        data = DataTypeSerDe::deserialize_binary_to_field(data, nested_field, info);
         array[i] = std::move(nested_field);
-        if (nested_info.scalar_type_id != PrimitiveType::TYPE_NULL) {
-            info.scalar_type_id = nested_info.scalar_type_id;
+        if (info.scalar_type_id != PrimitiveType::TYPE_NULL) {
+            nested_type = info.scalar_type_id;
         }
     }
+    info.scalar_type_id = nested_type;
     return data;
 }
 

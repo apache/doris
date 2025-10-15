@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <time.h>
 
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -41,6 +42,7 @@
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -271,4 +273,375 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
     }
 }
 
+TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
+    auto sparse_column = ColumnVariant::create_sparse_column_fn();
+    auto& column_map = assert_cast<ColumnMap&>(*sparse_column);
+    // auto& key = assert_cast<ColumnString&>(column_map.get_keys());
+    auto& value = assert_cast<ColumnString&>(column_map.get_values());
+    // auto& offsets = column_map.get_offsets();
+    auto data_type = ColumnVariant::get_sparse_column_type();
+    std::string file_path = std::string(getenv("ROOT")) +
+                            "/be/test/util/test_data/deserialize_from_sparse_column_test.bin";
+
+    // Field string_field = Field::create_field<TYPE_STRING>("123");
+    // FieldInfo info = {PrimitiveType::TYPE_STRING, false, false, 0};
+    // ColumnVariant::Subcolumn string_subcolumn = {0, true, true};
+    // string_subcolumn.insert(string_field, info);
+    // string_subcolumn.serialize_to_sparse_column(&key, "a", &value, 0);
+
+    // Field int_field = Field::create_field<TYPE_INT>(123);
+    // info.scalar_type_id = PrimitiveType::TYPE_INT;
+    // ColumnVariant::Subcolumn int_subcolumn = {0, true, true};
+    // int_subcolumn.insert(int_field, info);
+    // int_subcolumn.serialize_to_sparse_column(&key, "b", &value, 0);
+
+    // Field largeint_field = Field::create_field<TYPE_LARGEINT>(__int128_t(123));
+    // info.scalar_type_id = PrimitiveType::TYPE_LARGEINT;
+    // ColumnVariant::Subcolumn largeint_subcolumn = {0, true, true};
+    // largeint_subcolumn.insert(largeint_field, info);
+    // largeint_subcolumn.serialize_to_sparse_column(&key, "c", &value, 0);
+
+    // Field double_field = Field::create_field<TYPE_DOUBLE>(123.456);
+    // info.scalar_type_id = PrimitiveType::TYPE_DOUBLE;
+    // ColumnVariant::Subcolumn double_subcolumn = {0, true, true};
+    // double_subcolumn.insert(double_field, info);
+    // double_subcolumn.serialize_to_sparse_column(&key, "d", &value, 0);
+
+    // Field bool_field = Field::create_field<TYPE_BOOLEAN>(true);
+    // info.scalar_type_id = PrimitiveType::TYPE_BOOLEAN;
+    // ColumnVariant::Subcolumn bool_subcolumn = {0, true, true};
+    // bool_subcolumn.insert(bool_field, info);
+    // bool_subcolumn.serialize_to_sparse_column(&key, "e", &value, 0);
+
+    // Field datetime_field = Field::create_field<TYPE_DATETIMEV2>(23232323);
+    // info.scalar_type_id = PrimitiveType::TYPE_DATETIMEV2;
+    // info.scale = 3;
+    // ColumnVariant::Subcolumn datetime_subcolumn = {0, true, true};
+    // datetime_subcolumn.insert(datetime_field, info);
+    // datetime_subcolumn.serialize_to_sparse_column(&key, "f", &value, 0);
+
+    // Field date_field = Field::create_field<TYPE_DATEV2>(154543245);
+    // info.scalar_type_id = PrimitiveType::TYPE_DATEV2;
+    // info.scale = 3;
+    // ColumnVariant::Subcolumn date_subcolumn = {0, true, true};
+    // date_subcolumn.insert(date_field, info);
+    // date_subcolumn.serialize_to_sparse_column(&key, "g", &value, 0);
+
+    // Field ipv4_field = Field::create_field<TYPE_IPV4>(367357);
+    // info.scalar_type_id = PrimitiveType::TYPE_IPV4;
+    // ColumnVariant::Subcolumn ipv4_subcolumn = {0, true, true};
+    // ipv4_subcolumn.insert(ipv4_field, info);
+    // ipv4_subcolumn.serialize_to_sparse_column(&key, "h", &value, 0);
+
+    // Field ipv6_field = Field::create_field<TYPE_IPV6>(36534645);
+    // info.scalar_type_id = PrimitiveType::TYPE_IPV6;
+    // ColumnVariant::Subcolumn ipv6_subcolumn = {0, true, true};
+    // ipv6_subcolumn.insert(ipv6_field, info);
+    // ipv6_subcolumn.serialize_to_sparse_column(&key, "i", &value, 0);
+
+    // Field decimal32_field = Field::create_field<TYPE_DECIMAL32>(DecimalField<Decimal32>(3456345634, 2));
+    // info.scalar_type_id = PrimitiveType::TYPE_DECIMAL32;
+    // info.precision = 5;
+    // info.scale = 2;
+    // ColumnVariant::Subcolumn decimal32_subcolumn = {0, true, true};
+    // decimal32_subcolumn.insert(decimal32_field, info);
+    // decimal32_subcolumn.serialize_to_sparse_column(&key, "j", &value, 0);
+
+    // Field decimal64_field = Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(13452435, 6));
+    // info.scalar_type_id = PrimitiveType::TYPE_DECIMAL64;
+    // info.precision = 12;
+    // info.scale = 6;
+    // ColumnVariant::Subcolumn decimal64_subcolumn = {0, true, true};
+    // decimal64_subcolumn.insert(decimal64_field, info);
+    // decimal64_subcolumn.serialize_to_sparse_column(&key, "k", &value, 0);
+
+    // Field decimal128i_field = Field::create_field<TYPE_DECIMAL128I>(DecimalField<Decimal128V3>(2342345, 12));
+    // info.scalar_type_id = PrimitiveType::TYPE_DECIMAL128I;
+    // info.precision = 32;
+    // info.scale = 12;
+    // ColumnVariant::Subcolumn decimal128i_subcolumn = {0, true, true};
+    // decimal128i_subcolumn.insert(decimal128i_field, info);
+    // decimal128i_subcolumn.serialize_to_sparse_column(&key, "l", &value, 0);
+
+    // Field decimal256_field = Field::create_field<TYPE_DECIMAL256>(DecimalField<Decimal256>(Decimal256(2345243), 5));
+    // info.scalar_type_id = PrimitiveType::TYPE_DECIMAL256;
+    // info.precision = 52;
+    // info.scale = 5;
+    // ColumnVariant::Subcolumn decimal256_subcolumn = {0, true, true};
+    // decimal256_subcolumn.insert(decimal256_field, info);
+    // decimal256_subcolumn.serialize_to_sparse_column(&key, "m", &value, 0);
+
+    // Field jsonb_field = Field::create_field<TYPE_JSONB>(JsonbField("abc", 3));
+    // info.scalar_type_id = PrimitiveType::TYPE_JSONB;
+    // ColumnVariant::Subcolumn jsonb_subcolumn = {0, true, true};
+    // jsonb_subcolumn.insert(jsonb_field, info);
+    // jsonb_subcolumn.serialize_to_sparse_column(&key, "n", &value, 0);
+
+    // Field array_field = Field::create_field<TYPE_ARRAY>(Array(3));
+    // info.scalar_type_id = PrimitiveType::TYPE_JSONB;
+    // info.num_dimensions = 1;
+    // auto& array = array_field.get<Array>();
+    // array[0] = Field();
+    // array[1] = jsonb_field;
+    // array[2] = Field();
+
+    // ColumnVariant::Subcolumn array_subcolumn = {0, true, true};
+    // array_subcolumn.insert(array_field, info);
+    // array_subcolumn.serialize_to_sparse_column(&key, "o", &value, 0);
+    // offsets.push_back(key.size());
+
+    // auto size = data_type->get_uncompressed_serialized_bytes(*sparse_column, 8);
+    // char* buf = new char[size];
+    // data_type->serialize(*sparse_column, buf, 8);
+    // {
+
+    //     std::ofstream ofs(file_path, std::ios::binary);
+    //     ASSERT_TRUE(ofs.is_open());
+    //     ofs.write(buf, static_cast<std::streamsize>(size));
+    //     ofs.close();
+    // }
+    // delete[] buf;
+
+    std::string read_data;
+    {
+        std::ifstream ifs(file_path, std::ios::binary);
+        ASSERT_TRUE(ifs.is_open());
+        ifs.seekg(0, std::ios::end);
+        std::streamsize fsize = ifs.tellg();
+        ifs.seekg(0, std::ios::beg);
+        read_data.resize(static_cast<size_t>(fsize));
+        ifs.read(read_data.data(), fsize);
+    }
+
+    sparse_column->clear();
+
+    data_type->deserialize(read_data.data(), &sparse_column, 8);
+
+    {
+        ColumnVariant::Subcolumn subcolumn = {0, true, true};
+        subcolumn.deserialize_from_sparse_column(&value, 0);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_STRING);
+        EXPECT_EQ(subcolumn.get_last_field().get<String>(), "123");
+        subcolumn.deserialize_from_sparse_column(&value, 0);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_STRING);
+        EXPECT_EQ(subcolumn.get_last_field().get<String>(), "123");
+    }
+
+    {
+        ColumnVariant::Subcolumn subcolumn = {0, true, true};
+        subcolumn.deserialize_from_sparse_column(&value, 1);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(), PrimitiveType::TYPE_INT);
+        EXPECT_EQ(subcolumn.get_last_field().get<Int32>(), 123);
+        subcolumn.deserialize_from_sparse_column(&value, 1);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(), PrimitiveType::TYPE_INT);
+        EXPECT_EQ(subcolumn.get_last_field().get<Int32>(), 123);
+    }
+
+    {
+        ColumnVariant::Subcolumn subcolumn = {0, true, true};
+        subcolumn.deserialize_from_sparse_column(&value, 2);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_LARGEINT);
+        EXPECT_EQ(subcolumn.get_last_field().get<Int64>(), 123);
+        subcolumn.deserialize_from_sparse_column(&value, 2);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_LARGEINT);
+        EXPECT_EQ(subcolumn.get_last_field().get<Int64>(), 123);
+    }
+
+    {
+        ColumnVariant::Subcolumn subcolumn = {0, true, true};
+        subcolumn.deserialize_from_sparse_column(&value, 3);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_DOUBLE);
+        EXPECT_EQ(subcolumn.get_last_field().get<double>(), 123.456);
+        subcolumn.deserialize_from_sparse_column(&value, 3);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_DOUBLE);
+        EXPECT_EQ(subcolumn.get_last_field().get<double>(), 123.456);
+    }
+
+    {
+        ColumnVariant::Subcolumn subcolumn = {0, true, true};
+        subcolumn.deserialize_from_sparse_column(&value, 4);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_BOOLEAN);
+        EXPECT_EQ(subcolumn.get_last_field().get<bool>(), true);
+        subcolumn.deserialize_from_sparse_column(&value, 4);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_BOOLEAN);
+        EXPECT_EQ(subcolumn.get_last_field().get<bool>(), true);
+    }
+
+    {
+        ColumnVariant::Subcolumn subcolumn = {0, true, true};
+        subcolumn.deserialize_from_sparse_column(&value, 5);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_DATETIMEV2);
+        EXPECT_EQ(subcolumn.get_last_field().get<UInt64>(), 23232323);
+        subcolumn.deserialize_from_sparse_column(&value, 5);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_DATETIMEV2);
+        EXPECT_EQ(subcolumn.get_last_field().get<UInt64>(), 23232323);
+    }
+
+    {
+        ColumnVariant::Subcolumn subcolumn = {0, true, true};
+        subcolumn.deserialize_from_sparse_column(&value, 6);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_DATEV2);
+        EXPECT_EQ(subcolumn.get_last_field().get<UInt64>(), 154543245);
+        subcolumn.deserialize_from_sparse_column(&value, 6);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_DATEV2);
+        EXPECT_EQ(subcolumn.get_last_field().get<UInt64>(), 154543245);
+    }
+
+    {
+        ColumnVariant::Subcolumn subcolumn = {0, true, true};
+        subcolumn.deserialize_from_sparse_column(&value, 7);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_IPV4);
+        EXPECT_EQ(subcolumn.get_last_field().get<IPv4>(), static_cast<IPv4>(367357));
+        subcolumn.deserialize_from_sparse_column(&value, 7);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_IPV4);
+        EXPECT_EQ(subcolumn.get_last_field().get<IPv4>(), static_cast<IPv4>(367357));
+    }
+
+    {
+        ColumnVariant::Subcolumn subcolumn = {0, true, true};
+        subcolumn.deserialize_from_sparse_column(&value, 8);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_IPV6);
+        EXPECT_EQ(subcolumn.get_last_field().get<IPv6>(), static_cast<IPv6>(36534645));
+        subcolumn.deserialize_from_sparse_column(&value, 8);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_IPV6);
+        EXPECT_EQ(subcolumn.get_last_field().get<IPv6>(), static_cast<IPv6>(36534645));
+    }
+
+    {
+        ColumnVariant::Subcolumn subcolumn = {0, true, true};
+        subcolumn.deserialize_from_sparse_column(&value, 9);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_DECIMAL32);
+        auto v = subcolumn.get_last_field().get<DecimalField<Decimal32>>();
+        EXPECT_EQ(static_cast<Int32>(v.get_value()), static_cast<Int32>(3456345634));
+        subcolumn.deserialize_from_sparse_column(&value, 9);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_DECIMAL32);
+    }
+
+    {
+        ColumnVariant::Subcolumn subcolumn = {0, true, true};
+        subcolumn.deserialize_from_sparse_column(&value, 10);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_DECIMAL64);
+        auto v = subcolumn.get_last_field().get<DecimalField<Decimal64>>();
+        EXPECT_EQ(static_cast<Int64>(v.get_value()), static_cast<Int64>(13452435));
+        subcolumn.deserialize_from_sparse_column(&value, 10);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_DECIMAL64);
+        v = subcolumn.get_last_field().get<DecimalField<Decimal64>>();
+        EXPECT_EQ(static_cast<Int64>(v.get_value()), static_cast<Int64>(13452435));
+    }
+
+    {
+        ColumnVariant::Subcolumn subcolumn = {0, true, true};
+        subcolumn.deserialize_from_sparse_column(&value, 11);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_DECIMAL128I);
+        auto v = subcolumn.get_last_field().get<DecimalField<Decimal128V3>>();
+        EXPECT_EQ(static_cast<Int128>(v.get_value()), static_cast<Int128>(2342345));
+        subcolumn.deserialize_from_sparse_column(&value, 11);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_DECIMAL128I);
+        v = subcolumn.get_last_field().get<DecimalField<Decimal128V3>>();
+        EXPECT_EQ(static_cast<Int128>(v.get_value()), static_cast<Int128>(2342345));
+    }
+
+    {
+        ColumnVariant::Subcolumn subcolumn = {0, true, true};
+        subcolumn.deserialize_from_sparse_column(&value, 12);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_DECIMAL256);
+        auto v = subcolumn.get_last_field().get<DecimalField<Decimal256>>();
+        EXPECT_TRUE(v.get_value() == Decimal256(2345243));
+        subcolumn.deserialize_from_sparse_column(&value, 12);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_DECIMAL256);
+        v = subcolumn.get_last_field().get<DecimalField<Decimal256>>();
+        EXPECT_TRUE(v.get_value() == Decimal256(2345243));
+    }
+
+    {
+        ColumnVariant::Subcolumn subcolumn = {0, true, true};
+        subcolumn.deserialize_from_sparse_column(&value, 13);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_JSONB);
+        subcolumn.deserialize_from_sparse_column(&value, 13);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_JSONB);
+    }
+
+    {
+        ColumnVariant::Subcolumn subcolumn = {0, true, true};
+        subcolumn.deserialize_from_sparse_column(&value, 14);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_ARRAY);
+        EXPECT_EQ(subcolumn.get_dimensions(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_JSONB);
+        auto v = subcolumn.get_last_field();
+        auto& arr = v.get<Array>();
+        EXPECT_EQ(arr.size(), 3);
+        EXPECT_TRUE(arr[0].is_null());
+        EXPECT_FALSE(arr[1].is_null());
+        EXPECT_TRUE(arr[2].is_null());
+        subcolumn.deserialize_from_sparse_column(&value, 14);
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
+                  PrimitiveType::TYPE_ARRAY);
+        EXPECT_EQ(subcolumn.get_dimensions(), 1);
+        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_JSONB);
+
+        v = subcolumn.get_last_field();
+        arr = v.get<Array>();
+        EXPECT_EQ(arr.size(), 3);
+        EXPECT_TRUE(arr[0].is_null());
+        EXPECT_FALSE(arr[1].is_null());
+        EXPECT_TRUE(arr[2].is_null());
+    }
+}
 } // namespace doris::vectorized

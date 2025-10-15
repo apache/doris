@@ -340,6 +340,16 @@ const uint8_t* DataTypeJsonbSerDe::deserialize_binary_to_column(const uint8_t* d
     return data;
 }
 
+const uint8_t* DataTypeJsonbSerDe::deserialize_binary_to_field(const uint8_t* data, Field& field,
+                                                               FieldInfo& info) {
+    const size_t data_size = unaligned_load<size_t>(data);
+    data += sizeof(size_t);
+    field = Field::create_field<TYPE_JSONB>(
+            JsonbField(reinterpret_cast<const char*>(data), data_size));
+    data += data_size;
+    return data;
+}
+
 void DataTypeJsonbSerDe::to_string(const IColumn& column, size_t row_num,
                                    BufferWritable& bw) const {
     const auto& col = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column);

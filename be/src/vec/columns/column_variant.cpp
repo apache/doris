@@ -851,20 +851,6 @@ void ColumnVariant::Subcolumn::serialize_to_sparse_column(ColumnString* key, std
                            "Index ({}) for serialize to sparse column is out of range", row);
 }
 
-struct PackedUInt128 {
-    // PackedInt128() : value(0) {}
-    PackedUInt128() = default;
-
-    PackedUInt128(const unsigned __int128& value_) { value = value_; }
-    PackedUInt128& operator=(const unsigned __int128& value_) {
-        value = value_;
-        return *this;
-    }
-    PackedUInt128& operator=(const PackedUInt128& rhs) = default;
-
-    uint128_t value;
-} __attribute__((packed));
-
 const NO_SANITIZE_UNDEFINED char* parse_binary_from_sparse_column(FieldType type, const char* data,
                                                                   Field& res, FieldInfo& info_res) {
     info_res.scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type);
@@ -1048,34 +1034,12 @@ const NO_SANITIZE_UNDEFINED char* parse_binary_from_sparse_column(FieldType type
 std::pair<Field, FieldInfo> ColumnVariant::deserialize_from_sparse_column(const ColumnString* value,
                                                                           size_t row) {
     const auto& data_ref = value->get_data_at(row);
-    const char* data = data_ref.data;
-    DCHECK(data_ref.size > 1);
-    const FieldType type = static_cast<FieldType>(*reinterpret_cast<const uint8_t*>(data++));
+    const auto* start_data = reinterpret_cast<const uint8_t*>(data_ref.data);
     Field res;
-    FieldInfo info_res = {
-            .scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type),
-            .have_nulls = false,
-            .need_convert = false,
-            .num_dimensions = 0,
-    };
-    const char* end = parse_binary_from_sparse_column(type, data, res, info_res);
-    DCHECK_EQ(end - data_ref.data, data_ref.size)
-            << "FieldType: " << (int)type << " data_ref.size: " << data_ref.size << " end: " << end
-            << " data: " << data;
+    FieldInfo info_res;
+    const uint8_t* end = DataTypeSerDe::deserialize_binary_to_field(start_data, res, info_res);
+    CHECK_EQ(end - start_data, data_ref.size);
     return {std::move(res), std::move(info_res)};
-}
-
-void ColumnVariant::deserialize_from_sparse_column2(const ColumnString* value, size_t row,
-                                                    Field& res, FieldInfo& info_res) {
-    const auto& data_ref = value->get_data_at(row);
-    const char* data = data_ref.data;
-    DCHECK(data_ref.size > 1);
-    const FieldType type = static_cast<FieldType>(*reinterpret_cast<const uint8_t*>(data++));
-    info_res.scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type);
-    const char* end = parse_binary_from_sparse_column(type, data, res, info_res);
-    DCHECK_EQ(end - data_ref.data, data_ref.size)
-            << "FieldType: " << (int)type << " data_ref.size: " << data_ref.size << " end: " << end
-            << " data: " << data;
 }
 
 Field ColumnVariant::operator[](size_t n) const {
@@ -1309,9 +1273,7 @@ void ColumnVariant::insert_from_sparse_column_and_fill_remaing_dense_column(
             const PathInData column_path(src_sparse_path);
             if (auto* subcolumn = get_subcolumn(column_path); subcolumn != nullptr) {
                 // Deserialize binary value into subcolumn from src serialized sparse column data.
-                const auto& data =
-                        ColumnVariant::deserialize_from_sparse_column(src_sparse_column_values, i);
-                subcolumn->insert(data.first, data.second);
+                subcolumn->deserialize_from_sparse_column(src_sparse_column_values, i);
             } else {
                 // Before inserting this path into sparse column check if we need to
                 // insert subcolumns from sorted_src_subcolumn_for_sparse_column before.
@@ -1824,9 +1786,8 @@ void ColumnVariant::serialize_one_row_to_json_format(int64_t row_num, BufferWrit
         } else {
             // To serialize value stored in shared data we should first deserialize it from binary format.
             Subcolumn tmp_subcolumn(0, true);
-            const auto& data = ColumnVariant::deserialize_from_sparse_column(
-                    sparse_data_values, index_in_sparse_data_values++);
-            tmp_subcolumn.insert(data.first, data.second);
+            tmp_subcolumn.deserialize_from_sparse_column(sparse_data_values,
+                                                         index_in_sparse_data_values++);
             DataTypeSerDe::FormatOptions options;
             options.escape_char = '\\';
             tmp_subcolumn.serialize_text_json(0, output, options);
@@ -2527,35 +2488,32 @@ void ColumnVariant::Subcolumn::deserialize_from_sparse_column(const ColumnString
     const auto* start_data = reinterpret_cast<const uint8_t*>(data_ref.data);
     const PrimitiveType type =
             TabletColumn::get_primitive_type_by_field_type(static_cast<FieldType>(*start_data));
-    if (type == least_common_type.get_type_id()) {
-        if (type == PrimitiveType::TYPE_ARRAY) {
-            const auto* nested_start_data = start_data + 1;
-            const PrimitiveType nested_type =
-                    TabletColumn::get_primitive_type_by_field_type(static_cast<FieldType>(*nested_start_data));
-            if (nested_type != least_common_type.get_base_type_id()) {
-                Field res;
-                FieldInfo info;
-                const uint8_t* end_data = DataTypeSerDe::deserialize_binary_to_field(start_data, res, info);
-                CHECK_EQ(end_data - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
-                insert(std::move(res), std::move(info));
-            } else {
-                CHECK(data.size() > 0);
-                const uint8_t* end_data = DataTypeSerDe::deserialize_binary_to_column(start_data, *data.back());
-                CHECK_EQ(end_data - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
-                ++num_rows;
-            }
-        } else {
-            CHECK(data.size() > 0);
-            const uint8_t* end_data = DataTypeSerDe::deserialize_binary_to_column(start_data, *data.back());
-            CHECK_EQ(end_data - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
-            ++num_rows;
-        }
-    } else {
+    auto check_end = [&](const uint8_t* end_ptr) {
+        CHECK_EQ(end_ptr - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
+    };
+
+    bool need_field_deser = type != least_common_type.get_type_id();
+
+    // array needs to check nested type is same as least common type's nested type
+    if (!need_field_deser && type == PrimitiveType::TYPE_ARRAY) {
+        const auto* nested_start_data = start_data + 1;
+        const PrimitiveType nested_type = TabletColumn::get_primitive_type_by_field_type(
+                static_cast<FieldType>(*nested_start_data));
+        need_field_deser = (nested_type != least_common_type.get_base_type_id());
+    }
+
+    if (need_field_deser) {
         Field res;
         FieldInfo info;
-        DataTypeSerDe::deserialize_binary_to_field(start_data, res, info);
+        const uint8_t* end_data = DataTypeSerDe::deserialize_binary_to_field(start_data, res, info);
+        check_end(end_data);
         insert(std::move(res), std::move(info));
-        CHECK_EQ(end_data - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
+    } else {
+        CHECK(data.size() > 0);
+        const uint8_t* end_data =
+                DataTypeSerDe::deserialize_binary_to_column(start_data, *data.back());
+        check_end(end_data);
+        ++num_rows;
     }
 }
 
@@ -2586,13 +2544,7 @@ void ColumnVariant::fill_path_column_from_sparse_data(Subcolumn& subcolumn, Null
         bool is_null = false;
         if (lower_bound_path_index != paths_end &&
             sparse_data_paths.get_data_at(lower_bound_path_index) == path) {
-            // auto value_data = sparse_data_values.get_data_at(lower_bound_path_index);
-            // ReadBufferFromMemory buf(value_data.data, value_data.size);
-            // dynamic_serialization->deserializeBinary(path_column, buf, getFormatSettings());
-            // const auto& data = ColumnVariant::deserialize_from_sparse_column(
-            //         &sparse_data_values, lower_bound_path_index);
             subcolumn.deserialize_from_sparse_column(&sparse_data_values, lower_bound_path_index);
-            //subcolumn.insert(data.first, data.second);
             is_null = false;
         } else {
             subcolumn.insert_default();
