@@ -86,10 +86,6 @@ public:
     template <typename DateType>
     int push_vec_datetime(DateType& data, int scale = -1);
 
-    // this function reserved size, change the pos step size, return old pos
-    // Becareful when use the returned pointer.
-    char* reserved(int64_t size);
-
     const char* buf() const { return _buf; }
     const char* pos() const { return _pos; }
     int64_t length() const { return _pos - _buf; }
@@ -140,12 +136,13 @@ private:
     char* _pos = nullptr;
     char* _buf = nullptr;
     int64_t _buf_size;
-    char _default_buf[4096];
 
     int _dynamic_mode;
     uint64_t _len_pos;
     uint32_t _field_pos = 0;
     uint32_t _field_count = 0;
+
+    char _default_buf[4096];
 };
 
 } // namespace doris
