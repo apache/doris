@@ -880,7 +880,6 @@ std::vector<std::string> get_single_version_meta_key_prefixs() {
     return key_prefix_list;
 }
 
-
 namespace versioned {
 bool decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id,
                                          int64_t* partition_id) {
