@@ -110,6 +110,21 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
 
     _timeout_second = query_options.execution_timeout;
 
+    // Initialize file cache context holders
+    if (config::enable_file_cache && query_options.__isset.enable_file_cache &&
+        query_options.enable_file_cache) {
+        size_t fe_query_limit_bytes = query_options.__isset.file_cache_query_limit_bytes
+                                              ? query_options.file_cache_query_limit_bytes
+                                              : 0;
+        size_t fe_policy_query_limit_bytes =
+                query_options.__isset.policy_file_cache_query_limit_bytes
+                        ? query_options.policy_file_cache_query_limit_bytes
+                        : 0;
+        size_t _query_file_cache_context_holders =
+                io::FileCacheFactory::instance()->get_query_context_holders(
+                        _query_id, fe_query_limit_bytes, fe_policy_query_limit_bytes);
+    }
+
     bool is_query_type_valid = query_options.query_type == TQueryType::SELECT ||
                                query_options.query_type == TQueryType::LOAD ||
                                query_options.query_type == TQueryType::EXTERNAL;

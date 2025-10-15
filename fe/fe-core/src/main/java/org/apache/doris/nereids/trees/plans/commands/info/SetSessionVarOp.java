@@ -77,6 +77,12 @@ public class SetSessionVarOp extends SetVarOp {
             }
         }
 
+        if (name.equalsIgnoreCase(SessionVariable.POLICY_FILE_CACHE_QUERY_LIMIT_BYTES)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+            }
+        }
+
         if (name.equalsIgnoreCase(GlobalVariable.DEFAULT_ROWSET_TYPE)) {
             if (value != null && !HeartbeatFlags.isValidRowsetType(value.getStringValue())) {
                 throw new AnalysisException("Invalid rowset type, now we support {alpha, beta}.");

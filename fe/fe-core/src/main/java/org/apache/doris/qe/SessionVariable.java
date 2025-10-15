@@ -445,6 +445,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DISABLE_FILE_CACHE = "disable_file_cache";
 
+    public static final String FILE_CACHE_QUERY_LIMIT_BYTES = "file_cache_query_limit_bytes";
+
+    public static final String POLICY_FILE_CACHE_QUERY_LIMIT_BYTES = "policy_file_cache_query_limit_bytes";
+
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
     public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
@@ -2590,6 +2594,14 @@ public class SessionVariable implements Serializable, Writable {
             "Make the READ_SLICE_SIZE variable configurable to reduce the impact caused by read amplification."})
     public int mergeReadSliceSize = 8388608;
 
+    @VariableMgr.VarAttr(name = FILE_CACHE_QUERY_LIMIT_BYTES, description = {"限制用户的单个查询能使用的 FILE_CACHE 大小（用户设置）",
+            "Limit the FILE_CACHE size that a single query of a user can use (set by the user via session variables)."})
+    public long fileCacheQueryLimitBytes = 0;
+
+    @VariableMgr.VarAttr(name = POLICY_FILE_CACHE_QUERY_LIMIT_BYTES, description = {"限制用户的单个查询能使用的 FILE_CACHE 大小（admin 权限用户通过创建 workload Policy 设置）",
+            "Limit the FILE_CACHE size that a single query of a user can use (set by the administrator by creating workload Policy)."})
+    public long policyFileCacheQueryLimitBytes = 0;
+
     public void setAggPhase(int phase) {
         aggPhase = phase;
     }
@@ -4714,6 +4726,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
         tResult.setMergeReadSliceSize(mergeReadSliceSize);
+        tResult.setFileCacheQueryLimitBytes(fileCacheQueryLimitBytes);
+        tResult.setPolicyFileCacheQueryLimitBytes(policyFileCacheQueryLimitBytes);
         return tResult;
     }
 

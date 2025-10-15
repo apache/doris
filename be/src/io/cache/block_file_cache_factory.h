@@ -68,7 +68,8 @@ public:
     BlockFileCache* get_by_path(const UInt128Wrapper& hash);
     BlockFileCache* get_by_path(const std::string& cache_base_path);
     std::vector<BlockFileCache::QueryFileCacheContextHolderPtr> get_query_context_holders(
-            const TUniqueId& query_id);
+            const TUniqueId& query_id, size_t fe_query_limit_bytes,
+            size_t fe_policy_query_limit_bytes);
 
     /**
      * Clears data of all file cache instances
