@@ -324,12 +324,6 @@ public:
         case PrimitiveType::TYPE_DECIMAL128I:
             return insert_result_data<ColumnDecimal128V3>(
                     result_column, argument_column, null_map_data, filled_flag, input_rows_count);
-        case PrimitiveType::TYPE_DATETIME:
-            return insert_result_data<ColumnDateTime>(result_column, argument_column, null_map_data,
-                                                      filled_flag, input_rows_count);
-        case PrimitiveType::TYPE_DATE:
-            return insert_result_data<ColumnDate>(result_column, argument_column, null_map_data,
-                                                  filled_flag, input_rows_count);
         case PrimitiveType::TYPE_DATEV2:
             return insert_result_data<ColumnDateV2>(result_column, argument_column, null_map_data,
                                                     filled_flag, input_rows_count);

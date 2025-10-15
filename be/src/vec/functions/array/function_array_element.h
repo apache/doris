@@ -361,16 +361,6 @@ private:
         auto idx_col = remove_nullable(arguments[1].column);
         // we should dispatch branch according to data type rather than column type
         switch (left_element_type->get_primitive_type()) {
-        case TYPE_DATE: {
-            res = _execute_number<ColumnDate>(offsets, *nested_column, src_null_map, *idx_col,
-                                              nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_DATETIME: {
-            res = _execute_number<ColumnDateTime>(offsets, *nested_column, src_null_map, *idx_col,
-                                                  nested_null_map, dst_null_map);
-            break;
-        }
         case TYPE_DATEV2: {
             res = _execute_number<ColumnDateV2>(offsets, *nested_column, src_null_map, *idx_col,
                                                 nested_null_map, dst_null_map);

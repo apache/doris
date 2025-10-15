@@ -279,12 +279,6 @@ private:
         case TYPE_DOUBLE:
             return _execute_number<ColumnFloat64>(src_column, src_offsets, dest_column,
                                                   dest_offsets, src_null_map, dest_null_map);
-        case TYPE_DATE:
-            return _execute_number<ColumnDate>(src_column, src_offsets, dest_column, dest_offsets,
-                                               src_null_map, dest_null_map);
-        case TYPE_DATETIME:
-            return _execute_number<ColumnDateTime>(src_column, src_offsets, dest_column,
-                                                   dest_offsets, src_null_map, dest_null_map);
         case TYPE_DATEV2:
             return _execute_number<ColumnDateV2>(src_column, src_offsets, dest_column, dest_offsets,
                                                  src_null_map, dest_null_map);

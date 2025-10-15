@@ -95,17 +95,6 @@ public:
                                                   dst_nested_col->get_data().data(),
                                                   input_rows_count, left_is_const, right_is_const);
             break;
-        case TYPE_DATE:
-            ret = _execute_internal<ColumnDate>(left_exec_data, right_exec_data, dst_null_map_data,
-                                                dst_nested_col->get_data().data(), input_rows_count,
-                                                left_is_const, right_is_const);
-            break;
-        case TYPE_DATETIME:
-            ret = _execute_internal<ColumnDateTime>(
-                    left_exec_data, right_exec_data, dst_null_map_data,
-                    dst_nested_col->get_data().data(), input_rows_count, left_is_const,
-                    right_is_const);
-            break;
         case TYPE_DATEV2:
             ret = _execute_internal<ColumnDateV2>(left_exec_data, right_exec_data,
                                                   dst_null_map_data,

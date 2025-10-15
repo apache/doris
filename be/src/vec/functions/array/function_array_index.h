@@ -495,10 +495,6 @@ private:
                 return_column = _execute_number_expanded<ColumnDate>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-            } else if (left_element_type->get_primitive_type() == TYPE_DATETIME) {
-                return_column = _execute_number_expanded<ColumnDateTime>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
             } else if (left_element_type->get_primitive_type() == TYPE_DATEV2) {
                 return_column = _execute_number_expanded<ColumnDateV2>(
                         offsets, nested_null_map, *nested_column, *right_column,

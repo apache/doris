@@ -242,30 +242,6 @@ struct CompareMultiImpl {
                 }
                 break;
             }
-            case PrimitiveType::TYPE_DATETIME: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_DATETIME, true>(result_column, cols[i],
-                                                                input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_DATETIME, false>(result_column, cols[i],
-                                                                 input_rows_count);
-                    }
-                }
-                break;
-            }
-            case PrimitiveType::TYPE_DATE: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_DATE, true>(result_column, cols[i],
-                                                            input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_DATE, false>(result_column, cols[i],
-                                                             input_rows_count);
-                    }
-                }
-                break;
-            }
             case PrimitiveType::TYPE_DATEV2: {
                 for (int i = 1; i < arguments.size(); ++i) {
                     if (col_const[i]) {
@@ -463,20 +439,6 @@ struct FunctionFieldImpl {
             for (int col = 1; col < arguments.size(); ++col) {
                 insert_result_data<TYPE_DECIMAL256>(res_data, argument_columns[0],
                                                     argument_columns[col], input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_DATETIME: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_DATETIME>(res_data, argument_columns[0],
-                                                  argument_columns[col], input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_DATE: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_DATE>(res_data, argument_columns[0], argument_columns[col],
-                                              input_rows_count, col);
             }
             break;
         }
