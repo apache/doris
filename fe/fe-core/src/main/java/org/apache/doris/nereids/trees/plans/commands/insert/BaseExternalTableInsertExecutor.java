@@ -147,7 +147,7 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
                 urlPart = coordinator.getTrackingUrl();
             }
         }
-        String finalErrorMsg = InsertUtils.getFinalErrorMsg(errMsg, firstErrorMsgPart, urlPart);
+        String finalErrorMsg = InsertUtils.getFinalErrorMsg(t.getMessage(), firstErrorMsgPart, urlPart);
         ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, finalErrorMsg);
 
         if (table instanceof ExternalTable) {

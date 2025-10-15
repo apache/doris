@@ -352,7 +352,7 @@ suite("test_list_partition_datatype", "p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
     sql """INSERT INTO test_list_partition_ddl_tbl_1 VALUES("0000-01-01", "0000-01-01"), ("9999-12-31", "9999-12-31")"""
-    def exception_str = isGroupCommitMode() ? "too many filtered rows" : "Insert has filtered data in strict mode"
+    def exception_str = isGroupCommitMode() ? "too many filtered rows" : "no partition for this tuple"
     test {
         sql """INSERT INTO test_list_partition_ddl_tbl_1 VALUES("2000-01-02", "2000-01-03")"""
         exception exception_str

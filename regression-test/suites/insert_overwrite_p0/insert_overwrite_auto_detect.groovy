@@ -114,7 +114,8 @@ suite("test_iot_auto_detect") {
    } catch (Exception e) {
         log.info(e.getMessage())
         assertTrue(e.getMessage().contains('Insert has filtered data in strict mode') || 
-            e.getMessage().contains('Cannot found origin partitions in auto detect overwriting'))
+            e.getMessage().contains('Cannot found origin partitions in auto detect overwriting') ||
+            e.getMessage().contains('no partition for this tuple'))
     }
 
    sql " drop table if exists dt; "
