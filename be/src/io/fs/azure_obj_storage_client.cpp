@@ -207,10 +207,6 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
             SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
             client.StageBlock(base64_encode_part_num(part_num), memory_body);
         });
-        std::unique_lock<std::mutex> lck {_completed_lock};
-        _completed_parts.emplace_back(ObjectCompleteMultiPart {
-            static_cast<int>(part_num), ""
-        });
     } catch (Azure::Core::RequestFailedException& e) {
         auto msg = fmt::format(
                 "Azure request failed because {}, error msg {}, http code {}, path msg {}",
@@ -228,9 +224,7 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
         };
         // clang-format on
     }
-    return ObjectStorageUploadResponse {
-            .resp = ObjectStorageResponse::OK(),
-    };
+    return ObjectStorageUploadResponse{ .etag = std::to_string(part_num) };
 }
 
 ObjectStorageResponse AzureObjStorageClient::complete_multipart_upload(
