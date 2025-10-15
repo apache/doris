@@ -86,13 +86,13 @@ void IColumn::serialize_vec_with_nullable(StringRef* keys, size_t num_rows, cons
             }
             // not null
             *dest = false;
-            keys[i].size += sizeof(UInt8) + serialize(dest + sizeof(UInt8), i);
+            keys[i].size += sizeof(UInt8) + serialize_impl(dest + sizeof(UInt8), i);
         }
     } else {
         for (size_t i = 0; i < num_rows; ++i) {
             char* dest = const_cast<char*>(keys[i].data + keys[i].size);
             *dest = false;
-            keys[i].size += sizeof(UInt8) + serialize(dest + sizeof(UInt8), i);
+            keys[i].size += sizeof(UInt8) + serialize_impl(dest + sizeof(UInt8), i);
         }
     }
 }
@@ -108,7 +108,7 @@ void IColumn::deserialize_vec_with_nullable(StringRef* keys, const size_t num_ro
             insert_default();
             continue;
         }
-        auto sz = deserialize(keys[i].data);
+        auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;
         keys[i].size -= sz;
     }

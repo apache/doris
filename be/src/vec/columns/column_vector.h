@@ -345,8 +345,8 @@ public:
                 elements_to_move * sizeof(value_type));
         data.resize(data.size() - length);
     }
-    size_t serialize(char* pos, const size_t row) const override;
-    size_t deserialize(const char* pos) override;
+    size_t serialize_impl(char* pos, const size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
     size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }
 
 protected:

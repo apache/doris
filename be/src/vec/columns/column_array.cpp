@@ -188,7 +188,7 @@ size_t ColumnArray::serialize_size_at(size_t row) const {
     return sz + sizeof(size_t);
 }
 
-size_t ColumnArray::serialize(char* pos, const size_t row) const {
+size_t ColumnArray::serialize_impl(char* pos, const size_t row) const {
     size_t array_size = size_at(row);
     size_t offset = offset_at(row);
 
@@ -197,7 +197,7 @@ size_t ColumnArray::serialize(char* pos, const size_t row) const {
     size_t sz = sizeof(array_size);
 
     for (size_t i = 0; i < array_size; ++i) {
-        sz += get_data().serialize(pos + sz, offset + i);
+        sz += get_data().serialize_impl(pos + sz, offset + i);
     }
 
     DCHECK_EQ(sz, serialize_size_at(row));
@@ -207,7 +207,7 @@ size_t ColumnArray::serialize(char* pos, const size_t row) const {
 StringRef ColumnArray::serialize_value_into_arena(size_t n, Arena& arena,
                                                   char const*& begin) const {
     char* pos = arena.alloc_continue(serialize_size_at(n), begin);
-    return {pos, serialize(pos, n)};
+    return {pos, serialize_impl(pos, n)};
 }
 
 template <bool positive>
@@ -295,16 +295,16 @@ void ColumnArray::serialize_vec(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
         // Used in hash_map_context.h, this address is allocated via Arena,
         // but passed through StringRef, so using const_cast is acceptable.
-        keys[i].size += serialize(const_cast<char*>(keys[i].data + keys[i].size), i);
+        keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
-size_t ColumnArray::deserialize(const char* pos) {
+size_t ColumnArray::deserialize_impl(const char* pos) {
     size_t sz = 0;
     size_t array_size = unaligned_load<size_t>(pos);
     sz += sizeof(size_t);
     for (size_t j = 0; j < array_size; j++) {
-        sz += get_data().deserialize(pos + sz);
+        sz += get_data().deserialize_impl(pos + sz);
     }
     get_offsets().push_back(get_offsets().back() + array_size);
     return sz;
@@ -312,14 +312,14 @@ size_t ColumnArray::deserialize(const char* pos) {
 
 void ColumnArray::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
-        auto sz = deserialize(keys[i].data);
+        auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;
         keys[i].size -= sz;
     }
 }
 
 const char* ColumnArray::deserialize_and_insert_from_arena(const char* pos) {
-    return pos + deserialize(pos);
+    return pos + deserialize_impl(pos);
 }
 
 void ColumnArray::update_hash_with_value(size_t n, SipHash& hash) const {

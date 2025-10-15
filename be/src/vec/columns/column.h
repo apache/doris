@@ -344,15 +344,15 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Column {} should not be serialized.", get_name());
     }
-    /// `serialize` is the implementation to serialize a column into a continuous memory.
-    virtual size_t serialize(char* pos, const size_t row) const {
+    /// `serialize_impl` is the implementation to serialize a column into a continuous memory.
+    virtual size_t serialize_impl(char* pos, const size_t row) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method serialize is not supported for " + get_name());
+                               "Method serialize_impl is not supported for " + get_name());
     }
-    /// `deserialize` will deserialize data which is serialized by `serialize`.
-    virtual size_t deserialize(const char* pos) {
+    /// `deserialize_impl` will deserialize data which is serialized by `serialize_impl`.
+    virtual size_t deserialize_impl(const char* pos) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method deserialize is not supported for " + get_name());
+                               "Method deserialize_impl is not supported for " + get_name());
     }
 
     /// Return the size of largest row.

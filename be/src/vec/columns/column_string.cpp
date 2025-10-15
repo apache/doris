@@ -439,12 +439,12 @@ template <typename T>
 StringRef ColumnStr<T>::serialize_value_into_arena(size_t n, Arena& arena,
                                                    char const*& begin) const {
     char* pos = arena.alloc_continue(serialize_size_at(n), begin);
-    return {pos, serialize(pos, n)};
+    return {pos, serialize_impl(pos, n)};
 }
 
 template <typename T>
 const char* ColumnStr<T>::deserialize_and_insert_from_arena(const char* pos) {
-    return pos + deserialize(pos);
+    return pos + deserialize_impl(pos);
 }
 
 template <typename T>
@@ -463,12 +463,12 @@ void ColumnStr<T>::serialize_vec(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
         // Used in hash_map_context.h, this address is allocated via Arena,
         // but passed through StringRef, so using const_cast is acceptable.
-        keys[i].size += serialize(const_cast<char*>(keys[i].data + keys[i].size), i);
+        keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
 template <typename T>
-size_t ColumnStr<T>::serialize(char* pos, const size_t row) const {
+size_t ColumnStr<T>::serialize_impl(char* pos, const size_t row) const {
     auto offset(offset_at(row));
     auto string_size(size_at(row));
 
@@ -480,14 +480,14 @@ size_t ColumnStr<T>::serialize(char* pos, const size_t row) const {
 template <typename T>
 void ColumnStr<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
-        auto sz = deserialize(keys[i].data);
+        auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;
         keys[i].size -= sz;
     }
 }
 
 template <typename T>
-size_t ColumnStr<T>::deserialize(const char* pos) {
+size_t ColumnStr<T>::deserialize_impl(const char* pos) {
     const auto string_size = unaligned_load<uint32_t>(pos);
     pos += sizeof(string_size);
 
@@ -517,13 +517,13 @@ void ColumnStr<T>::serialize_vec_with_nullable(StringRef* keys, size_t num_rows,
             }
             // not null
             *dest = false;
-            keys[i].size += serialize(dest + sizeof(UInt8), i);
+            keys[i].size += serialize_impl(dest + sizeof(UInt8), i);
         }
     } else {
         for (size_t i = 0; i < num_rows; ++i) {
             char* dest = const_cast<char*>(keys[i].data + keys[i].size);
             *dest = false;
-            keys[i].size += serialize(dest + sizeof(UInt8), i) + sizeof(UInt8);
+            keys[i].size += serialize_impl(dest + sizeof(UInt8), i) + sizeof(UInt8);
         }
     }
 }
@@ -540,7 +540,7 @@ void ColumnStr<T>::deserialize_vec_with_nullable(StringRef* keys, const size_t n
             insert_default();
             continue;
         }
-        auto sz = deserialize(keys[i].data);
+        auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;
         keys[i].size -= sz;
     }

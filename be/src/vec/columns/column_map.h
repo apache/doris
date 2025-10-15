@@ -215,8 +215,8 @@ public:
     }
 
     void erase(size_t start, size_t length) override;
-    size_t serialize(char* pos, const size_t row) const override;
-    size_t deserialize(const char* pos) override;
+    size_t serialize_impl(char* pos, const size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
     size_t serialize_size_at(size_t row) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override;

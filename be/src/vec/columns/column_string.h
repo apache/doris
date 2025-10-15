@@ -522,8 +522,8 @@ public:
 
     void deserialize_vec(StringRef* keys, const size_t num_rows) override;
     void serialize_vec(StringRef* keys, const size_t num_rows) const override;
-    size_t serialize(char* pos, size_t row) const override;
-    size_t deserialize(const char* pos) override;
+    size_t serialize_impl(char* pos, size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
     void serialize_vec_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
                                      const uint8_t* __restrict null_map) const override;
     void deserialize_vec_with_nullable(StringRef* keys, const size_t num_rows,

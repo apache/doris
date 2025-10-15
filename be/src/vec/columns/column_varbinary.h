@@ -106,11 +106,11 @@ public:
     StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                          char const*& begin) const override {
         char* pos = arena.alloc_continue(serialize_size_at(n), begin);
-        return {pos, serialize(pos, n)};
+        return {pos, serialize_impl(pos, n)};
     }
 
     const char* deserialize_and_insert_from_arena(const char* pos) override {
-        return pos + deserialize(pos);
+        return pos + deserialize_impl(pos);
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
@@ -140,14 +140,14 @@ public:
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override;
 
-    size_t deserialize(const char* pos) override {
+    size_t deserialize_impl(const char* pos) override {
         const auto value_size = unaligned_load<uint32_t>(pos);
         pos += sizeof(value_size);
         insert_data(pos, value_size);
         return value_size + sizeof(value_size);
     }
 
-    size_t serialize(char* pos, const size_t row) const override {
+    size_t serialize_impl(char* pos, const size_t row) const override {
         const auto* value_data = _data[row].data();
         uint32_t value_size = _data[row].size();
         memcpy_fixed<uint32_t>(pos, (char*)(&value_size));

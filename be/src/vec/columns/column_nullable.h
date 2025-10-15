@@ -337,8 +337,8 @@ public:
         get_null_map_column().erase(start, length);
     }
 
-    size_t serialize(char* pos, const size_t row) const override;
-    size_t deserialize(const char* pos) override;
+    size_t serialize_impl(char* pos, const size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
     size_t serialize_size_at(size_t row) const override {
         return sizeof(NullMap::value_type) +
                (is_null_at(row) ? 0 : _nested_column->serialize_size_at(row));

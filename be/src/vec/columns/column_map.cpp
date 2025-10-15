@@ -202,21 +202,21 @@ void ColumnMap::insert_many_from(const IColumn& src, size_t position, size_t len
 
 StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const {
     char* pos = arena.alloc_continue(serialize_size_at(n), begin);
-    return {pos, serialize(pos, n)};
+    return {pos, serialize_impl(pos, n)};
 }
 
-size_t ColumnMap::serialize(char* pos, const size_t row) const {
+size_t ColumnMap::serialize_impl(char* pos, const size_t row) const {
     size_t array_size = size_at(row);
     size_t offset = offset_at(row);
 
     memcpy_fixed<size_t>(pos, (char*)&array_size);
     size_t sz = sizeof(array_size);
     for (size_t i = 0; i < array_size; ++i) {
-        sz += get_keys().serialize(pos + sz, offset + i);
+        sz += get_keys().serialize_impl(pos + sz, offset + i);
     }
 
     for (size_t i = 0; i < array_size; ++i) {
-        sz += get_values().serialize(pos + sz, offset + i);
+        sz += get_values().serialize_impl(pos + sz, offset + i);
     }
 
     DCHECK_EQ(sz, serialize_size_at(row));
@@ -240,17 +240,17 @@ size_t ColumnMap::serialize_size_at(size_t row) const {
     return sz + sizeof(size_t);
 }
 
-size_t ColumnMap::deserialize(const char* pos) {
+size_t ColumnMap::deserialize_impl(const char* pos) {
     size_t sz = 0;
     size_t array_size = unaligned_load<size_t>(pos);
     sz += sizeof(array_size);
 
     for (size_t i = 0; i < array_size; ++i) {
-        sz += get_keys().deserialize(pos + sz);
+        sz += get_keys().deserialize_impl(pos + sz);
     }
 
     for (size_t i = 0; i < array_size; ++i) {
-        sz += get_values().deserialize(pos + sz);
+        sz += get_values().deserialize_impl(pos + sz);
     }
 
     get_offsets().push_back(get_offsets().back() + array_size);
@@ -258,7 +258,7 @@ size_t ColumnMap::deserialize(const char* pos) {
 }
 
 const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
-    return pos + deserialize(pos);
+    return pos + deserialize_impl(pos);
 }
 
 int ColumnMap::compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const {
@@ -720,13 +720,13 @@ void ColumnMap::serialize_vec(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
         // Used in hash_map_context.h, this address is allocated via Arena,
         // but passed through StringRef, so using const_cast is acceptable.
-        keys[i].size += serialize(const_cast<char*>(keys[i].data + keys[i].size), i);
+        keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
     }
 }
 
 void ColumnMap::deserialize_vec(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
-        auto sz = deserialize(keys[i].data);
+        auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;
         keys[i].size -= sz;
     }

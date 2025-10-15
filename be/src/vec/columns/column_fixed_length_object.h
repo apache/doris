@@ -173,11 +173,11 @@ public:
     StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                          char const*& begin) const override {
         char* pos = arena.alloc_continue(_item_size, begin);
-        return {pos, serialize(pos, n)};
+        return {pos, serialize_impl(pos, n)};
     }
 
     const char* deserialize_and_insert_from_arena(const char* pos) override {
-        return pos + deserialize(pos);
+        return pos + deserialize_impl(pos);
     }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
@@ -285,11 +285,11 @@ public:
         }
     }
 
-    size_t deserialize(const char* pos) override {
+    size_t deserialize_impl(const char* pos) override {
         insert_data(pos, _item_size);
         return _item_size;
     }
-    size_t serialize(char* pos, const size_t row) const override {
+    size_t serialize_impl(char* pos, const size_t row) const override {
         memcpy(pos, &_data[row * _item_size], _item_size);
         return _item_size;
     }
