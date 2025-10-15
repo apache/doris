@@ -29,6 +29,7 @@
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/io/io_helper.h"
 #include "vec/io/var_int.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 class BufferReadable;
@@ -543,6 +544,21 @@ std::string Field::to_string() const {
         const auto& v = get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::NearestFieldType>();
         return int128_to_string(v);
     }
+    if (type == TYPE_DATE || type == TYPE_DATETIME) {
+        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DATE>::NearestFieldType>();
+        std::string buf(40, 0);
+        auto* to = binary_cast<int64_t, doris::VecDateTimeValue>(v).to_string(buf.data());
+        buf.resize(to - buf.data() - 1);
+        return buf;
+    }
+    if (type == TYPE_DATEV2) {
+        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType>();
+        return binary_cast<uint32_t, DateV2Value<DateV2ValueType>>((uint32_t)v).to_string();
+    }
+    if (type == TYPE_DATETIMEV2) {
+        const auto& v = get<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>();
+        return binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(v).to_string();
+    }
     MATCH_PRIMITIVE_TYPE(TYPE_BOOLEAN);
     MATCH_PRIMITIVE_TYPE(TYPE_TINYINT);
     MATCH_PRIMITIVE_TYPE(TYPE_SMALLINT);
@@ -550,11 +566,7 @@ std::string Field::to_string() const {
     MATCH_PRIMITIVE_TYPE(TYPE_BIGINT);
     MATCH_PRIMITIVE_TYPE(TYPE_FLOAT);
     MATCH_PRIMITIVE_TYPE(TYPE_DOUBLE);
-    MATCH_PRIMITIVE_TYPE(TYPE_DATE);
-    MATCH_PRIMITIVE_TYPE(TYPE_DATETIME);
     MATCH_PRIMITIVE_TYPE(TYPE_TIME);
-    MATCH_PRIMITIVE_TYPE(TYPE_DATEV2);
-    MATCH_PRIMITIVE_TYPE(TYPE_DATETIMEV2);
     MATCH_PRIMITIVE_TYPE(TYPE_TIMEV2);
     //    MATCH_PRIMITIVE_TYPE(TYPE_IPV4);
     //    MATCH_PRIMITIVE_TYPE(TYPE_IPV6);
