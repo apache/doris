@@ -40,7 +40,6 @@ import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
@@ -271,32 +270,32 @@ public class ShowPartitionsCommand extends ShowCommand {
                 TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE,
                 TableType.ICEBERG_EXTERNAL_TABLE, TableType.PAIMON_EXTERNAL_TABLE);
 
-        if (!(catalog instanceof InternalCatalog)) {
+        if (!catalog.isInternalCatalog()) {
             if (!table.isPartitionedTable()) {
                 throw new AnalysisException("Table " + tblName + " is not a partitioned table");
             }
-        }
+        } else {
+            table.readLock();
+            try {
+                // build proc path
+                StringBuilder stringBuilder = new StringBuilder();
+                stringBuilder.append("/dbs/");
+                stringBuilder.append(db.getId());
+                stringBuilder.append("/").append(table.getId());
+                if (isTempPartition) {
+                    stringBuilder.append("/temp_partitions");
+                } else {
+                    stringBuilder.append("/partitions");
+                }
 
-        table.readLock();
-        try {
-            // build proc path
-            StringBuilder stringBuilder = new StringBuilder();
-            stringBuilder.append("/dbs/");
-            stringBuilder.append(db.getId());
-            stringBuilder.append("/").append(table.getId());
-            if (isTempPartition) {
-                stringBuilder.append("/temp_partitions");
-            } else {
-                stringBuilder.append("/partitions");
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("process SHOW PROC '{}';", stringBuilder.toString());
+                }
+
+                node = ProcService.getInstance().open(stringBuilder.toString());
+            } finally {
+                table.readUnlock();
             }
-
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("process SHOW PROC '{}';", stringBuilder.toString());
-            }
-
-            node = ProcService.getInstance().open(stringBuilder.toString());
-        } finally {
-            table.readUnlock();
         }
     }
 
