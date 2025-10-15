@@ -74,7 +74,10 @@ PROPERTIES (
         throw new Exception("File flink-doris-syncdb.jar download failed.")
     }
 
-    def run_cmd = "java -cp flink-doris-syncdb.jar org.apache.doris.DatabaseFullSync $context.config.feHttpAddress regression_test_flink_connector_p0 $context.config.feHttpUser"
+    def javaPath = ["bash", "-c", "which java"].execute().text.trim()
+    logger.info("System java path: ${javaPath}")
+
+    def run_cmd = "${javaPath} -cp flink-doris-syncdb.jar org.apache.doris.DatabaseFullSync $context.config.feHttpAddress regression_test_flink_connector_p0 $context.config.feHttpUser"
     logger.info("run_cmd : $run_cmd")
     def run_flink_jar = run_cmd.execute().getText()
     logger.info("result: $run_flink_jar")

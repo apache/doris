@@ -20,6 +20,7 @@
 // and modified by Doris.
 
 
+
 import org.apache.flink.api.common.RuntimeExecutionMode
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment
 import org.apache.flink.table.api.TableResult
@@ -112,6 +113,10 @@ VALUES
     def thisDb = sql """select database()""";
     thisDb = thisDb[0][0];
     logger.info("current database is ${thisDb}");
+
+    def javaPath = ["bash", "-c", "which java"].execute().text.trim()
+    logger.info("System java path: ${javaPath}")
+
     final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
     env.setParallelism(1);
     env.setRuntimeMode(RuntimeExecutionMode.BATCH);
