@@ -15,22 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.indexpolicy;
 
-#include "olap/rowset/segment_v2/inverted_index/token_stream.h"
+import org.apache.doris.common.DdlException;
 
-namespace doris::segment_v2::inverted_index {
+import com.google.common.collect.ImmutableSet;
 
-class DorisTokenFilter : public TokenFilter, public DorisTokenStream {
-public:
-    DorisTokenFilter(TokenStreamPtr in) : TokenFilter(nullptr), _in(std::move(in)) {}
-    ~DorisTokenFilter() override = default;
+import java.util.Map;
+import java.util.Set;
 
-    void reset() override { _in->reset(); }
+public class ICUTokenizerValidator extends BasePolicyValidator {
+    private static final Set<String> ALLOWED_PROPS = ImmutableSet.of("type");
 
-protected:
-    TokenStreamPtr _in;
-};
-using TokenFilterPtr = std::shared_ptr<DorisTokenFilter>;
+    public ICUTokenizerValidator() {
+        super(ALLOWED_PROPS);
+    }
 
-} // namespace doris::segment_v2::inverted_index
+    @Override
+    protected String getTypeName() {
+        return "icu tokenizer";
+    }
+
+    @Override
+    protected void validateSpecific(Map<String, String> props) throws DdlException {
+        // ICU tokenizer doesn't have additional parameters to validate
+        // It uses default ICU configuration
+    }
+}

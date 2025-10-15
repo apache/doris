@@ -17,28 +17,13 @@
 
 #pragma once
 
-#include "icu_tokenizer_config.h"
+#include <memory>
 
-namespace doris::segment_v2 {
+#include "CLucene.h"
+#include "CLucene/util/CLStreams.h"
 
-class DefaultICUTokenizerConfig : public ICUTokenizerConfig {
-public:
-    DefaultICUTokenizerConfig(bool cjkAsWords, bool myanmarAsWords);
-    ~DefaultICUTokenizerConfig() override = default;
+namespace doris::segment_v2::inverted_index {
 
-    void initialize(const std::string& dictPath) override;
-    bool combine_cj() override { return cjk_as_words_; }
-    icu::BreakIterator* get_break_iterator(int32_t script) override;
+using ReaderPtr = std::shared_ptr<lucene::util::Reader>;
 
-private:
-    static void read_break_iterator(BreakIteratorPtr& rbbi, const std::string& filename);
-
-    static BreakIteratorPtr cjk_break_iterator_;
-    static BreakIteratorPtr default_break_iterator_;
-    static BreakIteratorPtr myanmar_syllable_iterator_;
-
-    bool cjk_as_words_ = false;
-    bool myanmar_as_words_ = false;
-};
-
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index

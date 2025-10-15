@@ -17,20 +17,23 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/inverted_index/token_stream.h"
+#include "icu_tokenizer.h"
+#include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class DorisTokenFilter : public TokenFilter, public DorisTokenStream {
+class ICUTokenizerFactory : public TokenizerFactory {
 public:
-    DorisTokenFilter(TokenStreamPtr in) : TokenFilter(nullptr), _in(std::move(in)) {}
-    ~DorisTokenFilter() override = default;
+    ICUTokenizerFactory() = default;
+    ~ICUTokenizerFactory() override = default;
 
-    void reset() override { _in->reset(); }
+    void initialize(const Settings& settings) override {}
 
-protected:
-    TokenStreamPtr _in;
+    TokenizerPtr create() override {
+        auto tokenizer = std::make_shared<ICUTokenizer>();
+        tokenizer->initialize(config::inverted_index_dict_path + "/icu");
+        return tokenizer;
+    }
 };
-using TokenFilterPtr = std::shared_ptr<DorisTokenFilter>;
 
 } // namespace doris::segment_v2::inverted_index
