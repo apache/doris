@@ -120,20 +120,25 @@ void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
                     process_value_func(data, i, j - i + 1, _trimming_char, splitted_values);
                     field_start_position = j + 1; // Update start to after the array
                     i = j;                        // Adjust loop index to continue after ']'
+
+                    // If the next character is a separator, skip it to avoid empty field.
+                    if (j + 1 < size && data[j + 1] == _value_sep[0]) {
+                        field_start_position = j + 1 + _value_sep_len;
+                        i = j + 1; // Adjust loop index to continue after '],'
+                    }
                 } else {
                     // No matching ']', treat '[' as a normal character.
                     // Continue without special handling.
                 }
             } else if (data[i] == _value_sep[0]) {
-                // Standard separator: Process the field ending here.
-                if (i > field_start_position) {
-                    process_value_func(data, field_start_position, i - field_start_position,
-                                       _trimming_char, splitted_values);
-                }
-                field_start_position = i + _value_sep_len; // Move start past the separator
+                // Process the field ending here.
+                process_value_func(data, field_start_position, i - field_start_position,
+                                   _trimming_char, splitted_values);
+                field_start_position = i + _value_sep_len;
             }
         }
-        // Process any remaining content, but skip if it's empty to avoid spurious fields.
+
+        // Process any remaining content
         if (field_start_position < size) {
             process_value_func(data, field_start_position, size - field_start_position,
                                _trimming_char, splitted_values);

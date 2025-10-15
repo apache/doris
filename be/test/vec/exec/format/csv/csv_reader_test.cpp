@@ -44,10 +44,21 @@ TEST_F(PlainCsvTextFieldSplitterTest, BasicCommaSeparation) {
     verify_field_split("hello,world,test", ",", {"hello", "world", "test"});
 }
 
+TEST_F(PlainCsvTextFieldSplitterTest, EmptyFields) {
+    verify_field_split("a,,c", ",", {"a", "", "c"});
+    verify_field_split(",b,", ",", {"", "b", ""});
+    verify_field_split(",,", ",", {"", "", ""});
+    verify_field_split("a,b,", ",", {"a", "b", ""});
+    verify_field_split(",a,b", ",", {"", "a", "b"});
+}
+
 TEST_F(PlainCsvTextFieldSplitterTest, ArrayHandlingWithComma) {
     verify_field_split("1,[1.0,2.0,3.0]", ",", {"1", "[1.0,2.0,3.0]"});
     verify_field_split("name,[a,b,c],age", ",", {"name", "[a,b,c]", "age"});
     verify_field_split("[start],middle,[end]", ",", {"[start]", "middle", "[end]"});
+    verify_field_split("1,\"aaa\",[bbb,ccc]", ",", {"1", "\"aaa\"", "[bbb,ccc]"});
+    verify_field_split("2,[hello,world],[aaa,bbb]", ",", {"2", "[hello,world]", "[aaa,bbb]"});
+    verify_field_split("3,[hello,world],aaa", ",", {"3", "[hello,world]", "aaa"});
 }
 
 TEST_F(PlainCsvTextFieldSplitterTest, NotArrayHandling) {
