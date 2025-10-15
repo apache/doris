@@ -346,7 +346,7 @@ Status EngineStorageMigrationTask::_migrate() {
 void EngineStorageMigrationTask::_generate_new_header(
         int32_t new_shard, const std::vector<RowsetSharedPtr>& consistent_rowsets,
         TabletMetaSharedPtr new_tablet_meta, int64_t end_version) {
-    _tablet->generate_tablet_meta_copy_unlocked(*new_tablet_meta);
+    _tablet->generate_tablet_meta_copy_unlocked(*new_tablet_meta, false);
 
     std::vector<RowsetMetaSharedPtr> rs_metas;
     for (auto& rs : consistent_rowsets) {

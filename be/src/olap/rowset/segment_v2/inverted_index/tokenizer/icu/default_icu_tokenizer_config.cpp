@@ -24,7 +24,7 @@
 #include <sstream>
 #include <string>
 
-namespace doris::segment_v2 {
+namespace doris::segment_v2::inverted_index {
 
 BreakIteratorPtr DefaultICUTokenizerConfig::cjk_break_iterator_;
 BreakIteratorPtr DefaultICUTokenizerConfig::default_break_iterator_;
@@ -125,4 +125,4 @@ void DefaultICUTokenizerConfig::read_break_iterator(BreakIteratorPtr& rbbi,
     }
 }
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index
