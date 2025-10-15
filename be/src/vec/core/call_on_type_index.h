@@ -156,7 +156,7 @@ struct DispatchDataTypeMask {
     static constexpr uint32_t DATETIME = 1 << 3;
     static constexpr uint32_t IP = 1 << 4;
     static constexpr uint32_t STRING = 1 << 5;
-    
+
     static constexpr uint32_t SCALAR = INT | FLOAT | DECIMAL | DATETIME | IP;
     static constexpr uint32_t NUMBER = INT | FLOAT | DECIMAL;
     static constexpr uint32_t ALL = INT | FLOAT | DECIMAL | DATETIME | IP | STRING;
@@ -254,7 +254,7 @@ bool dispatch_type_base(PrimitiveType number, F&& f) {
 }
 
 template <typename F>
-bool dispatch_switch_without_complex(PrimitiveType number, F&& f) {
+bool dispatch_switch_all(PrimitiveType number, F&& f) {
     return dispatch_type_base<F, DispatchDataTypeMask::ALL>(number, std::forward<F>(f));
 }
 
