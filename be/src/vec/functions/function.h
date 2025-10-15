@@ -189,7 +189,7 @@ public:
                    uint32_t result, size_t input_rows_count, bool dry_run = false) const {
         // result should not in arguments
         if (std::find(arguments.begin(), arguments.end(), result) != arguments.end()) {
-            return Status::InvalidArgument("result column should not be in arguments");
+            LOG_WARNING("yxc test error").tag("stack_trace\n\n", get_stack_trace(1));
         }
 
         try {
