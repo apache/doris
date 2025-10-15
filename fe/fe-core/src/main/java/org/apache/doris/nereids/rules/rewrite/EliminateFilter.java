@@ -52,7 +52,7 @@ public class EliminateFilter implements RewriteRuleFactory {
                 .thenApply(ctx -> {
                     LogicalFilter<Plan> filter = ctx.root;
                     ImmutableSet.Builder<Expression> newConjuncts = ImmutableSet.builder();
-                    ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                    ExpressionRewriteContext context = new ExpressionRewriteContext(filter, ctx.cascadesContext);
                     for (Expression expression : filter.getConjuncts()) {
                         expression = FoldConstantRule.evaluate(
                                 ReplaceNullWithFalseForCond.replace(expression, true),
@@ -85,7 +85,7 @@ public class EliminateFilter implements RewriteRuleFactory {
         Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(filter.child().getOutputs());
 
         ImmutableSet.Builder<Expression> newConjuncts = ImmutableSet.builder();
-        ExpressionRewriteContext context = new ExpressionRewriteContext(cascadesContext);
+        ExpressionRewriteContext context = new ExpressionRewriteContext(filter, cascadesContext);
         for (Expression expression : filter.getConjuncts()) {
             Expression newExpr = ExpressionUtils.replace(expression, replaceMap);
             Expression foldExpression = FoldConstantRule.evaluate(
