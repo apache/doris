@@ -395,10 +395,10 @@ fi
 # patch hyperscan
 # https://github.com/intel/hyperscan/issues/292
 if [[ " ${TP_ARCHIVES[*]} " =~ " HYPERSCAN " ]]; then
-    if [[ "${HYPERSCAN_SOURCE}" == "vectorscan-vectorscan-5.4.11" ]]; then
+    if [[ "${HYPERSCAN_SOURCE}" == "vectorscan-vectorscan-5.4.12" ]]; then
         cd "${TP_SOURCE_DIR}/${HYPERSCAN_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p1 <"${TP_PATCH_DIR}/vectorscan-5.4.11.patch"
+            patch -p1 <"${TP_PATCH_DIR}/vectorscan-5.4.12.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
