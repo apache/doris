@@ -310,12 +310,12 @@ public class S3Util {
     /**
      * Convert range patterns to brace enumeration patterns for glob matching.
      * Parts containing negative numbers or non-numeric characters are skipped.
-     * eg:
-     *    -> "file_{1..3,4,5..6}_{1..3,2..4}.csv" -> "file_{1,2,3,4,5,6}_{1,2,3,4}.csv"
-     *    -> "path/to/{1..3}/file.csv" -> "path/to/{1,2,3}/file.csv"
-     *    -> "data_{-1..4,2,1..3}.csv" -> "data_{1,2,3}.csv"  (-1..4 skipped, keep 2 and 1..3)
-     *    -> "data_{abcdef..4,2,1..3,Refrain}.csv" -> "data_{1,2,3}.csv"  (invalid parts skipped)
-     *
+     * eg(valid):
+     *    -> "file{1..3}" will load the file1、file2、file3
+     *    -> "file_{1..3,4,5..6}" will load the file1 ~ file6
+     * eg(invalid)
+     *    -> "data_{-1..4}.csv" will not load any file
+     *    -> "data_{a..4}.csv" will not load any file
      * @param pathPattern Path that may contain {start..end} or mixed {start..end,values} patterns
      * @return Path with ranges converted to comma-separated enumeration
      */

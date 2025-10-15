@@ -511,8 +511,6 @@ public class DFSFileSystem extends RemoteFileSystem {
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
             URI pathUri = URI.create(remotePath);
-            LOG.info("Refrain 1 : {}", pathUri.getLocation());
-            LOG.info("Refrian 2 : {}", S3Util.extendGlobs(pathUri.getLocation()));
             Path pathPattern = new Path(S3Util.extendGlobs(pathUri.getLocation()));
             FileSystem fileSystem = nativeFileSystem(pathPattern);
             FileStatus[] files = hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.globStatus(pathPattern));
