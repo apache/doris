@@ -22,8 +22,6 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -42,7 +40,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
@@ -70,8 +67,6 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Range;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.partition.Partition;
@@ -90,15 +85,6 @@ import java.util.stream.Collectors;
  * show partitions command
  */
 public class ShowPartitionsCommand extends ShowCommand {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("PartitionId").add("PartitionName")
-            .add("VisibleVersion").add("VisibleVersionTime")
-            .add("State").add("PartitionKey").add("Range").add("DistributionKey")
-            .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
-            .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
-            .add("IsMutable").add("SyncWithBaseTables").add("UnsyncTables").add("CommittedVersion")
-            .add("RowCount")
-            .build();
     public static final String FILTER_PARTITION_NAME = "PartitionName";
     private static final Logger LOG = LogManager.getLogger(ShowPartitionsCommand.class);
     private static final String FILTER_PARTITION_ID = "PartitionId";
@@ -241,9 +227,9 @@ public class ShowPartitionsCommand extends ShowCommand {
 
                 // analyze column
                 int index = -1;
-                for (String title : TITLE_NAMES) {
+                for (String title : PartitionsProcDir.TITLE_NAMES) {
                     if (title.equalsIgnoreCase(colName)) {
-                        index = TITLE_NAMES.indexOf(title);
+                        index = PartitionsProcDir.TITLE_NAMES.indexOf(title);
                     }
                 }
                 if (index == -1) {
@@ -267,8 +253,7 @@ public class ShowPartitionsCommand extends ShowCommand {
 
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         TableIf table = db.getTableOrMetaException(tblName, TableType.OLAP,
-                TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE,
-                TableType.ICEBERG_EXTERNAL_TABLE, TableType.PAIMON_EXTERNAL_TABLE);
+                TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE, TableType.PAIMON_EXTERNAL_TABLE);
 
         if (!catalog.isInternalCatalog()) {
             if (!table.isPartitionedTable()) {
@@ -316,34 +301,6 @@ public class ShowPartitionsCommand extends ShowCommand {
         }
         // sort by partition name
         rows.sort(Comparator.comparing(x -> x.get(0)));
-        return new ShowResultSet(getMetaData(), rows);
-    }
-
-    private ShowResultSet handleShowIcebergTablePartitions() {
-        IcebergExternalCatalog icebergCatalog = (IcebergExternalCatalog) catalog;
-        String db = ClusterNamespace.getNameFromFullName(tableName.getDb());
-        String tbl = tableName.getTbl();
-        IcebergExternalTable icebergTable = (IcebergExternalTable) icebergCatalog.getDb(db).get().getTable(tbl).get();
-
-        Map<String, PartitionItem> partitions = icebergTable.getAndCopyPartitionItems(Optional.empty());
-        List<List<String>> rows = new ArrayList<>();
-        for (Map.Entry<String, PartitionItem> entry : partitions.entrySet()) {
-            List<String> row = new ArrayList<>();
-            Range<PartitionKey> items = entry.getValue().getItems();
-            row.add(entry.getKey());
-            row.add(items.lowerEndpoint().toString());
-            row.add(items.upperEndpoint().toString());
-            rows.add(row);
-        }
-        // sort by partition name
-        if (orderByPairs != null && orderByPairs.get(0).isDesc()) {
-            rows.sort(Comparator.comparing(x -> x.get(0), Comparator.reverseOrder()));
-        } else {
-            rows.sort(Comparator.comparing(x -> x.get(0)));
-        }
-
-        rows = applyLimit(limit, offset, rows);
-
         return new ShowResultSet(getMetaData(), rows);
     }
 
@@ -458,8 +415,6 @@ public class ShowPartitionsCommand extends ShowCommand {
             return new ShowResultSet(getMetaData(), rows);
         } else if (catalog instanceof MaxComputeExternalCatalog) {
             return handleShowMaxComputeTablePartitions();
-        } else if (catalog instanceof IcebergExternalCatalog) {
-            return handleShowIcebergTablePartitions();
         } else if (catalog instanceof PaimonExternalCatalog) {
             return handleShowPaimonTablePartitions();
         } else {
