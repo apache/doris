@@ -28,7 +28,7 @@ namespace doris {
     }
 } // namespace doris
 
-static void BM_BucketInsert(benchmark::State& state) {
+static void BM_BBF_BucketInsert(benchmark::State& state) {
     const int batch = static_cast<int>(state.range(0));
 
     for (auto _ : state) {
@@ -44,7 +44,7 @@ static void BM_BucketInsert(benchmark::State& state) {
     state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(batch));
 }
 
-static void BM_BucketFind_Hit(benchmark::State& state) {
+static void BM_BBF_BucketFind_Hit(benchmark::State& state) {
     const int batch = static_cast<int>(state.range(0));
 
     for (auto _ : state) {
@@ -64,7 +64,7 @@ static void BM_BucketFind_Hit(benchmark::State& state) {
     state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(batch));
 }
 
-static void BM_BucketFind_Miss(benchmark::State& state) {
+static void BM_BBF_BucketFind_Miss(benchmark::State& state) {
     const int batch = static_cast<int>(state.range(0));
 
     for (auto _ : state) {
@@ -84,7 +84,7 @@ static void BM_BucketFind_Miss(benchmark::State& state) {
     state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(batch));
 }
 
-static void BM_OrEqualArray(benchmark::State& state) {
+static void BM_BBF_OrEqualArray(benchmark::State& state) {
     const auto n = static_cast<size_t>(state.range(0));
     std::vector<uint8_t> in(n), out(n), out_orig(n);
 
@@ -105,28 +105,28 @@ static void BM_OrEqualArray(benchmark::State& state) {
     state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(n));
 }
 
-BENCHMARK(BM_BucketInsert)
+BENCHMARK(BM_BBF_BucketInsert)
     ->Unit(benchmark::kNanosecond)
     ->Arg(1 << 12)
     ->Arg(1 << 15)
     ->Arg(1 << 18)
     ->Repetitions(5)
     ->DisplayAggregatesOnly();
-BENCHMARK(BM_BucketFind_Hit)
+BENCHMARK(BM_BBF_BucketFind_Hit)
     ->Unit(benchmark::kNanosecond)
     ->Arg(1 << 12)
     ->Arg(1 << 15)
     ->Arg(1 << 18)
     ->Repetitions(5)
     ->DisplayAggregatesOnly();
-BENCHMARK(BM_BucketFind_Miss)
+BENCHMARK(BM_BBF_BucketFind_Miss)
     ->Unit(benchmark::kNanosecond)
     ->Arg(1 << 12)
     ->Arg(1 << 15)
     ->Arg(1 << 18)
     ->Repetitions(5)
     ->DisplayAggregatesOnly();
-BENCHMARK(BM_OrEqualArray)
+BENCHMARK(BM_BBF_OrEqualArray)
     ->Unit(benchmark::kNanosecond)
     ->Arg(1 << 8)
     ->Arg(1 << 15)
