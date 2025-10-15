@@ -87,4 +87,8 @@ public class IcebergRewriteExecutor extends BaseExternalTableInsertExecutor {
     public Optional<InsertCommandContext> getInsertCtx() {
         return insertCtx;
     }
+
+    public IcebergTransaction getTransaction() throws UserException {
+        return (IcebergTransaction) transactionManager.getTransaction(txnId);
+    }
 }

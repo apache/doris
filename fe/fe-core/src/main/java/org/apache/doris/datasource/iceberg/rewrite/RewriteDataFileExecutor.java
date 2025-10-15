@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg.rewrite;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergRewriteExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -39,6 +41,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.iceberg.DataFile;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -47,6 +50,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Executes INSERT-SELECT statements for Iceberg data file rewriting.
@@ -127,15 +131,22 @@ public class RewriteDataFileExecutor {
         try {
             // Step 1: Create StmtExecutor using pre-parsed statement
             executor = new StmtExecutor(connectContext, parsedStmt);
-            executor.execute();
+            InsertIntoTableCommand insertCommand = (InsertIntoTableCommand) logicalPlan;
+            AbstractInsertExecutor insertExecutor = insertCommand.initPlan(connectContext, executor);
+            Preconditions.checkState(insertExecutor instanceof IcebergRewriteExecutor,
+                    "Expected IcebergRewriteExecutor, got: " + insertExecutor.getClass());
+            IcebergRewriteExecutor rewriteExecutor = (IcebergRewriteExecutor) insertExecutor;
+            // Customize insert executor for rewrite
+            customizeInsertExecutorForRewrite(rewriteExecutor, group);
+            
+            // Update transaction with files to delete
+            IcebergTransaction transaction = rewriteExecutor.getTransaction();
+            List<DataFile> filesToDelete = group.getDataFiles().stream().collect(Collectors.toList());
+            transaction.updateRewriteFiles(filesToDelete);
+            insertExecutor.executeSingleInsert(executor, System.currentTimeMillis());
+
+            // Collect execution statistics and rewrite information
             return new RewriteResult(group.getTaskCount(), group.getTaskCount(), group.getTotalSize(), 0);
-
-            // // Step 2: Execute the customized insert operation using pre-parsed components
-            // RewriteResult result = executeInsertWithGroup(executor, group);
-
-            // LOG.info("Completed rewrite execution for group with {} tasks", group.getTaskCount());
-
-            // return result;
 
         } catch (Exception e) {
             LOG.error("Failed to execute rewrite group: ", e);
