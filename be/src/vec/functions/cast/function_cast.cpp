@@ -338,7 +338,8 @@ protected:
                 wrapper_function(context, block, arguments, result, input_rows_count, nullptr));
 
         // check output column
-        RETURN_IF_ERROR(res.type->check_column(*res.column));
+        RETURN_IF_ERROR(block.get_by_position(result).type->check_column(
+                *block.get_by_position(result).column));
 
         return Status::OK();
     }
