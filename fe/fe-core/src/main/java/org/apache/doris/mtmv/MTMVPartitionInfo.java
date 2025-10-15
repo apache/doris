@@ -189,9 +189,10 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
     public String toInfoString() {
         return "MTMVPartitionInfo{"
                 + "partitionType=" + partitionType
-                + ", relatedTable=" + relatedTable
-                + ", relatedCol='" + relatedCol + '\''
+                + ", pctInfos=" + pctInfos
+                + ", filteredNonPctTables='" + filteredNonPctTables + '\''
                 + ", partitionCol='" + partitionCol + '\''
+                + ", expr='" + expr + '\''
                 + '}';
     }
 
@@ -203,9 +204,10 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
         } else {
             return "MTMVPartitionInfo{"
                     + "partitionType=" + partitionType
-                    + ", relatedTable=" + relatedTable.getTableName()
-                    + ", relatedCol='" + relatedCol + '\''
+                    + ", pctInfos=" + pctInfos
+                    + ", filteredNonPctTables='" + filteredNonPctTables + '\''
                     + ", partitionCol='" + partitionCol + '\''
+                    + ", expr='" + expr + '\''
                     + '}';
         }
     }
