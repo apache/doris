@@ -325,7 +325,7 @@ public class RewriteDataFileExecutor {
                     Optional.empty(), // branchName
                     sourceRelation);
 
-            // Create InsertIntoTableCommand - this is the complete command
+            // Create InsertIntoTableCommand for rewrite operation
             InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(
                     tableSink,
                     Optional.empty(), // labelName
@@ -334,7 +334,7 @@ public class RewriteDataFileExecutor {
                     true, // needNormalizePlan
                     Optional.empty() // branchName
             );
-
+            insertCommand.setRewriteOperation(true);
             return insertCommand;
 
         } catch (Exception e) {
