@@ -40,12 +40,11 @@ import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
-import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
@@ -74,7 +73,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Range;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.partition.Partition;
@@ -273,35 +271,10 @@ public class ShowPartitionsCommand extends ShowCommand {
                 TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE,
                 TableType.ICEBERG_EXTERNAL_TABLE, TableType.PAIMON_EXTERNAL_TABLE);
 
-        if (table instanceof HMSExternalTable) {
-            if (((HMSExternalTable) table).isView()) {
+        if (!(catalog instanceof InternalCatalog)) {
+            if (!table.isPartitionedTable()) {
                 throw new AnalysisException("Table " + tblName + " is not a partitioned table");
             }
-            if (CollectionUtils.isEmpty(((HMSExternalTable) table).getPartitionColumns())) {
-                throw new AnalysisException("Table " + tblName + " is not a partitioned table");
-            }
-            return;
-        }
-
-        if (table instanceof MaxComputeExternalTable) {
-            if (((MaxComputeExternalTable) table).getOdpsTable().getPartitions().isEmpty()) {
-                throw new AnalysisException("Table " + tblName + " is not a partitioned table");
-            }
-            return;
-        }
-
-        if (table instanceof IcebergExternalTable) {
-            if (!((IcebergExternalTable) table).isValidRelatedTable()) {
-                throw new AnalysisException("Table " + tblName + " is not a supported partition table");
-            }
-            return;
-        }
-
-        if (table instanceof PaimonExternalTable) {
-            if (((PaimonExternalTable) table).isPartitionInvalid(Optional.empty())) {
-                throw new AnalysisException("Table " + tblName + " is not a partitioned table");
-            }
-            return;
         }
 
         table.readLock();
