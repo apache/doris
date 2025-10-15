@@ -21,16 +21,20 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
@@ -39,7 +43,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * pull up LogicalCteAnchor to the top of plan to avoid CteAnchor break other rewrite rules pattern
@@ -48,6 +57,8 @@ import java.util.List;
  * and put all of them to the top of plan depends on dependency tree of them.
  */
 public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implements CustomRewriter {
+
+    private final Map<CTEId, List<Plan>> cteIdPlanMap = new HashMap<>();
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -72,13 +83,49 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
             return cteAnchor.withChildren(children);
         } else {
             // process this anchor
+            final Plan[] currentJoinPlan = {null};
             List<LogicalCTEConsumer> consumers = cteAnchor.child(1).collectToList(p -> {
                 if (p instanceof LogicalCTEConsumer) {
+                    if (((LogicalCTEConsumer) p).getCteId().equals(cteAnchor.getCteId())) {
+                        if (currentJoinPlan[0] != null) {
+                            cteIdPlanMap.computeIfAbsent(((LogicalCTEConsumer) p).getCteId(),
+                                                x -> new ArrayList<>()).add(currentJoinPlan[0]);
+                        }
+                        return true;
+                    }
                     return ((LogicalCTEConsumer) p).getCteId().equals(cteAnchor.getCteId());
+                }
+                if (p instanceof LogicalJoin
+                        && (!(ConnectContext.get().getSessionVariable().enableJoinSameCteChild))) {
+                    currentJoinPlan[0] = (Plan) p;
+                }
+                if ((p instanceof LogicalUnion || p instanceof LogicalAggregate)
+                        && (!(ConnectContext.get().getSessionVariable().enableJoinSameCteChild))) {
+                    currentJoinPlan[0] = (Plan) null;
                 }
                 return false;
             });
             ConnectContext connectContext = ConnectContext.get();
+            if (!connectContext.getSessionVariable().enableJoinSameCteChild) {
+                for (LogicalCTEConsumer consumer : consumers) {
+                    CTEId consumerCteId = consumer.getCteId();
+                    List<Plan> plans = (cteIdPlanMap != null) ? cteIdPlanMap.get(consumerCteId) : null;
+
+                    if (plans != null) {
+                        Set<Plan> uniqueItems = new HashSet<>();
+                        List<Plan> duplicates = plans.stream()
+                                                .filter(plan -> !uniqueItems.add(plan))
+                                                .collect(Collectors.toList());
+
+                        if (!duplicates.isEmpty()) {
+                            // should inline
+                            Plan root = cteAnchor.right().accept(this, (LogicalCTEProducer<?>) cteAnchor.left());
+                            //process child
+                            return root.accept(this, null);
+                        }
+                    }
+                }
+            }
             if (connectContext.getSessionVariable().enableCTEMaterialize
                     && consumers.size() > connectContext.getSessionVariable().inlineCTEReferencedThreshold) {
                 // not inline
