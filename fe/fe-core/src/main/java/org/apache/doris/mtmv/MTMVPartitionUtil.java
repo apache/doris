@@ -565,7 +565,11 @@ public class MTMVPartitionUtil {
             for (MTMVRelatedTableIf pctTable : pctTables) {
                 Map<String, MTMVSnapshotIf> pctSnapshot = refreshPartitionSnapshot.getPctSnapshot(
                         new BaseTableInfo(pctTable));
-                for (String pctPartitionName : pctPartitionNames.get(pctTable)) {
+                Set<String> oneTablePartitionNames = pctPartitionNames.get(pctTable);
+                if (CollectionUtils.isEmpty(oneTablePartitionNames)) {
+                    continue;
+                }
+                for (String pctPartitionName : oneTablePartitionNames) {
                     MTMVSnapshotIf partitionSnapshot = pctTable.getPartitionSnapshot(pctPartitionName, context,
                             MvccUtil.getSnapshotFromContext(pctTable));
                     pctSnapshot.put(pctPartitionName, partitionSnapshot);
