@@ -135,7 +135,11 @@ public class AnnIndexPropertiesChecker {
             throw new AnalysisException("dim of ann index must be specified");
         }
 
-        if (quantizer.equals("pq")) {
+        if (quantizer != null && quantizer.equals("pq")) {
+            if (dimension == 0 || numSubQuantizers == 0) {
+                throw new AnalysisException(
+                    "The dimension of the vector (dim) or the number of subquantizers (pq_m) cannot be zero");
+            }
             if (dimension % numSubQuantizers != 0) {
                 throw new AnalysisException("The dimension of the vector (dim) should be a multiple of the number of "
                         + "subquantizers (pq_m)");
