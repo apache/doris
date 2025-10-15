@@ -3078,7 +3078,7 @@ EXPECT_EQ(info.num_dimensions, 2);
 
     Field array = Field::create_field<TYPE_ARRAY>(Array());
     array.get<Array>().push_back(Field::create_field<TYPE_JSONB>(std::move(field)));
-    array.get<Array>().push_back(Field::create_field<TYPE_JSONB>(std::move(JsonbField())));
+    array.get<Array>().push_back(Field::create_field<TYPE_JSONB>(JsonbField()));
     FieldInfo info;
     schema_util::get_field_info(array, &info);
     // which should support ??!!

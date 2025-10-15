@@ -137,7 +137,11 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         this.cte = cte;
         this.needNormalizePlan = needNormalizePlan;
         this.branchName = branchName;
-        this.jobId = Env.getCurrentEnv().getNextId();
+        if (Env.getCurrentEnv().isMaster()) {
+            this.jobId = Env.getCurrentEnv().getNextId();
+        } else {
+            this.jobId = -1;
+        }
     }
 
     public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName,
@@ -684,5 +688,16 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             this.dataSink = dataSink;
             this.physicalSink = physicalSink;
         }
+    }
+
+    @Override
+    public String toDigest() {
+        // if with cte, query will be print twice
+        StringBuilder sb = new StringBuilder();
+        sb.append(originLogicalQuery.toDigest());
+        if (cte.isPresent()) {
+            sb.append(" ").append(cte.get().toDigest());
+        }
+        return sb.toString();
     }
 }
