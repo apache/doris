@@ -658,7 +658,8 @@ public:
 
     template <typename T>
     int64_t datetime_diff_in_seconds(const T& rhs) const {
-        return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
+        return ((int64_t)daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY +
+               time_part_diff(rhs);
     }
 
     void set_type(int type);

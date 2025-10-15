@@ -1582,6 +1582,11 @@ DEFINE_mBool(print_stack_when_cache_miss, "false");
 
 DEFINE_mBool(read_cluster_cache_opt_verbose_log, "false");
 
+DEFINE_String(aws_credentials_provider_version, "v2");
+DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config) -> bool {
+    return config == "v1" || config == "v2";
+});
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

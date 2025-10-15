@@ -347,4 +347,7 @@ CONF_mString(ca_cert_file_paths,
 CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
 CONF_mBool(enable_logging_conflict_keys, "false");
 
+CONF_mString(aws_credentials_provider_version, "v2");
+CONF_Validator(aws_credentials_provider_version,
+               [](const std::string& config) -> bool { return config == "v1" || config == "v2"; });
 } // namespace doris::cloud::config
