@@ -36,10 +36,8 @@ public:
               _logical_field(std::move(logical_field)) {}
     ~TermWeight() override = default;
 
-    ScorerPtr scorer(const QueryExecutionContext& ctx) override { return scorer(ctx, {}); }
-
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
-        auto reader = lookup_reader(ctx, binding_key);
+        auto reader = lookup_reader(_field, ctx, binding_key);
         auto field_name =
                 _logical_field.empty() ? std::string(_field.begin(), _field.end()) : _logical_field;
         auto make_scorer = [&](auto segment_postings) -> ScorerPtr {
@@ -72,23 +70,6 @@ public:
     }
 
 private:
-    std::shared_ptr<lucene::index::IndexReader> lookup_reader(
-            const QueryExecutionContext& ctx, const std::string& binding_key) const {
-        if (!binding_key.empty()) {
-            if (auto it = ctx.reader_bindings.find(binding_key); it != ctx.reader_bindings.end()) {
-                return it->second;
-            }
-        }
-        if (auto it = ctx.field_reader_bindings.find(_field);
-            it != ctx.field_reader_bindings.end()) {
-            return it->second;
-        }
-        if (!ctx.readers.empty()) {
-            return ctx.readers.front();
-        }
-        return nullptr;
-    }
-
     IndexQueryContextPtr _context;
 
     std::wstring _field;
