@@ -79,9 +79,6 @@ public class TabletInvertedIndex {
     // tablet id -> tablet meta
     private Map<Long, TabletMeta> tabletMetaMap = Maps.newHashMap();
 
-    // replica id -> tablet id
-    private Map<Long, Long> replicaToTabletMap = Maps.newHashMap();
-
     /*
      *  we use this to save memory.
      *  we do not need create TabletMeta instance for each tablet,
@@ -399,15 +396,6 @@ public class TabletInvertedIndex {
         }
     }
 
-    public Long getTabletIdByReplica(long replicaId) {
-        long stamp = readLock();
-        try {
-            return replicaToTabletMap.get(replicaId);
-        } finally {
-            readUnlock(stamp);
-        }
-    }
-
     public TabletMeta getTabletMeta(long tabletId) {
         long stamp = readLock();
         try {
@@ -610,10 +598,6 @@ public class TabletInvertedIndex {
         try {
             Map<Long, Replica> replicas = replicaMetaTable.rowMap().remove(tabletId);
             if (replicas != null) {
-                for (Replica replica : replicas.values()) {
-                    replicaToTabletMap.remove(replica.getId());
-                }
-
                 for (long backendId : replicas.keySet()) {
                     backingReplicaMetaTable.remove(backendId, tabletId);
                 }
@@ -643,7 +627,6 @@ public class TabletInvertedIndex {
                     "tablet " + tabletId + " not exists, replica " + replica.getId()
                     + ", backend " + backendId);
             replicaMetaTable.put(tabletId, backendId, replica);
-            replicaToTabletMap.put(replica.getId(), tabletId);
             backingReplicaMetaTable.put(backendId, tabletId, replica);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("add replica {} of tablet {} in backend {}",
@@ -670,11 +653,6 @@ public class TabletInvertedIndex {
                 if (replicaMetaTable.containsRow(tabletId)) {
                     long replicaNum = replicaMetaTable.row(tabletId).values().stream()
                             .filter(c -> c.getId() == replica.getId()).count();
-                    if (replicaNum == 0) {
-                        replicaToTabletMap.remove(replica.getId());
-                    }
-                } else {
-                    replicaToTabletMap.remove(replica.getId());
                 }
 
                 backingReplicaMetaTable.remove(backendId, tabletId);
@@ -812,7 +790,6 @@ public class TabletInvertedIndex {
         long stamp = writeLock();
         try {
             tabletMetaMap.clear();
-            replicaToTabletMap.clear();
             tabletMetaTable.clear();
             replicaMetaTable.clear();
             backingReplicaMetaTable.clear();
@@ -823,10 +800,6 @@ public class TabletInvertedIndex {
 
     public void setPartitionCollectInfoMap(ImmutableMap<Long, PartitionCollectInfo> partitionCollectInfoMap) {
         this.partitionCollectInfoMap = partitionCollectInfoMap;
-    }
-
-    public Map<Long, Long> getReplicaToTabletMap() {
-        return replicaToTabletMap;
     }
 
     // Only build from available bes, exclude colocate tables
