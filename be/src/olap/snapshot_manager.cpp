@@ -171,7 +171,7 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 
 Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
         const std::string& clone_dir, int64_t tablet_id, int64_t replica_id, int64_t table_id,
-        int64_t partition_id, int32_t schema_hash) {
+        int64_t partition_id, int32_t schema_hash, bool link_source) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     std::vector<PendingRowsetGuard> guards;
     // check clone dir existed
@@ -228,8 +228,18 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
                 src_rs_id.init(visible_rowset.rowset_id_v2());
             }
             rowset_id_mapping[src_rs_id] = rowset_id;
-            rowset_meta->set_source_rowset_id(visible_rowset.rowset_id_v2());
-            rowset_meta->set_source_tablet_id(cloned_tablet_meta_pb.tablet_id());
+            if (link_source) {
+                rowset_meta->set_source_rowset_id(visible_rowset.has_source_rowset_id()
+                                                          ? visible_rowset.source_rowset_id()
+                                                          : visible_rowset.rowset_id_v2());
+                rowset_meta->set_source_tablet_id(cloned_tablet_meta_pb.has_source_tablet_id()
+                                                          ? cloned_tablet_meta_pb.source_tablet_id()
+                                                          : cloned_tablet_meta_pb.tablet_id());
+            } else {
+                rowset_meta->set_source_rowset_id(visible_rowset.rowset_id_v2());
+                rowset_meta->set_source_tablet_id(cloned_tablet_meta_pb.tablet_id());
+            }
+            LOG(INFO) << "load from file: " << cloned_meta_file;
         } else {
             // remote rowset
             *rowset_meta = visible_rowset;
@@ -265,8 +275,17 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
                 src_rs_id.init(stale_rowset.rowset_id_v2());
             }
             rowset_id_mapping[src_rs_id] = rowset_id;
-            rowset_meta->set_source_rowset_id(stale_rowset.rowset_id_v2());
-            rowset_meta->set_source_tablet_id(cloned_tablet_meta_pb.tablet_id());
+            if (link_source) {
+                rowset_meta->set_source_rowset_id(stale_rowset.has_source_rowset_id()
+                                                          ? stale_rowset.source_rowset_id()
+                                                          : stale_rowset.rowset_id_v2());
+                rowset_meta->set_source_tablet_id(cloned_tablet_meta_pb.has_source_tablet_id()
+                                                          ? cloned_tablet_meta_pb.source_tablet_id()
+                                                          : cloned_tablet_meta_pb.tablet_id());
+            } else {
+                rowset_meta->set_source_rowset_id(stale_rowset.rowset_id_v2());
+                rowset_meta->set_source_tablet_id(cloned_tablet_meta_pb.tablet_id());
+            }
         } else {
             // remote rowset
             *rowset_meta = stale_rowset;
@@ -294,7 +313,6 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
     }
 
     RETURN_IF_ERROR_RESULT(TabletMeta::save(cloned_meta_file, new_tablet_meta_pb));
-
     return guards;
 }
 
