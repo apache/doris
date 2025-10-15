@@ -203,6 +203,7 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
         Azure::Core::IO::MemoryBodyStream memory_body(
                 reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
         // The blockId must be base64 encoded
+        LOG(INFO) << "Uploading part number: " << part_num << ", key: " << opts.key;
         s3_put_rate_limit([&]() {
             SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
             client.StageBlock(base64_encode_part_num(part_num), memory_body);
