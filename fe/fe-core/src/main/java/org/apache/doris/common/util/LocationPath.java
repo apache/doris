@@ -185,6 +185,21 @@ public class LocationPath {
         }
     }
 
+    public static LocationPath of(String location,
+                                  StorageProperties storageProperties) {
+        try {
+            String schema = extractScheme(location);
+            String normalizedLocation = storageProperties.validateAndNormalizeUri(location);
+            String encodedLocation = encodedLocation(normalizedLocation);
+            URI uri = URI.create(encodedLocation);
+            String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://"
+                    + Strings.nullToEmpty(uri.getAuthority());
+            return  new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
+        } catch (UserException e) {
+            throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
+        }
+    }
+
     /**
      * Extracts the URI scheme (e.g., "s3", "hdfs") from the location string.
      *

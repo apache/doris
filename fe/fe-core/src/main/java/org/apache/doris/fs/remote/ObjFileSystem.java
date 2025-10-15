@@ -35,6 +35,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Map;
 
 public abstract class ObjFileSystem extends RemoteFileSystem {
     private static final Logger LOG = LogManager.getLogger(ObjFileSystem.class);
@@ -162,4 +163,8 @@ public abstract class ObjFileSystem extends RemoteFileSystem {
     public Status deleteDirectory(String absolutePath) {
         return objStorage.deleteObjects(absolutePath);
     }
+
+
+    public  abstract void completeMultipartUpload(String bucket, String key,
+                                                  String uploadId, Map<Integer, String> parts);
 }

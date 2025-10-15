@@ -31,6 +31,7 @@ import org.apache.doris.datasource.statistics.CommonStatistics;
 import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.FileSystemUtil;
+import org.apache.doris.fs.remote.ObjFileSystem;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.SwitchingFileSystem;
@@ -61,8 +62,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
-import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
-import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 
 import java.util.ArrayList;
@@ -230,7 +229,7 @@ public class HMSTransaction implements Transaction {
             if (pu.getS3MpuPendingUploads() != null) {
                 for (TS3MPUPendingUpload s3MPUPendingUpload : pu.getS3MpuPendingUploads()) {
                     uncompletedMpuPendingUploads.add(
-                            new UncompletedMpuPendingUpload(s3MPUPendingUpload, pu.getLocation().getTargetPath()));
+                            new UncompletedMpuPendingUpload(s3MPUPendingUpload, pu.getLocation().getWritePath()));
                 }
             }
         }
@@ -1628,15 +1627,7 @@ public class HMSTransaction implements Transaction {
         if (isMockedPartitionUpdate) {
             return;
         }
-
-        S3FileSystem s3FileSystem = (S3FileSystem) ((SwitchingFileSystem) fs).fileSystem(path);
-        S3Client s3Client;
-        try {
-            s3Client = (S3Client) s3FileSystem.getObjStorage().getClient();
-        } catch (UserException e) {
-            throw new RuntimeException(e);
-        }
-
+        ObjFileSystem fileSystem = (ObjFileSystem) ((SwitchingFileSystem) fs).fileSystem(path);
         for (TS3MPUPendingUpload s3MPUPendingUpload : s3MpuPendingUploads) {
             asyncFileSystemTaskFutures.add(CompletableFuture.runAsync(() -> {
                 if (fileSystemTaskCancelled.get()) {
@@ -1645,15 +1636,13 @@ public class HMSTransaction implements Transaction {
                 List<CompletedPart> completedParts = Lists.newArrayList();
                 for (Map.Entry<Integer, String> entry : s3MPUPendingUpload.getEtags().entrySet()) {
                     completedParts.add(CompletedPart.builder().eTag(entry.getValue()).partNumber(entry.getKey())
-                            .build());
+                              .build());
                 }
 
-                s3Client.completeMultipartUpload(CompleteMultipartUploadRequest.builder()
-                        .bucket(s3MPUPendingUpload.getBucket())
-                        .key(s3MPUPendingUpload.getKey())
-                        .uploadId(s3MPUPendingUpload.getUploadId())
-                        .multipartUpload(CompletedMultipartUpload.builder().parts(completedParts).build())
-                        .build());
+                fileSystem.completeMultipartUpload(s3MPUPendingUpload.getBucket(),
+                         s3MPUPendingUpload.getKey(),
+                         s3MPUPendingUpload.getUploadId(),
+                         s3MPUPendingUpload.getEtags());
                 uncompletedMpuPendingUploads.remove(new UncompletedMpuPendingUpload(s3MPUPendingUpload, path));
             }, fileSystemExecutor));
         }
