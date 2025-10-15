@@ -61,4 +61,13 @@ public class BaseColInfo {
     public int hashCode() {
         return Objects.hash(tableInfo, colName);
     }
+
+    @Override
+    public String toString() {
+        final StringBuilder sb = new StringBuilder("BaseColInfo{");
+        sb.append("colName='").append(colName).append('\'');
+        sb.append(", tableInfo=").append(tableInfo);
+        sb.append('}');
+        return sb.toString();
+    }
 }
