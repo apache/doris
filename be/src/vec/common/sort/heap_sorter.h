@@ -17,11 +17,13 @@
 
 #pragma once
 
+#include "heap_sorter_util.h"
 #include "vec/common/sort/sorter.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+template <bool with_runtime_predicate>
 class HeapSorter final : public Sorter {
     ENABLE_FACTORY_CREATOR(HeapSorter);
 
@@ -42,8 +44,19 @@ public:
 
     Field get_top_value() override;
 
+    void init_profile(RuntimeProfile* runtime_profile) override {
+        Sorter::init_profile(runtime_profile);
+        _topn_filter_timer = ADD_TIMER(runtime_profile, "TopNFilterTime");
+        _topn_filter_rows_counter = ADD_COUNTER(runtime_profile, "TopNFilterRows", TUnit::UNIT);
+    }
+
 private:
-    Status _prepare_sort_descs(Block* block);
+    Status _handle_with_runtime_predicate(Block* block);
+    Status _handle_without_runtime_predicate(Block* block);
+    void _do_filter(HeapSortCursorBlockView& block_view, size_t num_rows);
+
+    void prepare_for_read_with_runtime_predicate();
+    void prepare_for_read_without_runtime_predicate();
 
     size_t _data_size = 0;
     size_t _heap_size = 0;
@@ -51,6 +64,12 @@ private:
     MergeSorterQueue _queue;
     std::unique_ptr<MergeSorterState> _state;
     IColumn::Permutation _reverse_buffer;
+
+    std::unique_ptr<SortingHeap> _heap;
+    RuntimeProfile::Counter* _topn_filter_timer = nullptr;
+    RuntimeProfile::Counter* _topn_filter_rows_counter = nullptr;
+    int64_t _topn_filter_rows = 0;
+    Block _return_block;
 };
 
 #include "common/compile_check_end.h"

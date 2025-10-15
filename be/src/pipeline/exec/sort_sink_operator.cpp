@@ -45,11 +45,18 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     auto& p = _parent->cast<SortSinkOperatorX>();
 
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
+    bool with_runtime_predicate = state->get_query_ctx()->has_runtime_predicate(p._node_id);
     switch (p._algorithm) {
     case TSortAlgorithm::HEAP_SORT: {
-        _shared_state->sorter = vectorized::HeapSorter::create_shared(
-                _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child->row_desc());
+        if (!with_runtime_predicate && p._limit > 0 && p._limit + p._offset < 1024) {
+            _shared_state->sorter = vectorized::HeapSorter<false>::create_shared(
+                    _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order,
+                    p._nulls_first, p._child->row_desc());
+        } else {
+            _shared_state->sorter = vectorized::HeapSorter<true>::create_shared(
+                    _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order,
+                    p._nulls_first, p._child->row_desc());
+        }
         break;
     }
     case TSortAlgorithm::TOPN_SORT: {
