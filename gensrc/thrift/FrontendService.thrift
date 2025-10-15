@@ -740,6 +740,7 @@ struct TSnapshotLoaderReportRequest {
     3: required Types.TTaskType task_type
     4: optional i32 finished_num
     5: optional i32 total_num
+    6: optional i64 upload_bytes
 }
 
 enum TFrontendPingFrontendStatusCode {

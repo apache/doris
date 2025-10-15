@@ -178,7 +178,7 @@ static Status write_loaded_tag(const std::string& snapshot_path, int64_t tablet_
     return writer->close();
 }
 
-Status upload_with_checksum(io::RemoteFileSystem& fs, std::string_view local_path,
+Status upload_with_checksum(SnapshotLoader *loader, io::RemoteFileSystem& fs, std::string_view local_path,
                             std::string_view remote_path, std::string_view checksum) {
     auto full_remote_path = fmt::format("{}.{}", remote_path, checksum);
     switch (fs.type()) {
@@ -196,6 +196,10 @@ Status upload_with_checksum(io::RemoteFileSystem& fs, std::string_view local_pat
         throw doris::Exception(
                 Status::FatalError("unknown fs type: {}", static_cast<int>(fs.type())));
     }
+    int64_t file_size = 0;
+    RETURN_IF_ERROR(io::global_local_filesystem()->file_size(local_path, &file_size));
+    loader->update_upload_bytes(file_size);
+
     return Status::OK();
 }
 
@@ -864,7 +868,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
             // upload
             std::string remote_path = dest_path + '/' + local_file;
             std::string local_path = src_path + '/' + local_file;
-            RETURN_IF_ERROR(upload_with_checksum(*_remote_fs, local_path, remote_path, md5sum));
+            RETURN_IF_ERROR(upload_with_checksum(this, *_remote_fs, local_path, remote_path, md5sum));
         } // end for each tablet's local files
 
         tablet_files->emplace(tablet_id, local_files_with_checksum);
@@ -872,6 +876,8 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
         LOG(INFO) << "finished to write tablet to remote. local path: " << src_path
                   << ", remote path: " << dest_path;
     } // end for each tablet path
+
+    RETURN_IF_ERROR(_report_every(0, &tmp_counter, finished_num, total_num, TTaskType::type::UPLOAD));
 
     LOG(INFO) << "finished to upload snapshots. job: " << _job_id << ", task id: " << _task_id;
     return status;
@@ -1406,6 +1412,9 @@ Status BaseSnapshotLoader::_report_every(int report_threshold, int* counter, int
     request.task_type = type;
     request.__set_finished_num(finished_num);
     request.__set_total_num(total_num);
+    if (_remote_fs != nullptr && type == TTaskType::type::UPLOAD) {
+        request.__set_upload_bytes(_upload_bytes);
+    }
     TStatus report_st;
 
     Status rpcStatus = ThriftRpcHelper::rpc<FrontendServiceClient>(
