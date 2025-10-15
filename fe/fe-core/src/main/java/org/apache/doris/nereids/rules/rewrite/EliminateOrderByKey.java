@@ -82,8 +82,7 @@ public class EliminateOrderByKey implements RewriteRuleFactory {
             WindowExpression windowExpression = (WindowExpression) alias.child();
             List<OrderExpression> orderExpressions = windowExpression.getOrderKeys();
             if (orderExpressions.stream().anyMatch((
-                    orderKey -> orderKey.getDataType().isOnlyMetricType()
-                            && !orderKey.getDataType().isArrayType()))) {
+                    orderKey -> orderKey.getDataType().isObjectOrVariantType()))) {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
             List<OrderKey> orderKeys = new ArrayList<>();

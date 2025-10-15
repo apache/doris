@@ -53,7 +53,7 @@ VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string 
           _hive_serde_properties(hive_serde_properties),
           _hadoop_conf(hadoop_conf) {}
 
-Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) {
+Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_profile) {
     _state = state;
 
     io::FSPropertiesRef fs_properties(_write_info.file_type);

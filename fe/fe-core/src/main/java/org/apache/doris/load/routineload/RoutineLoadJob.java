@@ -17,11 +17,8 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.AlterRoutineLoadStmt;
-import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnsStmt;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
@@ -56,6 +53,7 @@ import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
@@ -280,8 +278,10 @@ public abstract class RoutineLoadJob
 
     protected byte escape = 0;
 
+    protected boolean emptyFieldAsNull = false;
+
     // use for cloud cluster mode
-    protected String qualifiedUser;
+    @SerializedName("ccn")
     protected String cloudCluster;
 
     public RoutineLoadJob(long id, LoadDataSourceType type) {
@@ -289,6 +289,13 @@ public abstract class RoutineLoadJob
         this.dataSourceType = type;
         if (ConnectContext.get() != null) {
             this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
+            if (Config.isCloudMode()) {
+                try {
+                    this.cloudCluster = ConnectContext.get().getCloudCluster();
+                } catch (ComputeGroupException e) {
+                    LOG.warn("failed to get cloud cluster", e);
+                }
+            }
         }
     }
 
@@ -306,6 +313,13 @@ public abstract class RoutineLoadJob
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
             this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
+            if (Config.isCloudMode()) {
+                try {
+                    this.cloudCluster = ConnectContext.get().getCloudCluster();
+                } catch (ComputeGroupException e) {
+                    LOG.warn("failed to get cloud cluster", e);
+                }
+            }
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
@@ -328,7 +342,6 @@ public abstract class RoutineLoadJob
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
             this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
-            this.qualifiedUser = ConnectContext.get().getQualifiedUser();
             try {
                 this.cloudCluster = ConnectContext.get().getCloudCluster();
             } catch (ComputeGroupException e) {
@@ -339,54 +352,58 @@ public abstract class RoutineLoadJob
         }
     }
 
-
-    protected void setOptional(CreateRoutineLoadStmt stmt) throws UserException {
-        setRoutineLoadDesc(stmt.getRoutineLoadDesc());
-        if (stmt.getDesiredConcurrentNum() != -1) {
-            this.desireTaskConcurrentNum = stmt.getDesiredConcurrentNum();
+    protected void setOptional(CreateRoutineLoadInfo info) throws UserException {
+        setRoutineLoadDesc(info.getRoutineLoadDesc());
+        if (info.getDesiredConcurrentNum() != -1) {
+            this.desireTaskConcurrentNum = info.getDesiredConcurrentNum();
         }
-        if (stmt.getMaxErrorNum() != -1) {
-            this.maxErrorNum = stmt.getMaxErrorNum();
+        if (info.getMaxErrorNum() != -1) {
+            this.maxErrorNum = info.getMaxErrorNum();
         }
-        if (stmt.getMaxFilterRatio() != -1) {
-            this.maxFilterRatio = stmt.getMaxFilterRatio();
+        if (info.getMaxFilterRatio() != -1) {
+            this.maxFilterRatio = info.getMaxFilterRatio();
         }
-        if (stmt.getMaxBatchIntervalS() != -1) {
-            this.maxBatchIntervalS = stmt.getMaxBatchIntervalS();
+        if (info.getMaxBatchIntervalS() != -1) {
+            this.maxBatchIntervalS = info.getMaxBatchIntervalS();
         }
-        if (stmt.getMaxBatchRows() != -1) {
-            this.maxBatchRows = stmt.getMaxBatchRows();
+        if (info.getMaxBatchRows() != -1) {
+            this.maxBatchRows = info.getMaxBatchRows();
         }
-        if (stmt.getMaxBatchSize() != -1) {
-            this.maxBatchSizeBytes = stmt.getMaxBatchSize();
+        if (info.getMaxBatchSizeBytes() != -1) {
+            this.maxBatchSizeBytes = info.getMaxBatchSizeBytes();
         }
-        if (stmt.getExecMemLimit() != -1) {
-            this.execMemLimit = stmt.getExecMemLimit();
+        if (info.getExecMemLimit() != -1) {
+            this.execMemLimit = info.getExecMemLimit();
         }
-        if (stmt.getSendBatchParallelism() > 0) {
-            this.sendBatchParallelism = stmt.getSendBatchParallelism();
+        if (info.getSendBatchParallelism() > 0) {
+            this.sendBatchParallelism = info.getSendBatchParallelism();
         }
-        if (stmt.isLoadToSingleTablet()) {
-            this.loadToSingleTablet = stmt.isLoadToSingleTablet();
+        if (info.isLoadToSingleTablet()) {
+            this.loadToSingleTablet = info.isLoadToSingleTablet();
         }
-        jobProperties.put(LoadStmt.TIMEZONE, stmt.getTimezone());
-        jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
-        jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, String.valueOf(this.sendBatchParallelism));
-        jobProperties.put(LoadStmt.LOAD_TO_SINGLE_TABLET, String.valueOf(this.loadToSingleTablet));
-        jobProperties.put(CreateRoutineLoadStmt.PARTIAL_COLUMNS, stmt.isPartialUpdate() ? "true" : "false");
-        if (stmt.isPartialUpdate()) {
+        jobProperties.put(info.TIMEZONE, info.getTimezone());
+        jobProperties.put(info.STRICT_MODE, String.valueOf(info.isStrictMode()));
+        jobProperties.put(info.SEND_BATCH_PARALLELISM, String.valueOf(this.sendBatchParallelism));
+        jobProperties.put(info.LOAD_TO_SINGLE_TABLET, String.valueOf(this.loadToSingleTablet));
+        jobProperties.put(info.PARTIAL_COLUMNS, info.isPartialUpdate() ? "true" : "false");
+        if (info.isPartialUpdate()) {
             this.isPartialUpdate = true;
         }
-        jobProperties.put(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
+        jobProperties.put(info.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
 
-        FileFormatProperties fileFormatProperties = stmt.getFileFormatProperties();
+        FileFormatProperties fileFormatProperties = info.getFileFormatProperties();
         if (fileFormatProperties instanceof CsvFileFormatProperties) {
             CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
             jobProperties.put(FileFormatProperties.PROP_FORMAT, "csv");
-            jobProperties.put(LoadStmt.KEY_ENCLOSE, new String(new byte[]{csvFileFormatProperties.getEnclose()}));
-            jobProperties.put(LoadStmt.KEY_ESCAPE, new String(new byte[]{csvFileFormatProperties.getEscape()}));
+            jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE,
+                    new String(new byte[]{csvFileFormatProperties.getEnclose()}));
+            jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE,
+                    new String(new byte[]{csvFileFormatProperties.getEscape()}));
+            jobProperties.put(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL,
+                    String.valueOf(csvFileFormatProperties.getEmptyFieldAsNull()));
             this.enclose = csvFileFormatProperties.getEnclose();
             this.escape = csvFileFormatProperties.getEscape();
+            this.emptyFieldAsNull = csvFileFormatProperties.getEmptyFieldAsNull();
         } else if (fileFormatProperties instanceof JsonFileFormatProperties) {
             JsonFileFormatProperties jsonFileFormatProperties = (JsonFileFormatProperties) fileFormatProperties;
             jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
@@ -402,17 +419,17 @@ public abstract class RoutineLoadJob
             throw new UserException("Invalid format type.");
         }
 
-        if (!StringUtils.isEmpty(stmt.getWorkloadGroupName())) {
-            jobProperties.put(WORKLOAD_GROUP, stmt.getWorkloadGroupName());
+        if (!StringUtils.isEmpty(info.getWorkloadGroupName())) {
+            jobProperties.put(WORKLOAD_GROUP, info.getWorkloadGroupName());
         }
     }
 
-    private void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
+    protected void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
         if (routineLoadDesc != null) {
-            columnDescs = new ImportColumnDescs();
             if (routineLoadDesc.getColumnsInfo() != null) {
                 ImportColumnsStmt columnsStmt = routineLoadDesc.getColumnsInfo();
                 if (columnsStmt.getColumns() != null) {
+                    columnDescs = new ImportColumnDescs();
                     columnDescs.descs.addAll(columnsStmt.getColumns());
                 }
             }
@@ -593,8 +610,16 @@ public abstract class RoutineLoadJob
         return escape;
     }
 
+    public boolean getEmptyFieldAsNull() {
+        String value = jobProperties.get(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL);
+        if (value == null) {
+            return false;
+        }
+        return Boolean.parseBoolean(value);
+    }
+
     public boolean isStrictMode() {
-        String value = jobProperties.get(LoadStmt.STRICT_MODE);
+        String value = jobProperties.get(LoadCommand.STRICT_MODE);
         if (value == null) {
             return DEFAULT_STRICT_MODE;
         }
@@ -625,7 +650,7 @@ public abstract class RoutineLoadJob
     }
 
     public String getTimezone() {
-        String value = jobProperties.get(LoadStmt.TIMEZONE);
+        String value = jobProperties.get(LoadCommand.TIMEZONE);
         if (value == null) {
             return TimeUtils.DEFAULT_TIME_ZONE;
         }
@@ -753,10 +778,6 @@ public abstract class RoutineLoadJob
         this.comment = comment;
     }
 
-    public String getQualifiedUser() {
-        return qualifiedUser;
-    }
-
     public String getCloudCluster() {
         return cloudCluster;
     }
@@ -837,11 +858,6 @@ public abstract class RoutineLoadJob
     // All of private method could not be call without lock
     private void checkStateTransform(RoutineLoadJob.JobState desireState) throws UserException {
         switch (state) {
-            case RUNNING:
-                if (desireState == JobState.NEED_SCHEDULE) {
-                    throw new DdlException("Could not transform " + state + " to " + desireState);
-                }
-                break;
             case PAUSED:
                 if (desireState == JobState.PAUSED) {
                     throw new DdlException("Could not transform " + state + " to " + desireState);
@@ -1015,21 +1031,13 @@ public abstract class RoutineLoadJob
         table.readLock();
         try {
             if (Config.isCloudMode()) {
-                String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                        .getClusterNameByClusterId(cloudClusterId);
-                if (Strings.isNullOrEmpty(clusterName)) {
-                    String err = String.format("cluster name is empty, cluster id is %s", cloudClusterId);
-                    LOG.warn(err);
-                    throw new UserException(err);
-                }
-
                 if (ConnectContext.get() == null) {
                     ConnectContext ctx = new ConnectContext();
                     ctx.setThreadLocalInfo();
-                    ctx.setCloudCluster(clusterName);
+                    ctx.setCloudCluster(cloudCluster);
                     needCleanCtx = true;
                 } else {
-                    ConnectContext.get().setCloudCluster(clusterName);
+                    ConnectContext.get().setCloudCluster(cloudCluster);
                 }
                 ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
             } else {
@@ -1614,27 +1622,15 @@ public abstract class RoutineLoadJob
         this.origStmt = origStmt;
     }
 
-    public void setCloudCluster(String cloudClusterName) throws UserException {
-        if (Strings.isNullOrEmpty(cloudClusterName)) {
-            LOG.warn("cluster name is empty");
-            throw new UserException("cluster name is empty");
-        }
-
-        this.cloudClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                .getCloudClusterIdByName(cloudClusterName);
-        if (Strings.isNullOrEmpty(this.cloudClusterId)) {
-            LOG.warn("cluster id is empty, cluster name {}", cloudClusterName);
-            throw new UserException("cluster id is empty, cluster name: " + cloudClusterName);
+    public void setCloudCluster() {
+        if (Strings.isNullOrEmpty(cloudCluster)) {
+            this.cloudCluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getClusterNameByClusterId(cloudClusterId);
         }
     }
 
-    public String getCloudClusterId() {
-        return cloudClusterId;
-    }
-
-    public void setCloudClusterById() {
-        this.cloudCluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                        .getClusterNameByClusterId(cloudClusterId);
+    public void setCloudCluster(String cloudCluster) {
+        this.cloudCluster = cloudCluster;
     }
 
     // check the correctness of commit info
@@ -1769,24 +1765,24 @@ public abstract class RoutineLoadJob
         }
         // 5.job_properties. See PROPERTIES_SET of CreateRoutineLoadStmt
         sb.append("PROPERTIES\n(\n");
-        appendProperties(sb, CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, desireTaskConcurrentNum, false);
-        appendProperties(sb, CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, maxErrorNum, false);
-        appendProperties(sb, CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY, maxFilterRatio, false);
-        appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, maxBatchIntervalS, false);
-        appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, maxBatchRows, false);
-        appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, maxBatchSizeBytes, false);
+        appendProperties(sb, CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, desireTaskConcurrentNum, false);
+        appendProperties(sb, CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, maxErrorNum, false);
+        appendProperties(sb, CreateRoutineLoadInfo.MAX_FILTER_RATIO_PROPERTY, maxFilterRatio, false);
+        appendProperties(sb, CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_SEC_PROPERTY, maxBatchIntervalS, false);
+        appendProperties(sb, CreateRoutineLoadInfo.MAX_BATCH_ROWS_PROPERTY, maxBatchRows, false);
+        appendProperties(sb, CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY, maxBatchSizeBytes, false);
         appendProperties(sb, FileFormatProperties.PROP_FORMAT, getFormat(), false);
         if (isPartialUpdate) {
-            appendProperties(sb, CreateRoutineLoadStmt.PARTIAL_COLUMNS, isPartialUpdate, false);
+            appendProperties(sb, CreateRoutineLoadInfo.PARTIAL_COLUMNS, isPartialUpdate, false);
         }
         appendProperties(sb, JsonFileFormatProperties.PROP_JSON_PATHS, getJsonPaths(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_NUM_AS_STRING, isNumAsString(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_FUZZY_PARSE, isFuzzyParse(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_JSON_ROOT, getJsonRoot(), false);
-        appendProperties(sb, LoadStmt.STRICT_MODE, isStrictMode(), false);
-        appendProperties(sb, LoadStmt.TIMEZONE, getTimezone(), false);
-        appendProperties(sb, LoadStmt.EXEC_MEM_LIMIT, getMemLimit(), true);
+        appendProperties(sb, LoadCommand.STRICT_MODE, isStrictMode(), false);
+        appendProperties(sb, LoadCommand.TIMEZONE, getTimezone(), false);
+        appendProperties(sb, LoadCommand.EXEC_MEM_LIMIT, getMemLimit(), true);
         sb.append(")\n");
         // 6. data_source
         sb.append("FROM ").append(dataSourceType).append("\n");
@@ -1848,8 +1844,10 @@ public abstract class RoutineLoadJob
         }
     }
 
+    // jobPropertiesJsonString contains both load properties and job properties defined in CreateRoutineLoadStmt
     public String jobPropertiesToJsonString() {
         Map<String, String> jobProperties = Maps.newHashMap();
+        // load properties defined in CreateRoutineLoadStmt
         jobProperties.put("partitions", partitions == null
                 ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
         jobProperties.put("columnToColumnExpr", columnDescs == null
@@ -1859,24 +1857,28 @@ public abstract class RoutineLoadJob
         if (getFormat().equalsIgnoreCase("json")) {
             jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
         } else {
-            jobProperties.put(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR,
+            jobProperties.put(LoadCommand.KEY_IN_PARAM_COLUMN_SEPARATOR,
                     columnSeparator == null ? "\t" : columnSeparator.toString());
-            jobProperties.put(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER,
+            jobProperties.put(LoadCommand.KEY_IN_PARAM_LINE_DELIMITER,
                     lineDelimiter == null ? "\n" : lineDelimiter.toString());
         }
-        jobProperties.put(CreateRoutineLoadStmt.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
-        jobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, String.valueOf(maxErrorNum));
-        jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, String.valueOf(maxBatchIntervalS));
-        jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, String.valueOf(maxBatchRows));
-        jobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, String.valueOf(maxBatchSizeBytes));
-        jobProperties.put(CreateRoutineLoadStmt.CURRENT_CONCURRENT_NUMBER_PROPERTY,
-                String.valueOf(currentTaskConcurrentNum));
-        jobProperties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY,
-                String.valueOf(desireTaskConcurrentNum));
-        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(execMemLimit));
-        jobProperties.put(LoadStmt.KEY_IN_PARAM_MERGE_TYPE, mergeType.toString());
-        jobProperties.put(LoadStmt.KEY_IN_PARAM_DELETE_CONDITION,
+        jobProperties.put(LoadCommand.KEY_IN_PARAM_DELETE_CONDITION,
                 deleteCondition == null ? STAR_STRING : deleteCondition.toSqlWithoutTbl());
+        jobProperties.put(LoadCommand.KEY_IN_PARAM_SEQUENCE_COL,
+                sequenceCol == null ? STAR_STRING : sequenceCol);
+
+        // job properties defined in CreateRoutineLoadStmt
+        jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
+        jobProperties.put(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, String.valueOf(maxErrorNum));
+        jobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_SEC_PROPERTY, String.valueOf(maxBatchIntervalS));
+        jobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_ROWS_PROPERTY, String.valueOf(maxBatchRows));
+        jobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY, String.valueOf(maxBatchSizeBytes));
+        jobProperties.put(CreateRoutineLoadInfo.CURRENT_CONCURRENT_NUMBER_PROPERTY,
+                String.valueOf(currentTaskConcurrentNum));
+        jobProperties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY,
+                String.valueOf(desireTaskConcurrentNum));
+        jobProperties.put(LoadCommand.EXEC_MEM_LIMIT, String.valueOf(execMemLimit));
+        jobProperties.put(LoadCommand.KEY_IN_PARAM_MERGE_TYPE, mergeType.toString());
         jobProperties.putAll(this.jobProperties);
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(jobProperties);
@@ -1917,7 +1919,7 @@ public abstract class RoutineLoadJob
             isMultiTable = true;
         }
         jobProperties.forEach((k, v) -> {
-            if (k.equals(CreateRoutineLoadStmt.PARTIAL_COLUMNS)) {
+            if (k.equals(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
                 isPartialUpdate = Boolean.parseBoolean(v);
             }
         });
@@ -1952,42 +1954,41 @@ public abstract class RoutineLoadJob
 
     public abstract void modifyProperties(AlterRoutineLoadCommand command) throws UserException;
 
-    public abstract void modifyProperties(AlterRoutineLoadStmt stmt) throws UserException;
-
     public abstract void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
 
     public abstract NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException;
 
     // for ALTER ROUTINE LOAD
     protected void modifyCommonJobProperties(Map<String, String> jobProperties) {
-        if (jobProperties.containsKey(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
             this.desireTaskConcurrentNum = Integer.parseInt(
-                    jobProperties.remove(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY));
+                    jobProperties.remove(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
         }
 
-        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)) {
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY)) {
             this.maxErrorNum = Long.parseLong(
-                    jobProperties.remove(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY));
+                    jobProperties.remove(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY));
         }
 
-        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY)) {
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.MAX_FILTER_RATIO_PROPERTY)) {
             this.maxFilterRatio = Double.parseDouble(
-                    jobProperties.remove(CreateRoutineLoadStmt.MAX_FILTER_RATIO_PROPERTY));
+                    jobProperties.remove(CreateRoutineLoadInfo.MAX_FILTER_RATIO_PROPERTY));
+            this.jobProperties.put(CreateRoutineLoadInfo.MAX_FILTER_RATIO_PROPERTY, String.valueOf(maxFilterRatio));
         }
 
-        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)) {
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_SEC_PROPERTY)) {
             this.maxBatchIntervalS = Long.parseLong(
-                    jobProperties.remove(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY));
+                    jobProperties.remove(CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_SEC_PROPERTY));
         }
 
-        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY)) {
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.MAX_BATCH_ROWS_PROPERTY)) {
             this.maxBatchRows = Long.parseLong(
-                    jobProperties.remove(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY));
+                    jobProperties.remove(CreateRoutineLoadInfo.MAX_BATCH_ROWS_PROPERTY));
         }
 
-        if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY)) {
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY)) {
             this.maxBatchSizeBytes = Long.parseLong(
-                    jobProperties.remove(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY));
+                    jobProperties.remove(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY));
         }
     }
 }

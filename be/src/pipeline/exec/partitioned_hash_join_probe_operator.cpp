@@ -20,7 +20,7 @@
 #include <gen_cpp/Metrics_types.h>
 #include <glog/logging.h>
 
-#include <algorithm>
+#include <memory>
 #include <utility>
 
 #include "common/exception.h"
@@ -28,7 +28,6 @@
 #include "common/status.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/fragment_mgr.h"
-#include "util/mem_info.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/spill/spill_stream.h"
@@ -48,70 +47,88 @@ Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateI
 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _internal_runtime_profile.reset(new RuntimeProfile("internal_profile"));
+    _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
     auto& p = _parent->cast<PartitionedHashJoinProbeOperatorX>();
 
     _partitioned_blocks.resize(p._partition_count);
     _probe_spilling_streams.resize(p._partition_count);
-
-    _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                  "HashJoinProbeSpillDependency", true);
     init_counters();
     return Status::OK();
 }
 
 void PartitionedHashJoinProbeLocalState::init_counters() {
-    _partition_timer = ADD_TIMER(profile(), "SpillPartitionTime");
-    _partition_shuffle_timer = ADD_TIMER(profile(), "SpillPartitionShuffleTime");
-    _spill_build_rows = ADD_COUNTER(profile(), "SpillBuildRows", TUnit::UNIT);
-    _spill_build_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillBuildTime", 1);
-    _recovery_build_rows = ADD_COUNTER(profile(), "SpillRecoveryBuildRows", TUnit::UNIT);
-    _recovery_build_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillRecoveryBuildTime", 1);
-    _spill_probe_rows = ADD_COUNTER(profile(), "SpillProbeRows", TUnit::UNIT);
-    _recovery_probe_rows = ADD_COUNTER(profile(), "SpillRecoveryProbeRows", TUnit::UNIT);
-    _spill_build_blocks = ADD_COUNTER(profile(), "SpillBuildBlocks", TUnit::UNIT);
-    _recovery_build_blocks = ADD_COUNTER(profile(), "SpillRecoveryBuildBlocks", TUnit::UNIT);
-    _spill_probe_blocks = ADD_COUNTER(profile(), "SpillProbeBlocks", TUnit::UNIT);
-    _spill_probe_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillProbeTime", 1);
-    _recovery_probe_blocks = ADD_COUNTER(profile(), "SpillRecoveryProbeBlocks", TUnit::UNIT);
-    _recovery_probe_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillRecoveryProbeTime", 1);
-    _get_child_next_timer = ADD_TIMER_WITH_LEVEL(profile(), "GetChildNextTime", 1);
+    _partition_timer = ADD_TIMER(custom_profile(), "SpillPartitionTime");
+    _partition_shuffle_timer = ADD_TIMER(custom_profile(), "SpillPartitionShuffleTime");
+    _spill_build_rows = ADD_COUNTER(custom_profile(), "SpillBuildRows", TUnit::UNIT);
+    _spill_build_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), "SpillBuildTime", 1);
+    _recovery_build_rows = ADD_COUNTER(custom_profile(), "SpillRecoveryBuildRows", TUnit::UNIT);
+    _recovery_build_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), "SpillRecoveryBuildTime", 1);
+    _spill_probe_rows = ADD_COUNTER(custom_profile(), "SpillProbeRows", TUnit::UNIT);
+    _recovery_probe_rows = ADD_COUNTER(custom_profile(), "SpillRecoveryProbeRows", TUnit::UNIT);
+    _spill_build_blocks = ADD_COUNTER(custom_profile(), "SpillBuildBlocks", TUnit::UNIT);
+    _recovery_build_blocks = ADD_COUNTER(custom_profile(), "SpillRecoveryBuildBlocks", TUnit::UNIT);
+    _spill_probe_blocks = ADD_COUNTER(custom_profile(), "SpillProbeBlocks", TUnit::UNIT);
+    _spill_probe_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), "SpillProbeTime", 1);
+    _recovery_probe_blocks = ADD_COUNTER(custom_profile(), "SpillRecoveryProbeBlocks", TUnit::UNIT);
+    _recovery_probe_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), "SpillRecoveryProbeTime", 1);
+    _get_child_next_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), "GetChildNextTime", 1);
 
     _probe_blocks_bytes =
-            ADD_COUNTER_WITH_LEVEL(profile(), "ProbeBloksBytesInMem", TUnit::BYTES, 1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile(), "ProbeBloksBytesInMem", TUnit::BYTES, 1);
     _memory_usage_reserved =
-            ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageReserved", TUnit::BYTES, 1);
-}
-
-#define UPDATE_COUNTER_FROM_INNER(name) \
-    update_profile_from_inner_profile<spilled>(name, _runtime_profile.get(), child_profile)
-
-template <bool spilled>
-void PartitionedHashJoinProbeLocalState::update_build_profile(RuntimeProfile* child_profile) {
-    UPDATE_COUNTER_FROM_INNER("BuildHashTableTime");
-    UPDATE_COUNTER_FROM_INNER("MergeBuildBlockTime");
-    UPDATE_COUNTER_FROM_INNER("BuildTableInsertTime");
-    UPDATE_COUNTER_FROM_INNER("BuildExprCallTime");
-    UPDATE_COUNTER_FROM_INNER("MemoryUsage");
-    UPDATE_COUNTER_FROM_INNER("MemoryUsageBuildBlocks");
-    UPDATE_COUNTER_FROM_INNER("MemoryUsageHashTable");
-    UPDATE_COUNTER_FROM_INNER("MemoryUsageBuildKeyArena");
+            ADD_COUNTER_WITH_LEVEL(custom_profile(), "MemoryUsageReserved", TUnit::BYTES, 1);
 }
 
 template <bool spilled>
-void PartitionedHashJoinProbeLocalState::update_probe_profile(RuntimeProfile* child_profile) {
-    UPDATE_COUNTER_FROM_INNER("JoinFilterTimer");
-    UPDATE_COUNTER_FROM_INNER("BuildOutputBlock");
-    UPDATE_COUNTER_FROM_INNER("ProbeRows");
-    UPDATE_COUNTER_FROM_INNER("ProbeExprCallTime");
-    UPDATE_COUNTER_FROM_INNER("ProbeWhenSearchHashTableTime");
-    UPDATE_COUNTER_FROM_INNER("ProbeWhenBuildSideOutputTime");
-    UPDATE_COUNTER_FROM_INNER("ProbeWhenProbeSideOutputTime");
-    UPDATE_COUNTER_FROM_INNER("NonEqualJoinConjunctEvaluationTime");
-    UPDATE_COUNTER_FROM_INNER("InitProbeSideTime");
+void PartitionedHashJoinProbeLocalState::update_build_custom_profile(
+        RuntimeProfile* child_profile) {
+    update_profile_from_inner_profile<spilled>("BuildHashTableTime", custom_profile(),
+                                               child_profile);
+    update_profile_from_inner_profile<spilled>("MergeBuildBlockTime", custom_profile(),
+                                               child_profile);
+    update_profile_from_inner_profile<spilled>("BuildTableInsertTime", custom_profile(),
+                                               child_profile);
+    update_profile_from_inner_profile<spilled>("BuildExprCallTime", custom_profile(),
+                                               child_profile);
+    update_profile_from_inner_profile<spilled>("MemoryUsageBuildBlocks", custom_profile(),
+                                               child_profile);
+    update_profile_from_inner_profile<spilled>("MemoryUsageHashTable", custom_profile(),
+                                               child_profile);
+    update_profile_from_inner_profile<spilled>("MemoryUsageBuildKeyArena", custom_profile(),
+                                               child_profile);
 }
 
-#undef UPDATE_PROFILE
+template <bool spilled>
+void PartitionedHashJoinProbeLocalState::update_build_common_profile(
+        RuntimeProfile* child_profile) {
+    update_profile_from_inner_profile<spilled>("MemoryUsage", common_profile(), child_profile);
+}
+
+template <bool spilled>
+void PartitionedHashJoinProbeLocalState::update_probe_custom_profile(
+        RuntimeProfile* child_profile) {
+    update_profile_from_inner_profile<spilled>("JoinFilterTimer", custom_profile(), child_profile);
+    update_profile_from_inner_profile<spilled>("BuildOutputBlock", custom_profile(), child_profile);
+    update_profile_from_inner_profile<spilled>("ProbeRows", custom_profile(), child_profile);
+    update_profile_from_inner_profile<spilled>("ProbeExprCallTime", custom_profile(),
+                                               child_profile);
+    update_profile_from_inner_profile<spilled>("ProbeWhenSearchHashTableTime", custom_profile(),
+                                               child_profile);
+    update_profile_from_inner_profile<spilled>("ProbeWhenBuildSideOutputTime", custom_profile(),
+                                               child_profile);
+    update_profile_from_inner_profile<spilled>("ProbeWhenProbeSideOutputTime", custom_profile(),
+                                               child_profile);
+    update_profile_from_inner_profile<spilled>("NonEqualJoinConjunctEvaluationTime",
+                                               custom_profile(), child_profile);
+    update_profile_from_inner_profile<spilled>("InitProbeSideTime", custom_profile(),
+                                               child_profile);
+}
+
+template <bool spilled>
+void PartitionedHashJoinProbeLocalState::update_probe_common_profile(
+        RuntimeProfile* child_profile) {
+    update_profile_from_inner_profile<spilled>("MemoryUsage", common_profile(), child_profile);
+}
 
 void PartitionedHashJoinProbeLocalState::update_profile_from_inner() {
     auto& p = _parent->cast<PartitionedHashJoinProbeOperatorX>();
@@ -119,12 +136,16 @@ void PartitionedHashJoinProbeLocalState::update_profile_from_inner() {
         auto* sink_local_state = _shared_state->inner_runtime_state->get_sink_local_state();
         auto* probe_local_state = _shared_state->inner_runtime_state->get_local_state(
                 p._inner_probe_operator->operator_id());
-        if (_shared_state->need_to_spill) {
-            update_build_profile<true>(sink_local_state->profile());
-            update_probe_profile<true>(probe_local_state->profile());
+        if (_shared_state->is_spilled) {
+            update_build_custom_profile<true>(sink_local_state->custom_profile());
+            update_probe_custom_profile<true>(probe_local_state->custom_profile());
+            update_build_common_profile<true>(sink_local_state->common_profile());
+            update_probe_common_profile<true>(probe_local_state->common_profile());
         } else {
-            update_build_profile<false>(sink_local_state->profile());
-            update_probe_profile<false>(probe_local_state->profile());
+            update_build_custom_profile<false>(sink_local_state->custom_profile());
+            update_probe_custom_profile<false>(probe_local_state->custom_profile());
+            update_build_common_profile<false>(sink_local_state->common_profile());
+            update_probe_common_profile<false>(probe_local_state->common_profile());
         }
     }
 }
@@ -145,7 +166,6 @@ Status PartitionedHashJoinProbeLocalState::close(RuntimeState* state) {
 }
 
 Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* state) {
-    auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
     auto query_id = state->query_id();
 
     auto spill_func = [query_id, state, this] {
@@ -176,7 +196,7 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
                 RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                         state, spilling_stream, print_id(state->query_id()), "hash_probe",
                         _parent->node_id(), std::numeric_limits<int32_t>::max(),
-                        std::numeric_limits<size_t>::max(), _runtime_profile.get()));
+                        std::numeric_limits<size_t>::max(), operator_profile()));
             }
 
             auto merged_block = vectorized::MutableBlock::create_unique(std::move(blocks.back()));
@@ -224,17 +244,14 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(RuntimeState* stat
         return status;
     };
 
-    _spill_dependency->block();
     DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::spill_probe_blocks_submit_func", {
         return Status::Error<INTERNAL_ERROR>(
                 "fault_inject partitioned_hash_join_probe spill_probe_blocks "
                 "submit_func failed");
     });
 
-    auto spill_runnable = std::make_shared<SpillNonSinkRunnable>(
-            state, _spill_dependency, _runtime_profile.get(), _shared_state->shared_from_this(),
-            exception_catch_func);
-    return spill_io_pool->submit(std::move(spill_runnable));
+    SpillNonSinkRunnable spill_runnable(state, operator_profile(), exception_catch_func);
+    return spill_runnable.run();
 }
 
 Status PartitionedHashJoinProbeLocalState::finish_spilling(uint32_t partition_index) {
@@ -242,7 +259,7 @@ Status PartitionedHashJoinProbeLocalState::finish_spilling(uint32_t partition_in
 
     if (probe_spilling_stream) {
         RETURN_IF_ERROR(probe_spilling_stream->spill_eof());
-        probe_spilling_stream->set_read_counters(profile());
+        probe_spilling_stream->set_read_counters(operator_profile());
     }
 
     return Status::OK();
@@ -260,7 +277,7 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
     if (!spilled_stream) {
         return Status::OK();
     }
-    spilled_stream->set_read_counters(profile());
+    spilled_stream->set_read_counters(operator_profile());
 
     auto query_id = state->query_id();
 
@@ -347,10 +364,7 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
         return status;
     };
 
-    auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
     has_data = true;
-    _spill_dependency->block();
-
     DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::recovery_build_blocks_submit_func",
                     {
                         return Status::Error<INTERNAL_ERROR>(
@@ -358,16 +372,14 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
                                 "recovery_build_blocks submit_func failed");
                     });
 
-    auto spill_runnable = std::make_shared<SpillRecoverRunnable>(
-            state, _spill_dependency, _runtime_profile.get(), _shared_state->shared_from_this(),
-            exception_catch_func);
-    return spill_io_pool->submit(std::move(spill_runnable));
+    SpillRecoverRunnable spill_runnable(state, operator_profile(), exception_catch_func);
+    return spill_runnable.run();
 }
 
 std::string PartitionedHashJoinProbeLocalState::debug_string(int indentation_level) const {
     auto& p = _parent->cast<PartitionedHashJoinProbeOperatorX>();
     bool need_more_input_data;
-    if (_shared_state->need_to_spill) {
+    if (_shared_state->is_spilled) {
         need_more_input_data = !_child_eos;
     } else if (_shared_state->inner_runtime_state) {
         need_more_input_data = p._inner_probe_operator->need_more_input_data(
@@ -377,12 +389,12 @@ std::string PartitionedHashJoinProbeLocalState::debug_string(int indentation_lev
     }
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
-                   "{}, short_circuit_for_probe: {}, need_to_spill: {}, child_eos: {}, "
+                   "{}, short_circuit_for_probe: {}, is_spilled: {}, child_eos: {}, "
                    "_shared_state->inner_runtime_state: {}, need_more_input_data: {}",
                    PipelineXSpillLocalState<PartitionedHashJoinSharedState>::debug_string(
                            indentation_level),
                    _shared_state ? std::to_string(_shared_state->short_circuit_for_probe) : "NULL",
-                   _shared_state->need_to_spill, _child_eos,
+                   _shared_state->is_spilled, _child_eos,
                    _shared_state->inner_runtime_state != nullptr, need_more_input_data);
     return fmt::to_string(debug_string_buffer);
 }
@@ -396,7 +408,7 @@ Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_disk(Runtim
         return Status::OK();
     }
 
-    spilled_stream->set_read_counters(profile());
+    spilled_stream->set_read_counters(operator_profile());
     auto& blocks = _probe_blocks[partition_index];
 
     auto query_id = state->query_id();
@@ -456,9 +468,6 @@ Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_disk(Runtim
         return status;
     };
 
-    auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
-    DCHECK(spill_io_pool != nullptr);
-    _spill_dependency->block();
     has_data = true;
     DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::recovery_probe_blocks_submit_func",
                     {
@@ -466,9 +475,11 @@ Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_disk(Runtim
                                 "fault_inject partitioned_hash_join_probe "
                                 "recovery_probe_blocks submit_func failed");
                     });
-    return spill_io_pool->submit(std::make_shared<SpillRecoverRunnable>(
-            state, _spill_dependency, _runtime_profile.get(), _shared_state->shared_from_this(),
-            exception_catch_func));
+    return SpillRecoverRunnable(state, operator_profile(), exception_catch_func).run();
+}
+
+bool PartitionedHashJoinProbeLocalState::is_blockable() const {
+    return _shared_state->is_spilled;
 }
 
 PartitionedHashJoinProbeOperatorX::PartitionedHashJoinProbeOperatorX(ObjectPool* pool,
@@ -595,17 +606,20 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
     local_state._in_mem_shared_state_sptr = _inner_sink_operator->create_shared_state();
 
     // set sink local state
-    LocalSinkStateInfo info {0,  local_state._internal_runtime_profile.get(),
-                             -1, local_state._in_mem_shared_state_sptr.get(),
-                             {}, {}};
+    LocalSinkStateInfo info {.task_idx = 0,
+                             .parent_profile = local_state._internal_runtime_profile.get(),
+                             .sender_id = -1,
+                             .shared_state = local_state._in_mem_shared_state_sptr.get(),
+                             .shared_state_map = {},
+                             .tsink = {}};
     RETURN_IF_ERROR(_inner_sink_operator->setup_local_state(
             local_state._shared_state->inner_runtime_state.get(), info));
 
-    LocalStateInfo state_info {local_state._internal_runtime_profile.get(),
-                               {},
-                               local_state._in_mem_shared_state_sptr.get(),
-                               {},
-                               0};
+    LocalStateInfo state_info {.parent_profile = local_state._internal_runtime_profile.get(),
+                               .scan_ranges = {},
+                               .shared_state = local_state._in_mem_shared_state_sptr.get(),
+                               .shared_state_map = {},
+                               .task_idx = 0};
     RETURN_IF_ERROR(_inner_probe_operator->setup_local_state(
             local_state._shared_state->inner_runtime_state.get(), state_info));
 
@@ -729,7 +743,7 @@ Status PartitionedHashJoinProbeOperatorX::pull(doris::RuntimeState* state,
 
 bool PartitionedHashJoinProbeOperatorX::need_more_input_data(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
-    if (local_state._shared_state->need_to_spill) {
+    if (local_state._shared_state->is_spilled) {
         return !local_state._child_eos;
     } else if (local_state._shared_state->inner_runtime_state) {
         return _inner_probe_operator->need_more_input_data(
@@ -777,8 +791,8 @@ size_t PartitionedHashJoinProbeOperatorX::_revocable_mem_size(RuntimeState* stat
 
 size_t PartitionedHashJoinProbeOperatorX::get_reserve_mem_size(RuntimeState* state) {
     auto& local_state = get_local_state(state);
-    const auto need_to_spill = local_state._shared_state->need_to_spill;
-    if (!need_to_spill || local_state._child_eos) {
+    const auto is_spilled = local_state._shared_state->is_spilled;
+    if (!is_spilled || local_state._child_eos) {
         return Base::get_reserve_mem_size(state);
     }
 
@@ -815,7 +829,7 @@ Status PartitionedHashJoinProbeOperatorX::_revoke_memory(RuntimeState* state) {
 
 bool PartitionedHashJoinProbeOperatorX::_should_revoke_memory(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
-    if (local_state._shared_state->need_to_spill) {
+    if (local_state._shared_state->is_spilled) {
         const auto revocable_size = _revocable_mem_size(state);
 
         if (local_state.low_memory_mode()) {
@@ -832,14 +846,14 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
     *eos = false;
     auto& local_state = get_local_state(state);
     local_state.copy_shared_spill_profile();
-    const auto need_to_spill = local_state._shared_state->need_to_spill;
+    const auto is_spilled = local_state._shared_state->is_spilled;
 #ifndef NDEBUG
     Defer eos_check_defer([&] {
         if (*eos) {
             LOG(INFO) << fmt::format(
                     "Query:{}, hash join probe:{}, task:{}, child eos:{}, need spill:{}",
                     print_id(state->query_id()), node_id(), state->task_id(),
-                    local_state._child_eos, need_to_spill);
+                    local_state._child_eos, is_spilled);
         }
     });
 #endif
@@ -862,7 +876,7 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
         }
 
         Defer clear_defer([&] { local_state._child_block->clear_column_data(); });
-        if (need_to_spill) {
+        if (is_spilled) {
             RETURN_IF_ERROR(push(state, local_state._child_block.get(), local_state._child_eos));
             if (_should_revoke_memory(state)) {
                 return _revoke_memory(state);
@@ -877,7 +891,7 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
 
     if (!need_more_input_data(state)) {
         SCOPED_TIMER(local_state.exec_time_counter());
-        if (need_to_spill) {
+        if (is_spilled) {
             RETURN_IF_ERROR(pull(state, block, eos));
         } else {
             RETURN_IF_ERROR(_inner_probe_operator->pull(

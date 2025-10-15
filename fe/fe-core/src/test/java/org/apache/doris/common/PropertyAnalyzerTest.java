@@ -192,6 +192,54 @@ public class PropertyAnalyzerTest {
     }
 
     @Test
+    public void testStorageDictPageSize() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+
+        // Test default value
+        Assert.assertEquals(PropertyAnalyzer.STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE,
+                PropertyAnalyzer.analyzeStorageDictPageSize(properties));
+
+        // Test valid value
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "8192"); // 8KB
+        Assert.assertEquals(8192, PropertyAnalyzer.analyzeStorageDictPageSize(properties));
+
+        // Test lower boundary value
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "4096"); // 4KB
+        Assert.assertEquals(4096, PropertyAnalyzer.analyzeStorageDictPageSize(properties));
+
+        // Test upper boundary value
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "10485760"); // 10MB
+        Assert.assertEquals(10485760, PropertyAnalyzer.analyzeStorageDictPageSize(properties));
+
+        // Test invalid number format
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "invalid");
+        try {
+            PropertyAnalyzer.analyzeStorageDictPageSize(properties);
+            Assert.fail("Expected an AnalysisException to be thrown");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Invalid storage dict page size"));
+        }
+
+        // Test value below minimum limit
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "-1024"); // 1KB
+        try {
+            PropertyAnalyzer.analyzeStorageDictPageSize(properties);
+            Assert.fail("Expected an AnalysisException to be thrown");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Storage dict page size must be between 0 and 100MB"));
+        }
+
+        // Test value above maximum limit
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE, "209715200"); // 200MB
+        try {
+            PropertyAnalyzer.analyzeStorageDictPageSize(properties);
+            Assert.fail("Expected an AnalysisException to be thrown");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Storage dict page size must be between 0 and 100MB"));
+        }
+    }
+
+    @Test
     public void testStoragePageSize() throws AnalysisException {
         Map<String, String> properties = Maps.newHashMap();
 
@@ -284,6 +332,34 @@ public class PropertyAnalyzerTest {
             Assertions.assertEquals(
                     "errCode = 2, detailMessage = unknown inverted index storage format: unknown_format",
                     e.getMessage());
+        }
+    }
+
+    @Test
+    public void testAnalyzeVariantMaxSparseColumnStatisticsSize() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "-1");
+        try {
+            PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "50001");
+        try {
+            PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "invalid");
+        try {
+            PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
         }
     }
 }

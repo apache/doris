@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.JsonType;
@@ -37,7 +38,7 @@ import java.util.List;
  * By convention, the argument list consists of alternating keys and values.
  * Key arguments are coerced to text; value arguments are converted as per to_json or to_jsonb.
  */
-public class JsonObject extends ScalarFunction implements CustomSignature, AlwaysNotNullable {
+public class JsonObject extends ScalarFunction implements CustomSignature, AlwaysNotNullable, RewriteWhenAnalyze {
 
     /**
      * constructor with 0 or more arguments.
@@ -46,18 +47,22 @@ public class JsonObject extends ScalarFunction implements CustomSignature, Alway
         super("json_object", ExpressionUtils.mergeArguments(varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private JsonObject(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public FunctionSignature customSignature() {
         List<DataType> arguments = new ArrayList<>();
         for (int i = 0; i < arity(); i++) {
-            if ((i & 1) == 1 && (getArgumentType(i).isComplexType() || getArgumentType(i).isJsonType())) {
-                // keep origin type for BE Serialization
-                arguments.add(JsonType.INSTANCE);
+            if (i % 2 == 1) {
+                arguments.add(getArgumentType(i));
             } else {
                 arguments.add(VarcharType.SYSTEM_DEFAULT);
             }
         }
-        return FunctionSignature.of(VarcharType.SYSTEM_DEFAULT, arguments);
+        return FunctionSignature.of(JsonType.INSTANCE, arguments);
     }
 
     @Override
@@ -77,11 +82,28 @@ public class JsonObject extends ScalarFunction implements CustomSignature, Alway
      */
     @Override
     public JsonObject withChildren(List<Expression> children) {
-        return new JsonObject(children.toArray(new Expression[0]));
+        return new JsonObject(getFunctionParams(children));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitJsonObject(this, context);
+    }
+
+    @Override
+    public Expression rewriteWhenAnalyze() {
+        List<Expression> convectedChildren = new ArrayList<Expression>();
+        List<Expression> children = children();
+        for (int i = 0; i < children.size(); i++) {
+            Expression child = children.get(i);
+            if (i % 2 == 0) {
+                convectedChildren.add(child);
+            } else if (child.getDataType() instanceof JsonType) {
+                convectedChildren.add(child);
+            } else {
+                convectedChildren.add(new ToJson(child));
+            }
+        }
+        return withChildren(convectedChildren);
     }
 }

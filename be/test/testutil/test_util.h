@@ -25,6 +25,8 @@
 #include "vec/data_types/serde/data_type_serde.h"
 
 DECLARE_bool(gen_out);
+DECLARE_bool(gen_regression_case);
+extern const std::string kApacheLicenseHeader;
 
 struct TestCaseInfo {
     // index of call of check_function in one TEST or TEST_F

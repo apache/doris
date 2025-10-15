@@ -123,7 +123,7 @@ TEST(VFieldTest, jsonb_field_io) {
     // Write the JsonbField to the buffer
     {
         BufferWritable buf(column_str);
-        write_json_binary(original, buf);
+        buf.write_binary(StringRef {original.get_value(), original.get_size()});
         buf.commit(); // Important: commit the write operation
     }
 
@@ -139,8 +139,9 @@ TEST(VFieldTest, jsonb_field_io) {
         BufferReadable read_buf(str_ref);
 
         // Read the data back into a new JsonbField
-        JsonbField read_field;
-        read_json_binary(read_field, read_buf);
+        StringRef result;
+        read_buf.read_binary(result);
+        JsonbField read_field = JsonbField(result.data, result.size);
 
         // Verify the data
         ASSERT_NE(read_field.get_value(), nullptr);
@@ -156,7 +157,7 @@ TEST(VFieldTest, jsonb_field_io) {
         // ser
         {
             BufferWritable field_buf(field_column);
-            write_json_binary(original, field_buf);
+            field_buf.write_binary(StringRef {original.get_value(), original.get_size()});
             field_buf.commit();
         }
 
@@ -169,8 +170,9 @@ TEST(VFieldTest, jsonb_field_io) {
             BufferReadable read_field_buf(field_str_ref);
 
             // we can't use read_binary because of the JsonbField is not POD type
-            JsonbField jsonb_from_field;
-            read_json_binary(jsonb_from_field, read_field_buf);
+            StringRef result;
+            read_field_buf.read_binary(result);
+            JsonbField jsonb_from_field = JsonbField(result.data, result.size);
             Field f2 = Field::create_field<TYPE_JSONB>(jsonb_from_field);
 
             ASSERT_EQ(f2.get_type(), TYPE_JSONB);
@@ -180,6 +182,94 @@ TEST(VFieldTest, jsonb_field_io) {
                     std::string(test_data));
         }
     }
+}
+
+TEST(VFieldTest, field_create) {
+    Field string_f = Field::create_field<TYPE_STRING>(String {"Hello, world (1)"});
+    Field string_copy = Field::create_field<TYPE_STRING>(String {"Hello, world (1)"});
+
+    string_copy = std::move(string_f);
+    string_copy = string_f;
+
+    Field int_f = Field::create_field<TYPE_INT>(1);
+    Field int_copy = Field::create_field<TYPE_INT>(1);
+    int_copy = std::move(int_f);
+    int_copy = int_f;
+
+    Field jsonb = Field::create_field<TYPE_JSONB>(JsonbField {R"({ "key": "value" })", 13});
+    Field jsonb_copy = Field::create_field<TYPE_JSONB>(JsonbField {R"({ "key": "value" })", 13});
+    jsonb_copy = std::move(jsonb);
+    jsonb_copy = jsonb;
+
+    Field double_f = Field::create_field<TYPE_DOUBLE>(1.0);
+    Field double_copy = Field::create_field<TYPE_DOUBLE>(1.0);
+    double_copy = std::move(double_f);
+    double_copy = double_f;
+
+    Field largeint = Field::create_field<TYPE_LARGEINT>(Int128(1));
+    Field largeint_copy = Field::create_field<TYPE_LARGEINT>(Int128(1));
+    largeint_copy = std::move(largeint);
+    largeint_copy = largeint;
+
+    Field array_f = Field::create_field<TYPE_ARRAY>(Array {int_f});
+    Field array_copy = Field::create_field<TYPE_ARRAY>(Array {int_f});
+    array_copy = std::move(array_f);
+    array_copy = array_f;
+
+    Field map_f = Field::create_field<TYPE_MAP>(Map {int_f, string_f});
+    Field map_copy = Field::create_field<TYPE_MAP>(Map {int_f, string_f});
+    map_copy = std::move(map_f);
+    map_copy = map_f;
+
+    Field ipv4_f = Field::create_field<TYPE_IPV4>(IPv4(1));
+    Field ipv4_copy = Field::create_field<TYPE_IPV4>(IPv4(1));
+    ipv4_copy = std::move(ipv4_f);
+    ipv4_copy = ipv4_f;
+
+    Field ipv6_f = Field::create_field<TYPE_IPV6>(IPv6(1));
+    Field ipv6_copy = Field::create_field<TYPE_IPV6>(IPv6(1));
+    ipv6_copy = std::move(ipv6_f);
+    ipv6_copy = ipv6_f;
+
+    Field decimal32_f = Field::create_field<TYPE_DECIMAL32>(Decimal32(1));
+    Field decimal32_copy = Field::create_field<TYPE_DECIMAL32>(Decimal32(1));
+    decimal32_copy = std::move(decimal32_f);
+    decimal32_copy = decimal32_f;
+
+    Field decimal64_f = Field::create_field<TYPE_DECIMAL64>(Decimal64(1));
+    Field decimal64_copy = Field::create_field<TYPE_DECIMAL64>(Decimal64(1));
+    decimal64_copy = std::move(decimal64_f);
+    decimal64_copy = decimal64_f;
+
+    Field decimal128_f = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(1));
+    Field decimal128_copy = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(1));
+    decimal128_copy = std::move(decimal128_f);
+    decimal128_copy = decimal128_f;
+
+    Field decimal256_f = Field::create_field<TYPE_DECIMAL256>(Decimal256(1));
+    Field decimal256_copy = Field::create_field<TYPE_DECIMAL256>(Decimal256(1));
+    decimal256_copy = std::move(decimal256_f);
+    decimal256_copy = decimal256_f;
+
+    Field bitmap_f = Field::create_field<TYPE_BITMAP>(BitmapValue(1));
+    Field bitmap_copy = Field::create_field<TYPE_BITMAP>(BitmapValue(1));
+    bitmap_copy = std::move(bitmap_f);
+    bitmap_copy = bitmap_f;
+
+    Field hll_f = Field::create_field<TYPE_HLL>(HyperLogLog(1));
+    Field hll_copy = Field::create_field<TYPE_HLL>(HyperLogLog(1));
+    hll_copy = std::move(hll_f);
+    hll_copy = hll_f;
+
+    Field quantile_state_f = Field::create_field<TYPE_QUANTILE_STATE>(QuantileState(1));
+    Field quantile_state_copy = Field::create_field<TYPE_QUANTILE_STATE>(QuantileState(1));
+    quantile_state_copy = std::move(quantile_state_f);
+    quantile_state_copy = quantile_state_f;
+
+    Field bitmap_value_f = Field::create_field<TYPE_BITMAP>(BitmapValue(1));
+    Field bitmap_value_copy = Field::create_field<TYPE_BITMAP>(BitmapValue(1));
+    bitmap_value_copy = std::move(bitmap_value_f);
+    bitmap_value_copy = bitmap_value_f;
 }
 
 } // namespace doris::vectorized

@@ -71,14 +71,13 @@ struct DecCompareInt {
 };
 
 ///
-template <PrimitiveType A, PrimitiveType B,
-          template <PrimitiveType, PrimitiveType> typename Operation, bool _check_overflow = true,
-          bool _actual = is_decimal(A) || is_decimal(B)>
+template <PrimitiveType A, PrimitiveType B, template <PrimitiveType> typename Operation,
+          bool _check_overflow = true, bool _actual = is_decimal(A) || is_decimal(B)>
 class DecimalComparison {
 public:
     static constexpr PrimitiveType CompareIntPType = DecCompareInt<A, B>::Type;
     using CompareInt = typename PrimitiveTypeTraits<CompareIntPType>::CppNativeType;
-    using Op = Operation<CompareIntPType, CompareIntPType>;
+    using Op = Operation<CompareIntPType>;
     using ColVecA = typename PrimitiveTypeTraits<A>::ColumnType;
     using ColVecB = typename PrimitiveTypeTraits<B>::ColumnType;
     using ArrayA = typename ColVecA::Container;
@@ -120,13 +119,11 @@ public:
         Shift shift;
         if (scale_a < scale_b) {
             shift.a = typename PrimitiveTypeTraits<B>::DataType(max_decimal_precision<B>(), scale_b)
-                              .get_scale_multiplier(scale_b - scale_a)
-                              .value;
+                              .get_scale_multiplier(scale_b - scale_a);
         }
         if (scale_a > scale_b) {
             shift.b = typename PrimitiveTypeTraits<A>::DataType(max_decimal_precision<A>(), scale_a)
-                              .get_scale_multiplier(scale_a - scale_b)
-                              .value;
+                              .get_scale_multiplier(scale_a - scale_b);
         }
 
         return apply_with_scale(a, b, shift);
@@ -166,12 +163,12 @@ private:
                             : U;
             auto type_ptr = decimal_result_type(*decimal0, *decimal1, false, false, false);
             const DataTypeDecimal<Type>* result_type = check_decimal<Type>(*type_ptr);
-            shift.a = result_type->scale_factor_for(*decimal0).value;
-            shift.b = result_type->scale_factor_for(*decimal1).value;
+            shift.a = result_type->scale_factor_for(*decimal0);
+            shift.b = result_type->scale_factor_for(*decimal1);
         } else if (decimal0) {
-            shift.b = decimal0->get_scale_multiplier().value;
+            shift.b = decimal0->get_scale_multiplier();
         } else if (decimal1) {
-            shift.a = decimal1->get_scale_multiplier().value;
+            shift.a = decimal1->get_scale_multiplier();
         }
 
         return shift;
@@ -184,7 +181,7 @@ private:
         const typename PrimitiveTypeTraits<T>::DataTypeType* decimal0 =
                 check_decimal<T>(*left_type);
         if (decimal0) {
-            shift.b = decimal0->get_scale_multiplier().value;
+            shift.b = decimal0->get_scale_multiplier();
         }
         return shift;
     }
@@ -195,7 +192,7 @@ private:
         Shift shift;
         const typename PrimitiveTypeTraits<U>::DataType* decimal1 = check_decimal<U>(*right_type);
         if (decimal1) {
-            shift.a = decimal1->get_scale_multiplier().value;
+            shift.a = decimal1->get_scale_multiplier();
         }
         return shift;
     }
@@ -273,9 +270,9 @@ private:
             if constexpr (sizeof(typename PrimitiveTypeTraits<B>::ColumnItemType) >
                           sizeof(CompareInt))
                 overflow |= (typename PrimitiveTypeTraits<B>::ColumnItemType(y) != b);
-            if constexpr (std::is_unsigned_v<typename PrimitiveTypeTraits<A>::ColumnItemType>)
+            if constexpr (IsUnsignedV<typename PrimitiveTypeTraits<A>::ColumnItemType>)
                 overflow |= (x < 0);
-            if constexpr (std::is_unsigned_v<typename PrimitiveTypeTraits<B>::ColumnItemType>)
+            if constexpr (IsUnsignedV<typename PrimitiveTypeTraits<B>::ColumnItemType>)
                 overflow |= (y < 0);
 
             if constexpr (scale_left) overflow |= common::mul_overflow(x, scale, x);

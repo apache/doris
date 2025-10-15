@@ -17,8 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
@@ -39,6 +37,9 @@ import org.apache.doris.datasource.hive.HiveDlaTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.systable.SupportedSysTables;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
@@ -83,20 +84,23 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         mgr = env.getCatalogMgr();
 
         // create hms catalog
-        CreateCatalogStmt hmsCatalogStmt = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog hms_ctl properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
-                connectContext);
-        mgr.createCatalog(hmsCatalogStmt);
+        String createStmt = "create catalog hms_ctl "
+                + "properties("
+                + "'type' = 'hms', "
+                + "'hive.metastore.uris' = 'thrift://192.168.0.1:9083');";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
 
         // create inner db and tbl for test
         mgr.getInternalCatalog().createDb("test", false, Maps.newHashMap());
-
-        CreateTableStmt createTableStmt = (CreateTableStmt) parseAndAnalyzeStmt("create table test.tbl1(\n"
+        createTable("create table test.tbl1(\n"
                 + "k1 int comment 'test column k1', "
                 + "k2 int comment 'test column k2')  comment 'test table1' "
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\" = \"1\");");
-        mgr.getInternalCatalog().createTable(createTableStmt);
     }
 
     private void setField(Object target, String fieldName, Object value) {

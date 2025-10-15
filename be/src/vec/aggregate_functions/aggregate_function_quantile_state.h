@@ -89,6 +89,8 @@ struct AggregateFunctionQuantileStateData {
     void reset() { is_first = true; }
 
     DataType& get() { return value; }
+
+    const DataType& get() const { return value; }
 };
 
 template <bool arg_is_nullable, typename Op>
@@ -113,7 +115,7 @@ public:
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         if constexpr (arg_is_nullable) {
             auto& nullable_column =
                     assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
@@ -130,9 +132,8 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
-        this->data(place).merge(
-                const_cast<AggregateFunctionQuantileStateData<Op>&>(this->data(rhs)).get());
+               Arena&) const override {
+        this->data(place).merge(this->data(rhs).get());
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -140,14 +141,13 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColVecResult&>(to);
-        column.get_data().push_back(
-                const_cast<AggregateFunctionQuantileStateData<Op>&>(this->data(place)).get());
+        column.get_data().push_back(this->data(place).get());
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }

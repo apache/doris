@@ -23,7 +23,7 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, int64_t parent_limit,
                                   int64_t physical_mem, bool* is_percent) {
     if (mem_spec_str.empty()) {
@@ -31,7 +31,7 @@ int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, int64_t paren
     }
 
     // Assume last character indicates unit or percent.
-    int32_t number_str_len = mem_spec_str.size() - 1;
+    auto number_str_len = mem_spec_str.size() - 1;
     *is_percent = false;
     int64_t multiplier = -1;
 
@@ -65,7 +65,7 @@ int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, int64_t paren
         break;
     default:
         // No unit was given. Default to bytes.
-        number_str_len = mem_spec_str.size();
+        number_str_len = (int)mem_spec_str.size();
         break;
     }
 
@@ -82,12 +82,12 @@ int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, int64_t paren
         }
 
         if (multiplier != -1) {
-            bytes = int64_t(multiplier * limit_val);
+            bytes = int64_t((double)multiplier * limit_val);
         } else if (*is_percent) {
             if (parent_limit == -1) {
-                bytes = int64_t(static_cast<double>(limit_val) / 100.0 * physical_mem);
+                bytes = int64_t(limit_val / 100.0 * (double)physical_mem);
             } else {
-                bytes = int64_t(static_cast<double>(limit_val) / 100.0 * parent_limit);
+                bytes = int64_t(limit_val / 100.0 * (double)parent_limit);
             }
         }
     } else {
@@ -101,7 +101,7 @@ int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, int64_t paren
 
         auto limit_val_double =
                 StringParser::string_to_float<double>(mem_spec_str.data(), number_str_len, &result);
-        if (result == StringParser::PARSE_SUCCESS && limit_val_double != limit_val) {
+        if (result == StringParser::PARSE_SUCCESS && limit_val_double != (double)limit_val) {
             return -1; // mem_spec_str is double.
         }
 

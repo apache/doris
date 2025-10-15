@@ -22,7 +22,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -103,6 +105,8 @@ public class TableProperty implements GsonPostProcessable {
 
     private long storagePageSize = PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE;
 
+    private long storageDictPageSize = PropertyAnalyzer.STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
+
     private String compactionPolicy = PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;
 
     private long timeSeriesCompactionGoalSizeMbytes
@@ -122,6 +126,7 @@ public class TableProperty implements GsonPostProcessable {
 
     private String autoAnalyzePolicy = PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY;
 
+    private TEncryptionAlgorithm encryptionAlgorithm = TEncryptionAlgorithm.PLAINTEXT;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
@@ -187,6 +192,8 @@ public class TableProperty implements GsonPostProcessable {
         if (!reserveReplica) {
             setReplicaAlloc(replicaAlloc);
         }
+        // reset storage vault
+        clearStorageVault();
         return this;
     }
 
@@ -235,6 +242,12 @@ public class TableProperty implements GsonPostProcessable {
         return this;
     }
 
+    public TableProperty clearStorageVault() {
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID, "");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, "");
+        return this;
+    }
+
     public TableProperty buildTTLSeconds() {
         ttlSeconds = Long.parseLong(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "0"));
         return this;
@@ -262,10 +275,30 @@ public class TableProperty implements GsonPostProcessable {
         return this;
     }
 
+    public void buildTDEAlgorithm() {
+        String tdeAlgorithmName = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_TDE_ALGORITHM,
+                TEncryptionAlgorithm.PLAINTEXT.name());
+        encryptionAlgorithm = TEncryptionAlgorithm.valueOf(tdeAlgorithmName);
+    }
+
+    public TEncryptionAlgorithm getTDEAlgorithm() {
+        return encryptionAlgorithm;
+    }
+
+    public EncryptionAlgorithmPB getTDEAlgorithmPB() {
+        switch (encryptionAlgorithm) {
+            case AES256:
+                return EncryptionAlgorithmPB.AES_256_CTR;
+            case SM4:
+                return EncryptionAlgorithmPB.SM4_128_CTR;
+            default:
+                return EncryptionAlgorithmPB.PLAINTEXT;
+        }
+    }
+
     public boolean disableAutoCompaction() {
         return disableAutoCompaction;
     }
-
 
     public TableProperty buildVariantEnableFlattenNested() {
         variantEnableFlattenNested = Boolean.parseBoolean(
@@ -329,6 +362,17 @@ public class TableProperty implements GsonPostProcessable {
 
     public long storagePageSize() {
         return storagePageSize;
+    }
+
+    public TableProperty buildStorageDictPageSize() {
+        storageDictPageSize = Long.parseLong(
+            properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE,
+                Long.toString(PropertyAnalyzer.STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long storageDictPageSize() {
+        return storageDictPageSize;
     }
 
     public TableProperty buildSkipWriteIndexOnLoad() {
@@ -526,8 +570,12 @@ public class TableProperty implements GsonPostProcessable {
     }
 
     public TableProperty buildCompressionType() {
-        compressionType = TCompressionType.valueOf(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPRESSION,
-                TCompressionType.LZ4F.name()));
+        try {
+            compressionType = PropertyAnalyzer.getCompressionTypeFromProperties(properties);
+        } catch (AnalysisException e) {
+            LOG.error("failed to analyze compression type", e);
+            compressionType = TCompressionType.ZSTD;
+        }
         return this;
     }
 
@@ -724,6 +772,7 @@ public class TableProperty implements GsonPostProcessable {
         buildRowStoreColumns();
         buildRowStorePageSize();
         buildStoragePageSize();
+        buildStorageDictPageSize();
         buildSkipWriteIndexOnLoad();
         buildCompactionPolicy();
         buildTimeSeriesCompactionGoalSizeMbytes();
@@ -738,6 +787,7 @@ public class TableProperty implements GsonPostProcessable {
         buildInAtomicRestore();
         removeDuplicateReplicaNumProperty();
         buildReplicaAllocation();
+        buildTDEAlgorithm();
     }
 
     // For some historical reason,

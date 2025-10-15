@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -95,6 +96,9 @@ public class LoadAction extends RestBaseController {
 
     public static final String REDIRECT_POLICY_PUBLIC_PRIVATE = "public-private";
     public static final String REDIRECT_POLICY_RANDOM_BE = "random-be";
+    public static final String REDIRECT_POLICY_DIRECT = "direct";
+    public static final String REDIRECT_POLICY_PUBLIC = "public";
+    public static final String REDIRECT_POLICY_PRIVATE = "private";
 
     private ExecuteEnv execEnv = ExecuteEnv.getInstance();
 
@@ -319,7 +323,8 @@ public class LoadAction extends RestBaseController {
 
                     tableId = ((OlapTable) olapTable.get()).getId();
                 }
-                redirectAddr = selectRedirectBackend(request, groupCommit, tableId);
+                // Handle stream load with potential group commit forwarding
+                redirectAddr = handleStreamLoadRedirect(request, groupCommit, tableId, dbName, tableName, label);
             }
 
             if (LOG.isDebugEnabled()) {
@@ -329,6 +334,9 @@ public class LoadAction extends RestBaseController {
 
             RedirectView redirectView = redirectTo(request, redirectAddr);
             return redirectView;
+        } catch (StreamLoadForwardException e) {
+            // Special handling for stream load forwarding
+            return e.getRedirectView();
         } catch (Exception e) {
             LOG.warn("load failed, stream: {}, db: {}, tbl: {}, label: {}, err: {}",
                     isStreamLoad, db, table, label, e.getMessage());
@@ -393,6 +401,11 @@ public class LoadAction extends RestBaseController {
 
     private TNetworkAddress selectRedirectBackend(HttpServletRequest request, boolean groupCommit, long tableId)
             throws LoadException {
+        return selectRedirectBackend(request, groupCommit, tableId, null);
+    }
+
+    private TNetworkAddress selectRedirectBackend(HttpServletRequest request, boolean groupCommit, long tableId,
+            Backend preSelectedBackend) throws LoadException {
         long debugBackendId = DebugPointUtil.getDebugParamOrDefault("LoadAction.selectRedirectBackend.backendId", -1L);
         if (debugBackendId != -1L) {
             Backend backend = Env.getCurrentSystemInfo().getBackend(debugBackendId);
@@ -403,17 +416,17 @@ public class LoadAction extends RestBaseController {
             if (Strings.isNullOrEmpty(cloudClusterName)) {
                 throw new LoadException("No cloud cluster name selected.");
             }
-            return selectCloudRedirectBackend(cloudClusterName, request, groupCommit, tableId);
+            return selectCloudRedirectBackend(cloudClusterName, request, groupCommit, tableId, preSelectedBackend);
         } else {
             if (groupCommit && tableId == -1) {
                 throw new LoadException("Group commit table id wrong.");
             }
-            return selectLocalRedirectBackend(groupCommit, request, tableId);
+            return selectLocalRedirectBackend(groupCommit, request, tableId, preSelectedBackend);
         }
     }
 
-    private TNetworkAddress selectLocalRedirectBackend(boolean groupCommit, HttpServletRequest request, long tableId)
-            throws LoadException {
+    private TNetworkAddress selectLocalRedirectBackend(boolean groupCommit, HttpServletRequest request, long tableId,
+            Backend preSelectedBackend) throws LoadException {
         Backend backend = null;
         BeSelectionPolicy policy = null;
         ConnectContext ctx = ConnectContext.get();
@@ -432,51 +445,71 @@ public class LoadAction extends RestBaseController {
                             + computeGroup.toString());
         }
         if (groupCommit) {
-            backend = selectBackendForGroupCommit("", request, tableId);
+            // Use pre-selected backend if provided to avoid duplicate calls
+            backend = preSelectedBackend != null ? preSelectedBackend
+                    : selectBackendForGroupCommit("", request, tableId);
         } else {
             backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
         }
         if (backend == null) {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
-        return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
+        return selectEndpointByRedirectPolicy(request, backend);
     }
 
     private TNetworkAddress selectCloudRedirectBackend(String clusterName, HttpServletRequest req, boolean groupCommit,
-            long tableId)
-            throws LoadException {
+            long tableId, Backend preSelectedBackend) throws LoadException {
         Backend backend = null;
         if (groupCommit) {
-            backend = selectBackendForGroupCommit(clusterName, req, tableId);
+            // Use pre-selected backend if provided to avoid duplicate calls
+            backend = preSelectedBackend != null ? preSelectedBackend
+                    : selectBackendForGroupCommit(clusterName, req, tableId);
         } else {
             backend = StreamLoadHandler.selectBackend(clusterName);
         }
+        return selectEndpointByRedirectPolicy(req, backend);
+    }
 
-        String redirectPolicy = req.getHeader(LoadAction.HEADER_REDIRECT_POLICY);
-        // User specified redirect policy
-        if (redirectPolicy != null && redirectPolicy.equalsIgnoreCase(REDIRECT_POLICY_RANDOM_BE)) {
-            return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
-        }
-        redirectPolicy = redirectPolicy == null || redirectPolicy.isEmpty()
-                ? Config.streamload_redirect_policy : redirectPolicy;
-
+    /**
+     * Selects the endpoint address based on the redirect policy specified in the request header.
+     * The available redirect policies are:
+     * - DIRECT: Redirects to the backend's host.
+     * - PUBLIC: Redirects to the public endpoint of the backend.
+     * - PRIVATE: Redirects to the private endpoint of the backend.
+     * - PUBLIC_PRIVATE: Redirects based on the host IP or domain. If the  host is a site-local
+     *     address, redirects to the private endpoint. Otherwise, redirects to the public endpoint.
+     * - DEFAULT: If request host equals to backend's public endpoint, redirects to the public endpoint.
+     *     If private endpoint of backend is set, redirects to the private endpoint. Otherwise, redirects
+     *     to the backend's host.
+     *
+     * @param req The HTTP request object.
+     * @param backend The backend to redirect to.
+     * @return The selected endpoint address.
+     * @throws LoadException If there is an error in the redirect policy or endpoint selection.
+     */
+    private TNetworkAddress selectEndpointByRedirectPolicy(HttpServletRequest req, Backend backend)
+            throws LoadException {
         Pair<String, Integer> publicHostPort = null;
         Pair<String, Integer> privateHostPort = null;
         try {
-            if (!Strings.isNullOrEmpty(backend.getCloudPublicEndpoint())) {
-                publicHostPort = splitHostAndPort(backend.getCloudPublicEndpoint());
+            if (!Strings.isNullOrEmpty(backend.getPublicEndpoint())) {
+                publicHostPort = splitHostAndPort(backend.getPublicEndpoint());
             }
         } catch (AnalysisException e) {
             throw new LoadException(e.getMessage());
         }
 
         try {
-            if (!Strings.isNullOrEmpty(backend.getCloudPrivateEndpoint())) {
-                privateHostPort = splitHostAndPort(backend.getCloudPrivateEndpoint());
+            if (!Strings.isNullOrEmpty(backend.getPrivateEndpoint())) {
+                privateHostPort = splitHostAndPort(backend.getPrivateEndpoint());
             }
         } catch (AnalysisException e) {
             throw new LoadException(e.getMessage());
         }
+
+        String redirectPolicy = req.getHeader(LoadAction.HEADER_REDIRECT_POLICY);
+        redirectPolicy = redirectPolicy == null || redirectPolicy.isEmpty()
+                ? Config.streamload_redirect_policy : redirectPolicy;
 
         String reqHostStr = req.getHeader(HttpHeaderNames.HOST.toString());
         reqHostStr = reqHostStr.replaceAll("\\s+", "");
@@ -496,7 +529,21 @@ public class LoadAction extends RestBaseController {
             throw new LoadException("Invalid header host: " + reqHost);
         }
 
-        if (redirectPolicy != null && redirectPolicy.equalsIgnoreCase(REDIRECT_POLICY_PUBLIC_PRIVATE)) {
+        // User specified redirect policy
+        if (redirectPolicy != null && (redirectPolicy.equalsIgnoreCase(REDIRECT_POLICY_DIRECT)
+                || redirectPolicy.equalsIgnoreCase(REDIRECT_POLICY_RANDOM_BE))) {
+            return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
+        } else if (redirectPolicy != null && redirectPolicy.equalsIgnoreCase(REDIRECT_POLICY_PUBLIC)) {
+            if (publicHostPort != null) {
+                return new TNetworkAddress(publicHostPort.first, publicHostPort.second);
+            }
+            throw new LoadException("public endpoint is null, please check be public endpoint config");
+        } else if (redirectPolicy != null && redirectPolicy.equalsIgnoreCase(REDIRECT_POLICY_PRIVATE)) {
+            if (privateHostPort != null) {
+                return new TNetworkAddress(privateHostPort.first, privateHostPort.second);
+            }
+            throw new LoadException("private endpoint is null, please check be private endpoint config");
+        } else if (redirectPolicy != null && redirectPolicy.equalsIgnoreCase(REDIRECT_POLICY_PUBLIC_PRIVATE)) {
             // redirect with ip
             if (InetAddressValidator.getInstance().isValid(reqHost)) {
                 InetAddress addr;
@@ -529,10 +576,10 @@ public class LoadAction extends RestBaseController {
             }
         } else {
             if (InetAddressValidator.getInstance().isValid(reqHost)
-                    && publicHostPort != null && reqHost == publicHostPort.first) {
+                    && publicHostPort != null && reqHost.equalsIgnoreCase(publicHostPort.first)) {
                 return new TNetworkAddress(publicHostPort.first, publicHostPort.second);
             } else if (privateHostPort != null) {
-                return new TNetworkAddress(reqHost, privateHostPort.second);
+                return new TNetworkAddress(privateHostPort.first, privateHostPort.second);
             } else {
                 return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
             }
@@ -871,4 +918,156 @@ public class LoadAction extends RestBaseController {
 
     }
 
+    /*
+     * Create redirect URL for stream load forward mode.
+     *
+     * This method constructs the special redirect URL used in the group commit forwarding mechanism:
+     *
+     * Key modifications to the standard redirect:
+     * 1. Path modification: Changes "/_stream_load" to "/_stream_load_forward"
+     *    - This tells the receiving BE that it needs to perform additional forwarding
+     *    - The "_stream_load_forward" endpoint is specifically designed to handle forwarding logic
+     *
+     * 2. Forward target parameter: Adds "forward_to=host:port" to the query string
+     *    - Specifies the actual target BE node that should process this request
+     *    - Ensures all requests for the same table reach the same BE for optimal batching
+     *
+     * 3. Authentication preservation: Maintains user authentication in the URL if present
+     *    - Ensures the forwarded request has proper authentication context
+     *
+     * Example transformation:
+     * Original: http://endpoint:port/api/db/table/_stream_load?param=value
+     * Forward:  http://endpoint:port/api/db/table/_stream_load_forward?param=value&forward_to=target_be:port
+     *
+     * @param request the original HTTP request
+     * @param addr the endpoint address to redirect to (public/private endpoint)
+     * @param forwardTarget the target BE node in "host:port" format for final processing
+     * @return RedirectView configured for stream load forwarding
+     */
+    private RedirectView redirectToStreamLoadForward(HttpServletRequest request, TNetworkAddress addr,
+            String forwardTarget) {
+        URI urlObj = null;
+        URI resultUriObj = null;
+        String urlStr = request.getRequestURI();
+        String userInfo = null;
+        String modifiedPath = null;
+
+        if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
+            ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
+            userInfo = ClusterNamespace.getNameFromFullName(authInfo.fullUserName)
+                    + ":" + authInfo.password;
+        }
+        try {
+            urlObj = new URI(urlStr);
+            // Replace _stream_load with _stream_load_forward in the path
+            modifiedPath = urlObj.getPath().replace("/_stream_load", "/_stream_load_forward");
+            resultUriObj = new URI("http", userInfo, addr.getHostname(),
+                    addr.getPort(), modifiedPath, "", null);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        String redirectUrl = resultUriObj.toASCIIString();
+
+        // Add forward_to parameter (note: toASCIIString() already includes '?' due to empty query)
+        String queryString = request.getQueryString();
+        if (!Strings.isNullOrEmpty(queryString)) {
+            redirectUrl += queryString + "&forward_to=" + forwardTarget;
+        } else {
+            redirectUrl += "forward_to=" + forwardTarget;
+        }
+
+        LOG.info("Redirect stream load forward url: {}, forward_to: {}",
+                "http://" + addr.getHostname() + ":" + addr.getPort() + modifiedPath, forwardTarget);
+        RedirectView redirectView = new RedirectView(redirectUrl);
+        redirectView.setContentType("text/html;charset=utf-8");
+        redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
+        return redirectView;
+    }
+
+    /**
+     * Handle stream load redirect with optional group commit forwarding.
+     *
+     * Group Commit Stream Load Forward Mode in Cloud Environment:
+     *
+     * Problem:
+     * Group commit requires that requests for the same table be sent to the same BE node
+     * to achieve better batching efficiency. However, in cloud mode with Load Balancer (LB),
+     * the LB randomly selects a BE node for forwarding, which breaks the group commit strategy
+     * and reduces batching effectiveness.
+     *
+     * Solution:
+     * Implement a two-stage forwarding mechanism:
+     * 1. FE redirects to public/private endpoint (LB) as usual
+     * 2. BE performs a second forwarding to the actual target BE node that handles the specific table
+     *
+     * This ensures that all requests for the same table ultimately reach the same BE node,
+     * preserving the group commit batching strategy while still utilizing the LB infrastructure.
+     *
+     * @param request the HTTP request
+     * @param groupCommit whether group commit is enabled
+     * @param tableId the table ID for group commit
+     * @param dbName database name for logging
+     * @param tableName table name for logging
+     * @param label label for logging
+     * @return redirect address for normal redirect
+     * @throws StreamLoadForwardException if forward redirect is applied
+     * @throws LoadException if redirect selection fails
+     */
+    private TNetworkAddress handleStreamLoadRedirect(HttpServletRequest request, boolean groupCommit,
+            long tableId, String dbName, String tableName, String label) throws LoadException {
+
+        // Check if group commit forwarding is needed
+        if (!Config.isCloudMode() || !groupCommit || !Config.enable_group_commit_streamload_be_forward) {
+            return selectRedirectBackend(request, groupCommit, tableId);
+        }
+
+        String cloudClusterName = getCloudClusterName(request);
+        if (Strings.isNullOrEmpty(cloudClusterName)) {
+            throw new LoadException("No cloud cluster name selected for group commit forwarding.");
+        }
+
+        // Get target backend for group commit
+        Backend targetBackend = selectBackendForGroupCommit(cloudClusterName, request, tableId);
+        if (targetBackend == null) {
+            throw new LoadException("Failed to select target backend for group commit forwarding.");
+        }
+
+        // Get redirect address with optimized backend selection
+        TNetworkAddress redirectAddr = selectCloudRedirectBackend(cloudClusterName, request, groupCommit, tableId,
+                targetBackend);
+        TNetworkAddress targetAddr = new TNetworkAddress(targetBackend.getHost(), targetBackend.getHttpPort());
+
+        // Apply forwarding if addresses differ (compare hostname and port directly)
+        if (!redirectAddr.getHostname().equals(targetAddr.getHostname())
+                || redirectAddr.getPort() != targetAddr.getPort()) {
+            // Apply stream load forwarding by throwing StreamLoadForwardException with RedirectView
+            String forwardTarget = targetAddr.getHostname() + ":" + targetAddr.getPort();
+            RedirectView forwardRedirectView = redirectToStreamLoadForward(request, redirectAddr, forwardTarget);
+
+            LOG.info("Using stream load forward mode for cloud group commit - "
+                    + "db: {}, tbl: {}, label: {}, endpoint: {}, forward_to: {}, reason: redirect_differs_from_target",
+                    dbName, tableName, label, redirectAddr.toString(), forwardTarget);
+
+            throw new StreamLoadForwardException(forwardRedirectView);
+        } else {
+            LOG.debug("Skip stream load forward - redirect address matches target backend: {}",
+                    redirectAddr.toString());
+            return redirectAddr;
+        }
+    }
+
+    /**
+     * Special exception to carry RedirectView for stream load forwarding.
+     */
+    private static class StreamLoadForwardException extends RuntimeException {
+        private final RedirectView redirectView;
+
+        public StreamLoadForwardException(RedirectView redirectView) {
+            this.redirectView = redirectView;
+        }
+
+        public RedirectView getRedirectView() {
+            return redirectView;
+        }
+    }
 }

@@ -36,6 +36,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
@@ -53,9 +54,9 @@ import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
+import org.apache.doris.nereids.trees.plans.commands.info.RenameColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
@@ -92,7 +93,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         List<AlterTableClause> alterTableClauses = new ArrayList<>(ops.size());
         for (AlterTableOp op : ops) {
             AlterTableClause alter = op.translateToLegacyAlterClause();
-            alter.setTableName(tbl.transferToTableName());
+            alter.setTableNameInfo(tbl);
             alterTableClauses.add(alter);
         }
         return alterTableClauses;
@@ -243,6 +244,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                     || alterClause instanceof AddColumnOp
                     || alterClause instanceof AddColumnsOp
                     || alterClause instanceof DropColumnOp
+                    || alterClause instanceof RenameColumnOp
                     || alterClause instanceof ModifyColumnOp
                     || alterClause instanceof ReorderColumnsOp
                     || alterClause instanceof ModifyEngineOp

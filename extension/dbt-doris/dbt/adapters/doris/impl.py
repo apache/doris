@@ -46,10 +46,10 @@ from dbt.adapters.doris.connections import DorisConnectionManager
 from dbt.adapters.doris.relation import DorisRelation
 from dbt.adapters.protocol import AdapterConfig
 from dbt.adapters.sql.impl import LIST_RELATIONS_MACRO_NAME, LIST_SCHEMAS_MACRO_NAME
-from dbt.clients.agate_helper import table_from_rows
+from dbt_common.clients.agate_helper import table_from_rows
 from dbt.contracts.graph.manifest import Manifest
-from dbt.contracts.relation import RelationType
-from dbt.utils import executor
+from dbt.adapters.contracts.relation import RelationType
+from dbt_common.utils import executor
 from dbt.adapters.doris.doris_column_item import DorisColumnItem
 
 

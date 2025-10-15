@@ -19,12 +19,14 @@
 
 #include <hs/hs.h>
 
+#include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_points.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 Status FunctionMatchBase::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
         const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
@@ -42,7 +44,8 @@ Status FunctionMatchBase::evaluate_inverted_index(
 
     if (function_name == MATCH_PHRASE_FUNCTION || function_name == MATCH_PHRASE_PREFIX_FUNCTION ||
         function_name == MATCH_PHRASE_EDGE_FUNCTION) {
-        if (iter->get_reader()->is_fulltext_index() && !iter->get_reader()->is_support_phrase()) {
+        auto reader = iter->get_reader(InvertedIndexReaderType::FULLTEXT);
+        if (reader && !segment_v2::IndexReaderHelper::is_support_phrase(reader)) {
             return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                     "phrase queries require setting support_phrase = true");
         }
@@ -64,6 +67,7 @@ Status FunctionMatchBase::evaluate_inverted_index(
 
     InvertedIndexParam param;
     param.column_name = data_type_with_name.first;
+    param.column_type = data_type_with_name.second;
     param.query_value = query_param->get_value();
     param.query_type = get_query_type_from_fn_name();
     param.num_rows = num_rows;
@@ -101,11 +105,6 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     if (inverted_index_ctx == nullptr) {
         inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-    }
-
-    if (!inverted_index_ctx->custom_analyzer.empty()) {
-        return Status::NotSupported(
-                "Custom analyzer is not supported for unindexed MATCH operations.");
     }
 
     const ColumnPtr source_col =
@@ -180,13 +179,14 @@ std::vector<TermInfo> FunctionMatchBase::analyse_query_str_token(
     if (inverted_index_ctx == nullptr) {
         return query_tokens;
     }
-    if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
+    if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE &&
+        inverted_index_ctx->custom_analyzer.empty()) {
         query_tokens.emplace_back(match_query_str);
         return query_tokens;
     }
     auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
             inverted_index_ctx->char_filter_map);
-    reader->init(match_query_str.data(), match_query_str.size(), true);
+    reader->init(match_query_str.data(), (int)match_query_str.size(), true);
     query_tokens = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
             reader.get(), inverted_index_ctx->analyzer);
     return query_tokens;
@@ -207,7 +207,7 @@ inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
             }
             auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
                     inverted_index_ctx->char_filter_map);
-            reader->init(str_ref.data, str_ref.size, true);
+            reader->init(str_ref.data, (int)str_ref.size, true);
 
             data_tokens =
                     doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
@@ -215,12 +215,13 @@ inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
         }
     } else {
         const auto& str_ref = string_col->get_data_at(current_block_row_idx);
-        if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
+        if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE &&
+            inverted_index_ctx->custom_analyzer.empty()) {
             data_tokens.emplace_back(str_ref.to_string());
         } else {
             auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
                     inverted_index_ctx->char_filter_map);
-            reader->init(str_ref.data, str_ref.size, true);
+            reader->init(str_ref.data, (int)str_ref.size, true);
             data_tokens =
                     doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
                             reader.get(), inverted_index_ctx->analyzer);
@@ -406,11 +407,11 @@ Status FunctionMatchPhrasePrefix::execute_match(
     }
 
     int32_t current_src_array_offset = 0;
-    for (size_t i = 0; i < input_rows_count; i++) {
+    for (int i = 0; i < input_rows_count; i++) {
         auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
                                               array_offsets, current_src_array_offset);
 
-        int32_t dis_count = data_tokens.size() - query_tokens.size();
+        int64_t dis_count = data_tokens.size() - query_tokens.size();
         if (dis_count < 0) {
             continue;
         }
@@ -493,8 +494,8 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
             for (auto& input : data_tokens) {
                 bool is_match = false;
                 const auto& input_str = input.get_single_term();
-                if (hs_scan(database, input_str.data(), input_str.size(), 0, scratch, on_match,
-                            (void*)&is_match) != HS_SUCCESS) {
+                if (hs_scan(database, input_str.data(), (uint32_t)input_str.size(), 0, scratch,
+                            on_match, (void*)&is_match) != HS_SUCCESS) {
                     LOG(ERROR) << "hyperscan match failed: " << input_str;
                     break;
                 }
@@ -532,11 +533,11 @@ Status FunctionMatchPhraseEdge::execute_match(
     }
 
     int32_t current_src_array_offset = 0;
-    for (size_t i = 0; i < input_rows_count; i++) {
+    for (int i = 0; i < input_rows_count; i++) {
         auto data_tokens = analyse_data_token(column_name, inverted_index_ctx, string_col, i,
                                               array_offsets, current_src_array_offset);
 
-        int32_t dis_count = data_tokens.size() - query_tokens.size();
+        int64_t dis_count = data_tokens.size() - query_tokens.size();
         if (dis_count < 0) {
             continue;
         }
@@ -588,5 +589,5 @@ void register_function_match(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMatchRegexp>();
     factory.register_function<FunctionMatchPhraseEdge>();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

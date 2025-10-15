@@ -23,21 +23,17 @@
 #include <string>
 #include <utility>
 
-#ifdef __x86_64__
-#include <immintrin.h>
-#endif
-
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 struct Slice;
 
 inline const int HLL_COLUMN_PRECISION = 14;
 inline const int HLL_ZERO_COUNT_BITS = (64 - HLL_COLUMN_PRECISION);
 inline const int HLL_EXPLICIT_INT64_NUM = 160;
 inline const int HLL_SPARSE_THRESHOLD = 4096;
-inline const int HLL_REGISTERS_COUNT = 16 * 1024;
+inline const uint16_t HLL_REGISTERS_COUNT = 16 * 1024;
 // maximum size in byte of serialized HLL: type(1) + registers (2^14)
 inline const int HLL_COLUMN_DEFAULT_LEN = HLL_REGISTERS_COUNT + 1;
 
@@ -270,29 +266,19 @@ private:
         hash_value >>= HLL_COLUMN_PRECISION;
         // make sure max first_one_bit is HLL_ZERO_COUNT_BITS + 1
         hash_value |= ((uint64_t)1 << HLL_ZERO_COUNT_BITS);
-        uint8_t first_one_bit = __builtin_ctzl(hash_value) + 1;
+        auto first_one_bit = uint8_t(__builtin_ctzl(hash_value) + 1);
         _registers[idx] = (_registers[idx] < first_one_bit ? first_one_bit : _registers[idx]);
     }
 
     // absorb other registers into this registers
     void _merge_registers(const uint8_t* other_registers) {
-#ifdef __AVX2__
-        int loop = HLL_REGISTERS_COUNT / 32; // 32 = 256/8
-        uint8_t* dst = _registers;
-        const uint8_t* src = other_registers;
-        for (int i = 0; i < loop; i++) {
-            __m256i xa = _mm256_loadu_si256((const __m256i*)dst);
-            __m256i xb = _mm256_loadu_si256((const __m256i*)src);
-            _mm256_storeu_si256((__m256i*)dst, _mm256_max_epu8(xa, xb));
-            src += 32;
-            dst += 32;
-        }
-#else
+        _do_simd_merge(_registers, other_registers);
+    }
+
+    void _do_simd_merge(uint8_t* __restrict registers, const uint8_t* __restrict other_registers) {
         for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
-            _registers[i] =
-                    (_registers[i] < other_registers[i] ? other_registers[i] : _registers[i]);
+            registers[i] = (registers[i] < other_registers[i] ? other_registers[i] : registers[i]);
         }
-#endif
     }
 
     HllDataType _type = HLL_DATA_EMPTY;
@@ -302,5 +288,5 @@ private:
     // it only when it is really needed.
     uint8_t* _registers = nullptr;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

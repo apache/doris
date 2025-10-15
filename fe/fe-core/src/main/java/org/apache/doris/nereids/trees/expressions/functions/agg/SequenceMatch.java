@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.StringType;
@@ -42,8 +41,6 @@ public class SequenceMatch extends NullableAggregateFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .varArgs(StringType.INSTANCE, DateV2Type.INSTANCE, BooleanType.INSTANCE),
-            FunctionSignature.ret(BooleanType.INSTANCE)
-                    .varArgs(StringType.INSTANCE, DateTimeType.INSTANCE, BooleanType.INSTANCE),
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .varArgs(StringType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT, BooleanType.INSTANCE)
     );
@@ -67,20 +64,23 @@ public class SequenceMatch extends NullableAggregateFunction
         super("sequence_match", distinct, alwaysNullable, ExpressionUtils.mergeArguments(arg0, arg1, arg2, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private SequenceMatch(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public SequenceMatch withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 3);
-        return new SequenceMatch(distinct, alwaysNullable, children.get(0), children.get(1),
-                children.get(2), children.subList(3, children.size()).toArray(new Expression[0]));
+        return new SequenceMatch(getFunctionParams(distinct, children));
     }
 
     @Override
     public SequenceMatch withAlwaysNullable(boolean alwaysNullable) {
-        return new SequenceMatch(distinct, alwaysNullable, children.get(0), children.get(1),
-                children.get(2), children.subList(3, children.size()).toArray(new Expression[0]));
+        return new SequenceMatch(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

@@ -38,7 +38,7 @@ suite("test_hudi_full_schema_change", "p2,external,hudi,external_remote,external
     
 
 
-    def tables  = ["hudi_full_schema_change_parquet"]
+    def tables  = ["hudi_full_schema_change_parquet","hudi_full_schema_change_orc"]
 
 
     for (String table: tables) {

@@ -98,14 +98,12 @@ public class ComputeGroup {
 
     // use wgMgr as args is just for FE UT, otherwise get wgMgr from env is hard to mock
     public List<WorkloadGroup> getWorkloadGroup(String wgName, WorkloadGroupMgr wgMgr) throws UserException {
-        List<WorkloadGroup> wgList = Lists.newArrayList();
         WorkloadGroup wg = wgMgr
                 .getWorkloadGroupByComputeGroup(WorkloadGroupKey.get(id, wgName));
         if (wg == null) {
             throw new UserException("Can not find workload group " + wgName + " in compute croup " + name);
         }
-        wgList.add(wg);
-        return wgList;
+        return Lists.newArrayList(wg);
     }
 
     private void checkInvalidComputeGroup() {

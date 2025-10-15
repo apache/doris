@@ -19,9 +19,8 @@
 
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer.h"
 
-using namespace lucene::analysis;
-
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class KeywordTokenizer : public DorisTokenizer {
 public:
@@ -56,7 +55,7 @@ public:
         DorisTokenizer::reset();
         _done = false;
         _char_buffer = nullptr;
-        _char_length = _in->read((const void**)&_char_buffer, 0, _in->size());
+        _char_length = _in->read((const void**)&_char_buffer, 0, static_cast<int32_t>(_in->size()));
     }
 
     static constexpr int32_t DEFAULT_BUFFER_SIZE = 256;
@@ -70,4 +69,5 @@ private:
     int32_t _char_length = 0;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

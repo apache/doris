@@ -26,6 +26,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_varbinary.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
@@ -175,6 +176,17 @@ struct XxHashImpl {
                 } else {
                     col_to_data[i] =
                             HashUtil::xxHash64WithSeed(value.data(), value.size(), col_to_data[i]);
+                }
+            }
+        } else if (const auto* vb_col = check_and_get_column<ColumnVarbinary>(column)) {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto data_ref = vb_col->get_data_at(i);
+                if constexpr (ReturnType == TYPE_INT) {
+                    col_to_data[i] = HashUtil::xxHash32WithSeed(data_ref.data, data_ref.size,
+                                                                col_to_data[i]);
+                } else {
+                    col_to_data[i] = HashUtil::xxHash64WithSeed(data_ref.data, data_ref.size,
+                                                                col_to_data[i]);
                 }
             }
         } else {

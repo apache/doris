@@ -55,13 +55,18 @@ public class DayOfYear extends ScalarFunction
         super("dayofyear", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DayOfYear(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public DayOfYear withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new DayOfYear(children.get(0));
+        return new DayOfYear(getFunctionParams(children));
     }
 
     @Override

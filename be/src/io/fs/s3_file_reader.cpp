@@ -38,6 +38,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "util/bvar_helper.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/s3_util.h"
@@ -129,6 +130,14 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     const int max_retries = config::max_s3_client_retry; // wait 1s, 2s, 4s, 8s for each backoff
 
     LIMIT_REMOTE_SCAN_IO(bytes_read);
+
+    DBUG_EXECUTE_IF("S3FileReader::read_at_impl.io_slow", {
+        auto sleep_time = dp->param("sleep", 3);
+        LOG_INFO("S3FileReader::read_at_impl.io_slow inject sleep {} s", sleep_time)
+                .tag("bucket", _bucket)
+                .tag("key", _key);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+    });
 
     int total_sleep_time = 0;
     while (retry_count <= max_retries) {

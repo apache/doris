@@ -17,9 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AlterViewStmt;
-import org.apache.doris.analysis.ColWithComment;
-import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -29,12 +27,11 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -42,10 +39,11 @@ import java.util.List;
 public class AlterViewInfo extends BaseViewInfo {
 
     private final String comment;
+    private String inlineViewDef;
 
     /** constructor*/
     public AlterViewInfo(TableNameInfo viewName, String comment,
-            String querySql, List<SimpleColumnDefinition> simpleColumnDefinitions) {
+                         String querySql, List<SimpleColumnDefinition> simpleColumnDefinitions) {
         super(viewName, querySql, simpleColumnDefinitions);
         this.comment = comment;
     }
@@ -63,7 +61,7 @@ public class AlterViewInfo extends BaseViewInfo {
         viewName.analyze(ctx);
         FeNameFormat.checkTableName(viewName.getTbl());
         // disallow external catalog
-        Util.prohibitExternalCatalog(viewName.getCtl(), "AlterViewStmt");
+        Util.prohibitExternalCatalog(viewName.getCtl(), "AlterViewCommand");
 
         DatabaseIf db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(viewName.getDb());
         TableIf table = db.getTableOrAnalysisException(viewName.getTbl());
@@ -73,8 +71,8 @@ public class AlterViewInfo extends BaseViewInfo {
         }
 
         // check privilege
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, new TableName(viewName.getCtl(), viewName.getDb(),
-                viewName.getTbl()), PrivPredicate.ALTER)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx,
+                new TableNameInfo(viewName.getCtl(), viewName.getDb(), viewName.getTbl()), PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
                     PrivPredicate.ALTER.getPrivs().toString(), viewName.getTbl());
         }
@@ -87,29 +85,36 @@ public class AlterViewInfo extends BaseViewInfo {
         analyzedPlan.accept(PlanUtils.OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
         List<Slot> outputs = outermostPlanFinderContext.outermostPlan.getOutput();
         createFinalCols(outputs);
-    }
 
-    /**translateToLegacyStmt*/
-    public AlterViewStmt translateToLegacyStmt(ConnectContext ctx) {
-        if (querySql == null) {
-            return new AlterViewStmt(viewName.transferToTableName(), comment);
-        }
         // expand star(*) in project list and replace table name with qualifier
         String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
         // rewrite project alias
         rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);
         checkViewSql(rewrittenSql);
-        List<ColWithComment> cols = Lists.newArrayList();
-        for (SimpleColumnDefinition def : simpleColumnDefinitions) {
-            cols.add(def.translateToColWithComment());
-        }
-        AlterViewStmt alterViewStmt = new AlterViewStmt(viewName.transferToTableName(), cols, null, comment);
-        alterViewStmt.setInlineViewDef(rewrittenSql);
-        alterViewStmt.setFinalColumns(finalCols);
-        return alterViewStmt;
+        this.inlineViewDef = rewrittenSql;
     }
 
     public String getComment() {
         return comment;
+    }
+
+    public TableNameInfo getViewName() {
+        return this.viewName;
+    }
+
+    public List<Column> getColumns() {
+        return this.finalCols;
+    }
+
+    public String getInlineViewDef() {
+        return inlineViewDef;
+    }
+
+    public void setInlineViewDef(String inlineViewDef) {
+        this.inlineViewDef = inlineViewDef;
+    }
+
+    public void setFinalColumns(List<Column> columns) {
+        finalCols.addAll(columns);
     }
 }

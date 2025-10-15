@@ -24,15 +24,18 @@
 #include <cstdint>
 #include <string>
 
+#include "common/cast_set.h"
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
 #include "runtime/define_primitive_type.h"
+#include "vec/common/string_view.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 template <typename T>
 class ColumnStr;
@@ -40,6 +43,7 @@ class IColumnDummy;
 class ColumnMap;
 class ColumnVariant;
 class ColumnStruct;
+class ColumnVarbinary;
 using ColumnString = ColumnStr<UInt32>;
 class JsonbField;
 template <typename T>
@@ -60,7 +64,9 @@ using DataTypeInt64 = DataTypeNumber<TYPE_BIGINT>;
 using DataTypeInt128 = DataTypeNumber<TYPE_LARGEINT>;
 using DataTypeFloat32 = DataTypeNumber<TYPE_FLOAT>;
 using DataTypeFloat64 = DataTypeNumber<TYPE_DOUBLE>;
+using DataTypeUInt8 = DataTypeNumber<TYPE_BOOLEAN>;
 using DataTypeBool = DataTypeNumber<TYPE_BOOLEAN>;
+
 class DataTypeNothing;
 class DataTypeTimeV2;
 class DataTypeDateTime;
@@ -77,6 +83,7 @@ using DataTypeDecimal256 = DataTypeDecimal<TYPE_DECIMAL256>;
 class DataTypeIPv4;
 class DataTypeIPv6;
 class DataTypeString;
+class DataTypeVarbinary;
 class DataTypeHLL;
 class DataTypeJsonb;
 class DataTypeArray;
@@ -140,6 +147,7 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_STRUCT:
     case TYPE_MAP:
     case TYPE_HLL:
+    case TYPE_VARBINARY:
         return false;
     case TYPE_TINYINT:
     case TYPE_SMALLINT:
@@ -165,6 +173,10 @@ constexpr bool is_date_type(PrimitiveType type) {
            type == TYPE_DATEV2;
 }
 
+constexpr bool is_time_type(PrimitiveType type) {
+    return type == TYPE_TIME || type == TYPE_TIMEV2;
+}
+
 constexpr bool is_date_or_datetime(PrimitiveType type) {
     return type == TYPE_DATETIME || type == TYPE_DATE;
 }
@@ -175,6 +187,10 @@ constexpr bool is_date_v2_or_datetime_v2(PrimitiveType type) {
 
 constexpr bool is_ip(PrimitiveType type) {
     return type == TYPE_IPV4 || type == TYPE_IPV6;
+}
+
+constexpr bool is_varbinary(PrimitiveType type) {
+    return type == TYPE_VARBINARY;
 }
 
 constexpr bool is_string_type(PrimitiveType type) {
@@ -308,11 +324,11 @@ struct PrimitiveTypeTraits<TYPE_BIGINT> {
     using DataType = vectorized::DataTypeInt64;
     using ColumnType = vectorized::ColumnInt64;
     using NearestFieldType = vectorized::Int64;
-    using AvgNearestFieldType = vectorized::Float64;
-    using AvgNearestFieldType256 = vectorized::Float64;
+    using AvgNearestFieldType = vectorized::Int128;
+    using AvgNearestFieldType256 = vectorized::Int128;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
-    static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DOUBLE;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DOUBLE;
+    static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_LARGEINT;
+    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_LARGEINT;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_LARGEINT> {
@@ -479,7 +495,7 @@ struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
     using AvgNearestFieldType256 = vectorized::Decimal256;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_DECIMALV2;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DECIMALV2;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMAL256;
+    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DECIMALV2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL32> {
@@ -617,13 +633,28 @@ struct PrimitiveTypeTraits<TYPE_STRING> {
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_STRING;
 };
 template <>
+struct PrimitiveTypeTraits<TYPE_VARBINARY> {
+    using CppType = doris::StringView;
+    using StorageFieldType = CppType;
+    using CppNativeType = doris::StringView;
+    using ColumnItemType = doris::StringView;
+    using DataType = vectorized::DataTypeVarbinary;
+    using ColumnType = vectorized::ColumnVarbinary;
+    using NearestFieldType = doris::StringView;
+    using AvgNearestFieldType = doris::StringView;
+    using AvgNearestFieldType256 = doris::StringView;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_VARBINARY;
+    static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_VARBINARY;
+    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_VARBINARY;
+};
+template <>
 struct PrimitiveTypeTraits<TYPE_HLL> {
     using CppType = HyperLogLog;
     using StorageFieldType = CppType;
     using CppNativeType = CppType;
     using ColumnItemType = HyperLogLog;
     using DataType = vectorized::DataTypeHLL;
-    using ColumnType = vectorized::ColumnString;
+    using ColumnType = vectorized::ColumnHLL;
     using NearestFieldType = HyperLogLog;
     using AvgNearestFieldType = HyperLogLog;
     using AvgNearestFieldType256 = HyperLogLog;
@@ -787,7 +818,7 @@ struct PrimitiveTypeConvertor<TYPE_DATE> {
     using StorageFieldType = typename PrimitiveTypeTraits<TYPE_DATE>::StorageFieldType;
 
     static inline StorageFieldType to_storage_field_type(const CppType& value) {
-        return value.to_olap_date();
+        return StorageFieldType(cast_set<uint32_t>(value.to_olap_date()));
     }
 };
 
@@ -811,4 +842,5 @@ struct PrimitiveTypeConvertor<TYPE_DECIMALV2> {
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

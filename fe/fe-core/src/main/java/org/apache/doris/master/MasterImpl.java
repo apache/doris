@@ -143,7 +143,13 @@ public class MasterImpl {
                 errorMsgs.add(errMsg);
                 tStatus.setErrorMsgs(errorMsgs);
             } else {
-                LOG.warn("Finish task rpc got null task for request={}", request);
+                // drop task is not in AgentTaskQueue
+                if (taskType != TTaskType.DROP) {
+                    LOG.warn("Finish task rpc got null task for request={}", request);
+                } else {
+                    // drop task is not in AgentTaskQueue
+                    LOG.info("Finish task rpc for request={}", request);
+                }
             }
             return result;
         } else {
@@ -702,12 +708,8 @@ public class MasterImpl {
         // and if meta is missing, we no longer need to resend this task
         try {
             CalcDeleteBitmapTask calcDeleteBitmapTask = (CalcDeleteBitmapTask) task;
-            if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
-                calcDeleteBitmapTask.countDownToZero(request.getTaskStatus().getStatusCode(),
-                        "backend: " + task.getBackendId() + ", error_tablet_size: " + request.getErrorTabletIdsSize()
-                                + ", error_tablets: " + request.getErrorTabletIds()
-                                + ", err_msg: " + request.getTaskStatus().getErrorMsgs().toString());
-            } else if (request.isSetRespPartitions()
+            // check if the request is stale first, if so, let it retry regardless of the status code
+            if (request.isSetRespPartitions()
                     && calcDeleteBitmapTask.isFinishRequestStale(request.getRespPartitions())) {
                 LOG.warn("get staled response from backend: {}, report version: {}. calcDeleteBitmapTask's"
                         + "partitionInfos: {}. response's partitionInfos: {}", task.getBackendId(),
@@ -718,6 +720,11 @@ public class MasterImpl {
                 calcDeleteBitmapTask.countDownToZero(TStatusCode.DELETE_BITMAP_LOCK_ERROR,
                         "get staled response from backend " + task.getBackendId() + ", report version: "
                                 + request.getReportVersion());
+            } else if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
+                calcDeleteBitmapTask.countDownToZero(request.getTaskStatus().getStatusCode(),
+                        "backend: " + task.getBackendId() + ", error_tablet_size: " + request.getErrorTabletIdsSize()
+                                + ", error_tablets: " + request.getErrorTabletIds()
+                                + ", err_msg: " + request.getTaskStatus().getErrorMsgs().toString());
             } else {
                 calcDeleteBitmapTask.countDownLatch(task.getBackendId(), calcDeleteBitmapTask.getTransactionId());
                 if (LOG.isDebugEnabled()) {

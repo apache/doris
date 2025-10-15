@@ -46,14 +46,15 @@
 #include "vec/runtime/ipv6_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 uint32_t olap_adler32_init() {
-    return adler32(0L, Z_NULL, 0);
+    return (uint32_t)adler32(0, Z_NULL, 0);
 }
 
 uint32_t olap_adler32(uint32_t adler, const char* buf, size_t len) {
-    return adler32(adler, reinterpret_cast<const Bytef*>(buf), len);
+    return (uint32_t)adler32(adler, reinterpret_cast<const Bytef*>(buf), (uint32_t)len);
 }
 
 Status gen_timestamp_string(std::string* out_string) {
@@ -240,32 +241,32 @@ bool valid_datetime(const std::string& value_str, const uint32_t scale) {
             return false;
         }
 
-        int month = strtol(what[2].str().c_str(), nullptr, 10);
+        int64_t month = strtol(what[2].str().c_str(), nullptr, 10);
         if (month < 1 || month > 12) {
             LOG(WARNING) << "invalid month. [month=" << month << "]";
             return false;
         }
 
-        int day = strtol(what[3].str().c_str(), nullptr, 10);
+        int64_t day = strtol(what[3].str().c_str(), nullptr, 10);
         if (day < 1 || day > 31) {
             LOG(WARNING) << "invalid day. [day=" << day << "]";
             return false;
         }
 
         if (what[4].length()) {
-            int hour = strtol(what[5].str().c_str(), nullptr, 10);
+            int64_t hour = strtol(what[5].str().c_str(), nullptr, 10);
             if (hour < 0 || hour > 23) {
                 LOG(WARNING) << "invalid hour. [hour=" << hour << "]";
                 return false;
             }
 
-            int minute = strtol(what[6].str().c_str(), nullptr, 10);
+            int64_t minute = strtol(what[6].str().c_str(), nullptr, 10);
             if (minute < 0 || minute > 59) {
                 LOG(WARNING) << "invalid minute. [minute=" << minute << "]";
                 return false;
             }
 
-            int second = strtol(what[7].str().c_str(), nullptr, 10);
+            int64_t second = strtol(what[7].str().c_str(), nullptr, 10);
             if (second < 0 || second > 59) {
                 LOG(WARNING) << "invalid second. [second=" << second << "]";
                 return false;
@@ -309,5 +310,5 @@ bool valid_ipv4(const std::string& value_str) {
 bool valid_ipv6(const std::string& value_str) {
     return IPv6Value::is_valid_string(value_str.c_str(), value_str.size());
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

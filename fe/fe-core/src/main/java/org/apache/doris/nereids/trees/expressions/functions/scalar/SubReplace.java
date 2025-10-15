@@ -64,17 +64,18 @@ public class SubReplace extends ScalarFunction
         super("sub_replace", arg0, arg1, arg2, arg3);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private SubReplace(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public SubReplace withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3 || children.size() == 4);
-        if (children.size() == 3) {
-            return new SubReplace(children.get(0), children.get(1), children.get(2));
-        } else {
-            return new SubReplace(children.get(0), children.get(1), children.get(2), children.get(3));
-        }
+        return new SubReplace(getFunctionParams(children));
     }
 
     @Override

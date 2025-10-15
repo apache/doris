@@ -26,14 +26,15 @@
 #include <type_traits>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/consts.h"
 #include "util/binary_cast.hpp"
 #include "vec/common/int_exp.h"
-#include "vec/core/wide_integer.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/wide_integer_to_string.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class BitmapValue;
 class HyperLogLog;
 class QuantileState;
@@ -174,10 +175,10 @@ std::string decimal_to_string(const T& value, UInt32 scale) {
     if constexpr (std::is_same_v<T, wide::Int256>) {
         std::string num_str {wide::to_string(whole_part)};
         auto* end = fmt::format_to(str.data() + pos, "{}", num_str);
-        pos = end - str.data();
+        pos = cast_set<int>(end - str.data());
     } else {
         auto end = fmt::format_to(str.data() + pos, "{}", whole_part);
-        pos = end - str.data();
+        pos = cast_set<int>(end - str.data());
     }
 
     if (scale) {
@@ -231,10 +232,10 @@ size_t decimal_to_string(const T& value, char* dst, UInt32 scale, const T& scale
     if constexpr (std::is_same_v<T, wide::Int256>) {
         std::string num_str {wide::to_string(whole_part)};
         auto* end = fmt::format_to(dst + pos, "{}", num_str);
-        pos = end - dst;
+        pos = cast_set<int>(end - dst);
     } else {
         auto end = fmt::format_to(dst + pos, "{}", whole_part);
-        pos = end - dst;
+        pos = cast_set<int>(end - dst);
     }
 
     if (LIKELY(scale)) {
@@ -258,10 +259,10 @@ size_t decimal_to_string(const T& value, char* dst, UInt32 scale, const T& scale
             if constexpr (std::is_same_v<T, wide::Int256>) {
                 std::string num_str {wide::to_string(frac_part)};
                 auto* end = fmt::format_to(&dst[pos], "{}", num_str);
-                pos = end - dst;
+                pos = cast_set<int>(end - dst);
             } else {
                 auto end = fmt::format_to(&dst[pos], "{}", frac_part);
-                pos = end - dst;
+                pos = cast_set<int>(end - dst);
             }
         }
     }
@@ -288,8 +289,10 @@ concept DecimalNativeTypeConcept = std::is_same_v<T, Int32> || std::is_same_v<T,
                                    std::is_same_v<T, Int128> || std::is_same_v<T, wide::Int256>;
 
 struct Decimal128V3;
+#include "common/compile_check_avoid_begin.h"
 /// Own FieldType for Decimal.
 /// It is only a "storage" for decimal. To perform operations, you also have to provide a scale (number of digits after point).
+//TODO: split to individual file of Decimal
 template <DecimalNativeTypeConcept T>
 struct Decimal {
     using NativeType = T;
@@ -358,20 +361,6 @@ struct Decimal {
 
     operator T() const { return value; }
 
-    operator wide::Int256() const
-        requires(!IsInt256)
-    {
-        wide::Int256 result;
-        wide::Int256::_impl::wide_integer_from_builtin(result, value);
-        return result;
-    }
-
-    operator Int128() const
-        requires(IsInt256)
-    {
-        return (Int128)value.items[0] + ((Int128)(value.items[1]) << 64);
-    }
-
     const Decimal<T>& operator++() {
         value++;
         return *this;
@@ -402,11 +391,7 @@ struct Decimal {
         return *this;
     }
 
-    auto operator<=>(const Decimal<T>& x) const
-        requires(!Decimal<T>::IsInt256)
-    {
-        return value <=> x.value;
-    }
+    auto operator<=>(const Decimal<T>& x) const { return value <=> x.value; }
 
     auto operator==(const Decimal<T>& x) const { return value == x.value; }
 
@@ -480,14 +465,17 @@ struct Decimal128V3 : public Decimal<Int128> {
 #undef DECLARE_NUMERIC_CTOR
 
     template <typename U>
-    Decimal128V3(const Decimal<U>& x) {
-        value = x;
+    Decimal128V3(const Decimal<U>& x)
+        requires(!Decimal<U>::IsInt256)
+    {
+        value = x.value;
     }
     static Decimal128V3 from_int_frac(Int128 integer, Int128 fraction, int scale) {
         return {integer * common::exp10_i128(scale) + fraction};
     }
 };
 
+#include "common/compile_check_avoid_end.h"
 using Decimal32 = Decimal<Int32>;
 using Decimal64 = Decimal<Int64>;
 using Decimal128V2 = Decimal<Int128>;
@@ -583,6 +571,7 @@ struct NativeType<Decimal256> {
 
 // NOLINTEND(readability-function-size)
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris
 
 /// Specialization of `std::hash` for the Decimal<T> types.
@@ -617,3 +606,29 @@ struct std::hash<doris::vectorized::Decimal256> {
                std::hash<uint64_t>()(x.value & std::numeric_limits<uint64_t>::max());
     }
 };
+
+template <typename T>
+struct fmt::formatter<doris::vectorized::Decimal<T>> {
+    constexpr auto parse(format_parse_context& ctx) {
+        const auto* it = ctx.begin();
+        const auto* end = ctx.end();
+
+        /// Only support {}.
+        if (it != end && *it != '}') {
+            throw format_error("invalid format");
+        }
+
+        return it;
+    }
+
+    template <typename FormatContext>
+    auto format(const doris::vectorized::Decimal<T>& value, FormatContext& ctx) const {
+        return fmt::format_to(ctx.out(), "{}", to_string(value.value));
+    }
+};
+
+extern template struct fmt::formatter<doris::vectorized::Decimal32>;
+extern template struct fmt::formatter<doris::vectorized::Decimal64>;
+extern template struct fmt::formatter<doris::vectorized::Decimal128V2>;
+extern template struct fmt::formatter<doris::vectorized::Decimal128V3>;
+extern template struct fmt::formatter<doris::vectorized::Decimal256>;

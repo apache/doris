@@ -30,8 +30,8 @@ Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateIn
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _get_data_timer = ADD_TIMER(_runtime_profile, "GetDataTime");
-    _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
+    _get_data_timer = ADD_TIMER(custom_profile(), "GetDataTime");
+    _filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
     _shared_state->probe_finished_children_dependency.resize(
             _parent->cast<SetSourceOperatorX<is_intersect>>()._child_quantity, nullptr);
     return Status::OK();

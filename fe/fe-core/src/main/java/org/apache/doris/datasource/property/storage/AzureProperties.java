@@ -70,6 +70,7 @@ public class AzureProperties extends StorageProperties {
 
     @Getter
     @ConnectorProperty(names = {"azure.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key"},
+            sensitive = true,
             description = "The secret key of S3.")
     protected String secretKey = "";
 
@@ -93,7 +94,6 @@ public class AzureProperties extends StorageProperties {
     @Getter
     protected String forceParsingByStandardUrl = "false";
 
-
     public AzureProperties(Map<String, String> origProps) {
         super(Type.AZURE, origProps);
     }
@@ -101,14 +101,14 @@ public class AzureProperties extends StorageProperties {
     private static final String AZURE_ENDPOINT_SUFFIX = ".blob.core.windows.net";
 
     @Override
-    protected void initNormalizeAndCheckProps() {
+    public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         //check endpoint
         if (!endpoint.endsWith(AZURE_ENDPOINT_SUFFIX)) {
             throw new IllegalArgumentException(String.format("Endpoint '%s' is not valid. It should end with '%s'.",
                     endpoint, AZURE_ENDPOINT_SUFFIX));
         }
-        this.endpoint = formatAzureEndpoint(endpoint);
+        this.endpoint = formatAzureEndpoint(endpoint, accessKey);
     }
 
     public static boolean guessIsMe(Map<String, String> origProps) {
@@ -143,7 +143,7 @@ public class AzureProperties extends StorageProperties {
 
     public static final String AZURE_ENDPOINT_TEMPLATE = "https://%s.blob.core.windows.net";
 
-    private String formatAzureEndpoint(String endpoint) {
+    public static String formatAzureEndpoint(String endpoint, String accessKey) {
         if (Config.force_azure_blob_global_endpoint) {
             return String.format(AZURE_ENDPOINT_TEMPLATE, accessKey);
         }
@@ -167,5 +167,12 @@ public class AzureProperties extends StorageProperties {
     @Override
     public String getStorageName() {
         return "Azure";
+    }
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        // Azure does not require any special Hadoop configuration for S3 compatibility.
+        // The properties are already set in the getBackendConfigProperties method.
+        // This method will be removed in the future when FileIO is fully implemented.
     }
 }

@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_string.h"
 #include "vec/data_types/data_type_number_base.h"
 
@@ -31,25 +32,11 @@ public:
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
     using FieldType = typename PrimitiveTypeTraits<T>::ColumnItemType;
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
-
-    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<T>::template to_string_batch_impl<DataTypeNumber<T>>(column, column_to);
-    }
-
-    size_t number_length() const;
-    void push_number(ColumnString::Chars& chars,
-                     const typename PrimitiveTypeTraits<T>::ColumnItemType& num) const;
 };
-
-using DataTypeInt8 = DataTypeNumber<TYPE_TINYINT>;
-using DataTypeInt16 = DataTypeNumber<TYPE_SMALLINT>;
-using DataTypeInt32 = DataTypeNumber<TYPE_INT>;
-using DataTypeInt64 = DataTypeNumber<TYPE_BIGINT>;
-using DataTypeInt128 = DataTypeNumber<TYPE_LARGEINT>;
-using DataTypeFloat32 = DataTypeNumber<TYPE_FLOAT>;
-using DataTypeFloat64 = DataTypeNumber<TYPE_DOUBLE>;
-using DataTypeBool = DataTypeNumber<TYPE_BOOLEAN>;
-using DataTypeUInt8 = DataTypeNumber<TYPE_BOOLEAN>;
+template <typename DataType>
+constexpr bool IsDataTypeBool = false;
+template <>
+inline constexpr bool IsDataTypeBool<DataTypeBool> = true;
 
 template <typename DataType>
 constexpr bool IsDataTypeNumber = false;
@@ -69,5 +56,25 @@ template <>
 inline constexpr bool IsDataTypeNumber<DataTypeFloat32> = true;
 template <>
 inline constexpr bool IsDataTypeNumber<DataTypeFloat64> = true;
+
+template <typename DataType>
+constexpr bool IsDataTypeInt = false;
+template <>
+inline constexpr bool IsDataTypeInt<DataTypeInt8> = true;
+template <>
+inline constexpr bool IsDataTypeInt<DataTypeInt16> = true;
+template <>
+inline constexpr bool IsDataTypeInt<DataTypeInt32> = true;
+template <>
+inline constexpr bool IsDataTypeInt<DataTypeInt64> = true;
+template <>
+inline constexpr bool IsDataTypeInt<DataTypeInt128> = true;
+
+template <typename DataType>
+constexpr bool IsDataTypeFloat = false;
+template <>
+inline constexpr bool IsDataTypeFloat<DataTypeFloat32> = true;
+template <>
+inline constexpr bool IsDataTypeFloat<DataTypeFloat64> = true;
 
 } // namespace doris::vectorized

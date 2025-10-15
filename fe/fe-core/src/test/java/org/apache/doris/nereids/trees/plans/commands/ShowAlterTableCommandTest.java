@@ -169,5 +169,15 @@ public class ShowAlterTableCommandTest extends TestWithFeService {
                 new StringLiteral("2025-06-04 21:53:53"));
         sa1 = new ShowAlterTableCommand("test", where20, null, 1, 0, ShowAlterTableCommand.AlterType.MV);
         sa1.handleShowAlterTable(connectContext, null);
+
+        Expression where21 = new EqualTo(new UnboundSlot(Lists.newArrayList("BaseIndexName")),
+                new StringLiteral("abc"));
+        sa1 = new ShowAlterTableCommand("test", where21, null, 1, 0, ShowAlterTableCommand.AlterType.MV);
+        sa1.handleShowAlterTable(connectContext, null);
+
+        Expression where22 = new EqualTo(new UnboundSlot(Lists.newArrayList("RollupIndexName")),
+                new StringLiteral("abc"));
+        sa1 = new ShowAlterTableCommand("test", where22, null, 1, 0, ShowAlterTableCommand.AlterType.MV);
+        sa1.handleShowAlterTable(connectContext, null);
     }
 }

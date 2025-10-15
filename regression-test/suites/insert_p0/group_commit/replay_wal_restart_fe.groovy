@@ -61,9 +61,8 @@ suite("replay_wal_restart_fe", 'docker') {
         cluster.stopBackends()
         cluster.restartFrontends()
         sleep(30000)
-        context.reconnectFe()
-        check_schema_change('RUNNING')
         cluster.startBackends()
+        context.reconnectFe()
 
         // check schema change status and row count
         check_schema_change('FINISHED')

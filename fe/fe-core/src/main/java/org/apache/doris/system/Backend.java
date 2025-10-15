@@ -21,6 +21,7 @@ import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
@@ -86,6 +87,8 @@ public class Backend implements Writable {
     private volatile long lastUpdateMs;
     @SerializedName("lastStartTime")
     private volatile long lastStartTime;
+    @SerializedName("liveSince")
+    private volatile long liveSince;
     @SerializedName("isAlive")
     private AtomicBoolean isAlive;
 
@@ -99,6 +102,8 @@ public class Backend implements Writable {
     private volatile ImmutableMap<String, DiskInfo> disksRef;
 
     private Long lastPublishTaskAccumulatedNum = 0L;
+
+    private Long runningTasks = 0L;
 
     private String heartbeatErrMsg = "";
 
@@ -200,6 +205,10 @@ public class Backend implements Writable {
         return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_NAME, "");
     }
 
+    public boolean isInStandbyCluster() {
+        return (((CloudSystemInfoService) Env.getCurrentSystemInfo()).isStandByComputeGroup(getCloudClusterName()));
+    }
+
     public void setCloudClusterName(final String clusterName) {
         tagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterName);
     }
@@ -212,12 +221,23 @@ public class Backend implements Writable {
         return tagMap.getOrDefault(Tag.CLOUD_UNIQUE_ID, "");
     }
 
-    public String getCloudPublicEndpoint() {
-        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, "");
+    // This modification changes
+    // CLOUD_CLUSTER_PUBLIC_ENDPOINT/CLOUD_CLUSTER_PRIVATE_ENDPOINT to
+    // PUBLIC_ENDPOINT/PRIVATE_ENDPOINT, but backend information
+    // has been persisted in the edit log. For upgrade compatibility, the tag may
+    // not have public_endpoint/private_endpoint
+    // during initial upgrade, so we first try to get
+    // CLOUD_CLUSTER_PUBLIC_ENDPOINT/CLOUD_CLUSTER_PRIVATE_ENDPOINT, and later it
+    // will be
+    // synchronized from meta service to the public_endpoint/private_endpoint tag.
+    // CLOUD_CLUSTER_PUBLIC_ENDPOINT/CLOUD_CLUSTER_PRIVATE_ENDPOINT can be
+    // removed in future versions.
+    public String getPublicEndpoint() {
+        return tagMap.getOrDefault(Tag.PUBLIC_ENDPOINT, tagMap.getOrDefault(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, ""));
     }
 
-    public String getCloudPrivateEndpoint() {
-        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT, "");
+    public String getPrivateEndpoint() {
+        return tagMap.getOrDefault(Tag.PRIVATE_ENDPOINT, tagMap.getOrDefault(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT, ""));
     }
 
     public long getId() {
@@ -446,6 +466,10 @@ public class Backend implements Writable {
     }
 
     public long getLastUpdateMs() {
+        return this.lastUpdateMs;
+    }
+
+    public long getLiveSince() {
         return this.lastUpdateMs;
     }
 
@@ -873,6 +897,7 @@ public class Backend implements Writable {
                         TimeUtils.longToTimeString(hbResponse.getBeStartTime()),
                         lastStartTime, hbResponse.getBeStartTime());
                 this.lastStartTime = hbResponse.getBeStartTime();
+                this.liveSince = System.currentTimeMillis();
                 this.isAlive.set(true);
             }
 
@@ -936,6 +961,14 @@ public class Backend implements Writable {
 
     private int getDiskNum() {
         return disksRef.size();
+    }
+
+    public Long getRunningTasks() {
+        return runningTasks;
+    }
+
+    public void setRunningTasks(Long runningTasks) {
+        this.runningTasks = runningTasks;
     }
 
     /**
@@ -1018,12 +1051,9 @@ public class Backend implements Writable {
         Map<String, String> displayTagMap = Maps.newHashMap();
         displayTagMap.putAll(tagMap);
 
-        if (displayTagMap.containsKey("cloud_cluster_public_endpoint")) {
-            displayTagMap.put("public_endpoint", displayTagMap.remove("cloud_cluster_public_endpoint"));
-        }
-        if (displayTagMap.containsKey("cloud_cluster_private_endpoint")) {
-            displayTagMap.put("private_endpoint", displayTagMap.remove("cloud_cluster_private_endpoint"));
-        }
+        // Migrate old cloud endpoint tags to new endpoint tags for backward compatibility
+        migrateEndpointTag(displayTagMap, "cloud_cluster_public_endpoint", "public_endpoint");
+        migrateEndpointTag(displayTagMap, "cloud_cluster_private_endpoint", "private_endpoint");
         if (displayTagMap.containsKey("cloud_cluster_status")) {
             displayTagMap.put("compute_group_status", displayTagMap.remove("cloud_cluster_status"));
         }
@@ -1050,6 +1080,23 @@ public class Backend implements Writable {
             return getCloudClusterId();
         } else {
             return getLocationTag().value;
+        }
+    }
+
+    /**
+     * Migrate endpoint tag from old name to new name for backward compatibility.
+     * If new tag already exists, just remove the old tag.
+     * If new tag doesn't exist, rename old tag to new tag.
+     */
+    private void migrateEndpointTag(Map<String, String> tagMap, String oldTagName, String newTagName) {
+        if (tagMap.containsKey(oldTagName)) {
+            if (tagMap.containsKey(newTagName)) {
+                // New tag exists, just remove the old one
+                tagMap.remove(oldTagName);
+            } else {
+                // New tag doesn't exist, migrate old tag to new tag
+                tagMap.put(newTagName, tagMap.remove(oldTagName));
+            }
         }
     }
 

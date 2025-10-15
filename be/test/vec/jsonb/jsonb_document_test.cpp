@@ -103,13 +103,16 @@ TEST_F(JsonbDocumentTest, writer) {
     auto it = root_obj->begin();
     ASSERT_EQ(std::string_view(it->getKeyStr(), it->klen()), "key_null");
     ASSERT_TRUE(it->value()->isNull());
+    ASSERT_TRUE(it->value()->get_primitive_type() == TYPE_NULL);
 
     ++it;
     ASSERT_EQ(std::string_view(it->getKeyStr(), it->klen()), "key_true");
     ASSERT_TRUE(it->value()->isTrue());
+    ASSERT_TRUE(it->value()->get_primitive_type() == TYPE_BOOLEAN);
     ++it;
     ASSERT_EQ(std::string_view(it->getKeyStr(), it->klen()), "key_false");
     ASSERT_TRUE(it->value()->isFalse());
+    ASSERT_TRUE(it->value()->get_primitive_type() == TYPE_BOOLEAN);
 
     ++it;
     ASSERT_EQ(std::string_view(it->getKeyStr(), it->klen()), "key_int");
@@ -122,12 +125,14 @@ TEST_F(JsonbDocumentTest, writer) {
     ++it;
     ASSERT_EQ(std::string_view(it->getKeyStr(), it->klen()), "key_float");
     ASSERT_TRUE(it->value()->isFloat());
+    ASSERT_TRUE(it->value()->get_primitive_type() == TYPE_FLOAT);
     const auto* jsonb_float_value = it->value()->unpack<JsonbFloatVal>();
     ASSERT_EQ(jsonb_float_value->val(), 123.456F);
 
     ++it;
     ASSERT_EQ(std::string_view(it->getKeyStr(), it->klen()), "key_string");
     ASSERT_TRUE(it->value()->isString());
+    ASSERT_TRUE(it->value()->get_primitive_type() == TYPE_STRING);
     const auto* jsonb_string_value = it->value()->unpack<JsonbStringVal>();
     ASSERT_EQ(jsonb_string_value->length(), 11);
     ASSERT_EQ(std::string(jsonb_string_value->getBlob(), jsonb_string_value->length()),
@@ -136,6 +141,7 @@ TEST_F(JsonbDocumentTest, writer) {
     ++it;
     ASSERT_EQ(std::string_view(it->getKeyStr(), it->klen()), "key_array");
     ASSERT_TRUE(it->value()->isArray());
+    ASSERT_TRUE(it->value()->get_primitive_type() == TYPE_ARRAY);
     const auto* jsonb_array_value = it->value()->unpack<ArrayVal>();
     ASSERT_EQ(jsonb_array_value->numElem(), 2);
     auto array_it = jsonb_array_value->begin();
@@ -152,12 +158,14 @@ TEST_F(JsonbDocumentTest, writer) {
     ++it;
     ASSERT_EQ(std::string_view(it->getKeyStr(), it->klen()), "key_int128");
     ASSERT_TRUE(it->value()->isInt128());
+    ASSERT_TRUE(it->value()->get_primitive_type() == TYPE_LARGEINT);
     const auto* jsonb_int128_value = it->value()->unpack<JsonbInt128Val>();
     ASSERT_EQ(jsonb_int128_value->val(), int128_value);
 
     ++it;
     ASSERT_EQ(std::string_view(it->getKeyStr(), it->klen()), "key_decimal32");
     ASSERT_TRUE(it->value()->isDecimal32());
+    ASSERT_TRUE(it->value()->get_primitive_type() == TYPE_DECIMAL32);
     ASSERT_TRUE(it->value()->isDecimal());
     const auto* jsonb_decimal_value = it->value()->unpack<JsonbDecimal32>();
     ASSERT_EQ(int32_t(jsonb_decimal_value->val()), int32_t(99999999));
@@ -167,6 +175,7 @@ TEST_F(JsonbDocumentTest, writer) {
     ++it;
     ASSERT_EQ(std::string_view(it->getKeyStr(), it->klen()), "key_decimal64");
     ASSERT_TRUE(it->value()->isDecimal64());
+    ASSERT_TRUE(it->value()->get_primitive_type() == TYPE_DECIMAL64);
     ASSERT_TRUE(it->value()->isDecimal());
     const auto* jsonb_decimal64_value = it->value()->unpack<JsonbDecimal64>();
     ASSERT_EQ(int64_t(jsonb_decimal64_value->val()), int64_t(999999999999999999ULL));
@@ -176,6 +185,7 @@ TEST_F(JsonbDocumentTest, writer) {
     ++it;
     ASSERT_EQ(std::string_view(it->getKeyStr(), it->klen()), "key_decimal128");
     ASSERT_TRUE(it->value()->isDecimal128());
+    ASSERT_TRUE(it->value()->get_primitive_type() == TYPE_DECIMAL128I);
     ASSERT_TRUE(it->value()->isDecimal());
     const auto* jsonb_decimal128_value = it->value()->unpack<JsonbDecimal128>();
     ASSERT_EQ(__int128_t(jsonb_decimal128_value->val()),
@@ -186,6 +196,7 @@ TEST_F(JsonbDocumentTest, writer) {
     ++it;
     ASSERT_EQ(std::string_view(it->getKeyStr(), it->klen()), "key_decimal256");
     ASSERT_TRUE(it->value()->isDecimal256());
+    ASSERT_TRUE(it->value()->get_primitive_type() == TYPE_DECIMAL256);
     ASSERT_TRUE(it->value()->isDecimal());
     const auto* jsonb_decimal256_value = it->value()->unpack<JsonbDecimal256>();
     ASSERT_EQ(jsonb_decimal256_value->val(), int256_value);
@@ -196,10 +207,76 @@ TEST_F(JsonbDocumentTest, writer) {
                                                          writer.getOutput()->getSize());
 
     std::string expected_string(
-            R"({"key_null":null,"key_true":true,"key_false":false,"key_int":12345,"key_float":123.456001281738,)"
+            R"({"key_null":null,"key_true":true,"key_false":false,"key_int":12345,"key_float":123.456,)"
             R"("key_string":"hello world","key_array":[1,"array string"],"key_int128":18446744073709551616,)"
             R"("key_decimal32":9999.9999,"key_decimal64":99999999999999.9999,"key_decimal128":184467440737.09551615,)"
             R"("key_decimal256":3402823669209384634633746074317.68211454})");
     ASSERT_EQ(json_string, expected_string);
 }
+
+TEST_F(JsonbDocumentTest, forobject) {
+    JsonbWriter writer;
+    writer.writeStartObject();
+
+    writer.writeKey("key_null");
+    writer.writeNull();
+
+    writer.writeKey("key_true");
+    writer.writeBool(true);
+
+    writer.writeKey("key_false");
+    writer.writeBool(false);
+
+    writer.writeKey("key_int");
+    writer.writeInt(12345);
+
+    // writer array
+
+    writer.writeKey("key_array");
+    writer.writeStartArray();
+    writer.writeInt(1);
+    writer.writeStartString();
+    writer.writeString("array string");
+    writer.writeEndString();
+    writer.writeEndArray();
+
+    writer.writeEndObject();
+
+    JsonbDocument* doc = writer.getDocument();
+    auto* root = doc->getValue();
+    std::cout << JsonbToJson {}.to_json_string(root) << std::endl;
+    EXPECT_EQ(
+            JsonbToJson {}.to_json_string(root),
+            R"({"key_null":null,"key_true":true,"key_false":false,"key_int":12345,"key_array":[1,"array string"]})");
+
+    // object
+    const auto* root_obj = root->unpack<ObjectVal>();
+    EXPECT_EQ(root_obj->numElem(), 5);
+    std::cout << "numElem: " << root_obj->numElem() << std::endl;
+    for (auto it = root_obj->begin(); it != root_obj->end(); ++it) {
+        std::cout << "key: " << std::string(it->getKeyStr(), it->klen()) << std::endl;
+    }
+
+    {
+        std::string key = "key_null";
+        {
+            auto val = root_obj->search(key.data(), key.size());
+            EXPECT_TRUE(val != root_obj->end());
+        }
+        {
+            auto val = root_obj->search(key.c_str());
+            EXPECT_TRUE(val != root_obj->end());
+        }
+
+        {
+            auto* val = root_obj->find(key.data(), key.size());
+            EXPECT_TRUE(val != nullptr);
+        }
+        {
+            auto* val = root_obj->find(key.c_str());
+            EXPECT_TRUE(val != nullptr);
+        }
+    }
+}
+
 } // namespace doris

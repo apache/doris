@@ -18,6 +18,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <future>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -26,6 +27,7 @@
 
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_meta.h"
 #include "util/s3_util.h"
 
@@ -37,6 +39,7 @@ class StreamLoadContext;
 class CloudTablet;
 class TabletMeta;
 class TabletSchema;
+class TabletMetaPB;
 class RowsetMeta;
 
 namespace cloud {
@@ -50,7 +53,15 @@ class TabletIndexPB;
 using StorageVaultInfos = std::vector<
         std::tuple<std::string, std::variant<S3Conf, HdfsVaultInfo>, StorageVaultPB_PathFormat>>;
 
+// run tasks in bthread with concurrency and wait until all tasks done
+// it stops running tasks if there are any tasks return !ok, leaving some tasks untouched
+// return OK if all tasks successfully done, otherwise return the result of the failed task
 Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency);
+
+// An async wrap of `bthread_fork_join` declared previously using promise-future
+// return OK if fut successfully created, otherwise return error
+Status bthread_fork_join(std::vector<std::function<Status()>>&& tasks, int concurrency,
+                         std::future<Status>* fut);
 
 class CloudMetaMgr {
 public:
@@ -61,8 +72,6 @@ public:
 
     Status get_tablet_meta(int64_t tablet_id, std::shared_ptr<TabletMeta>* tablet_meta);
 
-    Status get_schema_dict(int64_t index_id, std::shared_ptr<SchemaCloudDictionary>* schema_dict);
-
     Status sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions& options = {},
                                SyncRowsetStats* sync_stats = nullptr);
     Status sync_tablet_rowsets_unlocked(
@@ -72,7 +81,7 @@ public:
     Status prepare_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
-    Status commit_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
+    Status commit_rowset(RowsetMeta& rs_meta, const std::string& job_id,
                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta);
@@ -82,6 +91,31 @@ public:
     Status abort_txn(const StreamLoadContext& ctx);
 
     Status precommit_txn(const StreamLoadContext& ctx);
+
+    /**
+     * Prepares a restore job for a tablet to meta-service
+     * Change the state to PREPARED
+     * PREPARED state means the meta of tablet has been uploaded but not finalized.
+     */
+    Status prepare_restore_job(const TabletMetaPB& tablet_meta);
+
+    /**
+     * Commits a restore job for a tablet to meta-service
+     * Change the state from PREPARED to COMMITTED
+     * COMMITTED state means the meta of tablet has been finalized.
+     */
+    Status commit_restore_job(const int64_t tablet_id);
+
+    /**
+     * Finish a restore job for a tablet from meta-service
+     * Change the state to final state.
+     * If is_completed = true, change the state from COMMITTED to COMPLETED
+     * If is_completed = false, change the state to from PREPARED/COMMITTED to DROPPED
+     * COMPLETED state means the job is finished, the restored data should be visible.
+     * DROPPED state means the job is aborted.
+     * COMPLETED/DROPPED are the final states, jobs with final states will be recycled.
+     */
+    Status finish_restore_job(const int64_t tablet_id, bool is_completed);
 
     /**
      * Gets storage vault (storage backends) from meta-service
@@ -101,7 +135,10 @@ public:
     Status lease_tablet_job(const TabletJobInfoPB& job);
 
     Status update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id, int64_t initiator,
-                                DeleteBitmap* delete_bitmap, int64_t txn_id = -1,
+                                DeleteBitmap* delete_bitmap, DeleteBitmap* delete_bitmap_v2,
+                                std::string rowset_id,
+                                std::optional<StorageResource> storage_resource,
+                                int64_t store_version, int64_t txn_id = -1,
                                 bool is_explicit_txn = false, int64_t next_visible_version = -1);
 
     Status cloud_update_delete_bitmap_without_lock(
@@ -115,6 +152,20 @@ public:
     void remove_delete_bitmap_update_lock(int64_t table_id, int64_t lock_id, int64_t initiator,
                                           int64_t tablet_id);
 
+    // Fill version holes by creating empty rowsets for missing versions
+    Status fill_version_holes(CloudTablet* tablet, int64_t max_version,
+                              std::unique_lock<std::shared_mutex>& wlock);
+
+    // Create an empty rowset to fill a version hole
+    Status create_empty_rowset_for_hole(CloudTablet* tablet, int64_t version,
+                                        RowsetMetaSharedPtr prev_rowset_meta,
+                                        RowsetSharedPtr* rowset);
+
+    Status list_snapshot(std::vector<SnapshotInfoPB>& snapshots);
+    Status get_snapshot_properties(SnapshotSwitchStatus& switch_status,
+                                   int64_t& max_reserved_snapshots,
+                                   int64_t& snapshot_interval_seconds);
+
 private:
     bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
                                             std::ranges::range auto&& rs_metas,
@@ -123,7 +174,23 @@ private:
     Status sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                      std::ranges::range auto&& rs_metas, const TabletStatsPB& stats,
                                      const TabletIndexPB& idx, DeleteBitmap* delete_bitmap,
-                                     bool full_sync = false, SyncRowsetStats* sync_stats = nullptr);
+                                     bool full_sync, SyncRowsetStats* sync_stats,
+                                     int32_t read_version, bool full_sync_v2);
+    Status _read_tablet_delete_bitmap_v2(CloudTablet* tablet, int64_t old_max_version,
+                                         std::ranges::range auto&& rs_metas,
+                                         DeleteBitmap* delete_bitmap, GetDeleteBitmapResponse& res,
+                                         int64_t& remote_delete_bitmap_bytes, bool full_sync_v2);
+    Status _log_mow_delete_bitmap(CloudTablet* tablet, GetRowsetResponse& resp,
+                                  DeleteBitmap& delete_bitmap, int64_t old_max_version,
+                                  bool full_sync, int32_t read_version);
+    Status _check_delete_bitmap_v2_correctness(CloudTablet* tablet, GetRowsetRequest& req,
+                                               GetRowsetResponse& resp, int64_t old_max_version);
+
+    Status _get_delete_bitmap_from_ms(GetDeleteBitmapRequest& req, GetDeleteBitmapResponse& res);
+    Status _get_delete_bitmap_from_ms_by_batch(GetDeleteBitmapRequest& req,
+                                               GetDeleteBitmapResponse& res,
+                                               int64_t bytes_threadhold);
+
     void check_table_size_correctness(const RowsetMeta& rs_meta);
     int64_t get_segment_file_size(const RowsetMeta& rs_meta);
     int64_t get_inverted_index_file_szie(const RowsetMeta& rs_meta);

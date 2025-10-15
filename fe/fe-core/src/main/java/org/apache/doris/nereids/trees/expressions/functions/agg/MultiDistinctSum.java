@@ -33,9 +33,6 @@ import java.util.List;
 /** MultiDistinctSum */
 public class MultiDistinctSum extends NullableAggregateFunction implements UnaryExpression,
         ExplicitlyCastableSignature, ComputePrecisionForSum, MultiDistinction {
-
-    private final boolean mustUseMultiDistinctAgg;
-
     public MultiDistinctSum(Expression arg0) {
         this(false, arg0);
     }
@@ -45,13 +42,12 @@ public class MultiDistinctSum extends NullableAggregateFunction implements Unary
     }
 
     public MultiDistinctSum(boolean distinct, boolean alwaysNullable, Expression arg0) {
-        this(false, false, alwaysNullable, arg0);
+        super("multi_distinct_sum", false, alwaysNullable, arg0);
     }
 
-    private MultiDistinctSum(boolean mustUseMultiDistinctAgg, boolean distinct,
-            boolean alwaysNullable, Expression arg0) {
-        super("multi_distinct_sum", false, alwaysNullable, arg0);
-        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
+    /** constructor for withChildren and reuse signature */
+    private MultiDistinctSum(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
@@ -75,27 +71,17 @@ public class MultiDistinctSum extends NullableAggregateFunction implements Unary
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new MultiDistinctSum(mustUseMultiDistinctAgg, distinct, alwaysNullable, children.get(0));
+        return new MultiDistinctSum(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override
     public MultiDistinctSum withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MultiDistinctSum(mustUseMultiDistinctAgg, distinct, alwaysNullable, children.get(0));
+        return new MultiDistinctSum(getFunctionParams(false, children));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitMultiDistinctSum(this, context);
-    }
-
-    @Override
-    public boolean mustUseMultiDistinctAgg() {
-        return mustUseMultiDistinctAgg;
-    }
-
-    @Override
-    public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
-        return new MultiDistinctSum(mustUseMultiDistinctAgg, false, alwaysNullable, children.get(0));
     }
 }

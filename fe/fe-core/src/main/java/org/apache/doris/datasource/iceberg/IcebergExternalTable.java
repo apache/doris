@@ -296,7 +296,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     public String getViewText() {
         try {
-            return catalog.getPreExecutionAuthenticator().execute(() -> {
+            return catalog.getExecutionAuthenticator().execute(() -> {
                 View icebergView = IcebergUtils.getIcebergView(this);
                 ViewVersion viewVersion = icebergView.currentVersion();
                 if (viewVersion == null) {
@@ -323,7 +323,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     public String getSqlDialect() {
         try {
-            return catalog.getPreExecutionAuthenticator().execute(() -> {
+            return catalog.getExecutionAuthenticator().execute(() -> {
                 View icebergView = IcebergUtils.getIcebergView(this);
                 ViewVersion viewVersion = icebergView.currentVersion();
                 if (viewVersion == null) {

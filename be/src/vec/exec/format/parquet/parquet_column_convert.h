@@ -20,9 +20,9 @@
 #include <gen_cpp/parquet_types.h>
 
 #include "common/cast_set.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/column_type_convert.h"
 #include "vec/exec/format/format_common.h"
@@ -36,11 +36,11 @@ struct ConvertParams {
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false
     static const cctz::time_zone utc0;
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == true, we should set local time zone
-    cctz::time_zone* ctz = nullptr;
+    const cctz::time_zone* ctz = nullptr;
     size_t offset_days = 0;
     int64_t second_mask = 1;
     int64_t scale_to_nano_factor = 1;
-    FieldSchema* field_schema = nullptr;
+    const FieldSchema* field_schema = nullptr;
 
     //For UInt8 -> Int16,UInt16 -> Int32,UInt32 -> Int64,UInt64 -> Int128.
     bool is_type_compatibility = false;
@@ -69,7 +69,7 @@ struct ConvertParams {
         }
     }
 
-    void init(FieldSchema* field_schema_, cctz::time_zone* ctz_) {
+    void init(const FieldSchema* field_schema_, const cctz::time_zone* ctz_) {
         field_schema = field_schema_;
         if (ctz_ != nullptr) {
             ctz = ctz_;
@@ -154,8 +154,9 @@ protected:
 
 public:
     static std::unique_ptr<PhysicalToLogicalConverter> get_converter(
-            FieldSchema* field_schema, DataTypePtr src_logical_type,
-            const DataTypePtr& dst_logical_type, cctz::time_zone* ctz, bool is_dict_filter);
+            const FieldSchema* field_schema, DataTypePtr src_logical_type,
+            const DataTypePtr& dst_logical_type, const cctz::time_zone* ctz,
+            bool is_dict_filter = false);
 
     static bool is_parquet_native_type(PrimitiveType type);
 

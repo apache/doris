@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("multi_slot6") {
+    // this mv rewrite would not be rewritten in RBO, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS multi_slot6; """
 
     sql """
@@ -36,7 +38,7 @@ suite ("multi_slot6") {
 
     createMV ("create materialized view k1a2p2ap3p as select abs(k1)+k2+1,abs(k2+2)+k3+3 from multi_slot6;")
 
-    createMV("create materialized view k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from multi_slot6 group by abs(k1)+k2+1;")
+    createMV("create materialized view k1a2p2ap3ps as select abs(k1)+k2+1 as a1,sum(abs(k2+2)+k3+3) as a2 from multi_slot6 group by abs(k1)+k2+1;")
 
     sql "insert into multi_slot6 select -4,-4,-4,'d';"
 

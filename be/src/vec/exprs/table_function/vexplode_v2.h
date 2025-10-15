@@ -46,12 +46,19 @@ public:
     void get_same_many_values(MutableColumnPtr& column, int length) override;
     int get_value(MutableColumnPtr& column, int max_step) override;
 
+    void set_generate_row_index(bool generate_row_index) {
+        _generate_row_index = generate_row_index;
+    }
+
 private:
     Status _process_init_variant(Block* block, int value_column_idx, int children_column_idx);
     std::vector<ColumnPtr> _array_columns;
-    size_t _row_idx;
+    size_t _row_idx {0};
     ColumnArrayExecutionDatas _multi_detail;
     std::vector<size_t> _array_offsets;
+
+    // `posexplode` & `posexplode_outer`
+    bool _generate_row_index {false};
 };
 
 #include "common/compile_check_end.h"

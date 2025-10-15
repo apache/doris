@@ -69,6 +69,7 @@ suite("test_decimalv3_cast") {
         select cast(k1 as decimalv3(10, 5)) from test_decimal32_cast1;
     """
 
+    sql "set enable_strict_cast = true;"
     //======= narrow integral: 4.5
     test {
         // test multiply result overflow

@@ -196,6 +196,8 @@ public:
     /// Checks that every column in block is not nullptr and has same number of elements.
     void check_number_of_rows(bool allow_null_columns = false) const;
 
+    Status check_type_and_column() const;
+
     /// Approximate number of bytes in memory - for profiling and limits.
     size_t bytes() const;
 
@@ -261,6 +263,9 @@ public:
     */
     std::string dump_data(size_t begin = 0, size_t row_limit = 100,
                           bool allow_null_mismatch = false) const;
+
+    std::string dump_data_json(size_t begin = 0, size_t row_limit = 100,
+                               bool allow_null_mismatch = false) const;
 
     /** Get one line data from block, only use in load data */
     std::string dump_one_line(size_t row, int column_end) const;
@@ -615,6 +620,7 @@ public:
     void erase(const String& name);
 
     std::string dump_data(size_t row_limit = 100) const;
+    std::string dump_data_json(size_t row_limit = 100) const;
 
     void clear() {
         _columns.clear();

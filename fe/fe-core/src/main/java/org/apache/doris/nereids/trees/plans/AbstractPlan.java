@@ -64,11 +64,11 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     public final int depth;
 
     protected final ObjectId id;
-    protected final Statistics statistics;
     protected final PlanType type;
     protected final Optional<GroupExpression> groupExpression;
     protected final Supplier<LogicalProperties> logicalPropertiesSupplier;
     protected final Supplier<Boolean> hasUnboundChild;
+    protected Statistics statistics;
 
     /**
      * all parameter constructor.
@@ -162,8 +162,13 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         return groupExpression;
     }
 
+    @Override
     public Statistics getStats() {
         return statistics;
+    }
+
+    public void setStatistics(Statistics statistics) {
+        this.statistics = statistics;
     }
 
     @Override

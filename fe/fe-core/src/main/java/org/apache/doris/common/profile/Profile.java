@@ -20,7 +20,9 @@ package org.apache.doris.common.profile;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.stats.HboPlanInfoProvider;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
@@ -336,12 +338,24 @@ public class Profile {
     }
 
     public String getProfileByLevel() {
-        StringBuilder builder = new StringBuilder();
+        SafeStringBuilder builder = new SafeStringBuilder();
+        if (DebugPointUtil.isEnable("Profile.profileSizeLimit")) {
+            DebugPointUtil.DebugPoint debugPoint = DebugPointUtil.getDebugPoint("Profile.profileSizeLimit");
+            int maxProfileSize = debugPoint.param("profileSizeLimit", 0);
+            builder = new SafeStringBuilder(maxProfileSize);
+            LOG.info("DebugPoint:Profile.profileSizeLimit, MAX_PROFILE_SIZE = {}", maxProfileSize);
+        }
         // add summary to builder
         summaryProfile.prettyPrint(builder);
-        getChangedSessionVars(builder);
-        getExecutionProfileContent(builder);
-        getOnStorageProfile(builder);
+        if (!builder.isTruncated()) {
+            getChangedSessionVars(builder);
+        }
+        if (!builder.isTruncated()) {
+            getExecutionProfileContent(builder);
+        }
+        if (!builder.isTruncated()) {
+            getOnStorageProfile(builder);
+        }
 
         return builder.toString();
     }
@@ -460,9 +474,9 @@ public class Profile {
     }
 
     // Return if profile has been stored to storage
-    public void getExecutionProfileContent(StringBuilder builder) {
+    public void getExecutionProfileContent(SafeStringBuilder builder) {
         if (builder == null) {
-            builder = new StringBuilder();
+            builder = new SafeStringBuilder();
         }
 
         if (profileHasBeenStored()) {
@@ -483,8 +497,42 @@ public class Profile {
             }
         }
 
+        if (this.executionProfiles.size() == 1) {
+            builder.append("MergedProfile:\n");
+            if (mergedProfile != null) {
+                mergedProfile.prettyPrint(builder, "     ");
+            } else {
+                builder.append("build merged simple profile failed");
+            }
+        }
+
+        try {
+            // For load task, they will have multiple execution_profiles.
+            for (ExecutionProfile executionProfile : executionProfiles) {
+                builder.append("\n");
+                executionProfile.prettyPrint(builder, "");
+            }
+        } catch (Throwable aggProfileException) {
+            LOG.warn("build profile failed", aggProfileException);
+            builder.append("build  profile failed");
+        }
+
+        builder.append("\nAppendix:\n");
+        if (mergedProfile != null) {
+            List<TPlanNodeRuntimeStatsItem> planNodeRuntimeStatsItems = null;
+            planNodeRuntimeStatsItems = RuntimeProfile.toTPlanNodeRuntimeStatsItem(mergedProfile, null);
+            planNodeRuntimeStatsItems = RuntimeProfile.mergeTPlanNodeRuntimeStatsItem(planNodeRuntimeStatsItems);
+            // TODO: failed sql supporting rely on profile's extension.
+            boolean isEnableHboInfoCollection = StatisticsUtil.isEnableHboInfoCollection();
+            if (isEnableHboInfoCollection && isHealthyForHbo() && isSlowQueryForHbo()) {
+                // publish to hbo manager, currently only support healthy sql.
+                // NOTE: all statements which no need to collect profile have been excluded.
+                String queryId = DebugUtil.printId(this.executionProfiles.get(0).getQueryId());
+                publishHboPlanStatistics(queryId, planNodeRuntimeStatsItems);
+            }
+        }
         if (physicalPlan != null) {
-            builder.append("\nPhysical Plan \n");
+            builder.append("\nPhysicalPlan:\n");
             StringBuilder physcialPlanBuilder = new StringBuilder();
             physcialPlanBuilder.append(physicalPlan.treeString());
             physcialPlanBuilder.append("\n");
@@ -496,39 +544,6 @@ public class Profile {
             }
             builder.append(
                     physcialPlanBuilder.toString().replace("\n", "\n     "));
-        }
-
-        if (this.executionProfiles.size() == 1) {
-            List<TPlanNodeRuntimeStatsItem> planNodeRuntimeStatsItems = null;
-            builder.append("\nMergedProfile \n");
-            if (mergedProfile != null) {
-                mergedProfile.prettyPrint(builder, "     ");
-                planNodeRuntimeStatsItems = RuntimeProfile.toTPlanNodeRuntimeStatsItem(mergedProfile, null);
-                planNodeRuntimeStatsItems = RuntimeProfile.mergeTPlanNodeRuntimeStatsItem(planNodeRuntimeStatsItems);
-                // TODO: failed sql supporting rely on profile's extension.
-                boolean isEnableHboInfoCollection = StatisticsUtil.isEnableHboInfoCollection();
-                if (isEnableHboInfoCollection && isHealthyForHbo() && isSlowQueryForHbo()) {
-                    // publish to hbo manager, currently only support healthy sql.
-                    // NOTE: all statements which no need to collect profile have been excluded.
-                    String queryId = DebugUtil.printId(this.executionProfiles.get(0).getQueryId());
-                    publishHboPlanStatistics(queryId, planNodeRuntimeStatsItems);
-                }
-                builder.append("\nHBOStatics \n");
-                builder.append(DebugUtil.prettyPrintPlanNodeRuntimeStatsItems(planNodeRuntimeStatsItems));
-            } else {
-                builder.append("build merged simple profile failed");
-            }
-        }
-
-        try {
-            // For load task, they will have multiple execution_profiles.
-            for (ExecutionProfile executionProfile : executionProfiles) {
-                builder.append("\n");
-                executionProfile.getRoot().prettyPrint(builder, "");
-            }
-        } catch (Throwable aggProfileException) {
-            LOG.warn("build profile failed", aggProfileException);
-            builder.append("build  profile failed");
         }
     }
 
@@ -652,7 +667,7 @@ public class Profile {
             // Write summary profile and execution profile content to memory
             this.summaryProfile.write(memoryDataStream);
 
-            StringBuilder builder = new StringBuilder();
+            SafeStringBuilder builder = new SafeStringBuilder();
             getChangedSessionVars(builder);
             getExecutionProfileContent(builder);
             byte[] executionProfileBytes = builder.toString().getBytes(StandardCharsets.UTF_8);
@@ -757,15 +772,15 @@ public class Profile {
         this.changedSessionVarCache = changedSessionVar;
     }
 
-    private void getChangedSessionVars(StringBuilder builder) {
+    private void getChangedSessionVars(SafeStringBuilder builder) {
         if (builder == null) {
-            builder = new StringBuilder();
+            builder = new SafeStringBuilder();
         }
         if (profileHasBeenStored()) {
             return;
         }
 
-        builder.append("\nChanged Session Variables:\n");
+        builder.append("\nChangedSessionVariables:\n");
         builder.append(changedSessionVarCache);
         builder.append("\n");
     }
@@ -791,7 +806,7 @@ public class Profile {
         return durationMs > Config.qe_slow_log_ms;
     }
 
-    void getOnStorageProfile(StringBuilder builder) {
+    void getOnStorageProfile(SafeStringBuilder builder) {
         if (!profileHasBeenStored()) {
             return;
         }
@@ -873,7 +888,7 @@ public class Profile {
     }
 
     public String toString() {
-        StringBuilder stringBuilder = new StringBuilder();
+        SafeStringBuilder stringBuilder = new SafeStringBuilder();
         getExecutionProfileContent(stringBuilder);
         return stringBuilder.toString();
     }

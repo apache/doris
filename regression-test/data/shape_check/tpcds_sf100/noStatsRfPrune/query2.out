@@ -23,7 +23,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_week_seq = d_week_seq1)) otherCondition=() build RFs:RF2 d_week_seq->[d_week_seq]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN shuffle] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 53))) otherCondition=()
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((expr_cast(d_week_seq1 as BIGINT) = expr_(cast(d_week_seq2 as BIGINT) - 53))) otherCondition=()
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN shuffle] hashCondition=((date_dim.d_week_seq = d_week_seq2)) otherCondition=() build RFs:RF1 d_week_seq->[d_week_seq]
 ----------------------PhysicalProject

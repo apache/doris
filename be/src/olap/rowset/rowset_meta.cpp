@@ -18,25 +18,34 @@
 #include "olap/rowset/rowset_meta.h"
 
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 
 #include <memory>
 #include <random>
 
+#include "cloud/cloud_storage_engine.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "google/protobuf/util/message_differencer.h"
+#include "io/fs/encrypted_fs_factory.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
+#include "olap/base_tablet.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_common.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_cache.h"
+#include "runtime/exec_env.h"
 #include "vec/common/schema_util.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
 
 RowsetMeta::~RowsetMeta() {
     if (_handle) {
@@ -90,7 +99,7 @@ bool RowsetMeta::json_rowset_meta(std::string* json_rowset_meta) {
     return ret;
 }
 
-io::FileSystemSPtr RowsetMeta::fs() {
+io::FileSystemSPtr RowsetMeta::physical_fs() {
     if (is_local()) {
         return io::global_local_filesystem();
     }
@@ -104,6 +113,29 @@ io::FileSystemSPtr RowsetMeta::fs() {
     }
 }
 
+io::FileSystemSPtr RowsetMeta::fs() {
+    auto fs = physical_fs();
+
+#ifndef BE_TEST
+    auto algorithm = _determine_encryption_once.call([this]() -> Result<EncryptionAlgorithmPB> {
+        auto maybe_tablet = ExecEnv::get_tablet(tablet_id());
+        if (!maybe_tablet) {
+            LOG(WARNING) << "get tablet failed: " << maybe_tablet.error();
+            return ResultError(maybe_tablet.error());
+        }
+        auto tablet = maybe_tablet.value();
+        return tablet->tablet_meta()->encryption_algorithm();
+    });
+    if (!algorithm.has_value()) {
+        // TODO: return a Result<FileSystemSPtr> in this method?
+        return nullptr;
+    }
+    return io::make_file_system(fs, algorithm.value());
+#else
+    return fs;
+#endif
+}
+
 Result<const StorageResource*> RowsetMeta::remote_storage_resource() {
     if (is_local()) {
         return ResultError(Status::InternalError(
@@ -112,16 +144,23 @@ Result<const StorageResource*> RowsetMeta::remote_storage_resource() {
     }
 
     if (!_storage_resource.fs) {
-        // not initialized yet
-        auto storage_resource = get_storage_resource(resource_id());
-        if (storage_resource) {
+        if (auto storage_resource = get_storage_resource(resource_id())) {
             _storage_resource = std::move(storage_resource->first);
         } else {
+            if (config::is_cloud_mode()) {
+                // When creating a new cluster or creating a storage resource, BE may not sync storage resource,
+                // at the moment a query is coming, the BetaRowsetReader call loadSegment and use this method
+                // to get the storage resource, so we need to sync storage resource here.
+                ExecEnv::GetInstance()->storage_engine().to_cloud().sync_storage_vault();
+                if (auto retry_resource = get_storage_resource(resource_id())) {
+                    _storage_resource = std::move(retry_resource->first);
+                    return &_storage_resource;
+                }
+            }
             return ResultError(Status::InternalError("cannot find storage resource. resource_id={}",
                                                      resource_id()));
         }
     }
-
     return &_storage_resource;
 }
 
@@ -172,7 +211,7 @@ void RowsetMeta::set_tablet_schema(const TabletSchemaPB& tablet_schema) {
 }
 
 bool RowsetMeta::_deserialize_from_pb(std::string_view value) {
-    if (!_rowset_meta_pb.ParseFromArray(value.data(), value.size())) {
+    if (!_rowset_meta_pb.ParseFromArray(value.data(), cast_set<int32_t>(value.size()))) {
         _rowset_meta_pb.Clear();
         return false;
     }
@@ -210,7 +249,7 @@ void RowsetMeta::add_segments_file_size(const std::vector<size_t>& seg_file_size
     }
 }
 
-int64_t RowsetMeta::segment_file_size(int seg_id) {
+int64_t RowsetMeta::segment_file_size(int seg_id) const {
     DCHECK(_rowset_meta_pb.segments_file_size().empty() ||
            _rowset_meta_pb.segments_file_size_size() > seg_id)
             << _rowset_meta_pb.segments_file_size_size() << ' ' << seg_id;
@@ -320,5 +359,7 @@ bool operator==(const RowsetMeta& a, const RowsetMeta& b) {
         return false;
     return true;
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

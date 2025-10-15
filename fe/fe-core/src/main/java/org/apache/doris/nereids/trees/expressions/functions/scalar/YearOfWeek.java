@@ -48,13 +48,18 @@ public class YearOfWeek extends ScalarFunction
         super("year_of_week", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private YearOfWeek(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public YearOfWeek withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new YearOfWeek(children.get(0));
+        return new YearOfWeek(getFunctionParams(children));
     }
 
     @Override

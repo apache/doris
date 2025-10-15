@@ -804,6 +804,8 @@ suite("test_show_data_with_compaction", "p2") {
         load_httplogs_data.call(tableWithOutIndexCompaction, '9', 'true', 'json', 'documents-1000.json')
         load_httplogs_data.call(tableWithOutIndexCompaction, '10', 'true', 'json', 'documents-1000.json')
 
+        sql "sync"
+
         def another_with_index_size = wait_for_show_data_finish(tableWithOutIndexCompaction, 60000, 0)
         assertTrue(another_with_index_size != "wait_timeout")
         trigger_and_wait_compaction(tableWithOutIndexCompaction, "full")

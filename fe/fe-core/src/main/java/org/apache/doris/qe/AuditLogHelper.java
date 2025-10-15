@@ -22,6 +22,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -89,6 +91,23 @@ public class AuditLogHelper {
         }
     }
 
+    public static String handleCommand(String origStmt, Command command) {
+        if (origStmt == null) {
+            return null;
+        }
+        // 1. handle insert statement first
+        Optional<String> res = handleInsertCommand(origStmt, command);
+        if (res.isPresent()) {
+            return res.get();
+        }
+
+        // 2. handle other statement
+        int maxLen = GlobalVariable.auditPluginMaxSqlLength;
+        origStmt = truncateByBytes(origStmt, maxLen, " ... /* truncated. audit_plugin_max_sql_length=" + maxLen
+            + " */");
+        return origStmt;
+    }
+
     /**
      * Truncate sql and if SQL is in the following situations, count the number of rows:
      * <ul>
@@ -112,6 +131,27 @@ public class AuditLogHelper {
         origStmt = truncateByBytes(origStmt, maxLen, " ... /* truncated. audit_plugin_max_sql_length=" + maxLen
                 + " */");
         return origStmt;
+    }
+
+    private static Optional<String> handleInsertCommand(String origStmt, Command command) {
+        int rowCnt = 0;
+        // nereids planner
+        if (command instanceof InsertIntoTableCommand) {
+            LogicalPlan query = ((InsertIntoTableCommand) command).getLogicalQuery();
+            if (query instanceof UnboundTableSink) {
+                rowCnt = countValues(query.children());
+            }
+        }
+        if (rowCnt > 0) {
+            // This is an insert statement.
+            int maxLen = Math.max(0,
+                    Math.min(GlobalVariable.auditPluginMaxInsertStmtLength, GlobalVariable.auditPluginMaxSqlLength));
+            origStmt = truncateByBytes(origStmt, maxLen, " ... /* total " + rowCnt
+                + " rows, truncated. audit_plugin_max_insert_stmt_length=" + maxLen + " */");
+            return Optional.of(origStmt);
+        } else {
+            return Optional.empty();
+        }
     }
 
     private static Optional<String> handleInsertStmt(String origStmt, StatementBase parsedStmt) {
@@ -254,43 +294,11 @@ public class AuditLogHelper {
             // parse time
             auditEventBuilder.setParseTimeMs(summaryProfile.getParseSqlTimeMs());
             // plan time
-            String planTimesMs = "{"
-                    + "\"plan\"" + ":" + summaryProfile.getPlanTimeMs() + ","
-                    + "\"garbage_collect\"" + ":" + summaryProfile.getNereidsGarbageCollectionTimeMs() + ","
-                    + "\"lock_tables\"" + ":" + summaryProfile.getNereidsLockTableTimeMs() + ","
-                    + "\"analyze\"" + ":" + summaryProfile.getNereidsAnalysisTimeMs() + ","
-                    + "\"rewrite\"" + ":" + summaryProfile.getNereidsRewriteTimeMs() + ","
-                    + "\"fold_const_by_be\"" + ":" + summaryProfile.getNereidsBeFoldConstTimeMs() + ","
-                    + "\"collect_partitions\"" + ":" + summaryProfile.getNereidsCollectTablePartitionTimeMs() + ","
-                    + "\"optimize\"" + ":" + summaryProfile.getNereidsOptimizeTimeMs() + ","
-                    + "\"translate\"" + ":" + summaryProfile.getNereidsTranslateTimeMs() + ","
-                    + "\"init_scan_node\"" + ":" + summaryProfile.getInitScanNodeTimeMs() + ","
-                    + "\"finalize_scan_node\"" + ":" + summaryProfile.getFinalizeScanNodeTimeMs() + ","
-                    + "\"create_scan_range\"" + ":" + summaryProfile.getCreateScanRangeTimeMs() + ","
-                    + "\"distribute\"" + ":" + summaryProfile.getNereidsDistributeTimeMs()
-                    + "}";
-            auditEventBuilder.setPlanTimesMs(planTimesMs);
-            // get meta time
-            String metaTimeMs = "{"
-                    + "\"get_partition_version_time_ms\"" + ":" + summaryProfile.getGetPartitionVersionTime() + ","
-                    + "\"get_partition_version_count_has_data\""
-                    + ":" + summaryProfile.getGetPartitionVersionByHasDataCount() + ","
-                    + "\"get_partition_version_count\"" + ":" + summaryProfile.getGetPartitionVersionCount() + ","
-                    + "\"get_table_version_time_ms\"" + ":" + summaryProfile.getGetTableVersionTime() + ","
-                    + "\"get_table_version_count\"" + ":" + summaryProfile.getGetTableVersionCount()
-                    + "}";
-            auditEventBuilder.setGetMetaTimeMs(metaTimeMs);
+            auditEventBuilder.setPlanTimesMs(summaryProfile.getPlanTime());
+            // meta time
+            auditEventBuilder.setGetMetaTimeMs(summaryProfile.getMetaTime());
             // schedule time
-            String scheduleTimeMs = "{"
-                    + "\"schedule_time_ms\"" + ":" + summaryProfile.getScheduleTimeMs() + ","
-                    + "\"fragment_assign_time_ms\"" + ":" + summaryProfile.getFragmentAssignTimsMs() + ","
-                    + "\"fragment_serialize_time_ms\"" + ":" + summaryProfile.getFragmentSerializeTimeMs() + ","
-                    + "\"fragment_rpc_phase_1_time_ms\"" + ":" + summaryProfile.getFragmentRPCPhase1TimeMs() + ","
-                    + "\"fragment_rpc_phase_2_time_ms\"" + ":" + summaryProfile.getFragmentRPCPhase2TimeMs() + ","
-                    + "\"fragment_compressed_size_byte\"" + ":" + summaryProfile.getFragmentCompressedSizeByte() + ","
-                    + "\"fragment_rpc_count\"" + ":" + summaryProfile.getFragmentRPCCount()
-                    + "}";
-            auditEventBuilder.setScheduleTimeMs(scheduleTimeMs);
+            auditEventBuilder.setScheduleTimeMs(summaryProfile.getScheduleTime());
             // changed variables
             if (ctx.sessionVariable != null) {
                 List<List<String>> changedVars = VariableMgr.dumpChangedVars(ctx.sessionVariable);
@@ -339,14 +347,23 @@ public class AuditLogHelper {
                     MetricRepo.COUNTER_QUERY_ALL.increase(1L);
                     MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd(ctx.getQualifiedUser()).increase(1L);
                 }
+                String physicalClusterName = "";
                 try {
                     if (Config.isCloudMode()) {
                         cloudCluster = ctx.getCloudCluster(false);
+                        physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                            .getPhysicalCluster(cloudCluster);
+                        if (!cloudCluster.equals(physicalClusterName)) {
+                            // vcg
+                            MetricRepo.increaseClusterQueryAll(physicalClusterName);
+                        }
                     }
                 } catch (ComputeGroupException e) {
-                    LOG.warn("Failed to get cloud cluster", e);
+                    LOG.warn("Failed to get cloud cluster, cloudCluster={}, physicalClusterName={} ",
+                            cloudCluster, physicalClusterName, e);
                     return;
                 }
+
                 MetricRepo.increaseClusterQueryAll(cloudCluster);
                 if (!ctx.getState().isInternal()) {
                     if (ctx.getState().getStateType() == MysqlStateType.ERR
@@ -354,13 +371,27 @@ public class AuditLogHelper {
                         // err query
                         MetricRepo.COUNTER_QUERY_ERR.increase(1L);
                         MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd(ctx.getQualifiedUser()).increase(1L);
-                        MetricRepo.increaseClusterQueryErr(cloudCluster);
+                        if (cloudCluster.equals(physicalClusterName)) {
+                            // not vcg
+                            MetricRepo.increaseClusterQueryErr(cloudCluster);
+                        } else {
+                            // vcg
+                            MetricRepo.increaseClusterQueryErr(cloudCluster);
+                            MetricRepo.increaseClusterQueryErr(physicalClusterName);
+                        }
                     } else if (ctx.getState().getStateType() == MysqlStateType.OK
                             || ctx.getState().getStateType() == MysqlStateType.EOF) {
                         // ok query
                         MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
                         MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd(ctx.getQualifiedUser()).update(elapseMs);
-                        MetricRepo.updateClusterQueryLatency(cloudCluster, elapseMs);
+                        if (cloudCluster.equals(physicalClusterName)) {
+                            // not vcg
+                            MetricRepo.updateClusterQueryLatency(cloudCluster, elapseMs);
+                        } else {
+                            // vcg
+                            MetricRepo.updateClusterQueryLatency(cloudCluster, elapseMs);
+                            MetricRepo.updateClusterQueryLatency(physicalClusterName, elapseMs);
+                        }
                         if (elapseMs > Config.qe_slow_log_ms) {
                             String sqlDigest = DigestUtils.md5Hex(((Queriable) parsedStmt).toDigest());
                             auditEventBuilder.setSqlDigest(sqlDigest);

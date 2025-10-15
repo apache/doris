@@ -20,11 +20,14 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -38,38 +41,60 @@ public class LogicalEsScan extends LogicalCatalogRelation {
      * Constructor for LogicalEsScan.
      */
     public LogicalEsScan(RelationId id, TableIf table, List<String> qualifier,
-                           Optional<GroupExpression> groupExpression,
-                           Optional<LogicalProperties> logicalProperties) {
-        super(id, PlanType.LOGICAL_ES_SCAN, table, qualifier, groupExpression, logicalProperties);
+            List<NamedExpression> virtualColumns,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, String tableAlias) {
+        super(id, PlanType.LOGICAL_ES_SCAN, table, qualifier,
+                ImmutableList.of(), virtualColumns, groupExpression, logicalProperties, tableAlias);
+    }
+
+    public LogicalEsScan(RelationId id, TableIf table, List<String> qualifier,
+            List<NamedExpression> virtualColumns,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties) {
+        this(id, table, qualifier, virtualColumns, groupExpression, logicalProperties, "");
     }
 
     public LogicalEsScan(RelationId id, TableIf table, List<String> qualifier) {
-        this(id, table, qualifier, Optional.empty(), Optional.empty());
+        this(id, table, qualifier, ImmutableList.of(), Optional.empty(), Optional.empty(), "");
     }
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalEsScan",
-            "qualified", qualifiedName(),
-            "output", getOutput()
-        );
+        return Utils.toSqlStringSkipNull("LogicalEsScan",
+                "qualified", qualifiedName(),
+                "alias", tableAlias,
+                "output", getOutput(), "stats", statistics);
     }
 
     @Override
     public LogicalEsScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalEsScan(relationId, table, qualifier, groupExpression,
-            Optional.of(getLogicalProperties()));
+        return new LogicalEsScan(relationId, table, qualifier, virtualColumns,
+                groupExpression, Optional.of(getLogicalProperties()), tableAlias);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalEsScan(relationId, table, qualifier, groupExpression, logicalProperties);
+        return new LogicalEsScan(relationId, table, qualifier, virtualColumns, groupExpression, logicalProperties,
+                tableAlias);
     }
 
     @Override
     public LogicalEsScan withRelationId(RelationId relationId) {
-        return new LogicalEsScan(relationId, table, qualifier, Optional.empty(), Optional.empty());
+        return new LogicalEsScan(relationId, table, qualifier, virtualColumns, Optional.empty(), Optional.empty(),
+                tableAlias);
+    }
+
+    @Override
+    public LogicalEsScan withVirtualColumns(List<NamedExpression> virtualColumns) {
+        return new LogicalEsScan(relationId, table, qualifier, virtualColumns, Optional.empty(), Optional.empty(),
+                tableAlias);
+    }
+
+    public LogicalEsScan withTableAlias(String tableAlias) {
+        return new LogicalEsScan(relationId, table, qualifier, virtualColumns, Optional.empty(),
+                Optional.of(getLogicalProperties()), tableAlias);
     }
 
     @Override

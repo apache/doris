@@ -48,6 +48,7 @@
 #include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
@@ -59,7 +60,7 @@ class SipHash;
 namespace doris::segment_v2 {
 enum CompressionTypePB : int;
 } // namespace doris::segment_v2
-
+#include "common/compile_check_begin.h"
 namespace doris::vectorized {
 template <typename T>
 void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
@@ -106,6 +107,8 @@ Block::Block(const std::vector<SlotDescriptor>& slots, size_t block_size,
              bool ignore_trivial_slot) {
     std::vector<SlotDescriptor*> slot_ptrs(slots.size());
     for (size_t i = 0; i < slots.size(); ++i) {
+        // Slots remain unmodified and are used to read column information; const_cast can be employed.
+        // used in src/exec/rowid_fetcher.cpp
         slot_ptrs[i] = const_cast<SlotDescriptor*>(&slots[i]);
     }
     *this = Block(slot_ptrs, block_size, ignore_trivial_slot);
@@ -255,16 +258,24 @@ void Block::erase(size_t position) {
 }
 
 void Block::erase_impl(size_t position) {
+    bool need_maintain_index_by_name = true;
+    if (position + 1 == data.size()) {
+        index_by_name.erase(data.back().name);
+        need_maintain_index_by_name = false;
+    }
+
     data.erase(data.begin() + position);
 
-    for (auto it = index_by_name.begin(); it != index_by_name.end();) {
-        if (it->second == position) {
-            index_by_name.erase(it++);
-        } else {
-            if (it->second > position) {
-                --it->second;
+    if (need_maintain_index_by_name) {
+        for (auto it = index_by_name.begin(); it != index_by_name.end();) {
+            if (it->second == position) {
+                index_by_name.erase(it++);
+            } else {
+                if (it->second > position) {
+                    --it->second;
+                }
+                ++it;
             }
-            ++it;
         }
     }
     if (position < row_same_bit.size()) {
@@ -372,6 +383,37 @@ void Block::check_number_of_rows(bool allow_null_columns) const {
                             dump_structure());
         }
     }
+}
+
+Status Block::check_type_and_column() const {
+#ifndef NDEBUG
+    for (const auto& elem : data) {
+        if (!elem.column) {
+            continue;
+        }
+        if (!elem.type) {
+            continue;
+        }
+
+        // ColumnNothing is a special column type, it is used to represent a column that
+        // is not materialized, so we don't need to check it.
+        if (check_and_get_column<ColumnNothing>(elem.column.get())) {
+            continue;
+        }
+
+        const auto& type = elem.type;
+        const auto& column = elem.column;
+
+        auto st = type->check_column(*column);
+        if (!st.ok()) {
+            return Status::InternalError(
+                    "Column {} in block is not compatible with its column type :{}, data type :{}, "
+                    "error: {}",
+                    elem.name, column->get_name(), type->get_name(), st.msg());
+        }
+    }
+#endif
+    return Status::OK();
 }
 
 size_t Block::rows() const {
@@ -487,12 +529,62 @@ std::string Block::dump_types() const {
     return out;
 }
 
+std::string Block::dump_data_json(size_t begin, size_t row_limit, bool allow_null_mismatch) const {
+    std::stringstream ss;
+
+    std::vector<std::string> headers;
+    headers.reserve(columns());
+    for (const auto& it : data) {
+        // fmt::format is from the {fmt} library, you might be using std::format in C++20
+        // If not, you can build the string with a stringstream as a fallback.
+        headers.push_back(fmt::format("{}({})", it.name, it.type->get_name()));
+    }
+
+    size_t start_row = std::min(begin, rows());
+    size_t end_row = std::min(rows(), begin + row_limit);
+
+    ss << "[";
+    for (size_t row_num = start_row; row_num < end_row; ++row_num) {
+        if (row_num > start_row) {
+            ss << ",";
+        }
+        ss << "{";
+        for (size_t i = 0; i < columns(); ++i) {
+            if (i > 0) {
+                ss << ",";
+            }
+            ss << "\"" << headers[i] << "\":";
+            std::string s;
+
+            // This value-extraction logic is preserved from your original function
+            // to maintain consistency, especially for handling nullability mismatches.
+            if (data[i].column && data[i].type->is_nullable() &&
+                !data[i].column->is_concrete_nullable()) {
+                // This branch handles a specific internal representation of nullable columns.
+                // The original code would assert here if allow_null_mismatch is false.
+                assert(allow_null_mismatch);
+                s = assert_cast<const DataTypeNullable*>(data[i].type.get())
+                            ->get_nested_type()
+                            ->to_string(*data[i].column, row_num);
+            } else {
+                // This is the standard path. The to_string method is expected to correctly
+                // handle all cases, including when the column is null (e.g., by returning "NULL").
+                s = data[i].to_string(row_num);
+            }
+            ss << "\"" << s << "\"";
+        }
+        ss << "}";
+    }
+    ss << "]";
+    return ss.str();
+}
+
 std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mismatch) const {
     std::vector<std::string> headers;
-    std::vector<size_t> headers_size;
+    std::vector<int> headers_size;
     for (const auto& it : data) {
         std::string s = fmt::format("{}({})", it.name, it.type->get_name());
-        headers_size.push_back(s.size() > 15 ? s.size() : 15);
+        headers_size.push_back(s.size() > 15 ? (int)s.size() : 15);
         headers.emplace_back(s);
     }
 
@@ -699,7 +791,7 @@ void Block::clear_column_data(int64_t column_size) noexcept {
     // data.size() greater than column_size, means here have some
     // function exec result in block, need erase it here
     if (column_size != -1 and data.size() > column_size) {
-        for (int i = data.size() - 1; i >= column_size; --i) {
+        for (int64_t i = data.size() - 1; i >= column_size; --i) {
             erase(i);
         }
     }
@@ -755,12 +847,13 @@ void Block::swap(Block&& other) noexcept {
 }
 
 void Block::shuffle_columns(const std::vector<int>& result_column_ids) {
+    index_by_name.clear();
     Container tmp_data;
     tmp_data.reserve(result_column_ids.size());
     for (const int result_column_id : result_column_ids) {
         tmp_data.push_back(data[result_column_id]);
     }
-    swap(Block {tmp_data});
+    data = std::move(tmp_data);
 }
 
 void Block::update_hash(SipHash& hash) const {
@@ -1080,7 +1173,7 @@ void MutableBlock::erase(const String& name) {
 }
 
 Block MutableBlock::to_block(int start_column) {
-    return to_block(start_column, _columns.size());
+    return to_block(start_column, (int)_columns.size());
 }
 
 Block MutableBlock::to_block(int start_column, int end_column) {
@@ -1092,12 +1185,41 @@ Block MutableBlock::to_block(int start_column, int end_column) {
     return {columns_with_schema};
 }
 
+std::string MutableBlock::dump_data_json(size_t row_limit) const {
+    std::stringstream ss;
+    std::vector<std::string> headers;
+
+    headers.reserve(columns());
+    for (size_t i = 0; i < columns(); ++i) {
+        headers.push_back(_data_types[i]->get_name());
+    }
+    size_t num_rows_to_dump = std::min(rows(), row_limit);
+    ss << "[";
+    for (size_t row_num = 0; row_num < num_rows_to_dump; ++row_num) {
+        if (row_num > 0) {
+            ss << ",";
+        }
+        ss << "{";
+        for (size_t i = 0; i < columns(); ++i) {
+            if (i > 0) {
+                ss << ",";
+            }
+            ss << "\"" << headers[i] << "\":";
+            std::string s = _data_types[i]->to_string(*_columns[i].get(), row_num);
+            ss << "\"" << s << "\"";
+        }
+        ss << "}";
+    }
+    ss << "]";
+    return ss.str();
+}
+
 std::string MutableBlock::dump_data(size_t row_limit) const {
     std::vector<std::string> headers;
-    std::vector<size_t> headers_size;
+    std::vector<int> headers_size;
     for (size_t i = 0; i < columns(); ++i) {
         std::string s = _data_types[i]->get_name();
-        headers_size.push_back(s.size() > 15 ? s.size() : 15);
+        headers_size.push_back(s.size() > 15 ? (int)s.size() : 15);
         headers.emplace_back(s);
     }
 
@@ -1219,5 +1341,5 @@ std::string MutableBlock::dump_names() const {
     }
     return out;
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

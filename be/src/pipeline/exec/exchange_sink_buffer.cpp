@@ -101,8 +101,7 @@ ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_
           _state(state),
           _context(state->get_query_ctx()),
           _exchange_sink_num(sender_ins_ids.size()),
-          _send_multi_blocks(state->query_options().__isset.exchange_multi_blocks_byte_size &&
-                             state->query_options().exchange_multi_blocks_byte_size > 0) {
+          _send_multi_blocks(false) {
     if (_send_multi_blocks) {
         _send_multi_blocks_byte_size = state->query_options().exchange_multi_blocks_byte_size;
     }
@@ -370,7 +369,7 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
                                                       std::move(send_remote_block_closure),
                                                       channel->_brpc_dest_addr));
             } else {
-                transmit_blockv2(*channel->_brpc_stub, std::move(send_remote_block_closure));
+                transmit_blockv2(channel->_brpc_stub.get(), std::move(send_remote_block_closure));
             }
         }
 
@@ -500,7 +499,7 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
                                                       std::move(send_remote_block_closure),
                                                       channel->_brpc_dest_addr));
             } else {
-                transmit_blockv2(*channel->_brpc_stub, std::move(send_remote_block_closure));
+                transmit_blockv2(channel->_brpc_stub.get(), std::move(send_remote_block_closure));
             }
         }
         if (!_send_multi_blocks && request.block_holder->get_block()) {

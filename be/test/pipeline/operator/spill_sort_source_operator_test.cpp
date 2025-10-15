@@ -59,7 +59,7 @@ TEST_F(SpillSortSourceOperatorTest, Basic) {
     shared_state->in_mem_shared_state =
             static_cast<SortSharedState*>(shared_state->in_mem_shared_state_sptr.get());
 
-    LocalStateInfo info {.parent_profile = _helper.runtime_profile.get(),
+    LocalStateInfo info {.parent_profile = _helper.operator_profile.get(),
                          .scan_ranges = {},
                          .shared_state = shared_state.get(),
                          .shared_state_map = {},
@@ -106,7 +106,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlock) {
     shared_state->in_mem_shared_state =
             static_cast<SortSharedState*>(shared_state->in_mem_shared_state_sptr.get());
 
-    LocalStateInfo info {.parent_profile = _helper.runtime_profile.get(),
+    LocalStateInfo info {.parent_profile = _helper.operator_profile.get(),
                          .scan_ranges = {},
                          .shared_state = shared_state.get(),
                          .shared_state_map = {},
@@ -118,7 +118,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlock) {
     auto* local_state = _helper.runtime_state->get_local_state(source_operator->operator_id());
     ASSERT_TRUE(local_state != nullptr);
 
-    shared_state->setup_shared_profile(local_state->profile());
+    shared_state->setup_shared_profile(_helper.operator_profile.get());
 
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
@@ -173,7 +173,8 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
     st = sink_operator->prepare(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
 
-    LocalSinkStateInfo sink_info {0, _helper.runtime_profile.get(), -1, shared_state.get(), {}, {}};
+    LocalSinkStateInfo sink_info {0, _helper.operator_profile.get(), -1, shared_state.get(), {},
+                                  {}};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
 
@@ -183,7 +184,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    LocalStateInfo info {.parent_profile = _helper.runtime_profile.get(),
+    LocalStateInfo info {.parent_profile = _helper.operator_profile.get(),
                          .scan_ranges = {},
                          .shared_state = shared_state.get(),
                          .shared_state_map = {},
@@ -196,7 +197,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
             _helper.runtime_state->get_local_state(source_operator->operator_id()));
     ASSERT_TRUE(local_state != nullptr);
 
-    shared_state->setup_shared_profile(local_state->profile());
+    shared_state->setup_shared_profile(_helper.operator_profile.get());
 
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
@@ -219,7 +220,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
                 _helper.runtime_state.get(), spill_stream,
                 print_id(_helper.runtime_state->query_id()), sink_operator->get_name(),
                 sink_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                std::numeric_limits<int32_t>::max(), local_state->profile());
+                std::numeric_limits<int32_t>::max(), _helper.operator_profile.get());
         ASSERT_TRUE(st.ok()) << "register_spill_stream failed: " << st.to_string();
 
         std::vector<int32_t> data;
@@ -248,10 +249,6 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
         shared_state->spill_block_batch_row_count = 100;
         st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
         ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
-
-        while (local_state->_spill_dependency->_ready.load() == false) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
         if (block.empty()) {
             continue;
         }
@@ -264,6 +261,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
         }
     }
 
+    ASSERT_TRUE(eos);
     ASSERT_TRUE(shared_state->sorted_streams.empty()) << "sorted_streams is not empty";
     ASSERT_TRUE(mutable_block) << "mutable_block is null";
     ASSERT_EQ(mutable_block->rows(), 40);
@@ -295,6 +293,8 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
 
     st = source_operator->close(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
+
+    std::cout << "************** HERE WE GO!!!!!! **************" << std::endl;
 }
 
 // Same as `GetBlockWithSpill`, but with a different  `spill_sort_mem_limit` value.
@@ -319,7 +319,8 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
     st = sink_operator->prepare(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
 
-    LocalSinkStateInfo sink_info {0, _helper.runtime_profile.get(), -1, shared_state.get(), {}, {}};
+    LocalSinkStateInfo sink_info {0, _helper.operator_profile.get(), -1, shared_state.get(), {},
+                                  {}};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
 
@@ -329,7 +330,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    LocalStateInfo info {.parent_profile = _helper.runtime_profile.get(),
+    LocalStateInfo info {.parent_profile = _helper.operator_profile.get(),
                          .scan_ranges = {},
                          .shared_state = shared_state.get(),
                          .shared_state_map = {},
@@ -342,7 +343,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
             _helper.runtime_state->get_local_state(source_operator->operator_id()));
     ASSERT_TRUE(local_state != nullptr);
 
-    shared_state->setup_shared_profile(local_state->profile());
+    shared_state->setup_shared_profile(_helper.operator_profile.get());
 
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
@@ -365,7 +366,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
                 _helper.runtime_state.get(), spill_stream,
                 print_id(_helper.runtime_state->query_id()), sink_operator->get_name(),
                 sink_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                std::numeric_limits<int32_t>::max(), local_state->profile());
+                std::numeric_limits<int32_t>::max(), _helper.operator_profile.get());
         ASSERT_TRUE(st.ok()) << "register_spill_stream failed: " << st.to_string();
 
         std::vector<int32_t> data;
@@ -399,10 +400,6 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
         shared_state->spill_block_batch_row_count = 100;
         st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
         ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
-
-        while (local_state->_spill_dependency->_ready.load() == false) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
         if (block.empty()) {
             continue;
         }
@@ -469,7 +466,8 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
     st = sink_operator->prepare(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
 
-    LocalSinkStateInfo sink_info {0, _helper.runtime_profile.get(), -1, shared_state.get(), {}, {}};
+    LocalSinkStateInfo sink_info {0, _helper.operator_profile.get(), -1, shared_state.get(), {},
+                                  {}};
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
     ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
 
@@ -479,7 +477,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    LocalStateInfo info {.parent_profile = _helper.runtime_profile.get(),
+    LocalStateInfo info {.parent_profile = _helper.operator_profile.get(),
                          .scan_ranges = {},
                          .shared_state = shared_state.get(),
                          .shared_state_map = {},
@@ -492,7 +490,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
             _helper.runtime_state->get_local_state(source_operator->operator_id()));
     ASSERT_TRUE(local_state != nullptr);
 
-    shared_state->setup_shared_profile(local_state->profile());
+    shared_state->setup_shared_profile(_helper.operator_profile.get());
 
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
@@ -515,7 +513,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
                 _helper.runtime_state.get(), spill_stream,
                 print_id(_helper.runtime_state->query_id()), sink_operator->get_name(),
                 sink_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                std::numeric_limits<int32_t>::max(), local_state->profile());
+                std::numeric_limits<int32_t>::max(), _helper.operator_profile.get());
         ASSERT_TRUE(st.ok()) << "register_spill_stream failed: " << st.to_string();
 
         std::vector<int32_t> data;
@@ -541,7 +539,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
 
     std::unique_ptr<vectorized::MutableBlock> mutable_block;
     bool eos = false;
-    while (!eos) {
+    while (!eos && st.ok()) {
         vectorized::Block block;
         shared_state->spill_block_batch_row_count = 100;
         st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
@@ -549,9 +547,6 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
             break;
         }
 
-        while (local_state->_spill_dependency->_ready.load() == false) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
         if (block.empty()) {
             continue;
         }
@@ -564,7 +559,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
         }
     }
 
-    ASSERT_FALSE(dp_helper.get_spill_status().ok());
+    ASSERT_FALSE(st.ok());
 
     st = local_state->close(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();

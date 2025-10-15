@@ -162,6 +162,7 @@ suite("test_index_match_phrase_edge", "nonConcurrent"){
 
         sql "sync"
         sql """ set enable_common_expr_pushdown = true; """
+        sql "set disable_nereids_rules='CHECK_MATCH_EXPRESSION';"
 
         GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
         qt_sql """ select count() from ${indexTbName2} where request match_phrase_edge ''; """
@@ -174,6 +175,11 @@ suite("test_index_match_phrase_edge", "nonConcurrent"){
         qt_sql """ select count() from ${indexTbName3} where request match_phrase_edge 'age'; """
         qt_sql """ select count() from ${indexTbName3} where request match_phrase_edge 'es/na'; """
         qt_sql """ select count() from ${indexTbName3} where request match_phrase_edge 'ets/images/ti'; """
+
+        qt_sql """ select count() from ${indexTbName2} where concat('abc',request) match_phrase_edge ''; """
+        qt_sql """ select count() from ${indexTbName2} where concat('abc',request) match_phrase_edge 'age'; """
+        qt_sql """ select count() from ${indexTbName2} where concat('abc',request) match_phrase_edge 'es/na'; """
+        qt_sql """ select count() from ${indexTbName2} where concat('abc',request) match_phrase_edge 'ets/images/ti'; """
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
     }

@@ -19,6 +19,13 @@ import java.math.BigDecimal;
 import com.mysql.cj.MysqlType;
 
 suite("test_prepared_stmt", "nonConcurrent") {
+    def config_row = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'enable_decimal_conversion'; """
+    String old_value = config_row[0][1]
+    sql """
+        admin set frontend config("enable_decimal_conversion" = "true");
+    """
+    sql """ ADMIN SET FRONTEND CONFIG ("prepared_stmt_start_id" = "-1"); """
+
     def tableName = "tbl_prepared_stmt"
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
@@ -26,6 +33,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
     String url = getServerPrepareJdbcUrl(context.config.jdbcUrl, "regression_test_prepared_stmt_p0")
     logger.info("jdbc prepare statement url: ${url}")
     def result1 = connect(user, password, url) {
+
         sql """DROP TABLE IF EXISTS ${tableName} """
         sql """
              CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -61,8 +69,19 @@ suite("test_prepared_stmt", "nonConcurrent") {
         qt_sql """select * from  ${tableName} order by 1, 2, 3"""
         sql "set global max_prepared_stmt_count = 10000"
         sql "set enable_fallback_to_original_planner = false"
+        sql """set global enable_server_side_prepared_statement = true"""
 
-        def stmt_read = prepareStatement "select * from ${tableName} where k1 = ? order by k1"
+        int count = 65536;
+        StringBuilder sb = new StringBuilder();
+        sb.append("?");
+        for (int i = 1; i < count; i++) {
+            sb.append(", ?");
+        }
+        String sqlWithTooManyPlaceholder = sb.toString();
+        def stmt_read = prepareStatement "select * from ${tableName} where k1 in (${sqlWithTooManyPlaceholder})"
+        assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read.class)
+
+        stmt_read = prepareStatement "select * from ${tableName} where k1 = ? order by k1"
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read.setInt(1, 1231)
         qe_select0 stmt_read
@@ -299,15 +318,50 @@ suite("test_prepared_stmt", "nonConcurrent") {
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         qe_select23 stmt_read
 
-        stmt_read = prepareStatement("""SELECT 1, null, [{'id': 1, 'name' : 'doris'}, {'id': 2, 'name': 'apache'}, null], null""")
+        stmt_read = prepareStatement("""SELECT 1, null, [{'id': '1', 'name' : 'doris'}, {'id': '2', 'name': 'apache'}, null], null""")
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         qe_select24 stmt_read
+
+        // test date_trunc
+        stmt_read = prepareStatement "select date_trunc (? , ?)"
+        stmt_read.setString(1, "2025-08-15 11:22:33")
+        stmt_read.setString(2, "DAY")
+        qe_select25 stmt_read
+
+        sql """drop table if exists table_20_undef_partitions2_keys3_properties4_distributed_by54"""
+        sql """ CREATE TABLE IF NOT EXISTS `table_20_undef_partitions2_keys3_properties4_distributed_by54` (
+              `col_int_undef_signed` int NULL,
+              `col_int_undef_signed2` int NULL,
+              `pk` int NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`col_int_undef_signed`, `col_int_undef_signed2`, `pk`)
+            DISTRIBUTED BY HASH(`pk`) BUCKETS 10
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "min_load_replica_num" = "-1",
+            "is_being_synced" = "false",
+            "storage_medium" = "hdd",
+            "storage_format" = "V2",
+            "inverted_index_storage_format" = "V2",
+            "light_schema_change" = "true",
+            "disable_auto_compaction" = "false",
+            "enable_single_replica_compaction" = "false",
+            "group_commit_interval_ms" = "10000",
+            "group_commit_data_bytes" = "134217728"
+            ); 
+        """
+        sql """insert into table_20_undef_partitions2_keys3_properties4_distributed_by54 values (1, 1, 1), (2, 2, 2)"""
+        stmt_read = prepareStatement "select min ( pk - ? ) pk , pk as pk from table_20_undef_partitions2_keys3_properties4_distributed_by54 tbl_alias1 group by pk having ( pk >= pk ) or ( round ( sign ( sign ( pk ) ) ) - ? < ? ) order by pk "
+        stmt_read.setString(1, "1")
+        stmt_read.setString(2, "2")
+        stmt_read.setString(3, "3")
+        qe_select26 stmt_read
     }
 
     // test stmtId overflow
     def result2 = connect(user, password, url) {
         // def stmt_read1 = prepareStatement "select 1"
-        // assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read1.class)
+        // assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read1.class)
         // qe_overflow_1 stmt_read1
         // stmt_read1.close()
         // int max
@@ -325,7 +379,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
         qe_overflow_3 stmt_read3
         qe_overflow_3 stmt_read3
         stmt_read3.close()
-        // int min 
+        // int min
         sql """admin set frontend config("prepared_stmt_start_id" = "2147483646");"""
         def stmt_read4 = prepareStatement "select 4"
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read4.class)
@@ -349,4 +403,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
         qe_overflow_6 stmt_read6
         stmt_read6.close()
     }
+
+    // restore enable_decimal_conversion to old_value
+    sql """ ADMIN SET FRONTEND CONFIG ("enable_decimal_conversion" = "${old_value}"); """
 }

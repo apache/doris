@@ -225,12 +225,11 @@ suite("test_auto_partition_behavior") {
             "replication_num" = "1"
         );
     """
-    test{
-        sql """insert into `long_value` values ("jwklefjklwehrnkjlwbfjkwhefkjhwjkefhkjwehfkjwehfkjwehfkjbvkwebconqkcqnocdmowqmosqmojwnqknrviuwbnclkmwkj");"""
-        def exception_str = isGroupCommitMode() ? "s length is over limit of 50." : "Partition name's length is over limit of 50."
-        exception exception_str
-    }
 
+    sql """insert into `long_value` values ("jwklefjklwehrnkjlwbfjkwhefkjhwjkefhkjwehfkjwehfkjwehfkjbvkwebconqkcqnocdmowqmosqmojwnqknrviuwbnclkmwkj");"""
+    def maxPartitionNameRes = sql "show partitions from long_value"
+    def maxPartitionName = maxPartitionNameRes[0][1]
+    assertTrue(maxPartitionName.length() <= 62, "actual length:" + maxPartitionName.length())
 
 
 
@@ -285,11 +284,11 @@ suite("test_auto_partition_behavior") {
 
     sql """ insert into test_change values ("20201212"); """
     def part_result = sql " show tablets from test_change "
-    assertEquals(part_result.size, 2 * replicaNum)
+    assertEquals(part_result.size(), 2 * replicaNum)
     sql """ ALTER TABLE test_change MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k0) BUCKETS 50; """
     sql """ insert into test_change values ("20001212"); """
     part_result = sql " show tablets from test_change "
-    assertEquals(part_result.size, 52 * replicaNum)
+    assertEquals(part_result.size(), 52 * replicaNum)
 
 
 

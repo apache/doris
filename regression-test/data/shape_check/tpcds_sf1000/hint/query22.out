@@ -23,6 +23,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(inventory date_dim item )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

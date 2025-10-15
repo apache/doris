@@ -21,12 +21,12 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.Lists;
@@ -57,7 +57,7 @@ public class OlapScanNodeTest {
         List<Expr> inList = Lists.newArrayList();
         inList.add(new IntLiteral(1));
 
-        Expr compareExpr = new SlotRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "tableName"),
+        Expr compareExpr = new SlotRef(new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "tableName"),
                 "columnA");
         InPredicate inPredicate = new InPredicate(compareExpr, inList, false);
 
@@ -67,6 +67,7 @@ public class OlapScanNodeTest {
         filterMap.put("COLUMNA", columnFilter);
 
         DistributionPruner partitionPruner  = new HashDistributionPruner(
+                null,
                 partitions,
                 columns,
                 filterMap,
@@ -101,7 +102,7 @@ public class OlapScanNodeTest {
         inList.add(new IntLiteral(5));
         inList.add(new IntLiteral(6));
 
-        Expr compareExpr = new SlotRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "tableName"),
+        Expr compareExpr = new SlotRef(new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "tableName"),
                 "columnA");
         InPredicate inPredicate = new InPredicate(compareExpr, inList, false);
 
@@ -111,6 +112,7 @@ public class OlapScanNodeTest {
         filterMap.put("columnA", columnFilter);
 
         DistributionPruner partitionPruner  = new HashDistributionPruner(
+                null,
                 partitions,
                 columns,
                 filterMap,
@@ -170,7 +172,7 @@ public class OlapScanNodeTest {
     @Test
     public void testTableNameWithAlias() {
         GlobalVariable.lowerCaseTableNames = 1;
-        SlotRef slot = new SlotRef(new TableName("DB.TBL"), Column.DELETE_SIGN);
+        SlotRef slot = new SlotRef(new TableNameInfo("DB.TBL"), Column.DELETE_SIGN);
         Assert.assertTrue(slot.getTableName().toString().equals("DB.tbl"));
     }
 }

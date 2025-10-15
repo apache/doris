@@ -137,12 +137,17 @@ public:
                                                                        SystemClockEpoch)
                                            .count()});
             }
-        } catch (Azure::Storage::StorageException& e) {
+        } catch (Azure::Core::RequestFailedException& e) {
             LOG_WARNING(
                     "Azure request failed because {}, http_code: {}, request_id: {}, url: {}, "
                     "prefix: {}",
                     e.Message, static_cast<int>(e.StatusCode), e.RequestId, client_->GetUrl(),
                     req_.Prefix.Value());
+            is_valid_ = false;
+            return false;
+        } catch (std::exception& e) {
+            LOG_WARNING("Azure request failed because {}, url: {}, prefix: {}", e.what(),
+                        client_->GetUrl(), req_.Prefix.Value());
             is_valid_ = false;
             return false;
         }
@@ -307,6 +312,14 @@ ObjectStorageResponse AzureObjClient::get_life_cycle(const std::string& bucket,
 ObjectStorageResponse AzureObjClient::check_versioning(const std::string& bucket) {
     // TODO(plat1ko)
     return {0};
+}
+
+ObjectStorageResponse AzureObjClient::abort_multipart_upload(ObjectStoragePathRef path,
+                                                             const std::string& upload_id) {
+    LOG_WARNING("abort_multipart_upload not implemented")
+            .tag("path", path.bucket + "/" + path.key)
+            .tag("upload_id", upload_id);
+    return {-1};
 }
 
 } // namespace doris::cloud

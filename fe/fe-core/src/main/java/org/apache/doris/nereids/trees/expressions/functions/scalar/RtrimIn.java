@@ -63,13 +63,18 @@ public class RtrimIn extends ScalarFunction
         super("rtrim_in", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private RtrimIn(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public RtrimIn withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
-        return new RtrimIn(children);
+        return new RtrimIn(getFunctionParams(children));
     }
 
     @Override

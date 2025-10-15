@@ -132,7 +132,7 @@ public class LocationPath {
         String schema = extractScheme(location);
         String normalizedLocation = location;
         StorageProperties storageProperties = null;
-        StorageProperties.Type type = SchemaTypeMapper.fromSchema(schema);
+        StorageProperties.Type type = fromSchemaWithContext(location, schema);
         if (StorageProperties.Type.LOCAL.equals(type)) {
             normalize = false;
         }
@@ -152,6 +152,13 @@ public class LocationPath {
         String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
 
         return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
+    }
+
+    public static StorageProperties.Type fromSchemaWithContext(String location, String schema) {
+        if (isHdfsOnOssEndpoint(location)) {
+            return StorageProperties.Type.OSS_HDFS;
+        }
+        return SchemaTypeMapper.fromSchema(schema); // fallback to default
     }
 
     public static LocationPath of(String location) {
@@ -270,6 +277,9 @@ public class LocationPath {
     public static TFileType getTFileTypeForBE(String location) {
         if (StringUtils.isBlank(location)) {
             return null;
+        }
+        if (isHdfsOnOssEndpoint(location)) {
+            return TFileType.FILE_HDFS;
         }
         LocationPath locationPath = LocationPath.of(location);
         return locationPath.getTFileTypeForBE();

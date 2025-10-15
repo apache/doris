@@ -140,6 +140,12 @@ message(STATUS "make benchmark: ${BUILD_BENCHMARK}")
 option(BUILD_FS_BENCHMARK "ON for building fs benchmark tool or OFF for not" OFF)
 message(STATUS "build fs benchmark tool: ${BUILD_FS_BENCHMARK}")
 
+option(BUILD_TASK_EXECUTOR_SIMULATOR "ON for building task executor simulator or OFF for not" OFF)
+message(STATUS "build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}")
+
+option(BUILD_FILE_CACHE_LRU_TOOL "ON for building file cache lru tool or OFF for not" OFF)
+message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
+
 set(CMAKE_SKIP_RPATH TRUE)
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_STATIC_RUNTIME ON)
@@ -177,9 +183,6 @@ endif()
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
-option(BUILD_FAISS "Link doris with faiss for vector similarity search" OFF)
-message(STATUS "build faiss: ${BUILD_FAISS}")
-
 include (cmake/thirdparty.cmake)
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
@@ -194,10 +197,15 @@ SET(SNAPPY_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(LZ4_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(LZ4_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/lz4")
 SET(ZLIB_HOME "$ENV{DORIS_THIRDPARTY}/installed")
+SET(ZLIB_USE_STATIC_LIBS ON)
+SET(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
+find_package(ZLIB)
 SET(ZSTD_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(ZSTD_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/zstd")
+SET(CONTRIB_PATH "${PROJECT_SOURCE_DIR}/../contrib")
 
-add_subdirectory(${SRC_DIR}/apache-orc EXCLUDE_FROM_ALL)
+# Out of source build need to set the binary dir
+add_subdirectory(${CONTRIB_PATH}/apache-orc ${PROJECT_BINARY_DIR}/apache-orc EXCLUDE_FROM_ALL)
 target_compile_options(orc PRIVATE -Wno-implicit-fallthrough -w)
 
 option(BUILD_STATIC_LIBRARIES "Build static libraries" ON)
@@ -205,14 +213,14 @@ option(BUILD_SHARED_LIBRARIES "Build shared libraries" OFF)
 option(BUILD_CONTRIBS_LIB "Build contribs lib" ON)
 
 set(BOOST_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
-set(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(Roaring_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(USE_STAT64 0)
 
 # disable clucene bthread supported.
 set(USE_BTHREAD OFF)
 
-add_subdirectory(${SRC_DIR}/clucene EXCLUDE_FROM_ALL)
+# Out of source build need to set the binary dir
+add_subdirectory(${CONTRIB_PATH}/clucene ${PROJECT_BINARY_DIR}/clucene EXCLUDE_FROM_ALL)
 
 set(clucene_options -w -Wall)
 if (COMPILER_CLANG)
@@ -227,7 +235,7 @@ target_compile_options(clucene-contribs-lib PRIVATE ${clucene_options})
 target_compile_options(ic PRIVATE ${clucene_options})
 
 install(DIRECTORY
-    ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
+    ${CONTRIB_PATH}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
     DESTINATION ${OUTPUT_DIR})
 
 install(DIRECTORY
@@ -272,6 +280,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
 
 add_compile_options(-g
+                    -gdwarf-5
                     -Wall
                     -Wextra
                     -Werror
@@ -315,9 +324,8 @@ if (COMPILER_CLANG)
                         -Wconversion)
     add_compile_options( -Wno-gnu-statement-expression
                         -Wno-implicit-float-conversion
-                        -Wno-implicit-int-conversion
                         -Wno-sign-conversion
-                        -Wno-shorten-64-to-32)
+                        )
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         add_definitions(-DUSE_LIBCPP)
@@ -334,6 +342,11 @@ add_definitions(-D__STDC_FORMAT_MACROS
 
 # Thrift requires these two definitions for some types that we use
 add_definitions(-DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H)
+
+# Mac specific definitions - needed for system headers and third-party libs
+if (OS_MACOSX)
+    add_definitions(-D_DARWIN_C_SOURCE)
+endif()
 
 if (RECORD_COMPILER_SWITCHES)
     add_compile_options(-frecord-gcc-switches)
@@ -355,13 +368,10 @@ if (ARCH_ARM)
     message(STATUS "ARM_MARCH is ${ARM_MARCH}")
     add_definitions(-DLIBDIVIDE_NEON)
 endif()
+SET(ARM_MARCH "${ARM_MARCH}")
 
 if (ENABLE_INJECTION_POINT)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_INJECTION_POINT")
-endif()
-
-if (ENABLE_CACHE_LOCK_DEBUG)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_CACHE_LOCK_DEBUG")
 endif()
 
 # Compile with jemalloc.
@@ -378,10 +388,6 @@ if (USE_UNWIND)
     endif()
 endif()
 
-if (USE_DWARF)
-    add_compile_options(-gdwarf-5)
-endif()
-
 # For CMAKE_BUILD_TYPE=Debug
 if (OS_MACOSX AND ARCH_ARM)
     # Using -O0 may meet ARM64 branch out of range errors when linking with tcmalloc.
@@ -394,7 +400,7 @@ endif()
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
 set(CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
-set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-strict-aliasing -fno-sanitize=signed-integer-overflow,float-cast-overflow  -fsanitize-ignorelist=${BASE_DIR}/../conf/ubsan_ignorelist.txt -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
+set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-sanitize=float-cast-overflow  -fsanitize-ignorelist=${BASE_DIR}/../conf/ubsan_ignorelist.txt -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
 set(CXX_FLAGS_LSAN "-O0 -fsanitize=leak -DLEAK_SANITIZER")
 ## Use for BE-UT
 set(CXX_FLAGS_ASAN_UT "-O0 -fsanitize=address -DADDRESS_SANITIZER")
@@ -416,6 +422,9 @@ elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
     set(CMAKE_CXX_FLAGS ${CXX_FLAGS_RELEASE})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
     set(CMAKE_CXX_FLAGS "${CXX_FLAGS_ASAN}")
+    # https://github.com/abseil/abseil-cpp/commit/68ce303da1920522a27e5d8e2732b3e50d3aae57
+    # for disable some asan check of absl
+    add_definitions(-DNDEBUG_SANITIZER)
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "LSAN")
     set(CMAKE_CXX_FLAGS "${CXX_FLAGS_LSAN}")
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "UBSAN")
@@ -424,6 +433,7 @@ elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "TSAN")
     set(CMAKE_CXX_FLAGS "${CXX_FLAGS_TSAN}")
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN_UT")
     set(CMAKE_CXX_FLAGS "${CXX_FLAGS_ASAN_UT}")
+    add_definitions(-DNDEBUG_SANITIZER)
 else()
     message(FATAL_ERROR "Unknown build type: ${CMAKE_BUILD_TYPE}")
 endif()
@@ -435,15 +445,15 @@ set(CMAKE_C_FLAGS ${CMAKE_CXX_FLAGS})
 
 # Set include dirs
 include_directories(
-    ${SRC_DIR}/apache-orc/c++/include
-    ${CMAKE_CURRENT_BINARY_DIR}/src/apache-orc/c++/include
+    ${CONTRIB_PATH}/apache-orc/c++/include
+    ${CMAKE_CURRENT_BINARY_DIR}/apache-orc/c++/include
 )
 
 include_directories(
-    ${CMAKE_CURRENT_BINARY_DIR}/src/clucene/src/shared
-    ${SRC_DIR}/clucene/src/core
-    ${SRC_DIR}/clucene/src/shared
-    ${SRC_DIR}/clucene/src/contribs-lib
+    ${CMAKE_CURRENT_BINARY_DIR}/clucene/src/shared
+    ${CONTRIB_PATH}/clucene/src/core
+    ${CONTRIB_PATH}/clucene/src/shared
+    ${CONTRIB_PATH}/clucene/src/contribs-lib
 )
 
 include_directories(
@@ -502,7 +512,6 @@ set(DORIS_LINK_LIBS
     Common
     Exec
     Exprs
-    Gutil
     IO
     Olap
     Runtime
@@ -560,11 +569,8 @@ endif()
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
-        absl::flags_internal
-        absl::flags_reflection
-        absl::random_internal_pool_urbg
-        absl::random_internal_randen
-        absl::random_internal_seed_material
+        absl::flags
+        absl::random_random
         absl::spinlock_wait
         absl::status
         absl::statusor
@@ -668,9 +674,8 @@ if (GLIBC_COMPATIBILITY)
 endif()
 
 if (NOT OS_MACOSX)
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-        -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
-    )
+    set(CMAKE_CXX_STANDARD_LIBRARIES "-lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread")
+    set(CMAKE_C_STANDARD_LIBRARIES "-lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread")
 else()
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
         "-framework CoreFoundation"
@@ -715,12 +720,18 @@ if (MAKE_TEST)
     if (ARCH_ARM)
         add_compile_options(-ffp-contract=off)
     endif()
+    if (COMPILER_CLANG)
+        add_compile_options(
+        -Wno-implicit-int-conversion
+        -Wno-shorten-64-to-32
+        )
+    endif()
 endif ()
 
 # use this to avoid some runtime tracker. reuse BE_TEST symbol, no need another.
 if (BUILD_BENCHMARK)
     add_definitions(-DBE_TEST)
-# The separate BENCHMARK marker is introduced here because 
+# The separate BENCHMARK marker is introduced here because
 # some BE UTs mock certain functions, and BENCHMARK cannot find their definitions.
     add_definitions(-DBE_BENCHMARK)
 endif()
@@ -742,13 +753,54 @@ else()
     message(STATUS "Link Flags: ${TEST_LINK_LIBS}")
 endif()
 
+# Only apply the OpenMP-related adjustments when PCH is enabled, to avoid
+# impacting non-PCH builds.
 if (ENABLE_PCH)
+    # Ensure consistent OpenMP usage across the whole BE (including PCH) to avoid
+    # AST version mismatches in Clang when some targets use OpenMP and others don't.
+    # We try to find OpenMP quietly and, if found, apply its flags globally.
+    find_package(OpenMP QUIET)
+    if (OpenMP_CXX_FOUND OR OpenMP_FOUND)
+        if (DEFINED OpenMP_CXX_FLAGS AND NOT OpenMP_CXX_FLAGS STREQUAL "")
+            # Apply the OpenMP flags to all C++ compilations so PCH and all TUs match.
+            add_compile_options($<$<COMPILE_LANGUAGE:CXX>:${OpenMP_CXX_FLAGS}>)
+        endif()
+        # Ensure final link includes the OpenMP runtime when needed.
+        if (TARGET OpenMP::OpenMP_CXX)
+            set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} OpenMP::OpenMP_CXX)
+        endif()
+    endif()
+
     add_library(pch STATIC ${SRC_DIR}pch/pch.cc)
     target_precompile_headers(
         pch
         PUBLIC
             ${SRC_DIR}pch/pch.h
     )
+    if (OpenMP_CXX_FOUND OR OpenMP_FOUND)
+        # Propagate OpenMP to the PCH target so that sources compiled with
+        # -fopenmp can reuse the PCH without version conflicts.
+        target_link_libraries(pch PUBLIC OpenMP::OpenMP_CXX)
+        # Also add flags explicitly to be robust if usage requirements don’t apply during PCH.
+        if (DEFINED OpenMP_CXX_FLAGS AND NOT OpenMP_CXX_FLAGS STREQUAL "")
+            target_compile_options(pch PUBLIC ${OpenMP_CXX_FLAGS})
+        endif()
+        # Copy usage requirements from the imported OpenMP target onto PCH.
+        if (TARGET OpenMP::OpenMP_CXX)
+            get_property(_omp_copts TARGET OpenMP::OpenMP_CXX PROPERTY INTERFACE_COMPILE_OPTIONS)
+            if (_omp_copts)
+                target_compile_options(pch PUBLIC ${_omp_copts})
+            endif()
+            get_property(_omp_cdefs TARGET OpenMP::OpenMP_CXX PROPERTY INTERFACE_COMPILE_DEFINITIONS)
+            if (_omp_cdefs)
+                target_compile_definitions(pch PUBLIC ${_omp_cdefs})
+            endif()
+            get_property(_omp_cincs TARGET OpenMP::OpenMP_CXX PROPERTY INTERFACE_INCLUDE_DIRECTORIES)
+            if (_omp_cincs)
+                target_include_directories(pch PUBLIC ${_omp_cincs})
+            endif()
+        endif()
+    endif()
     if (COMPILER_CLANG)
         target_compile_options(pch PRIVATE -Xclang -fno-pch-timestamp)
     endif()
@@ -760,15 +812,16 @@ function(pch_reuse target)
     endif()
 endfunction(pch_reuse target)
 
+
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
 add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
 add_subdirectory(${SRC_DIR}/gen_cpp)
 add_subdirectory(${SRC_DIR}/geo)
-add_subdirectory(${SRC_DIR}/gutil)
 add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/io)
+add_subdirectory(${SRC_DIR}/olap/rowset/segment_v2/ann_index)
 add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/runtime_filter)
@@ -834,7 +887,11 @@ foreach(dir ${dirs})
 endforeach()
 
 if (BUILD_BENCHMARK)
+    if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "RELEASE")
+        message(FATAL_ERROR "Benchmark should be built with RELEASE build type, current build type is ${CMAKE_BUILD_TYPE}")
+    endif()
     add_executable(benchmark_test ${BASE_DIR}/benchmark/benchmark_main.cpp)
+    set_target_properties(benchmark_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
     target_link_libraries(benchmark_test ${DORIS_LINK_LIBS})
     message(STATUS "Add benchmark to build")
     install(TARGETS benchmark_test DESTINATION ${OUTPUT_DIR}/lib)

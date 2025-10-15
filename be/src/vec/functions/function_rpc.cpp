@@ -77,7 +77,7 @@ Status RPCFnImpl::_convert_block_to_proto(Block& block, const ColumnNumbers& arg
     for (size_t col_idx : arguments) {
         PValues* arg = request->add_args();
         ColumnWithTypeAndName& column = block.get_by_position(col_idx);
-        arg->set_has_null(column.column->has_null(row_count));
+        arg->set_has_null(column.column->has_null(0, row_count));
         auto col = column.column->convert_to_full_column_if_const();
         RETURN_IF_ERROR(column.type->get_serde()->write_column_to_pb(*col, *arg, 0, row_count));
     }
@@ -106,12 +106,5 @@ Status FunctionRPC::open(FunctionContext* context, FunctionContext::FunctionStat
         context->set_function_state(FunctionContext::FRAGMENT_LOCAL, fn);
     }
     return Status::OK();
-}
-
-Status FunctionRPC::execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                            uint32_t result, size_t input_rows_count, bool dry_run) const {
-    auto* fn = reinterpret_cast<RPCFnImpl*>(
-            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-    return fn->vec_call(context, block, arguments, result, input_rows_count);
 }
 } // namespace doris::vectorized

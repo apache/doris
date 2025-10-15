@@ -37,6 +37,7 @@
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/runtime_profile.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/exec/format/generic_reader.h"
@@ -102,43 +103,11 @@ private:
                              const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
                              bool* eof);
 
-    Status _vhandle_simple_json(RuntimeState* /*state*/, Block& block,
-                                const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
-                                bool* eof);
-
-    Status _vhandle_flat_array_complex_json(RuntimeState* /*state*/, Block& block,
-                                            const std::vector<SlotDescriptor*>& slot_descs,
-                                            bool* is_empty_row, bool* eof);
-
-    Status _vhandle_nested_complex_json(RuntimeState* /*state*/, Block& block,
-                                        const std::vector<SlotDescriptor*>& slot_descs,
-                                        bool* is_empty_row, bool* eof);
-
-    Status _parse_json(bool* is_empty_row, bool* eof);
-    Status _parse_json_doc(size_t* size, bool* eof);
-
-    Status _set_column_value(rapidjson::Value& objectValue, Block& block,
-                             const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
-
-    Status _write_data_to_column(rapidjson::Value::ConstValueIterator value,
-                                 const DataTypePtr& type_desc, vectorized::IColumn* column_ptr,
-                                 const std::string& column_name, DataTypeSerDeSPtr serde,
-                                 bool* valid);
-
-    Status _write_columns_by_jsonpath(rapidjson::Value& objectValue,
-                                      const std::vector<SlotDescriptor*>& slot_descs, Block& block,
-                                      bool* valid);
-
-    Status _append_error_msg(const rapidjson::Value& objectValue, std::string error_msg,
-                             std::string col_name, bool* valid);
-
-    static std::string _print_json_value(const rapidjson::Value& value);
-
-    Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
+    Status _read_one_message(DorisUniqueBufferPtr<uint8_t>* file_buf, size_t* read_size);
 
     // StreamLoadPipe::read_one_message only reads a portion of the data when stream loading with a chunked transfer HTTP request.
     // Need to read all the data before performing JSON parsing.
-    Status _read_one_message_from_pipe(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
+    Status _read_one_message_from_pipe(DorisUniqueBufferPtr<uint8_t>* file_buf, size_t* read_size);
 
     // simdjson, replace none simdjson function if it is ready
     Status _simdjson_init_reader();
@@ -205,8 +174,8 @@ private:
     // in `_simdjson_handle_simple_json` and `_vhandle_simple_json` (which will be used when jsonpaths is not specified)
     bool _should_process_skip_bitmap_col() const { return skip_bitmap_col_idx != -1; }
     void _append_empty_skip_bitmap_value(Block& block, size_t cur_row_count);
-    void _process_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr, Block& block,
-                                   size_t cur_row_count, bool* valid);
+    void _set_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr, Block& block,
+                               size_t cur_row_count, bool* valid);
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
     ScannerCounter* _counter = nullptr;
@@ -259,9 +228,7 @@ private:
 
     io::IOContext* _io_ctx = nullptr;
 
-    RuntimeProfile::Counter* _bytes_read_counter = nullptr;
     RuntimeProfile::Counter* _read_timer = nullptr;
-    RuntimeProfile::Counter* _file_read_timer = nullptr;
 
     // ======SIMD JSON======
     // name mapping
@@ -273,7 +240,7 @@ private:
     /// Set of columns which already met in row. Exception is thrown if there are more than one column with the same name.
     std::vector<UInt8> _seen_columns;
     // simdjson
-    std::unique_ptr<uint8_t[]> _json_str_ptr;
+    DorisUniqueBufferPtr<uint8_t> _json_str_ptr;
     const uint8_t* _json_str = nullptr;
     static constexpr size_t _init_buffer_size = 1024 * 1024 * 8;
     size_t _padded_size = _init_buffer_size + simdjson::SIMDJSON_PADDING;

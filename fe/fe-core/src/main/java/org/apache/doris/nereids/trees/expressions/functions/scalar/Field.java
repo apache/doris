@@ -75,6 +75,11 @@ public class Field extends ScalarFunction
         Preconditions.checkArgument(varArgs.length >= 1, "field function parameter size is less than 2");
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Field(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         for (int i = 1; i < children.size(); ++i) {
@@ -90,9 +95,8 @@ public class Field extends ScalarFunction
      */
     @Override
     public Field withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new Field(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new Field(getFunctionParams(children));
     }
 
     @Override

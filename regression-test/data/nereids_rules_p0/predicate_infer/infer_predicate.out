@@ -3,77 +3,77 @@
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----filter((t1.score > 10))
-------PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
+----PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_join_with_filter --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----filter((t1.score > 10))
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
 ----filter((t2.name = 'Alice'))
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_left_join --
 PhysicalResultSink
 --hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----filter((t1.score > 20))
-------PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
+----PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_right_join --
 PhysicalResultSink
 --hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----PhysicalOlapScan[t]
+----PhysicalOlapScan[t(t1)]
 ----filter((t2.score > 20))
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_full_outer_join --
 PhysicalResultSink
 --filter(OR[(t1.name = 'Test'),(t2.name = 'Test')])
 ----hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------PhysicalOlapScan[t]
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
+------PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_left_semi_join --
 PhysicalResultSink
 --hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----filter((t1.score > 20))
-------PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
+----PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_left_anti_join --
 PhysicalResultSink
 --hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----filter((t1.score > 20))
-------PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
+----PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_from_subquery --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t.id = t2.id)) otherCondition=()
 ----filter((t1.id = 1))
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
 ----filter((t2.id = 1))
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_multi_level_join --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t2.id = t3.id)) otherCondition=()
 ----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------PhysicalOlapScan[t]
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
+------PhysicalOlapScan[t(t2)]
 ----filter((t3.name = 'Test'))
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t3)]
 
 -- !infer_predicate_join_with_project_limit --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----PhysicalLimit[GLOBAL]
 ------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[t]
+--------PhysicalOlapScan[t(t1)]
 ----filter((t2.score > 20))
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_with_union --
 PhysicalResultSink
@@ -82,22 +82,22 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalUnion
 ----------filter((t1.id = 1))
-------------PhysicalOlapScan[t]
-----------PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+------------PhysicalOlapScan[t(t1)]
+----------PhysicalOlapScan[t(t2)]
+----PhysicalOlapScan[t(t3)]
 
 -- !infer_predicate_with_except --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t.id = t3.id)) otherCondition=()
 ----PhysicalExcept
-------PhysicalOlapScan[t]
-------PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
+------PhysicalOlapScan[t(t2)]
+----PhysicalOlapScan[t(t3)]
 
 -- !infer_predicate_with_subquery --
 PhysicalResultSink
 --hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t.id)) otherCondition=()
-----PhysicalOlapScan[t]
+----PhysicalOlapScan[t(t1)]
 ----filter((t.score > 60))
 ------PhysicalOlapScan[t]
 
@@ -105,62 +105,62 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=((t1.score > t2.score))
 ----filter((t1.name = 'Test'))
-------PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
+----PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_with_window_function --
 PhysicalResultSink
 --PhysicalWindow
 ----PhysicalQuickSort[LOCAL_SORT]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[t]
+--------PhysicalOlapScan[t(t1)]
 --------filter((t2.name = 'Charlie'))
-----------PhysicalOlapScan[t]
+----------PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_with_aggregate --
 PhysicalResultSink
---hashAgg[LOCAL]
+--hashAgg[GLOBAL]
 ----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------filter((t1.id > 70))
---------PhysicalOlapScan[t]
+--------PhysicalOlapScan[t(t1)]
 ------filter((t2.id > 70))
---------PhysicalOlapScan[t]
+--------PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_complex_and_or_logic --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=(OR[(t1.score > 80),AND[(t2.name = 'Dave'),(t1.id < 50)]])
 ----filter(OR[(t1.score > 80),(t1.id < 50)])
-------PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
+----PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_multiple_join_filter --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=()
 ----filter((t1.score > 90))
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
 ----filter((t2.score < 60))
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_join_with_not_exists --
 PhysicalResultSink
 --hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.id = t1.id)) otherCondition=()
-----PhysicalOlapScan[t]
+----PhysicalOlapScan[t(t1)]
 ----filter((t2.score > 100))
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_complex_subquery --
 PhysicalResultSink
 --hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----PhysicalOlapScan[t]
+----PhysicalOlapScan[t(t1)]
 ----filter((t2.name = 'Frank') and (t2.score > 110))
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_join_with_function_processed --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_length(name) = expr_length(name))) otherCondition=()
 ----filter((t1.score > 120))
-------PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
+----PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_nested_subqueries --
 PhysicalResultSink
@@ -170,75 +170,75 @@ PhysicalResultSink
 -- !infer_predicate_join_with_aggregate_having --
 PhysicalResultSink
 --filter((sum(score) > 140))
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[t]
---------PhysicalOlapScan[t]
+--------PhysicalOlapScan[t(t1)]
+--------PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_mixed_join_types --
 PhysicalResultSink
 --hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
 ----hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------PhysicalOlapScan[t]
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
+------PhysicalOlapScan[t(t2)]
 ----filter((t3.score > 150))
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t3)]
 
 -- !infer_predicate_join_with_distinct --
 PhysicalResultSink
---hashAgg[LOCAL]
+--hashAgg[GLOBAL]
 ----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------filter((t1.score > 160))
---------PhysicalOlapScan[t]
-------PhysicalOlapScan[t]
+--------PhysicalOlapScan[t(t1)]
+------PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_join_with_case_when --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----filter((if((score > 170), 'high', 'low') = 'high'))
-------PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
+----PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_self_join --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----filter((t1.score > 10))
-------PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
+----PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_complex_multitable_join --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
 ----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------filter((t1.score > 20))
---------PhysicalOlapScan[t]
-------PhysicalOlapScan[t]
+--------PhysicalOlapScan[t(t1)]
+------PhysicalOlapScan[t(t2)]
 ----filter((t3.name = 'Helen'))
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t3)]
 
 -- !infer_predicate_aggregate_subquery --
 PhysicalResultSink
 --filter((t_agg.total > 30))
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalOlapScan[t]
 
 -- !infer_predicate_join_with_function --
 PhysicalResultSink
---NestedLoopJoin[INNER_JOIN](abs((score - score)) < 40)
-----PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+--NestedLoopJoin[INNER_JOIN](abs((cast(score as BIGINT) - cast(score as BIGINT))) < 40)
+----PhysicalOlapScan[t(t1)]
+----PhysicalOlapScan[t(t2)]
 
 -- !infer_predicate_subquery_filter --
 PhysicalResultSink
 --hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t.id)) otherCondition=()
-----PhysicalOlapScan[t]
+----PhysicalOlapScan[t(t1)]
 ----filter((t.score > 50))
 ------PhysicalOlapScan[t]
 
 -- !infer_predicate_with_not_operator --
 PhysicalResultSink
 --filter((t1.score <= 60))
-----PhysicalOlapScan[t]
+----PhysicalOlapScan[t(t1)]
 
 -- !infer_predicate_complex_nested_subquery --
 PhysicalResultSink
@@ -250,13 +250,13 @@ PhysicalResultSink
 
 -- !infer_predicate_multi_join_subquery_aggregate --
 PhysicalResultSink
---hashAgg[LOCAL]
+--hashAgg[GLOBAL]
 ----hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.id = t.id)) otherCondition=()
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
 --------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[t]
-----------PhysicalOlapScan[t]
---------PhysicalOlapScan[t]
+----------PhysicalOlapScan[t(t1)]
+----------PhysicalOlapScan[t(t2)]
+--------PhysicalOlapScan[t(t3)]
 ------filter((t.score > 100))
 --------PhysicalOlapScan[t]
 
@@ -266,29 +266,29 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t1.score > 110))
-----------PhysicalOlapScan[t]
---------PhysicalOlapScan[t]
-------PhysicalOlapScan[t]
-----PhysicalOlapScan[t]
+----------PhysicalOlapScan[t(t1)]
+--------PhysicalOlapScan[t(t2)]
+------PhysicalOlapScan[t(t3)]
+----PhysicalOlapScan[t(t4)]
 
 -- !infer_predicate_multi_join_complex_subquery --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
 ----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------PhysicalOlapScan[t]
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t1)]
+------PhysicalOlapScan[t(t2)]
 ----filter((t.score > 130))
 ------PhysicalOlapScan[t]
 
 -- !infer_predicate_multi_join_with_having_clause --
 PhysicalResultSink
 --filter((sum(score) > 150))
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
 --------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[t]
-----------PhysicalOlapScan[t]
---------PhysicalOlapScan[t]
+----------PhysicalOlapScan[t(t1)]
+----------PhysicalOlapScan[t(t2)]
+--------PhysicalOlapScan[t(t3)]
 
 -- !infer0 --
 PhysicalResultSink
@@ -307,7 +307,7 @@ PhysicalResultSink
 ------filter((t2.id = 1))
 --------PhysicalOlapScan[t2]
 ----filter((t3.id = 1))
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t3)]
 
 -- !infer2 --
 PhysicalResultSink
@@ -318,7 +318,7 @@ PhysicalResultSink
 
 -- !infer3 --
 PhysicalResultSink
---hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=((t1.id = 1))
+--hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=((t1.id = 1) and (t2.id = 1))
 ----PhysicalOlapScan[t1]
 ----PhysicalOlapScan[t2]
 
@@ -341,11 +341,11 @@ PhysicalResultSink
 ------filter((t2.id = 1))
 --------PhysicalOlapScan[t2]
 ----filter((t3.id = 1))
-------PhysicalOlapScan[t]
+------PhysicalOlapScan[t(t3)]
 
 -- !infer6 --
 PhysicalResultSink
---hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=((t1.id = 1))
+--hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=((t1.id = 1) and (t1.name = 'bob'))
 ----PhysicalOlapScan[t1]
 ----filter((t2.id = 1) and (t2.name = 'bob'))
 ------PhysicalOlapScan[t2]
@@ -381,14 +381,15 @@ PhysicalResultSink
 
 -- !infer10 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(id as SMALLINT) = expr_cast(id as SMALLINT))) otherCondition=()
+--NestedLoopJoin[CROSS_JOIN]
 ----filter((t1.id = 12345))
 ------PhysicalOlapScan[t1]
-----PhysicalOlapScan[t2]
+----filter((cast(id as SMALLINT) = 12345))
+------PhysicalOlapScan[t2]
 
 -- !infer11 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(id as LARGEINT) = expr_cast(id as LARGEINT))) otherCondition=()
+--NestedLoopJoin[CROSS_JOIN]
 ----filter((t1.id = 12345))
 ------PhysicalOlapScan[t1]
 ----filter((t2.id = 12345))

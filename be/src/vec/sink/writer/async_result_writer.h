@@ -62,13 +62,13 @@ public:
 
     Status init(RuntimeState* state) override { return Status::OK(); }
 
-    virtual Status open(RuntimeState* state, RuntimeProfile* profile) = 0;
+    virtual Status open(RuntimeState* state, RuntimeProfile* operator_profile) = 0;
 
     // sink the block data to data queue, it is async
     Status sink(Block* block, bool eos);
 
     // Add the IO thread task process block() to thread pool to dispose the IO
-    Status start_writer(RuntimeState* state, RuntimeProfile* profile);
+    Status start_writer(RuntimeState* state, RuntimeProfile* operator_profile);
 
     Status get_writer_status() { return _writer_status.status(); }
 
@@ -77,12 +77,12 @@ public:
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
     const VExprContextSPtrs& _vec_output_expr_ctxs;
-    RuntimeProfile* _profile = nullptr; // not owned, set when open
+    RuntimeProfile* _operator_profile = nullptr; // not owned, set when open
 
     std::unique_ptr<Block> _get_free_block(Block*, size_t rows);
 
 private:
-    void process_block(RuntimeState* state, RuntimeProfile* profile);
+    void process_block(RuntimeState* state, RuntimeProfile* operator_profile);
     [[nodiscard]] bool _data_queue_is_available() const { return _data_queue.size() < QUEUE_SIZE; }
     [[nodiscard]] bool _is_finished() const { return !_writer_status.ok() || _eos; }
     void _set_ready_to_finish();

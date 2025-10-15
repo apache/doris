@@ -20,10 +20,10 @@
 #include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris::vectorized {
-class MockSimplifiedScanScheduler : SimplifiedScanScheduler {
+class MockSimplifiedScanScheduler : ThreadPoolSimplifiedScanScheduler {
 public:
     MockSimplifiedScanScheduler(std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
-            : SimplifiedScanScheduler("ForTest", cgroup_cpu_ctl) {}
+            : ThreadPoolSimplifiedScanScheduler("ForTest", cgroup_cpu_ctl) {}
 
     MOCK_METHOD0(get_active_threads, int());
     MOCK_METHOD0(get_queue_size, int());

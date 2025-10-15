@@ -28,6 +28,7 @@
 #include "CLucene/analysis/AnalysisHeader.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 class StandardTokenizerImpl {
 public:
@@ -203,7 +204,8 @@ private:
             _zz_start_read = 0;
         }
 
-        int32_t requested = _zz_buffer.size() - _zz_end_read - _zz_final_partial_char;
+        int32_t requested =
+                static_cast<int32_t>(_zz_buffer.size()) - _zz_end_read - _zz_final_partial_char;
         if (requested == 0) {
             return true;
         }
@@ -296,4 +298,5 @@ private:
 };
 using StandardTokenizerImplPtr = std::unique_ptr<StandardTokenizerImpl>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

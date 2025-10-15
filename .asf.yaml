@@ -50,6 +50,7 @@ github:
           - Clang Formatter
           - CheckStyle
           - P0 Regression (Doris Regression)
+          - NonConcurrent Regression (Doris Regression)
           - External Regression (Doris External Regression)
           - cloud_p0 (Doris Cloud Regression)
           - vault_p0 (Doris Cloud Regression)
@@ -63,10 +64,34 @@ github:
           - Need_2_Approval
           - Cloud UT (Doris Cloud UT)
           - performance (Doris Performance)
+          - check_coverage (Coverage)
       required_pull_request_reviews:
         dismiss_stale_reviews: true
         require_code_owner_reviews: true
         required_approving_review_count: 1
+    branch-4.0:
+      required_status_checks:
+        strict: false
+        contexts:
+          - License Check
+          - Clang Formatter
+          - CheckStyle
+          - Build Broker
+          - Build Third Party Libraries (Linux)
+          - FE UT (Doris FE UT)
+          - BE UT (Doris BE UT)
+          - Cloud UT (Doris Cloud UT)
+          - COMPILE (DORIS_COMPILE)
+          - P0 Regression (Doris Regression)
+          - NonConcurrent Regression (Doris Regression)
+          - External Regression (Doris External Regression) 
+          - cloud_p0 (Doris Cloud Regression)
+          - vault_p0 (Doris Cloud Regression)
+          - performance (Doris Performance)
+      required_pull_request_reviews:
+        require_code_owner_reviews: true
+        required_approving_review_count: 1
+        dismiss_stale_reviews: true
     branch-3.1:
       required_status_checks:
         strict: false
@@ -81,9 +106,11 @@ github:
           - Cloud UT (Doris Cloud UT)
           - COMPILE (DORIS_COMPILE)
           - P0 Regression (Doris Regression)
-          - External Regression (Doris External Regression)
+          - NonConcurrent Regression (Doris Regression)
+          - External Regression (Doris External Regression) 
           - cloud_p0 (Doris Cloud Regression)
           - vault_p0 (Doris Cloud Regression)
+          - performance (Doris Performance)
       required_pull_request_reviews:
         require_code_owner_reviews: true
         required_approving_review_count: 1
@@ -102,6 +129,7 @@ github:
           - Cloud UT (Doris Cloud UT)
           - COMPILE (DORIS_COMPILE)
           - P0 Regression (Doris Regression)
+          - NonConcurrent Regression (Doris Regression)
           - External Regression (Doris External Regression)
           - cloud_p0 (Doris Cloud Regression)
           - vault_p0 (Doris Cloud Regression)

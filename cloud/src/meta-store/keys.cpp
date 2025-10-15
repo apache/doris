@@ -17,6 +17,9 @@
 
 #include "meta-store/keys.h"
 
+#include <set>
+#include <string>
+
 #include "meta-store/codec.h"
 
 namespace doris::cloud {
@@ -51,7 +54,7 @@ static const char* META_KEY_INFIX_SCHEMA                = "schema";
 static const char* META_KEY_INFIX_DELETE_BITMAP         = "delete_bitmap";
 static const char* META_KEY_INFIX_DELETE_BITMAP_LOCK    = "delete_bitmap_lock";
 static const char* META_KEY_INFIX_DELETE_BITMAP_PENDING = "delete_bitmap_pending";
-static const char* META_KEY_INFIX_MOW_TABLET_COMPACTION = "mow_tablet_comp";
+static const char* META_KEY_INFIX_MOW_TABLET_JOB        = "mow_tablet_job";
 static const char* META_KEY_INFIX_SCHEMA_DICTIONARY     = "tablet_schema_pb_dict";
 
 static const char* RECYCLE_KEY_INFIX_INDEX              = "index";
@@ -62,11 +65,39 @@ static const char* STATS_KEY_INFIX_TABLET               = "tablet";
 
 static const char* JOB_KEY_INFIX_TABLET                 = "tablet";
 static const char* JOB_KEY_INFIX_RL_PROGRESS            = "routine_load_progress";
+static const char* JOB_KEY_INFIX_STREAMING_JOB          = "streaming_job";
+static const char* JOB_KEY_INFIX_RESTORE_TABLET         = "restore_tablet";
+static const char* JOB_KEY_INFIX_RESTORE_ROWSET         = "restore_rowset";
 
 static const char* COPY_JOB_KEY_INFIX                   = "job";
 static const char* COPY_FILE_KEY_INFIX                  = "loading_file";
 static const char* STAGE_KEY_INFIX                      = "stage";
 static const char* VAULT_KEY_INFIX                      = "vault";
+
+// Versioned key constants
+static const char* INDEX_KEY_PREFIX                     = "index";
+static const char* DATA_KEY_PREFIX                      = "data";
+static const char* SNAPSHOT_KEY_PREFIX                  = "snapshot";
+static const char* LOG_KEY_PREFIX                       = "log";
+
+static const char* PARTITION_INDEX_KEY_INFIX            = "partition";
+static const char* PARTITION_INVERTED_INDEX_KEY_INFIX   = "partition_inverted";
+static const char* TABLET_INDEX_KEY_INFIX               = "tablet";
+static const char* TABLET_INVERTED_INDEX_KEY_INFIX      = "tablet_inverted";
+static const char* INDEX_INDEX_KEY_INFIX                = "index";
+static const char* INDEX_INVERTED_KEY_INFIX             = "index_inverted";
+
+static const char* TABLET_LOAD_STATS_KEY_INFIX          = "tablet_load";
+static const char* TABLET_COMPACT_STATS_KEY_INFIX       = "tablet_compact";
+
+static const char* META_PARTITION_KEY_INFIX             = "partition";
+static const char* META_INDEX_KEY_INFIX                 = "index";
+static const char* META_ROWSET_LOAD_KEY_INFIX           = "rowset_load";
+static const char* META_ROWSET_COMPACT_KEY_INFIX        = "rowset_compact";
+static const char* META_ROWSET_REF_COUNT_KEY_INFIX      = "rowset_ref_count";
+
+static const char* SNAPSHOT_FULL_KEY_INFIX              = "full";
+static const char* SNAPSHOT_REFERENCE_KEY_INFIX         = "reference";
 
 // clang-format on
 
@@ -114,10 +145,10 @@ static void encode_prefix(const T& t, std::string* key) {
         MetaRowsetKeyInfo, MetaRowsetTmpKeyInfo, MetaTabletKeyInfo, MetaTabletIdxKeyInfo, MetaSchemaKeyInfo,
         MetaDeleteBitmapInfo, MetaDeleteBitmapUpdateLockInfo, MetaPendingDeleteBitmapInfo, PartitionVersionKeyInfo,
         RecycleIndexKeyInfo, RecyclePartKeyInfo, RecycleRowsetKeyInfo, RecycleTxnKeyInfo, RecycleStageKeyInfo,
-        StatsTabletKeyInfo, TableVersionKeyInfo,
-        JobTabletKeyInfo, JobRecycleKeyInfo, RLJobProgressKeyInfo,
+        StatsTabletKeyInfo, TableVersionKeyInfo, JobRestoreTabletKeyInfo, JobRestoreRowsetKeyInfo,
+        JobTabletKeyInfo, JobRecycleKeyInfo, RLJobProgressKeyInfo, StreamingJobKeyInfo,
         CopyJobKeyInfo, CopyFileKeyInfo,  StorageVaultKeyInfo, MetaSchemaPBDictionaryInfo,
-        MowTabletCompactionInfo>);
+        MowTabletJobInfo>);
 
     key->push_back(CLOUD_USER_KEY_SPACE01);
     // Prefixes for key families
@@ -137,7 +168,7 @@ static void encode_prefix(const T& t, std::string* key) {
                       || std::is_same_v<T, MetaDeleteBitmapInfo>
                       || std::is_same_v<T, MetaDeleteBitmapUpdateLockInfo>
                       || std::is_same_v<T, MetaPendingDeleteBitmapInfo>
-                      || std::is_same_v<T, MowTabletCompactionInfo>) {
+                      || std::is_same_v<T, MowTabletJobInfo>) {
         encode_bytes(META_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, PartitionVersionKeyInfo>
                       || std::is_same_v<T, TableVersionKeyInfo>) {
@@ -152,13 +183,17 @@ static void encode_prefix(const T& t, std::string* key) {
         encode_bytes(STATS_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, JobTabletKeyInfo>
                       || std::is_same_v<T, JobRecycleKeyInfo>
-                      || std::is_same_v<T, RLJobProgressKeyInfo>) {
+                      || std::is_same_v<T, RLJobProgressKeyInfo>
+                      || std::is_same_v<T, StreamingJobKeyInfo>) {
         encode_bytes(JOB_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, CopyJobKeyInfo>
                       || std::is_same_v<T, CopyFileKeyInfo>) {
         encode_bytes(COPY_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, StorageVaultKeyInfo>) {
         encode_bytes(VAULT_KEY_PREFIX, key);
+    } else if constexpr (std::is_same_v<T, JobRestoreTabletKeyInfo>
+                      || std::is_same_v<T, JobRestoreRowsetKeyInfo>) {
+        encode_bytes(JOB_KEY_PREFIX, key);
     } else {
         // This branch mean to be unreachable, add an assert(false) here to
         // prevent missing branch match.
@@ -189,7 +224,7 @@ std::string txn_key_prefix(std::string_view instance_id) {
 
 void txn_label_key(const TxnLabelKeyInfo& in, std::string* out) {
     encode_prefix(in, out);                 // 0x01 "txn" ${instance_id}
-    encode_bytes(TXN_KEY_INFIX_LABEL, out); // "txn_index"
+    encode_bytes(TXN_KEY_INFIX_LABEL, out); // "txn_label"
     encode_int64(std::get<1>(in), out);     // db_id
     encode_bytes(std::get<2>(in), out);     // label
 }
@@ -302,11 +337,11 @@ void meta_delete_bitmap_update_lock_key(const MetaDeleteBitmapUpdateLockInfo& in
     encode_int64(std::get<2>(in), out);                   // partition_id
 }
 
-void mow_tablet_compaction_key(const MowTabletCompactionInfo& in, std::string* out) {
-    encode_prefix(in, out);                                  // 0x01 "meta" ${instance_id}
-    encode_bytes(META_KEY_INFIX_MOW_TABLET_COMPACTION, out); // "mow_tablet_comp"
-    encode_int64(std::get<1>(in), out);                      // table_id
-    encode_int64(std::get<2>(in), out);                      // initiator
+void mow_tablet_job_key(const MowTabletJobInfo& in, std::string* out) {
+    encode_prefix(in, out);                           // 0x01 "meta" ${instance_id}
+    encode_bytes(META_KEY_INFIX_MOW_TABLET_JOB, out); // "mow_tablet_job"
+    encode_int64(std::get<1>(in), out);               // table_id
+    encode_int64(std::get<2>(in), out);               // initiator
 }
 
 void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::string* out) {
@@ -431,6 +466,26 @@ void rl_job_progress_key_info(const RLJobProgressKeyInfo& in, std::string* out) 
     encode_int64(std::get<2>(in), out);           // job_id
 }
 
+void streaming_job_key(const StreamingJobKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                         // 0x01 "job" ${instance_id}
+    encode_bytes(JOB_KEY_INFIX_STREAMING_JOB, out); // "streaming_job"
+    encode_int64(std::get<1>(in), out);             // db_id
+    encode_int64(std::get<2>(in), out);             // job_id
+}
+
+void job_restore_tablet_key(const JobRestoreTabletKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                          // 0x01 "job" ${instance_id}
+    encode_bytes(JOB_KEY_INFIX_RESTORE_TABLET, out); // "restore_tablet"
+    encode_int64(std::get<1>(in), out);              // tablet_id
+}
+
+void job_restore_rowset_key(const JobRestoreRowsetKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                          // 0x01 "job" ${instance_id}
+    encode_bytes(JOB_KEY_INFIX_RESTORE_ROWSET, out); // "restore_rowset"
+    encode_int64(std::get<1>(in), out);              // tablet_id
+    encode_int64(std::get<2>(in), out);              // version
+}
+
 //==============================================================================
 // Copy keys
 //==============================================================================
@@ -507,6 +562,297 @@ std::string system_meta_service_encryption_key_info_key() {
 // Other keys
 //==============================================================================
 
+namespace versioned {
+
+std::string version_key_prefix(std::string_view instance_id) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(VERSION_KEY_PREFIX, &out); // "version"
+    encode_bytes(instance_id, &out);        // instance_id
+    return out;
+}
+
+std::string index_key_prefix(std::string_view instance_id) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(INDEX_INDEX_KEY_INFIX, &out); // "version"
+    encode_bytes(instance_id, &out);           // instance_id
+    return out;
+}
+
+std::string stats_key_prefix(std::string_view instance_id) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(STATS_KEY_PREFIX, &out); // "stats"
+    encode_bytes(instance_id, &out);      // instance_id
+    return out;
+}
+
+std::string meta_key_prefix(std::string_view instance_id) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(META_KEY_PREFIX, &out); // "meta"
+    encode_bytes(instance_id, &out);     // instance_id
+    return out;
+}
+
+std::string data_key_prefix(std::string_view instance_id) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(DATA_KEY_PREFIX, &out); // "data"
+    encode_bytes(instance_id, &out);     // instance_id
+    return out;
+}
+
+std::string log_key_prefix(std::string_view instance_id) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(LOG_KEY_PREFIX, &out); // "log"
+    encode_bytes(instance_id, &out);    // instance_id
+    return out;
+}
+
+//==============================================================================
+// Version keys
+//==============================================================================
+void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(VERSION_KEY_PREFIX, out);          // "version"
+    encode_bytes(std::get<0>(in), out);             // instance_id
+    encode_bytes(PARTITION_VERSION_KEY_INFIX, out); // "partition"
+    encode_int64(std::get<1>(in), out);             // partition_id
+}
+
+void table_version_key(const TableVersionKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(VERSION_KEY_PREFIX, out);      // "version"
+    encode_bytes(std::get<0>(in), out);         // instance_id
+    encode_bytes(TABLE_VERSION_KEY_INFIX, out); // "table"
+    encode_int64(std::get<1>(in), out);         // table_id
+}
+
+//==============================================================================
+// Index keys
+//==============================================================================
+void partition_index_key(const PartitionIndexKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(INDEX_KEY_PREFIX, out);          // "index"
+    encode_bytes(std::get<0>(in), out);           // instance_id
+    encode_bytes(PARTITION_INDEX_KEY_INFIX, out); // "partition"
+    encode_int64(std::get<1>(in), out);           // partition_id
+}
+
+void partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(INDEX_KEY_PREFIX, out);                   // "index"
+    encode_bytes(std::get<0>(in), out);                    // instance_id
+    encode_bytes(PARTITION_INVERTED_INDEX_KEY_INFIX, out); // "partition_inverted"
+    encode_int64(std::get<1>(in), out);                    // db_id
+    encode_int64(std::get<2>(in), out);                    // table_id
+    encode_int64(std::get<3>(in), out);                    // partition_id
+}
+
+int decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id,
+                                        int64_t* partition_id) {
+    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_VERSIONED_KEY_SPACE03) {
+        return -1;
+    }
+
+    in->remove_prefix(1);
+
+    // 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${partition}
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    if (decode_key(in, &out) != 0 || out.size() != 6) {
+        return -1;
+    } else if (auto* ptr = std::get_if<std::string>(&std::get<0>(out[2]));
+               ptr == nullptr || *ptr != PARTITION_INVERTED_INDEX_KEY_INFIX) {
+        return -1;
+    }
+
+    auto* db_id_ptr = std::get_if<int64_t>(&std::get<0>(out[3]));
+    auto* table_id_ptr = std::get_if<int64_t>(&std::get<0>(out[4]));
+    auto* partition_id_ptr = std::get_if<int64_t>(&std::get<0>(out[5]));
+    if (db_id_ptr == nullptr || table_id_ptr == nullptr || partition_id_ptr == nullptr) {
+        return -1;
+    }
+
+    *db_id = *db_id_ptr;
+    *table_id = *table_id_ptr;
+    *partition_id = *partition_id_ptr;
+    return 0;
+}
+
+void tablet_index_key(const TabletIndexKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(INDEX_KEY_PREFIX, out);       // "index"
+    encode_bytes(std::get<0>(in), out);        // instance_id
+    encode_bytes(TABLET_INDEX_KEY_INFIX, out); // "tablet"
+    encode_int64(std::get<1>(in), out);        // tablet_id
+}
+
+void tablet_inverted_index_key(const TabletInvertedIndexKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(INDEX_KEY_PREFIX, out);                // "index"
+    encode_bytes(std::get<0>(in), out);                 // instance_id
+    encode_bytes(TABLET_INVERTED_INDEX_KEY_INFIX, out); // "tablet_inverted"
+    encode_int64(std::get<1>(in), out);                 // db_id
+    encode_int64(std::get<2>(in), out);                 // table_id
+    encode_int64(std::get<3>(in), out);                 // index_id
+    encode_int64(std::get<4>(in), out);                 // partition_id
+    encode_int64(std::get<5>(in), out);                 // tablet_id
+}
+
+void index_index_key(const IndexIndexKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(INDEX_KEY_PREFIX, out);      // "index"
+    encode_bytes(std::get<0>(in), out);       // instance_id
+    encode_bytes(INDEX_INDEX_KEY_INFIX, out); // "index"
+    encode_int64(std::get<1>(in), out);       // index_id
+}
+
+void index_inverted_key(const IndexInvertedKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(INDEX_KEY_PREFIX, out);         // "index"
+    encode_bytes(std::get<0>(in), out);          // instance_id
+    encode_bytes(INDEX_INVERTED_KEY_INFIX, out); // "index_inverted"
+    encode_int64(std::get<1>(in), out);          // db_id
+    encode_int64(std::get<2>(in), out);          // table_id
+    encode_int64(std::get<3>(in), out);          // index_id
+}
+
+//==============================================================================
+// Stats keys
+//==============================================================================
+void tablet_load_stats_key(const TabletLoadStatsKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(STATS_KEY_PREFIX, out);            // "stats"
+    encode_bytes(std::get<0>(in), out);             // instance_id
+    encode_bytes(TABLET_LOAD_STATS_KEY_INFIX, out); // "tablet_load"
+    encode_int64(std::get<1>(in), out);             // tablet_id
+}
+
+void tablet_compact_stats_key(const TabletCompactStatsKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(STATS_KEY_PREFIX, out);               // "stats"
+    encode_bytes(std::get<0>(in), out);                // instance_id
+    encode_bytes(TABLET_COMPACT_STATS_KEY_INFIX, out); // "tablet_compact"
+    encode_int64(std::get<1>(in), out);                // tablet_id
+}
+
+//==============================================================================
+// Meta keys
+//==============================================================================
+void meta_partition_key(const MetaPartitionKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(META_KEY_PREFIX, out);          // "meta"
+    encode_bytes(std::get<0>(in), out);          // instance_id
+    encode_bytes(META_PARTITION_KEY_INFIX, out); // "partition"
+    encode_int64(std::get<1>(in), out);          // partition_id
+}
+
+void meta_index_key(const MetaIndexKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(META_KEY_PREFIX, out);      // "meta"
+    encode_bytes(std::get<0>(in), out);      // instance_id
+    encode_bytes(META_INDEX_KEY_INFIX, out); // "index"
+    encode_int64(std::get<1>(in), out);      // index_id
+}
+
+void meta_tablet_key(const versioned::MetaTabletKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(META_KEY_PREFIX, out);       // "meta"
+    encode_bytes(std::get<0>(in), out);       // instance_id
+    encode_bytes(META_KEY_INFIX_TABLET, out); // "tablet"
+    encode_int64(std::get<1>(in), out);       // tablet_id
+}
+
+void meta_schema_key(const versioned::MetaSchemaKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(META_KEY_PREFIX, out);       // "meta"
+    encode_bytes(std::get<0>(in), out);       // instance_id
+    encode_bytes(META_KEY_INFIX_SCHEMA, out); // "schema"
+    encode_int64(std::get<1>(in), out);       // index_id
+    encode_int64(std::get<2>(in), out);       // schema_version
+}
+
+void meta_rowset_load_key(const MetaRowsetLoadKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(META_KEY_PREFIX, out);            // "meta"
+    encode_bytes(std::get<0>(in), out);            // instance_id
+    encode_bytes(META_ROWSET_LOAD_KEY_INFIX, out); // "rowset_load"
+    encode_int64(std::get<1>(in), out);            // tablet_id
+    encode_int64(std::get<2>(in), out);            // version
+}
+
+void meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(META_KEY_PREFIX, out);               // "meta"
+    encode_bytes(std::get<0>(in), out);               // instance_id
+    encode_bytes(META_ROWSET_COMPACT_KEY_INFIX, out); // "rowset_compact"
+    encode_int64(std::get<1>(in), out);               // tablet_id
+    encode_int64(std::get<2>(in), out);               // version
+}
+
+void meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(META_KEY_PREFIX, out);              // "meta"
+    encode_bytes(std::get<0>(in), out);              // instance_id
+    encode_bytes(META_KEY_INFIX_DELETE_BITMAP, out); // "delete_bitmap"
+    encode_int64(std::get<1>(in), out);              // tablet_id
+    encode_bytes(std::get<2>(in), out);              // rowset_id
+}
+//==============================================================================
+// Data keys
+//==============================================================================
+void data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(DATA_KEY_PREFIX, out);                 // "data"
+    encode_bytes(std::get<0>(in), out);                 // instance_id
+    encode_bytes(META_ROWSET_REF_COUNT_KEY_INFIX, out); // "rowset_ref_count"
+    encode_int64(std::get<1>(in), out);                 // tablet_id
+    encode_bytes(std::get<2>(in), out);                 // rowset_id
+}
+
+//==============================================================================
+// Snapshot keys
+//==============================================================================
+void snapshot_full_key(const SnapshotFullKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(SNAPSHOT_KEY_PREFIX, out);     // "snapshot"
+    encode_bytes(std::get<0>(in), out);         // instance_id
+    encode_bytes(SNAPSHOT_FULL_KEY_INFIX, out); // "full"
+}
+
+void snapshot_reference_key(const SnapshotReferenceKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(SNAPSHOT_KEY_PREFIX, out);          // "snapshot"
+    encode_bytes(std::get<0>(in), out);              // instance_id
+    encode_bytes(SNAPSHOT_REFERENCE_KEY_INFIX, out); // "reference"
+    encode_versionstamp(std::get<1>(in), out);       // timestamp
+    encode_bytes(std::get<2>(in), out);              // ref_instance_id
+}
+
+std::string snapshot_reference_key_prefix(std::string_view instance_id, Versionstamp timestamp) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(SNAPSHOT_KEY_PREFIX, &out);          // "snapshot"
+    encode_bytes(instance_id, &out);                  // instance_id
+    encode_bytes(SNAPSHOT_REFERENCE_KEY_INFIX, &out); // "reference"
+    encode_versionstamp(timestamp, &out);             // timestamp
+    return out;
+}
+
+//==============================================================================
+// Log keys
+//==============================================================================
+void log_key(const LogKeyInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(LOG_KEY_PREFIX, out);  // "log"
+    encode_bytes(std::get<0>(in), out); // instance_id
+}
+
+} // namespace versioned
+
 //==============================================================================
 // Decode keys
 //==============================================================================
@@ -535,6 +881,33 @@ int decode_key(std::string_view* in,
         last_len = in->size();
     }
     return 0;
+}
+//==================================================================================
+// Key Prefix Map
+//==================================================================================
+std::set<std::string> get_key_prefix_contants() {
+    std::set<std::string> key_prefix_set;
+    key_prefix_set.insert(INSTANCE_KEY_PREFIX);
+    key_prefix_set.insert(TXN_KEY_PREFIX);
+    key_prefix_set.insert(VERSION_KEY_PREFIX);
+    key_prefix_set.insert(META_KEY_PREFIX);
+    key_prefix_set.insert(RECYCLE_KEY_PREFIX);
+    key_prefix_set.insert(STATS_KEY_PREFIX);
+    key_prefix_set.insert(JOB_KEY_PREFIX);
+    key_prefix_set.insert(COPY_KEY_PREFIX);
+    key_prefix_set.insert(VAULT_KEY_PREFIX);
+    return key_prefix_set;
+}
+
+std::vector<std::string> get_single_version_meta_key_prefixs() {
+    std::vector<std::string> key_prefix_list;
+    for (std::string_view prefix : {"meta", "version", "stats"}) {
+        std::string key_prefix;
+        key_prefix.push_back(CLOUD_USER_KEY_SPACE01);
+        encode_bytes(prefix, &key_prefix);
+        key_prefix_list.push_back(std::move(key_prefix));
+    }
+    return key_prefix_list;
 }
 
 } // namespace doris::cloud

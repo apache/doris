@@ -63,18 +63,12 @@ int MetaServer::start(brpc::Server* server) {
         return -1;
     }
 
-    fdb_metric_exporter_.reset(new FdbMetricExporter(txn_kv_));
-    ret = fdb_metric_exporter_->start();
-    TEST_SYNC_POINT_CALLBACK("MetaServer::start:3", &ret);
-    if (ret != 0) {
-        LOG(WARNING) << "failed to start fdb metric exporter";
-        return -2;
-    }
-
     auto rate_limiter = std::make_shared<RateLimiter>();
+    auto snapshot_mgr = std::make_shared<SnapshotManager>(txn_kv_);
 
     // Add service
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv_, rc_mgr, rate_limiter);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv_, rc_mgr, rate_limiter,
+                                                          std::move(snapshot_mgr));
     auto meta_service_proxy = new MetaServiceProxy(std::move(meta_service));
 
     brpc::ServiceOptions options;
@@ -91,7 +85,6 @@ int MetaServer::start(brpc::Server* server) {
 
 void MetaServer::stop() {
     server_register_->stop();
-    fdb_metric_exporter_->stop();
 }
 
 void MetaServerRegister::prepare_registry(ServiceRegistryPB* reg) {

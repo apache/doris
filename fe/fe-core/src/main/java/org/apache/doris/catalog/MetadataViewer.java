@@ -25,10 +25,10 @@ import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaStatusCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -554,7 +554,7 @@ public class MetadataViewer {
                     for (int i = 0; i < tabletIds.size(); i++) {
                         Tablet tablet = mIndex.getTablet(tabletIds.get(i));
                         long rowCount = tablet.getRowCount(true);
-                        long dataSize = tablet.getDataSize(true);
+                        long dataSize = tablet.getDataSize(true, false);
                         rowCountTabletInfos.set(i, rowCountTabletInfos.get(i) + rowCount);
                         dataSizeTabletInfos.set(i, dataSizeTabletInfos.get(i) + dataSize);
                         totalSize += dataSize;
@@ -633,7 +633,7 @@ public class MetadataViewer {
                     for (int i = 0; i < tabletIds.size(); i++) {
                         Tablet tablet = mIndex.getTablet(tabletIds.get(i));
                         long rowCount = tablet.getRowCount(true);
-                        long dataSize = tablet.getDataSize(true);
+                        long dataSize = tablet.getDataSize(true, false);
                         rowCountTabletInfos.set(i, rowCountTabletInfos.get(i) + rowCount);
                         dataSizeTabletInfos.set(i, dataSizeTabletInfos.get(i) + dataSize);
                         totalSize += dataSize;

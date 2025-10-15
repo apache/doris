@@ -83,19 +83,19 @@ struct AggregateFunctionCollectSetData {
     }
 
     void write(BufferWritable& buf) const {
-        write_var_uint(data_set.size(), buf);
+        buf.write_var_uint(data_set.size());
         for (const auto& value : data_set) {
-            write_binary(value, buf);
+            buf.write_binary(value);
         }
         write_var_int(max_size, buf);
     }
 
     void read(BufferReadable& buf) {
         uint64_t new_size = 0;
-        read_var_uint(new_size, buf);
+        buf.read_var_uint(new_size);
         ElementType x;
         for (size_t i = 0; i < new_size; ++i) {
-            read_binary(x, buf);
+            buf.read_binary(x);
             data_set.insert(x);
         }
         read_var_int(max_size, buf);
@@ -127,13 +127,13 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
 
     size_t size() const { return data_set.size(); }
 
-    void add(const IColumn& column, size_t row_num, Arena* arena) {
+    void add(const IColumn& column, size_t row_num, Arena& arena) {
         auto key = column.get_data_at(row_num);
-        key.data = arena->insert(key.data, key.size);
+        key.data = arena.insert(key.data, key.size);
         data_set.insert(key);
     }
 
-    void merge(const SelfType& rhs, Arena* arena) {
+    void merge(const SelfType& rhs, Arena& arena) {
         if (max_size == -1) {
             max_size = rhs.max_size;
         }
@@ -145,27 +145,26 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
                     return;
                 }
             }
-            assert(arena != nullptr);
             StringRef key = rhs_elem;
-            key.data = arena->insert(key.data, key.size);
+            key.data = arena.insert(key.data, key.size);
             data_set.insert(key);
         }
     }
 
     void write(BufferWritable& buf) const {
-        write_var_uint(size(), buf);
+        buf.write_var_uint(size());
         for (const auto& elem : data_set) {
-            write_string_binary(elem, buf);
+            buf.write_binary(elem);
         }
         write_var_int(max_size, buf);
     }
 
     void read(BufferReadable& buf) {
         UInt64 size;
-        read_var_uint(size, buf);
+        buf.read_var_uint(size);
         StringRef ref;
         for (size_t i = 0; i < size; ++i) {
-            read_string_binary(ref, buf);
+            buf.read_binary(ref);
             data_set.insert(ref);
         }
         read_var_int(max_size, buf);
@@ -219,14 +218,14 @@ struct AggregateFunctionCollectListData {
     }
 
     void write(BufferWritable& buf) const {
-        write_var_uint(size(), buf);
+        buf.write_var_uint(size());
         buf.write(data.raw_data(), size() * sizeof(ElementType));
         write_var_int(max_size, buf);
     }
 
     void read(BufferReadable& buf) {
         UInt64 rows = 0;
-        read_var_uint(rows, buf);
+        buf.read_var_uint(rows);
         data.resize(rows);
         buf.read(reinterpret_cast<char*>(data.data()), rows * sizeof(ElementType));
         read_var_int(max_size, buf);
@@ -278,10 +277,10 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
     void write(BufferWritable& buf) const {
         auto& col = assert_cast<ColVecType&>(*data);
 
-        write_var_uint(col.size(), buf);
+        buf.write_var_uint(col.size());
         buf.write(col.get_offsets().raw_data(), col.size() * sizeof(IColumn::Offset));
 
-        write_var_uint(col.get_chars().size(), buf);
+        buf.write_var_uint(col.get_chars().size());
         buf.write(col.get_chars().raw_data(), col.get_chars().size());
         write_var_int(max_size, buf);
     }
@@ -289,13 +288,13 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
     void read(BufferReadable& buf) {
         auto& col = assert_cast<ColVecType&>(*data);
         UInt64 offs_size = 0;
-        read_var_uint(offs_size, buf);
+        buf.read_var_uint(offs_size);
         col.get_offsets().resize(offs_size);
         buf.read(reinterpret_cast<char*>(col.get_offsets().data()),
                  offs_size * sizeof(IColumn::Offset));
 
         UInt64 chars_size = 0;
-        read_var_uint(chars_size, buf);
+        buf.read_var_uint(chars_size);
         col.get_chars().resize(chars_size);
         buf.read(reinterpret_cast<char*>(col.get_chars().data()), chars_size);
         read_var_int(max_size, buf);
@@ -349,7 +348,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
 
     void write(BufferWritable& buf) const {
         const size_t size = column_data->size();
-        write_binary(size, buf);
+        buf.write_binary(size);
 
         DataTypeSerDe::FormatOptions opt;
         auto tmp_str = ColumnString::create();
@@ -363,7 +362,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
                                                " error: " + st.to_string());
             }
             tmp_buf.commit();
-            write_string_binary(tmp_str->get_data_at(0), buf);
+            buf.write_binary(tmp_str->get_data_at(0));
         }
 
         write_var_int(max_size, buf);
@@ -371,14 +370,14 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
 
     void read(BufferReadable& buf) {
         size_t size = 0;
-        read_binary(size, buf);
+        buf.read_binary(size);
         column_data->clear();
         column_data->reserve(size);
 
         StringRef s;
         DataTypeSerDe::FormatOptions opt;
         for (size_t i = 0; i < size; i++) {
-            read_string_binary(s, buf);
+            buf.read_binary(s);
             Slice slice(s.data, s.size);
             if (Status st = serde->deserialize_one_cell_from_json(*column_data, slice, opt); !st) {
                 throw doris::Exception(ErrorCode::INTERNAL_ERROR,
@@ -396,8 +395,9 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
 
 template <typename Data, bool HasLimit>
 class AggregateFunctionCollect
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>,
-                                              true> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>, true>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
     static constexpr bool ENABLE_ARENA =
             std::is_same_v<Data, AggregateFunctionCollectSetData<TYPE_STRING, HasLimit>> ||
             std::is_same_v<Data, AggregateFunctionCollectSetData<TYPE_CHAR, HasLimit>> ||
@@ -421,7 +421,7 @@ public:
     DataTypePtr get_return_type() const override { return return_type; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena& arena) const override {
         auto& data = this->data(place);
         if constexpr (HasLimit) {
             if (data.max_size == -1) {
@@ -442,7 +442,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena* arena) const override {
+               Arena& arena) const override {
         auto& data = this->data(place);
         const auto& rhs_data = this->data(rhs);
         if constexpr (ENABLE_ARENA) {
@@ -457,7 +457,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

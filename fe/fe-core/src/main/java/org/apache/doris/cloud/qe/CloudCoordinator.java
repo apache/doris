@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud.qe;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -40,9 +39,9 @@ import java.util.List;
 public class CloudCoordinator extends Coordinator {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
 
-    public CloudCoordinator(ConnectContext context, Analyzer analyzer,
+    public CloudCoordinator(ConnectContext context,
                             Planner planner, StatsErrorEstimator statsErrorEstimator) {
-        super(context, analyzer, planner, statsErrorEstimator);
+        super(context, planner, statsErrorEstimator);
     }
 
     public CloudCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable, List<PlanFragment> fragments,

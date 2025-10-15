@@ -35,19 +35,18 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
-    _compute_agg_data_timer = ADD_TIMER(profile(), "ComputeAggDataTime");
-    _compute_partition_by_timer = ADD_TIMER(profile(), "ComputePartitionByTime");
-    _compute_order_by_timer = ADD_TIMER(profile(), "ComputeOrderByTime");
-    _compute_range_between_function_timer = ADD_TIMER(profile(), "ComputeRangeBetweenTime");
-    _partition_search_timer = ADD_TIMER(profile(), "PartitionSearchTime");
-    _order_search_timer = ADD_TIMER(profile(), "OrderSearchTime");
-    _remove_rows_timer = ADD_TIMER(profile(), "RemoveRowsTime");
-    _remove_rows = ADD_COUNTER(profile(), "RemoveRows", TUnit::UNIT);
-    _remove_count = ADD_COUNTER(profile(), "RemoveCount", TUnit::UNIT);
+    _evaluation_timer = ADD_TIMER(custom_profile(), "EvaluationTime");
+    _compute_agg_data_timer = ADD_TIMER(custom_profile(), "ComputeAggDataTime");
+    _compute_partition_by_timer = ADD_TIMER(custom_profile(), "ComputePartitionByTime");
+    _compute_order_by_timer = ADD_TIMER(custom_profile(), "ComputeOrderByTime");
+    _compute_range_between_function_timer = ADD_TIMER(custom_profile(), "ComputeRangeBetweenTime");
+    _partition_search_timer = ADD_TIMER(custom_profile(), "PartitionSearchTime");
+    _order_search_timer = ADD_TIMER(custom_profile(), "OrderSearchTime");
+    _remove_rows_timer = ADD_TIMER(custom_profile(), "RemoveRowsTime");
+    _remove_rows = ADD_COUNTER(custom_profile(), "RemoveRows", TUnit::UNIT);
+    _remove_count = ADD_COUNTER(custom_profile(), "RemoveCount", TUnit::UNIT);
     _blocks_memory_usage =
-            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
-    _agg_arena_pool = std::make_unique<vectorized::Arena>();
+            common_profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
     auto& p = _parent->cast<AnalyticSinkOperatorX>();
     if (!p._has_window || (!p._has_window_start && !p._has_window_end)) {
         // haven't set window, Unbounded:  [unbounded preceding,unbounded following]
@@ -70,15 +69,19 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_sliding_rows;
         }
         _streaming_mode = true;
+        _support_incremental_calculate = (p._has_window_start && p._has_window_end);
 
+        // TAnalyticWindowBoundaryType::PRECEDING -> negative
+        // TAnalyticWindowBoundaryType::CURRENT_ROW -> set zero
+        // TAnalyticWindowBoundaryType::FOLLOWING -> positive
         if (p._has_window_start) { //calculate start boundary
             TAnalyticWindowBoundary b = p._window.window_start;
             if (b.__isset.rows_offset_value) { //[offset     ,   ]
                 _rows_start_offset = b.rows_offset_value;
                 if (b.type == TAnalyticWindowBoundaryType::PRECEDING) {
-                    _rows_start_offset *= -1;                                //preceding--> negative
-                }                                                            //current_row  0
-            } else {                                                         //following    positive
+                    _rows_start_offset *= -1;
+                }
+            } else {
                 DCHECK_EQ(b.type, TAnalyticWindowBoundaryType::CURRENT_ROW); //[current row,   ]
                 _rows_start_offset = 0;
             }
@@ -97,7 +100,7 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             }
         }
     }
-    profile()->add_info_string("streaming mode: ", std::to_string(_streaming_mode));
+    custom_profile()->add_info_string("streaming mode: ", std::to_string(_streaming_mode));
     return Status::OK();
 }
 
@@ -114,6 +117,8 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     _offsets_of_aggregate_states.resize(_agg_functions_size);
     _result_column_nullable_flags.resize(_agg_functions_size);
     _result_column_could_resize.resize(_agg_functions_size);
+    _use_null_result.resize(_agg_functions_size, 0);
+    _could_use_previous_result.resize(_agg_functions_size, 0);
 
     for (int i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i] = p._agg_functions[i]->clone(state, state->obj_pool());
@@ -132,6 +137,8 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
         if (PARTITION_FUNCTION_SET.contains(_agg_functions[i]->function()->get_name())) {
             _streaming_mode = false;
         }
+        _support_incremental_calculate &=
+                _agg_functions[i]->function()->supported_incremental_mode();
     }
 
     _partition_exprs_size = p._partition_by_eq_expr_ctxs.size();
@@ -161,8 +168,8 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
                 _range_between_expr_ctxs[i]->root()->data_type()->create_column();
     }
 
-    _fn_place_ptr = _agg_arena_pool->aligned_alloc(p._total_size_of_aggregate_states,
-                                                   p._align_aggregate_states);
+    _fn_place_ptr = _agg_arena_pool.aligned_alloc(p._total_size_of_aggregate_states,
+                                                  p._align_aggregate_states);
     _create_agg_status();
     return Status::OK();
 }
@@ -175,7 +182,6 @@ Status AnalyticSinkLocalState::close(RuntimeState* state, Status exec_status) {
     }
 
     _destroy_agg_status();
-    _agg_arena_pool = nullptr;
     _fn_place_ptr = nullptr;
     _result_window_columns.clear();
     _agg_input_columns.clear();
@@ -185,8 +191,6 @@ Status AnalyticSinkLocalState::close(RuntimeState* state, Status exec_status) {
     return PipelineXSinkLocalState<AnalyticSharedState>::close(state, exec_status);
 }
 
-//TODO: eg sum/avg/count/min/max ROWS BETWEEN N PRECEDING AND M FOLLOWING
-//maybe could be optimized caculate at cumulative mode
 bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t current_block_rows,
                                                         int64_t current_block_base_pos) {
     const bool is_n_following_frame = _rows_end_offset > 0;
@@ -199,13 +203,18 @@ bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t current_block_ro
             _need_more_data = true;
             break;
         }
-        _reset_agg_status();
+        if (_support_incremental_calculate) {
+            _execute_for_function<true>(_partition_by_pose.start, _partition_by_pose.end,
+                                        current_row_start, current_row_end);
+        } else {
+            _reset_agg_status();
+            // Eg: rows between unbounded preceding and 10 preceding
+            // Make sure range_start <= range_end
+            current_row_start = std::min(current_row_start, current_row_end);
+            _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
+                                  current_row_start, current_row_end);
+        }
 
-        // Eg: rows between unbounded preceding and 10 preceding
-        // Make sure range_start <= range_end
-        current_row_start = std::min(current_row_start, current_row_end);
-        _execute_for_function(_partition_by_pose.start, _partition_by_pose.end, current_row_start,
-                              current_row_end);
         int64_t pos = current_pos_in_block();
         _insert_result_info(pos, pos + 1);
         _current_row_position++;
@@ -366,21 +375,27 @@ Status AnalyticSinkLocalState::_execute_impl() {
     return Status::OK();
 }
 
+template <bool incremental>
 void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int64_t partition_end,
                                                    int64_t frame_start, int64_t frame_end) {
     // here is the core function, should not add timer
     for (size_t i = 0; i < _agg_functions_size; ++i) {
-        if (_result_column_nullable_flags[i] && _current_window_empty) {
-            continue;
-        }
         std::vector<const vectorized::IColumn*> agg_columns;
         for (int j = 0; j < _agg_input_columns[i].size(); ++j) {
             agg_columns.push_back(_agg_input_columns[i][j].get());
         }
-        _agg_functions[i]->function()->add_range_single_place(
-                partition_start, partition_end, frame_start, frame_end,
-                _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
-                _agg_arena_pool.get());
+        if constexpr (incremental) {
+            _agg_functions[i]->function()->execute_function_with_incremental(
+                    partition_start, partition_end, frame_start, frame_end,
+                    _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
+                    _agg_arena_pool, false, false, false, &_use_null_result[i],
+                    &_could_use_previous_result[i]);
+        } else {
+            _agg_functions[i]->function()->add_range_single_place(
+                    partition_start, partition_end, frame_start, frame_end,
+                    _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
+                    _agg_arena_pool, &(_use_null_result[i]), &_could_use_previous_result[i]);
+        }
     }
 }
 
@@ -388,8 +403,7 @@ void AnalyticSinkLocalState::_insert_result_info(int64_t start, int64_t end) {
     // here is the core function, should not add timer
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         if (_result_column_nullable_flags[i]) {
-            if (_current_window_empty) {
-                //TODO need check this logical???
+            if (_use_null_result[i]) {
                 _result_window_columns[i]->insert_many_defaults(end - start);
             } else {
                 auto* dst =
@@ -650,7 +664,7 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
         // Its behavior is same with executed without group by key.
         // https://github.com/apache/doris/pull/40693
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::create(_pool, desc, {}, /*without_key*/ true,
-                                                           &evaluator));
+                                                           true, &evaluator));
         _agg_functions.emplace_back(evaluator);
 
         int node_idx = 0;
@@ -898,6 +912,8 @@ Status AnalyticSinkOperatorX::_insert_range_column(vectorized::Block* block,
 }
 
 void AnalyticSinkLocalState::_reset_agg_status() {
+    _use_null_result.assign(_agg_functions_size, 0);
+    _could_use_previous_result.assign(_agg_functions_size, 0);
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i]->reset(_fn_place_ptr + _offsets_of_aggregate_states[i]);
     }

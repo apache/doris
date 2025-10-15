@@ -26,6 +26,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionListenerMatcher;
@@ -56,6 +57,7 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -85,20 +87,18 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
-import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -106,12 +106,13 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.codec.digest.DigestUtils;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Predicate;
 
@@ -170,6 +171,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(ConnectionId.class, this::visitConnectionId),
                 matches(And.class, this::visitAnd),
                 matches(Or.class, this::visitOr),
+                matches(TryCast.class, this::visitTryCast),
                 matches(Cast.class, this::visitCast),
                 matches(BoundFunction.class, this::visitBoundFunction),
                 matches(BinaryArithmetic.class, this::visitBinaryArithmetic),
@@ -184,7 +186,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(Version.class, this::visitVersion),
                 matches(SessionUser.class, this::visitSessionUser),
                 matches(LastQueryId.class, this::visitLastQueryId),
-                matches(Nvl.class, this::visitNvl)
+                matches(Nvl.class, this::visitNvl),
+                matches(Match.class, this::visitMatch)
         );
     }
 
@@ -501,51 +504,50 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         }
         Expression child = cast.child();
         DataType dataType = cast.getDataType();
-        if (!safeToCast(cast)) {
-            return cast;
-        }
         // todo: process other null case
         if (child.isNullLiteral()) {
             return new NullLiteral(dataType);
-        } else if (child instanceof StringLikeLiteral && dataType instanceof DateLikeType) {
-            String dateStr = ((StringLikeLiteral) child).getStringValue();
-            if (!DateTimeChecker.isValidDateTime(dateStr)) {
-                return cast;
-            }
-            try {
-                return ((DateLikeType) dataType).fromString(dateStr);
-            } catch (Exception t) {
-                return cast;
-            }
         }
+        //TODO : use DateTimeChecker to Improve performance.
+        // if (child instanceof StringLikeLiteral && dataType instanceof DateLikeType) {
+        //     String dateStr = ((StringLikeLiteral) child).getStringValue();
+        //     if (!DateTimeChecker.isValidDateTime(dateStr)) {
+        //         return cast;
+        //     }
+        //     try {
+        //         return ((DateLikeType) dataType).fromString(dateStr);
+        //     } catch (Exception t) {
+        //         return cast;
+        //     }
+        // }
         try {
+            // TODO: support no throw exception in `checkedCastTo` and return Optional<Expression>
+            if (cast.child().getDataType().isStringLikeType() && dataType.isComplexType()) {
+                return cast;
+            }
             Expression castResult = child.checkedCastTo(dataType);
             if (!Objects.equals(castResult, cast) && !Objects.equals(castResult, child)) {
                 castResult = rewrite(castResult, context);
             }
             return castResult;
+        } catch (CastException c) {
+            if (SessionVariable.enableStrictCast()) {
+                throw c;
+            } else {
+                return new NullLiteral(dataType);
+            }
         } catch (Throwable t) {
             return cast;
         }
     }
 
-    // Check if the given literal value is safe to cast to the targetType.
-    // We need to guarantee FE cast result is identical with BE cast result.
-    // Otherwise, it's not safe.
-    protected boolean safeToCast(Cast cast) {
-        if (cast == null || cast.child() == null || cast.getDataType() == null) {
-            return true;
+    @Override
+    public Expression visitTryCast(TryCast cast, ExpressionRewriteContext context) {
+        try {
+            return visitCast(cast, context);
+        } catch (CastException c) {
+            return new NullLiteral(cast.getDataType());
         }
-        // Check double type.
-        if (cast.child() instanceof DoubleLiteral && cast.getDataType().isStringLikeType()) {
-            Double value = ((DoubleLiteral) cast.child()).getValue();
-            if (value.isInfinite() || value.isNaN()) {
-                return true;
-            }
-            return -1E16 < value && value < 1E16;
-        }
-        // Check other types if needed.
-        return true;
     }
 
     @Override
@@ -575,57 +577,64 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     public Expression visitCaseWhen(CaseWhen caseWhen, ExpressionRewriteContext context) {
         CaseWhen originCaseWhen = caseWhen;
         caseWhen = rewriteChildren(caseWhen, context);
-        Expression newDefault = null;
-        boolean foundNewDefault = false;
-
-        List<WhenClause> whenClauses = new ArrayList<>();
+        final Expression oldDefault = caseWhen.getDefaultValue().orElse(null);
+        Expression newDefault = oldDefault;
+        ImmutableList.Builder<WhenClause> whenClausesBuilder
+                = ImmutableList.builderWithExpectedSize(caseWhen.getWhenClauses().size());
+        Set<Expression> uniqueOperands = Sets.newHashSet();
         for (WhenClause whenClause : caseWhen.getWhenClauses()) {
             Expression whenOperand = whenClause.getOperand();
-
-            if (!(whenOperand.isLiteral())) {
-                whenClauses.add(new WhenClause(whenOperand, whenClause.getResult()));
+            if (!whenOperand.isLiteral() && uniqueOperands.add(whenOperand)) {
+                whenClausesBuilder.add(new WhenClause(whenOperand, whenClause.getResult()));
             } else if (BooleanLiteral.TRUE.equals(whenOperand)) {
-                foundNewDefault = true;
                 newDefault = whenClause.getResult();
                 break;
             }
         }
-
-        Expression defaultResult = null;
-        if (caseWhen.getDefaultValue().isPresent()) {
-            defaultResult = caseWhen.getDefaultValue().get();
-        }
-        if (foundNewDefault) {
-            defaultResult = newDefault;
-        }
-        if (whenClauses.isEmpty()) {
-            return TypeCoercionUtils.ensureSameResultType(
-                    originCaseWhen, defaultResult == null ? new NullLiteral(caseWhen.getDataType()) : defaultResult,
-                    context
-            );
-        }
-        if (defaultResult == null) {
-            if (caseWhen.getDataType().isNullType()) {
-                // if caseWhen's type is NULL_TYPE, means all possible return values are nulls
-                // it's safe to return null literal here
-                return new NullLiteral();
-            } else {
-                return TypeCoercionUtils.ensureSameResultType(originCaseWhen, new CaseWhen(whenClauses), context);
+        List<WhenClause> newWhenClauses = whenClausesBuilder.build();
+        Expression realTypeCoercionDefault = newDefault != null ? newDefault : new NullLiteral(caseWhen.getDataType());
+        boolean allThenEqualsDefault = true;
+        for (WhenClause whenClause : newWhenClauses) {
+            if (!whenClause.getResult().equals(realTypeCoercionDefault)) {
+                allThenEqualsDefault = false;
+                break;
             }
         }
-        return TypeCoercionUtils.ensureSameResultType(
-                originCaseWhen, new CaseWhen(whenClauses, defaultResult), context
-        );
+        if (allThenEqualsDefault) {
+            return realTypeCoercionDefault;
+        }
+        boolean hasNewChildren = newWhenClauses.size() != caseWhen.getWhenClauses().size()
+                || newDefault != oldDefault;
+        if (newWhenClauses.size() == caseWhen.getWhenClauses().size()) {
+            for (int i = 0; i < newWhenClauses.size(); i++) {
+                if (newWhenClauses.get(i) != caseWhen.getWhenClauses().get(i)) {
+                    hasNewChildren = true;
+                    break;
+                }
+            }
+        }
+        if (hasNewChildren) {
+            caseWhen = newDefault == null
+                    ? new CaseWhen(newWhenClauses) : new CaseWhen(newWhenClauses, newDefault);
+        }
+        return TypeCoercionUtils.ensureSameResultType(originCaseWhen, caseWhen, context);
     }
 
     @Override
     public Expression visitIf(If ifExpr, ExpressionRewriteContext context) {
         If originIf = ifExpr;
         ifExpr = rewriteChildren(ifExpr, context);
-        if (ifExpr.child(0) instanceof NullLiteral || ifExpr.child(0).equals(BooleanLiteral.FALSE)) {
-            return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr.child(2), context);
-        } else if (ifExpr.child(0).equals(BooleanLiteral.TRUE)) {
-            return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr.child(1), context);
+        Expression condition = ifExpr.getCondition();
+        Expression typeCoercionTrueValue
+                = TypeCoercionUtils.ensureSameResultType(originIf, ifExpr.getTrueValue(), context);
+        Expression typeCoercionFalseValue
+                = TypeCoercionUtils.ensureSameResultType(originIf, ifExpr.getFalseValue(), context);
+        if (condition.equals(BooleanLiteral.TRUE)) {
+            return typeCoercionTrueValue;
+        } else if (condition.equals(BooleanLiteral.FALSE) || condition.isNullLiteral()) {
+            return typeCoercionFalseValue;
+        } else if (typeCoercionTrueValue.equals(typeCoercionFalseValue)) {
+            return typeCoercionTrueValue;
         }
         return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr, context);
     }

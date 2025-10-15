@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.fileformat;
 
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TFileCompressType;
 
@@ -130,17 +131,18 @@ public class CsvFileFormatPropertiesTest {
     public void testAnalyzeFileFormatPropertiesInvalidCompressType() {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatProperties.PROP_COMPRESS_TYPE, "invalid");
-        csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
-        Assert.assertEquals(TFileCompressType.UNKNOWN, csvFileFormatProperties.getCompressionType());
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "Unknown compression type: invalid",
+                () -> csvFileFormatProperties.analyzeFileFormatProperties(properties, true));
     }
 
     @Test
     public void testAnalyzeFileFormatPropertiesValidCompressType() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
         properties.put(CsvFileFormatProperties.PROP_COMPRESS_TYPE, "gz");
-
         csvFileFormatProperties.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(TFileCompressType.GZ, csvFileFormatProperties.getCompressionType());
+        ExceptionChecker.expectThrowsNoException(() -> csvFileFormatProperties.checkSupportedCompressionType(true));
     }
 
     @Test

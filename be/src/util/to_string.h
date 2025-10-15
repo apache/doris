@@ -18,14 +18,20 @@
 
 #pragma once
 
+#include <absl/strings/ascii.h>
+#include <fmt/compile.h>
 #include <fmt/format.h>
+#include <glog/logging.h>
 
+#include <cfloat>
 #include <map>
 #include <set>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace doris {
+
 template <typename T>
 std::string to_string(const T& t) {
     return fmt::format("{}", t);

@@ -20,19 +20,23 @@ package org.apache.doris.analysis;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.info.TableNameInfo;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 
+/**
+ * DropIndexClause
+ */
 public class DropIndexClause extends AlterTableClause {
     private final String indexName;
-    private final TableName tableName;
+    private final TableNameInfo tableName;
     private boolean ifExists;
 
     private boolean alter;
 
-    public DropIndexClause(String indexName, boolean ifExists, TableName tableName, boolean alter) {
+    public DropIndexClause(String indexName, boolean ifExists, TableNameInfo tableName, boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.indexName = indexName;
         this.ifExists = ifExists;
@@ -44,7 +48,7 @@ public class DropIndexClause extends AlterTableClause {
         return indexName;
     }
 
-    public TableName getTableName() {
+    public TableNameInfo getTableName() {
         return tableName;
     }
 
@@ -62,7 +66,7 @@ public class DropIndexClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         if (StringUtils.isEmpty(indexName)) {
             throw new AnalysisException("index name is excepted");
         }
@@ -83,6 +87,9 @@ public class DropIndexClause extends AlterTableClause {
         return toSql(alter);
     }
 
+    /**
+     * toSql
+     */
     public String toSql(boolean alter) {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("DROP INDEX ").append("`" + indexName + "`");

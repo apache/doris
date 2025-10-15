@@ -21,10 +21,24 @@
 
 #include "olap/base_tablet.h"
 #include "olap/partial_update_info.h"
+#include "olap/rowset/rowset.h"
 
 namespace doris {
 
 class CloudStorageEngine;
+
+enum class WarmUpTriggerSource : int { NONE, SYNC_ROWSET, EVENT_DRIVEN, JOB };
+
+enum class WarmUpProgress : int { NONE, DOING, DONE };
+
+struct WarmUpState {
+    WarmUpTriggerSource trigger_source {WarmUpTriggerSource::NONE};
+    WarmUpProgress progress {WarmUpProgress::NONE};
+
+    bool operator==(const WarmUpState& other) const {
+        return trigger_source == other.trigger_source && progress == other.progress;
+    }
+};
 
 struct SyncRowsetStats {
     int64_t get_remote_rowsets_num {0};
@@ -49,6 +63,12 @@ struct SyncOptions {
     int64_t query_version = -1;
 };
 
+struct RecycledRowsets {
+    RowsetId rowset_id;
+    int64_t num_segments;
+    std::vector<std::string> index_file_names;
+};
+
 class CloudTablet final : public BaseTablet {
 public:
     CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta);
@@ -61,7 +81,34 @@ public:
                                                                bool vertical) override;
 
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-                              bool skip_missing_version) override;
+                              const CaptureRsReaderOptions& opts) override;
+    Status capture_rs_readers_internal(const Version& spec_version,
+                                       std::vector<RowSetSplits>* rs_splits);
+
+    // Capture rowset readers with cache preference optimization.
+    // This method prioritizes using cached/warmed-up rowsets when building version paths,
+    // avoiding cold data reads when possible. It uses capture_consistent_versions_prefer_cache
+    // to find a consistent version path that prefers already warmed-up rowsets.
+    Status capture_rs_readers_prefer_cache(const Version& spec_version,
+                                           std::vector<RowSetSplits>* rs_splits);
+
+    // Capture rowset readers with query freshness tolerance.
+    // This method finds a consistent version path where all rowsets are warmed up,
+    // but allows fallback to normal capture if there are newer rowsets that should be
+    // visible (based on freshness tolerance) but haven't been warmed up yet.
+    // For merge-on-write tables, uses special validation to ensure data correctness.
+    //
+    // IMPORTANT: The returned version may be smaller than the requested version if newer
+    // data hasn't been warmed up yet. This can cause different tablets in the same query
+    // to read from different versions, potentially leading to inconsistent query results.
+    //
+    // @param query_freshness_tolerance_ms: Time tolerance in milliseconds. Rowsets that
+    //        became visible within this time range (after current_time - query_freshness_tolerance_ms)
+    //        can be skipped if not warmed up. However, if older rowsets (before this time point)
+    //        are not warmed up, the method will fallback to normal capture.
+    Status capture_rs_readers_with_freshness_tolerance(const Version& spec_version,
+                                                       std::vector<RowSetSplits>* rs_splits,
+                                                       int64_t query_freshness_tolerance_ms);
 
     Status capture_consistent_rowsets_unlocked(
             const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const override;
@@ -70,7 +117,7 @@ public:
         return _approximate_data_size.load(std::memory_order_relaxed);
     }
 
-    const std::string& tablet_path() const override;
+    std::string tablet_path() const override;
 
     // clang-format off
     int64_t fetch_add_approximate_num_rowsets (int64_t x) { return _approximate_num_rowsets .fetch_add(x, std::memory_order_relaxed); }
@@ -127,12 +174,14 @@ public:
     int64_t max_version_unlocked() const override { return _max_version; }
     int64_t base_compaction_cnt() const { return _base_compaction_cnt; }
     int64_t cumulative_compaction_cnt() const { return _cumulative_compaction_cnt; }
+    int64_t full_compaction_cnt() const { return _full_compaction_cnt; }
     int64_t cumulative_layer_point() const {
         return _cumulative_point.load(std::memory_order_relaxed);
     }
 
     void set_base_compaction_cnt(int64_t cnt) { _base_compaction_cnt = cnt; }
     void set_cumulative_compaction_cnt(int64_t cnt) { _cumulative_compaction_cnt = cnt; }
+    void set_full_compaction_cnt(int64_t cnt) { _full_compaction_cnt = cnt; }
     void set_cumulative_layer_point(int64_t new_point);
 
     int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }
@@ -211,6 +260,9 @@ public:
     int64_t base_size() const { return _base_size; }
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
+    Result<RowsetSharedPtr> pick_a_rowset_for_index_change(int schema_version,
+                                                           bool& is_base_rowset);
+    Status check_rowset_schema_for_build_index(std::vector<TColumn>& columns, int schema_version);
 
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
@@ -228,7 +280,7 @@ public:
 
     Status save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
                                     DeleteBitmapPtr delete_bitmap, int64_t lock_id,
-                                    int64_t next_visible_version);
+                                    int64_t next_visible_version, RowsetSharedPtr rowset);
 
     Status calc_delete_bitmap_for_compaction(const std::vector<RowsetSharedPtr>& input_rowsets,
                                              const RowsetSharedPtr& output_rowset,
@@ -252,9 +304,6 @@ public:
 
     const auto& rowset_map() const { return _rs_version_map; }
 
-    // Merge all rowset schemas within a CloudTablet
-    Status merge_rowsets_schema();
-
     int64_t last_sync_time_s = 0;
     int64_t last_load_time_ms = 0;
     int64_t last_base_compaction_success_time_ms = 0;
@@ -266,12 +315,7 @@ public:
     std::atomic<int64_t> remote_read_time_us = 0;
     std::atomic<int64_t> exec_compaction_time_us = 0;
 
-    // Return merged extended schema
-    TabletSchemaSPtr merged_tablet_schema() const override;
-
     void build_tablet_report_info(TTabletInfo* tablet_info);
-
-    static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
     // check that if the delete bitmap in delete bitmap cache has the same cardinality with the expected_delete_bitmap's
     Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) override;
@@ -286,11 +330,59 @@ public:
     void add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets);
     void remove_unused_rowsets();
 
+    // For each given rowset not in active use, clears its file cache and returns its
+    // ID, segment count, and index file names as RecycledRowsets entries.
+    static std::vector<RecycledRowsets> recycle_cached_data(
+            const std::vector<RowsetSharedPtr>& rowsets);
+
+    // Add warmup state management
+    WarmUpState get_rowset_warmup_state(RowsetId rowset_id);
+    bool add_rowset_warmup_state(
+            const RowsetMeta& rowset, WarmUpTriggerSource source,
+            std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
+    bool update_rowset_warmup_state_inverted_idx_num(WarmUpTriggerSource source, RowsetId rowset_id,
+                                                     int64_t delta);
+    bool update_rowset_warmup_state_inverted_idx_num_unlocked(WarmUpTriggerSource source,
+                                                              RowsetId rowset_id, int64_t delta);
+    WarmUpState complete_rowset_segment_warmup(WarmUpTriggerSource trigger_source,
+                                               RowsetId rowset_id, Status status,
+                                               int64_t segment_num, int64_t inverted_idx_num);
+
+    bool is_rowset_warmed_up(const RowsetId& rowset_id) const;
+
+    void add_warmed_up_rowset(const RowsetId& rowset_id);
+
+    std::string rowset_warmup_digest() {
+        std::string res;
+        auto add_log = [&](const RowsetSharedPtr& rs) {
+            auto tmp = fmt::format("{}{}", rs->rowset_id().to_string(), rs->version().to_string());
+            if (_rowset_warm_up_states.contains(rs->rowset_id())) {
+                tmp += fmt::format(
+                        ", progress={}, segments_warmed_up={}/{}, inverted_idx_warmed_up={}/{}",
+                        _rowset_warm_up_states.at(rs->rowset_id()).state.progress,
+                        _rowset_warm_up_states.at(rs->rowset_id()).num_segments_warmed_up,
+                        _rowset_warm_up_states.at(rs->rowset_id()).num_segments,
+                        _rowset_warm_up_states.at(rs->rowset_id()).num_inverted_idx_warmed_up,
+                        _rowset_warm_up_states.at(rs->rowset_id()).num_inverted_idx);
+            }
+            res += fmt::format("[{}],", tmp);
+        };
+        traverse_rowsets_unlocked(add_log, true);
+        return res;
+    }
+
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
 
     Status sync_if_not_running(SyncRowsetStats* stats = nullptr);
+
+    bool add_rowset_warmup_state_unlocked(
+            const RowsetMeta& rowset, WarmUpTriggerSource source,
+            std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
+
+    // used by capture_rs_reader_xxx functions
+    bool rowset_is_warmed_up_unlocked(int64_t start_version, int64_t end_version);
 
     CloudStorageEngine& _engine;
 
@@ -332,6 +424,7 @@ private:
 
     int64_t _base_compaction_cnt = 0;
     int64_t _cumulative_compaction_cnt = 0;
+    int64_t _full_compaction_cnt = 0;
     int64_t _max_version = -1;
     int64_t _base_size = 0;
     int64_t _alter_version = -1;
@@ -343,13 +436,37 @@ private:
     // signatures being executed concurrently, we use _rowset_update_lock to serialize them
     mutable std::mutex _rowset_update_lock;
 
-    // Schema will be merged from all rowsets when sync_rowsets
-    TabletSchemaSPtr _merged_tablet_schema;
-
     // unused_rowsets, [start_version, end_version]
     std::mutex _gc_mutex;
     std::unordered_map<RowsetId, RowsetSharedPtr> _unused_rowsets;
     std::vector<std::pair<std::vector<RowsetId>, DeleteBitmapKeyRanges>> _unused_delete_bitmap;
+
+    // for warm up states management
+    struct RowsetWarmUpInfo {
+        WarmUpState state;
+        int64_t num_segments = 0;
+        int64_t num_inverted_idx = 0;
+        int64_t num_segments_warmed_up = 0;
+        int64_t num_inverted_idx_warmed_up = 0;
+        std::chrono::steady_clock::time_point start_tp;
+
+        void done(int64_t num_segments, int64_t num_inverted_idx) {
+            num_segments_warmed_up += num_segments;
+            num_inverted_idx_warmed_up += num_inverted_idx;
+            update_state();
+        }
+
+        bool has_finished() const {
+            return (num_segments_warmed_up >= num_segments) &&
+                   (num_inverted_idx_warmed_up >= num_inverted_idx);
+        }
+
+        void update_state();
+    };
+    std::unordered_map<RowsetId, RowsetWarmUpInfo> _rowset_warm_up_states;
+
+    mutable std::shared_mutex _warmed_up_rowsets_mutex;
+    std::unordered_set<RowsetId> _warmed_up_rowsets;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;

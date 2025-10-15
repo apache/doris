@@ -28,6 +28,8 @@
 #include "meta-store/txn_kv.h"
 
 namespace doris::cloud {
+extern void get_kv_range_boundaries_count(std::vector<std::string>& partition_boundaries,
+                                          std::unordered_map<std::string, size_t>& partition_count);
 
 class FdbMetricExporter {
 public:

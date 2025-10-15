@@ -173,14 +173,14 @@ suite ("usercase_union_rewrite") {
         o_orderdate
         """
 
-    mv_rewrite_success(query_stmt, mv_name, true,
+    mv_rewrite_success(query_stmt, mv_name,
             is_partition_statistics_ready(db, ["orders_user", mv_name]))
     compare_res(query_stmt + " order by 1,2,3,4,5,6,7,8")
 
     sql """insert into orders_user values (5, 5, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-19');"""
     sleep(10 * 1000)
 
-    mv_rewrite_success(query_stmt, mv_name, true,
+    mv_rewrite_success(query_stmt, mv_name,
             is_partition_statistics_ready(db, ["orders_user", mv_name]))
     compare_res(query_stmt + " order by 1,2,3,4,5,6,7,8")
 }

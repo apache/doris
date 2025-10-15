@@ -17,6 +17,11 @@
 
 #pragma once
 
+#ifdef __APPLE__
+#include <netinet/in.h>
+#include <sys/_types/_u_int.h>
+#endif
+
 #include <concurrentqueue.h>
 #include <sqltypes.h>
 
@@ -278,10 +283,7 @@ struct RuntimeFilterTimerQueue {
 struct AggSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(AggSharedState)
 public:
-    AggSharedState() {
-        agg_data = std::make_unique<AggregatedDataVariants>();
-        agg_arena_pool = std::make_unique<vectorized::Arena>();
-    }
+    AggSharedState() { agg_data = std::make_unique<AggregatedDataVariants>(); }
     ~AggSharedState() override {
         if (!probe_expr_ctxs.empty()) {
             _close_with_serialized_key();
@@ -303,7 +305,6 @@ public:
 
     AggregatedDataVariantsUPtr agg_data = nullptr;
     std::unique_ptr<AggregateDataContainer> aggregate_data_container;
-    ArenaUPtr agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> aggregate_evaluators;
     // group by k1,k2
     vectorized::VExprContextSPtrs probe_expr_ctxs;
@@ -533,6 +534,8 @@ struct SpillSortSharedState : public BasicSharedState,
     SortSharedState* in_mem_shared_state = nullptr;
     bool enable_spill = false;
     bool is_spilled = false;
+    int64_t limit = -1;
+    int64_t offset = 0;
     std::atomic_bool is_closed = false;
     std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
 
@@ -638,7 +641,7 @@ struct PartitionedHashJoinSharedState
     std::shared_ptr<HashJoinSharedState> inner_shared_state;
     std::vector<std::unique_ptr<vectorized::MutableBlock>> partitioned_build_blocks;
     std::vector<vectorized::SpillStreamSPtr> spilled_streams;
-    bool need_to_spill = false;
+    bool is_spilled = false;
 };
 
 struct NestedLoopJoinSharedState : public JoinSharedState {
@@ -810,38 +813,5 @@ public:
     }
 };
 
-struct FetchRpcStruct {
-    std::shared_ptr<PBackendService_Stub> stub;
-    PMultiGetRequestV2 request;
-    std::shared_ptr<doris::DummyBrpcCallback<PMultiGetResponseV2>> callback;
-    MonotonicStopWatch rpc_timer;
-};
-
-struct MaterializationSharedState : public BasicSharedState {
-    ENABLE_FACTORY_CREATOR(MaterializationSharedState)
-public:
-    MaterializationSharedState() = default;
-
-    Status init_multi_requests(const TMaterializationNode& tnode, RuntimeState* state);
-    Status create_muiltget_result(const vectorized::Columns& columns, bool eos, bool gc_id_map);
-    Status merge_multi_response(vectorized::Block* block);
-
-    void create_counter_dependency(int operator_id, int node_id, const std::string& name);
-
-    bool rpc_struct_inited = false;
-    AtomicStatus rpc_status;
-
-    bool last_block = false;
-    // empty materialization sink block not need to merge block
-    bool need_merge_block = true;
-    vectorized::Block origin_block;
-    // The rowid column of the origin block. should be replaced by the column of the result block.
-    std::vector<int> rowid_locs;
-    std::vector<vectorized::MutableBlock> response_blocks;
-    std::map<int64_t, FetchRpcStruct> rpc_struct_map;
-    // Register each line in which block to ensure the order of the result.
-    // Zero means NULL value.
-    std::vector<std::vector<int64_t>> block_order_results;
-};
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

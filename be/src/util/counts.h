@@ -59,7 +59,7 @@ public:
         if (!_nums.empty()) {
             pdqsort(_nums.begin(), _nums.end());
             size_t size = _nums.size();
-            write_binary(size, buf);
+            buf.write_binary(size);
             buf.write(reinterpret_cast<const char*>(_nums.data()), sizeof(Ty) * size);
         } else {
             // convert _sorted_nums_vec to _nums and do seiralize again
@@ -70,7 +70,7 @@ public:
 
     void unserialize(vectorized::BufferReadable& buf) {
         size_t size;
-        read_binary(size, buf);
+        buf.read_binary(size);
         _nums.resize(size);
         auto buff = buf.read(sizeof(Ty) * size);
         memcpy(_nums.data(), buff.data, buff.size);
@@ -99,7 +99,8 @@ public:
             double u = (_nums.size() - 1) * quantile;
             auto index = static_cast<uint32_t>(u);
             return _nums[index] +
-                   (u - static_cast<double>(index)) * (_nums[index + 1] - _nums[index]);
+                   (u - static_cast<double>(index)) * (static_cast<double>(_nums[index + 1]) -
+                                                       static_cast<double>(_nums[index]));
         } else {
             DCHECK(_nums.empty());
             size_t rows = 0;
@@ -124,7 +125,9 @@ public:
             if (quantile == 1) {
                 return second_number;
             }
-            return first_number + (u - static_cast<double>(index)) * (second_number - first_number);
+            return first_number +
+                   (u - static_cast<double>(index)) *
+                           (static_cast<double>(second_number) - static_cast<double>(first_number));
         }
     }
 

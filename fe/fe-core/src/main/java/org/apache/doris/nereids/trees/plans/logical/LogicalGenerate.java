@@ -38,6 +38,7 @@ import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * plan for table generator, the statement like: SELECT * FROM tbl LATERAL VIEW EXPLODE(c1) g as (gc1);
@@ -140,10 +141,32 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalGenerate",
+        return Utils.toSqlStringSkipNull("LogicalGenerate",
                 "generators", generators,
-                "generatorOutput", generatorOutput
+                "generatorOutput", generatorOutput,
+                "stats", statistics
         );
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        String generateName = "";
+        try {
+            generateName = generatorOutput.get(0).getQualifier().get(0);
+        } catch (Throwable e) {
+            generateName = generatorOutput.get(0).toDigest();
+        }
+        sb.append(child().toDigest());
+        sb.append(" LATERAL VIEW ")
+                .append(generators.get(0).toDigest())
+                .append(" ")
+                .append(generateName)
+                .append(" AS ")
+                .append(
+                        expandColumnAlias.get(0).stream().collect(Collectors.joining(", "))
+                );
+        return sb.toString();
     }
 
     @Override

@@ -138,9 +138,10 @@ public:
         // Encode to a flat binary which can be used as LRUCache's key
         std::string encode() const {
             std::string full_key;
-            full_key.resize(sizeof(int64_t) + key.size);
-            int8store(&full_key.front(), tablet_id);
-            memcpy((&full_key.front()) + sizeof(tablet_id), key.data, key.size);
+            full_key.reserve(sizeof(int64_t) + key.size);
+            const char* tid = reinterpret_cast<const char*>(&tablet_id);
+            full_key.append(tid, tid + sizeof(int64_t));
+            full_key.append(key.data, key.size);
             return full_key;
         }
     };

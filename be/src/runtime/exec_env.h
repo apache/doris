@@ -18,14 +18,17 @@
 #pragma once
 
 #include <common/multi_version.h>
+#include <gen_cpp/olap_file.pb.h>
 
 #include <atomic>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "olap/memtable_memory_limiter.h"
@@ -326,6 +329,13 @@ public:
     void set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
         _non_block_close_thread_pool = std::move(pool);
     }
+    void set_s3_file_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
+        _s3_file_upload_thread_pool = std::move(pool);
+    }
+    void set_file_cache_factory(io::FileCacheFactory* factory) { _file_cache_factory = factory; }
+    void set_file_cache_open_fd_cache(std::unique_ptr<io::FDCache>&& fd_cache) {
+        _file_cache_open_fd_cache = std::move(fd_cache);
+    }
 #endif
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
 
@@ -377,6 +387,7 @@ public:
     void clear_stream_mgr();
 
     DeleteBitmapAggCache* delete_bitmap_agg_cache() { return _delete_bitmap_agg_cache; }
+    Status init_mem_env();
 
 private:
     ExecEnv();
@@ -386,7 +397,6 @@ private:
                                const std::set<std::string>& broken_paths);
     void _destroy();
 
-    Status _init_mem_env();
     Status _check_deploy_mode();
 
     Status _create_internal_workload_group();

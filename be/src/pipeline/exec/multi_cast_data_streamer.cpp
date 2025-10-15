@@ -50,7 +50,7 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, vectoriz
                                    bool* eos) {
     MultiCastBlock* multi_cast_block = nullptr;
     {
-        INJECT_MOCK_SLEEP(std::lock_guard l(_mutex));
+        INJECT_MOCK_SLEEP(std::unique_lock l(_mutex));
         for (auto it = _spill_readers[sender_idx].begin();
              it != _spill_readers[sender_idx].end();) {
             if ((*it)->all_data_read) {
@@ -117,14 +117,10 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, vectoriz
                 RETURN_IF_CATCH_EXCEPTION(return spill_func(););
             };
 
-            _spill_read_dependencies[sender_idx]->block();
-            auto spill_runnable = std::make_shared<SpillRecoverRunnable>(
-                    state, _spill_read_dependencies[sender_idx], _source_profiles[sender_idx],
-                    _shared_state->shared_from_this(), catch_exception_func);
-            auto* thread_pool =
-                    ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
-            RETURN_IF_ERROR(thread_pool->submit(std::move(spill_runnable)));
-            return Status::OK();
+            l.unlock();
+            SpillRecoverRunnable spill_runnable(state, _source_operator_profiles[sender_idx],
+                                                catch_exception_func);
+            return spill_runnable.run();
         }
 
         auto& pos_to_pull = _sender_pos_to_read[sender_idx];
@@ -214,11 +210,11 @@ Status MultiCastDataStreamer::_trigger_spill_if_need(RuntimeState* state, bool* 
             RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                     state, spill_stream, print_id(state->query_id()), "MultiCastSender", _node_id,
                     std::numeric_limits<int32_t>::max(), std::numeric_limits<size_t>::max(),
-                    _sink_profile));
+                    _sink_operator_profile));
             for (int i = 0; i < _sender_pos_to_read.size(); ++i) {
                 if (distances[i] < total_count) {
                     auto reader = spill_stream->create_separate_reader();
-                    reader->set_counters(_source_profiles[i]);
+                    reader->set_counters(_source_operator_profiles[i]);
                     auto reader_item = std::make_shared<SpillingReader>(
                             std::move(reader), spill_stream, distances[i], false);
                     _spill_readers[i].emplace_back(std::move(reader_item));
@@ -227,7 +223,7 @@ Status MultiCastDataStreamer::_trigger_spill_if_need(RuntimeState* state, bool* 
                 _block_reading(i);
             }
 
-            RETURN_IF_ERROR(_submit_spill_task(state, spill_stream));
+            RETURN_IF_ERROR(_start_spill_task(state, spill_stream));
             DCHECK_EQ(_multi_cast_blocks.size(), 0);
 
             for (auto& pos : _sender_pos_to_read) {
@@ -241,8 +237,8 @@ Status MultiCastDataStreamer::_trigger_spill_if_need(RuntimeState* state, bool* 
     return Status::OK();
 }
 
-Status MultiCastDataStreamer::_submit_spill_task(RuntimeState* state,
-                                                 vectorized::SpillStreamSPtr spill_stream) {
+Status MultiCastDataStreamer::_start_spill_task(RuntimeState* state,
+                                                vectorized::SpillStreamSPtr spill_stream) {
     std::vector<vectorized::Block> blocks;
     for (auto& block : _multi_cast_blocks) {
         DCHECK_GT(block._block->rows(), 0);
@@ -272,8 +268,7 @@ Status MultiCastDataStreamer::_submit_spill_task(RuntimeState* state,
 
         if (!status.ok()) {
             LOG(WARNING) << "Query: " << query_id
-                         << " multi cast write failed: " << status.to_string()
-                         << ", dependency: " << (void*)_spill_dependency.get();
+                         << " multi cast write failed: " << status.to_string();
         } else {
             for (int i = 0; i < _sender_pos_to_read.size(); ++i) {
                 _set_ready_for_read(i);
@@ -282,14 +277,7 @@ Status MultiCastDataStreamer::_submit_spill_task(RuntimeState* state,
         return status;
     };
 
-    auto spill_runnable = std::make_shared<SpillSinkRunnable>(
-            state, nullptr, _spill_dependency, _sink_profile, _shared_state->shared_from_this(),
-            exception_catch_func);
-
-    _spill_dependency->block();
-
-    auto* thread_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
-    return thread_pool->submit(std::move(spill_runnable));
+    return SpillSinkRunnable(state, nullptr, _sink_operator_profile, exception_catch_func).run();
 }
 
 Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block* block, bool eos) {
@@ -381,7 +369,6 @@ void MultiCastDataStreamer::_block_reading(int sender_idx) {
 
 std::string MultiCastDataStreamer::debug_string() {
     size_t read_ready_count = 0;
-    size_t read_spill_ready_count = 0;
     size_t pos_at_end_count = 0;
     size_t blocks_count = 0;
     {
@@ -390,10 +377,6 @@ std::string MultiCastDataStreamer::debug_string() {
         for (int32_t i = 0; i != _cast_sender_count; ++i) {
             if (!_dependencies[i]->is_blocked_by()) {
                 read_ready_count++;
-            }
-
-            if (!_spill_read_dependencies[i]->is_blocked_by()) {
-                read_spill_ready_count++;
             }
 
             if (_sender_pos_to_read[i] == _multi_cast_blocks.end()) {
@@ -406,10 +389,9 @@ std::string MultiCastDataStreamer::debug_string() {
     fmt::format_to(
             debug_string_buffer,
             "MemSize: {}, blocks: {}, sender count: {}, pos_at_end_count: {}, copying_count: {} "
-            "read_ready_count: {}, read_spill_ready_count: {}, write spill dependency blocked: {}",
+            "read_ready_count: {}",
             PrettyPrinter::print_bytes(_cumulative_mem_size), blocks_count, _cast_sender_count,
-            pos_at_end_count, _copying_count.load(), read_ready_count, read_spill_ready_count,
-            _spill_dependency->is_blocked_by() != nullptr);
+            pos_at_end_count, _copying_count.load(), read_ready_count);
     return fmt::to_string(debug_string_buffer);
 }
 

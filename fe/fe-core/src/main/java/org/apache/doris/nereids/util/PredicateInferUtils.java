@@ -58,6 +58,10 @@ public class PredicateInferUtils {
         return expr instanceof SlotReference || expr instanceof Literal;
     }
 
+    public static boolean isSlotOrNotNullLiteral(Expression expr) {
+        return isSlotOrLiteral(expr) && !expr.isNullLiteral();
+    }
+
     /**The predicate derivation is based on the input predicate predicates, which is divided into two parts.
      * The equivalent relation used in ReplacePredicate and calculated by union-find derive like, in, not
      * and ComparisonPredicate;

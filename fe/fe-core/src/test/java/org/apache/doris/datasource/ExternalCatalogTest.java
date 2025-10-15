@@ -17,13 +17,15 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -50,71 +52,79 @@ public class ExternalCatalogTest extends TestWithFeService {
         rootCtx = createDefaultCtx();
         env = Env.getCurrentEnv();
         // 1. create test catalog
-        CreateCatalogStmt testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog test1 properties(\n"
-                        + "    \"type\" = \"test\",\n"
-                        + "    \"catalog_provider.class\" "
-                        + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
-                        + "    \"include_database_list\" = \"db1\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+        String createStmt = "create catalog test1 properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
+                + "    \"include_database_list\" = \"db1\"\n"
+                + ");";
 
-        testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog test2 properties(\n"
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
+
+        createStmt = "create catalog test2 properties(\n"
                         + "    \"type\" = \"test\",\n"
                         + "    \"catalog_provider.class\" "
                         + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
                         + "    \"exclude_database_list\" = \"db1\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+                        + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
 
-        testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog test3 properties(\n"
+        createStmt = "create catalog test3 properties(\n"
                         + "    \"type\" = \"test\",\n"
                         + "    \"catalog_provider.class\" "
                         + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
                         + "    \"include_database_list\" = \"db1\",\n"
                         + "    \"exclude_database_list\" = \"db1\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+                        + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
 
         // use_meta_cache=false
-        testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog test4 properties(\n"
+        createStmt = "create catalog test4 properties(\n"
                         + "    \"type\" = \"test\",\n"
                         + "    \"use_meta_cache\" = \"false\",\n"
                         + "    \"catalog_provider.class\" "
                         + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
                         + "    \"include_database_list\" = \"db1\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+                        + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
 
-        testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog test5 properties(\n"
+        createStmt = "create catalog test5 properties(\n"
                         + "    \"type\" = \"test\",\n"
                         + "    \"use_meta_cache\" = \"false\",\n"
                         + "    \"catalog_provider.class\" "
                         + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
                         + "    \"exclude_database_list\" = \"db1\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+                        + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
 
-        testCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog test6 properties(\n"
+        createStmt = "create catalog test6 properties(\n"
                         + "    \"type\" = \"test\",\n"
                         + "    \"use_meta_cache\" = \"false\",\n"
                         + "    \"catalog_provider.class\" "
                         + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\",\n"
                         + "    \"include_database_list\" = \"db1\",\n"
                         + "    \"exclude_database_list\" = \"db1\"\n"
-                        + ");",
-                rootCtx);
-        env.getCatalogMgr().createCatalog(testCatalog);
+                        + ");";
+        logicalPlan = nereidsParser.parseSingle(createStmt);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(rootCtx, null);
+        }
     }
 
     @Test

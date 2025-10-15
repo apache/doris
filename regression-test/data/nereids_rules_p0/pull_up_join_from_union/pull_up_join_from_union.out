@@ -3,118 +3,118 @@
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((id = id)) otherCondition=()
 ----PhysicalUnion
-------PhysicalOlapScan[table_b]
-------PhysicalOlapScan[table_c]
-----PhysicalOlapScan[table_a]
+------PhysicalOlapScan[table_b(b)]
+------PhysicalOlapScan[table_c(c)]
+----PhysicalOlapScan[table_a(a)]
 
 -- !three_way_union --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((id = id)) otherCondition=()
 ----PhysicalUnion
-------PhysicalOlapScan[table_b]
-------PhysicalOlapScan[table_c]
-------PhysicalOlapScan[table_d]
-----PhysicalOlapScan[table_a]
+------PhysicalOlapScan[table_b(b)]
+------PhysicalOlapScan[table_c(c)]
+------PhysicalOlapScan[table_d(d)]
+----PhysicalOlapScan[table_a(a)]
 
 -- !union_with_projections --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((id = id)) otherCondition=()
 ----PhysicalUnion
-------PhysicalOlapScan[table_b]
-------PhysicalOlapScan[table_c]
-----PhysicalOlapScan[table_a]
+------PhysicalOlapScan[table_b(b)]
+------PhysicalOlapScan[table_c(c)]
+----PhysicalOlapScan[table_a(a)]
 
 -- !union_with_constants --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((id = id)) otherCondition=()
 ----PhysicalUnion
-------PhysicalOlapScan[table_b]
-------PhysicalOlapScan[table_c]
-----PhysicalOlapScan[table_a]
+------PhysicalOlapScan[table_b(b)]
+------PhysicalOlapScan[table_c(c)]
+----PhysicalOlapScan[table_a(a)]
 
 -- !union_with_loss_slots --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((id = id)) otherCondition=()
 ----PhysicalUnion
-------PhysicalOlapScan[table_b]
-------PhysicalOlapScan[table_c]
-----PhysicalOlapScan[table_a]
+------PhysicalOlapScan[table_b(b)]
+------PhysicalOlapScan[table_c(c)]
+----PhysicalOlapScan[table_a(a)]
 
 -- !different_join_conditions --
 PhysicalResultSink
 --PhysicalUnion
 ----hashJoin[INNER_JOIN] hashCondition=((a.id = b.id)) otherCondition=()
-------PhysicalOlapScan[table_a]
-------PhysicalOlapScan[table_b]
+------PhysicalOlapScan[table_a(a)]
+------PhysicalOlapScan[table_b(b)]
 ----hashJoin[INNER_JOIN] hashCondition=((a.name = c.name)) otherCondition=()
-------PhysicalOlapScan[table_a]
-------PhysicalOlapScan[table_c]
+------PhysicalOlapScan[table_a(a)]
+------PhysicalOlapScan[table_c(c)]
 
 -- !multi_column_join --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((id = id) and (name = name)) otherCondition=()
 ----PhysicalUnion
-------PhysicalOlapScan[table_b]
-------PhysicalOlapScan[table_c]
-----PhysicalOlapScan[table_a]
+------PhysicalOlapScan[table_b(b)]
+------PhysicalOlapScan[table_c(c)]
+----PhysicalOlapScan[table_a(a)]
 
 -- !left_joins --
 PhysicalResultSink
 --PhysicalUnion
 ----hashJoin[LEFT_OUTER_JOIN] hashCondition=((a.id = b.id)) otherCondition=()
-------PhysicalOlapScan[table_a]
-------PhysicalOlapScan[table_b]
+------PhysicalOlapScan[table_a(a)]
+------PhysicalOlapScan[table_b(b)]
 ----hashJoin[LEFT_OUTER_JOIN] hashCondition=((a.id = c.id)) otherCondition=()
-------PhysicalOlapScan[table_a]
-------PhysicalOlapScan[table_c]
+------PhysicalOlapScan[table_a(a)]
+------PhysicalOlapScan[table_c(c)]
 
 -- !subquery_join --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((id = id)) otherCondition=()
 ----PhysicalUnion
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------PhysicalOlapScan[table_b]
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------PhysicalOlapScan[table_c]
-----PhysicalOlapScan[table_a]
+----PhysicalOlapScan[table_a(a)]
 
 -- !complex_join_condition1 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_(cast(id as BIGINT) - 1) = expr_cast(id as BIGINT))) otherCondition=()
 ----PhysicalUnion
-------PhysicalOlapScan[table_b]
-------PhysicalOlapScan[table_c]
-----PhysicalOlapScan[table_a]
+------PhysicalOlapScan[table_b(b)]
+------PhysicalOlapScan[table_c(c)]
+----PhysicalOlapScan[table_a(a)]
 
 -- !complex_join_condition2 --
 PhysicalResultSink
 --PhysicalUnion
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(id as BIGINT) = expr_(cast(id as BIGINT) - 1))) otherCondition=()
-------PhysicalOlapScan[table_a]
-------PhysicalOlapScan[table_b]
+------PhysicalOlapScan[table_a(a)]
+------PhysicalOlapScan[table_b(b)]
 ----hashJoin[INNER_JOIN] hashCondition=((expr_cast(id as DOUBLE) = expr_(cast(id as DOUBLE) - 1.0))) otherCondition=()
-------PhysicalOlapScan[table_a]
-------PhysicalOlapScan[table_c]
+------PhysicalOlapScan[table_a(a)]
+------PhysicalOlapScan[table_c(c)]
 
 -- !union_filter1 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((id = id)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----PhysicalUnion
 ------filter((b.id = 1))
---------PhysicalOlapScan[table_b]
+--------PhysicalOlapScan[table_b(b)]
 ------filter((c.id = 1))
---------PhysicalOlapScan[table_c]
+--------PhysicalOlapScan[table_c(c)]
 ----filter((a.id = 1))
-------PhysicalOlapScan[table_a]
+------PhysicalOlapScan[table_a(a)]
 
 -- !union_filter2 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((id = id)) otherCondition=()
 ----PhysicalUnion
-------PhysicalOlapScan[table_b]
-------PhysicalOlapScan[table_c]
-----filter((cast(value as DOUBLE) = 1.0))
-------PhysicalOlapScan[table_a]
+------PhysicalOlapScan[table_b(b)]
+------PhysicalOlapScan[table_c(c)]
+----filter((cast(value as DECIMALV3(38, 6)) = 1.000000))
+------PhysicalOlapScan[table_a(a)]
 
 -- !basic_join_union_res --
 1	Alice	Value_B1

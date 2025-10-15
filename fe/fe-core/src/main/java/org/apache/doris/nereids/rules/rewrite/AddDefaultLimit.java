@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
@@ -36,6 +37,10 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        if (jobContext.getCascadesContext().getConnectContext() == null
+                || !jobContext.getCascadesContext().getConnectContext().getState().isQuery()) {
+            return plan;
+        }
         return plan.accept(this, jobContext.getCascadesContext().getStatementContext());
     }
 
@@ -50,6 +55,11 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
             }
         }
         return plan;
+    }
+
+    @Override
+    public Plan visitLogicalTableSink(LogicalTableSink<? extends Plan> logicalTableSink, StatementContext context) {
+        return logicalTableSink;
     }
 
     // should add limit under anchor to keep optimize opportunity

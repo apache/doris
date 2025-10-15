@@ -1,0 +1,35 @@
+-- ERROR: No value present
+-- SELECT
+--   CNTRYCODE,
+--   COUNT(*)       AS NUMCUST,
+--   SUM(C_ACCTBAL) AS TOTACCTBAL
+-- FROM (
+--        SELECT
+--          SUBSTR(CAST(C.var["C_PHONE"] AS TEXT), 1, 2) AS CNTRYCODE,
+--          CAST(C.var["C_ACCTBAL"] AS DOUBLE) as C_ACCTBAL
+--        FROM
+--          customer C
+--        WHERE
+--          SUBSTR(CAST(C.var["C_PHONE"] AS TEXT), 1, 2) IN
+--          ('13', '31', '23', '29', '30', '18', '17')
+--          AND CAST(C.var["C_ACCTBAL"] AS DOUBLE) > (
+--            SELECT AVG(CAST(C.var["C_ACCTBAL"] AS DOUBLE))
+--            FROM
+--              customer CC
+--            WHERE
+--              CAST(CC.var["C_ACCTBAL"] AS DOUBLE) > 0.00
+--              AND SUBSTR(CAST(CC.var["C_PHONE"] AS TEXT), 1, 2) IN
+--                  ('13', '31', '23', '29', '30', '18', '17')
+--          )
+--          AND NOT EXISTS(
+--            SELECT *
+--            FROM
+--              orders O
+--            WHERE
+--              CAST(O.var["O_CUSTKEY"] AS INT) = CAST(C.var["C_CUSTKEY"] AS INT)
+--          )
+--      ) AS CUSTSALE
+-- GROUP BY
+--   CNTRYCODE
+-- ORDER BY
+--   CNTRYCODE

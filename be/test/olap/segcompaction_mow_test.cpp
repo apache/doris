@@ -281,7 +281,8 @@ protected:
             EXPECT_EQ(num_rows_read, expect_total_rows - rows_mark_deleted);
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             std::vector<uint32_t> segment_num_rows;
-            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows).ok());
+            OlapReaderStatistics stats;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, &stats).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;
@@ -314,7 +315,7 @@ TEST_P(SegCompactionMoWTest, SegCompactionThenRead) {
         RowsetWriterContext writer_context;
         int raw_rsid = rand();
         create_rowset_writer_context(raw_rsid, tablet_schema, &writer_context);
-        RowsetIdUnorderedSet rsids;
+        std::shared_ptr<RowsetIdUnorderedSet> rsids {std::make_shared<RowsetIdUnorderedSet>()};
         std::vector<RowsetSharedPtr> rowset_ptrs;
         writer_context.mow_context =
                 std::make_shared<MowContext>(1, 1, rsids, rowset_ptrs, delete_bitmap);
@@ -353,6 +354,7 @@ TEST_P(SegCompactionMoWTest, SegCompactionThenRead) {
                     }
                 }
             }
+            writer_context.mow_context->get_calc_dbm_task(i)->set_status(Status::OK());
             s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
@@ -413,10 +415,12 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(TABLET_ID);
     uint32_t rows_mark_deleted = 0;
     uint32_t total_written_rows = 0;
+
+    uint32_t cur_seg_id = 0;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
         create_rowset_writer_context(20048, tablet_schema, &writer_context);
-        RowsetIdUnorderedSet rsids;
+        std::shared_ptr<RowsetIdUnorderedSet> rsids {std::make_shared<RowsetIdUnorderedSet>()};
         std::vector<RowsetSharedPtr> rowset_ptrs;
         writer_context.mow_context =
                 std::make_shared<MowContext>(1, 1, rsids, rowset_ptrs, delete_bitmap);
@@ -453,6 +457,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                     rows_mark_deleted++;
                 }
             }
+            writer_context.mow_context->get_calc_dbm_task(cur_seg_id++)->set_status(Status::OK());
             s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
@@ -460,6 +465,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
             segid++;
             total_written_rows += rows_per_segment;
         }
+
         num_segments = 2;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
@@ -481,6 +487,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                     rows_mark_deleted++;
                 }
             }
+            writer_context.mow_context->get_calc_dbm_task(cur_seg_id++)->set_status(Status::OK());
             s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
@@ -488,6 +495,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
             segid++;
             total_written_rows += rows_per_segment;
         }
+
         num_segments = 1;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
@@ -509,6 +517,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                     rows_mark_deleted++;
                 }
             }
+            writer_context.mow_context->get_calc_dbm_task(cur_seg_id++)->set_status(Status::OK());
             s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
@@ -516,6 +525,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
             segid++;
             total_written_rows += rows_per_segment;
         }
+
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
@@ -537,6 +547,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                     rows_mark_deleted++;
                 }
             }
+            writer_context.mow_context->get_calc_dbm_task(cur_seg_id++)->set_status(Status::OK());
             s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
@@ -544,6 +555,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
             segid++;
             total_written_rows += rows_per_segment;
         }
+
         num_segments = 8;
         rows_per_segment = 4096;
         std::map<uint32_t, uint32_t> unique_keys;
@@ -568,6 +580,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                 }
                 unique_keys.emplace(k1, rid);
             }
+            writer_context.mow_context->get_calc_dbm_task(cur_seg_id++)->set_status(Status::OK());
             s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
@@ -605,6 +618,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
                     rows_mark_deleted++;
                 }
             }
+            writer_context.mow_context->get_calc_dbm_task(cur_seg_id++)->set_status(Status::OK());
             s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
@@ -643,10 +657,11 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(TABLET_ID);
     uint32_t rows_mark_deleted = 0;
     uint32_t total_written_rows = 0;
+    uint32_t cur_seg_id = 0;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
         create_rowset_writer_context(20049, tablet_schema, &writer_context);
-        RowsetIdUnorderedSet rsids;
+        std::shared_ptr<RowsetIdUnorderedSet> rsids {std::make_shared<RowsetIdUnorderedSet>()};
         std::vector<RowsetSharedPtr> rowset_ptrs;
         writer_context.mow_context =
                 std::make_shared<MowContext>(1, 1, rsids, rowset_ptrs, delete_bitmap);
@@ -683,6 +698,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
                     rows_mark_deleted++;
                 }
             }
+            writer_context.mow_context->get_calc_dbm_task(cur_seg_id++)->set_status(Status::OK());
             s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
@@ -711,6 +727,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
                     rows_mark_deleted++;
                 }
             }
+            writer_context.mow_context->get_calc_dbm_task(cur_seg_id++)->set_status(Status::OK());
             s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
@@ -739,6 +756,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
                     rows_mark_deleted++;
                 }
             }
+            writer_context.mow_context->get_calc_dbm_task(cur_seg_id++)->set_status(Status::OK());
             s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
@@ -767,6 +785,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
                     rows_mark_deleted++;
                 }
             }
+            writer_context.mow_context->get_calc_dbm_task(cur_seg_id++)->set_status(Status::OK());
             s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
@@ -795,6 +814,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionInterleaveWithBig_OoOoO) {
                     rows_mark_deleted++;
                 }
             }
+            writer_context.mow_context->get_calc_dbm_task(cur_seg_id++)->set_status(Status::OK());
             s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();
@@ -835,7 +855,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionNotTrigger) {
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
         create_rowset_writer_context(20050, tablet_schema, &writer_context);
-        RowsetIdUnorderedSet rsids;
+        std::shared_ptr<RowsetIdUnorderedSet> rsids {std::make_shared<RowsetIdUnorderedSet>()};
         std::vector<RowsetSharedPtr> rowset_ptrs;
         writer_context.mow_context =
                 std::make_shared<MowContext>(1, 1, rsids, rowset_ptrs, delete_bitmap);
@@ -868,6 +888,7 @@ TEST_F(SegCompactionMoWTest, SegCompactionNotTrigger) {
                     rows_mark_deleted++;
                 }
             }
+            writer_context.mow_context->get_calc_dbm_task(i)->set_status(Status::OK());
             s = rowset_writer->add_block(&block);
             EXPECT_TRUE(s.ok());
             s = rowset_writer->flush();

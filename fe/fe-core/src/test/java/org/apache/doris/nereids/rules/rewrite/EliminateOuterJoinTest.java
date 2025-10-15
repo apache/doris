@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -69,7 +70,7 @@ class EliminateOuterJoinTest implements MemoPatternMatchSupported {
     void testEliminateRight() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.RIGHT_OUTER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
-                .filter(new GreaterThan(scan1.getOutput().get(0), Literal.of(1)))
+                .filter(new GreaterThan(scan1.getOutput().get(0), new IntegerLiteral(1)))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -81,7 +82,7 @@ class EliminateOuterJoinTest implements MemoPatternMatchSupported {
                         logicalFilter(
                                 logicalJoin().when(join -> join.getJoinType().isInnerJoin())
                         ).when(filter -> filter.getConjuncts().size() == 1)
-                                .when(filter -> Objects.equals(filter.getConjuncts().toString(), "[(id#0 > 1)]"))
+                                .when(filter -> Objects.equals(filter.getConjuncts().iterator().next(), new GreaterThan(scan1.getOutput().get(0), new IntegerLiteral(1))))
                 );
     }
 

@@ -131,21 +131,6 @@ public class IsNullPredicate extends Predicate {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        super.analyzeImpl(analyzer);
-        if (isNotNull) {
-            fn = getBuiltinFunction(IS_NOT_NULL, collectChildReturnTypes(), Function.CompareMode.IS_INDISTINGUISHABLE);
-        } else {
-            fn = getBuiltinFunction(IS_NULL, collectChildReturnTypes(), Function.CompareMode.IS_INDISTINGUISHABLE);
-        }
-        Preconditions.checkState(fn != null, "tupleisNull fn == NULL");
-
-        // determine selectivity
-        selectivity = 0.1;
-        // LOG.debug(toSql() + " selectivity: " + Double.toString(selectivity));
-    }
-
-    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.FUNCTION_CALL;
     }

@@ -33,7 +33,6 @@
 
 #include "common/config.h"
 #include "common/defer.h"
-#include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/doris_txn.h"
@@ -142,7 +141,7 @@ TEST(TxnKvTest, ConflictTest) {
 }
 
 TEST(TxnKvTest, AtomicSetVerKeyTest) {
-    std::string key_prefix = "key_1";
+    std::string key_prefix = "atomic_set_ver_key_1";
 
     std::string versionstamp_1;
     {
@@ -159,7 +158,8 @@ TEST(TxnKvTest, AtomicSetVerKeyTest) {
         ASSERT_EQ(txn->get(key_prefix, end_key, &it), TxnErrorCode::TXN_OK);
         ASSERT_TRUE(it->has_next());
         auto&& [key_1, _1] = it->next();
-        ASSERT_EQ(key_1.length(), key_prefix.size() + 10); // versionstamp = 10bytes
+        ASSERT_EQ(key_1.length(), key_prefix.size() + 10)
+                << key_1 << key_prefix; // versionstamp = 10bytes
         key_1.remove_prefix(key_prefix.size());
         versionstamp_1 = key_1;
     }
@@ -169,7 +169,7 @@ TEST(TxnKvTest, AtomicSetVerKeyTest) {
         // write key_2
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        key_prefix = "key_2";
+        key_prefix = "atomic_set_ver_key_2";
         txn->atomic_set_ver_key(key_prefix, "2");
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
@@ -186,6 +186,48 @@ TEST(TxnKvTest, AtomicSetVerKeyTest) {
     }
 
     ASSERT_LT(versionstamp_1, versionstamp_2);
+
+    std::string versionstamp_3;
+    {
+        // write key_3, with offset
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string suffix = "_suffix";
+        std::string prefix = "atomic_set_ver_key_3_";
+        std::string k(prefix);
+        uint32_t offset = k.size();
+        k.append(10, '\0'); // reserve 10 bytes for versionstamp
+        k += suffix;
+        ASSERT_TRUE(txn->atomic_set_ver_key(k, offset, "3"));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        // read key_3
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string end_key = prefix + "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF";
+        std::unique_ptr<RangeGetIterator> it;
+        ASSERT_EQ(txn->get(prefix, end_key, &it), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(it->has_next());
+        auto&& [key_3, _3] = it->next();
+        ASSERT_EQ(key_3.length(), k.size());
+        key_3.remove_suffix(suffix.size());
+        key_3.remove_prefix(prefix.size());
+        versionstamp_3 = key_3;
+    }
+
+    ASSERT_LT(versionstamp_2, versionstamp_3);
+
+    {
+        // write key, but offset is invalid
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string prefix = "atomic_set_ver_key_4_";
+        std::string k(prefix);
+        k.append(10, '\0');             // reserve 10 bytes for versionstamp
+        uint32_t offset = k.size() + 1; // invalid offset
+        ASSERT_FALSE(txn->atomic_set_ver_key(k, offset, "4"));
+
+        k = "fake";
+        ASSERT_FALSE(txn->atomic_set_ver_key(k, 0, "4"));
+    }
 }
 
 TEST(TxnKvTest, AtomicAddTest) {
@@ -231,6 +273,69 @@ TEST(TxnKvTest, AtomicAddTest) {
     ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
     ASSERT_EQ(val.size(), 8);
     ASSERT_EQ(*(int64_t*)val.data(), 60);
+}
+
+TEST(TxnKvTest, GetVersionstampTest) {
+    std::unique_ptr<Transaction> txn;
+    std::string key_prefix = "versionstamp_test_";
+
+    // Test without enabling versionstamp
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        Versionstamp versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_INVALID_ARGUMENT);
+    }
+
+    // Test with versionstamp enabled but no commit
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        Versionstamp versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    // Test with versionstamp enabled and commit
+    {
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Enable versionstamp and perform versioned operations
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "key1", "value1");
+        txn->atomic_set_ver_value(key_prefix + "key2", "value2");
+
+        // Commit transaction
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Get versionstamp
+        Versionstamp versionstamp;
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_OK);
+
+        std::cout << "Versionstamp: " << versionstamp.to_string() << std::endl;
+    }
+
+    // Test multiple transactions get different versionstamps
+    Versionstamp versionstamp1, versionstamp2;
+    {
+        // First transaction
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "tx1", "value1");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp1), TxnErrorCode::TXN_OK);
+
+        // Small delay to ensure different timestamps
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+        // Second transaction
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->enable_get_versionstamp();
+        txn->atomic_set_ver_key(key_prefix + "tx2", "value2");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get_versionstamp(&versionstamp2), TxnErrorCode::TXN_OK);
+    }
+
+    ASSERT_NE(versionstamp1, versionstamp2);
+    ASSERT_LT(versionstamp1, versionstamp2); // Later transaction should have larger versionstamp
 }
 
 TEST(TxnKvTest, CompatibleGetTest) {
@@ -1216,7 +1321,8 @@ TEST(TxnKvTest, ReverseFullRangeGet) {
                     expected_keys.emplace_back(k);
                 }
                 // Get next begin key for reverse range get
-                end = it->prev_end_key();
+                end = it->last_key();
+                options.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
             } while (it->more());
         }
 
@@ -1244,4 +1350,235 @@ TEST(TxnKvTest, ReverseFullRangeGet) {
                 << "Failed for begin_key_selector=" << static_cast<int>(tc.begin_key_selector)
                 << ", end_key_selector=" << static_cast<int>(tc.end_key_selector);
     }
+}
+
+TEST(TxnKvTest, ReverseFullRangeGet2) {
+    constexpr std::string_view prefix = "reverse_full_range_get_2_";
+
+    {
+        // Remove the existing keys and insert some new keys.
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        std::string last_key = fmt::format("{}b", prefix);
+        encode_int64(INT64_MAX, &last_key);
+        txn->remove(prefix, last_key);
+        std::string key(prefix);
+        for (int i = 0; i < 100; ++i) {
+            key += 'a';
+            txn->put(key, std::to_string(i));
+        }
+        err = txn->commit();
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+    }
+
+    std::string range_begin(prefix);
+    std::string range_end = fmt::format("{}b", prefix);
+
+    struct TestCase {
+        RangeKeySelector begin_key_selector, end_key_selector;
+    };
+
+    std::vector<TestCase> test_case {
+            // 1. [begin, end)
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+            },
+            // 2. [begin, end]
+            {
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+            },
+            // 3. (begin, end)
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::FIRST_GREATER_OR_EQUAL,
+            },
+            // 4. (begin, end]
+            {
+                    RangeKeySelector::FIRST_GREATER_THAN,
+                    RangeKeySelector::FIRST_GREATER_THAN,
+            },
+    };
+
+    for (const auto& tc : test_case) {
+        std::vector<std::string> expected_keys;
+        {
+            // Read the expected keys via range_get
+            std::unique_ptr<Transaction> txn;
+            TxnErrorCode err = txn_kv->create_txn(&txn);
+            ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+            RangeGetOptions options;
+            options.batch_limit = 11;
+            options.begin_key_selector = tc.begin_key_selector;
+            options.end_key_selector = tc.end_key_selector;
+            options.reverse = true; // Reserve range get
+            std::string begin = range_begin, end = range_end;
+
+            std::unique_ptr<RangeGetIterator> it;
+            do {
+                err = txn->get(begin, end, &it, options);
+                ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+                while (it->has_next()) {
+                    auto [k, v] = it->next();
+                    expected_keys.emplace_back(k);
+                }
+                // Get next begin key for reverse range get
+                end = it->last_key();
+                options.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+            } while (it->more());
+        }
+
+        std::vector<std::string> actual_keys;
+        {
+            // Read the actual keys via full_range_get
+            FullRangeGetOptions opts(txn_kv);
+            opts.batch_limit = 11;
+            opts.begin_key_selector = tc.begin_key_selector;
+            opts.end_key_selector = tc.end_key_selector;
+            opts.reverse = true; // Reserve full range get
+
+            auto it = txn_kv->full_range_get(range_begin, range_end, opts);
+            ASSERT_TRUE(it->is_valid());
+
+            while (it->has_next()) {
+                auto kvp = it->next();
+                ASSERT_TRUE(kvp.has_value());
+                auto [k, v] = *kvp;
+                actual_keys.emplace_back(k);
+            }
+        }
+
+        EXPECT_EQ(actual_keys, expected_keys)
+                << "Failed for begin_key_selector=" << static_cast<int>(tc.begin_key_selector)
+                << ", end_key_selector=" << static_cast<int>(tc.end_key_selector);
+    }
+}
+
+TEST(TxnKvTest, BatchScan) {
+    std::vector<std::pair<std::string, std::string>> test_data = {
+            {"BatchScan_different_key", "different_value"},
+            {"BatchScan_prefix1", "value1"},
+            {"BatchScan_prefix1_sub1", "sub_value1"},
+            {"BatchScan_prefix1_sub2", "sub_value2"},
+            {"BatchScan_prefix2", "value2"},
+            {"BatchScan_prefix2_sub1", "sub_value3"},
+            {"BatchScan_prefix3", "value3"}};
+
+    std::unique_ptr<Transaction> txn;
+
+    {
+        auto ret = txn_kv->create_txn(&txn);
+        ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
+        for (const auto& [key, val] : test_data) {
+            txn->put(key, val);
+        }
+        ret = txn->commit();
+        ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
+    }
+
+    struct TestCase {
+        bool reverse;
+        std::vector<std::string> scan_keys;
+        std::vector<std::optional<std::string>> expected_keys;
+    };
+
+    std::vector<TestCase> test_cases = {
+            {
+                    false,
+                    {"BatchScan_prefix1", "BatchScan_prefix2", "BatchScan_prefix3",
+                     "BatchScan_different_key"},
+                    {"BatchScan_prefix1", "BatchScan_prefix2", "BatchScan_prefix3",
+                     "BatchScan_different_key"},
+            },
+            {
+                    false,
+                    {"BatchScan_prefix1_", "BatchScan_prefix2_"},
+                    {"BatchScan_prefix1_sub1", "BatchScan_prefix2_sub1"},
+            },
+            {
+                    true,
+                    {"BatchScan_prefix1", "BatchScan_prefix2", "BatchScan_prefix3",
+                     "BatchScan_different_key"},
+                    {"BatchScan_prefix1_sub2", "BatchScan_prefix2_sub1", "BatchScan_prefix3",
+                     "BatchScan_different_key"},
+            },
+            {
+                    true,
+                    {"BatchScan_prefix1_", "BatchScan_prefix2_"},
+                    {"BatchScan_prefix1_sub2", "BatchScan_prefix2_sub1"},
+            },
+            {
+                    true,
+                    {"BatchScan_prefix4"},
+                    {std::nullopt},
+            }};
+
+    size_t count = 0;
+    for (auto& tc : test_cases) {
+        auto ret = txn_kv->create_txn(&txn);
+        ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
+        std::vector<std::optional<std::pair<std::string, std::string>>> results;
+        Transaction::BatchGetOptions opts;
+        opts.reverse = tc.reverse; // Reverse order
+        opts.snapshot = false;
+
+        ret = txn->batch_scan(&results, tc.scan_keys, opts);
+        ASSERT_EQ(ret, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(results.size(), tc.scan_keys.size());
+
+        count += 1;
+        for (size_t i = 0; i < results.size(); ++i) {
+            if (tc.expected_keys[i].has_value()) {
+                ASSERT_TRUE(results[i].has_value());
+                std::string& key = results[i].value().first;
+                ASSERT_EQ(key, tc.expected_keys[i]) << tc.scan_keys[i] << ", tc: " << count;
+            } else {
+                ASSERT_FALSE(results[i].has_value()) << tc.scan_keys[i] << ", tc: " << count;
+            }
+        }
+    }
+}
+
+TEST(TxnKvTest, ReportConflictingRange) {
+    config::enable_logging_conflict_keys = true;
+
+    constexpr std::string_view key_prefix = "txn_kv_test__report_conflicting_range";
+    std::string key = std::string(key_prefix) + std::to_string(time(nullptr));
+
+    {
+        // 1. write a common key
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, "value0");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // 2. two txns, conflicting writes
+    std::unique_ptr<Transaction> txn1, txn2;
+    ASSERT_EQ(txn_kv->create_txn(&txn1), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn_kv->create_txn(&txn2), TxnErrorCode::TXN_OK);
+
+    std::string val1, val2;
+    ASSERT_EQ(txn1->get(key, &val1), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn2->get(key, &val2), TxnErrorCode::TXN_OK);
+
+    txn1->put(key, "value1");
+    txn2->put(key, "value2");
+
+    ASSERT_EQ(txn1->commit(), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn2->commit(), TxnErrorCode::TXN_CONFLICT);
+
+    // 3. get the conflicting ranges.
+    std::vector<std::pair<std::string, std::string>> values;
+    ASSERT_EQ(reinterpret_cast<fdb::Transaction*>(txn2.get())->get_conflicting_range(&values),
+              TxnErrorCode::TXN_OK);
+    ASSERT_EQ(values.size(), 2);
+    ASSERT_EQ(values[0].first, key);
+    ASSERT_EQ(values[1].second, "0");
+    ASSERT_TRUE(values[1].first.starts_with(key));
 }

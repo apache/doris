@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -27,7 +26,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.rpc.RpcException;
+import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
@@ -92,15 +92,16 @@ public class StatisticsAutoCollector extends MasterDaemon {
 
     protected void collect() {
         while (StatisticsUtil.canCollect()) {
-            Pair<Entry<TableName, Set<Pair<String, String>>>, JobPriority> job = getJob();
+            Pair<Entry<TableNameInfo, Set<Pair<String, String>>>, JobPriority> job = getJob();
             if (job == null) {
                 // No more job to process, break and sleep.
                 LOG.info("No auto analyze jobs to process.");
                 break;
             }
             try {
-                TableName tblName = job.first.getKey();
-                TableIf table = StatisticsUtil.findTable(tblName.getCtl(), tblName.getDb(), tblName.getTbl());
+                TableNameInfo tableNameInfo = job.first.getKey();
+                TableIf table = StatisticsUtil.findTable(tableNameInfo.getCtl(), tableNameInfo.getDb(),
+                        tableNameInfo.getTbl());
                 if (!supportAutoAnalyze(table)) {
                     continue;
                 }
@@ -112,9 +113,9 @@ public class StatisticsAutoCollector extends MasterDaemon {
         }
     }
 
-    protected Pair<Entry<TableName, Set<Pair<String, String>>>, JobPriority> getJob() {
+    protected Pair<Entry<TableNameInfo, Set<Pair<String, String>>>, JobPriority> getJob() {
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
-        Optional<Entry<TableName, Set<Pair<String, String>>>> job = fetchJobFromMap(manager.highPriorityJobs);
+        Optional<Entry<TableNameInfo, Set<Pair<String, String>>>> job = fetchJobFromMap(manager.highPriorityJobs);
         if (job.isPresent()) {
             return Pair.of(job.get(), JobPriority.HIGH);
         }
@@ -130,32 +131,42 @@ public class StatisticsAutoCollector extends MasterDaemon {
         return job.map(tableNameSetEntry -> Pair.of(tableNameSetEntry, JobPriority.VERY_LOW)).orElse(null);
     }
 
-    protected Optional<Map.Entry<TableName, Set<Pair<String, String>>>> fetchJobFromMap(
-            Map<TableName, Set<Pair<String, String>>> jobMap) {
+    protected Optional<Map.Entry<TableNameInfo, Set<Pair<String, String>>>> fetchJobFromMap(
+            Map<TableNameInfo, Set<Pair<String, String>>> jobMap) {
         synchronized (jobMap) {
-            Optional<Map.Entry<TableName, Set<Pair<String, String>>>> first = jobMap.entrySet().stream().findFirst();
+            Optional<Map.Entry<TableNameInfo, Set<Pair<String, String>>>> first =
+                    jobMap.entrySet().stream().findFirst();
             first.ifPresent(entry -> jobMap.remove(entry.getKey()));
             return first;
         }
     }
 
-    protected void processOneJob(TableIf table, Set<Pair<String, String>> columns,
-            JobPriority priority) throws DdlException {
-        appendAllColumns(table, columns);
-        AnalysisMethod analysisMethod = table.getDataSize(true) >= StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
+    protected void processOneJob(TableIf table, Set<Pair<String, String>> columns, JobPriority priority) {
+        AnalysisMethod analysisMethod = (StatisticsUtil.getHugeTableLowerBoundSizeInBytes() == 0
+                || table.getDataSize(true) >= StatisticsUtil.getHugeTableLowerBoundSizeInBytes())
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
         if (StatisticsUtil.enablePartitionAnalyze() && table.isPartitionedTable()) {
             analysisMethod = AnalysisMethod.FULL;
         }
         boolean isSampleAnalyze = analysisMethod.equals(AnalysisMethod.SAMPLE);
         OlapTable olapTable = table instanceof OlapTable ? (OlapTable) table : null;
+        AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
+        TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
+        long rowCount = table.getRowCount();
+        if (!readyToSample(table, rowCount, manager, tableStatsStatus, isSampleAnalyze)) {
+            return;
+        }
+        appendAllColumns(table, columns);
+        long olapTableVersion = StatisticsUtil.getOlapTableVersion(olapTable);
         columns = columns.stream()
-                .filter(c -> StatisticsUtil.needAnalyzeColumn(table, c) || StatisticsUtil.isLongTimeColumn(table, c))
+                .filter(c -> StatisticsUtil.needAnalyzeColumn(table, c)
+                        || StatisticsUtil.isLongTimeColumn(table, c, olapTableVersion))
                 .filter(c -> olapTable == null || StatisticsUtil.canCollectColumn(
                         olapTable.getIndexMetaByIndexId(olapTable.getIndexIdByName(c.first)).getColumnByName(c.second),
                         table, isSampleAnalyze, olapTable.getIndexIdByName(c.first)))
             .collect(Collectors.toSet());
-        AnalysisInfo analyzeJob = createAnalyzeJobForTbl(table, columns, priority, analysisMethod);
+        AnalysisInfo analyzeJob = createAnalyzeJobForTbl(table, columns, priority, analysisMethod,
+                rowCount, tableStatsStatus, olapTableVersion);
         if (analyzeJob == null) {
             return;
         }
@@ -171,8 +182,34 @@ public class StatisticsAutoCollector extends MasterDaemon {
         }
     }
 
+    protected boolean readyToSample(TableIf table, long rowCount, AnalysisManager manager,
+            TableStatsMeta tableStatsStatus, boolean isSample) {
+        if (!isSample) {
+            return true;
+        }
+        OlapTable olapTable = table instanceof OlapTable ? (OlapTable) table : null;
+        if (olapTable != null
+                && olapTable.getRowCountForIndex(olapTable.getBaseIndexId(), true) == TableIf.UNKNOWN_ROW_COUNT) {
+            LOG.info("Table {} row count is not fully reported, skip auto analyzing it.", olapTable.getName());
+            return false;
+        }
+        // We don't auto analyze empty table to avoid all 0 stats.
+        // Because all 0 is more dangerous than unknown stats when row count report is delayed.
+        if (rowCount <= 0) {
+            LOG.info("Table {} is empty, remove its old stats and skip auto analyze it.", table.getName());
+            // Remove the table's old stats if exists.
+            if (tableStatsStatus != null && !tableStatsStatus.isColumnsStatsEmpty()) {
+                manager.removeTableStats(table.getId());
+                Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(table.getId()));
+                manager.dropStats(table, null);
+            }
+            return false;
+        }
+        return true;
+    }
+
     // If partition changed (partition first loaded, partition dropped and so on), need re-analyze all columns.
-    protected void appendAllColumns(TableIf table, Set<Pair<String, String>> columns) throws DdlException {
+    private void appendAllColumns(TableIf table, Set<Pair<String, String>> columns) {
         if (!(table instanceof OlapTable)) {
             return;
         }
@@ -197,28 +234,9 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 && ((HMSExternalTable) tableIf).getDlaType().equals(HMSExternalTable.DLAType.HIVE);
     }
 
-    protected AnalysisInfo createAnalyzeJobForTbl(
-            TableIf table, Set<Pair<String, String>> jobColumns, JobPriority priority, AnalysisMethod analysisMethod) {
-        AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
-        TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
-        if (table instanceof OlapTable && analysisMethod.equals(AnalysisMethod.SAMPLE)) {
-            OlapTable ot = (OlapTable) table;
-            if (ot.getRowCountForIndex(ot.getBaseIndexId(), true) == TableIf.UNKNOWN_ROW_COUNT) {
-                LOG.info("Table {} row count is not fully reported, skip auto analyzing this time.", ot.getName());
-                return null;
-            }
-        }
-        // We don't auto analyze empty table to avoid all 0 stats.
-        // Because all 0 is more dangerous than unknown stats when row count report is delayed.
-        long rowCount = table.getRowCount();
-        if (rowCount <= 0) {
-            LOG.info("Table {} is empty, remove its old stats and skip auto analyze it.", table.getName());
-            // Remove the table's old stats if exists.
-            if (tableStatsStatus != null && !tableStatsStatus.isColumnsStatsEmpty()) {
-                manager.dropStats(table, null);
-            }
-            return null;
-        }
+    protected AnalysisInfo createAnalyzeJobForTbl(TableIf table, Set<Pair<String, String>> jobColumns,
+            JobPriority priority, AnalysisMethod analysisMethod, long rowCount, TableStatsMeta tableStatsStatus,
+            long version) {
         if (jobColumns == null || jobColumns.isEmpty()) {
             return null;
         }
@@ -226,14 +244,6 @@ public class StatisticsAutoCollector extends MasterDaemon {
         StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
         for (Pair<String, String> pair : jobColumns) {
             stringJoiner.add(pair.toString());
-        }
-        long version = 0;
-        try {
-            if (table instanceof OlapTable) {
-                version = ((OlapTable) table).getVisibleVersion();
-            }
-        } catch (RpcException e) {
-            LOG.warn("table {}, in cloud getVisibleVersion exception", table.getName(), e);
         }
         return new AnalysisInfoBuilder()
                 .setJobId(Env.getCurrentEnv().getNextId())

@@ -72,7 +72,6 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _num_print_error_rows(0),
           _num_bytes_load_total(0),
           _num_finished_scan_range(0),
-          _error_row_number(0),
           _query_ctx(ctx) {
     Status status =
             init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
@@ -98,7 +97,6 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
           _num_print_error_rows(0),
           _num_bytes_load_total(0),
           _num_finished_scan_range(0),
-          _error_row_number(0),
           _query_ctx(ctx) {
     [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
@@ -122,7 +120,6 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
           _num_print_error_rows(0),
           _num_bytes_load_total(0),
           _num_finished_scan_range(0),
-          _error_row_number(0),
           _query_ctx(ctx) {
     // TODO: do we really need instance id?
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
@@ -132,7 +129,8 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
 
 RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                           ExecEnv* exec_env)
+                           ExecEnv* exec_env,
+                           const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker)
         : _profile("PipelineX  " + std::to_string(fragment_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
@@ -146,11 +144,11 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
           _num_rows_filtered_in_strict_mode_partial_update(0),
           _num_print_error_rows(0),
           _num_bytes_load_total(0),
-          _num_finished_scan_range(0),
-          _error_row_number(0) {
+          _num_finished_scan_range(0) {
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
     DCHECK(status.ok());
-    init_mem_trackers("<unnamed>");
+    _query_mem_tracker = query_mem_tracker;
+    DCHECK(_query_mem_tracker != nullptr);
 }
 
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
@@ -354,8 +352,7 @@ Status RuntimeState::create_error_log_file() {
 }
 
 Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
-                                              std::function<std::string()> error_msg,
-                                              bool is_summary) {
+                                              std::function<std::string()> error_msg) {
     if (query_type() != TQueryType::LOAD) {
         return Status::OK();
     }
@@ -369,12 +366,13 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
             }
             return status;
         }
+        // record the first error message if the file is just created
+        _first_error_msg = error_msg() + ". Src line: " + line();
+        LOG(INFO) << "The first error message: " << _first_error_msg;
     }
-
-    // if num of printed error row exceeds the limit, and this is not a summary message,
-    // if _load_zero_tolerance, return Error to stop the load process immediately.
-    if (_num_print_error_rows.fetch_add(1, std::memory_order_relaxed) > MAX_ERROR_NUM &&
-        !is_summary) {
+    // If num of printed error row exceeds the limit, don't add error messages to error log file any more
+    if (_num_print_error_rows.fetch_add(1, std::memory_order_relaxed) > MAX_ERROR_NUM) {
+        // if _load_zero_tolerance, return Error to stop the load process immediately.
         if (_load_zero_tolerance) {
             return Status::DataQualityError(
                     "Encountered unqualified data, stop processing. Please check if the source "
@@ -385,17 +383,8 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     }
 
     fmt::memory_buffer out;
-    if (is_summary) {
-        fmt::format_to(out, "Summary: {}", error_msg());
-    } else {
-        if (_error_row_number < MAX_ERROR_NUM) {
-            // Note: export reason first in case src line too long and be truncated.
-            fmt::format_to(out, "Reason: {}. src line [{}]; ", error_msg(), line());
-        } else if (_error_row_number == MAX_ERROR_NUM) {
-            fmt::format_to(out, "TOO MUCH ERROR! already reach {}. show no more next error.",
-                           MAX_ERROR_NUM);
-        }
-    }
+    // Note: export reason first in case src line too long and be truncated.
+    fmt::format_to(out, "Reason: {}. src line [{}]; ", error_msg(), line());
 
     size_t error_row_size = out.size();
     if (error_row_size > 0) {
@@ -408,6 +397,7 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
             (*_error_log_file) << fmt::to_string(out) << std::endl;
         }
     }
+
     return Status::OK();
 }
 
@@ -454,8 +444,8 @@ void RuntimeState::emplace_local_state(
 }
 
 doris::pipeline::PipelineXLocalStateBase* RuntimeState::get_local_state(int id) {
-    id = -id;
-    return _op_id_to_local_state[id].get();
+    DCHECK_GT(_op_id_to_local_state.size(), -id);
+    return _op_id_to_local_state[-id].get();
 }
 
 Result<RuntimeState::LocalState*> RuntimeState::get_local_state_result(int id) {

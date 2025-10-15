@@ -182,8 +182,7 @@ Status LoadStreamWriter::close_writer(uint32_t segid, FileType file_type) {
     return Status::OK();
 }
 
-Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& stat,
-                                     TabletSchemaSPtr flush_schema) {
+Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& stat) {
     SCOPED_ATTACH_TASK(_resource_ctx);
     size_t segment_file_size = 0;
     size_t inverted_file_size = 0;
@@ -209,7 +208,7 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
                 segid, segment_file_size, inverted_file_size, stat.data_size, _req.tablet_id);
     }
 
-    return _rowset_writer->add_segment(segid, stat, flush_schema);
+    return _rowset_writer->add_segment(segid, stat);
 }
 
 Status LoadStreamWriter::_calc_file_size(uint32_t segid, FileType file_type, size_t* file_size) {

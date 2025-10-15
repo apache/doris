@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.load;
 
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.DataDescription;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -38,6 +41,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
@@ -47,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -57,6 +62,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -188,6 +194,60 @@ public class NereidsDataDescription {
     }
 
     /**
+     * full param constructor
+     */
+    public NereidsDataDescription(String tableName,
+                                  PartitionNames partitionNames,
+                                  List<String> filePaths,
+                                  List<String> columns,
+                                  Separator columnSeparator,
+                                  Separator lineDelimiter,
+                                  String fileFormat,
+                                  String compressType,
+                                  String srcTableName,
+                                  List<String> columnsFromPath,
+                                  boolean isNegative,
+                                  List<Expression> columnMappingList,
+                                  Expression fileFilterExpr,
+                                  Expression whereExpr,
+                                  LoadTask.MergeType mergeType,
+                                  Expression deleteCondition,
+                                  String sequenceColName,
+                                  Map<String, String> properties) {
+        this.tableName = tableName;
+        this.partitionNames = partitionNames;
+        this.filePaths = filePaths;
+        this.fileFieldNames = columns;
+        this.columnsFromPath = columnsFromPath;
+        this.isNegative = isNegative;
+        this.columnMappingList = columnMappingList;
+        this.precedingFilterExpr = fileFilterExpr;
+        this.whereExpr = whereExpr;
+        this.srcTableName = srcTableName;
+        this.mergeType = mergeType;
+        this.deleteCondition = deleteCondition;
+        this.sequenceCol = sequenceColName;
+        this.properties = properties;
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
+        // the default value of `read_json_by_line` must be true.
+        // So that for broker load, this is always true,
+        // and for stream load, it will set on demand.
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
+        if (columnSeparator != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
+        }
+        if (lineDelimiter != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter.getOriSeparator());
+        }
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, fileFormat);
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, compressType);
+        columnsNameToLowerCase(fileFieldNames);
+        columnsNameToLowerCase(columnsFromPath);
+    }
+
+    /**
      * NereidsDataDescription
      */
     public NereidsDataDescription(String tableName,
@@ -277,18 +337,18 @@ public class NereidsDataDescription {
     /**
      * data desc for mysql client
      */
-    public NereidsDataDescription(TableName tableName,
-            PartitionNames partitionNames,
-            String file,
-            boolean clientLocal,
-            List<String> columns,
-            Separator columnSeparator,
-            Separator lineDelimiter,
-            int skipLines,
-            List<Expression> columnMappingList,
-            Map<String, String> properties) {
-        this.tableName = tableName.getTbl();
-        this.dbName = tableName.getDb();
+    public NereidsDataDescription(TableNameInfo tableNameInfo,
+                                  PartitionNames partitionNames,
+                                  String file,
+                                  boolean clientLocal,
+                                  List<String> columns,
+                                  Separator columnSeparator,
+                                  Separator lineDelimiter,
+                                  int skipLines,
+                                  List<Expression> columnMappingList,
+                                  Map<String, String> properties) {
+        this.tableName = tableNameInfo.getTbl();
+        this.dbName = tableNameInfo.getDb();
         this.partitionNames = partitionNames;
         this.filePaths = Lists.newArrayList(file);
         this.clientLocal = clientLocal;
@@ -367,6 +427,8 @@ public class NereidsDataDescription {
                 String.valueOf(taskInfo.getTrimDoubleQuotes()));
         putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_SKIP_LINES,
                 String.valueOf(taskInfo.getSkipLines()));
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL,
+                String.valueOf(taskInfo.getEmptyFieldAsNull()));
 
         putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY,
                 String.valueOf(taskInfo.isStripOuterArray()));
@@ -998,14 +1060,15 @@ public class NereidsDataDescription {
         analyzeFilePaths();
 
         if (partitionNames != null) {
-            partitionNames.analyze(null);
+            partitionNames.analyze();
         }
 
         analyzeColumns();
         analyzeMultiLoadColumns();
         analyzeSequenceCol(fullDbName);
 
-        fileFormatProperties = FileFormatProperties.createFileFormatProperties(analysisMap);
+        fileFormatProperties = FileFormatProperties.createFileFormatPropertiesOrDeferred(
+                analysisMap.getOrDefault(FileFormatProperties.PROP_FORMAT, ""));
         fileFormatProperties.analyzeFileFormatProperties(analysisMap, false);
     }
 
@@ -1096,5 +1159,63 @@ public class NereidsDataDescription {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    /**
+     * this method can convert NereidsDataDescription to DataDescription
+     */
+    public DataDescription toDataDescription(ConnectContext ctx) throws AnalysisException {
+        // we should get all member variables from NereidsDataDescription object,
+        // then set them to DataDescription object
+        List<Expr> legacyColumnMappingList = new ArrayList<>();
+        if (this.columnMappingList != null && !this.columnMappingList.isEmpty()) {
+            for (Expression expression : this.columnMappingList) {
+                if (expression != null) {
+                    if (expression instanceof EqualTo) {
+                        // we should not cast right type to left type here, because we do the cast when
+                        // creating load plan later, see NereidsLoadUtils.createLoadPlan for more details
+                        Expr left = PlanUtils.translateToLegacyExpr(((EqualTo) expression).left(), null, ctx);
+                        Expr right = PlanUtils.translateToLegacyExpr(((EqualTo) expression).right(), null, ctx);
+                        legacyColumnMappingList.add(new BinaryPredicate(BinaryPredicate.Operator.EQ, left, right));
+                    } else {
+                        throw new AnalysisException(String.format("column mapping expr must be EqualTo, but it's %s",
+                                expression));
+                    }
+                }
+            }
+        }
+
+        Expr legacyPrecedingFilterExpr = null;
+        if (this.precedingFilterExpr != null) {
+            legacyPrecedingFilterExpr = PlanUtils.translateToLegacyExpr(this.precedingFilterExpr, null, ctx);
+        }
+        Expr legacyWhere = null;
+        if (this.whereExpr != null) {
+            legacyWhere = PlanUtils.translateToLegacyExpr(this.whereExpr, null, ctx);
+        }
+        Expr legacyDeleteCondition = null;
+        if (this.deleteCondition != null) {
+            legacyDeleteCondition = PlanUtils.translateToLegacyExpr(this.deleteCondition, null, ctx);
+        }
+        Separator columnSeparator = analysisMap.get(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR) == null
+                ? null : new Separator(analysisMap.get(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR));
+        Separator lineDelimiter = analysisMap.get(CsvFileFormatProperties.PROP_LINE_DELIMITER) == null
+                ? null : new Separator(analysisMap.get(CsvFileFormatProperties.PROP_LINE_DELIMITER));
+
+        // first, we give an empty parsedColumnExprList
+        List<ImportColumnDesc> parsedColumnExprList = Lists.newArrayList();
+        DataDescription dataDescription = new DataDescription(
+                this.tableName, this.partitionNames, this.filePaths, this.fileFieldNames,
+                columnSeparator, lineDelimiter, analysisMap.get(FileFormatProperties.PROP_FORMAT),
+                analysisMap.get(FileFormatProperties.PROP_COMPRESS_TYPE), this.columnsFromPath, this.isNegative,
+                legacyColumnMappingList, legacyPrecedingFilterExpr, legacyWhere, this.mergeType, legacyDeleteCondition,
+                this.sequenceCol, this.properties, this.isHadoopLoad, this.dbName, this.srcTableName,
+                parsedColumnExprList, this.columnToHadoopFunction, this.uniquekeyUpdateMode, this.clientLocal,
+                this.fileSize, this.columnDef, this.backendId, this.isMysqlLoad, this.ignoreCsvRedundantCol,
+                this.fileFormatProperties, this.analysisMap);
+        // then the dataDescription object should do analyze method to get parsedColumnExprList
+        dataDescription.analyzeColumns();
+        dataDescription.analyzeMultiLoadColumns();
+        return dataDescription;
     }
 }

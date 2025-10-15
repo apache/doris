@@ -29,9 +29,10 @@
 #include <vector>
 
 #include "vec/common/allocator.h"
+#include "vec/common/allocator_fwd.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class faststring;
 
 /// @brief A wrapper around externally allocated data.
@@ -298,7 +299,7 @@ inline bool operator!=(const Slice& x, const Slice& y) {
 }
 
 inline int Slice::compare(const Slice& b) const {
-    const int min_len = (size < b.size) ? size : b.size;
+    const auto min_len = (size < b.size) ? size : b.size;
     int r = mem_compare(data, b.data, min_len);
     if (r == 0) {
         if (size < b.size)
@@ -310,7 +311,7 @@ inline int Slice::compare(const Slice& b) const {
 }
 
 // A move-only type which manage the lifecycle of externally allocated data.
-// Unlike std::unique_ptr<uint8_t[]>, OwnedSlice remembers the size of data so that clients can access
+// Unlike DorisUniqueBufferPtr<uint8_t>, OwnedSlice remembers the size of data so that clients can access
 // the underlying buffer as a Slice.
 //
 // Usage example:
@@ -375,3 +376,4 @@ private:
 };
 
 } // namespace doris
+#include "common/compile_check_end.h"

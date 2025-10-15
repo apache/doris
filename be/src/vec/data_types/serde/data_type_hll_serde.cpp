@@ -89,7 +89,7 @@ Status DataTypeHLLSerDe::write_column_to_pb(const IColumn& column, PValues& resu
     auto row_count = cast_set<int>(end - start);
     result.mutable_bytes_value()->Reserve(row_count);
     for (size_t row_num = start; row_num < end; ++row_num) {
-        auto& value = const_cast<HyperLogLog&>(data_column.get_element(row_num));
+        auto& value = data_column.get_element(row_num);
         std::string memory_buffer(value.max_serialized_size(), '0');
         value.serialize((uint8_t*)memory_buffer.data());
         result.add_bytes_value(memory_buffer.data(), memory_buffer.size());
@@ -107,13 +107,13 @@ Status DataTypeHLLSerDe::read_column_from_pb(IColumn& column, const PValues& arg
 }
 
 void DataTypeHLLSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                               Arena* mem_pool, int32_t col_id,
+                                               Arena& arena, int32_t col_id,
                                                int64_t row_num) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const auto& data_column = assert_cast<const ColumnHLL&>(column);
-    auto& hll_value = const_cast<HyperLogLog&>(data_column.get_element(row_num));
+    auto& hll_value = data_column.get_element(row_num);
     auto size = hll_value.max_serialized_size();
-    auto* ptr = reinterpret_cast<char*>(mem_pool->alloc(size));
+    auto* ptr = reinterpret_cast<char*>(arena.alloc(size));
     size_t actual_size = hll_value.serialize((uint8_t*)ptr);
     result.writeStartBinary();
     result.writeBinary(reinterpret_cast<const char*>(ptr), actual_size);
@@ -136,7 +136,7 @@ Status DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const Null
             RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
                                              array_builder->type()->name()));
         } else {
-            auto& hll_value = const_cast<HyperLogLog&>(col.get_element(string_i));
+            auto& hll_value = col.get_element(string_i);
             std::string memory_buffer(hll_value.max_serialized_size(), '0');
             hll_value.serialize((uint8_t*)memory_buffer.data());
             RETURN_IF_ERROR(checkArrowStatus(
@@ -185,34 +185,29 @@ Status DataTypeHLLSerDe::write_column_to_mysql(const IColumn& column,
 Status DataTypeHLLSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                              const NullMap* null_map,
                                              orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                             int64_t end,
-                                             std::vector<StringRef>& buffer_list) const {
+                                             int64_t end, vectorized::Arena& arena) const {
     auto& col_data = assert_cast<const ColumnHLL&>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     // First pass: calculate total memory needed and collect serialized values
     size_t total_size = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
-            auto hll_value = const_cast<HyperLogLog&>(col_data.get_element(row_id));
+            auto hll_value = col_data.get_element(row_id);
             size_t len = hll_value.max_serialized_size();
             total_size += len;
         }
     }
     // Allocate continues memory based on calculated size
-    char* ptr = (char*)malloc(total_size);
+    char* ptr = arena.alloc(total_size);
     if (!ptr) {
         return Status::InternalError(
                 "malloc memory {} error when write variant column data to orc file.", total_size);
     }
-    StringRef bufferRef;
-    bufferRef.data = ptr;
-    bufferRef.size = total_size;
-    buffer_list.emplace_back(bufferRef);
     // Second pass: copy data to allocated memory
     size_t offset = 0;
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
-            auto hll_value = const_cast<HyperLogLog&>(col_data.get_element(row_id));
+            auto hll_value = col_data.get_element(row_id);
             size_t len = hll_value.max_serialized_size();
             if (offset + len > total_size) {
                 return Status::InternalError(
@@ -220,14 +215,28 @@ Status DataTypeHLLSerDe::write_column_to_orc(const std::string& timezone, const 
                         "{} exceed total_size {} ",
                         offset, len, total_size);
             }
-            hll_value.serialize((uint8_t*)(bufferRef.data) + offset);
-            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+            hll_value.serialize((uint8_t*)ptr + offset);
+            cur_batch->data[row_id] = ptr + offset;
             cur_batch->length[row_id] = len;
             offset += len;
         }
     }
     cur_batch->numElements = end - start;
     return Status::OK();
+}
+
+Status DataTypeHLLSerDe::from_string(StringRef& str, IColumn& column,
+                                     const FormatOptions& options) const {
+    auto slice = str.to_slice();
+    return deserialize_one_cell_from_json(column, slice, options);
+}
+
+void DataTypeHLLSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const {
+    const auto& data = assert_cast<const ColumnHLL&>(column).get_element(row_num);
+    std::string result(data.max_serialized_size(), '0');
+    size_t actual_size = data.serialize((uint8_t*)result.data());
+    result.resize(actual_size);
+    bw.write(result.c_str(), result.size());
 }
 
 } // namespace vectorized

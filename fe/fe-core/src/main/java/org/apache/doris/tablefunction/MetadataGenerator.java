@@ -18,6 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -73,6 +74,8 @@ import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.util.FrontendConjunctsUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.plsql.metastore.PlsqlManager;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
@@ -106,6 +109,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTasksMetadataParams;
 import org.apache.doris.thrift.TUserIdentity;
 
+import com.codahale.metrics.Snapshot;
 import com.google.common.base.Joiner;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
@@ -122,6 +126,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -149,6 +154,8 @@ public class MetadataGenerator {
     private static final ImmutableMap<String, Integer> PARTITIONS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> VIEW_DEPENDENCY_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX;
 
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
@@ -218,6 +225,14 @@ public class MetadataGenerator {
             viewDependencyBuilder.put(viewDependencyBuilderColList.get(i).getName().toLowerCase(), i);
         }
         VIEW_DEPENDENCY_COLUMN_TO_INDEX = viewDependencyBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> sqlBlockRuleStatusBuilder = new ImmutableMap.Builder();
+        List<Column> sqlBlockRuleStatusBuilderColList = SchemaTable.TABLE_MAP.get("sql_block_rule_status")
+                .getFullSchema();
+        for (int i = 0; i < sqlBlockRuleStatusBuilderColList.size(); i++) {
+            sqlBlockRuleStatusBuilder.put(sqlBlockRuleStatusBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX = sqlBlockRuleStatusBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -328,6 +343,10 @@ public class MetadataGenerator {
                 result = viewDependencyMetadataResult(schemaTableParams);
                 columnIndex = VIEW_DEPENDENCY_COLUMN_TO_INDEX;
                 break;
+            case SQL_BLOCK_RULE_STATUS:
+                result = sqlBlockRuleStatusMetadataResult(schemaTableParams);
+                columnIndex = SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX;
+                break;
             default:
                 return errorResult("invalid schema table name.");
         }
@@ -388,11 +407,10 @@ public class MetadataGenerator {
                         hudiBasePathString, conf).getActiveTimeline();
                 for (HoodieInstant instant : timeline.getInstants()) {
                     TRow trow = new TRow();
-                    trow.addToColumnValue(new TCell().setStringVal(instant.getTimestamp()));
+                    trow.addToColumnValue(new TCell().setStringVal(instant.requestedTime()));
                     trow.addToColumnValue(new TCell().setStringVal(instant.getAction()));
-                    trow.addToColumnValue(new TCell().setStringVal(instant.getFileName()));
                     trow.addToColumnValue(new TCell().setStringVal(instant.getState().name()));
-                    trow.addToColumnValue(new TCell().setStringVal(instant.getStateTransitionTime()));
+                    trow.addToColumnValue(new TCell().setStringVal(instant.getCompletionTime()));
                     dataBatch.add(trow);
                 }
                 break;
@@ -590,28 +608,24 @@ public class MetadataGenerator {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(0)))); // id
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(1))); // name
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(2)))); // cpu_share
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(3))); // mem_limit
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(4))); // mem overcommit
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(5)))); // write_buffer_ratio
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(6))); // slot_memory_policy
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(7)))); // max concurrent
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(8)))); // max queue size
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(9)))); // queue timeout
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(10))); // cpu hard limit
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(11)))); // scan thread num
+            trow.addToColumnValue(new TCell().setStringVal((rGroupsInfo.get(2)))); // min_cpu_percent
+            trow.addToColumnValue(new TCell().setStringVal((rGroupsInfo.get(3)))); // max_cpu_percent
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(4))); // min_memory_percent
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(5))); // max_memory_percent
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(6)))); // max concurrent
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(7)))); // max queue size
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(8)))); // queue timeout
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(9)))); // scan thread num
             // max remote scan thread num
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(12))));
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(10))));
             // min remote scan thread num
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(13))));
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(14))); // spill low watermark
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(15))); // spill high watermark
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(16))); // compute group
-            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(17)))); // read bytes per second
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(11))));
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(12))); // spill low watermark
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(13))); // spill high watermark
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(14))); // compute group
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(15)))); // read bytes per second
             trow.addToColumnValue(
-                    new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(18)))); // remote read bytes per second
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(19))); // running query num
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(20))); // waiting query num
+                    new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(16)))); // remote read bytes per second
             dataBatch.add(trow);
         }
 
@@ -620,26 +634,86 @@ public class MetadataGenerator {
         return result;
     }
 
+    private static TFetchSchemaTableDataResult sqlBlockRuleStatusMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(params.getCurrentUserIdent());
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUserIdentity, PrivPredicate.ADMIN)) {
+            return result;
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> nameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "NAME");
+        List<SqlBlockRule> sqlBlockRules = Env.getCurrentEnv().getSqlBlockRuleMgr().getSqlBlockRule(null);
+
+        for (SqlBlockRule sqlBlockRule : sqlBlockRules) {
+            TRow trow = new TRow();
+            String name = sqlBlockRule.getName();
+            if (FrontendConjunctsUtils.isFiltered(nameConjuncts, "NAME", name)) {
+                continue;
+            }
+            trow.addToColumnValue(new TCell().setStringVal(name));
+            trow.addToColumnValue(new TCell().setStringVal(sqlBlockRule.getSql()));
+            trow.addToColumnValue(new TCell().setStringVal(sqlBlockRule.getSqlHash()));
+            trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getPartitionNum()));
+            trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getTabletNum()));
+            trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getCardinality()));
+            trow.addToColumnValue(new TCell().setBoolVal(sqlBlockRule.getGlobal()));
+            trow.addToColumnValue(new TCell().setBoolVal(sqlBlockRule.getEnable()));
+            trow.addToColumnValue(new TCell().setLongVal(sqlBlockRule.getBlockCount().getValue()));
+            Snapshot snapshot = sqlBlockRule.getTryBlockHistogram().getSnapshot();
+            trow.addToColumnValue(new TCell().setLongVal((long) snapshot.getMean()));
+            trow.addToColumnValue(new TCell().setLongVal(snapshot.getMax()));
+            trow.addToColumnValue(new TCell().setLongVal((long) snapshot.get99thPercentile()));
+            dataBatch.add(trow);
+        }
+        return result;
+    }
+
     private static TFetchSchemaTableDataResult viewDependencyMetadataResult(TSchemaTableRequestParams params) {
         if (!params.isSetCurrentUserIdent()) {
             return errorResult("current user ident is not set.");
         }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> viewSchemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "VIEW_SCHEMA");
+        List<Expression> viewTypeConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "VIEW_TYPE");
+        List<Expression> viewNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "VIEW_NAME");
         Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         for (DatabaseIf<? extends TableIf> db : allDbs) {
-            List<? extends TableIf> tables = db.getTables();
             String dbName = db.getFullName();
+            if (FrontendConjunctsUtils.isFiltered(viewSchemaConjuncts, "VIEW_SCHEMA", dbName)) {
+                continue;
+            }
+            List<? extends TableIf> tables = db.getTables();
             for (TableIf table : tables) {
+                if (FrontendConjunctsUtils.isFiltered(viewTypeConjuncts, "VIEW_TYPE", table.getType().name())) {
+                    continue;
+                }
                 if (table instanceof MTMV) {
                     String tableName = table.getName();
+                    if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
+                        continue;
+                    }
                     MTMVRelation relation = ((MTMV) table).getRelation();
                     Set<BaseTableInfo> tablesOneLevel = relation.getBaseTablesOneLevel();
                     for (BaseTableInfo info : tablesOneLevel) {
                         TRow trow = new TRow();
-                        trow.addToColumnValue(new TCell().setStringVal("internal"));
+                        trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
                         trow.addToColumnValue(new TCell().setStringVal(dbName));
                         trow.addToColumnValue(new TCell().setStringVal(tableName));
                         trow.addToColumnValue(new TCell().setStringVal(table.getType().name()));
@@ -651,6 +725,9 @@ public class MetadataGenerator {
                     }
                 } else if (table instanceof View) {
                     String tableName = table.getName();
+                    if (FrontendConjunctsUtils.isFiltered(viewNameConjuncts, "VIEW_NAME", tableName)) {
+                        continue;
+                    }
                     String inlineViewDef = ((View) table).getInlineViewDef();
                     Map<List<String>, TableIf> tablesMap = PlanUtils.tableCollect(inlineViewDef, ctx);
                     for (Map.Entry<List<String>, TableIf> info : tablesMap.entrySet()) {
@@ -793,6 +870,13 @@ public class MetadataGenerator {
 
             String queueMsg = queryInfo.getQueueStatus();
             trow.addToColumnValue(new TCell().setStringVal(queueMsg));
+
+            if (queryInfo.getConnectContext() != null) {
+                String user = queryInfo.getConnectContext().getQualifiedUser();
+                trow.addToColumnValue(new TCell().setStringVal(user != null ? user : ""));
+            } else {
+                trow.addToColumnValue(new TCell().setStringVal(""));
+            }
 
             trow.addToColumnValue(new TCell().setStringVal(queryInfo.getSql()));
             dataBatch.add(trow);

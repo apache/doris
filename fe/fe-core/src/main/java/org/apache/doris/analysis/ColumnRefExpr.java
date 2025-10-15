@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TColumnRef;
 import org.apache.doris.thrift.TExprNode;
@@ -34,13 +33,6 @@ public class ColumnRefExpr extends Expr {
 
     public ColumnRefExpr() {
         super();
-    }
-
-    public ColumnRefExpr(int columnId, String columnName, boolean isNullable) {
-        super();
-        this.columnId = columnId;
-        this.columnName = columnName;
-        this.isNullable = isNullable;
     }
 
     public ColumnRefExpr(ColumnRefExpr rhs) {
@@ -66,10 +58,6 @@ public class ColumnRefExpr extends Expr {
         this.columnName = name;
     }
 
-    public int getColumnId() {
-        return columnId;
-    }
-
     public void setColumnId(int id) {
         this.columnId = id;
     }
@@ -81,13 +69,6 @@ public class ColumnRefExpr extends Expr {
 
     public void setNullable(boolean nullable) {
         this.isNullable = nullable;
-    }
-
-    @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        if (columnId < 0) {
-            throw new AnalysisException("the columnId is invalid : " + columnId);
-        }
     }
 
     @Override

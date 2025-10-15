@@ -60,8 +60,8 @@ public class HboStatsCalculator extends StatsCalculator {
      * @return Statistics
      */
     @Override
-    protected Statistics computeFilter(Filter filter) {
-        Statistics legacyStats = super.computeFilter(filter);
+    public Statistics computeFilter(Filter filter, Statistics inputStats) {
+        Statistics legacyStats = super.computeFilter(filter, inputStats);
         boolean isLogicalFilterOnTs = HboUtils.isLogicalFilterOnLogicalScan(filter);
         boolean isPhysicalFilterOnTs = HboUtils.isPhysicalFilterOnPhysicalScan(filter);
         if (isLogicalFilterOnTs || isPhysicalFilterOnTs) {
@@ -73,14 +73,15 @@ public class HboStatsCalculator extends StatsCalculator {
     }
 
     @Override
-    protected Statistics computeJoin(Join join) {
-        Statistics legacyStats = super.computeJoin(join);
+    public Statistics computeJoin(Join join, Statistics leftStats, Statistics rightStats) {
+        Statistics legacyStats = super.computeJoin(join, groupExpression.childStatistics(0),
+                groupExpression.childStatistics(1));
         return getStatsFromHboPlanStats((AbstractPlan) join, legacyStats);
     }
 
     @Override
-    protected Statistics computeAggregate(Aggregate<? extends Plan> aggregate) {
-        Statistics legacyStats = super.computeAggregate(aggregate);
+    public Statistics computeAggregate(Aggregate<? extends Plan> aggregate, Statistics inputStats) {
+        Statistics legacyStats = super.computeAggregate(aggregate, inputStats);
         // NOTE: aggr has two times matching, one is the global but logical aggr,
         // another is local but physical aggr.
         // the physical one can be matched but the logical one is hard to be matched.

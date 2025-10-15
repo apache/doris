@@ -343,11 +343,10 @@ public:
         auto col_res = ColumnDecimal<PT>::create(vec_src.size(), decimal_col->get_scale());
         auto& vec_res = col_res->get_data();
 
-        const typename T::NativeType* __restrict p_in =
-                reinterpret_cast<const T::NativeType*>(vec_src.data());
-        const typename T::NativeType* end_in =
+        const auto* __restrict p_in = reinterpret_cast<const T::NativeType*>(vec_src.data());
+        const auto* end_in =
                 reinterpret_cast<const T::NativeType*>(vec_src.data()) + vec_src.size();
-        typename T::NativeType* __restrict p_out = reinterpret_cast<T::NativeType*>(vec_res.data());
+        auto* __restrict p_out = reinterpret_cast<T::NativeType*>(vec_res.data());
 
         while (p_in < end_in) {
             typename T::NativeType remainder = ((*p_in % _width) + _width) % _width;
@@ -527,13 +526,11 @@ public:
         auto col_res = ColumnInt32::create();
         ColumnInt32::Container& out_data = col_res->get_data();
         out_data.resize(in_data.size());
-        auto& vec_res = col_res->get_data();
 
-        const typename T::NativeType* __restrict p_in =
-                reinterpret_cast<const T::NativeType*>(in_data.data());
-        const typename T::NativeType* end_in =
+        const auto* __restrict p_in = reinterpret_cast<const T::NativeType*>(in_data.data());
+        const auto* end_in =
                 reinterpret_cast<const T::NativeType*>(in_data.data()) + in_data.size();
-        typename T::NativeType* __restrict p_out = reinterpret_cast<T::NativeType*>(vec_res.data());
+        Int32* __restrict p_out = out_data.data();
 
         while (p_in < end_in) {
             std::string buffer = BitUtil::IntToByteBuffer(*p_in);

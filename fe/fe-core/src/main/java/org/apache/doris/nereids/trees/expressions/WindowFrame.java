@@ -120,6 +120,18 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(frameUnits + " ");
+        if (rightBoundary != null) {
+            sb.append("BETWEEN " + leftBoundary.toDigest() + " AND " + rightBoundary.toDigest());
+        } else {
+            sb.append(leftBoundary.toDigest());
+        }
+        return sb.toString();
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitWindowFrame(this, context);
     }
@@ -212,6 +224,32 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
             boundOffset.ifPresent(value -> sb.append(value + " "));
             sb.append(frameBoundType);
 
+            return sb.toString();
+        }
+
+        /** to digest */
+        public String toDigest() {
+            StringBuilder sb = new StringBuilder();
+            boundOffset.ifPresent(value -> sb.append(value.toDigest()).append(" "));
+            switch (frameBoundType) {
+                case UNBOUNDED_PRECEDING:
+                    sb.append("UNBOUNDED PRECEDING");
+                    break;
+                case UNBOUNDED_FOLLOWING:
+                    sb.append("UNBOUNDED FOLLOWING");
+                    break;
+                case CURRENT_ROW:
+                    sb.append("CURRENT ROW");
+                    break;
+                case PRECEDING:
+                    sb.append("PRECEDING");
+                    break;
+                case FOLLOWING:
+                    sb.append("FOLLOWING");
+                    break;
+                default:
+                    break;
+            }
             return sb.toString();
         }
 

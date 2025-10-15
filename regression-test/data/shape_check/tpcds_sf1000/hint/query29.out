@@ -25,24 +25,24 @@ PhysicalResultSink
 ----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2 RF3 RF4 RF5 RF6
 --------------------------------------PhysicalProject
 ----------------------------------------filter((d1.d_moy = 4) and (d1.d_year = 1998))
-------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------PhysicalOlapScan[date_dim(d1)]
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_returns.sr_returned_date_sk = d2.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[sr_returned_date_sk]
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF0 RF5
 --------------------------------------PhysicalProject
 ----------------------------------------filter((d2.d_moy <= 7) and (d2.d_moy >= 4) and (d2.d_year = 1998))
-------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------PhysicalOlapScan[date_dim(d2)]
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[item]
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[store]
 ------------------PhysicalProject
 --------------------filter(d_year IN (1998, 1999, 2000))
-----------------------PhysicalOlapScan[date_dim]
+----------------------PhysicalOlapScan[date_dim(d3)]
 
 Hint log:
 Used: leading(catalog_sales { { store_sales d1 { store_returns d2 } } item store } d3 )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

@@ -64,7 +64,7 @@ public class LogicalDeferMaterializeOlapScan extends LogicalCatalogRelation impl
             Set<ExprId> deferMaterializeSlotIds, SlotReference columnIdSlot,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(logicalOlapScan.getRelationId(), logicalOlapScan.getType(), logicalOlapScan.getTable(),
-                logicalOlapScan.getQualifier(), groupExpression, logicalProperties);
+                logicalOlapScan.getQualifier(), groupExpression, logicalProperties, logicalOlapScan.getTableAlias());
         this.logicalOlapScan = Objects.requireNonNull(logicalOlapScan, "logicalOlapScan can not be null");
         this.deferMaterializeSlotIds = ImmutableSet.copyOf(Objects.requireNonNull(deferMaterializeSlotIds,
                 "deferMaterializeSlotIds can not be null"));
@@ -137,6 +137,14 @@ public class LogicalDeferMaterializeOlapScan extends LogicalCatalogRelation impl
     }
 
     @Override
+    public LogicalDeferMaterializeOlapScan withTableAlias(String tableAlias) {
+        // Update the wrapped LogicalOlapScan with the new alias
+        LogicalOlapScan newOlapScan = logicalOlapScan.withTableAlias(tableAlias);
+        return new LogicalDeferMaterializeOlapScan(newOlapScan, deferMaterializeSlotIds, columnIdSlot,
+                Optional.empty(), Optional.of(getLogicalProperties()));
+    }
+
+    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalDeferMaterializeOlapScan(this, context);
     }
@@ -165,10 +173,11 @@ public class LogicalDeferMaterializeOlapScan extends LogicalCatalogRelation impl
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalDeferMaterializeOlapScan[" + id.asInt() + "]",
+        return Utils.toSqlStringSkipNull("LogicalDeferMaterializeOlapScan[" + id.asInt() + "]",
                 "olapScan", logicalOlapScan,
+                "alias", tableAlias,
                 "deferMaterializeSlotIds", deferMaterializeSlotIds,
-                "columnIdSlot", columnIdSlot
-        );
+                "columnIdSlot", columnIdSlot,
+                "stats", statistics);
     }
 }

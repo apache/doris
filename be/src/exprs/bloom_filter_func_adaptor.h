@@ -40,7 +40,7 @@ public:
 
     Status merge(BloomFilterAdaptor* other) { return _bloom_filter->merge(*other->_bloom_filter); }
 
-    Status init(int len) {
+    Status init(int64_t len) {
         int log_space = (int)log2(len);
         return _bloom_filter->init(log_space, /*hash_seed*/ 0);
     }

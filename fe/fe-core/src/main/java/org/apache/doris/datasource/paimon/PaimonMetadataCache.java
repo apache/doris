@@ -36,6 +36,8 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.partition.Partition;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.Table;
 import org.jetbrains.annotations.NotNull;
 
@@ -71,8 +73,9 @@ public class PaimonMetadataCache {
             PaimonPartitionInfo partitionInfo = loadPartitionInfo(key, partitionColumns);
             return new PaimonSnapshotCacheValue(partitionInfo, latestSnapshot);
         } catch (Exception e) {
-            throw new CacheException("failed to load snapshot: %s.%s.%s with schema id: %s",
-                    null, nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName());
+            throw new CacheException("failed to load paimon snapshot %s.%s.%s or reason: %s",
+                    e, nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName(),
+                    e.getMessage());
         }
     }
 
@@ -114,14 +117,14 @@ public class PaimonMetadataCache {
         Table snapshotTable = table;
         // snapshotId and schemaId
         Long latestSnapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
-        long latestSchemaId = 0L;
         Optional<Snapshot> optionalSnapshot = table.latestSnapshot();
         if (optionalSnapshot.isPresent()) {
             latestSnapshotId = optionalSnapshot.get().id();
-            latestSchemaId = table.snapshot(latestSnapshotId).schemaId();
             snapshotTable =
                 table.copy(Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), latestSnapshotId.toString()));
         }
+        DataTable dataTable = (DataTable) table;
+        long latestSchemaId = dataTable.schemaManager().latest().map(TableSchema::id).orElse(0L);
         return new PaimonSnapshot(latestSnapshotId, latestSchemaId, snapshotTable);
     }
 

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -80,27 +81,37 @@ public class TopNArray extends NullableAggregateFunction
         super("topn_array", distinct, alwaysNullable, arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private TopNArray(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (!getArgument(1).isConstant()) {
+            throw new AnalysisException(
+                    "topn_array requires second parameter must be a constant: "
+                            + this.toSql());
+        }
+        if (arity() == 3 && !getArgument(2).isConstant()) {
+            throw new AnalysisException(
+                    "topn_array requires third parameter must be a constant: "
+                            + this.toSql());
+        }
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public TopNArray withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2
-                || children.size() == 3);
-        if (children.size() == 2) {
-            return new TopNArray(distinct, alwaysNullable, children.get(0), children.get(1));
-        } else {
-            return new TopNArray(distinct, alwaysNullable, children.get(0), children.get(1), children.get(2));
-        }
+        Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
+        return new TopNArray(getFunctionParams(distinct, children));
     }
 
     @Override
-    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        if (children.size() == 2) {
-            return new TopNArray(distinct, alwaysNullable, children.get(0), children.get(1));
-        } else {
-            return new TopNArray(distinct, alwaysNullable, children.get(0), children.get(1), children.get(2));
-        }
+    public TopNArray withAlwaysNullable(boolean alwaysNullable) {
+        return new TopNArray(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

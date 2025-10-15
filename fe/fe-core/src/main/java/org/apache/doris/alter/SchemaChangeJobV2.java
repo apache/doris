@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
@@ -50,14 +51,15 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
-import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -93,7 +95,7 @@ import java.util.stream.Collectors;
  * This is for replacing the old SchemaChangeJob
  * https://github.com/apache/doris/issues/1429
  */
-public class SchemaChangeJobV2 extends AlterJobV2 {
+public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeJobV2.class);
 
     // partition id -> (shadow index id -> (shadow tablet id -> origin tablet id))
@@ -322,7 +324,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     objectPool,
                                     tbl.rowStorePageSize(),
                                     tbl.variantEnableFlattenNested(),
-                                    tbl.storagePageSize());
+                                    tbl.storagePageSize(), tbl.getTDEAlgorithm(),
+                                    tbl.storageDictPageSize());
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
@@ -416,7 +419,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         createShadowIndexReplica();
 
         this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
-        this.jobState = JobState.WAITING_TXN;
+        setJobState(JobState.WAITING_TXN);
 
         // write edit log
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
@@ -438,12 +441,15 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         for (long shadowIdxId : indexIdMap.keySet()) {
+            MaterializedIndexMeta originalIndexMeta = tbl.getIndexMetaByIndexId(indexIdMap.get(shadowIdxId));
             tbl.setIndexMeta(shadowIdxId, indexIdToName.get(shadowIdxId), indexSchemaMap.get(shadowIdxId),
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion,
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash,
                     indexShortKeyMap.get(shadowIdxId), TStorageType.COLUMN,
-                    tbl.getKeysTypeByIndexId(indexIdMap.get(shadowIdxId)),
-                    indexChange ? indexes : tbl.getIndexMetaByIndexId(indexIdMap.get(shadowIdxId)).getIndexes());
+                    tbl.getKeysTypeByIndexId(indexIdMap.get(shadowIdxId)), originalIndexMeta.getDefineStmt(),
+                    indexChange ? indexes : originalIndexMeta.getIndexes());
+            MaterializedIndexMeta shadowIndexMeta = tbl.getIndexMetaByIndexId(shadowIdxId);
+            shadowIndexMeta.setWhereClause(originalIndexMeta.getWhereClause());
         }
 
         tbl.rebuildFullSchema();
@@ -479,7 +485,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         tbl.readLock();
-        Map<Object, Object> objectPool = new ConcurrentHashMap<Object, Object>();
         String vaultId = tbl.getStorageVaultId();
         try {
             long expiration = (createTimeMs + timeoutMs) / 1000;
@@ -491,6 +496,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
 
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
+            // Create object pool per MaterializedIndex
+            Map<Long, Map<Object, Object>> indexObjectPoolMap = Maps.newHashMap();
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
                 Preconditions.checkNotNull(partition, partitionId);
@@ -503,6 +510,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
                     long shadowIdxId = entry.getKey();
                     MaterializedIndex shadowIdx = entry.getValue();
+
+                    // Get or create object pool for this MaterializedIndex
+                    Map<Object, Object> objectPool = indexObjectPoolMap.get(shadowIdxId);
+                    if (objectPool == null) {
+                        objectPool = new ConcurrentHashMap<Object, Object>();
+                        indexObjectPoolMap.put(shadowIdxId, objectPool);
+                    }
                     long originIdxId = indexIdMap.get(shadowIdxId);
                     Map<String, Expr> defineExprs = Maps.newHashMap();
                     List<Column> fullSchema = tbl.getSchemaByIndexId(originIdxId, true);
@@ -553,7 +567,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         AgentTaskQueue.addBatchTask(schemaChangeBatchTask);
         AgentTaskExecutor.submit(schemaChangeBatchTask);
 
-        this.jobState = JobState.RUNNING;
+        setJobState(JobState.RUNNING);
 
         // DO NOT write edit log here, tasks will be sent again if FE restart or master changed.
         LOG.info("transfer schema change job {} state to {}", jobId, this.jobState);
@@ -587,19 +601,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(2000);
             ensureCloudClusterExist(tasks);
             for (AgentTask task : tasks) {
-                int maxFailedTimes = 0;
-                if (Config.isCloudMode() && Config.enable_schema_change_retry_in_cloud_mode) {
-                    if (task.getErrorCode() != null && task.getErrorCode()
-                            .equals(TStatusCode.DELETE_BITMAP_LOCK_ERROR)) {
-                        maxFailedTimes = Config.schema_change_max_retry_time;
-                    }
-                }
+                int maxFailedTimes = getRetryTimes(task);
                 if (task.getFailedTimes() > maxFailedTimes) {
                     task.setFinished(true);
                     if (!FeConstants.runningUnitTest) {
                         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                        LOG.warn("schema change task failed, failedTimes: {}, maxFailedTimes: {}, err: {}",
-                                task.getFailedTimes(), maxFailedTimes, task.getErrorMsg());
+                        LOG.warn("schema change task failed, job: {}, failedTimes: {}, maxFailedTimes: {}, err: {}",
+                                 jobId, task.getFailedTimes(), maxFailedTimes, task.getErrorMsg());
                         List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
                         if (failedBackends == null) {
                             failedBackends = Lists.newArrayList();
@@ -692,13 +700,18 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // Write edit log with table's write lock held, to avoid adding partitions before writing edit log,
             // else it will try to transform index in newly added partition while replaying and result in failure.
             Env.getCurrentEnv().getEditLog().logAlterJob(this);
+            this.showJobState = JobState.FINISHED;
             pruneMeta();
         } finally {
             tbl.writeUnlock();
         }
         postProcessOriginIndex();
         // Drop table column stats after schema change finished.
-        Env.getCurrentEnv().getAnalysisManager().dropStats(tbl, null);
+        if (!FeConstants.runningUnitTest) {
+            AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
+            manager.removeTableStats(tbl.getId());
+            manager.dropStats(tbl, null);
+        }
     }
 
     private void onFinished(OlapTable tbl) {
@@ -811,7 +824,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.finishedTimeMs = System.currentTimeMillis();
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL when cancel, table id: {}, job id: {}", tableId, jobId);
-        jobState = JobState.CANCELLED;
+        setJobState(JobState.CANCELLED);
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
         LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
         onCancel();
@@ -905,7 +918,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         this.watershedTxnId = replayedJob.watershedTxnId;
-        jobState = JobState.PENDING;
+        setJobState(JobState.PENDING);
         LOG.info("replay pending schema change job: {}, table id: {}", jobId, tableId);
     }
 
@@ -924,7 +937,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         // should still be in WAITING_TXN state, so that the alter tasks will be resend again
-        this.jobState = JobState.WAITING_TXN;
+        setJobState(JobState.WAITING_TXN);
         this.watershedTxnId = replayedJob.watershedTxnId;
         LOG.info("replay waiting txn schema change job: {} table id: {}", jobId, tableId);
     }
@@ -949,6 +962,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
         postProcessOriginIndex();
         jobState = JobState.FINISHED;
+        this.showJobState = JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         LOG.info("replay finished schema change job: {} table id: {}", jobId, tableId);
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
@@ -963,7 +977,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         cancelInternal();
         // try best to drop shadow index
         onCancel();
-        this.jobState = JobState.CANCELLED;
+        setJobState(JobState.CANCELLED);
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         this.errMsg = replayedJob.errMsg;
         LOG.info("replay cancelled schema change job: {}", jobId);
@@ -1019,7 +1033,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             info.add(entry.getValue());
             info.add(indexSchemaVersionAndHashMap.get(shadowIndexId).toString());
             info.add(watershedTxnId);
-            info.add(jobState.name());
+            info.add(showJobState.name());
             info.add(errMsg);
             info.add(progress);
             info.add(timeoutMs / 1000);
@@ -1079,6 +1093,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this, AlterJobV2.class);
         Text.writeString(out, json);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        showJobState = jobState;
     }
 
     @Override

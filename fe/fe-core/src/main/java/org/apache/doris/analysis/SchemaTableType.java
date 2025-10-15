@@ -97,15 +97,18 @@ public enum SchemaTableType {
     SCH_ROUTINE_LOAD_JOBS("ROUTINE_LOAD_JOBS", "ROUTINE_LOAD_JOBS",
             TSchemaTableType.SCH_ROUTINE_LOAD_JOBS),
     SCH_VIEW_DEPENDENCY("VIEW_DEPENDENCY", "VIEW_DEPENDENCY",
-                    TSchemaTableType.SCH_VIEW_DEPENDENCY);
+                    TSchemaTableType.SCH_VIEW_DEPENDENCY),
+    SQL_BLOCK_RULE_STATUS("SQL_BLOCK_RULE_STATUS", "SQL_BLOCK_RULE_STATUS",
+            TSchemaTableType.SCH_SQL_BLOCK_RULE_STATUS),
+    SCH_ENCRYPTION_KEYS("ENCRYPTION_KEYS", "ENCRYPTION_KEYS",
+                          TSchemaTableType.SCH_ENCRYPTION_KEYS),
+    SCH_CLUSTER_SNAPSHOTS("CLUSTER_SNAPSHOTS", "CLUSTER_SNAPSHOTS", TSchemaTableType.SCH_CLUSTER_SNAPSHOTS),
+    SCH_CLUSTER_SNAPSHOT_PROPERTIES("CLUSTER_SNAPSHOT_PROPERTIES", "CLUSTER_SNAPSHOT_PROPERTIES",
+            TSchemaTableType.SCH_CLUSTER_SNAPSHOT_PROPERTIES),
+    SCH_BLACKHOLE("BLACKHOLE", "BLACKHOLE",
+            TSchemaTableType.SCH_BLACKHOLE);
 
     private static final String dbName = "INFORMATION_SCHEMA";
-    private static SelectList fullSelectLists;
-
-    static {
-        fullSelectLists = new SelectList();
-        fullSelectLists.addItem(SelectListItem.createStarItem(null));
-    }
 
     private final String description;
     private final String tableName;

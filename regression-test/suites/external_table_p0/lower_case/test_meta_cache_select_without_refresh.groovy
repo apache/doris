@@ -53,7 +53,11 @@ suite("test_meta_cache_select_without_refresh", "p0,external,doris,external_dock
             "use_meta_cache" = "true",
             "lower_case_meta_names" = "true",
             "only_specified_database" = "true",
-            "include_database_list" = "external_lower_select_without_refresh"
+            "include_database_list" = "external_lower_select_without_refresh",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     sql """drop catalog if exists test_meta_cache_lower_false_select_without_refresh """
@@ -68,7 +72,11 @@ suite("test_meta_cache_select_without_refresh", "p0,external,doris,external_dock
             "use_meta_cache" = "true",
             "lower_case_meta_names" = "false",
             "only_specified_database" = "true",
-            "include_database_list" = "external_lower_select_without_refresh"
+            "include_database_list" = "external_lower_select_without_refresh",
+            "connection_pool_min_size" = "2",
+            "connection_pool_max_size" = "20",
+            "connection_pool_max_wait_time" = "30000",
+            "connection_pool_max_life_time" = "600000"
         )"""
 
     sql """create table if not exists internal.external_lower_select_without_refresh.table1
@@ -91,11 +99,7 @@ suite("test_meta_cache_select_without_refresh", "p0,external,doris,external_dock
 
     sql """insert into internal.external_lower_select_without_refresh.TABLE2 values(1, 'TABLE2')"""
 
-    test {
-        sql """select * from test_meta_cache_lower_true_select_without_refresh.external_lower_select_without_refresh.table2;"""
-
-        exception "Table [table2] does not exist in database [external_lower_select_without_refresh]."
-    }
+    qt_sql """select * from test_meta_cache_lower_true_select_without_refresh.external_lower_select_without_refresh.table2;"""
 
     qt_test_meta_cache_lower_false_select_without_refresh_select_table2 "select * from test_meta_cache_lower_false_select_without_refresh.external_lower_select_without_refresh.TABLE2;"
 

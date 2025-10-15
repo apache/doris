@@ -37,7 +37,8 @@ public class Atan extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE)
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE)
     );
 
     /**
@@ -48,12 +49,24 @@ public class Atan extends ScalarFunction
     }
 
     /**
+     * constructor with 2 argument.
+     */
+    public Atan(Expression arg0, Expression arg1) {
+        super("atan", arg0, arg1);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private Atan(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    /**
      * withChildren.
      */
     @Override
     public Atan withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new Atan(children.get(0));
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
+        return new Atan(getFunctionParams(children));
     }
 
     @Override

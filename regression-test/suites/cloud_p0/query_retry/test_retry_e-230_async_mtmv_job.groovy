@@ -86,7 +86,7 @@ suite("test_retry_e-230_async_mtmv_job", 'p0, docker') {
                 """
                 def firstTaskId = getMvTaskId(0)
                 def firstTask
-                dockerAwaitUntil(100) {
+                awaitUntil(100) {
                     firstTask = getMvTask(firstTaskId)
                     logger.info("firstTask = {}, Status = {}, bool = {}", firstTask, firstTask.Status, firstTask.Status[0] == "FAILED") 
                     firstTask.Status[0] as String == "FAILED" as String
@@ -111,7 +111,7 @@ suite("test_retry_e-230_async_mtmv_job", 'p0, docker') {
                 def futrue2 = thread {
                     def secondTaskId = getMvTaskId(1)
                     def secondTask
-                    dockerAwaitUntil(100, 5) {
+                    awaitUntil(100, 5) {
                         secondTask = getMvTask(secondTaskId)
                         logger.info("secondTask = {}", secondTask) 
                         secondTask.Status[0] == "SUCCESS"
