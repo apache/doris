@@ -1,4 +1,4 @@
-﻿// Licensed to the Apache Software Foundation (ASF) under one
+// Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
@@ -84,20 +84,67 @@ void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>
 
 void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
                                                          std::vector<Slice>* splitted_values) {
+    // Splits a CSV line into multiple fields using a single-character separator.
+    //
     const char* data = line.data;
     const size_t size = line.size;
-    size_t value_start = 0;
-    for (size_t i = 0; i < size; ++i) {
-        if (data[i] == _value_sep[0]) {
-            process_value_func(data, value_start, i - value_start, _trimming_char, splitted_values);
-            value_start = i + _value_sep_len;
+    size_t field_start_position = 0; // Start position of the current field
+
+    if (_value_sep[0] != ',') {
+        for (size_t i = 0; i < size; ++i) {
+            if (data[i] == _value_sep[0]) {
+                process_value_func(data, field_start_position, i - field_start_position,
+                                   _trimming_char, splitted_values);
+                field_start_position = i + _value_sep_len;
+            }
+        }
+        process_value_func(data, field_start_position, size - field_start_position, _trimming_char,
+                           splitted_values);
+    } else {
+        // NOTE: When using ',' as separator and encountering the "[]" characters, prioritize treating
+        // it as an array (but nested array types are not supported now). Special handling for arrays
+        // enclosed in [] to prevent internal separators from being treated as field delimiters.
+        // For example: "1,[1.0,2.0,3.0]" should be split into {"1", "[1.0,2.0,3.0]"}, rather then {"1", "[1.0", "2.0", "3.0]"}.
+        // But if the starting position of current field is not '[', it will not be treated as an array.
+        // For example: "1,'[1.0,2.0,3.0]'" will be split into {"1", "'[1.0", "2.0", "3.0]'"}.
+        for (size_t i = 0; i < size; ++i) {
+            if (data[i] == '[' && i == field_start_position) {
+                // Encountered array start at field beginning: Check for matching ']'.
+                // Find the next ']' to treat [content] as one field.
+                size_t j = i + 1;
+                while (j < size && data[j] != ']') {
+                    j++;
+                }
+                if (j < size) {
+                    // Matching ']' found: Treat the entire [content] as one field.
+                    process_value_func(data, i, j - i + 1, _trimming_char, splitted_values);
+                    field_start_position = j + 1; // Update start to after the array
+                    i = j;                        // Adjust loop index to continue after ']'
+                } else {
+                    // No matching ']', treat '[' as a normal character.
+                    // Continue without special handling.
+                }
+            } else if (data[i] == _value_sep[0]) {
+                // Standard separator: Process the field ending here.
+                if (i > field_start_position) {
+                    process_value_func(data, field_start_position, i - field_start_position,
+                                       _trimming_char, splitted_values);
+                }
+                field_start_position = i + _value_sep_len; // Move start past the separator
+            }
+        }
+        // Process any remaining content, but skip if it's empty to avoid spurious fields.
+        if (field_start_position < size) {
+            process_value_func(data, field_start_position, size - field_start_position,
+                               _trimming_char, splitted_values);
         }
     }
-    process_value_func(data, value_start, size - value_start, _trimming_char, splitted_values);
 }
 
 void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
                                                         std::vector<Slice>* splitted_values) {
+    // Splits a CSV line into multiple fields using a multi-characters separator.
+    //
     size_t start = 0;  // point to the start pos of next col value.
     size_t curpos = 0; // point to the start pos of separator matching sequence.
 
