@@ -511,6 +511,17 @@ echo "Get params:
     WITH_TDE_DIR                        -- ${WITH_TDE_DIR}
 "
 
+FEAT=()
+FEAT+=($([[ -n "${WITH_TDE_DIR}" ]] && echo "+TDE" || echo "-TDE"))
+FEAT+=($([[ "${ENABLE_HDFS_STORAGE_VAULT:-OFF}" == "ON" ]] && echo "+HDFS_STORAGE_VAULT" || echo "-HDFS_STORAGE_VAULT"))
+FEAT+=($([[ ${BUILD_UI} -eq 1 ]] && echo "+UI" || echo "-UI"))
+FEAT+=($([[ "${BUILD_AZURE}" == "ON" ]] && echo "+AZURE_BLOB,+AZURE_STORAGE_VAULT" || echo "-AZURE_BLOB,-AZURE_STORAGE_VAULT"))
+FEAT+=($([[ ${BUILD_HIVE_UDF} -eq 1 ]] && echo "+HIVE_UDF" || echo "-HIVE_UDF"))
+FEAT+=($([[ ${BUILD_BE_JAVA_EXTENSIONS} -eq 1 ]] && echo "+BE_JAVA_EXTENSIONS" || echo "-BE_JAVA_EXTENSIONS"))
+
+export DORIS_FEATURE_LIST=$(IFS=','; echo "${FEAT[*]}")
+echo "Feature List: ${DORIS_FEATURE_LIST}"
+
 # Clean and build generated code
 if [[ "${CLEAN}" -eq 1 ]]; then
     clean_gensrc
