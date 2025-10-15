@@ -19,6 +19,8 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext.ExpressionSource;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
@@ -27,105 +29,173 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Replace null literal with false literal for condition expression.
  * Because in nereids, we use boolean type to represent three-value logic,
  * so we need to replace null literal with false literal for condition expression.
- * For example, in filter, join condition, case when predicate, etc.
+ * For example, in filter, join condition, case when condition, if condition etc.
+ *
+ * When replaced, the null literal's ancestors to the condition root must be AND/OR/CASE WHEN/IF CONDITION,
+ * otherwise it will not be replaced.
+ *
+ * for example: for not(null) in filter, it will not be replaced, because NOT is not AND/OR.
  *
  * rule: if(null and a > 1, ...) => if(false and a > 1, ...)
  *       case when null and a > 1 then ... => case when false and a > 1 then ...
  *       null or (null and a > 1) or not(null) => false or (false and a > 1) or not(null)
  */
-public class ReplaceNullWithFalseForCond implements ExpressionPatternRuleFactory {
+public class ReplaceNullWithFalseForCond extends DefaultExpressionRewriter<Boolean>
+        implements ExpressionPatternRuleFactory {
 
     public static final ReplaceNullWithFalseForCond INSTANCE = new ReplaceNullWithFalseForCond();
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesTopType(CaseWhen.class).then(this::rewrite)
-                        .toRule(ExpressionRuleType.REPLACE_NULL_WITH_FALSE_FOR_COND),
-                matchesTopType(If.class).then(this::rewrite)
+                root(Expression.class)
+                        .thenApply(ctx -> rewrite(ctx.expr, ctx.rewriteContext))
                         .toRule(ExpressionRuleType.REPLACE_NULL_WITH_FALSE_FOR_COND)
         );
     }
 
-    protected Expression rewrite(Expression expression) {
-        return replace(expression, false);
+    private boolean needRewrite(Expression expression, boolean isInsideCondition) {
+        if (!expression.containsType(NullLiteral.class)) {
+            return false;
+        }
+        // for case when, if it no contains when clause, fold rule will rewrite it to ELSE value.
+        return isInsideCondition || expression.containsType(WhenClause.class, If.class);
     }
 
-    /**
-     * replace null which its ancestors are all AND/OR/CASE WHEN/IF CONDITION.
-     * NOTICE: NOT's type is boolean too, if replace null to false in NOT, will get NOT(NULL) = NOT(FALSE) = TRUE,
-     * but it is wrong,  NOT(NULL) = NULL. For null, only under the AND / OR, can rewrite it as FALSE.
-     */
-    public static Expression replace(Expression expression, boolean replaceCaseThen) {
-        if (!expression.containsType(NullLiteral.class)) {
-            return expression;
-        }
-        if (expression.isNullLiteral()) {
-            DataType dataType = expression.getDataType();
-            if (dataType.isBooleanType() || dataType.isNullType()) {
-                return BooleanLiteral.FALSE;
-            }
-        } else if (expression instanceof CompoundPredicate) {
-            // process AND / OR
-            ImmutableList.Builder<Expression> builder
-                    = ImmutableList.builderWithExpectedSize(expression.children().size());
-            for (Expression child : expression.children()) {
-                builder.add(replace(child, replaceCaseThen));
-            }
-            List<Expression> newChildren = builder.build();
-            if (!newChildren.equals(expression.children())) {
-                return expression.withChildren(builder.build());
-            }
-        } else if (expression instanceof CaseWhen) {
-            CaseWhen caseWhen = (CaseWhen) expression;
-            ImmutableList.Builder<WhenClause> whenClausesBuilder
-                    = ImmutableList.builderWithExpectedSize(caseWhen.getWhenClauses().size());
-            for (WhenClause whenClause : caseWhen.getWhenClauses()) {
-                Expression newOperand = replace(whenClause.getOperand(), true);
-                Expression newResult = whenClause.getResult();
-                if (replaceCaseThen) {
-                    newResult = replace(whenClause.getResult(), true);
-                }
-                whenClausesBuilder.add(new WhenClause(newOperand, newResult));
-            }
-            List<WhenClause> newWhenClauses = whenClausesBuilder.build();
-            Optional<Expression> newDefaultValueOpt = caseWhen.getDefaultValue();
-            if (caseWhen.getDefaultValue().isPresent() && replaceCaseThen) {
-                newDefaultValueOpt = Optional.of(replace(caseWhen.getDefaultValue().get(), true));
-            }
-            if (!newWhenClauses.equals(caseWhen.getWhenClauses())
-                    || !newDefaultValueOpt.equals(caseWhen.getDefaultValue())) {
-                return newDefaultValueOpt
-                        .map(defaultValue -> new CaseWhen(newWhenClauses, defaultValue))
-                        .orElseGet(() -> new CaseWhen(newWhenClauses));
-            }
-        } else if (expression instanceof If) {
-            If ifExpr = (If) expression;
-            Expression newCondition = replace(ifExpr.getCondition(), true);
-            Expression newTrueValue = ifExpr.getTrueValue();
-            Expression newFalseValue = ifExpr.getFalseValue();
-            if (replaceCaseThen) {
-                newTrueValue = replace(newTrueValue, true);
-                newFalseValue = replace(newFalseValue, true);
-            }
-            if (!newCondition.equals(ifExpr.getCondition())
-                    || !newTrueValue.equals(ifExpr.getTrueValue())
-                    || !newFalseValue.equals(ifExpr.getFalseValue())) {
-                return new If(newCondition, newTrueValue, newFalseValue);
-            }
-        }
+    protected Expression rewrite(Expression expression, ExpressionRewriteContext context) {
+        return expression.accept(this, rootIsCondition(context));
+    }
 
-        return expression;
+    private boolean rootIsCondition(ExpressionRewriteContext context) {
+        Plan plan = context.plan.orElse(null);
+        if (plan instanceof LogicalFilter || plan instanceof LogicalHaving) {
+            return true;
+        } else if (plan instanceof LogicalJoin) {
+            ExpressionSource source = context.source.orElse(null);
+            return ((LogicalJoin<?, ?>) plan).getJoinType() != JoinType.NULL_AWARE_LEFT_ANTI_JOIN
+                    && (source == ExpressionSource.JOIN_HASH_CONDITION
+                            || source == ExpressionSource.JOIN_OTHER_CONDITION);
+        } else {
+            return false;
+        }
+    }
+
+    @Override
+    public Expression visit(Expression expr, Boolean isInsideCondition) {
+        if (needRewrite(expr, isInsideCondition)) {
+            return super.visit(expr, false);
+        } else {
+            return expr;
+        }
+    }
+
+    @Override
+    public Expression visitNullLiteral(NullLiteral nullLiteral, Boolean isInsideCondition) {
+        // if fact, should not meet isInsideCondition == false here
+        if (isInsideCondition &&
+                (nullLiteral.getDataType().isBooleanType() || nullLiteral.getDataType().isNullType())) {
+            return BooleanLiteral.FALSE;
+        }
+        return nullLiteral;
+    }
+
+    @Override
+    public Expression visitCompoundPredicate(CompoundPredicate predicate, Boolean isInsideCondition) {
+        if (!needRewrite(predicate, isInsideCondition)) {
+            return predicate;
+        }
+        boolean changed = false;
+        ImmutableList.Builder<Expression> builder
+                = ImmutableList.builderWithExpectedSize(predicate.children().size());
+        for (Expression child : predicate.children()) {
+            Expression newChild = child.accept(this, isInsideCondition);
+            if (newChild != child) {
+                changed = true;
+            }
+            builder.add(newChild);
+        }
+        if (changed) {
+            return predicate.withChildren(builder.build());
+        } else {
+            return predicate;
+        }
+    }
+
+    @Override
+    public Expression visitCaseWhen(CaseWhen caseWhen, Boolean isInsideCondition) {
+        if (!needRewrite(caseWhen, isInsideCondition)) {
+            return caseWhen;
+        }
+        boolean changed = false;
+        ImmutableList.Builder<WhenClause> whenClausesBuilder
+                = ImmutableList.builderWithExpectedSize(caseWhen.getWhenClauses().size());
+        for (WhenClause whenClause : caseWhen.getWhenClauses()) {
+            WhenClause newWhenClause = (WhenClause) whenClause.accept(this, isInsideCondition);
+            if (newWhenClause != whenClause) {
+                changed = true;
+            }
+            whenClausesBuilder.add(newWhenClause);
+        }
+        Expression oldDefaultValue = caseWhen.getDefaultValue().orElse(null);
+        Expression newDefaultValue = oldDefaultValue;
+        if (oldDefaultValue != null) {
+            newDefaultValue = oldDefaultValue.accept(this, isInsideCondition);
+            if (newDefaultValue != oldDefaultValue) {
+                changed = true;
+            }
+        }
+        if (changed) {
+            return newDefaultValue != null
+                    ? new CaseWhen(whenClausesBuilder.build(), newDefaultValue)
+                    : new CaseWhen(whenClausesBuilder.build());
+        } else {
+            return caseWhen;
+        }
+    }
+
+    @Override
+    public Expression visitWhenClause(WhenClause whenClause, Boolean isInsideCondition) {
+        if (!needRewrite(whenClause, isInsideCondition)) {
+            return whenClause;
+        }
+        Expression newOperand = whenClause.getOperand().accept(this, true);
+        Expression newResult = whenClause.getResult().accept(this, isInsideCondition);
+        if (newOperand != whenClause.getOperand() || newResult != whenClause.getResult()) {
+            return new WhenClause(newOperand, newResult);
+        } else {
+            return whenClause;
+        }
+    }
+
+    @Override
+    public Expression visitIf(If ifExpr, Boolean isInsideCondition) {
+        if (!needRewrite(ifExpr, isInsideCondition)) {
+            return ifExpr;
+        }
+        Expression newCondition = ifExpr.getCondition().accept(this, true);
+        Expression newTrueValue = ifExpr.getTrueValue().accept(this, isInsideCondition);
+        Expression newFalseValue = ifExpr.getFalseValue().accept(this, isInsideCondition);
+        if (newCondition != ifExpr.getCondition()
+                || newTrueValue != ifExpr.getTrueValue()
+                || newFalseValue != ifExpr.getFalseValue()) {
+            return new If(newCondition, newTrueValue, newFalseValue);
+        } else {
+            return ifExpr;
+        }
     }
 }

@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
-import org.apache.doris.nereids.rules.expression.rules.ReplaceNullWithFalseForCond;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -54,9 +53,7 @@ public class EliminateFilter implements RewriteRuleFactory {
                     ImmutableSet.Builder<Expression> newConjuncts = ImmutableSet.builder();
                     ExpressionRewriteContext context = new ExpressionRewriteContext(filter, ctx.cascadesContext);
                     for (Expression expression : filter.getConjuncts()) {
-                        expression = FoldConstantRule.evaluate(
-                                ReplaceNullWithFalseForCond.replace(expression, true),
-                                context);
+                        expression = FoldConstantRule.evaluate(expression, context);
                         if (expression == BooleanLiteral.FALSE || expression.isNullLiteral()) {
                             return new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(),
                                     filter.getOutput());
@@ -88,10 +85,7 @@ public class EliminateFilter implements RewriteRuleFactory {
         ExpressionRewriteContext context = new ExpressionRewriteContext(filter, cascadesContext);
         for (Expression expression : filter.getConjuncts()) {
             Expression newExpr = ExpressionUtils.replace(expression, replaceMap);
-            Expression foldExpression = FoldConstantRule.evaluate(
-                    ReplaceNullWithFalseForCond.replace(newExpr, true),
-                    context);
-
+            Expression foldExpression = FoldConstantRule.evaluate(newExpr, context);
             if (foldExpression == BooleanLiteral.FALSE || expression.isNullLiteral()) {
                 return new LogicalEmptyRelation(
                         cascadesContext.getStatementContext().getNextRelationId(), filter.getOutput());

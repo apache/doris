@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -26,85 +27,110 @@ import org.junit.jupiter.api.Test;
 
 class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
 
-    private final ReplaceNullWithFalseForCond replaceCaseThenInstance = new ReplaceNullWithFalseForCond() {
-        @Override
-        protected Expression rewrite(Expression expression) {
-            return replace(expression, true);
-        }
-    };
-
     @Test
-    void testCaseWhen() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(ReplaceNullWithFalseForCond.INSTANCE)
-        ));
-
-        String sql = "case when null then null"
-                + " when null and a = 1 and not(null) or "
-                + " (case when a = 2 and null then null "
-                + "       when null then not(null) "
-                + "       else null or a=3"
-                + "  end) "
-                + " then (case when null then null else null end) "
-                + " else null end";
-
-        String expectedSql = "case when false then null"
-                + " when false and a = 1 and not(null) or "
-                + " (case when a = 2 and false then false "
-                + "       when false then not(null) "
-                + "       else false or a=3"
-                + "  end) "
-                + " then (case when false then null else null end) "
-                + " else null end";
-
-        assertRewriteAfterTypeCoercion(sql, expectedSql);
+    void testInsideCondition() {
+        ReplaceNullWithFalseForCond insideConditionInstance = new ReplaceNullWithFalseForCond() {
+            @Override
+            protected Expression rewrite(Expression expression, ExpressionRewriteContext context) {
+                return expression.accept(this, true);
+            }
+        };
 
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(replaceCaseThenInstance)
+                bottomUp(insideConditionInstance)
         ));
 
-        expectedSql = "case when false then false"
-                + " when false and a = 1 and not(null) or "
-                + " (case when a = 2 and false then false "
-                + "       when false then not(null) "
-                + "       else false or a=3"
-                + "  end) "
-                + " then (case when false then false else false end) "
-                + " else false end";
+        assertRewriteAfterTypeCoercion("null", "false");
+        assertRewriteAfterTypeCoercion("not(null)", "not(null)");
+        assertRewriteAfterTypeCoercion("null and true", "false and true");
+        assertRewriteAfterTypeCoercion("null or true", "false or true");
+        assertRewriteAfterTypeCoercion("case when null and true then null and true else null end",
+                "case when false and true then false and true else false end");
+        assertRewriteAfterTypeCoercion("if(null and true, null and true, null and true)",
+                "if(false and true, false and true, false and true)");
 
-        assertRewriteAfterTypeCoercion(sql, expectedSql);
+        assertRewriteAfterTypeCoercion(
+                "case when null then null"
+                        + " when null and a = 1 and not(null) or "
+                        + " (case when a = 2 and null then null "
+                        + "       when null then not(null) "
+                        + "       else null or a=3"
+                        + "  end) "
+                        + " then (case when null then null else null end) "
+                        + " else null end",
+
+                "case when false then false"
+                        + " when false and a = 1 and not(null) or "
+                        + " (case when a = 2 and false then false "
+                        + "       when false then not(null) "
+                        + "       else false or a=3"
+                        + "  end) "
+                        + " then (case when false then false else false end) "
+                        + " else false end"
+        );
+
+        assertRewriteAfterTypeCoercion(
+                "if("
+                        + " null and not(null) and if(null and not(null), null and true, null),"
+                        + " null and not(null),"
+                        + " if(a = 1 and null, null and true, null)"
+                        + ")",
+
+                "if("
+                        + " false and not(null) and if(false and not(null), false and true, false),"
+                        + " false and not(null),"
+                        + " if(a = 1 and false, false and true, false)"
+                        + ")"
+        );
     }
 
     @Test
-    void testIf() {
+    void testNotInCondition() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(ReplaceNullWithFalseForCond.INSTANCE)
         ));
 
-        String sql = "if("
-                + " null and not(null) and if(null and not(null), null and true, null),"
-                + " null and not(null),"
-                + " if(a = 1 and null, null, null)"
-                + ")";
+        assertRewriteAfterTypeCoercion("null", "null");
+        assertRewriteAfterTypeCoercion("not(null)", "not(null)");
+        assertRewriteAfterTypeCoercion("null and true", "null and true");
+        assertRewriteAfterTypeCoercion("null or true", "null or true");
+        assertRewriteAfterTypeCoercion("case when null and true then null and true else null end",
+                "case when false and true then null and true else null end");
+        assertRewriteAfterTypeCoercion("if(null and true, null and true, null and true)",
+                "if(false and true, null and true, null and true)");
 
-        String expectedSql = "if("
-                + " false and not(null) and if(false and not(null), false and true, false),"
-                + " null and not(null),"
-                + " if(a = 1 and false, null, null)"
-                + ")";
+        assertRewriteAfterTypeCoercion(
+                "case when null then null"
+                        + " when null and a = 1 and not(null) or "
+                        + " (case when a = 2 and null then null "
+                        + "       when null then not(null) "
+                        + "       else null or a=3"
+                        + "  end) "
+                        + " then (case when null then null else null end) "
+                        + " else null end",
 
-        assertRewriteAfterTypeCoercion(sql, expectedSql);
+                "case when false then null"
+                        + " when false and a = 1 and not(null) or "
+                        + " (case when a = 2 and false then false "
+                        + "       when false then not(null) "
+                        + "       else false or a=3"
+                        + "  end) "
+                        + " then (case when false then null else null end) "
+                        + " else null end"
+        );
 
-        executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(replaceCaseThenInstance, SimplifyCastRule.INSTANCE)
-        ));
+        assertRewriteAfterTypeCoercion(
+                "if("
+                        + " null and not(null) and if(null and not(null), null and true, null),"
+                        + " null and not(null),"
+                        + " if(a = 1 and null, null, null)"
+                        + ")",
 
-        expectedSql = "if("
-                + " false and not(null) and if(false and not(null), false and true, false),"
-                + " false and not(null),"
-                + " if(a = 1 and false, false, false)"
-                + ")";
-
-        assertRewriteAfterTypeCoercion(sql, expectedSql);
+                "if("
+                        + " false and not(null) and if(false and not(null), false and true, false),"
+                        + " null and not(null),"
+                        + " if(a = 1 and false, null, null)"
+                        + ")"
+        );
     }
 }
