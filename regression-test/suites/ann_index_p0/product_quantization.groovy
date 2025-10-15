@@ -83,6 +83,20 @@ suite("product_quantization") {
             id int not null,
             vec array<float> not null,
             index ann_idx (vec)
+                using ann properties ('index_type'='hnsw', 'metric_type'='l2_distance', 'dim'='4', 'quantizer'='pq'))
+            engine=olap
+            duplicate key(id)
+            distributed by hash(id) buckets 1
+            properties('replication_num' = '1');"""
+        exception """The dimension of the vector (dim) or the number of subquantizers (pq_m) cannot be zero"""
+    }
+
+    sql """drop table if exists product_quantization"""
+    test {
+        sql """create table product_quantization (
+            id int not null,
+            vec array<float> not null,
+            index ann_idx (vec)
                 using ann properties ('index_type'='hnsw', 'metric_type'='l2_distance', 'dim'='4', 'quantizer'='pq', 'pq_m'='2', 'pq_nbits'='25'))
             engine=olap
             duplicate key(id)
