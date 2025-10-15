@@ -224,7 +224,7 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
         };
         // clang-format on
     }
-    return ObjectStorageUploadResponse{ .etag = std::to_string(part_num) };
+    return ObjectStorageUploadResponse {.etag = std::to_string(part_num)};
 }
 
 ObjectStorageResponse AzureObjStorageClient::complete_multipart_upload(
