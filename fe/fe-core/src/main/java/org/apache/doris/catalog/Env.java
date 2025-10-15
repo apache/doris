@@ -1148,6 +1148,8 @@ public class Env {
         pluginMgr.init();
         auditEventProcessor.start();
 
+        cloneClusterSnapshot();
+
         // 2. get cluster id and role (Observer or Follower)
         if (!Config.enable_check_compatibility_mode) {
             checkDeployMode();
@@ -1158,8 +1160,6 @@ public class Env {
             nodeName = genFeNodeName(selfNode.getHost(),
                     selfNode.getPort(), false /* new style */);
         }
-
-        cloneClusterSnapshot();
 
         // 3. Load image first and replay edits
         this.editLog = new EditLog(nodeName);
