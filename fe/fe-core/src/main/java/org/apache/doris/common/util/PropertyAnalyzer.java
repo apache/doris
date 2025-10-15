@@ -207,6 +207,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_PARTITION_SYNC_LIMIT = "partition_sync_limit";
     public static final String PROPERTIES_PARTITION_TIME_UNIT = "partition_sync_time_unit";
     public static final String PROPERTIES_PARTITION_DATE_FORMAT = "partition_date_format";
+    public static final String PROPERTIES_PARTITION_PRESERVED_NUM = "partition.preserved_num";
     public static final String PROPERTIES_STORAGE_VAULT_NAME = "storage_vault_name";
     public static final String PROPERTIES_STORAGE_VAULT_ID = "storage_vault_id";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
@@ -613,6 +614,23 @@ public class PropertyAnalyzer {
             }
         }
         return ttlSeconds;
+    }
+
+    public static int analyzePartitionPreservedNum(Map<String, String> properties) throws AnalysisException {
+        int preservedNum = -1;
+        if (properties != null && properties.containsKey(PROPERTIES_PARTITION_PRESERVED_NUM)) {
+            String val = properties.get(PROPERTIES_PARTITION_PRESERVED_NUM);
+            properties.remove(PROPERTIES_PARTITION_PRESERVED_NUM);
+            try {
+                preservedNum = Integer.parseInt(val);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("partition.preserved_num format error");
+            }
+            if (preservedNum <= 0) {
+                throw new AnalysisException("partition.preserved_num should be > 0");
+            }
+        }
+        return preservedNum;
     }
 
     public static int analyzeSchemaVersion(Map<String, String> properties) throws AnalysisException {

@@ -64,6 +64,7 @@ public class TableProperty implements GsonPostProcessable {
     private boolean isInMemory = false;
     private short minLoadReplicaNum = -1;
     private long ttlSeconds = 0L;
+    private int partitionPreservedNum = -1;
     private boolean isInAtomicRestore = false;
 
     private String storagePolicy = "";
@@ -168,6 +169,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildTimeSeriesCompactionLevelThreshold();
                 buildTTLSeconds();
                 buildAutoAnalyzeProperty();
+                buildPartitionPreservedNum();
                 break;
             default:
                 break;
@@ -253,8 +255,25 @@ public class TableProperty implements GsonPostProcessable {
         return this;
     }
 
+    public TableProperty buildPartitionPreservedNum() {
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_PARTITION_PRESERVED_NUM);
+        if (value != null) {
+            try {
+                int n = Integer.parseInt(value);
+                partitionPreservedNum = n > 0 ? n : -1;
+            } catch (NumberFormatException e) {
+                partitionPreservedNum = -1;
+            }
+        }
+        return this;
+    }
+
     public long getTTLSeconds() {
         return ttlSeconds;
+    }
+
+    public int getPartitionPreservedNum() {
+        return partitionPreservedNum;
     }
 
     public TableProperty buildEnableLightSchemaChange() {
@@ -785,6 +804,7 @@ public class TableProperty implements GsonPostProcessable {
         buildTTLSeconds();
         buildVariantEnableFlattenNested();
         buildInAtomicRestore();
+        buildPartitionPreservedNum();
         removeDuplicateReplicaNumProperty();
         buildReplicaAllocation();
         buildTDEAlgorithm();
