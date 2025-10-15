@@ -24,7 +24,9 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext.Expres
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -51,9 +53,15 @@ import java.util.List;
  *
  * for example: for not(null) in filter, it will not be replaced, because NOT is not AND/OR.
  *
- * rule: if(null and a > 1, ...) => if(false and a > 1, ...)
- *       case when null and a > 1 then ... => case when false and a > 1 then ...
- *       null or (null and a > 1) or not(null) => false or (false and a > 1) or not(null)
+ * rule:
+ * 1. replace null with false for condition expression. example:
+ *    a) if(null and a > 1, ...) => if(false and a > 1, ...)
+ *    b) case when null and a > 1 then ... => case when false and a > 1 then ...
+ *    c) null or (null and a > 1) or not(null) => false or (false and a > 1) or not(null)
+ * 2. replace 'xx <=> yy' to 'xx = yy' if xx or yy is nullable for condition expression. example:
+ *    a) if(a <=> 1, ...) => if(a = 1,
+ *    b) case when a <=> 1 then ... => case when a = 1 then ...
+ *    c) a <=> 1 or (a <=> 2 and not (a <=> 3)) =>  a = 1 or (a = 2 and not (a <=> 3))
  */
 public class ReplaceNullWithFalseForCond extends DefaultExpressionRewriter<Boolean>
         implements ExpressionPatternRuleFactory {
@@ -70,7 +78,7 @@ public class ReplaceNullWithFalseForCond extends DefaultExpressionRewriter<Boole
     }
 
     private boolean needRewrite(Expression expression, boolean isInsideCondition) {
-        if (!expression.containsType(NullLiteral.class)) {
+        if (!expression.containsType(NullLiteral.class, NullSafeEqual.class)) {
             return false;
         }
         // for case when, if it no contains when clause, fold rule will rewrite it to ELSE value.
@@ -106,12 +114,25 @@ public class ReplaceNullWithFalseForCond extends DefaultExpressionRewriter<Boole
 
     @Override
     public Expression visitNullLiteral(NullLiteral nullLiteral, Boolean isInsideCondition) {
-        // if fact, should not meet isInsideCondition == false here
         if (isInsideCondition &&
                 (nullLiteral.getDataType().isBooleanType() || nullLiteral.getDataType().isNullType())) {
             return BooleanLiteral.FALSE;
         }
         return nullLiteral;
+    }
+
+    @Override
+    public Expression visitNullSafeEqual(NullSafeEqual nullSafeEqual, Boolean isInsideCondition) {
+        Expression newLeft = nullSafeEqual.left().accept(this, false);
+        Expression newRight = nullSafeEqual.right().accept(this, false);
+        // x <=> y  => x = y if x or y is not nullable
+        if (isInsideCondition && (!newLeft.nullable() || !newRight.nullable())) {
+            return new EqualTo(newLeft, newRight);
+        } else if (newLeft != nullSafeEqual.left() || newRight != nullSafeEqual.right()) {
+            return nullSafeEqual.withChildren(newLeft, newRight);
+        } else {
+            return nullSafeEqual;
+        }
     }
 
     @Override
@@ -155,9 +176,12 @@ public class ReplaceNullWithFalseForCond extends DefaultExpressionRewriter<Boole
         Expression newDefaultValue = oldDefaultValue;
         if (oldDefaultValue != null) {
             newDefaultValue = oldDefaultValue.accept(this, isInsideCondition);
-            if (newDefaultValue != oldDefaultValue) {
-                changed = true;
-            }
+        } else if (isInsideCondition && caseWhen.getDataType().isBooleanType()) {
+            // for case when without else, the else is null, so we need to replace it with false
+            newDefaultValue = BooleanLiteral.FALSE;
+        }
+        if (newDefaultValue != oldDefaultValue) {
+            changed = true;
         }
         if (changed) {
             return newDefaultValue != null

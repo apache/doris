@@ -48,6 +48,17 @@ class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
                 "case when false and true then false and true else false end");
         assertRewriteAfterTypeCoercion("if(null and true, null and true, null and true)",
                 "if(false and true, false and true, false and true)");
+        assertRewriteAfterTypeCoercion("not(case when null and true then null and true else null end)",
+                "not(case when false and true then null and true else null end)");
+        assertRewriteAfterTypeCoercion("not(if(null and true, null and true, null and true))",
+                "not(if(false and true, null and true, null and true))");
+        assertRewriteAfterTypeCoercion("a <=> 3", "a = 3");
+        assertRewriteAfterTypeCoercion("a <=> null", "a <=> null");
+        assertRewriteAfterTypeCoercion("null <=> 3", "null = 3");
+        assertRewriteAfterTypeCoercion("not(a <=> 3)", "not(a <=> 3)");
+        assertRewriteAfterTypeCoercion("if(a <=> 3, a <=> 4, a <=> 5)", "if(a = 3, a = 4, a = 5)");
+        assertRewriteAfterTypeCoercion("not(if(a <=> 3, a <=> 4, a <=> 5))", "not(if(a = 3, a <=> 4, a <=> 5))");
+        assertRewriteAfterTypeCoercion("case when null and true then true and null end", "case when false and true then true and false else false end");
 
         assertRewriteAfterTypeCoercion(
                 "case when null then null"
@@ -98,6 +109,17 @@ class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
                 "case when false and true then null and true else null end");
         assertRewriteAfterTypeCoercion("if(null and true, null and true, null and true)",
                 "if(false and true, null and true, null and true)");
+        assertRewriteAfterTypeCoercion("not(case when null and true then null and true else null end)",
+                "not(case when false and true then null and true else null end)");
+        assertRewriteAfterTypeCoercion("not(if(null and true, null and true, null and true))",
+                "not(if(false and true, null and true, null and true))");
+        assertRewriteAfterTypeCoercion("a <=> 3", "a <=> 3");
+        assertRewriteAfterTypeCoercion("a <=> null", "a <=> null");
+        assertRewriteAfterTypeCoercion("null <=> 3", "null <=> 3");
+        assertRewriteAfterTypeCoercion("not(a <=> 3)", "not(a <=> 3)");
+        assertRewriteAfterTypeCoercion("if(a <=> 3, a <=> 4, a <=> 5)", "if(a = 3, a <=> 4, a <=> 5)");
+        assertRewriteAfterTypeCoercion("not(if(a <=> 3, a <=> 4, a <=> 5))", "not(if(a = 3, a <=> 4, a <=> 5))");
+        assertRewriteAfterTypeCoercion("case when null and true then true and null end", "case when false and true then true and null end");
 
         assertRewriteAfterTypeCoercion(
                 "case when null then null"
