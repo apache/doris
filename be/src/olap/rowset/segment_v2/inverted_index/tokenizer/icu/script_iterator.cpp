@@ -22,7 +22,7 @@
 #include <mutex>
 #include <string>
 
-namespace doris::segment_v2 {
+namespace doris::segment_v2::inverted_index {
 
 std::vector<int32_t> ScriptIterator::k_basic_latin(128);
 
@@ -118,4 +118,4 @@ bool ScriptIterator::is_combining_mark(UChar32 codepoint) {
             type == U_ENCLOSING_MARK);
 }
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index

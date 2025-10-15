@@ -17,11 +17,11 @@
 
 package org.apache.doris.nereids.load;
 
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
@@ -50,7 +50,7 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
     protected long execMemLimit;
     protected Map<String, String> jobProperties;
     protected long maxBatchIntervalS;
-    protected PartitionNames partitions;
+    protected PartitionNamesInfo partitionNamesInfo;
     protected LoadTask.MergeType mergeType;
     protected Expression deleteCondition;
     protected String sequenceCol;
@@ -72,7 +72,7 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
      * NereidsRoutineLoadTaskInfo
      */
     public NereidsRoutineLoadTaskInfo(long execMemLimit, Map<String, String> jobProperties, long maxBatchIntervalS,
-            PartitionNames partitions, LoadTask.MergeType mergeType, Expression deleteCondition,
+            PartitionNamesInfo partitions, LoadTask.MergeType mergeType, Expression deleteCondition,
             String sequenceCol, double maxFilterRatio, NereidsImportColumnDescs columnDescs,
             Expression precedingFilter, Expression whereExpr, Separator columnSeparator,
             Separator lineDelimiter, byte enclose, byte escape, int sendBatchParallelism,
@@ -80,7 +80,7 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
         this.execMemLimit = execMemLimit;
         this.jobProperties = jobProperties;
         this.maxBatchIntervalS = maxBatchIntervalS;
-        this.partitions = partitions;
+        this.partitionNamesInfo = partitions;
         this.mergeType = mergeType;
         this.deleteCondition = deleteCondition;
         this.sequenceCol = sequenceCol;
@@ -131,8 +131,8 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
     }
 
     @Override
-    public PartitionNames getPartitions() {
-        return partitions;
+    public PartitionNamesInfo getPartitionNamesInfo() {
+        return partitionNamesInfo;
     }
 
     @Override

@@ -94,6 +94,17 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(child().toDigest());
+        sb.append(" LIMIT ? ");
+        if (offset != 0) {
+            sb.append(" OFFSET ?");
+        }
+        return sb.toString();
+    }
+
+    @Override
     public int hashCode() {
         return Objects.hash(limit, offset);
     }
