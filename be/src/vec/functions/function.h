@@ -187,6 +187,11 @@ public:
 
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                    uint32_t result, size_t input_rows_count, bool dry_run = false) const {
+        // result should not in arguments
+        if (std::find(arguments.begin(), arguments.end(), result) != arguments.end()) {
+            return Status::InvalidArgument("result column should not be in arguments");
+        }
+
         try {
             return prepare(context, block, arguments, result)
                     ->execute(context, block, arguments, result, input_rows_count, dry_run);
