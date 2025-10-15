@@ -1076,6 +1076,9 @@ Status SegmentWriter::_write_data() {
                 (column_meta->has_uncompressed_data_bytes() ? column_meta->uncompressed_data_bytes()
                                                             : 0) +
                 column_writer->get_total_uncompressed_data_pages_bytes());
+        column_meta->set_raw_data_bytes(
+                (column_meta->has_raw_data_bytes() ? column_meta->raw_data_bytes() : 0) +
+                column_writer->get_raw_data_bytes());
     }
     return Status::OK();
 }

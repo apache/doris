@@ -216,6 +216,7 @@ message ColumnMetaPB {
 
     optional uint64 compressed_data_bytes = 24;
     optional uint64 uncompressed_data_bytes = 25;
+    optional uint64 raw_data_bytes = 26;
 }
 
 message PrimaryKeyIndexMetaPB {

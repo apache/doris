@@ -58,14 +58,16 @@ std::vector<SchemaScanner::ColumnDesc> SchemaColumnDataSizesScanner::_s_tbls_col
         //   name,                type,          size,             is_null
         {"BACKEND_ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"TABLE_ID", TYPE_BIGINT, sizeof(int64_t), true},
-        {"ROWSET_ID", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"INDEX_ID", TYPE_BIGINT, sizeof(int64_t), true},
+        {"PARTITION_ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"TABLET_ID", TYPE_BIGINT, sizeof(int64_t), true},
+        {"ROWSET_ID", TYPE_VARCHAR, sizeof(StringRef), true},
         {"COLUMN_UNIQUE_ID", TYPE_INT, sizeof(int32_t), true},
         {"COLUMN_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"COLUMN_TYPE", TYPE_VARCHAR, sizeof(StringRef), true},
         {"COMPRESSED_DATA_BYTES", TYPE_BIGINT, sizeof(int64_t), true},
         {"UNCOMPRESSED_DATA_BYTES", TYPE_BIGINT, sizeof(int64_t), true},
-};
+        {"RAW_DATA_BYTES", TYPE_BIGINT, sizeof(int64_t), true}};
 
 SchemaColumnDataSizesScanner::SchemaColumnDataSizesScanner()
         : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_COLUMN_DATA_SIZES),
@@ -84,25 +86,23 @@ Status SchemaColumnDataSizesScanner::start(RuntimeState* state) {
 }
 
 Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
-    auto process_rowsets = [&](const std::vector<RowsetSharedPtr>& rowsets, int64_t table_id) {
+    auto process_rowsets = [&](const std::vector<RowsetSharedPtr>& rowsets, int64_t table_id,
+                               int64_t index_id, int64_t partition_id, int64_t tablet_id) {
         for (const auto& rowset : rowsets) {
-            auto rowset_meta = rowset->rowset_meta();
-            const auto& schema = rowset_meta->tablet_schema();
-
-            // Only process BetaRowset
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             if (!beta_rowset) {
                 continue;
             }
 
-            // Skip empty rowsets
             if (beta_rowset->num_segments() == 0) {
                 continue;
             }
 
-            // Map to aggregate column stats by column_unique_id across all segments in this rowset
-            // Key: column_unique_id, Value: aggregated stats
-            std::map<int32_t, ColumnDataSizeInfo> aggregated_stats;
+            auto rowset_meta = rowset->rowset_meta();
+            const auto& schema = rowset_meta->tablet_schema();
+            auto rowset_id = rowset_meta->rowset_id().to_string();
+
+            std::map<int32_t /* column_unique_id */, ColumnDataSizeInfo> aggregated_stats;
 
             // Load all segments at once
             std::vector<segment_v2::SegmentSharedPtr> segments;
@@ -119,6 +119,10 @@ Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
                 auto collector = [&](const segment_v2::ColumnMetaPB& column_meta) {
                     if (column_meta.has_compressed_data_bytes() &&
                         column_meta.has_uncompressed_data_bytes()) {
+                        auto cid = schema->field_index(column_meta.unique_id());
+                        if (cid == -1) {
+                            return;
+                        }
                         // Aggregate stats by column_unique_id
                         if (aggregated_stats.contains(column_meta.unique_id())) {
                             auto& existing_stats = aggregated_stats[column_meta.unique_id()];
@@ -126,19 +130,23 @@ Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
                                     column_meta.compressed_data_bytes();
                             existing_stats.uncompressed_data_bytes +=
                                     column_meta.uncompressed_data_bytes();
+                            existing_stats.raw_data_bytes += column_meta.raw_data_bytes();
                         } else {
                             aggregated_stats[column_meta.unique_id()] = ColumnDataSizeInfo {
                                     .backend_id = backend_id_,
                                     .table_id = table_id,
-                                    .rowset_id = rowset_meta->rowset_id().to_string(),
-                                    .tablet_id = rowset_meta->tablet_id(),
+                                    .index_id = index_id,
+                                    .partition_id = partition_id,
+                                    .tablet_id = tablet_id,
+                                    .rowset_id = rowset_id,
                                     .column_unique_id = column_meta.unique_id(),
-                                    .column_name = schema->column(column_meta.column_id()).name(),
+                                    .column_name = schema->column(cid).name(),
                                     .column_type = TabletColumn::get_string_by_field_type(
                                             static_cast<FieldType>(column_meta.type())),
                                     .compressed_data_bytes = column_meta.compressed_data_bytes(),
                                     .uncompressed_data_bytes =
                                             column_meta.uncompressed_data_bytes(),
+                                    .raw_data_bytes = column_meta.raw_data_bytes(),
                             };
                         }
                     }
@@ -162,12 +170,15 @@ Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
         for (const std::weak_ptr<CloudTablet>& tablet : tablets) {
             if (!tablet.expired()) {
                 auto t = tablet.lock();
-                std::shared_lock rowset_ldlock(t->get_header_lock());
                 std::vector<RowsetSharedPtr> rowsets;
-                for (const auto& it : t->rowset_map()) {
-                    rowsets.emplace_back(it.second);
+                {
+                    std::shared_lock rowset_ldlock(t->get_header_lock());
+                    for (const auto& it : t->rowset_map()) {
+                        rowsets.emplace_back(it.second);
+                    }
                 }
-                process_rowsets(rowsets, t->table_id());
+                process_rowsets(rowsets, t->table_id(), t->index_id(), t->partition_id(),
+                                t->tablet_id());
             }
         }
     } else {
@@ -186,7 +197,8 @@ Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
             for (const auto& version_and_rowset : all_rowsets) {
                 rowsets.emplace_back(version_and_rowset.second);
             }
-            process_rowsets(rowsets, tablet->table_id());
+            process_rowsets(rowsets, tablet->table_id(), tablet->index_id(), tablet->partition_id(),
+                            tablet->tablet_id());
         }
     }
     return Status::OK();
@@ -235,6 +247,36 @@ Status SchemaColumnDataSizesScanner::_fill_block_impl(vectorized::Block* block) 
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
 
+    // INDEX_ID
+    {
+        std::vector<int64_t> srcs(fill_num);
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
+            srcs[i - fill_idx_begin] = _column_data_sizes[i].index_id;
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
+    }
+
+    // PARTITION_ID
+    {
+        std::vector<int64_t> srcs(fill_num);
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
+            srcs[i - fill_idx_begin] = _column_data_sizes[i].partition_id;
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
+    }
+
+    // TABLET_ID
+    {
+        std::vector<int64_t> srcs(fill_num);
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
+            srcs[i - fill_idx_begin] = _column_data_sizes[i].tablet_id;
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
+    }
+
     // ROWSET_ID
     {
         std::vector<std::string> rowset_ids(fill_num);
@@ -245,17 +287,7 @@ Status SchemaColumnDataSizesScanner::_fill_block_impl(vectorized::Block* block) 
                                                  rowset_ids[i - fill_idx_begin].size());
             datas[i - fill_idx_begin] = strs.data() + i - fill_idx_begin;
         }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
-    }
-
-    // TABLET_ID
-    {
-        std::vector<int64_t> srcs(fill_num);
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            srcs[i - fill_idx_begin] = _column_data_sizes[i].tablet_id;
-            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
     }
 
     // COLUMN_UNIQUE_ID
@@ -265,7 +297,7 @@ Status SchemaColumnDataSizesScanner::_fill_block_impl(vectorized::Block* block) 
             srcs[i - fill_idx_begin] = _column_data_sizes[i].column_unique_id;
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, datas));
     }
 
     // COLUMN_NAME
@@ -278,7 +310,7 @@ Status SchemaColumnDataSizesScanner::_fill_block_impl(vectorized::Block* block) 
                                                  column_names[i - fill_idx_begin].size());
             datas[i - fill_idx_begin] = strs.data() + i - fill_idx_begin;
         }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, datas));
     }
 
     // COLUMN_TYPE
@@ -291,7 +323,7 @@ Status SchemaColumnDataSizesScanner::_fill_block_impl(vectorized::Block* block) 
                                                  column_types[i - fill_idx_begin].size());
             datas[i - fill_idx_begin] = strs.data() + i - fill_idx_begin;
         }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 8, datas));
     }
 
     // COMPRESSED_DATA_SIZE
@@ -301,7 +333,7 @@ Status SchemaColumnDataSizesScanner::_fill_block_impl(vectorized::Block* block) 
             srcs[i - fill_idx_begin] = _column_data_sizes[i].compressed_data_bytes;
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 9, datas));
     }
 
     // UNCOMPRESSED_DATA_SIZE
@@ -311,8 +343,19 @@ Status SchemaColumnDataSizesScanner::_fill_block_impl(vectorized::Block* block) 
             srcs[i - fill_idx_begin] = _column_data_sizes[i].uncompressed_data_bytes;
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 8, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, datas));
     }
+
+    // RAW_DATA_SIZE
+    {
+        std::vector<int64_t> srcs(fill_num);
+        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
+            srcs[i - fill_idx_begin] = _column_data_sizes[i].raw_data_bytes;
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));
+    }
+
     _column_data_sizes_idx += fill_num;
     return Status::OK();
 }

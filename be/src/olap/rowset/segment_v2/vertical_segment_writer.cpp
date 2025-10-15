@@ -938,6 +938,7 @@ Status VerticalSegmentWriter::write_batch() {
                     column_writer->get_total_compressed_data_pages_bytes());
             column_meta->set_uncompressed_data_bytes(
                     column_writer->get_total_uncompressed_data_pages_bytes());
+            column_meta->set_raw_data_bytes(column_writer->get_raw_data_bytes());
         }
         return Status::OK();
     }
@@ -996,6 +997,7 @@ Status VerticalSegmentWriter::write_batch() {
                 _column_writers[cid]->get_total_compressed_data_pages_bytes());
         column_meta->set_uncompressed_data_bytes(
                 _column_writers[cid]->get_total_uncompressed_data_pages_bytes());
+        column_meta->set_raw_data_bytes(_column_writers[cid]->get_raw_data_bytes());
     }
 
     for (auto& data : _batched_blocks) {

@@ -82,7 +82,8 @@ suite("test_query_sys_column_data_sizes", "query,p0") {
             COLUMN_TYPE,
             COUNT(DISTINCT ROWSET_ID) as rowset_count,
             SUM(COMPRESSED_DATA_BYTES) as compressed_data_bytes,
-            SUM(UNCOMPRESSED_DATA_BYTES) as uncompressed_data_bytes
+            SUM(UNCOMPRESSED_DATA_BYTES) as uncompressed_data_bytes,
+            SUM(RAW_DATA_BYTES) as raw_data_bytes
         FROM information_schema.column_data_sizes
         WHERE TABLET_ID = ${tabletId}
         GROUP BY COLUMN_NAME, COLUMN_TYPE
@@ -91,9 +92,10 @@ suite("test_query_sys_column_data_sizes", "query,p0") {
 
     logger.info("Column data sizes before compaction:")
     for (row in result_before) {
-        logger.info("Column: ${row[0]}, Type: ${row[1]}, Rowset Count: ${row[2]}, Compressed Size: ${row[3]}, Uncompressed Size: ${row[4]}")
+        logger.info("Column: ${row[0]}, Type: ${row[1]}, Rowset Count: ${row[2]}, Compressed Size: ${row[3]}, Uncompressed Size: ${row[4]}, Raw Data Size: ${row[5]}")
         assert row[3] > 0
         assert row[4] > 0
+        assert row[5] > 0
     }
 
     assert result_before.size() == 13, "Should have 13 columns"
@@ -106,7 +108,8 @@ suite("test_query_sys_column_data_sizes", "query,p0") {
             COLUMN_TYPE,
             COUNT(DISTINCT ROWSET_ID) as rowset_count,
             SUM(COMPRESSED_DATA_BYTES) as compressed_data_bytes,
-            SUM(UNCOMPRESSED_DATA_BYTES) as uncompressed_data_bytes
+            SUM(UNCOMPRESSED_DATA_BYTES) as uncompressed_data_bytes,
+            SUM(RAW_DATA_BYTES) as raw_data_bytes
         FROM information_schema.column_data_sizes
         WHERE TABLET_ID = ${tabletId}
         GROUP BY COLUMN_NAME, COLUMN_TYPE
@@ -115,9 +118,10 @@ suite("test_query_sys_column_data_sizes", "query,p0") {
 
     logger.info("Column data sizes after compaction:")
     for (row in result_after) {
-        logger.info("Column: ${row[0]}, Type: ${row[1]}, Rowset Count: ${row[2]}, Compressed Size: ${row[3]}, Uncompressed Size: ${row[4]}")
+        logger.info("Column: ${row[0]}, Type: ${row[1]}, Rowset Count: ${row[2]}, Compressed Size: ${row[3]}, Uncompressed Size: ${row[4]}, Raw Data Size: ${row[5]}")
         assert row[3] > 0
         assert row[4] > 0
+        assert row[5] > 0
     }
 
     assert result_after.size() == 13, "Should still have 13 columns after compaction"

@@ -49,13 +49,16 @@ private:
     struct ColumnDataSizeInfo {
         int64_t backend_id;
         int64_t table_id;
-        std::string rowset_id;
+        int64_t index_id;
+        int64_t partition_id;
         int64_t tablet_id;
+        std::string rowset_id;
         uint32_t column_unique_id;
         std::string column_name;
         std::string column_type;
         uint64_t compressed_data_bytes;
         uint64_t uncompressed_data_bytes;
+        uint64_t raw_data_bytes;
     };
 
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;

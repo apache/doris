@@ -616,7 +616,12 @@ Status ScalarColumnWriter::finish() {
 
 Status ScalarColumnWriter::write_data() {
     auto offset = _file_writer->bytes_appended();
+    auto collect_uncompressed_bytes = [](const PageFooterPB& footer) {
+        return footer.uncompressed_size() + footer.ByteSizeLong() +
+               sizeof(uint32_t) /* footer size */ + sizeof(uint32_t) /* checksum */;
+    };
     for (auto& page : _pages) {
+        _total_uncompressed_data_pages_size += collect_uncompressed_bytes(page->footer);
         RETURN_IF_ERROR(_write_data_page(page.get()));
     }
     _pages.clear();
@@ -629,6 +634,7 @@ Status ScalarColumnWriter::write_data() {
         footer.set_type(DICTIONARY_PAGE);
         footer.set_uncompressed_size(cast_set<uint32_t>(dict_body.slice().get_size()));
         footer.mutable_dict_page_footer()->set_encoding(PLAIN_ENCODING);
+        _total_uncompressed_data_pages_size += collect_uncompressed_bytes(footer);
 
         PagePointer dict_pp;
         RETURN_IF_ERROR(PageIO::compress_and_write_page(
@@ -702,8 +708,7 @@ Status ScalarColumnWriter::finish_current_page() {
         RETURN_IF_ERROR(_bloom_filter_index_builder->flush());
     }
 
-    // Track raw data size before finishing the page
-    _total_uncompressed_data_pages_size += _page_builder->get_raw_data_size();
+    _raw_data_bytes += _page_builder->get_raw_data_size();
 
     // build data page body : encoded values + [nullmap]
     std::vector<Slice> body;
@@ -990,7 +995,8 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
                     reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
         } else {
             return Status::NotSupported(
-                    "Ann index can only be build on array with scalar type. but got {} as nested",
+                    "Ann index can only be build on array with scalar type. but got {} as "
+                    "nested",
                     _item_writer->get_field()->type());
         }
     }
