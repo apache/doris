@@ -85,6 +85,7 @@ const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO = "false";
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE = "char_filter_type";
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN = "char_filter_pattern";
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT = "char_filter_replacement";
+const std::string INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE = "char_replace";
 
 const std::string INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY = "ignore_above";
 const std::string INVERTED_INDEX_PARSER_IGNORE_ABOVE_VALUE = "256";

@@ -17,20 +17,35 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/inverted_index/token_stream.h"
+#include <memory>
+
+#include "common/exception.h"
+#include "olap/rowset/segment_v2/inverted_index/util/reader.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class DorisTokenFilter : public TokenFilter, public DorisTokenStream {
+class DorisCharFilter : public lucene::util::Reader {
 public:
-    DorisTokenFilter(TokenStreamPtr in) : TokenFilter(nullptr), _in(std::move(in)) {}
-    ~DorisTokenFilter() override = default;
+    DorisCharFilter(ReaderPtr reader) : _reader(std::move(reader)) {}
+    ~DorisCharFilter() override = default;
 
-    void reset() override { _in->reset(); }
+    virtual void initialize() = 0;
+
+    int64_t position() override {
+        throw Exception(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, "CharFilter::position");
+    }
+
+    int64_t skip(int64_t ntoskip) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, "CharFilter::skip");
+    }
+
+    size_t size() override {
+        throw Exception(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, "CharFilter::size");
+    }
 
 protected:
-    TokenStreamPtr _in;
+    ReaderPtr _reader;
 };
-using TokenFilterPtr = std::shared_ptr<DorisTokenFilter>;
+using CharFilterPtr = std::shared_ptr<DorisCharFilter>;
 
 } // namespace doris::segment_v2::inverted_index

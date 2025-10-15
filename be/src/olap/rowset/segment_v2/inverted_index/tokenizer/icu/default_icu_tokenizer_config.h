@@ -19,7 +19,7 @@
 
 #include "icu_tokenizer_config.h"
 
-namespace doris::segment_v2 {
+namespace doris::segment_v2::inverted_index {
 
 class DefaultICUTokenizerConfig : public ICUTokenizerConfig {
 public:
@@ -41,4 +41,4 @@ private:
     bool myanmar_as_words_ = false;
 };
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index
