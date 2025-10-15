@@ -960,8 +960,8 @@ import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyDistributionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
-import org.apache.doris.nereids.trees.plans.commands.info.ModifyFrontendOrBackendHostNameOp;
-import org.apache.doris.nereids.trees.plans.commands.info.ModifyFrontendOrBackendHostNameOp.ModifyOpType;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyNodeHostNameOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyNodeHostNameOp.ModifyOpType;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTableCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
@@ -7561,9 +7561,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String hostName = stripQuotes(ctx.hostName.getText());
         AlterSystemOp alterSystemOp = null;
         if (ctx.FRONTEND() != null) {
-            alterSystemOp = new ModifyFrontendOrBackendHostNameOp(hostPort, hostName, ModifyOpType.Frontend);
+            alterSystemOp = new ModifyNodeHostNameOp(hostPort, hostName, ModifyOpType.Frontend);
         } else if (ctx.BACKEND() != null) {
-            alterSystemOp = new ModifyFrontendOrBackendHostNameOp(hostPort, hostName, ModifyOpType.Backend);
+            alterSystemOp = new ModifyNodeHostNameOp(hostPort, hostName, ModifyOpType.Backend);
         }
         return new AlterSystemCommand(alterSystemOp, PlanType.ALTER_SYSTEM_MODIFY_FRONTEND_OR_BACKEND_HOSTNAME);
     }

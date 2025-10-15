@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.ReplacePartitionFieldClause;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
@@ -97,12 +95,6 @@ public class ReplacePartitionFieldOp extends AlterTableOp {
         if (newColumnName == null) {
             throw new UserException("New column name must be specified");
         }
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new ReplacePartitionFieldClause(oldPartitionFieldName, oldTransformName, oldTransformArg,
-                oldColumnName, newTransformName, newTransformArg, newColumnName, newPartitionFieldName);
     }
 
     @Override

@@ -18,8 +18,6 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.alter.AlterJobV2.JobState;
-import org.apache.doris.analysis.AddRollupClause;
-import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Column;
@@ -43,6 +41,9 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
@@ -80,15 +81,15 @@ public class RollupJobV2Test {
     private static Env slaveEnv;
 
     private static String transactionSource = "localfe";
-    private static AddRollupClause clause;
-    private static AddRollupClause clause2;
+    private static AddRollupOp op;
+    private static AddRollupOp op2;
 
     private FakeEnv fakeEnv;
     private FakeEditLog fakeEditLog;
 
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
-            InvocationTargetException, NoSuchMethodException, SecurityException, AnalysisException {
+            InvocationTargetException, NoSuchMethodException, SecurityException, UserException {
         fakeEnv = new FakeEnv();
         fakeEditLog = new FakeEditLog();
         fakeTransactionIDGenerator = new FakeTransactionIDGenerator();
@@ -102,13 +103,13 @@ public class RollupJobV2Test {
 
         slaveTransMgr = slaveEnv.getGlobalTransactionMgr();
         slaveTransMgr.setEditLog(slaveEnv.getEditLog());
-        clause = new AddRollupClause(CatalogTestUtil.testRollupIndex2, Lists.newArrayList("k1", "v"), null,
+        op = new AddRollupOp(CatalogTestUtil.testRollupIndex2, Lists.newArrayList("k1", "v"), null,
                 CatalogTestUtil.testIndex1, null);
-        clause.analyze();
+        op.validate(new ConnectContext());
 
-        clause2 = new AddRollupClause(CatalogTestUtil.testRollupIndex3, Lists.newArrayList("k1", "v"), null,
+        op2 = new AddRollupOp(CatalogTestUtil.testRollupIndex3, Lists.newArrayList("k1", "v"), null,
                 CatalogTestUtil.testIndex1, null);
-        clause2.analyze();
+        op2.validate(new ConnectContext());
 
         FeConstants.runningUnitTest = true;
         AgentTaskQueue.clearAllTasks();
@@ -133,12 +134,12 @@ public class RollupJobV2Test {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
-        ArrayList<AlterClause> alterClauses = new ArrayList<>();
-        alterClauses.add(clause);
-        alterClauses.add(clause2);
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
+        alterOps.add(op2);
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
-        materializedViewHandler.process(alterClauses, db, olapTable);
+        materializedViewHandler.process(alterOps, db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
 
         materializedViewHandler.runAfterCatalogReady();
@@ -154,11 +155,11 @@ public class RollupJobV2Test {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
-        ArrayList<AlterClause> alterClauses = new ArrayList<>();
-        alterClauses.add(clause);
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
-        materializedViewHandler.process(alterClauses, db, olapTable);
+        materializedViewHandler.process(alterOps, db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
         Assert.assertEquals(1, alterJobsV2.size());
         Assert.assertEquals(OlapTableState.ROLLUP, olapTable.getState());
@@ -173,12 +174,12 @@ public class RollupJobV2Test {
         MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
 
         // add a rollup job
-        ArrayList<AlterClause> alterClauses = new ArrayList<>();
-        alterClauses.add(clause);
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
-        materializedViewHandler.process(alterClauses, db, olapTable);
+        materializedViewHandler.process(alterOps, db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
         Assert.assertEquals(1, alterJobsV2.size());
         RollupJobV2 rollupJob = (RollupJobV2) alterJobsV2.values().stream().findAny().get();
@@ -223,12 +224,12 @@ public class RollupJobV2Test {
         MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
 
         // add a rollup job
-        ArrayList<AlterClause> alterClauses = new ArrayList<>();
-        alterClauses.add(clause);
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
-        materializedViewHandler.process(alterClauses, db, olapTable);
+        materializedViewHandler.process(alterOps, db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
         Assert.assertEquals(1, alterJobsV2.size());
         RollupJobV2 rollupJob = (RollupJobV2) alterJobsV2.values().stream().findAny().get();
@@ -343,9 +344,9 @@ public class RollupJobV2Test {
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
 
-        AddRollupClause addRollupClause = new AddRollupClause("r1", Lists.newArrayList("k1", "v1", "v2"), null, CatalogTestUtil.testIndex2, null);
+        AddRollupOp addRollupOp = new AddRollupOp("r1", Lists.newArrayList("k1", "v1", "v2"), null, CatalogTestUtil.testIndex2, null);
 
-        List<Column> columns = materializedViewHandler.checkAndPrepareMaterializedView(addRollupClause, olapTable, CatalogTestUtil.testIndexId2, false);
+        List<Column> columns = materializedViewHandler.checkAndPrepareMaterializedView(addRollupOp, olapTable, CatalogTestUtil.testIndexId2, false);
         for (Column column : columns) {
             if (column.nameEquals("v1", true)) {
                 Assert.assertNull(column.getAggregationType());

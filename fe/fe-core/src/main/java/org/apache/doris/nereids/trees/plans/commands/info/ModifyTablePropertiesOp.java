@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -393,11 +391,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
         analyzeForMTMV();
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new ModifyTablePropertiesClause(properties, storagePolicy, isBeingSynced, needTableStable, opType);
     }
 
     private void analyzeForMTMV() throws AnalysisException {

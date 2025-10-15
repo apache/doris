@@ -17,10 +17,7 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.analysis.AddPartitionFieldClause;
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.DropPartitionFieldClause;
-import org.apache.doris.analysis.ReplacePartitionFieldClause;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StructField;
@@ -38,12 +35,15 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -808,14 +808,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     /**
      * Add partition field to Iceberg table for partition evolution
      */
-    public void addPartitionField(ExternalTable dorisTable, AddPartitionFieldClause clause) throws UserException {
+    public void addPartitionField(ExternalTable dorisTable, AddPartitionFieldOp op) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
 
-        String transformName = clause.getTransformName();
-        Integer transformArg = clause.getTransformArg();
-        String columnName = clause.getColumnName();
-        String partitionFieldName = clause.getPartitionFieldName();
+        String transformName = op.getTransformName();
+        Integer transformArg = op.getTransformArg();
+        String columnName = op.getColumnName();
+        String partitionFieldName = op.getPartitionFieldName();
         Term transform = getTransform(transformName, columnName, transformArg);
 
         if (partitionFieldName != null) {
@@ -838,16 +838,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     /**
      * Drop partition field from Iceberg table for partition evolution
      */
-    public void dropPartitionField(ExternalTable dorisTable, DropPartitionFieldClause clause) throws UserException {
+    public void dropPartitionField(ExternalTable dorisTable, DropPartitionFieldOp op) throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
 
-        if (clause.getPartitionFieldName() != null) {
-            updateSpec.removeField(clause.getPartitionFieldName());
+        if (op.getPartitionFieldName() != null) {
+            updateSpec.removeField(op.getPartitionFieldName());
         } else {
-            String transformName = clause.getTransformName();
-            Integer transformArg = clause.getTransformArg();
-            String columnName = clause.getColumnName();
+            String transformName = op.getTransformName();
+            Integer transformArg = op.getTransformArg();
+            String columnName = op.getColumnName();
             Term transform = getTransform(transformName, columnName, transformArg);
             updateSpec.removeField(transform);
         }
@@ -866,27 +866,27 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     /**
      * Replace partition field in Iceberg table for partition evolution
      */
-    public void replacePartitionField(ExternalTable dorisTable, ReplacePartitionFieldClause clause)
+    public void replacePartitionField(ExternalTable dorisTable, ReplacePartitionFieldOp op)
             throws UserException {
         Table icebergTable = IcebergUtils.getIcebergTable(dorisTable);
         UpdatePartitionSpec updateSpec = icebergTable.updateSpec();
 
         // remove old partition field
-        if (clause.getOldPartitionFieldName() != null) {
-            updateSpec.removeField(clause.getOldPartitionFieldName());
+        if (op.getOldPartitionFieldName() != null) {
+            updateSpec.removeField(op.getOldPartitionFieldName());
         } else {
-            String oldTransformName = clause.getOldTransformName();
-            Integer oldTransformArg = clause.getOldTransformArg();
-            String oldColumnName = clause.getOldColumnName();
+            String oldTransformName = op.getOldTransformName();
+            Integer oldTransformArg = op.getOldTransformArg();
+            String oldColumnName = op.getOldColumnName();
             Term oldTransform = getTransform(oldTransformName, oldColumnName, oldTransformArg);
             updateSpec.removeField(oldTransform);
         }
 
         // add new partition field
-        String newPartitionFieldName = clause.getNewPartitionFieldName();
-        String newTransformName = clause.getNewTransformName();
-        Integer newTransformArg = clause.getNewTransformArg();
-        String newColumnName = clause.getNewColumnName();
+        String newPartitionFieldName = op.getNewPartitionFieldName();
+        String newTransformName = op.getNewTransformName();
+        Integer newTransformArg = op.getNewTransformArg();
+        String newColumnName = op.getNewColumnName();
         Term newTransform = getTransform(newTransformName, newColumnName, newTransformArg);
 
         if (newPartitionFieldName != null) {
