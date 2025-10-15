@@ -59,7 +59,7 @@ public class SyncTableCommand extends Command implements Redirect {
 
     @Override
     public RedirectStatus toRedirectStatus() {
-        return null;
+        return RedirectStatus.FORWARD_WITH_SYNC;
     }
 
     @Override

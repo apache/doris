@@ -7207,6 +7207,10 @@ public class Env {
 
     // sync table
     public void syncTable(String dbName, String tableName) throws DdlException, AnalysisException {
+        // skip cloud mode
+        if (Config.isCloudMode()) {
+            throw new DdlException("syncTable command not support in cloud mode now.");
+        }
         Database db = getInternalCatalog().getDbOrDdlException(dbName);
         Table table = db.getTableOrDdlException(tableName);
         long dbId = db.getId();
