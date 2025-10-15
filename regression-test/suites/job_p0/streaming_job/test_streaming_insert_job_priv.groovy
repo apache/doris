@@ -51,10 +51,14 @@ suite("test_streaming_insert_job_priv") {
     def url = tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
     sql """grant select_priv on ${dbName}.* to ${user}"""
 
+    sql """grant select_priv on ${dbName}.* to ${user}"""
+
     // create job with select priv user
-    connect(user, "${pwd}", url) {
-        expectExceptionLike({
-            sql """
+    if (!isCloudMode){
+        // Cloud requires admin/Node priv to show clusters. If execute it, will get an error No Alive backends.
+        connect(user, "${pwd}", url) {
+            expectExceptionLike({
+                sql """
                CREATE JOB ${jobName}  
                ON STREAMING DO INSERT INTO ${tableName} 
                SELECT * FROM S3
@@ -69,7 +73,8 @@ suite("test_streaming_insert_job_priv") {
                     "s3.secret_key" = "${getS3SK()}"
                 );
             """
-        }, "LOAD command denied to user")
+            }, "LOAD command denied to user")
+        }
     }
 
     def jobCount = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
