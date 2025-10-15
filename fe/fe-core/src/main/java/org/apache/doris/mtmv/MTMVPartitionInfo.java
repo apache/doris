@@ -192,7 +192,6 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
                 + ", pctInfos=" + pctInfos
                 + ", filteredNonPctTables='" + filteredNonPctTables + '\''
                 + ", partitionCol='" + partitionCol + '\''
-                + ", expr='" + expr + '\''
                 + '}';
     }
 
@@ -207,7 +206,6 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
                     + ", pctInfos=" + pctInfos
                     + ", filteredNonPctTables='" + filteredNonPctTables + '\''
                     + ", partitionCol='" + partitionCol + '\''
-                    + ", expr='" + expr + '\''
                     + '}';
         }
     }
