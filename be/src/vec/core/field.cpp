@@ -561,7 +561,7 @@ std::string Field::to_string() const {
     MATCH_PRIMITIVE_TYPE(TYPE_UINT32);
     MATCH_PRIMITIVE_TYPE(TYPE_UINT64);
     throw Exception(
-            Status::FatalError("type not supported for as_string_view, type={}", get_type_name()));
+            Status::FatalError("type not supported for to_string, type={}", get_type_name()));
 }
 
 #undef MATCH_PRIMITIVE_TYPE

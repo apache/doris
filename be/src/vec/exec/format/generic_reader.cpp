@@ -38,7 +38,7 @@ Status ExprPushDownHelper::_extract_predicates(const VExprSPtr& expr, int& cid,
     }
     const auto* slot_ref = assert_cast<const VSlotRef*>(expr->children()[0].get());
     cid = slot_ref->column_id();
-    values.resize(expr->children().size() - 1);
+    values.reserve(expr->children().size() - 1);
     data_type = remove_nullable(slot_ref->data_type());
     for (size_t child_id = 1; child_id < expr->children().size(); child_id++) {
         auto child_expr = expr->children()[child_id];
@@ -49,7 +49,7 @@ Status ExprPushDownHelper::_extract_predicates(const VExprSPtr& expr, int& cid,
         if (literal->get_column_ptr()->is_null_at(0)) {
             continue;
         }
-        values[child_id - 1] = literal->get_column_ptr()->operator[](0);
+        values.emplace_back(literal->get_column_ptr()->operator[](0));
     }
     parsed = true;
     return Status::OK();
