@@ -30,6 +30,7 @@
 #include "cast_to_struct.h"
 #include "cast_to_variant.h"
 #include "runtime/primitive_type.h"
+#include "udf/udf.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h" // IWYU pragma: keep
@@ -302,15 +303,44 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
 
 class PreparedFunctionCast : public PreparedFunctionImpl {
 public:
-    explicit PreparedFunctionCast(CastWrapper::WrapperType&& wrapper_function_, const char* name_)
-            : wrapper_function(std::move(wrapper_function_)), name(name_) {}
+    explicit PreparedFunctionCast(CastWrapper::WrapperType&& wrapper_function_, const char* name_,
+                                  DataTypePtr&& fe_plan_from_type_, DataTypePtr&& fe_plan_to_type_)
+            : wrapper_function(std::move(wrapper_function_)),
+              name(name_),
+              fe_plan_from_type(std::move(fe_plan_from_type_)),
+              fe_plan_to_type(std::move(fe_plan_to_type_)) {}
 
     String get_name() const override { return name; }
 
 protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        return wrapper_function(context, block, arguments, result, input_rows_count, nullptr);
+        if (arguments.size() != 1) {
+            return Status::InvalidArgument("CAST expect 1 argument, but got {}", arguments.size());
+        }
+        const auto& arg = block.get_by_position(arguments[0]);
+        const auto& res = block.get_by_position(result);
+
+        if (!arg.type->equals_ignore_precision(*fe_plan_from_type)) {
+            return Status::InvalidArgument("CAST expect argument type {}, but got {}",
+                                           fe_plan_from_type->get_name(), arg.type->get_name());
+        }
+
+        if (!res.type->equals_ignore_precision(*fe_plan_to_type)) {
+            return Status::InvalidArgument("CAST expect return type {}, but got {}",
+                                           fe_plan_to_type->get_name(), res.type->get_name());
+        }
+
+        // check input column
+        RETURN_IF_ERROR(arg.type->check_column(*arg.column));
+
+        RETURN_IF_ERROR(
+                wrapper_function(context, block, arguments, result, input_rows_count, nullptr));
+
+        // check output column
+        RETURN_IF_ERROR(res.type->check_column(*res.column));
+
+        return Status::OK();
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
@@ -319,6 +349,12 @@ protected:
 private:
     CastWrapper::WrapperType wrapper_function;
     const char* name;
+    DataTypePtr fe_plan_from_type;
+    DataTypePtr fe_plan_to_type;
+};
+
+struct CastState {
+    PreparedFunctionPtr cast_function = nullptr;
 };
 
 class FunctionCast final : public IFunctionBase {
@@ -331,13 +367,37 @@ public:
     const DataTypes& get_argument_types() const override { return argument_types; }
     const DataTypePtr& get_return_type() const override { return return_type; }
 
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            return Status::OK();
+        }
+        std::shared_ptr<CastState> state = std::make_shared<CastState>();
+
+        state->cast_function = create_cast_function(context);
+
+        context->set_function_state(scope, state);
+
+        return Status::OK();
+    }
+
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& /*sample_block*/,
                                 const ColumnNumbers& /*arguments*/,
                                 uint32_t /*result*/) const override {
-        return std::make_shared<PreparedFunctionCast>(
-                CastWrapper::prepare_unpack_dictionaries(context, get_argument_types()[0],
-                                                         get_return_type()),
-                name);
+        if (context == nullptr ||
+            context->get_function_state(FunctionContext::FRAGMENT_LOCAL) == nullptr) {
+            /// TODO: remove this in the future.
+            /*
+            At present, we have such a code.
+            auto func_cast = vectorized::SimpleFunctionFactory::instance().get_function(
+                    "CAST", arguments, return_type);
+            RETURN_IF_ERROR(
+                    func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
+            */
+            return create_cast_function(nullptr);
+        }
+        auto* cast_state = reinterpret_cast<CastState*>(
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        return cast_state->cast_function;
     }
 
     String get_name() const override { return name; }
@@ -345,6 +405,15 @@ public:
     bool is_use_default_implementation_for_constants() const override { return true; }
 
 private:
+    PreparedFunctionPtr create_cast_function(FunctionContext* context) const {
+        auto fe_plan_from_type = argument_types[0];
+        auto fe_plan_to_type = return_type;
+        return std::make_shared<PreparedFunctionCast>(
+                CastWrapper::prepare_unpack_dictionaries(context, fe_plan_from_type,
+                                                         fe_plan_to_type),
+                name, std::move(fe_plan_from_type), std::move(fe_plan_to_type));
+    }
+
     const char* name = nullptr;
 
     DataTypes argument_types;
