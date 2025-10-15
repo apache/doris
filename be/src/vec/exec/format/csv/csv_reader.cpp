@@ -142,6 +142,9 @@ void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
         if (field_start_position < size) {
             process_value_func(data, field_start_position, size - field_start_position,
                                _trimming_char, splitted_values);
+        } else if (size > 0 && data[size - 1] == _value_sep[0]) {
+            // Trailing separator indicates an empty field at the end.
+            process_value_func(data, size, 0, _trimming_char, splitted_values);
         }
     }
 }
