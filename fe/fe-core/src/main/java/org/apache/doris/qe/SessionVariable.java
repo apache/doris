@@ -418,6 +418,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
 
+    public static final String SHUFFLED_AGG_NODE_IDS = "shuffled_agg_node_ids";
+
     public static final String ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES = "enable_fast_analyze_into_values";
 
     public static final String ENABLE_FUNCTION_PUSHDOWN = "enable_function_pushdown";
@@ -1922,6 +1924,10 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true, varType = VariableAnnotation.EXPERIMENTAL)
     public boolean enableSingleReplicaInsert = false;
 
+    @VariableMgr.VarAttr(name = SHUFFLED_AGG_NODE_IDS,
+            needForward = true, varType = VariableAnnotation.EXPERIMENTAL)
+    public String shuffledAggNodeIds = "";
+
     @VariableMgr.VarAttr(
             name = ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES, fuzzy = true,
             description = {
@@ -2727,6 +2733,36 @@ public class SessionVariable implements Serializable, Writable {
             return ImmutableSet.of();
         }
         for (String v : ignoreRuntimeFilterIds.split(",[\\s]*")) {
+            int res = -1;
+            if (!v.isEmpty()) {
+                boolean isNumber = true;
+                for (int i = 0; i < v.length(); ++i) {
+                    char c = v.charAt(i);
+                    if (c < '0' || c > '9') {
+                        isNumber = false;
+                        break;
+                    }
+                }
+                if (isNumber) {
+                    try {
+                        res = Integer.parseInt(v);
+                    } catch (Throwable t) {
+                        // ignore
+                    }
+                }
+
+            }
+            ids.add(res);
+        }
+        return ids;
+    }
+
+    public List<Integer> getShuffledAggNodeIds() {
+        List<Integer> ids = Lists.newLinkedList();
+        if (shuffledAggNodeIds.isEmpty()) {
+            return ImmutableList.of();
+        }
+        for (String v : shuffledAggNodeIds.split(",[\\s]*")) {
             int res = -1;
             if (!v.isEmpty()) {
                 boolean isNumber = true;
@@ -4782,6 +4818,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setQueryTimeout(queryTimeoutS);
         tResult.setEnableProfile(enableProfile);
         tResult.setRpcVerboseProfileMaxInstanceCount(rpcVerboseProfileMaxInstanceCount);
+        tResult.setShuffledAggIds(getShuffledAggNodeIds());
         if (enableProfile) {
             // If enable profile == true, then also set report success to true
             // be need report success to start report thread. But it is very tricky

@@ -126,7 +126,7 @@ public:
                                               ._should_build_hash_table;
     }
 
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         } else if (_is_broadcast_join) {
