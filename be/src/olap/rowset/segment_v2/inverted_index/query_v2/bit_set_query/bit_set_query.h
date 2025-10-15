@@ -19,31 +19,27 @@
 
 #include <memory>
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/bitmap_query/bitmap_scorer.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_weight.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
 #include "roaring/roaring.hh"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-class BitmapWeight final : public Weight {
+class BitSetQuery : public Query {
 public:
-    BitmapWeight(std::shared_ptr<roaring::Roaring> bitmap,
-                 std::shared_ptr<roaring::Roaring> null_bitmap = nullptr)
-            : _bitmap(std::move(bitmap)), _null_bitmap(std::move(null_bitmap)) {}
-    ~BitmapWeight() override = default;
+    explicit BitSetQuery(std::shared_ptr<roaring::Roaring> bitmap) : _bitmap(std::move(bitmap)) {}
+    BitSetQuery(const roaring::Roaring& bitmap)
+            : _bitmap(std::make_shared<roaring::Roaring>(bitmap)) {}
+    ~BitSetQuery() override = default;
 
-    ScorerPtr scorer(const QueryExecutionContext& /*context*/) override {
-        if (_bitmap == nullptr || _bitmap->isEmpty()) {
-            return std::make_shared<EmptyScorer>();
-        }
-        return std::make_shared<BitmapScorer>(_bitmap, _null_bitmap);
+    WeightPtr weight(bool /*enable_scoring*/) override {
+        return std::make_shared<BitSetWeight>(_bitmap);
     }
 
 private:
     std::shared_ptr<roaring::Roaring> _bitmap;
-    std::shared_ptr<roaring::Roaring> _null_bitmap;
 };
 
-using BitmapWeightPtr = std::shared_ptr<BitmapWeight>;
+using BitSetQueryPtr = std::shared_ptr<BitSetQuery>;
 
 } // namespace doris::segment_v2::inverted_index::query_v2
