@@ -88,7 +88,7 @@ PROPERTIES (
                 logger.info("retry $tableName1  count: $resultTbl1")
                 def resultTbl2 = sql """ select count(1) from $tableName2"""
                 logger.info("retry $tableName2 count: $resultTbl2")
-                resultTbl1.size() >= 1 && resultTbl2.size >=1
+                resultTbl1.size() >= 1 && resultTbl2.size() >=1
             })
 
     qt_select """ select * from $tableName1 order by id"""
