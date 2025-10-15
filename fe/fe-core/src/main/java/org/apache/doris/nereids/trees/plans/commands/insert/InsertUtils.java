@@ -693,20 +693,41 @@ public class InsertUtils {
      */
     public static String getFinalErrorMsg(String msg, String firstErrorMsg, String url) {
         int maxTotalBytes = 512;
-        String firstErrorMsgPart = "";
-        String urlPart = "";
 
-        // first_error_msg size, normally < 512 (default 256)
+        // Calculate lengths first to avoid unnecessary string concatenation
+        int firstErrorMsgPartLen = 0;
+        int urlPartLen = 0;
+
         if (!Strings.isNullOrEmpty(firstErrorMsg)) {
-            firstErrorMsgPart = ". first_error_msg: " + firstErrorMsg;
+            firstErrorMsgPartLen = ". first_error_msg: ".length() + firstErrorMsg.length();
         }
 
-        // url
         if (!Strings.isNullOrEmpty(url)) {
-            urlPart = ". url: " + url;
+            urlPartLen = ". url: ".length() + url.length();
         }
 
-        int maxMessageBytes = maxTotalBytes - firstErrorMsgPart.length() - urlPart.length();
+        // use boolean too avoid string copy
+        boolean useFirstErrorMsgPlaceholder = false;
+        boolean useUrlPlaceholder = false;
+
+        // special case: url length > 512 or first error msg length > 512
+        if (urlPartLen > maxTotalBytes && firstErrorMsgPartLen > maxTotalBytes) {
+            useUrlPlaceholder = true;
+            urlPartLen = ". url : please use `show load` for detail msg".length();
+            // only show once is enough
+            firstErrorMsgPartLen = 0;
+        } else if (urlPartLen > maxTotalBytes) {
+            useUrlPlaceholder = true;
+            urlPartLen = ". url : please use `show load` for detail msg".length();
+        } else if (firstErrorMsgPartLen > maxTotalBytes) {
+            useFirstErrorMsgPlaceholder = true;
+            firstErrorMsgPartLen = ". first_error_msg: please use `show load` for detail msg".length();
+        }
+
+        int maxMessageBytes = maxTotalBytes - firstErrorMsgPartLen - urlPartLen;
+
+        // For test : error msg length > 512, we will truncate it first
+        // to make sure the URL and FirstErrorMsg keep complete.
         if (DebugPointUtil.isEnable("TestErrorMsgTruncate")) {
             int numAsToAppend = (maxTotalBytes - msg.length()) / 4;
             StringBuilder sbA = new StringBuilder(numAsToAppend);
@@ -718,14 +739,28 @@ public class InsertUtils {
 
         if (msg.length() > maxMessageBytes && maxMessageBytes > 0) {
             msg = msg.substring(0, maxMessageBytes - 1);
-        } else if (maxMessageBytes <= 0) {
-            // (TODO Refrain): temporarily not handle this case
         }
 
         StringBuilder finalErrorMsg = new StringBuilder();
         finalErrorMsg.append(msg);
-        finalErrorMsg.append(firstErrorMsgPart);
-        finalErrorMsg.append(urlPart);
+
+        // Append firstErrorMsg part directly
+        if (firstErrorMsgPartLen > 0) {
+            if (useFirstErrorMsgPlaceholder) {
+                finalErrorMsg.append(". first_error_msg: please use `show load` for detail msg");
+            } else {
+                finalErrorMsg.append(". first_error_msg: ").append(firstErrorMsg);
+            }
+        }
+
+        // Append url part directly
+        if (urlPartLen > 0) {
+            if (useUrlPlaceholder) {
+                finalErrorMsg.append(". url : please use `show load` for detail msg");
+            } else {
+                finalErrorMsg.append(". url: ").append(url);
+            }
+        }
 
         return finalErrorMsg.toString();
     }
