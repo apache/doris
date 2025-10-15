@@ -206,11 +206,13 @@ public:
         ASSERT_FALSE(probe_operator->is_shuffled_operator());
         std::cout << "sink distribution: "
                   << get_exchange_type_name(
-                             sink_operator->required_data_distribution().distribution_type)
+                             sink_operator->required_data_distribution(_helper.runtime_state.get())
+                                     .distribution_type)
                   << std::endl;
         std::cout << "probe distribution: "
                   << get_exchange_type_name(
-                             probe_operator->required_data_distribution().distribution_type)
+                             probe_operator->required_data_distribution(_helper.runtime_state.get())
+                                     .distribution_type)
                   << std::endl;
 
         LocalStateInfo info {.parent_profile = _helper.runtime_profile.get(),

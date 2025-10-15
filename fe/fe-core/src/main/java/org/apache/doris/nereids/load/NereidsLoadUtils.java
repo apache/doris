@@ -17,11 +17,11 @@
 
 package org.apache.doris.nereids.load;
 
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -126,7 +126,7 @@ public class NereidsLoadUtils {
     /**
      * create a load plan tree for stream load, routine load and broker load
      */
-    public static LogicalPlan createLoadPlan(NereidsFileGroupInfo fileGroupInfo, PartitionNames partitionNames,
+    public static LogicalPlan createLoadPlan(NereidsFileGroupInfo fileGroupInfo, PartitionNamesInfo partitionNamesInfo,
             NereidsParamCreateContext context, boolean isPartialUpdate,
             TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy) throws UserException {
         // context.scanSlots represent columns read from external file
@@ -192,9 +192,9 @@ public class NereidsLoadUtils {
         // create a table sink for dest table
         currentRootPlan = UnboundTableSinkCreator.createUnboundTableSink(targetTable.getFullQualifiers(), colNames,
                 ImmutableList.of(),
-                partitionNames != null && partitionNames.isTemp(),
-                partitionNames != null ? partitionNames.getPartitionNames() : ImmutableList.of(), isPartialUpdate,
-                partialUpdateNewKeyPolicy, DMLCommandType.LOAD, currentRootPlan);
+                partitionNamesInfo != null && partitionNamesInfo.isTemp(),
+                partitionNamesInfo != null ? partitionNamesInfo.getPartitionNames() : ImmutableList.of(),
+                isPartialUpdate, partialUpdateNewKeyPolicy, DMLCommandType.LOAD, currentRootPlan);
 
         CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(), currentRootPlan,
                 PhysicalProperties.ANY);
