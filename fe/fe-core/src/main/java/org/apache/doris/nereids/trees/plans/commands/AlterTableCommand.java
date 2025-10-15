@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.AggregateType;
@@ -89,14 +88,8 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
     /**
      * getOps
      */
-    public List<AlterTableClause> getOps() {
-        List<AlterTableClause> alterTableClauses = new ArrayList<>(ops.size());
-        for (AlterTableOp op : ops) {
-            AlterTableClause alter = op.translateToLegacyAlterClause();
-            alter.setTableNameInfo(tbl);
-            alterTableClauses.add(alter);
-        }
-        return alterTableClauses;
+    public List<AlterTableOp> getOps() {
+        return ops;
     }
 
     /**

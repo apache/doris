@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
@@ -27,34 +28,33 @@ import com.google.common.base.Strings;
 import java.util.Map;
 
 /**
- * DropRollupOp
+ * TableRenameOp
  */
-public class DropRollupOp extends AlterTableOp {
-    private final String rollupName;
-    private Map<String, String> properties;
+public class TableRenameOp extends AlterTableOp {
+    private String newTableName;
 
-    public DropRollupOp(String rollupName, Map<String, String> properties) {
-        super(AlterOpType.DROP_ROLLUP);
-        this.rollupName = rollupName;
-        this.properties = properties;
+    public TableRenameOp(String newTableName) {
+        super(AlterOpType.RENAME);
+        this.newTableName = newTableName;
         this.needTableStable = false;
     }
 
     @Override
     public void validate(ConnectContext ctx) throws UserException {
-        if (Strings.isNullOrEmpty(rollupName)) {
-            throw new AnalysisException("No rollup in delete rollup.");
+        if (Strings.isNullOrEmpty(newTableName)) {
+            throw new AnalysisException("New Table name is not set");
         }
+
+        FeNameFormat.checkTableName(newTableName);
     }
 
-    @Override
-    public Map<String, String> getProperties() {
-        return this.properties;
+    public String getNewTableName() {
+        return newTableName;
     }
 
     @Override
     public boolean allowOpMTMV() {
-        return true;
+        return false;
     }
 
     @Override
@@ -64,18 +64,11 @@ public class DropRollupOp extends AlterTableOp {
 
     @Override
     public String toSql() {
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("DROP ROLLUP ");
-        stringBuilder.append("`").append(rollupName).append("`");
-        return stringBuilder.toString();
+        return "RENAME " + newTableName;
     }
 
     @Override
-    public String toString() {
-        return toSql();
-    }
-
-    public String getRollupName() {
-        return rollupName;
+    public Map<String, String> getProperties() {
+        return null;
     }
 }

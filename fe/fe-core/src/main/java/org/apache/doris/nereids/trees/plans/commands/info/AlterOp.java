@@ -18,25 +18,19 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.common.UserException;
-import org.apache.doris.info.TableNameInfo;
-import org.apache.doris.qe.ConnectContext;
+
+import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.Map;
 
 /**
- * AlterTableOp
+ * AlterOp
  */
-public abstract class AlterTableOp extends AlterOp {
-    // if set to true, the corresponding table should be stable before processing this operation on it.
-    protected boolean needTableStable = true;
+public abstract class AlterOp {
 
     protected AlterOpType opType;
 
-    protected TableNameInfo tableName;
-
-    public AlterTableOp(AlterOpType opType) {
-        super(opType);
+    public AlterOp(AlterOpType opType) {
         this.opType = opType;
     }
 
@@ -44,18 +38,11 @@ public abstract class AlterTableOp extends AlterOp {
         return opType;
     }
 
-    public void setTableName(TableNameInfo tableName) {
-        this.tableName = tableName;
-    }
-
     public abstract boolean allowOpMTMV();
 
     public abstract boolean needChangeMTMVState();
 
-    public abstract String toSql();
-
-    public abstract Map<String, String> getProperties();
-
-    public void validate(ConnectContext ctx) throws UserException {
+    public Map<String, String> getProperties() {
+        throw new NotImplementedException("AlterOp.getProperties() is not implemented");
     }
 }

@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.EnableFeatureClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
@@ -91,11 +89,6 @@ public class EnableFeatureOp extends AlterTableOp {
             default:
                 throw new AnalysisException("unknown feature name: " + featureName);
         }
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new EnableFeatureClause(featureName, properties);
     }
 
     @Override

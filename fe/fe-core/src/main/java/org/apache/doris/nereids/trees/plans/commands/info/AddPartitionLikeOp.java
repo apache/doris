@@ -19,34 +19,29 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
-
 import java.util.Map;
 
 /**
- * ModifyTableCommentOp
+ * AddPartitionLikeOp
  */
-public class ModifyTableCommentOp extends AlterTableOp {
-    private String comment;
+public class AddPartitionLikeOp extends AlterTableOp {
+    private final String partitionName;
+    private final String existedPartitionName;
+    private final Boolean isTempPartition;
 
-    public ModifyTableCommentOp(String comment) {
-        super(AlterOpType.MODIFY_TABLE_COMMENT);
-        this.comment = Strings.nullToEmpty(comment);
-    }
-
-    public String getComment() {
-        return comment;
-    }
-
-    @Override
-    public Map<String, String> getProperties() {
-        return Maps.newHashMap();
+    public AddPartitionLikeOp(String partitionName,
+                                  String existedPartitionName,
+                                  boolean isTempPartition) {
+        super(AlterOpType.ADD_PARTITION);
+        this.partitionName = partitionName;
+        this.existedPartitionName = existedPartitionName;
+        this.isTempPartition = isTempPartition;
+        this.needTableStable = false;
     }
 
     @Override
     public boolean allowOpMTMV() {
-        return true;
+        return false;
     }
 
     @Override
@@ -54,12 +49,29 @@ public class ModifyTableCommentOp extends AlterTableOp {
         return false;
     }
 
+    public String getPartitionName() {
+        return partitionName;
+    }
+
+    public String getExistedPartitionName() {
+        return existedPartitionName;
+    }
+
+    public Boolean getTempPartition() {
+        return isTempPartition;
+    }
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("MODIFY COMMENT ");
-        sb.append("'").append(comment).append("'");
+        sb.append("ADD PARTITION ").append(partitionName).append(" LIKE ");
+        sb.append(existedPartitionName);
         return sb.toString();
+    }
+
+    @Override
+    public Map<String, String> getProperties() {
+        return null;
     }
 
     @Override

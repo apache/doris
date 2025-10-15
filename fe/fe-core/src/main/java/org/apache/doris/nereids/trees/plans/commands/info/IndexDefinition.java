@@ -21,9 +21,12 @@ import org.apache.doris.analysis.AnnIndexPropertiesChecker;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.InvertedIndexUtil;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -228,6 +231,99 @@ public class IndexDefinition {
     }
 
     /**
+     * checkColumn
+     */
+    public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
+                            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws org.apache.doris.common.AnalysisException {
+        if (indexType == IndexType.ANN) {
+            if (column.isAllowNull()) {
+                throw new org.apache.doris.common.AnalysisException("ANN index must be built on a column that is not nullable");
+            }
+
+            String indexColName = column.getName();
+            caseSensitivityCols.add(indexColName);
+            PrimitiveType primitiveType = column.getDataType();
+            if (!primitiveType.isArrayType()) {
+                throw new org.apache.doris.common.AnalysisException("ANN index column must be array type");
+            }
+            Type columnType = column.getType();
+            Type itemType = ((org.apache.doris.catalog.ArrayType) columnType).getItemType();
+            if (!itemType.isFloatingPointType()) {
+                throw new org.apache.doris.common.AnalysisException("ANN index column item type must be float type");
+            }
+            if (keysType != KeysType.DUP_KEYS) {
+                throw new org.apache.doris.common.AnalysisException("ANN index can only be used in DUP_KEYS table");
+            }
+            if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
+                throw new org.apache.doris.common.AnalysisException("ANN index is not supported in index format V1");
+            }
+            return;
+        }
+
+        if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER
+                || indexType == IndexType.NGRAM_BF) {
+            String indexColName = column.getName();
+            caseSensitivityCols.add(indexColName);
+            PrimitiveType colType = column.getDataType();
+            Type columnType = column.getType();
+            if (!isSupportIdxType(columnType)) {
+                throw new org.apache.doris.common.AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
+                    + "invalid index: " + indexName);
+            }
+
+            if (indexType == IndexType.ANN && !colType.isArrayType()) {
+                throw new org.apache.doris.common.AnalysisException("ANN index column must be array type");
+            }
+
+            // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
+            // when the subcolumn type changes, it may result in missing files, causing link file failure.
+            // There are two cases in which the inverted index format v1 is not supported:
+            // 1. in cloud mode
+            // 2. enable_inverted_index_v1_for_variant = false
+            boolean notSupportInvertedIndexForVariant =
+                    (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
+                    || invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.DEFAULT)
+                    && (Config.isCloudMode() || !Config.enable_inverted_index_v1_for_variant);
+
+            if (colType.isVariantType() && notSupportInvertedIndexForVariant) {
+                throw new org.apache.doris.common.AnalysisException(colType + " is not supported in inverted index format V1,"
+                    + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
+                    + "or upgrade to a newer version");
+            }
+            if (!column.isKey()) {
+                if (keysType == KeysType.AGG_KEYS) {
+                    throw new org.apache.doris.common.AnalysisException("index should only be used in columns of DUP_KEYS/UNIQUE_KEYS table"
+                        + " or key columns of AGG_KEYS table. invalid index: " + indexName);
+                } else if (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite
+                    && indexType == IndexType.INVERTED && properties != null
+                    && properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
+                    throw new org.apache.doris.common.AnalysisException("INVERTED index with parser can NOT be used in value columns of"
+                        + " UNIQUE_KEYS table with merge_on_write disable. invalid index: " + indexName);
+                }
+            }
+
+            if (indexType == IndexType.INVERTED) {
+                InvertedIndexUtil.checkInvertedIndexParser(indexColName, colType, properties,
+                    invertedIndexFileStorageFormat);
+            } else if (indexType == IndexType.NGRAM_BF) {
+                if (colType != PrimitiveType.CHAR && colType != PrimitiveType.VARCHAR
+                    && colType != PrimitiveType.STRING) {
+                    throw new org.apache.doris.common.AnalysisException(colType + " is not supported in ngram_bf index. "
+                        + "invalid column: " + indexColName);
+                }
+                if (properties.size() != 2) {
+                    throw new org.apache.doris.common.AnalysisException("ngram_bf index should have gram_size and bf_size properties");
+                }
+
+                parseAndValidateProperty(properties, NGRAM_SIZE_KEY, MIN_NGRAM_SIZE, MAX_NGRAM_SIZE);
+                parseAndValidateProperty(properties, NGRAM_BF_SIZE_KEY, MIN_BF_SIZE, MAX_BF_SIZE);
+            }
+        } else {
+            throw new org.apache.doris.common.AnalysisException("Unsupported index type: " + indexType);
+        }
+    }
+
+    /**
      * validate
      */
     public void validate() {
@@ -292,6 +388,14 @@ public class IndexDefinition {
 
     public List<String> getPartitionNames() {
         return partitionNames == null ? Lists.newArrayList() : partitionNames.getPartitionNames();
+    }
+
+    public boolean isSetIfNotExists() {
+        return ifNotExists;
+    }
+
+    public boolean isAnnIndex() {
+        return (this.indexType == IndexType.ANN);
     }
 
     /**
