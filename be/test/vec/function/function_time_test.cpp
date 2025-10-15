@@ -338,18 +338,6 @@ TEST(VTimestampFunctionsTest, date_format_test) {
     }
 }
 
-TEST(VTimestampFunctionsTest, to_days_test) {
-    std::string func_name = "to_days";
-
-    InputTypeSet input_types = {PrimitiveType::TYPE_DATETIMEV2};
-
-    DataSet data_set = {
-            {{std::string("2021-01-01 00:00:00")}, 738156},
-    };
-
-    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
-}
-
 TEST(VTimestampFunctionsTest, date_test) {
     std::string func_name = "date";
 

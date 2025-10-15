@@ -250,15 +250,13 @@ public class ComputeSignatureHelper {
                 sigType = signature.argumentsTypes.get(i);
             }
             DataType expressionType = arguments.get(i).getDataType();
-            if (sigType.isDateType() || sigType.isDateTimeType()) {
-                // Convert legacy datetime/date types to v2 types, keep v2 types as is
-                if (sigType.isDateTimeType()) {
-                    // Legacy DateTimeType -> DateTimeV2Type
-                    sigType = DateTimeV2Type.SYSTEM_DEFAULT;
-                } else if (sigType.isDateType()) {
-                    // Legacy DateType -> DateV2Type
-                    sigType = DateV2Type.INSTANCE;
-                }
+            // Convert legacy datetime/date types to v2 types, keep v2 types as is
+            if (sigType.isDateTimeType()) {
+                // Legacy DateTimeType -> DateTimeV2Type
+                sigType = DateTimeV2Type.SYSTEM_DEFAULT;
+            } else if (sigType.isDateType()) {
+                // Legacy DateType -> DateV2Type
+                sigType = DateV2Type.INSTANCE;
             }
             newArgTypes.add(replaceAnyDataTypeWithOutIndex(sigType, expressionType));
         }
@@ -281,15 +279,13 @@ public class ComputeSignatureHelper {
                 sigType = signature.argumentsTypes.get(i);
             }
             DataType expressionType = arguments.get(i).getDataType();
-            if (sigType.isDateType() || sigType.isDateTimeType()) {
-                // Convert legacy datetime/date types to v2 types, keep v2 types as is
-                if (sigType.isDateTimeType()) {
-                    // Legacy DateTimeType -> DateTimeV2Type
-                    sigType = DateTimeV2Type.SYSTEM_DEFAULT;
-                } else if (sigType.isDateType()) {
-                    // Legacy DateType -> DateV2Type
-                    sigType = DateV2Type.INSTANCE;
-                }
+            // Convert legacy datetime/date types to v2 types, keep v2 types as is
+            if (sigType.isDateTimeType()) {
+                // Legacy DateTimeType -> DateTimeV2Type
+                sigType = DateTimeV2Type.SYSTEM_DEFAULT;
+            } else if (sigType.isDateType()) {
+                // Legacy DateType -> DateV2Type
+                sigType = DateV2Type.INSTANCE;
             }
             collectAnyDataType(sigType, expressionType, indexToArgumentTypes);
         }
