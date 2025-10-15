@@ -344,7 +344,6 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
     protected boolean canUnionRewrite(Plan queryPlan, MTMV mtmv, CascadesContext cascadesContext) {
         // Check query plan is contain the partition column
         // Query plan in the current rule must contain aggregate node, because the rule pattern is
-        //
         Optional<LogicalAggregate<Plan>> logicalAggregateOptional =
                 queryPlan.collectFirst(planTreeNode -> planTreeNode instanceof LogicalAggregate);
         if (!logicalAggregateOptional.isPresent()) {
