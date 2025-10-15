@@ -53,12 +53,14 @@ suite("test_streaming_insert_job_priv") {
 
     if (isCloudMode){
         // Cloud requires USAGE_PRIV to show clusters.
-        def clusters = sql """show clusters"""
-        assert clusters.size() > 0
+        def clusters = sql_return_maparray """show clusters"""
         log.info("show cluster res: " + clusters)
-        for (cluster in clusters) {
-            if (cluster[1].equalsIgnoreCase("TRUE")) {
-                sql """GRANT USAGE_PRIV ON CLUSTER `${cluster[0]}` TO ${user}""";
+        assertNotNull(clusters)
+
+        for (item in clusters) {
+            log.info("cluster item: " + item.is_current + ", " + item.cluster)
+            if (item.is_current.equalsIgnoreCase("TRUE")) {
+                sql """GRANT USAGE_PRIV ON CLUSTER `${item.cluster}` TO ${user}""";
                 break
             }
         }
