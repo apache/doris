@@ -51,7 +51,7 @@ suite("test_streaming_insert_job_priv") {
     def url = tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
     sql """grant select_priv on ${dbName}.* to ${user}"""
 
-    if (isCloudMode){
+    if (isCloudMode()){
         // Cloud requires USAGE_PRIV to show clusters.
         def clusters = sql_return_maparray """show clusters"""
         log.info("show cluster res: " + clusters)
