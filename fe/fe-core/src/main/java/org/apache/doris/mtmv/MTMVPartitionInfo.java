@@ -24,6 +24,7 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
@@ -57,11 +58,13 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
     @SerializedName("expr")
     private Expr expr;
     @SerializedName("pi")
-    private List<BaseColInfo> pctInfos;
+    private List<BaseColInfo> pctInfos = Lists.newArrayList();
     @SerializedName("fnpt")
-    private List<BaseColInfo> filteredNonPctTables;
+    private List<BaseColInfo> filteredNonPctTables = Lists.newArrayList();
 
     public MTMVPartitionInfo() {
+        this.pctInfos = Lists.newArrayList();
+        this.filteredNonPctTables = Lists.newArrayList();
     }
 
     public MTMVPartitionInfo(MTMVPartitionType partitionType) {
