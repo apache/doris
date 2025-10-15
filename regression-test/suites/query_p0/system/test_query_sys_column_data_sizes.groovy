@@ -71,6 +71,8 @@ suite("test_query_sys_column_data_sizes", "query,p0") {
          ['r', 'matlab', 'julia'], {'math':94, 'statistics':96}, named_struct('address', '159 Birch Ct', 'phone', '2223334444', 'email', 'grace@example.com'))
     """
 
+    sql "select * from ${tableName};"
+
     // Get tablet ID for the test table
     List<List<Object>> tablets = sql """ SHOW TABLETS FROM ${tableName} """
     assert tablets.size() > 0, "Should have at least one tablet"
