@@ -74,7 +74,7 @@ size_t ColumnVector<T>::get_max_row_byte_size() const {
 }
 
 template <PrimitiveType T>
-void ColumnVector<T>::serialize_vec(StringRef* keys, size_t num_rows) const {
+void ColumnVector<T>::serialize(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
         // Used in hash_map_context.h, this address is allocated via Arena,
         // but passed through StringRef, so using const_cast is acceptable.
@@ -83,9 +83,8 @@ void ColumnVector<T>::serialize_vec(StringRef* keys, size_t num_rows) const {
 }
 
 template <PrimitiveType T>
-void ColumnVector<T>::serialize_vec_with_nullable(StringRef* keys, size_t num_rows,
-                                                  const bool has_null,
-                                                  const uint8_t* __restrict null_map) const {
+void ColumnVector<T>::serialize_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
+                                              const uint8_t* __restrict null_map) const {
     if (has_null) {
         for (size_t i = 0; i < num_rows; ++i) {
             char* dest = const_cast<char*>(keys[i].data + keys[i].size);
@@ -109,7 +108,7 @@ void ColumnVector<T>::serialize_vec_with_nullable(StringRef* keys, size_t num_ro
 }
 
 template <PrimitiveType T>
-void ColumnVector<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
+void ColumnVector<T>::deserialize(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
         auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;
@@ -118,8 +117,8 @@ void ColumnVector<T>::deserialize_vec(StringRef* keys, const size_t num_rows) {
 }
 
 template <PrimitiveType T>
-void ColumnVector<T>::deserialize_vec_with_nullable(StringRef* keys, const size_t num_rows,
-                                                    PaddedPODArray<UInt8>& null_map) {
+void ColumnVector<T>::deserialize_with_nullable(StringRef* keys, const size_t num_rows,
+                                                PaddedPODArray<UInt8>& null_map) {
     for (size_t i = 0; i != num_rows; ++i) {
         UInt8 is_null = *reinterpret_cast<const UInt8*>(keys[i].data);
         null_map.push_back(is_null);

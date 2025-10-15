@@ -73,8 +73,8 @@ void IColumn::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_di
     }
 }
 
-void IColumn::serialize_vec_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
-                                          const uint8_t* __restrict null_map) const {
+void IColumn::serialize_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
+                                      const uint8_t* __restrict null_map) const {
     if (has_null) {
         for (size_t i = 0; i < num_rows; ++i) {
             char* dest = const_cast<char*>(keys[i].data + keys[i].size);
@@ -97,8 +97,8 @@ void IColumn::serialize_vec_with_nullable(StringRef* keys, size_t num_rows, cons
     }
 }
 
-void IColumn::deserialize_vec_with_nullable(StringRef* keys, const size_t num_rows,
-                                            PaddedPODArray<UInt8>& null_map) {
+void IColumn::deserialize_with_nullable(StringRef* keys, const size_t num_rows,
+                                        PaddedPODArray<UInt8>& null_map) {
     for (size_t i = 0; i != num_rows; ++i) {
         UInt8 is_null = *reinterpret_cast<const UInt8*>(keys[i].data);
         null_map.push_back(is_null);
