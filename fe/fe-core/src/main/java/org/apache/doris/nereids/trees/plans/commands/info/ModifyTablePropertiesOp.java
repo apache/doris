@@ -344,6 +344,20 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_PRESERVED_NUM)) {
+            // do a check here for valid value
+            int preservedNum = -1;
+            String val = properties.get(PropertyAnalyzer.PROPERTIES_PARTITION_PRESERVED_NUM);
+            try {
+                preservedNum = Integer.parseInt(val);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("partition.preserved_num format error");
+            }
+            if (preservedNum <= 0) {
+                throw new AnalysisException("partition.preserved_num should be > 0");
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME)) {
             throw new AnalysisException("You can not modify storage vault name");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_ID)) {

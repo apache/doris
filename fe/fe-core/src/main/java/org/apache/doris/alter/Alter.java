@@ -255,7 +255,7 @@ public class Alter {
             // TODO(Drogon): check error
             ((SchemaChangeHandler) schemaChangeHandler).updateBinlogConfig(db, olapTable, alterClauses);
         } else if (currentAlterOps.hasSchemaChangeOp()) {
-            // if modify storage type to v2, do schema change to convert all related tablets to segment v2 format
+            // schema change, or change properties that need schema change(dynamic partition, storage_medium...)
             schemaChangeHandler.process(sql, alterClauses, db, olapTable);
         } else if (currentAlterOps.hasRollupOp()) {
             materializedViewHandler.process(alterClauses, db, olapTable);
@@ -589,6 +589,11 @@ public class Alter {
         }
     }
 
+    /*
+     * There's two ways to process properties' change:
+     * 1. processAlterOlapTable will trigger schemaChangeHandler.process
+     * 2. as ModifyTablePropertiesClause trigger schemaChangeHandler.updateTableProperties
+     */
     public void processAlterTable(AlterTableCommand command) throws UserException {
         TableNameInfo dbTableName = command.getTbl();
         String ctlName = dbTableName.getCtl();

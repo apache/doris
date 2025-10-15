@@ -515,9 +515,10 @@ public class DynamicPartitionUtil {
     }
 
     public static void registerOrRemoveDynamicPartitionTable(long dbId, OlapTable olapTable, boolean isReplay) {
-        if (olapTable.getTableProperty() != null
-                && olapTable.getTableProperty().getDynamicPartitionProperty() != null) {
-            if (olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
+        if (olapTable.getTableProperty() != null) {
+            if (olapTable.getTableProperty().getDynamicPartitionProperty() != null
+                    && olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()
+                    || olapTable.getPartitionPreservedNum() > 0) {
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
                         .registerDynamicPartitionTable(dbId, olapTable.getId());
             } else {

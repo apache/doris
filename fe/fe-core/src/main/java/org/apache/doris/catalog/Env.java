@@ -3694,6 +3694,12 @@ public class Env {
             sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc));
         }
 
+        // partition preserved num
+        if (olapTable.getPartitionPreservedNum() > 0) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_PARTITION_PRESERVED_NUM).append("\" = \"");
+            sb.append(olapTable.getPartitionPreservedNum()).append("\"");
+        }
+
         // only display z-order sort info
         if (olapTable.isZOrderSort()) {
             sb.append(olapTable.getDataSortInfo().toSql());
@@ -6055,7 +6061,8 @@ public class Env {
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
                 .buildTimeSeriesCompactionLevelThreshold()
                 .buildTTLSeconds()
-                .buildAutoAnalyzeProperty();
+                .buildAutoAnalyzeProperty()
+                .buildPartitionPreservedNum();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {

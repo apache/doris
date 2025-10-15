@@ -2448,6 +2448,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildTTLSeconds();
     }
 
+    public long getPartitionPreservedNum() {
+        if (tableProperty != null) {
+            return tableProperty.getPartitionPreservedNum();
+        }
+        return -1;
+    }
+
+    public void setPartitionPreservedNum(long partitionPreservedNum) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_PARTITION_PRESERVED_NUM,
+                                            Long.valueOf(partitionPreservedNum).toString());
+        tableProperty.buildPartitionPreservedNum();
+    }
+
     public boolean getEnableLightSchemaChange() {
         if (tableProperty != null) {
             return tableProperty.getUseSchemaLightChange();
