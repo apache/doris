@@ -810,4 +810,9 @@ public abstract class Literal extends Expression implements LeafExpression {
         }
         return null;
     }
+
+    @Override
+    public String toDigest() {
+        return "?";
+    }
 }

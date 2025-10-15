@@ -406,6 +406,12 @@ public abstract class ConnectProcessor {
                 logicalPlanAdapter.setOrigStmt(statementContext.getOriginStatement());
                 logicalPlanAdapter.setUserInfo(ctx.getCurrentUserIdentity());
                 return ImmutableList.of(logicalPlanAdapter);
+            } else {
+                if (!ctx.getSessionVariable().testQueryCacheHit.equals("none")) {
+                    throw new UserException("The variable test_query_cache_hit is set to "
+                            + ConnectContext.get().getSessionVariable().testQueryCacheHit
+                            + ", but the query cache is not hit.");
+                }
             }
         } catch (Throwable t) {
             LOG.warn("Parse from sql cache failed: " + t.getMessage(), t);

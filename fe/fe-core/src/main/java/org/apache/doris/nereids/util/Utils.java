@@ -191,12 +191,13 @@ public class Utils {
         if (variables.length == 0) {
             return stringBuilder.append(" )").toString();
         }
-
+        boolean first = true;
         for (int i = 0; i < variables.length - 1; i += 2) {
             if (!"".equals(toStringOrNull(variables[i + 1]))) {
-                if (i != 0) {
+                if (!first) {
                     stringBuilder.append(", ");
                 }
+                first = false;
                 stringBuilder.append(toStringOrNull(variables[i])).append("=").append(toStringOrNull(variables[i + 1]));
             }
         }

@@ -76,9 +76,9 @@ public class SearchDslParser {
             parser.addErrorListener(new org.antlr.v4.runtime.BaseErrorListener() {
                 @Override
                 public void syntaxError(org.antlr.v4.runtime.Recognizer<?, ?> recognizer,
-                                        Object offendingSymbol,
-                                        int line, int charPositionInLine,
-                                        String msg, org.antlr.v4.runtime.RecognitionException e) {
+                        Object offendingSymbol,
+                        int line, int charPositionInLine,
+                        String msg, org.antlr.v4.runtime.RecognitionException e) {
                     throw new RuntimeException("Invalid search DSL syntax at line " + line
                             + ":" + charPositionInLine + " " + msg);
                 }
@@ -364,17 +364,18 @@ public class SearchDslParser {
         private QsNode createAnyAllNode(String fieldName, String anyAllText) {
             // Extract content between parentheses
             String innerContent = extractParenthesesContent(anyAllText);
+            String sanitizedContent = stripOuterQuotes(innerContent);
 
             if (anyAllText.toUpperCase().startsWith("ANY(") || anyAllText.toLowerCase().startsWith("any(")) {
-                return new QsNode(QsClauseType.ANY, fieldName, innerContent);
+                return new QsNode(QsClauseType.ANY, fieldName, sanitizedContent);
             }
 
             if (anyAllText.toUpperCase().startsWith("ALL(") || anyAllText.toLowerCase().startsWith("all(")) {
-                return new QsNode(QsClauseType.ALL, fieldName, innerContent);
+                return new QsNode(QsClauseType.ALL, fieldName, sanitizedContent);
             }
 
             // Fallback to ANY for unknown cases
-            return new QsNode(QsClauseType.ANY, fieldName, innerContent);
+            return new QsNode(QsClauseType.ANY, fieldName, sanitizedContent);
         }
 
         private QsNode createExactNode(String fieldName, String exactText) {
@@ -396,6 +397,18 @@ public class SearchDslParser {
             // Use the current field name from parsing context
             return currentFieldName != null ? currentFieldName : "_all";
         }
+
+        private String stripOuterQuotes(String text) {
+            if (text == null || text.length() < 2) {
+                return text;
+            }
+            char first = text.charAt(0);
+            char last = text.charAt(text.length() - 1);
+            if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
+                return text.substring(1, text.length() - 1);
+            }
+            return text;
+        }
     }
 
     /**
@@ -410,7 +423,7 @@ public class SearchDslParser {
 
         @JsonCreator
         public QsPlan(@JsonProperty("root") QsNode root,
-                      @JsonProperty("fieldBindings") List<QsFieldBinding> fieldBindings) {
+                @JsonProperty("fieldBindings") List<QsFieldBinding> fieldBindings) {
             this.root = root;
             this.fieldBindings = fieldBindings != null ? fieldBindings : new ArrayList<>();
         }
@@ -440,6 +453,11 @@ public class SearchDslParser {
         }
 
         @Override
+        public int hashCode() {
+            return Objects.hash(root, fieldBindings);
+        }
+
+        @Override
         public boolean equals(Object o) {
             if (this == o) {
                 return true;
@@ -450,11 +468,6 @@ public class SearchDslParser {
             QsPlan qsPlan = (QsPlan) o;
             return Objects.equals(root, qsPlan.root)
                     && Objects.equals(fieldBindings, qsPlan.fieldBindings);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(root, fieldBindings);
         }
     }
 
@@ -476,9 +489,9 @@ public class SearchDslParser {
 
         @JsonCreator
         public QsNode(@JsonProperty("type") QsClauseType type,
-                      @JsonProperty("field") String field,
-                      @JsonProperty("value") String value,
-                      @JsonProperty("children") List<QsNode> children) {
+                @JsonProperty("field") String field,
+                @JsonProperty("value") String value,
+                @JsonProperty("children") List<QsNode> children) {
             this.type = type;
             this.field = field;
             this.value = value;
@@ -498,6 +511,11 @@ public class SearchDslParser {
         }
 
         @Override
+        public int hashCode() {
+            return Objects.hash(type, field, value, children);
+        }
+
+        @Override
         public boolean equals(Object o) {
             if (this == o) {
                 return true;
@@ -510,11 +528,6 @@ public class SearchDslParser {
                     && Objects.equals(field, qsNode.field)
                     && Objects.equals(value, qsNode.value)
                     && Objects.equals(children, qsNode.children);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(type, field, value, children);
         }
     }
 
@@ -530,9 +543,14 @@ public class SearchDslParser {
 
         @JsonCreator
         public QsFieldBinding(@JsonProperty("fieldName") String fieldName,
-                              @JsonProperty("slotIndex") int slotIndex) {
+                @JsonProperty("slotIndex") int slotIndex) {
             this.fieldName = fieldName;
             this.slotIndex = slotIndex;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(fieldName, slotIndex);
         }
 
         @Override
@@ -546,11 +564,6 @@ public class SearchDslParser {
             QsFieldBinding that = (QsFieldBinding) o;
             return slotIndex == that.slotIndex
                     && Objects.equals(fieldName, that.fieldName);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(fieldName, slotIndex);
         }
     }
 }

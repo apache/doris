@@ -65,8 +65,8 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
 
     public OlapGroupCommitInsertExecutor(ConnectContext ctx, Table table,
             String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx,
-            boolean emptyInsert, Backend backend) {
-        super(ctx, table, labelName, planner, insertCtx, emptyInsert);
+            boolean emptyInsert, Backend backend, long jobId) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
         this.groupCommitBackend = backend;
     }
 
