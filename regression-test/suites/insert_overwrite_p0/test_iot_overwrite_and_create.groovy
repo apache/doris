@@ -44,11 +44,11 @@ suite("test_iot_overwrite_and_create") {
 
     test{
         sql """insert overwrite table auto_list partition(p1, p2) values ("zzz");"""
-        exception "Insert has filtered data in strict mode."
+        exception "no partition for this tuple"
     }
     test{
         sql """insert overwrite table auto_list partition(p3) values ("zzz3");"""
-        exception "Insert has filtered data in strict mode."
+        exception "no partition for this tuple"
     }
 
     sql """ insert into auto_list values ("Beijing"),("Shanghai"),("xxx"),("list"),("1234567"); """
