@@ -3478,4 +3478,7 @@ public class Config extends ConfigBase {
         "The encryption algorithm used for data, default is AES256, may be set to empty later for KMS to decide"
     })
     public static String doris_tde_algorithm = "PLAINTEXT";
+
+    @ConfField(mutable = true)
+    public static String aws_credentials_provider_version = "v2";
 }
