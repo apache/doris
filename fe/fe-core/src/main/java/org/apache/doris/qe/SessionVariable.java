@@ -608,6 +608,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_STATS = "enable_stats";
 
+    public static final String PYTHON_UDF_NULL_ON_FAILURE = "pyudf_null_on_failure";
+
     public static final String LIMIT_ROWS_FOR_SINGLE_INSTANCE = "limit_rows_for_single_instance";
 
     public static final String FETCH_REMOTE_SCHEMA_TIMEOUT_SECONDS = "fetch_remote_schema_timeout_seconds";
@@ -623,6 +625,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX = "enable_fallback_on_missing_inverted_index";
 
     public static final String IN_LIST_VALUE_COUNT_THRESHOLD = "in_list_value_count_threshold";
+
+    @VariableMgr.VarAttr(name = PYTHON_UDF_NULL_ON_FAILURE)
+    public boolean pythonUDFNullOnFailure = false;
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -4140,5 +4145,9 @@ public class SessionVariable implements Serializable, Writable {
             default:
                 throw new IllegalArgumentException("Unknown serde dialect: " + serdeDialect);
         }
+    }
+
+    public boolean getPythonUDFNullOnFailure() {
+        return pythonUDFNullOnFailure;
     }
 }

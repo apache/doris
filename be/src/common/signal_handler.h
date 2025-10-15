@@ -47,6 +47,8 @@
 #ifdef HAVE_SYS_UCONTEXT_H
 #include <sys/ucontext.h>
 #endif
+#include <vec/functions/python/client/engine/python_udf_client.h>
+
 #include <algorithm>
 
 namespace doris::signal {
@@ -423,6 +425,9 @@ void FailureSignalHandler(int signal_number, siginfo_t* signal_info, void* ucont
     // Flush the logs before we do anything in case 'anything'
     // causes problems.
     google::FlushLogFilesUnsafe(0);
+
+    // Terminate the residual python udf processes.
+    pyudf::python_udf_server_manager.clean_at_exit();
 
     // Kill ourself by the default signal handler.
     InvokeDefaultSignalHandler(signal_number);

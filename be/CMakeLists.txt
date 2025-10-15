@@ -646,6 +646,17 @@ else()
     endif()
 endif()
 
+# Add Python3 packages
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+include_directories(${Python3_INCLUDE_DIRS})
+message(STATUS "Find Python3 executable: ${Python3_EXECUTABLE}")
+message(STATUS "Find Python3 include dirs: ${Python3_INCLUDE_DIRS}")
+message(STATUS "Find Python3 libraries: ${Python3_LIBRARIES}")
+list(APPEND DORIS_LINK_LIBS ${Python3_LIBRARIES})
+list(APPEND DORIS_LINK_LIBS dl)
+list(APPEND DORIS_LINK_LIBS util)
+
+
 # Set libraries for test
 set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_START_GROUP}
@@ -665,9 +676,6 @@ endif ()
 if (MAKE_TEST)
     add_compile_options(-fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
-    if (NOT OS_MACOSX)
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgcov")
-    endif()
     add_definitions(-DBE_TEST)
     if (ARCH_ARM)
         add_compile_options(-ffp-contract=off)
@@ -723,6 +731,7 @@ add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
 add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/cloud)
+add_subdirectory(${SRC_DIR}/vec/functions/python/server)
 
 option(BUILD_META_TOOL "Build meta tool" OFF)
 if (BUILD_META_TOOL)
@@ -746,6 +755,8 @@ endif ()
 install(DIRECTORY DESTINATION ${OUTPUT_DIR})
 install(DIRECTORY DESTINATION ${OUTPUT_DIR}/bin)
 install(DIRECTORY DESTINATION ${OUTPUT_DIR}/conf)
+
+install(TARGETS doris_py_udf DESTINATION ${OUTPUT_DIR}/lib/python)
 
 install(FILES
     ${BASE_DIR}/../bin/start_be.sh

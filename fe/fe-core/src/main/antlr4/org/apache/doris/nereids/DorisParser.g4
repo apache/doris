@@ -477,7 +477,7 @@ updateAssignmentSeq
     ;
 
 lateralView
-    : LATERAL VIEW functionName=identifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
+    : LATERAL VIEW functionName=multipartIdentifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
       tableName=identifier AS columnNames+=identifier (COMMA columnNames+=identifier)*
     ;
 

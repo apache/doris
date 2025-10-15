@@ -150,6 +150,8 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         }
     } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = AggregateRpcUdaf::create(_fn, argument_types, _data_type);
+    } else if (_fn.binary_type == TFunctionBinaryType::PYTHON_UDF) {
+        return Status::InternalError("Currently the Python UDAF is not supported.");
     } else if (_fn.binary_type == TFunctionBinaryType::AGG_STATE) {
         if (argument_types.size() != 1) {
             return Status::InternalError("Agg state Function must input 1 argument but get {}",

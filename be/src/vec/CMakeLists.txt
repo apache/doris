@@ -21,6 +21,12 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 
 file(GLOB_RECURSE VEC_FILES CONFIGURE_DEPENDS *.cpp)
 
+# Exclude all .cpp files from be/src/vec/functions/python/server directory
+file(GLOB_RECURSE SERVER_CPP_FILES "${CMAKE_CURRENT_SOURCE_DIR}/functions/python/server/*.cpp")
+
+# Remove these files from the list of files to compile
+list(REMOVE_ITEM VEC_FILES ${SERVER_CPP_FILES})
+
 if (NOT WITH_MYSQL)
     list(REMOVE_ITEM VEC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exec/vmysql_scan_node.cpp ${CMAKE_CURRENT_SOURCE_DIR}/exec/scan/mysql_scanner.cpp)
 endif ()

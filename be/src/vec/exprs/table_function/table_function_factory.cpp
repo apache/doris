@@ -24,6 +24,7 @@
 #include <utility>
 
 #include "common/object_pool.h"
+#include "vec/functions/python/client/function_python_udtf.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/exprs/table_function/vexplode.h"
 #include "vec/exprs/table_function/vexplode_bitmap.h"
@@ -61,23 +62,27 @@ const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunctio
                 {"explode_json_object", TableFunctionCreator<VExplodeJsonObjectTableFunction> {}},
                 {"explode", TableFunctionCreator<VExplodeTableFunction> {}}};
 
-Status TableFunctionFactory::get_fn(const std::string& fn_name_raw, ObjectPool* pool,
-                                    TableFunction** fn) {
-    bool is_outer = match_suffix(fn_name_raw, COMBINATOR_SUFFIX_OUTER);
-    std::string fn_name_real =
-            is_outer ? remove_suffix(fn_name_raw, COMBINATOR_SUFFIX_OUTER) : fn_name_raw;
-
-    auto fn_iterator = _function_map.find(fn_name_real);
-    if (fn_iterator != _function_map.end()) {
-        *fn = pool->add(fn_iterator->second().release());
-        if (is_outer) {
-            (*fn)->set_outer();
-        }
-
+Status TableFunctionFactory::get_fn(const TFunction& t_fn, ObjectPool* pool, TableFunction** fn) {
+    if (t_fn.binary_type == TFunctionBinaryType::PYTHON_UDF) {
+        *fn = pool->add(PythonUDTFunction::create_unique(t_fn).release());
         return Status::OK();
-    }
+    } else {
+        bool is_outer = match_suffix(t_fn.name.function_name, COMBINATOR_SUFFIX_OUTER);
+        const std::string& fn_name_raw = t_fn.name.function_name;
+        const std::string& fn_name_real =
+                is_outer ? remove_suffix(fn_name_raw, COMBINATOR_SUFFIX_OUTER) : fn_name_raw;
 
-    return Status::NotSupported("Table function {} is not support", fn_name_raw);
+        auto fn_iterator = _function_map.find(fn_name_real);
+        if (fn_iterator != _function_map.end()) {
+            *fn = pool->add(fn_iterator->second().release());
+            if (is_outer) {
+                (*fn)->set_outer();
+            }
+
+            return Status::OK();
+        }
+    }
+    return Status::NotSupported("Table function {} is not support", t_fn.name.function_name);
 }
 
 } // namespace doris::vectorized

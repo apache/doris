@@ -244,6 +244,7 @@ struct WhichDataType {
     WhichDataType(const DataTypePtr& data_type) : idx(data_type->get_type_id()) {}
 
     bool is_uint8() const { return idx == TypeIndex::UInt8; }
+    bool is_boolean() const {return idx == TypeIndex::UInt8; }
     bool is_uint16() const { return idx == TypeIndex::UInt16; }
     bool is_uint32() const { return idx == TypeIndex::UInt32; }
     bool is_uint64() const { return idx == TypeIndex::UInt64; }

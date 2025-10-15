@@ -313,7 +313,9 @@ enum TFunctionBinaryType {
 
   JAVA_UDF,
 
-  AGG_STATE
+  AGG_STATE,
+
+  PYTHON_UDF,
 }
 
 // Represents a fully qualified function name.
@@ -380,6 +382,9 @@ struct TFunction {
   11: optional i64 id
   12: optional string checksum
   13: optional bool vectorized = false
+  14: optional bool is_udtf_function = false
+  15: optional bool python_udf_null_on_failure = false
+  16: optional i32 batch_size = 1
 }
 
 enum TJdbcOperation {

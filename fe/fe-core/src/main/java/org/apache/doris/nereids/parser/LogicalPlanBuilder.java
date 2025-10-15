@@ -1143,11 +1143,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             expandColumnNames = ctx.columnNames.stream()
                     .map(RuleContext::getText).collect(ImmutableList.toImmutableList());
         }
-        String functionName = ctx.functionName.getText();
+        Function unboundFunction;
+        MultipartIdentifierContext functionNameContext = ctx.functionName;
         List<Expression> arguments = ctx.expression().stream()
                 .<Expression>map(this::typedVisit)
                 .collect(ImmutableList.toImmutableList());
-        Function unboundFunction = new UnboundFunction(functionName, arguments);
+        if (functionNameContext.parts.size() == 2) {
+            // Case 1: Function is referenced with a database name (e.g., `db.func`).
+            unboundFunction = new UnboundFunction(functionNameContext.parts.get(0).getText(),
+                    functionNameContext.parts.get(1).getText(), arguments);
+        } else {
+            // Case 2: Function is referenced without a database name (e.g., `func`).
+            unboundFunction = new UnboundFunction(functionNameContext.getText(), arguments);
+        }
         return new LogicalGenerate<>(ImmutableList.of(unboundFunction),
                 ImmutableList.of(new UnboundSlot(generateName, columnName)), ImmutableList.of(expandColumnNames), plan);
     }
