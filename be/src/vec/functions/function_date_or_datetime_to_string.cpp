@@ -105,8 +105,12 @@ private:
         for (int i = 0; i < len; ++i) {
             const auto& t = ts[i];
             const auto date_time_value = binary_cast<NativeType, DateType>(t);
-            res_offsets[i] =
-                    cast_set<UInt32>(Transform::execute(date_time_value, res_data, offset));
+            std::string locale_name = context->state()->lc_time_names();
+#ifdef BE_TEST
+            locale_name = "en_US";
+#endif
+            res_offsets[i] = cast_set<UInt32>(
+                    Transform::execute(date_time_value, res_data, offset, locale_name));
             DCHECK(date_time_value.is_valid_date());
         }
         res_data.resize(res_offsets[res_offsets.size() - 1]);

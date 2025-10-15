@@ -20,6 +20,8 @@
 #include <cctz/civil_time.h>
 #include <cctz/time_zone.h>
 #include <glog/logging.h>
+#include <unicode/dtfmtsym.h>
+#include <unicode/locid.h>
 
 #include <cctype>
 #include <cstddef>
@@ -1618,12 +1620,53 @@ const char* VecDateTimeValue::month_name() const {
     return s_month_name[_month];
 }
 
+const char* VecDateTimeValue::month_name_with_locale(const std::string& locale_name) const {
+    UErrorCode status = U_ZERO_ERROR;
+    icu::Locale locale(locale_name.c_str());
+    icu::DateFormatSymbols symbols(locale, status);
+
+    if (U_FAILURE(status) || _month < 1 || _month > 12) {
+        return nullptr;
+    }
+
+    int32_t count;
+    const icu::UnicodeString* months = symbols.getMonths(count);
+
+    static thread_local std::string result;
+    result.clear();
+    months[_month - 1].toUTF8String(result);
+    return result.c_str();
+}
+
 const char* VecDateTimeValue::day_name() const {
     int day = weekday();
     if (day < 0 || day >= 7) {
         return nullptr;
     }
     return s_day_name[day];
+}
+
+const char* VecDateTimeValue::day_name_with_locale(const std::string& locale_name) const {
+    UErrorCode status = U_ZERO_ERROR;
+    icu::Locale locale(locale_name.c_str());
+    icu::DateFormatSymbols symbols(locale, status);
+
+    int day = weekday();
+    if (U_FAILURE(status) || day < 0 || day >= 7) {
+        return nullptr;
+    }
+
+    int32_t count;
+    const icu::UnicodeString* weekdays = symbols.getWeekdays(count);
+
+    static thread_local std::string result;
+    result.clear();
+    // weekday() returns: 0=Monday, 1=Tuesday, ..., 6=Sunday
+    // ICU weekdays array: index 1=Sunday, 2=Monday, ..., 7=Saturday
+    // Convert: Monday(0)->2, Tuesday(1)->3, ..., Saturday(5)->7, Sunday(6)->1
+    int icu_index = (day == 6) ? 1 : (day + 2);
+    weekdays[icu_index].toUTF8String(result);
+    return result.c_str();
 }
 
 VecDateTimeValue VecDateTimeValue::local_time() {
@@ -2904,6 +2947,49 @@ const char* DateV2Value<T>::day_name() const {
         return nullptr;
     }
     return s_day_name[day];
+}
+
+template <typename T>
+const char* DateV2Value<T>::month_name_with_locale(const std::string& locale_name) const {
+    UErrorCode status = U_ZERO_ERROR;
+    icu::Locale locale(locale_name.c_str());
+    icu::DateFormatSymbols symbols(locale, status);
+
+    if (U_FAILURE(status) || date_v2_value_.month_ < 1 || date_v2_value_.month_ > 12) {
+        return nullptr;
+    }
+
+    int32_t count;
+    const icu::UnicodeString* months = symbols.getMonths(count);
+
+    static thread_local std::string result;
+    result.clear();
+    months[date_v2_value_.month_ - 1].toUTF8String(result);
+    return result.c_str();
+}
+
+template <typename T>
+const char* DateV2Value<T>::day_name_with_locale(const std::string& locale_name) const {
+    UErrorCode status = U_ZERO_ERROR;
+    icu::Locale locale(locale_name.c_str());
+    icu::DateFormatSymbols symbols(locale, status);
+
+    int day = weekday();
+    if (U_FAILURE(status) || day < 0 || day >= 7) {
+        return nullptr;
+    }
+
+    int32_t count;
+    const icu::UnicodeString* weekdays = symbols.getWeekdays(count);
+
+    static thread_local std::string result;
+    result.clear();
+    // weekday() returns: 0=Monday, 1=Tuesday, ..., 6=Sunday
+    // ICU weekdays array: index 1=Sunday, 2=Monday, ..., 7=Saturday
+    // Convert: Monday(0)->2, Tuesday(1)->3, ..., Saturday(5)->7, Sunday(6)->1
+    int icu_index = (day == 6) ? 1 : (day + 2);
+    weekdays[icu_index].toUTF8String(result);
+    return result.c_str();
 }
 
 template <typename T>
