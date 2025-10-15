@@ -425,7 +425,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         dataSink,
                         physicalSink,
                         () -> new HiveInsertExecutor(ctx, hiveExternalTable, label, planner,
-                                Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))), emptyInsert)
+                                Optional.of(insertCtx.orElse((new HiveInsertCommandContext()))), emptyInsert, jobId)
                 );
                 // set hive query options
             } else if (physicalSink instanceof PhysicalIcebergTableSink) {
@@ -441,7 +441,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         physicalSink,
                         () -> new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
                                 Optional.of(icebergInsertCtx),
-                                emptyInsert
+                                emptyInsert, jobId
                         )
                 );
             } else if (physicalSink instanceof PhysicalJdbcTableSink) {
@@ -465,19 +465,21 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         dataSink,
                         physicalSink,
                         () -> new JdbcInsertExecutor(ctx, jdbcExternalTable, label, planner,
-                                Optional.of(insertCtx.orElse((new JdbcInsertCommandContext()))), emptyInsert)
+                                Optional.of(insertCtx.orElse((new JdbcInsertCommandContext()))), emptyInsert, jobId)
                 );
             } else if (physicalSink instanceof PhysicalDictionarySink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 Dictionary dictionary = (Dictionary) targetTableIf;
                 // insertCtx is not useful for dictionary. so keep it empty is ok.
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
-                        () -> new DictionaryInsertExecutor(ctx, dictionary, label, planner, insertCtx, emptyInsert));
+                        () -> new DictionaryInsertExecutor(
+                                ctx, dictionary, label, planner, insertCtx, emptyInsert, jobId));
             } else if (physicalSink instanceof PhysicalBlackholeSink) {
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
                 // insertCtx is not useful for blackhole. so keep it empty is ok.
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
-                        () -> new BlackholeInsertExecutor(ctx, targetTableIf, label, planner, insertCtx, emptyInsert));
+                        () -> new BlackholeInsertExecutor(
+                                ctx, targetTableIf, label, planner, insertCtx, emptyInsert, jobId));
             } else {
                 // TODO: support other table types
                 throw new AnalysisException(
@@ -541,7 +543,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         if (insertExecutorListener != null) {
             insertExecutor.registerListener(insertExecutorListener);
         }
-        insertExecutor.executeSingleInsert(executor, jobId);
+        insertExecutor.executeSingleInsert(executor);
     }
 
     public boolean isExternalTableSink() {
