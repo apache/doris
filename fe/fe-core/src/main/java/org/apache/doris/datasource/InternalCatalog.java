@@ -2825,8 +2825,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         int preservedNum = -1;
         try {
             preservedNum = PropertyAnalyzer.analyzePartitionPreservedNum(properties);
-            if ((!partitionDesc.isAutoCreatePartitions() || partitionDesc.getType() != PartitionType.RANGE)
-                    && preservedNum > 0) {
+            if ((partitionDesc == null || !partitionDesc.isAutoCreatePartitions()
+                    || partitionDesc.getType() != PartitionType.RANGE) && preservedNum > 0) {
                 throw new DdlException("Only AUTO RANGE PARTITION table could set "
                         + PropertyAnalyzer.PROPERTIES_PARTITION_PRESERVED_NUM);
             }
