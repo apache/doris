@@ -26,6 +26,7 @@
 #include "meta-store/keys.h"
 #include "mock_accessor.h"
 #include "recycler/hdfs_accessor.h"
+#include "recycler/s3_accessor.h"
 #include "recycler/util.h"
 
 namespace doris::cloud {
