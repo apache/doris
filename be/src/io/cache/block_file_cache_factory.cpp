@@ -161,12 +161,12 @@ BlockFileCache* FileCacheFactory::get_by_path(const std::string& cache_base_path
 }
 
 std::vector<BlockFileCache::QueryFileCacheContextHolderPtr>
-FileCacheFactory::get_query_context_holders(const TUniqueId& query_id, size_t fe_query_limit_bytes,
-                                            size_t fe_policy_query_limit_bytes) {
+FileCacheFactory::get_query_context_holders(const TUniqueId& query_id,
+                                            int file_cache_query_limit_percent) {
     std::vector<BlockFileCache::QueryFileCacheContextHolderPtr> holders;
     for (const auto& cache : _caches) {
-        holders.push_back(cache->get_query_context_holder(query_id, fe_query_limit_bytes,
-                                                          fe_policy_query_limit_bytes));
+        holders.push_back(
+                cache->get_query_context_holder(query_id, file_cache_query_limit_percent));
     }
     return holders;
 }

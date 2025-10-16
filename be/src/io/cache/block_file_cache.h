@@ -301,9 +301,7 @@ public:
 
     QueryFileCacheContextPtr get_or_set_query_context(const TUniqueId& query_id,
                                                       std::lock_guard<std::mutex>& cache_lock,
-                                                      size_t fe_query_limit_bytes,
-                                                      size_t fe_policy_query_limit_bytes);
-
+                                                      int file_cache_query_limit_percent);
 
     /// Save a query context information, and adopt different cache policies
     /// for different queries through the context cache layer.
@@ -330,8 +328,7 @@ public:
     };
     using QueryFileCacheContextHolderPtr = std::unique_ptr<QueryFileCacheContextHolder>;
     QueryFileCacheContextHolderPtr get_query_context_holder(const TUniqueId& query_id,
-                                                            size_t fe_query_limit_bytes,
-                                                            size_t fe_policy_query_limit_bytes);
+                                                            int file_cache_query_limit_percent);
 
     int64_t approximate_available_cache_size() const {
         return std::max<int64_t>(

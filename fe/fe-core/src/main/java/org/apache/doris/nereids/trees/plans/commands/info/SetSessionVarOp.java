@@ -77,7 +77,7 @@ public class SetSessionVarOp extends SetVarOp {
             }
         }
 
-        if (name.equalsIgnoreCase(SessionVariable.POLICY_FILE_CACHE_QUERY_LIMIT_BYTES)) {
+        if (name.equalsIgnoreCase(SessionVariable.POLICY_FILE_CACHE_QUERY_LIMIT_PERCENT)) {
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
             }

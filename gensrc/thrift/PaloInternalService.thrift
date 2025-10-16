@@ -412,8 +412,7 @@ struct TQueryOptions {
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
   1000: optional bool disable_file_cache = false
-  1001: optional i64 file_cache_query_limit_bytes = 0
-  1002: optional i64 policy_file_cache_query_limit_bytes = 0
+  1001: optional i32 file_cache_query_limit_percent = 0
 }
 
 

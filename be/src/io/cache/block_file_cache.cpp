@@ -293,8 +293,7 @@ UInt128Wrapper BlockFileCache::hash(const std::string& path) {
 }
 
 BlockFileCache::QueryFileCacheContextHolderPtr BlockFileCache::get_query_context_holder(
-        const TUniqueId& query_id, size_t fe_query_limit_bytes,
-        size_t fe_policy_query_limit_bytes) {
+        const TUniqueId& query_id, int file_cache_query_limit_percent) {
     SCOPED_CACHE_LOCK(_mutex, this);
     if (!config::enable_file_cache_query_limit) {
         return {};
@@ -302,8 +301,7 @@ BlockFileCache::QueryFileCacheContextHolderPtr BlockFileCache::get_query_context
 
     /// if enable_filesystem_query_cache_limit is true,
     /// we create context query for current query.
-    auto context = get_or_set_query_context(query_id, cache_lock, fe_query_limit_bytes,
-                                            fe_policy_query_limit_bytes);
+    auto context = get_or_set_query_context(query_id, cache_lock, file_cache_query_limit_percent);
     return std::make_unique<QueryFileCacheContextHolder>(query_id, this, context);
 }
 
@@ -324,7 +322,7 @@ void BlockFileCache::remove_query_context(const TUniqueId& query_id) {
 
 BlockFileCache::QueryFileCacheContextPtr BlockFileCache::get_or_set_query_context(
         const TUniqueId& query_id, std::lock_guard<std::mutex>& cache_lock,
-        size_t fe_query_limit_bytes, size_t fe_policy_query_limit_bytes) {
+        int file_cache_query_limit_percent) {
     if (query_id.lo == 0 && query_id.hi == 0) {
         return nullptr;
     }
@@ -334,10 +332,8 @@ BlockFileCache::QueryFileCacheContextPtr BlockFileCache::get_or_set_query_contex
         return context;
     }
 
-    (void)fe_query_limit_bytes;
-    (void)fe_policy_query_limit_bytes;
     auto query_context = std::make_shared<QueryFileCacheContext>(
-            _capacity * config::file_cache_query_limit_percent / 100);
+            _capacity * file_cache_query_limit_percent / 100);
     auto query_iter = _query_map.emplace(query_id, query_context).first;
     return query_iter->second;
 }
