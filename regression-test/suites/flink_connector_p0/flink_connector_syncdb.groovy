@@ -76,8 +76,15 @@ PROPERTIES (
 
     def javaPath = ["bash", "-c", "which java"].execute().text.trim()
     logger.info("System java path: ${javaPath}")
+    def javaVersion = System.getProperty("java.version")
+    logger.info("System java version: ${javaVersion}")
 
-    def run_cmd = "${javaPath} -cp flink-doris-syncdb.jar org.apache.doris.DatabaseFullSync $context.config.feHttpAddress regression_test_flink_connector_p0 $context.config.feHttpUser"
+    def addOpens = ""
+    if (javaVersion.startsWith("17")) {
+        addOpens = "--add-opens=java.base/java.nio=ALL-UNNAMED"
+    }
+
+    def run_cmd = "${javaPath} ${addOpens} -cp flink-doris-syncdb.jar org.apache.doris.DatabaseFullSync $context.config.feHttpAddress regression_test_flink_connector_p0 $context.config.feHttpUser"
     logger.info("run_cmd : $run_cmd")
     def run_flink_jar = run_cmd.execute().getText()
     logger.info("result: $run_flink_jar")

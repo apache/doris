@@ -101,7 +101,14 @@ suite("spark_connector_read_type", "connector") {
     def javaPath = ["bash", "-c", "which java"].execute().text.trim()
     logger.info("System java path: ${javaPath}")
 
-    def run_cmd = "${javaPath} -jar spark-doris-read.jar $context.config.feHttpAddress $context.config.feHttpUser regression_test_connector_p0_spark_connector.$tableReadName regression_test_connector_p0_spark_connector.$tableWriterName"
+    def javaVersion = System.getProperty("java.version")
+    logger.info("System java version: ${javaVersion}")
+    def addOpens = ""
+    if (javaVersion.startsWith("17")) {
+        addOpens = "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED  --add-opens=java.base/java.nio=ALL-UNNAMED"
+    }
+
+    def run_cmd = "${javaPath} ${addOpens} -jar spark-doris-read.jar $context.config.feHttpAddress $context.config.feHttpUser regression_test_connector_p0_spark_connector.$tableReadName regression_test_connector_p0_spark_connector.$tableWriterName"
     logger.info("run_cmd : $run_cmd")
     def proc = run_cmd.execute()
     def sout = new StringBuilder()

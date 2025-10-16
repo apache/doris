@@ -207,29 +207,6 @@ fi
 # check java version
 export JAVA="${JAVA_HOME}/bin/java"
 
-function jdk_version() {
-    local java_cmd="${1}"
-    local result
-    local IFS=$'\n'
-
-    if [[ -z "${java_cmd}" ]]; then
-        result=no_java
-        return 1
-    else
-        local version
-        # remove \r for Cygwin
-        version="$("${java_cmd}" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n' | grep version | awk '{print $3}')"
-        version="${version//\"/}"
-        if [[ "${version}" =~ ^1\. ]]; then
-            result="$(echo "${version}" | awk -F '.' '{print $2}')"
-        else
-            result="$(echo "${version}" | awk -F '.' '{print $1}')"
-        fi
-    fi
-    echo "${result}"
-    return 0
-}
-
 REGRESSION_OPTIONS_PREFIX=''
 
 # Parse -f/--file option and convert to -d and -s
@@ -287,15 +264,6 @@ echo "===== Run Regression Test ====="
 # if use jdk17, add java option "--add-opens=java.base/java.nio=ALL-UNNAMED"
 if [[ "${TEAMCITY}" -eq 1 ]]; then
     JAVA_OPTS="${JAVA_OPTS} -DstdoutAppenderType=teamcity -Xmx2048m"
-fi
-
-java_version="$(
-    set -e
-    jdk_version "${JAVA}"
-)"
-if [[ "${java_version}" -ge 17 ]]; then
-    JAVA_OPTS="${JAVA_OPTS} --add-opens=java.base/java.nio=ALL-UNNAMED"
-    echo "JAVA_OPTS: ${JAVA_OPTS}"
 fi
 
 if [[ "${ONLY_COMPILE}" -eq 0 ]]; then
