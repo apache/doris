@@ -2000,6 +2000,7 @@ nonReserved
     | FRONTENDS
     | FUNCTION
     | GENERATED
+    | GET_FORMAT
     | GENERIC
     | GLOBAL
     | GRAPH
