@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -108,6 +109,9 @@ public class MTMVRewriteUtil {
 
     private static Set<String> getMtmvPartitionsByRelatedPartitions(MTMV mtmv, MTMVRefreshContext refreshContext,
             Map<List<String>, Set<String>> queryUsedPartitions) throws AnalysisException {
+        if (mtmv.getMvPartitionInfo().getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
+            return mtmv.getPartitionNames();
+        }
         // if relatedPartitions is null, which means QueryPartitionCollector visitLogicalCatalogRelation can not
         // get query used partitions, should get all mtmv partitions
         if (queryUsedPartitions == null) {
