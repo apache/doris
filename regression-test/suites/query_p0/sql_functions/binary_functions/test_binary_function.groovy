@@ -116,10 +116,13 @@ suite("test_binary_function", "p0,external,mysql,external_docker,external_docker
                 "sub_binary_2args_2 mismatch for row ${sub_binary_2args_result_2[i][0]}: VarBinary=${bin}, VARCHAR=${str}")
         }
 
-        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false") {
-            try_sql """DROP TABLE IF EXISTS ${test_table}"""
+        def sub_binary_nest_2args_result = sql """select id, from_binary(sub_binary(sub_binary(vb, 1), 1)), hex(substr(substr(vc, 1), 1)) from ${test_table} order by id"""
+        for (int i = 0; i < sub_binary_nest_2args_result.size(); i++) {
+            def bin = sub_binary_nest_2args_result[i][1]
+            def str = sub_binary_nest_2args_result[i][2]
+            assertTrue(bin == str,
+                "sub_binary_nest_2args mismatch for row ${sub_binary_nest_2args_result[i][0]}: VarBinary=${bin}, VARCHAR=${str}")
         }
 
-        sql """drop catalog if exists ${catalog_name}"""
     }
 }

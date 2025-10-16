@@ -27,6 +27,28 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+constexpr auto SIZE_OF_UINT = sizeof(uint32_t);
+
+struct VarBinaryOP {
+    static void check_and_insert_data(doris::StringView& sView, const char* data, uint32_t len,
+                                      bool before_is_inline) {
+        if (before_is_inline) {
+            sView.set_size(len);
+            if (UNLIKELY(len < StringView::kPrefixSize)) {
+                // we must make sure StringView.prefix_ is valid data, so need to set 0
+                int size = StringView::kPrefixSize - len;
+                memset(reinterpret_cast<char*>(&sView) + SIZE_OF_UINT + len, 0, size);
+            }
+        } else {
+            sView = doris::StringView(data, len);
+        }
+    }
+
+    static void insert_default(doris::StringView& sView) {
+        memset(&sView, 0, SIZE_OF_UINT + StringView::kPrefixSize);
+    }
+};
+
 struct SubBinaryUtil {
     static void sub_binary_execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                                    size_t input_rows_count) {
@@ -63,14 +85,7 @@ private:
     template <bool binary_const, bool start_const, bool len_const>
     static void vectors(const ColumnVarbinary* binarys, const ColumnInt32* start,
                         const ColumnInt32* len, ColumnVarbinary* res, size_t size) {
-        if constexpr (start_const && len_const) {
-            if (start->get_data()[0] == 0 || len->get_data()[0] <= 0) {
-                for (size_t i = 0; i < size; ++i) {
-                    res->insert_default();
-                }
-                return;
-            }
-        }
+        res->get_data().reserve(size);
 
         for (size_t i = 0; i < size; ++i) {
             doris::StringView binary = binarys->get_data()[index_check_const<binary_const>(i)];

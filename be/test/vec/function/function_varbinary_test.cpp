@@ -101,6 +101,11 @@ TEST(function_binary_test, function_from_base64_binary_test) {
             {{std::string("5ZWK5ZOI5ZOI5ZOI8J+YhCDjgILigJTigJQh")}, VARBINARY("啊哈哈哈😄 。——!")},
             {{std::string("ò&ø")}, Null()},
             {{std::string("TVl0ZXN0U1RS")}, VARBINARY("MYtestSTR")},
+            {{std::string("YWFhYWFhYWFhYWE=")}, VARBINARY("aaaaaaaaaaa")},
+            {{std::string("TVl0ZXN0U1RSTVl0ZXN0U1RSTVl0ZXN0U1RS")},
+             VARBINARY("MYtestSTRMYtestSTRMYtestSTR")},
+            {{std::string("SEVMTE8sIV4lSEVMTE8sIV4lSEVMTE8sIV4lSEVMTE8sIV4l")},
+             VARBINARY("HELLO,!^%HELLO,!^%HELLO,!^%HELLO,!^%")},
             {{Null()}, Null()},
     };
 
@@ -398,44 +403,24 @@ TEST(function_binary_test, function_subbinary_test) {
 
         check_function_all_arg_comb<DataTypeVarbinary, true>(func_name, input_types, data_set);
     }
+}
 
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_INT};
+TEST(function_binary_test, function_to_binary_test) {
+    std::string func_name = "to_binary";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
-        DataSet data_set = {
-                {{VARBINARY("ABC"), std::int32_t(123)}, VARBINARY("")},
-                {{VARBINARY("ABC"), std::int32_t(321)}, VARBINARY("")},
-                {{VARBINARY("ABC"), std::int32_t(1)}, VARBINARY("ABC")},
-                {{VARBINARY("ABC"), std::int32_t(-1)}, VARBINARY("C")},
-                {{VARBINARY("ABC"), Null()}, Null()},
-                {{VARBINARY("ABC"), std::int32_t(100)}, VARBINARY("")},
-                {{VARBINARY("ABC"), std::int32_t(-100)}, VARBINARY("")},
-                {{VARBINARY("ABB"), std::int32_t(123)}, VARBINARY("")},
-                {{VARBINARY("ABB"), std::int32_t(321)}, VARBINARY("")},
-                {{VARBINARY("ABB"), std::int32_t(1)}, VARBINARY("ABB")},
-                {{VARBINARY("ABB"), std::int32_t(-1)}, VARBINARY("B")},
-                {{VARBINARY("ABB"), Null()}, Null()},
-                {{VARBINARY("ABB"), std::int32_t(100)}, VARBINARY("")},
-                {{VARBINARY("ABB"), std::int32_t(-100)}, VARBINARY("")},
-                {{VARBINARY("HEHE"), std::int32_t(123)}, VARBINARY("")},
-                {{VARBINARY("HEHE"), std::int32_t(321)}, VARBINARY("")},
-                {{VARBINARY("HEHE"), std::int32_t(1)}, VARBINARY("HEHE")},
-                {{VARBINARY("HEHE"), std::int32_t(-1)}, VARBINARY("E")},
-                {{VARBINARY("HEHE"), Null()}, Null()},
-                {{VARBINARY("HEHE"), std::int32_t(100)}, VARBINARY("")},
-                {{VARBINARY("HEHE"), std::int32_t(-100)}, VARBINARY("")},
-                {{Null(), std::int32_t(123)}, Null()},
-                {{Null(), std::int32_t(321)}, Null()},
-                {{Null(), std::int32_t(1)}, Null()},
-                {{Null(), std::int32_t(-1)}, Null()},
-                {{Null(), Null()}, Null()},
-                {{Null(), std::int32_t(100)}, Null()},
-                {{Null(), std::int32_t(-100)}, Null()},
+    DataSet data_set = {
+            {{std::string("48656c6c6f")}, VARBINARY("Hello")},
+            {{std::string("0001")}, VARBINARY(std::string_view("\x00\x01", 2))},
+            {{std::string("aaff")}, VARBINARY("\xAA\xFF")},
+            {{std::string("aGVsbG8gd29ybGQ")}, Null()},
+            {{std::string("a")}, Null()},
+            {{std::string("__123hehe1")}, Null()},
+            {{std::string("")}, Null()},
+            {{Null()}, Null()},
+    };
 
-        };
-
-        check_function_all_arg_comb<DataTypeVarbinary, true>(func_name, input_types, data_set);
-    }
+    check_function_all_arg_comb<DataTypeVarbinary, true>(func_name, input_types, data_set);
 }
 
 } // namespace doris::vectorized

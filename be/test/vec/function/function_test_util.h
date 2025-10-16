@@ -283,6 +283,10 @@ DataTypePtr get_return_type_descriptor(int scale, int precision) {
     }
 }
 
+inline std::string debug_hex_string(const std::string& str) {
+    return ut_type::VARBINARY(str).dump_hex();
+}
+
 struct Consted {
     PrimitiveType tp;
 };
@@ -452,11 +456,21 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     << ", expected result: " << result_type_ptr->to_string(*expected_col_ptr, i);
         } else {
             auto comp_res = column->compare_at(i, i, *expected_col_ptr, 1);
-            EXPECT_EQ(0, comp_res)
-                    << ", function " << func_name << ". input row:\n"
-                    << block.dump_data(i, 1)
-                    << "result: " << block.get_data_types()[result]->to_string(*column, i)
-                    << ", expected result: " << result_type_ptr->to_string(*expected_col_ptr, i);
+            if (std::is_same_v<ResultType, DataTypeVarbinary>) {
+                EXPECT_EQ(0, comp_res)
+                        << ", function " << func_name << ". input row:\n"
+                        << block.dump_data(i, 1) << "result: "
+                        << debug_hex_string(block.get_data_types()[result]->to_string(*column, i))
+                        << ", expected result: "
+                        << debug_hex_string(result_type_ptr->to_string(*expected_col_ptr, i));
+            } else {
+                EXPECT_EQ(0, comp_res)
+                        << ", function " << func_name << ". input row:\n"
+                        << block.dump_data(i, 1)
+                        << "result: " << block.get_data_types()[result]->to_string(*column, i)
+                        << ", expected result: "
+                        << result_type_ptr->to_string(*expected_col_ptr, i);
+            }
         }
     }
 

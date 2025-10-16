@@ -32,26 +32,20 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <typename Impl>
 class FunctionSubBinary : public IFunction {
 public:
     static constexpr auto name = "sub_binary";
-    static FunctionPtr create() { return std::make_shared<FunctionSubBinary<Impl>>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionSubBinary>(); }
     String get_name() const override { return name; }
-    DataTypes get_variadic_argument_types_impl() const override {
-        return Impl::get_variadic_argument_types();
-    }
-    size_t get_number_of_arguments() const override {
-        return get_variadic_argument_types_impl().size();
-    }
-
+    size_t get_number_of_arguments() const override { return 3; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeVarbinary>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        return Impl::execute_impl(context, block, arguments, result, input_rows_count);
+        SubBinaryUtil::sub_binary_execute(block, arguments, result, input_rows_count);
+        return Status::OK();
     }
 };
 
