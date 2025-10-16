@@ -18,6 +18,9 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.Pair;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.Auth;
@@ -102,7 +105,7 @@ public class ConnectContextTest {
 
         // Thread info
         Assert.assertNotNull(ctx.toThreadInfo(false));
-        List<String> row = ctx.toThreadInfo(false).toRow(101, 1000, Optional.empty());
+        List<String> row = ctx.toThreadInfo(false).toRow(101, 1000, Optional.of("+08:00"));
         Assert.assertEquals(14, row.size());
         Assert.assertEquals("Yes", row.get(0));
         Assert.assertEquals("101", row.get(1));
@@ -296,5 +299,179 @@ public class ConnectContextTest {
         context.setQueryId(queryId2);
         Assert.assertEquals(queryId2, context.queryId);
         Assert.assertEquals(queryId, context.lastQueryId);
+    }
+
+    @Test
+    public void testInitCatalogAndDbSinglePart() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(env);
+
+        new Expectations() {
+            {
+                env.changeDb(ctx, "testDb");
+                minTimes = 0;
+            }
+        };
+
+        Optional<Pair<ErrorCode, String>> result = ConnectContextUtil.initCatalogAndDb(ctx, "testDb");
+        Assert.assertFalse(result.isPresent());
+    }
+
+    @Test
+    public void testInitCatalogAndDbTwoParts() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(env);
+
+        new Expectations() {
+            {
+                env.changeCatalog(ctx, "catalog1");
+                minTimes = 0;
+                env.changeDb(ctx, "testDb");
+                minTimes = 0;
+            }
+        };
+
+        Optional<Pair<ErrorCode, String>> result = ConnectContextUtil.initCatalogAndDb(ctx, "catalog1.testDb");
+        Assert.assertFalse(result.isPresent());
+    }
+
+    @Test
+    public void testInitCatalogAndDbMultiplePartsWithNestedNamespaceEnabled() throws Exception {
+        // Temporarily set the field value
+        boolean originalValue = GlobalVariable.enableNestedNamespace;
+        GlobalVariable.enableNestedNamespace = true;
+
+        try {
+            ConnectContext ctx = new ConnectContext();
+            ctx.setEnv(env);
+
+            new Expectations() {
+                {
+                    env.changeCatalog(ctx, "catalog1");
+                    minTimes = 0;
+                    env.changeDb(ctx, "ns1.ns2.testDb");
+                    minTimes = 0;
+                }
+            };
+
+            Optional<Pair<ErrorCode, String>> result = ConnectContextUtil.initCatalogAndDb(ctx,
+                    "catalog1.ns1.ns2.testDb");
+            Assert.assertFalse(result.isPresent());
+        } finally {
+            GlobalVariable.enableNestedNamespace = originalValue;
+        }
+    }
+
+    @Test
+    public void testInitCatalogAndDbMultiplePartsWithNestedNamespaceDisabled() throws Exception {
+        // Ensure GlobalVariable.enableNestedNamespace is false (default)
+        boolean originalValue = GlobalVariable.enableNestedNamespace;
+        GlobalVariable.enableNestedNamespace = false;
+
+        try {
+            ConnectContext ctx = new ConnectContext();
+            ctx.setEnv(env);
+
+            Optional<Pair<ErrorCode, String>> result = ConnectContextUtil.initCatalogAndDb(ctx,
+                    "catalog1.ns1.ns2.testDb");
+            Assert.assertTrue(result.isPresent());
+            Assert.assertEquals(ErrorCode.ERR_BAD_DB_ERROR, result.get().first);
+            Assert.assertTrue(result.get().second.contains("Only one dot can be in the name"));
+        } finally {
+            GlobalVariable.enableNestedNamespace = originalValue;
+        }
+    }
+
+    @Test
+    public void testInitCatalogAndDbWithFourPartsNestedNamespaceEnabled() throws Exception {
+        // Temporarily set GlobalVariable.enableNestedNamespace to be true
+        boolean originalValue = GlobalVariable.enableNestedNamespace;
+        GlobalVariable.enableNestedNamespace = true;
+
+        try {
+            ConnectContext ctx = new ConnectContext();
+            ctx.setEnv(env);
+
+            new Expectations() {
+                {
+                    env.changeCatalog(ctx, "catalog1");
+                    minTimes = 0;
+                    env.changeDb(ctx, "ns1.ns2.ns3.testDb");
+                    minTimes = 0;
+                }
+            };
+
+            Optional<Pair<ErrorCode, String>> result = ConnectContextUtil.initCatalogAndDb(ctx,
+                    "catalog1.ns1.ns2.ns3.testDb");
+            Assert.assertFalse(result.isPresent());
+        } finally {
+            GlobalVariable.enableNestedNamespace = originalValue;
+        }
+    }
+
+    @Test
+    public void testInitCatalogAndDbWithChangeCatalogException() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(env);
+
+        new Expectations() {
+            {
+                env.changeCatalog(ctx, "invalidCatalog");
+                result = new DdlException("Catalog not found");
+                minTimes = 0;
+            }
+        };
+
+        Optional<Pair<ErrorCode, String>> result = ConnectContextUtil.initCatalogAndDb(ctx, "invalidCatalog.testDb");
+        Assert.assertTrue(result.isPresent());
+        Assert.assertTrue(result.get().second.contains("Catalog not found"));
+    }
+
+    @Test
+    public void testInitCatalogAndDbWithChangeDbException() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(env);
+
+        new Expectations() {
+            {
+                env.changeDb(ctx, "invalidDb");
+                result = new DdlException("Database not found");
+                minTimes = 0;
+            }
+        };
+
+        Optional<Pair<ErrorCode, String>> result = ConnectContextUtil.initCatalogAndDb(ctx, "invalidDb");
+        Assert.assertTrue(result.isPresent());
+        Assert.assertTrue(result.get().second.contains("Database not found"));
+    }
+
+    @Test
+    public void testInitCatalogAndDbEmptyString() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(env);
+
+        new Expectations() {
+            {
+                env.changeDb(ctx, "");
+                minTimes = 0;
+            }
+        };
+
+        Optional<Pair<ErrorCode, String>> result = ConnectContextUtil.initCatalogAndDb(ctx, "");
+        Assert.assertFalse(result.isPresent());
+    }
+
+    @Test
+    public void testInitCatalogAndDbNullString() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(env);
+
+        // This should cause a NullPointerException when calling split on null
+        try {
+            ConnectContextUtil.initCatalogAndDb(ctx, null);
+            Assert.fail("Expected NullPointerException");
+        } catch (NullPointerException e) {
+            // Expected behavior
+        }
     }
 }
