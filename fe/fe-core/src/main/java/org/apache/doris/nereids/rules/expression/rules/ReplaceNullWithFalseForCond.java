@@ -78,10 +78,11 @@ public class ReplaceNullWithFalseForCond extends DefaultExpressionRewriter<Boole
     }
 
     private boolean needRewrite(Expression expression, boolean isInsideCondition) {
+        // check have the replaced target
         if (!expression.containsType(NullLiteral.class, NullSafeEqual.class)) {
             return false;
         }
-        // for case when, if it no contains when clause, fold rule will rewrite it to ELSE value.
+        // check have condition or in a condition
         return isInsideCondition || expression.containsType(WhenClause.class, If.class);
     }
 
@@ -94,6 +95,7 @@ public class ReplaceNullWithFalseForCond extends DefaultExpressionRewriter<Boole
         if (plan instanceof LogicalFilter || plan instanceof LogicalHaving) {
             return true;
         } else if (plan instanceof LogicalJoin) {
+            // null aware join can not treat null as false
             ExpressionSource source = context.source.orElse(null);
             return ((LogicalJoin<?, ?>) plan).getJoinType() != JoinType.NULL_AWARE_LEFT_ANTI_JOIN
                     && (source == ExpressionSource.JOIN_HASH_CONDITION
@@ -114,8 +116,8 @@ public class ReplaceNullWithFalseForCond extends DefaultExpressionRewriter<Boole
 
     @Override
     public Expression visitNullLiteral(NullLiteral nullLiteral, Boolean isInsideCondition) {
-        if (isInsideCondition &&
-                (nullLiteral.getDataType().isBooleanType() || nullLiteral.getDataType().isNullType())) {
+        if (isInsideCondition
+                && (nullLiteral.getDataType().isBooleanType() || nullLiteral.getDataType().isNullType())) {
             return BooleanLiteral.FALSE;
         }
         return nullLiteral;

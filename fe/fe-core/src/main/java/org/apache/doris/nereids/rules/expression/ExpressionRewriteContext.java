@@ -44,7 +44,8 @@ public class ExpressionRewriteContext {
         this(Optional.of(plan), Optional.of(source), cascadesContext);
     }
 
-    private ExpressionRewriteContext(Optional<Plan> plan, Optional<ExpressionSource> source, CascadesContext cascadesContext) {
+    private ExpressionRewriteContext(Optional<Plan> plan, Optional<ExpressionSource> source,
+            CascadesContext cascadesContext) {
         this.plan = Objects.requireNonNull(plan, "plan can not be null, or use Optional.empty()");
         this.source = Objects.requireNonNull(source, "source can not be null, or use Optional.empty()");
         this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not be null");
