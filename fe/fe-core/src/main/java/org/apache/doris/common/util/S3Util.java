@@ -311,8 +311,8 @@ public class S3Util {
      * Convert range patterns to brace enumeration patterns for glob matching.
      * Parts containing negative numbers or non-numeric characters are skipped.
      * eg(valid):
-     *    -> "file{1..3}" will load the file1、file2、file3
-     *    -> "file_{1..3,4,5..6}" will load the file1 ~ file6
+     *    -> "file{1..3}" => "file{1,2,3}"
+     *    -> "file_{1..3,4,5..6}" => "file_{1,2,3,4,5,6}"
      * eg(invalid)
      *    -> "data_{-1..4}.csv" will not load any file
      *    -> "data_{a..4}.csv" will not load any file
