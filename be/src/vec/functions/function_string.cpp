@@ -1003,7 +1003,7 @@ struct UnHexImpl {
             offset += outlen;
             dst_offsets[i] = cast_set<uint32_t>(offset);
         }
-
+        dst_data.pop_back(total_size - offset);
         return Status::OK();
     }
 
@@ -1044,7 +1044,7 @@ struct UnHexImpl {
             offset += outlen;
             dst_offsets[i] = cast_set<uint32_t>(offset);
         }
-
+        dst_data.pop_back(total_size - offset);
         return Status::OK();
     }
 };
@@ -1095,7 +1095,7 @@ struct ToBase64Impl {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
 
-        int64_t total_size = 0;
+        size_t total_size = 0;
         for (size_t i = 0; i < rows_count; i++) {
             size_t len = offsets[i] - offsets[i - 1];
             total_size += 4 * ((len + 2) / 3);
@@ -1120,6 +1120,7 @@ struct ToBase64Impl {
             offset += outlen;
             dst_offsets[i] = cast_set<uint32_t>(offset);
         }
+        dst_data.pop_back(total_size - offset);
         return Status::OK();
     }
 };
@@ -1135,7 +1136,7 @@ struct FromBase64Impl {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
 
-        int64_t total_size = 0;
+        size_t total_size = 0;
         for (size_t i = 0; i < rows_count; i++) {
             auto len = offsets[i] - offsets[i - 1];
             total_size += len / 4 * 3;
@@ -1170,7 +1171,7 @@ struct FromBase64Impl {
                 dst_offsets[i] = cast_set<uint32_t>(offset);
             }
         }
-
+        dst_data.pop_back(total_size - offset);
         return Status::OK();
     }
 };

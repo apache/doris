@@ -64,7 +64,7 @@ public:
             auto col_res = ColumnVarbinary::create();
             const auto& data = col->get_chars();
             const auto& offsets = col->get_offsets();
-            col_res->get_data().resize(input_rows_count);
+            col_res->get_data().resize_fill(input_rows_count);
 
             for (int i = 0; i < input_rows_count; ++i) {
                 const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
@@ -83,7 +83,6 @@ public:
                 // if empty string or decode failed, may return NULL
                 if (outlen == 0) {
                     null_map->get_data()[i] = 1;
-                    VarBinaryOP::insert_default(col_res->get_data()[i]);
                     continue;
                 }
                 VarBinaryOP::check_and_insert_data(col_res->get_data()[i], dst,
@@ -185,7 +184,7 @@ struct ToBase64BinaryImpl {
         auto rows_count = data.size();
         dst_offsets.resize(rows_count);
 
-        int64_t total_size = 0;
+        size_t total_size = 0;
         for (size_t i = 0; i < rows_count; i++) {
             total_size += 4 * ((data[i].size() + 2) / 3);
         }
@@ -211,6 +210,8 @@ struct ToBase64BinaryImpl {
             dst_offsets[i] = cast_set<uint32_t>(offset);
         }
 
+        dst_data.pop_back(total_size - offset);
+
         return Status::OK();
     }
 };
@@ -225,14 +226,13 @@ struct FromBase64BinaryImpl {
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnVarbinary* res, NullMap& null_map) {
         auto rows_count = offsets.size();
-        res->get_data().resize(rows_count);
+        res->get_data().resize_fill(rows_count);
 
         for (size_t i = 0; i < rows_count; i++) {
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             ColumnString::Offset slen = offsets[i] - offsets[i - 1];
 
             if (UNLIKELY(slen == 0)) {
-                VarBinaryOP::insert_default(res->get_data()[i]);
                 continue;
             }
 
@@ -250,7 +250,6 @@ struct FromBase64BinaryImpl {
 
             if (outlen < 0) {
                 null_map[i] = 1;
-                VarBinaryOP::insert_default(res->get_data()[i]);
             } else {
                 VarBinaryOP::check_and_insert_data(res->get_data()[i], dst,
                                                    cast_set<uint32_t>(outlen), cipher_inline);

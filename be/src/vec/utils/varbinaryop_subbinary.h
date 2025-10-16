@@ -34,18 +34,9 @@ struct VarBinaryOP {
                                       bool before_is_inline) {
         if (before_is_inline) {
             sView.set_size(len);
-            if (UNLIKELY(len < StringView::kPrefixSize)) {
-                // we must make sure StringView.prefix_ is valid data, so need to set 0
-                int size = StringView::kPrefixSize - len;
-                memset(reinterpret_cast<char*>(&sView) + SIZE_OF_UINT + len, 0, size);
-            }
         } else {
             sView = doris::StringView(data, len);
         }
-    }
-
-    static void insert_default(doris::StringView& sView) {
-        memset(&sView, 0, SIZE_OF_UINT + StringView::kPrefixSize);
     }
 };
 
