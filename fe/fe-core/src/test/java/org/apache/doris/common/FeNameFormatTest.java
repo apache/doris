@@ -22,6 +22,7 @@ import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.collect.Lists;
 import org.apache.ivy.util.StringUtils;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
