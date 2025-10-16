@@ -27,7 +27,7 @@ import org.apache.commons.lang3.BooleanUtils;
 import java.util.Map;
 
 @Slf4j
-public class HMSProperties extends AbstractHMSProperties {
+public class HiveProperties extends AbstractHiveProperties {
 
     private HMSBaseProperties hmsBaseProperties;
 
@@ -41,7 +41,7 @@ public class HMSProperties extends AbstractHMSProperties {
             description = "The batch size of hms events per rpc.")
     private int hmsEventisBatchSizePerRpcInput = Config.hms_events_batch_size_per_rpc;
 
-    public HMSProperties(Map<String, String> origProps) {
+    public HiveProperties(Map<String, String> origProps) {
         super(Type.HMS, origProps);
     }
 

@@ -23,9 +23,9 @@ import java.util.Map;
  * Factory for creating {@link MetastoreProperties} instances for Hive-based catalogs.
  * <p>
  * Supported subtypes include:
- * - "default" or "hms" -> {@link HMSProperties}
- * - "glue"             -> {@link HMSGlueMetaStoreProperties}
- * - "dlf"              -> {@link HMSAliyunDLFMetaStoreProperties}
+ * - "default" or "hms" -> {@link HiveProperties}
+ * - "glue"             -> {@link HiveGlueMetaStoreProperties}
+ * - "dlf"              -> {@link HiveAliyunDLFMetaStoreProperties}
  */
 public class HMSPropertiesFactory extends AbstractMetastorePropertiesFactory {
 
@@ -33,10 +33,10 @@ public class HMSPropertiesFactory extends AbstractMetastorePropertiesFactory {
     private static final String DEFAULT_TYPE = "default";
 
     public HMSPropertiesFactory() {
-        register("default", HMSProperties::new);
-        register("hms", HMSProperties::new);
-        register("glue", HMSGlueMetaStoreProperties::new);
-        register("dlf", HMSAliyunDLFMetaStoreProperties::new);
+        register("default", HiveProperties::new);
+        register("hms", HiveProperties::new);
+        register("glue", HiveGlueMetaStoreProperties::new);
+        register("dlf", HiveAliyunDLFMetaStoreProperties::new);
     }
 
     @Override
