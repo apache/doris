@@ -27,7 +27,7 @@ public class RewriteFileInfo {
     private final long filesToAddSize;
 
     public RewriteFileInfo(int filesToDeleteCount, int filesToAddCount,
-                          long filesToDeleteSize, long filesToAddSize) {
+            long filesToDeleteSize, long filesToAddSize) {
         this.filesToDeleteCount = filesToDeleteCount;
         this.filesToAddCount = filesToAddCount;
         this.filesToDeleteSize = filesToDeleteSize;
@@ -49,7 +49,6 @@ public class RewriteFileInfo {
     public long getFilesToAddSize() {
         return filesToAddSize;
     }
-
 
     @Override
     public String toString() {

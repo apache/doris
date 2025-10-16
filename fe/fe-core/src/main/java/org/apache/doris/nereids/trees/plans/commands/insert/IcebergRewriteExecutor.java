@@ -26,7 +26,6 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.TransactionType;
 
-
 import java.util.Optional;
 
 /**
@@ -75,7 +74,6 @@ public class IcebergRewriteExecutor extends BaseExternalTableInsertExecutor {
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
         return transaction.getRewriteFileInfo();
     }
-
 
     public IcebergTransaction getTransaction() throws UserException {
         return (IcebergTransaction) transactionManager.getTransaction(txnId);
