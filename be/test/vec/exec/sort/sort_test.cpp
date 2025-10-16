@@ -71,8 +71,8 @@ public:
             sorter = TopNSorter::create_unique(sort_exec_exprs, limit, offset, &pool, is_asc_order,
                                                nulls_first, *row_desc, nullptr, nullptr);
         case SortType::HEAP_SORT:
-            sorter = HeapSorter::create_unique(sort_exec_exprs, limit, offset, &pool, is_asc_order,
-                                               nulls_first, *row_desc);
+            sorter = HeapSorter<true>::create_unique(sort_exec_exprs, limit, offset, &pool,
+                                                     is_asc_order, nulls_first, *row_desc);
             break;
         default:
             break;

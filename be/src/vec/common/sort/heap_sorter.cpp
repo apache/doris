@@ -40,9 +40,9 @@ HeapSorter<with_runtime_predicate>::HeapSorter(VSortExecExprs& vsort_exec_exprs,
 template <bool with_runtime_predicate>
 Status HeapSorter<with_runtime_predicate>::append_block(Block* block) {
     if constexpr (with_runtime_predicate) {
-        return _handle_with_runtime_predicate(block);
+        return _append_block_with_runtime_predicate(block);
     } else {
-        return _handle_without_runtime_predicate(block);
+        return _append_block_without_runtime_predicate(block);
     }
 }
 
@@ -71,10 +71,16 @@ Status HeapSorter<with_runtime_predicate>::get_next(RuntimeState* state, Block* 
 }
 
 template <bool with_runtime_predicate>
-Status HeapSorter<with_runtime_predicate>::_handle_without_runtime_predicate(Block* block) {
-    size_t num_rows = block->rows();
+Status HeapSorter<with_runtime_predicate>::_append_block_without_runtime_predicate(Block* block) {
+    DCHECK(block->rows() > 0);
     auto tmp_block = block->clone_empty();
-    RETURN_IF_ERROR(_prepare_sort_columns(*block, tmp_block, true));
+    RETURN_IF_ERROR(_prepare_sort_columns(*block, tmp_block, false));
+    if (_materialize_sort_exprs) {
+        block->clear_column_data();
+    } else {
+        tmp_block.swap(*block);
+    }
+    size_t num_rows = tmp_block.rows();
     auto block_view =
             std::make_shared<HeapSortCursorBlockView>(std::move(tmp_block), _sort_description);
     bool filtered = false;
@@ -93,7 +99,6 @@ Status HeapSorter<with_runtime_predicate>::_handle_without_runtime_predicate(Blo
         }
     } else {
         size_t free_slots = std::min<size_t>(_heap_size - _heap->size(), num_rows);
-
         size_t i = 0;
         for (; i < free_slots; ++i) {
             HeapSortCursorImpl cursor(i, block_view);
@@ -112,7 +117,7 @@ Status HeapSorter<with_runtime_predicate>::_handle_without_runtime_predicate(Blo
 }
 
 template <bool with_runtime_predicate>
-Status HeapSorter<with_runtime_predicate>::_handle_with_runtime_predicate(Block* block) {
+Status HeapSorter<with_runtime_predicate>::_append_block_with_runtime_predicate(Block* block) {
     auto tmp_block = std::make_shared<Block>(block->clone_empty());
     RETURN_IF_ERROR(partial_sort(*block, *tmp_block, true));
     _queue.push(

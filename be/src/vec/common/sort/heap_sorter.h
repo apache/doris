@@ -51,8 +51,8 @@ public:
     }
 
 private:
-    Status _handle_with_runtime_predicate(Block* block);
-    Status _handle_without_runtime_predicate(Block* block);
+    Status _append_block_with_runtime_predicate(Block* block);
+    Status _append_block_without_runtime_predicate(Block* block);
     void _do_filter(HeapSortCursorBlockView& block_view, size_t num_rows);
 
     void prepare_for_read_with_runtime_predicate();
