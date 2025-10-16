@@ -447,15 +447,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     public boolean hasPrivilege(UserIdentity userIdentity) {
         ConnectContext ctx = InsertTask.makeConnectContext(userIdentity, getCurrentDbName());
-        LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
-        LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
-        List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ctx);
-        Preconditions.checkArgument(targetTable.size() == 3, "target table name is invalid");
-        return Env.getCurrentEnv().getAccessManager().checkTblPriv(userIdentity,
-                InternalCatalog.INTERNAL_CATALOG_NAME,
-                targetTable.get(1),
-                targetTable.get(2),
-                PrivPredicate.LOAD);
+        try {
+            LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
+            LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
+            List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ctx);
+            Preconditions.checkArgument(targetTable.size() == 3, "target table name is invalid");
+            return Env.getCurrentEnv().getAccessManager().checkTblPriv(userIdentity,
+                    InternalCatalog.INTERNAL_CATALOG_NAME,
+                    targetTable.get(1),
+                    targetTable.get(2),
+                    PrivPredicate.LOAD);
+        } finally {
+            ctx.cleanup();
+        }
     }
 
     private String generateEncryptedSql() {
