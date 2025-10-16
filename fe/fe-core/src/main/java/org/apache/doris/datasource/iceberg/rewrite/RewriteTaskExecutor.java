@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg.rewrite;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 
@@ -127,11 +128,17 @@ public class RewriteTaskExecutor implements TransientTaskExecutor {
      * Execute rewrite for a single group
      */
     private RewriteResult executeGroup(RewriteDataGroup group) throws UserException {
-        // Create a new executor for this group
-        RewriteDataFileExecutor executor = new RewriteDataFileExecutor(
-                rewriteJob.getIcebergTable(), rewriteJob.getConnectContext());
-
+        // Create a new ConnectContext for this task
+        ConnectContext taskConnectContext = buildConnectContext();
+        
+        // Set ConnectContext to thread local for this task
+        taskConnectContext.setThreadLocalInfo();
+        
         try {
+            // Create a new executor for this group
+            RewriteDataFileExecutor executor = new RewriteDataFileExecutor(
+                    rewriteJob.getIcebergTable(), taskConnectContext);
+
             // Initialize executor
             executor.initialize();
 
@@ -141,7 +148,40 @@ public class RewriteTaskExecutor implements TransientTaskExecutor {
         } catch (Exception e) {
             LOG.error("Failed to execute rewrite group: {}", e.getMessage(), e);
             throw new UserException("Rewrite group execution failed: " + e.getMessage(), e);
+        } finally {
+            // Clean up thread local ConnectContext
+            ConnectContext.remove();
         }
+    }
+
+    /**
+     * Build ConnectContext for this task executor
+     */
+    private ConnectContext buildConnectContext() {
+        ConnectContext connectContext = new ConnectContext();
+        
+        // Copy session variables from the original context
+        if (rewriteJob.getConnectContext() != null) {
+            connectContext.setSessionVariable(rewriteJob.getConnectContext().getSessionVariable());
+            connectContext.setCurrentUserIdentity(rewriteJob.getConnectContext().getCurrentUserIdentity());
+            connectContext.setDatabase(rewriteJob.getConnectContext().getDatabase());
+        }
+        
+        // Set environment
+        connectContext.setEnv(org.apache.doris.catalog.Env.getCurrentEnv());
+        
+        // Generate unique query ID for this task
+        UUID uuid = UUID.randomUUID();
+        connectContext.setQueryId(new org.apache.doris.thrift.TUniqueId(
+                uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+        connectContext.setStartTime();
+        
+        // Create and set StatementContext
+        org.apache.doris.nereids.StatementContext statementContext = new org.apache.doris.nereids.StatementContext();
+        statementContext.setConnectContext(connectContext);
+        connectContext.setStatementContext(statementContext);
+        
+        return connectContext;
     }
 
     @Override
