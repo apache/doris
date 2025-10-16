@@ -1308,7 +1308,7 @@ TEST_F(ColumnVariantTest, pop_back_test) {
 }
 
 // serialize and deserialize is not implemented
-// serialize_vec, deserialize_vec, serialize_vec_with_null_map, deserialize_vec_with_null_map, get_max_row_byte_size
+// serialize, deserialize, get_max_row_byte_size
 // hash interface
 TEST_F(ColumnVariantTest, update_xxHash_with_value) {
     hash_common_test("update_xxHash_with_value", assert_update_xxHash_with_value_callback);
