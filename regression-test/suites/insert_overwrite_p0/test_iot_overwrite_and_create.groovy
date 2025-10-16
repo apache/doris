@@ -66,6 +66,6 @@ suite("test_iot_overwrite_and_create") {
     }
     test{
         sql """insert overwrite table auto_list partition(*) values ("zzz3");"""
-        exception "Cannot found origin partitions in auto detect overwriting"
+        exception "no partition for this tuple"
     }
 }
