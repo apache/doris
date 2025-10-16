@@ -189,4 +189,29 @@ suite("explode") {
     qt_test22 "select id,e1,e2,e3 from array_test as a lateral view explode_variant_array(a.v_string['a'],a.v_int['a'],a.v_int['a']) tmp1 as e1,e2,e3;"
     qt_test23 "select id,e1,e2,e11,e12 from array_test as a lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp1 as e1,e2 lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp2 as e11,e12;"
 
+    sql "DROP TABLE IF EXISTS array_test2;"
+    sql """
+        CREATE TABLE `array_test2` (
+        `v` varchar(10)
+        ) DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        insert into array_test2 values
+            ("a"), ("b"), ("c"), ("d"), ("e"),
+            ("f"), ("g"), ("h"), ("i"), ("j");
+    """
+
+    sql "set batch_size = 16"
+
+    qt_test24 """
+        select
+            *
+        from array_test2 
+        lateral view explode([], [1, 2, null, 4, 5], ["ab", "cd", "ef"], [null, null, 1, 2, 3, 4, 5]) t2 as c0, c1, c2, c3 
+        order by 1,2,3,4,5;
+    """
 }
