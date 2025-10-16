@@ -38,14 +38,6 @@ public class RewriteDataGroup {
     }
 
     /**
-     * Check if a task can be added to this group
-     */
-    public boolean canAddTask(FileScanTask task, RewriteDataFileManager.Parameters parameters) {
-        long taskSize = task.file().fileSizeInBytes();
-        return (totalSize + taskSize) <= parameters.getMaxFileGroupSizeBytes();
-    }
-
-    /**
      * Add a task to this group
      */
     public void addTask(FileScanTask task) {

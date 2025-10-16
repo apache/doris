@@ -1,0 +1,232 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.datasource.iceberg.rewrite;
+
+import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.IcebergTransaction;
+import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
+import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergRewriteExecutor;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.CoordinatorContext;
+import org.apache.doris.qe.NereidsCoordinator;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.scheduler.exception.JobException;
+import org.apache.doris.scheduler.executor.TransientTaskExecutor;
+
+import com.google.common.base.Preconditions;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.iceberg.DataFile;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
+
+/**
+ * Independent task executor for processing a single rewrite group.
+ */
+@Slf4j
+public class RewriteGroupTask implements TransientTaskExecutor {
+    private static final Logger LOG = LogManager.getLogger(RewriteGroupTask.class);
+
+    private final RewriteDataGroup group;
+    private final InsertIntoTableCommand preparedPlan;
+    private final StatementBase parsedStmt;
+    private final ConnectContext connectContext;
+    private final RewriteResultCallback resultCallback;
+    private final Long taskId;
+    private final AtomicBoolean isCanceled;
+    private final AtomicBoolean isFinished;
+
+    public RewriteGroupTask(RewriteDataGroup group,
+            InsertIntoTableCommand preparedPlan,
+            StatementBase parsedStmt,
+            ConnectContext connectContext,
+            RewriteResultCallback resultCallback) {
+        this.group = group;
+        this.preparedPlan = preparedPlan;
+        this.parsedStmt = parsedStmt;
+        this.connectContext = connectContext;
+        this.resultCallback = resultCallback;
+        this.taskId = UUID.randomUUID().getMostSignificantBits();
+        this.isCanceled = new AtomicBoolean(false);
+        this.isFinished = new AtomicBoolean(false);
+    }
+
+    @Override
+    public Long getId() {
+        return taskId;
+    }
+
+    @Override
+    public void execute() throws JobException {
+        LOG.debug("[Rewrite Task] taskId: {} starting execution for group with {} tasks",
+                taskId, group.getTaskCount());
+
+        if (isCanceled.get()) {
+            LOG.debug("[Rewrite Task] taskId: {} was already canceled before execution", taskId);
+            throw new JobException("Rewrite task has been canceled, task id: " + taskId);
+        }
+
+        if (isFinished.get()) {
+            LOG.debug("[Rewrite Task] taskId: {} was already finished", taskId);
+            return;
+        }
+
+        try {
+            // Create a new ConnectContext for this task
+            ConnectContext taskConnectContext = buildConnectContext();
+
+            RewriteResult result = executeGroup(taskConnectContext);
+
+            // Notify result callback
+            if (resultCallback != null) {
+                resultCallback.onTaskCompleted(taskId, result);
+            }
+
+            LOG.debug("[Rewrite Task] taskId: {} execution completed successfully", taskId);
+
+        } catch (Exception e) {
+            LOG.error("Failed to execute rewrite group: {}", e.getMessage(), e);
+
+            // Notify error callback
+            if (resultCallback != null) {
+                resultCallback.onTaskFailed(taskId, e);
+            }
+
+            throw new JobException("Rewrite group execution failed: " + e.getMessage(), e);
+        } finally {
+            isFinished.set(true);
+        }
+    }
+
+    @Override
+    public void cancel() throws JobException {
+        if (isFinished.get()) {
+            LOG.debug("[Rewrite Task] taskId: {} already finished, cannot cancel", taskId);
+            return;
+        }
+
+        isCanceled.set(true);
+        LOG.info("[Rewrite Task] taskId: {} cancelled", taskId);
+    }
+
+    /**
+     * Execute rewrite group and return RewriteResult
+     */
+    private RewriteResult executeGroup(ConnectContext taskConnectContext) throws Exception {
+        // Step 1: Create stmt executor
+        StmtExecutor executor = new StmtExecutor(taskConnectContext, parsedStmt);
+
+        // Step 2: Create insert executor
+        AbstractInsertExecutor insertExecutor = this.preparedPlan.initPlan(taskConnectContext, executor);
+        Preconditions.checkState(insertExecutor instanceof IcebergRewriteExecutor,
+                "Expected IcebergRewriteExecutor, got: " + insertExecutor.getClass());
+        IcebergRewriteExecutor rewriteExecutor = (IcebergRewriteExecutor) insertExecutor;
+
+        // Step 3: Customize insert executor for rewrite
+        customizeInsertExecutorForRewrite(rewriteExecutor, group);
+
+        // Step 4: Update transaction with files to delete
+        IcebergTransaction transaction = rewriteExecutor.getTransaction();
+        List<DataFile> filesToDelete = group.getDataFiles().stream().collect(Collectors.toList());
+        transaction.updateRewriteFiles(filesToDelete);
+
+        // Step 5: Execute insert operation
+        insertExecutor.executeSingleInsert(executor, System.currentTimeMillis());
+
+        // Step 6: Collect execution statistics and rewrite information
+        return collectRewriteResult(rewriteExecutor, group);
+    }
+
+    /**
+     * Build ConnectContext for this task executor
+     */
+    private ConnectContext buildConnectContext() {
+        ConnectContext taskContext = new ConnectContext();
+        taskContext.setDatabase(connectContext.getDatabase());
+        taskContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
+        taskContext.setRemoteIP(connectContext.getRemoteIP());
+        taskContext.setThreadLocalInfo();
+        return taskContext;
+    }
+
+    /**
+     * Customize insert executor for Iceberg file rewrite
+     */
+    private void customizeInsertExecutorForRewrite(
+            IcebergRewriteExecutor insertExecutor,
+            RewriteDataGroup group) throws UserException {
+
+        LOG.debug("Customizing insert executor for rewrite with {} tasks", group.getTaskCount());
+
+        // Get the coordinator from the insert executor
+        Coordinator coordinator = insertExecutor.getCoordinator();
+        if (coordinator == null) {
+            throw new UserException("No coordinator found in insert executor");
+        }
+
+        // Access coordinator context to get scan nodes
+        Preconditions.checkState(coordinator instanceof NereidsCoordinator,
+                "Expected NereidsCoordinator, got: " + coordinator.getClass());
+        NereidsCoordinator nereidsCoordinator = (NereidsCoordinator) coordinator;
+        CoordinatorContext context = nereidsCoordinator.getCoordinatorContext();
+        Preconditions.checkState(context != null && context.scanNodes != null && context.scanNodes.size() == 1,
+                "No scan nodes found in coordinator context");
+
+        // Find and customize IcebergScanNode
+        ScanNode scanNode = context.scanNodes.get(0);
+        Preconditions.checkState(scanNode instanceof IcebergScanNode,
+                "Expected IcebergScanNode, got: " + scanNode.getClass());
+        ((IcebergScanNode) scanNode).resetFileScanTasks(group.getTasks());
+    }
+
+    /**
+     * Collect rewrite result from insert executor
+     */
+    private RewriteResult collectRewriteResult(IcebergRewriteExecutor insertExecutor, RewriteDataGroup group)
+            throws UserException {
+        // Get detailed file information from IcebergTransaction
+        RewriteFileInfo fileInfo = insertExecutor.getRewriteFileInfo();
+
+        // Create rewrite result with collected information
+        int rewrittenDataFilesCount = group.getDataFiles().size();
+        int addedDataFilesCount = fileInfo.getFilesToAddCount();
+        long rewrittenBytesCount = group.getTotalSize();
+        int removedDeleteFilesCount = fileInfo.getFilesToDeleteCount();
+
+        return new RewriteResult(rewrittenDataFilesCount, addedDataFilesCount,
+                rewrittenBytesCount, removedDeleteFilesCount);
+    }
+
+    /**
+     * Callback interface for task completion
+     */
+    public interface RewriteResultCallback {
+        void onTaskCompleted(Long taskId, RewriteResult result);
+
+        void onTaskFailed(Long taskId, Exception error);
+    }
+}
