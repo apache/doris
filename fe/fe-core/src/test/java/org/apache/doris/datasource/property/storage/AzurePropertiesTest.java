@@ -50,8 +50,8 @@ public class AzurePropertiesTest {
 
         // Verify if the properties are correctly parsed
         Assertions.assertEquals("https://mystorageaccount.blob.core.windows.net", azureProperties.getEndpoint());
-        Assertions.assertEquals("myAzureAccessKey", azureProperties.getAccessKey());
-        Assertions.assertEquals("myAzureSecretKey", azureProperties.getSecretKey());
+        Assertions.assertEquals("myAzureAccessKey", azureProperties.getAccountName());
+        Assertions.assertEquals("myAzureSecretKey", azureProperties.getAccountKey());
         Assertions.assertEquals("false", azureProperties.getUsePathStyle());
         Assertions.assertEquals("false", azureProperties.getForceParsingByStandardUrl());
         Assertions.assertEquals("AZURE", azureProperties.getStorageName());
