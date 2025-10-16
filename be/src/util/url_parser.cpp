@@ -27,7 +27,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 const StringRef UrlParser::_s_url_authority(const_cast<char*>("AUTHORITY"), 9);
 const StringRef UrlParser::_s_url_file(const_cast<char*>("FILE"), 4);
 const StringRef UrlParser::_s_url_host(const_cast<char*>("HOST"), 4);
@@ -200,7 +200,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
             return false;
         }
 
-        StringRef port_start_str = protocol_end.substring(end_pos + _s_colon.size);
+        StringRef port_start_str = host_start.substring(end_pos + _s_colon.size);
         int32_t port_end_pos = _s_slash_search.search(&port_start_str);
         //if '/' not found, try to find '?'
         if (port_end_pos < 0) {
@@ -402,7 +402,7 @@ StringRef UrlParser::extract_url(StringRef url, StringRef name) {
             // invalid url. like: k1&k2=bb
             continue;
         }
-        int32_t key_len = key_url.size;
+        auto key_len = key_url.size;
         auto key = key_url.substring(0, eq_pod);
         if (name == key) {
             return key_url.substring(eq_pod + 1, key_len - eq_pod - 1);
@@ -410,4 +410,5 @@ StringRef UrlParser::extract_url(StringRef url, StringRef name) {
     }
     return result;
 }
+#include "common/compile_check_end.h"
 } // namespace doris

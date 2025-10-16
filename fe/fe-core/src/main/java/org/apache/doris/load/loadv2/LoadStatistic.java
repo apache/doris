@@ -28,7 +28,9 @@ import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -123,6 +125,14 @@ public class LoadStatistic {
         return counters;
     }
 
+    public int getFileNumber() {
+        return fileNum;
+    }
+
+    public long getTotalFileSizeB() {
+        return totalFileSizeB;
+    }
+
     public synchronized String toJson() {
         long total = 0;
         for (long rows : counterTbl.values()) {
@@ -132,15 +142,23 @@ public class LoadStatistic {
         for (long bytes : loadBytes.values()) {
             totalBytes += bytes;
         }
+        ArrayList<Long> unfinishedBackendIdsList = new ArrayList<>();
+        for (Map.Entry<TUniqueId, List<Long>> entry : unfinishedBackendIds.entrySet()) {
+            unfinishedBackendIdsList.addAll(entry.getValue());
+        }
+        ArrayList<Long> allBackendIdsList = new ArrayList<>();
+        for (Map.Entry<TUniqueId, List<Long>> entry : allBackendIds.entrySet()) {
+            allBackendIdsList.addAll(entry.getValue());
+        }
 
-        Map<String, Object> details = Maps.newHashMap();
+        Map<String, Object> details = new LinkedHashMap<>();
         details.put("ScannedRows", total);
         details.put("LoadBytes", totalBytes);
         details.put("FileNumber", fileNum);
         details.put("FileSize", totalFileSizeB);
         details.put("TaskNumber", counterTbl.rowMap().size());
-        details.put("Unfinished backends", getPrintableMap(unfinishedBackendIds));
-        details.put("All backends", getPrintableMap(allBackendIds));
+        details.put("Unfinished backends", unfinishedBackendIdsList);
+        details.put("All backends", allBackendIdsList);
         Gson gson = new Gson();
         return gson.toJson(details);
     }

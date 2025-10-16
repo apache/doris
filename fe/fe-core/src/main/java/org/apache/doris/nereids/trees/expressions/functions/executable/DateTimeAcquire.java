@@ -20,10 +20,11 @@ package org.apache.doris.nereids.trees.expressions.functions.executable;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.util.DateUtils;
 
 import java.time.LocalDateTime;
@@ -79,12 +80,12 @@ public class DateTimeAcquire {
      */
     @ExecFunction(name = "curdate")
     public static Expression curDate() {
-        return DateLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
+        return DateV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
     }
 
     @ExecFunction(name = "current_date")
     public static Expression currentDate() {
-        return DateLiteral.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
+        return DateV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
     }
 
     /**
@@ -95,9 +96,19 @@ public class DateTimeAcquire {
         return TimeV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
     }
 
+    @ExecFunction(name = "curtime")
+    public static Expression curTime(TinyIntLiteral precision) {
+        return TimeV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()), precision.getValue());
+    }
+
     @ExecFunction(name = "current_time")
     public static Expression currentTime() {
         return TimeV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()));
+    }
+
+    @ExecFunction(name = "current_time")
+    public static Expression currentTime(TinyIntLiteral precision) {
+        return TimeV2Literal.fromJavaDateType(LocalDateTime.now(DateUtils.getTimeZone()), precision.getValue());
     }
 
     /**

@@ -21,14 +21,10 @@ import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.PartitionExprUtil;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableRef;
-import org.apache.doris.analysis.TableSample;
-import org.apache.doris.analysis.TableScanParams;
-import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.backup.BackupJobInfo;
+import org.apache.doris.backup.BackupMeta;
 import org.apache.doris.backup.Snapshot;
 import org.apache.doris.binlog.BinlogLagInfo;
 import org.apache.doris.catalog.AutoIncrementGenerator;
@@ -62,7 +58,6 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
-import org.apache.doris.common.GZIPUtils;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
@@ -84,6 +79,9 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.encryption.EncryptionKey;
+import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.load.StreamLoadHandler;
@@ -97,18 +95,11 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.plsql.metastore.PlsqlPackage;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
 import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
-import org.apache.doris.proto.OlapFile.EncryptionAlgorithmPB;
-import org.apache.doris.proto.OlapFile.EncryptionKeyPB;
-import org.apache.doris.proto.OlapFile.EncryptionKeyPB.Builder;
-import org.apache.doris.proto.OlapFile.EncryptionKeyTypePB;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
@@ -137,7 +128,6 @@ import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.tablefunction.MetadataGenerator;
 import org.apache.doris.thrift.FrontendService;
-import org.apache.doris.thrift.FrontendServiceVersion;
 import org.apache.doris.thrift.TAddPlsqlPackageRequest;
 import org.apache.doris.thrift.TAddPlsqlStoredProcedureRequest;
 import org.apache.doris.thrift.TAutoIncrementRangeRequest;
@@ -163,7 +153,6 @@ import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
 import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TEncryptionKey;
-import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFetchRoutineLoadJobRequest;
 import org.apache.doris.thrift.TFetchRoutineLoadJobResult;
@@ -278,7 +267,6 @@ import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
-import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateFollowerPartitionStatsCacheRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TUpdatePlanStatsCacheRequest;
@@ -299,7 +287,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -363,9 +350,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(TConfirmUnusedRemoteFilesRequest request)
             throws TException {
-        if (!Env.getCurrentEnv().isMaster()) {
-            throw new TException("FE is not master");
+        TStatus status = checkMaster();
+        if (status.getStatusCode() != TStatusCode.OK) {
+            throw new TException(status.getErrorMsgs().get(0));
         }
+
         TConfirmUnusedRemoteFilesResult res = new TConfirmUnusedRemoteFilesResult();
         if (!request.isSetConfirmList()) {
             throw new TException("confirm_list in null");
@@ -867,13 +856,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
-    public TFeResult updateExportTaskStatus(TUpdateExportTaskStatusRequest request) throws TException {
-        TStatus status = new TStatus(TStatusCode.OK);
-        TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
-        return result;
-    }
-
-    @Override
     public TDescribeTablesResult describeTables(TDescribeTablesParams params) throws TException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("get desc tables request: {}", params);
@@ -1028,11 +1010,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMasterResult finishTask(TFinishTaskRequest request) throws TException {
+        TStatus status = checkMaster();
+        if (status.getStatusCode() != TStatusCode.OK) {
+            return new TMasterResult().setStatus(status);
+        }
         return masterImpl.finishTask(request);
     }
 
     @Override
     public TMasterResult report(TReportRequest request) throws TException {
+        TStatus status = checkMaster();
+        if (status.getStatusCode() != TStatusCode.OK) {
+            return new TMasterResult().setStatus(status);
+        }
         return masterImpl.report(request);
     }
 
@@ -1205,14 +1195,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to loadTxnBegin:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, clientAddr);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -1300,14 +1286,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TBeginTxnResult result = new TBeginTxnResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -1418,15 +1400,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to loadTxnPreCommit:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, clientAddr);
-            return result;
-        }
+
         try {
             loadTxnPreCommitImpl(request);
         } catch (UserException e) {
@@ -1442,43 +1418,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    public TEncryptionKey encryptionKeyToThrift(EncryptionKey encryptionKey) {
-        Builder builder = EncryptionKeyPB.newBuilder();
-        builder.setId(encryptionKey.id);
-        builder.setVersion(encryptionKey.version);
-        builder.setParentId(encryptionKey.parentId);
-        builder.setParentVersion(encryptionKey.parentVersion);
-        switch (encryptionKey.algorithm) {
-            case AES256:
-                builder.setAlgorithm(EncryptionAlgorithmPB.AES_256_CTR);
-                break;
-            case SM4:
-                builder.setAlgorithm(EncryptionAlgorithmPB.SM4_128_CTR);
-                break;
-            default:
-                // do nothing
-        }
-        switch (encryptionKey.type) {
-            case DATA_KEY:
-                builder.setType(EncryptionKeyTypePB.DATA_KEY);
-                break;
-            case MASTER_KEY:
-                builder.setType(EncryptionKeyTypePB.MASTER_KEY);
-                break;
-            default:
-                // do nothing
-        }
-        builder.setCiphertextBase64(encryptionKey.ciphertext);
-        builder.setPlaintext(ByteString.copyFrom(encryptionKey.plaintext));
-        builder.setCrc32(encryptionKey.crc);
-        builder.setCtime(encryptionKey.ctime);
-        builder.setMtime(encryptionKey.mtime);
-        EncryptionKeyPB keyPB = builder.build();
-
-        TEncryptionKey tk = new TEncryptionKey();
-        tk.setKeyPb(keyPB.toByteArray());
-        return tk;
-    }
 
     public TGetEncryptionKeysResult getEncryptionKeys(TGetEncryptionKeysRequest request) {
         String clientAddr = getClientAddrAsString();
@@ -1487,20 +1426,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TGetEncryptionKeysResult result = new TGetEncryptionKeysResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to getDataKeys:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, clientAddr);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
         try {
             List<TEncryptionKey> tKeys = new ArrayList<>();
-            List<EncryptionKey> keys =  Env.getCurrentEnv().getKeyManager().getAllMasterKeys();
+            List<EncryptionKey> keys = Env.getCurrentEnv().getKeyManager().getAllMasterKeys();
             for (EncryptionKey key : keys) {
-                tKeys.add(encryptionKeyToThrift(key));
+                tKeys.add(key.toThrift());
             }
             result.setMasterKeys(tKeys);
         } catch (Exception e) {
@@ -1608,13 +1543,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TLoadTxn2PCResult result = new TLoadTxn2PCResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to loadTxn2PC:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, clientAddr);
+
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -1702,13 +1634,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to loadTxnCommit:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, clientAddr);
+
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -1807,14 +1736,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TCommitTxnResult result = new TCommitTxnResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get commitTxn: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -1948,13 +1873,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.debug("receive txn rollback request: {}, backend: {}", request, clientAddr);
         }
         TLoadTxnRollbackResult result = new TLoadTxnRollbackResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to loadTxnRollback:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, clientAddr);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
         try {
@@ -2036,13 +1957,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.debug("receive txn rollback request: {}, client: {}", request, clientAddr);
         }
         TRollbackTxnResult result = new TRollbackTxnResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get rollbackTxn: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -2258,8 +2175,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("exec sql error", e);
             throw e;
         } catch (Throwable e) {
-            LOG.warn("exec sql error catch unknown result.", e);
-            throw new UserException("exec sql error catch unknown result." + e);
+            LOG.warn("exec sql: {} catch unknown result. ", originStmt, e);
+            throw new UserException("exec sql error catch unknown result. " + e.getMessage());
         }
         return httpStreamParams;
     }
@@ -2285,6 +2202,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ctx.getSessionVariable().enableMemtableOnSinkNode = Config.stream_load_default_memtable_on_sink_node;
         }
         ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
+        ctx.getSessionVariable().setEnableInsertStrict(false);
         if (request.isSetPartialUpdate() && !request.isPartialUpdate()) {
             ctx.getSessionVariable().setEnableUniqueKeyPartialUpdate(false);
         }
@@ -2853,16 +2771,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             List<Replica> replicas = Env.getCurrentEnv().getCurrentInvertedIndex()
                     .getReplicasByTabletId(tabletId);
             for (Replica replica : replicas) {
-                // TODO(dx)
-                //if (!replica.isNormal() && !request.isSetWarmUpJobId()) {
-                if (!replica.isNormal()) {
+                if (!replica.isNormal() && !request.isSetWarmUpJobId()) {
                     LOG.warn("replica {} not normal", replica.getId());
                     continue;
                 }
                 Backend backend;
                 if (Config.isCloudMode() && request.isSetWarmUpJobId()) {
                     CloudReplica cloudReplica = (CloudReplica) replica;
-                    backend = cloudReplica.getPrimaryBackend(clusterId);
+                    // On the cloud, the PrimaryBackend of a tablet indicates the BE where the tablet is stably located,
+                    // while the SecondBackend refers to a BE selected by a new hash when the PrimaryBackend
+                    // is temporarily unavailable. Once the PrimaryBackend recovers,
+                    // the system will switch back to using it. During the preheating phase,
+                    // data needs to be synchronized downstream, which requires a stable BE,
+                    // so the PrimaryBackend is used in this case.
+                    backend = cloudReplica.getPrimaryBackend(clusterId, true);
                 } else {
                     backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
                 }
@@ -2892,15 +2814,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LOG.info("[auto-inc] receive getAutoIncrementRange request: {}, backend: {}", request, clientAddr);
 
         TAutoIncrementRangeResult result = new TAutoIncrementRangeResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             result.setMasterAddress(getMasterAddress());
-            LOG.error("[auto-inc] failed to getAutoIncrementRange:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
             return result;
         }
 
@@ -3052,14 +2970,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LOG.trace("receive get snapshot info request: {}", request);
 
         TGetSnapshotResult result = new TGetSnapshotResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get getSnapshot: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3125,24 +3039,38 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getStatus().setStatusCode(TStatusCode.SNAPSHOT_EXPIRED);
             result.getStatus().addToErrorMsgs(String.format("snapshot %s is expired", label));
         } else {
-            byte[] meta = snapshot.getMeta();
-            byte[] jobInfo = snapshot.getJobInfo();
+            long metaSize = snapshot.getMetaSize();
+            long jobInfoSize = snapshot.getJobInfoSize();
+            long snapshotSize = snapshot.getMetaSize() + snapshot.getJobInfoSize();
+            if (metaSize + jobInfoSize >= Integer.MAX_VALUE && !request.isEnableCompress()) {
+                String msg = String.format(
+                        "Snapshot %s is too large (%d bytes > 2GB). Please enable compression to continue.",
+                        label, snapshotSize);
+                LOG.warn("get snapshot failed: {}", msg);
+                result.getStatus().setStatusCode(TStatusCode.INTERNAL_ERROR);
+                result.getStatus().addToErrorMsgs(msg);
+                return result;
+            }
+
             long expiredAt = snapshot.getExpiredAt();
             long commitSeq = snapshot.getCommitSeq();
 
             LOG.info("get snapshot info, snapshot: {}, meta size: {}, job info size: {}, "
-                    + "expired at: {}, commit seq: {}", label, meta.length, jobInfo.length, expiredAt, commitSeq);
+                    + "expired at: {}, commit seq: {}", label, metaSize, jobInfoSize, expiredAt, commitSeq);
             if (request.isEnableCompress()) {
-                meta = GZIPUtils.compress(meta);
-                jobInfo = GZIPUtils.compress(jobInfo);
+                byte[] meta = snapshot.getCompressedMeta();
+                byte[] jobInfo = snapshot.getCompressedJobInfo();
+                result.setMeta(meta);
+                result.setJobInfo(jobInfo);
                 result.setCompressed(true);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("get snapshot info with compress, snapshot: {}, compressed meta "
                             + "size {}, compressed job info size {}", label, meta.length, jobInfo.length);
                 }
+            } else {
+                result.setMeta(snapshot.getMeta());
+                result.setJobInfo(snapshot.getJobInfo());
             }
-            result.setMeta(meta);
-            result.setJobInfo(jobInfo);
             result.setExpiredAt(expiredAt);
             result.setCommitSeq(commitSeq);
         }
@@ -3156,14 +3084,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LOG.trace("receive restore snapshot info request: {}", request);
 
         TRestoreSnapshotResult result = new TRestoreSnapshotResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get restoreSnapshot: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3244,9 +3168,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         AbstractBackupTableRefClause restoreTableRefClause = null;
         if (request.isSetTableRefs()) {
-            List<TableRef> tableRefs = new ArrayList<>();
+            List<TableRefInfo> tableRefs = new ArrayList<>();
             for (TTableRef tTableRef : request.getTableRefs()) {
-                tableRefs.add(new TableRef(new TableName(tTableRef.getTable()), tTableRef.getAliasName()));
+                tableRefs.add(new TableRefInfo(new TableNameInfo(tTableRef.getTable()),
+                        null,
+                        null,
+                        null,
+                        new ArrayList<>(),
+                        tTableRef.getAliasName(),
+                        null,
+                        new ArrayList<>()));
             }
 
             if (tableRefs.size() > 0) {
@@ -3255,6 +3186,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
 
+        BackupMeta backupMeta;
+        BackupJobInfo backupJobInfo;
         byte[] meta = request.getMeta();
         byte[] jobInfo = request.getJobInfo();
         if (Config.enable_restore_snapshot_rpc_compression && request.isCompressed()) {
@@ -3263,76 +3196,34 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         meta.length, jobInfo.length);
             }
             try {
-                meta = GZIPUtils.decompress(meta);
-                jobInfo = GZIPUtils.decompress(jobInfo);
+                Pair<BackupMeta, BackupJobInfo> pair = Snapshot.readFromCompressedBytes(meta, jobInfo);
+                backupMeta = pair.first;
+                backupJobInfo = pair.second;
             } catch (Exception e) {
                 LOG.warn("decompress meta and job info failed", e);
                 throw new UserException("decompress meta and job info failed", e);
             }
-        } else if (GZIPUtils.isGZIPCompressed(jobInfo) || GZIPUtils.isGZIPCompressed(meta)) {
+        } else if (Snapshot.isCompressed(meta, jobInfo)) {
             throw new UserException("The request is compressed, but the config "
                     + "`enable_restore_snapshot_rpc_compressed` is not enabled.");
+        } else {
+            try {
+                Pair<BackupMeta, BackupJobInfo> pair = Snapshot.readFromBytes(meta, jobInfo);
+                backupMeta = pair.first;
+                backupJobInfo = pair.second;
+            } catch (Exception e) {
+                LOG.warn("deserialize meta and job info failed", e);
+                throw new UserException("deserialize meta and job info failed", e);
+            }
         }
 
         //instantiate RestoreCommand
         LabelNameInfo labelNameInfo = new LabelNameInfo(label.getDbName(), label.getLabelName());
-        List<TableRefInfo> tableRefInfos = new ArrayList<>();
-        List<TableRef> tableRefList = restoreTableRefClause == null
+        List<TableRefInfo> tableRefInfos = restoreTableRefClause == null
                 ? new ArrayList<>() : restoreTableRefClause.getTableRefList();
-        for (TableRef tableRef : tableRefList) {
-            TableName tableName = tableRef.getName();
-            String[] aliases = tableRef.getAliases();
-            PartitionNames partitionNames = tableRef.getPartitionNames();
-            List<Long> sampleTabletIds = tableRef.getSampleTabletIds();
-            TableSample tableSample = tableRef.getTableSample();
-            ArrayList<String> commonHints = tableRef.getCommonHints();
-            TableSnapshot tableSnapshot = tableRef.getTableSnapshot();
-            TableScanParams tableScanParams = tableRef.getScanParams();
-
-            TableNameInfo tableNameInfo = null;
-            if (tableName != null) {
-                tableNameInfo = new TableNameInfo(tableName.getCtl(), tableName.getDb(), tableName.getTbl());
-            }
-
-            String tableAlias = aliases.length >= 1 ? aliases[0] : null;
-
-            PartitionNamesInfo partitionNamesInfo = null;
-            if (partitionNames != null) {
-                partitionNamesInfo = new PartitionNamesInfo(partitionNames.isTemp(),
-                        partitionNames.isStar(),
-                        partitionNames.getPartitionNames(),
-                        0);
-            }
-
-            List<Long> tabletIdList = new ArrayList<>();
-            if (sampleTabletIds != null) {
-                tabletIdList.addAll(sampleTabletIds);
-            }
-
-            ArrayList<String> relationHints = new ArrayList<>();
-            if (commonHints != null) {
-                relationHints.addAll(commonHints);
-            }
-
-            org.apache.doris.nereids.trees.TableSample newTableSample =
-                    new org.apache.doris.nereids.trees.TableSample(tableSample.getSampleValue(),
-                            tableSample.isPercent(),
-                            tableSample.getSeek());
-
-            TableRefInfo tableRefInfo = new TableRefInfo(tableNameInfo,
-                    tableScanParams,
-                    tableSnapshot,
-                    partitionNamesInfo,
-                    tabletIdList,
-                    tableAlias,
-                    newTableSample,
-                    relationHints);
-            tableRefInfos.add(tableRefInfo);
-        }
-
         RestoreCommand restoreCommand = new RestoreCommand(labelNameInfo, repoName, tableRefInfos, properties, false);
-        restoreCommand.setMeta(meta);
-        restoreCommand.setJobInfo(jobInfo);
+        restoreCommand.setMeta(backupMeta);
+        restoreCommand.setJobInfo(backupJobInfo);
         restoreCommand.setIsBeingSynced();
         LOG.debug("restore snapshot info, restoreCommand: {}", restoreCommand);
         try {
@@ -3360,13 +3251,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TPlsqlStoredProcedureResult addPlsqlStoredProcedure(TAddPlsqlStoredProcedureRequest request) {
         TPlsqlStoredProcedureResult result = new TPlsqlStoredProcedureResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to addPlsqlStoredProcedure:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3390,13 +3277,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TPlsqlStoredProcedureResult dropPlsqlStoredProcedure(TDropPlsqlStoredProcedureRequest request) {
         TPlsqlStoredProcedureResult result = new TPlsqlStoredProcedureResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to dropPlsqlStoredProcedure:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3414,13 +3297,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TPlsqlPackageResult addPlsqlPackage(TAddPlsqlPackageRequest request) throws TException {
         TPlsqlPackageResult result = new TPlsqlPackageResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to addPlsqlPackage:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3444,13 +3323,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TPlsqlPackageResult dropPlsqlPackage(TDropPlsqlPackageRequest request) throws TException {
         TPlsqlPackageResult result = new TPlsqlPackageResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to dropPlsqlPackage:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3471,13 +3346,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TGetMasterTokenResult result = new TGetMasterTokenResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get getMasterToken: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3505,14 +3376,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TGetBinlogLagResult result = new TGetBinlogLagResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get binlog lag: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3611,14 +3478,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TLockBinlogResult result = new TLockBinlogResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to lock binlog: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3730,9 +3593,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         InvalidateStatsTarget target = GsonUtils.GSON.fromJson(request.key, InvalidateStatsTarget.class);
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableStats = analysisManager.findTableStatsStatus(target.tableId);
-        PartitionNames partitionNames = null;
+        PartitionNamesInfo partitionNames = null;
         if (target.partitions != null) {
-            partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));
+            partitionNames = new PartitionNamesInfo(false, new ArrayList<>(target.partitions));
         }
         if (target.isTruncate) {
             analysisManager.submitAsyncDropStatsTask(target.catalogId, target.dbId,
@@ -3935,6 +3798,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<Long> reqPartitionIds = request.getPartitionIds();
         long taskGroupId = request.getOverwriteGroupId();
         TReplacePartitionResult result = new TReplacePartitionResult();
+
         TStatus errorStatus = new TStatus(TStatusCode.RUNTIME_ERROR);
         if (!Env.getCurrentEnv().isMaster()) {
             errorStatus.setStatusCode(TStatusCode.NOT_MASTER);
@@ -4161,14 +4025,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TGetMetaResult result = new TGetMetaResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -4279,14 +4139,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TGetColumnInfoResult getColumnInfo(TGetColumnInfoRequest request) {
         TGetColumnInfoResult result = new TGetColumnInfoResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
         long dbId = request.getDbId();
         long tableId = request.getTableId();
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to getColumnInfo: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -4321,14 +4178,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TGetBackendMetaResult result = new TGetBackendMetaResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -4564,5 +4417,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetTableTDEInfoResult result = new TGetTableTDEInfoResult();
         result.setAlgorithm(tdeAlgorithm).setStatus(status);
         return result;
+    }
+
+    private TStatus checkMaster() {
+        TStatus status = new TStatus(TStatusCode.OK);
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+        }
+        return status;
     }
 }

@@ -104,7 +104,8 @@ std::unique_ptr<MetaServiceProxy> get_meta_service(std::shared_ptr<TxnKv> txn_kv
     auto rs = mock_resource_mgr ? std::make_shared<MockResourceManager>(txn_kv)
                                 : std::make_shared<ResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
 }
 
@@ -522,7 +523,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithoutDbIdTest) {
     auto sp = SyncPoint::get_instance();
     sp->set_call_back("commit_txn_eventually::need_repair_tablet_idx", [&](auto&& args) {
         bool need_repair_tablet_idx = *try_any_cast<bool*>(args[0]);
-        LOG(INFO) << "zhangleixxx2" << need_repair_tablet_idx;
+        LOG(INFO) << "need_repair_tablet_idx:" << need_repair_tablet_idx;
         if (repair_tablet_idx_count == 0) {
             ASSERT_TRUE(need_repair_tablet_idx);
             repair_tablet_idx_count++;
@@ -3300,10 +3301,10 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithHugeRowsetMetaTest) {
     req.set_cloud_unique_id("test_cloud_unique_id");
     TxnInfoPB txn_info_pb;
     txn_info_pb.set_db_id(db_id);
-    txn_info_pb.set_label("test_label_multi_table_commit_txn");
+    txn_info_pb.set_label("test_label_with_huge_rowsetmeta_test");
     txn_info_pb.add_table_ids(table_id);
     txn_info_pb.add_table_ids(table_id2);
-    txn_info_pb.set_timeout_ms(36000);
+    txn_info_pb.set_timeout_ms(600000);
     req.mutable_txn_info()->CopyFrom(txn_info_pb);
     BeginTxnResponse res;
     meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
@@ -3397,7 +3398,6 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithSchemaChangeTest) {
 
     auto sp = SyncPoint::get_instance();
     sp->set_call_back("TxnLazyCommitTask::make_committed_txn_visible::commit", [&](auto&& args) {
-        LOG(INFO) << "zhangleiyyy";
         {
             std::unique_lock<std::mutex> _lock(go_mutex);
             if (make_committed_txn_visible_count == 0) {
@@ -3433,7 +3433,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithSchemaChangeTest) {
     txn_info_pb.set_db_id(db_id);
     txn_info_pb.set_label("test_sc_with_commit_txn_label");
     txn_info_pb.add_table_ids(table_id);
-    txn_info_pb.set_timeout_ms(36000);
+    txn_info_pb.set_timeout_ms(600000);
     req.mutable_txn_info()->CopyFrom(txn_info_pb);
     BeginTxnResponse res;
     meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,

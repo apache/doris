@@ -17,7 +17,7 @@
 
 suite("regression_test_variant_predefine_schema", "p0"){
     sql """DROP TABLE IF EXISTS test_predefine"""
-    def count = new Random().nextInt(10) + 1;
+    def count = new Random().nextInt(10);
     if (new Random().nextInt(100) < 50) {
         count = "1000"
     }

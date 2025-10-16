@@ -27,15 +27,18 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.credentials.CredentialUtils;
+import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.datasource.iceberg.IcebergVendedCredentialsProvider;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
@@ -106,6 +109,10 @@ public class IcebergScanNode extends FileQueryScanNode {
     private int formatVersion;
     private ExecutionAuthenticator preExecutionAuthenticator;
     private TableScan icebergTableScan;
+    // Store PropertiesMap, including vended credentials or static credentials
+    // get them in doInitialize() to ensure internal consistency of ScanNode
+    private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
+    private Map<String, String> backendStorageProperties;
 
     // for test
     @VisibleForTesting
@@ -152,6 +159,13 @@ public class IcebergScanNode extends FileQueryScanNode {
         isPartitionedTable = icebergTable.spec().isPartitioned();
         formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
         preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) source.getCatalog();
+        storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                catalog.getCatalogProperty().getMetastoreProperties(),
+                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                icebergTable
+        );
+        backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
         super.doInitialize();
         ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
     }
@@ -168,6 +182,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         tableFormatFileDesc.setTableFormatType(icebergSplit.getTableFormatType().value());
         if (tableLevelPushDownCount) {
             tableFormatFileDesc.setTableLevelRowCount(icebergSplit.getTableLevelRowCount());
+        } else {
+            // MUST explicitly set to -1, to be distinct from valid row count >= 0
+            tableFormatFileDesc.setTableLevelRowCount(-1);
         }
         TIcebergFileDesc fileDesc = new TIcebergFileDesc();
         fileDesc.setFormatVersion(formatVersion);
@@ -328,8 +345,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private Split createIcebergSplit(FileScanTask fileScanTask) {
         String originalPath = fileScanTask.file().path().toString();
-        LocationPath locationPath = LocationPath.of(originalPath,
-                source.getCatalog().getCatalogProperty().getStoragePropertiesMap());
+        LocationPath locationPath = LocationPath.of(originalPath, storagePropertiesMap);
         IcebergSplit split = new IcebergSplit(
                 locationPath,
                 fileScanTask.start(),
@@ -337,7 +353,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 fileScanTask.file().fileSizeInBytes(),
                 new String[0],
                 formatVersion,
-                source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
+                storagePropertiesMap,
                 new ArrayList<>(),
                 originalPath);
         if (!fileScanTask.deletes().isEmpty()) {
@@ -513,12 +529,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public Map<String, String> getLocationProperties() throws UserException {
-        IcebergExternalCatalog catalog = (IcebergExternalCatalog) source.getCatalog();
-        return IcebergVendedCredentialsProvider.getBackendLocationProperties(
-                catalog.getCatalogProperty().getMetastoreProperties(),
-                catalog.getCatalogProperty().getStoragePropertiesMap(),
-                icebergTable
-        );
+        return backendStorageProperties;
     }
 
     @VisibleForTesting
@@ -603,14 +614,17 @@ public class IcebergScanNode extends FileQueryScanNode {
         EXAMPLE:
              CREATE TABLE iceberg_tb(col1 INT,col2 STRING) USING ICEBERG PARTITIONED BY (bucket(10,col2));
              INSERT INTO iceberg_tb VALUES( ... );
-             ALTER  TABLE iceberg_tb DROP PARTITION FIELD bucket(10,col2);
-             ALTER TABLE iceberg_tb DROP COLUMNS col2 STRING;
+             ALTER TABLE iceberg_tb DROP PARTITION FIELD bucket(10,col2);
+             ALTER TABLE iceberg_tb DROP COLUMNS col2;
         Link: https://github.com/apache/iceberg/pull/10755
-        */
-            LOG.warn("Iceberg TableScanUtil.splitFiles throw NullPointerException. Cause : ", e);
+            */
+            LOG.warn("Unable to plan for iceberg table {}", this.desc.getTable().getName(), e);
             return Optional.of(
-                new NotSupportedException("Unable to read Iceberg table with dropped old partition column."));
+                    new NotSupportedException("Unable to plan for this table. "
+                            + "Maybe read Iceberg table with dropped old partition column. Cause: "
+                            + Util.getRootCauseMessage(e)));
         }
         return Optional.empty();
     }
 }
+

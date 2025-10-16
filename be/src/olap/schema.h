@@ -38,6 +38,8 @@
 
 namespace doris {
 
+#include "common/compile_check_begin.h"
+
 // The class is used to represent row's format in memory.  Each row contains
 // multiple columns, some of which are key-columns (the rest are value-columns).
 // NOTE: If both key-columns and value-columns exist, then the key-columns
@@ -88,7 +90,7 @@ public:
     Schema(const std::vector<TabletColumnPtr>& columns, const std::vector<ColumnId>& col_ids) {
         size_t num_key_columns = 0;
         _unique_ids.resize(columns.size());
-        for (size_t i = 0; i < columns.size(); ++i) {
+        for (int i = 0; i < columns.size(); ++i) {
             if (columns[i]->is_key()) {
                 ++num_key_columns;
             }
@@ -211,5 +213,7 @@ private:
     int32_t _version_col_idx = -1;
     int64_t _mem_size = 0;
 };
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

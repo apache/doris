@@ -24,9 +24,12 @@ import java.sql.Connection
 import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.sql.ResultSetMetaData
-import java.sql.Types;
+import java.sql.Types
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 
 class JdbcUtils {
+    private static final Logger log = LoggerFactory.getLogger(JdbcUtils.class)
     static String replaceHostUrl(String originUri, String newHost) {
         def prefix = originUri.substring(0, originUri.indexOf("://") + 3)
         def postIndex = originUri.indexOf(":", originUri.indexOf("://") + 3)
@@ -121,7 +124,13 @@ class JdbcUtils {
             while (resultSet.next()) {
                 def row = new ArrayList<>()
                 for (int i = 1; i <= columnCount; ++i) {
-                    row.add(resultSet.getObject(i))
+                    int jdbcType = resultSet.metaData.getColumnType(i)
+                    if (isBinaryJdbcType(jdbcType)) {
+                        byte[] bytes = resultSet.getBytes(i)
+                        row.add(bytes == null ? null : bytesToHex(bytes))
+                    } else {
+                        row.add(resultSet.getObject(i))
+                    }
                 }
                 rows.add(row)
             }
@@ -141,9 +150,10 @@ class JdbcUtils {
                             // For prepared statements, use getObject to get the value
                             row.add(resultSet.getObject(i))
                         } else {
-                            if (resultSet.metaData.getColumnType(i) == Types.TIME
-                                || resultSet.metaData.getColumnType(i) == Types.FLOAT
-                                || resultSet.metaData.getColumnType(i) == Types.DOUBLE) {
+                            int jdbcType = resultSet.metaData.getColumnType(i)
+                            if (jdbcType == Types.TIME
+                                || jdbcType == Types.FLOAT
+                                || jdbcType == Types.DOUBLE) {
                                 // For normal statements, use the string representation
                                 // to keep the original format returned by Doris
                                 /*
@@ -158,6 +168,9 @@ class JdbcUtils {
                                  *      This can preserve the full precision, so the third solution is preferred.
                                 */
                                 row.add(new String(resultSet.getBytes(i)))
+                            } else if (isBinaryJdbcType(jdbcType)) {
+                                byte[] bytes = resultSet.getBytes(i)
+                                row.add(bytes == null ? null : bytesToHex(bytes))
                             } else {
                                 row.add(resultSet.getObject(i))
                             }
@@ -185,5 +198,24 @@ class JdbcUtils {
             }
             return [rows, resultSet.metaData]
         }
+    }
+
+    // Detect if a JDBC column type is binary-like
+    private static boolean isBinaryJdbcType(int jdbcType) {
+        return jdbcType == Types.BINARY
+                || jdbcType == Types.VARBINARY
+                || jdbcType == Types.LONGVARBINARY
+                || jdbcType == Types.BLOB
+    }
+
+    // Convert byte array to upper-case hex string with 0x prefix
+    private static String bytesToHex(byte[] bytes) {
+        if (bytes == null) return null
+        StringBuilder sb = new StringBuilder(2 + bytes.length * 2)
+        sb.append("0x")
+        for (byte b : bytes) {
+            sb.append(String.format("%02X", b & 0xFF))
+        }
+        return sb.toString()
     }
 }

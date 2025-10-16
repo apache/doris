@@ -151,8 +151,9 @@ public:
         _followed_by_shuffled_operator = followed_by_shuffled_operator;
     }
     [[nodiscard]] virtual bool is_shuffled_operator() const { return false; }
-    [[nodiscard]] virtual DataDistribution required_data_distribution() const;
-    [[nodiscard]] virtual bool require_shuffled_data_distribution() const;
+    [[nodiscard]] virtual DataDistribution required_data_distribution(
+            RuntimeState* /*state*/) const;
+    [[nodiscard]] virtual bool require_shuffled_data_distribution(RuntimeState* /*state*/) const;
 
 protected:
     OperatorPtr _child = nullptr;
@@ -221,7 +222,6 @@ public:
 
     // override in Scan
     virtual Dependency* finishdependency() { return nullptr; }
-    virtual Dependency* spill_dependency() const { return nullptr; }
     //  override in Scan  MultiCastSink
     virtual std::vector<Dependency*> execution_dependencies() { return {}; }
 
@@ -314,7 +314,6 @@ public:
     std::vector<Dependency*> dependencies() const override {
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
-    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
     virtual bool must_set_shared_state() const {
         return !std::is_same_v<SharedStateArg, FakeSharedState>;
@@ -322,7 +321,6 @@ public:
 
 protected:
     Dependency* _dependency = nullptr;
-    std::shared_ptr<Dependency> _spill_dependency;
     SharedStateArg* _shared_state = nullptr;
 };
 
@@ -527,7 +525,6 @@ public:
 
     // override in exchange sink , AsyncWriterSink
     virtual Dependency* finishdependency() { return nullptr; }
-    virtual Dependency* spill_dependency() const { return nullptr; }
 
     bool low_memory_mode() { return _state->low_memory_mode(); }
 
@@ -581,7 +578,6 @@ public:
     std::vector<Dependency*> dependencies() const override {
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
-    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
     virtual bool must_set_shared_state() const {
         return !std::is_same_v<SharedStateArg, FakeSharedState>;
@@ -589,7 +585,6 @@ public:
 
 protected:
     Dependency* _dependency = nullptr;
-    std::shared_ptr<Dependency> _spill_dependency;
     SharedStateType* _shared_state = nullptr;
 };
 
@@ -885,7 +880,7 @@ public:
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
     bool is_blockable(RuntimeState* state) const override {
-        return state->get_sink_local_state()->is_blockable();
+        return state->get_sink_local_state()->is_blockable() || _blockable;
     }
 
     Status prepare(RuntimeState* state) override;
@@ -1021,6 +1016,9 @@ protected:
     //_keep_origin is used to avoid copying during projection,
     // currently set to false only in the nestloop join.
     bool _keep_origin = true;
+
+    // _blockable is true if the operator contains expressions that may block execution
+    bool _blockable = false;
 };
 
 template <typename LocalStateType>
@@ -1166,8 +1164,6 @@ public:
                                                        "DummyOperatorDependency", true);
         _filter_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                        "DummyOperatorDependency", true);
-        _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                      "DummyOperatorDependency", true);
     }
     Dependency* finishdependency() override { return _finish_dependency.get(); }
     ~DummyOperatorLocalState() = default;
@@ -1176,7 +1172,6 @@ public:
     std::vector<Dependency*> execution_dependencies() override {
         return {_filter_dependency.get()};
     }
-    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
 private:
     std::shared_ptr<Dependency> _tmp_dependency;
@@ -1224,13 +1219,10 @@ public:
                                                     "DummyOperatorDependency", true);
         _finish_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                        "DummyOperatorDependency", true);
-        _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                      "DummyOperatorDependency", true);
     }
 
     std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
     Dependency* finishdependency() override { return _finish_dependency.get(); }
-    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
     bool is_finished() const override { return _is_finished; }
 
 private:

@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.info.PartitionNamesInfo;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
@@ -34,8 +35,8 @@ import java.util.Set;
 // eg:
 // ALTER TABLE tbl REPLACE PARTITION (p1, p2, p3) WITH TEMPORARY PARTITION(tp1, tp2);
 public class ReplacePartitionClause extends AlterTableClause {
-    private PartitionNames partitionNames;
-    private PartitionNames tempPartitionNames;
+    private PartitionNamesInfo partitionNames;
+    private PartitionNamesInfo tempPartitionNames;
     private Map<String, String> properties = Maps.newHashMap();
 
     // "isStrictMode" is got from property "strict_range", and default is true.
@@ -66,7 +67,7 @@ public class ReplacePartitionClause extends AlterTableClause {
     // Example: "p20240601:2, p20240602:2"
     private Map<String, Long> expectedVersions;
 
-    public ReplacePartitionClause(PartitionNames partitionNames, PartitionNames tempPartitionNames,
+    public ReplacePartitionClause(PartitionNamesInfo partitionNames, PartitionNamesInfo tempPartitionNames,
             boolean isForce, Map<String, String> properties) {
         super(AlterOpType.REPLACE_PARTITION);
         this.partitionNames = partitionNames;
@@ -86,8 +87,8 @@ public class ReplacePartitionClause extends AlterTableClause {
         this.expectedVersions = new HashMap<>();
     }
 
-    // for nereids with expectedVersions
-    public ReplacePartitionClause(PartitionNames partitionNames, PartitionNames tempPartitionNames,
+    // for nereids
+    public ReplacePartitionClause(PartitionNamesInfo partitionNames, PartitionNamesInfo tempPartitionNames,
             boolean isForce, Map<String, String> properties,
             boolean isStrictRange, boolean useTempPartitionName, Map<String, Long> expectedVersions) {
         super(AlterOpType.REPLACE_PARTITION);
@@ -136,8 +137,8 @@ public class ReplacePartitionClause extends AlterTableClause {
             throw new AnalysisException("No partition specified");
         }
 
-        partitionNames.analyze();
-        tempPartitionNames.analyze();
+        partitionNames.validate();
+        tempPartitionNames.validate();
 
         if (partitionNames.isTemp() || !tempPartitionNames.isTemp()) {
             throw new AnalysisException("Only support replace partitions with temp partitions");

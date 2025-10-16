@@ -29,6 +29,12 @@
 -- !tokenize_sql --
 [{\n        "token": "1080º"\n    }, {\n        "token": "avalanche"\n    }]
 
+-- !tokenize_sql --
+[{\n        "token": "get"\n    }, {\n        "token": "images"\n    }, {\n        "token": "hm"\n    }, {\n        "token": "bg"\n    }, {\n        "token": "jpg"\n    }, {\n        "token": "http"\n    }, {\n        "token": "1"\n    }, {\n        "token": "0"\n    }]
+
+-- !tokenize_sql --
+[{\n        "token": "让"\n    }, {\n        "token": "我们"\n    }, {\n        "token": "说"\n    }, {\n        "token": "hello"\n    }, {\n        "token": "そして"\n    }, {\n        "token": "世界"\n    }, {\n        "token": "と"\n    }, {\n        "token": "つ"\n    }, {\n        "token": "な"\n    }, {\n        "token": "が"\n    }, {\n        "token": "ろう"\n    }]
+
 -- !sql --
 1	abcDEF
 
@@ -37,4 +43,7 @@
 
 -- !sql --
 3	Wikipedia;Miscellaneous-Jj102786 / 3tle Born Oct 27th 1986 @ Blytheville, Arkansas @ 9:14pm 23 yrs of age male,white Cucassion American raised Religion:Pentocostal,Church of God
+
+-- !sql --
+1	GET /french/images/nav_venue_off.gif HTTP/1.0
 

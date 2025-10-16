@@ -42,6 +42,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
+import org.apache.doris.cloud.snapshot.SnapshotState;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -309,8 +310,17 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_DB: {
+                    // This OP_CREATE_DB is deprecated in version 4.0, the following logic are just for compatibility
+                    // when upgrading from 3.x to 4.0
                     Database db = (Database) journal.getData();
-                    CreateDbInfo info = new CreateDbInfo(db.getCatalog().getName(), db.getName(), db);
+                    CreateDbInfo info;
+                    if (!Strings.isNullOrEmpty(db.getCtlName())) {
+                        // if ctlName is not empty, it means this db is created in an external catalog
+                        // we just need db name and ctl name
+                        info = new CreateDbInfo(db.getCtlName(), db.getName(), null);
+                    } else {
+                        info = new CreateDbInfo(db.getCatalog().getName(), db.getName(), db);
+                    }
                     env.replayCreateDb(info);
                     break;
                 }
@@ -1403,6 +1413,11 @@ public class EditLog {
                     env.getKeyManager().replayKeyOperation(info);
                     break;
                 }
+                case OperationType.OP_BEGIN_SNAPSHOT: {
+                    // SnapshotState info = (SnapshotState) journal.getData();
+                    // TODO: implement
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
@@ -2464,5 +2479,9 @@ public class EditLog {
 
     public void logOperateKey(KeyOperationInfo info) {
         logEdit(OperationType.OP_OPERATE_KEY, info);
+    }
+
+    public long logBeginSnapshot(SnapshotState snapshotState) {
+        return logEdit(OperationType.OP_BEGIN_SNAPSHOT, snapshotState);
     }
 }

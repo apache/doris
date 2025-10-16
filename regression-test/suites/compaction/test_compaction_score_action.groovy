@@ -46,6 +46,7 @@ suite("test_compaction_score_action") {
             assertTrue(score >= 90)
         } else {
             def (code, text, err) = curl("GET", beHttpAddress+"/api/compaction_score?top_n=1")
+            log.info("text: ${text}")
             def score_str = parseJson(text).get(0).get("compaction_score")
             def score = Integer.parseInt(score_str)
             assertTrue(score >= 90)

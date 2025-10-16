@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
@@ -176,5 +177,18 @@ public class ShowConfigCommand extends Command implements NoForward {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowConfigCommand(this, context);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        // no need forward to master for backend config
+        if (nodeType == NodeType.BACKEND) {
+            return RedirectStatus.NO_FORWARD;
+        }
+        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        } else {
+            return RedirectStatus.NO_FORWARD;
+        }
     }
 }

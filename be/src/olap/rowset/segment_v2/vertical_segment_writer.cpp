@@ -598,7 +598,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
 
     if (config::enable_merge_on_write_correctness_check) {
         _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
-                                                    _mow_context->rowset_ids);
+                                                    *_mow_context->rowset_ids);
     }
 
     // read to fill full_block
@@ -736,7 +736,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
 
     if (config::enable_merge_on_write_correctness_check) {
         _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
-                                                    _mow_context->rowset_ids);
+                                                    *_mow_context->rowset_ids);
     }
 
     // 6. read according plan to fill full_block
@@ -932,6 +932,13 @@ Status VerticalSegmentWriter::write_batch() {
         for (auto& column_writer : _column_writers) {
             RETURN_IF_ERROR(column_writer->finish());
             RETURN_IF_ERROR(column_writer->write_data());
+
+            auto* column_meta = column_writer->get_column_meta();
+            column_meta->set_compressed_data_bytes(
+                    column_writer->get_total_compressed_data_pages_bytes());
+            column_meta->set_uncompressed_data_bytes(
+                    column_writer->get_total_uncompressed_data_pages_bytes());
+            column_meta->set_raw_data_bytes(column_writer->get_raw_data_bytes());
         }
         return Status::OK();
     }
@@ -984,6 +991,13 @@ Status VerticalSegmentWriter::write_batch() {
         }
         RETURN_IF_ERROR(_column_writers[cid]->finish());
         RETURN_IF_ERROR(_column_writers[cid]->write_data());
+
+        auto* column_meta = _column_writers[cid]->get_column_meta();
+        column_meta->set_compressed_data_bytes(
+                _column_writers[cid]->get_total_compressed_data_pages_bytes());
+        column_meta->set_uncompressed_data_bytes(
+                _column_writers[cid]->get_total_uncompressed_data_pages_bytes());
+        column_meta->set_raw_data_bytes(_column_writers[cid]->get_raw_data_bytes());
     }
 
     for (auto& data : _batched_blocks) {

@@ -26,6 +26,7 @@ import org.apache.doris.cloud.catalog.ComputeGroup;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.ClusterPB;
 import org.apache.doris.cloud.proto.Cloud.InstanceInfoPB;
+import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
@@ -145,6 +146,16 @@ public class CloudSystemInfoService extends SystemInfoService {
         } finally {
             wlock.unlock();
         }
+    }
+
+    public boolean isStandByComputeGroup(String clusterName) {
+        List<ComputeGroup> virtualGroups = getComputeGroups(true);
+        for (ComputeGroup vcg : virtualGroups) {
+            if (vcg.getPolicy().getStandbyComputeGroup().equals(clusterName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public List<ComputeGroup> getComputeGroups(boolean virtual) {
@@ -839,7 +850,8 @@ public class CloudSystemInfoService extends SystemInfoService {
                     return acgName;
                 } else {
                     if (acg.getUnavailableSince() <= 0) {
-                        acg.setUnavailableSince(System.currentTimeMillis());
+                        acg.setUnavailableSince(System.currentTimeMillis()
+                                - computeGroupFailureCount(acgName) * Config.heartbeat_interval_second * 1000);
                     }
                 }
             }
@@ -861,7 +873,10 @@ public class CloudSystemInfoService extends SystemInfoService {
                     }
                     return scgName;
                 } else {
-                    scg.setUnavailableSince(System.currentTimeMillis());
+                    if (scg.getUnavailableSince() <= 0) {
+                        scg.setUnavailableSince(System.currentTimeMillis()
+                                - computeGroupFailureCount(scgName) * Config.heartbeat_interval_second * 1000);
+                    }
                 }
             }
         }
@@ -890,6 +905,26 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
 
         return true;
+    }
+
+    public int computeGroupFailureCount(String cg) {
+        List<Backend> bes = getBackendsByClusterName(cg);
+        if (bes == null || bes.isEmpty()) {
+            return 0;
+        }
+
+        int failureCount = 0;
+        for (Backend be : bes) {
+            if (!be.isAlive()) {
+                if (failureCount == 0) {
+                    failureCount = be.getHeartbeatFailureCounter();
+                } else {
+                    failureCount = Math.min(be.getHeartbeatFailureCounter(), failureCount);
+                }
+            }
+        }
+
+        return failureCount;
     }
 
     public String getClusterNameByBeAddr(String beEndpoint) {
@@ -1131,9 +1166,10 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public ImmutableMap<Long, Backend> getCloudIdToBackendNoLock(String clusterName) {
-        String clusterId = clusterNameToId.get(clusterName);
+        String physicalClusterName = getPhysicalCluster(clusterName);
+        String clusterId = clusterNameToId.get(physicalClusterName);
         if (Strings.isNullOrEmpty(clusterId)) {
-            LOG.warn("cant find clusterId, this cluster may be has been dropped, clusterName={}", clusterName);
+            LOG.warn("cant find clusterId, this cluster may be has been dropped, clusterName={}", physicalClusterName);
             return ImmutableMap.of();
         }
         List<Backend> backends = clusterIdToBackend.get(clusterId);
@@ -1501,6 +1537,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         try {
             Cloud.GetInstanceRequest request = builder.build();
             response = MetaServiceProxy.getInstance().getInstance(request);
+            response = hideAkSkForStorageVault(response.toBuilder());
             LOG.info("get instance info, request: {}, response: {}", request, response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("Failed to get instance info, response: {}", response);
@@ -1511,6 +1548,61 @@ public class CloudSystemInfoService extends SystemInfoService {
             LOG.warn("Failed to get instance info {}", cloudUniqueId, e);
             throw new IOException("Failed to get instance info");
         }
+    }
+
+    private String hideKey(String key) {
+        if (key == null || key.isEmpty()) {
+            return "";
+        }
+
+        int keyLen = key.length();
+        int reservedCount = (keyLen > 6) ? 6 : (keyLen > 2 ? keyLen - 2 : 0);
+        int xCount = keyLen - reservedCount;
+
+        int leftXCount = xCount / 2;
+        StringBuilder result = new StringBuilder();
+
+        for (int i = 0; i < leftXCount; i++) {
+            result.append('x');
+        }
+
+        int startIndex = leftXCount;
+        int endIndex = startIndex + reservedCount;
+        result.append(key.substring(startIndex, endIndex));
+
+        int rightXCount = xCount - leftXCount;
+        for (int i = 0; i < rightXCount; i++) {
+            result.append('x');
+        }
+        return result.toString();
+    }
+
+    public Cloud.GetInstanceResponse hideAkSkForStorageVault(Cloud.GetInstanceResponse.Builder resp) {
+        if (resp == null) {
+            return null;
+        }
+
+        if (resp.getInstance().getObjInfoCount() == 0) {
+            return resp.build();
+        }
+
+        for (int i = 0; i < resp.getInstance().getObjInfoCount(); i++) {
+            ObjectStoreInfoPB objInfo = resp.getInstance().getObjInfo(i);
+            if (objInfo == null) {
+                continue;
+            }
+            if (objInfo.hasAk()) {
+                String ak = objInfo.getAk();
+                String hiddenAk = hideKey(ak);
+                resp.getInstanceBuilder().getObjInfoBuilder(i).setAk(hiddenAk);
+            }
+            if (objInfo.hasSk()) {
+                String sk = objInfo.getSk();
+                String hiddenSk = hideKey(sk);
+                resp.getInstanceBuilder().getObjInfoBuilder(i).setSk(hiddenSk);
+            }
+        }
+        return resp.build();
     }
 
     public void renameComputeGroup(String originalName, String newGroupName) throws UserException {

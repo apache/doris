@@ -38,9 +38,9 @@ class IColumn;
 class Arena;
 #include "common/compile_check_begin.h"
 
-inline void escape_string(const char* src, size_t* len, char escape_char) {
+inline void escape_string(char* src, size_t* len, char escape_char) {
     const char* start = src;
-    char* dest_ptr = const_cast<char*>(src);
+    char* dest_ptr = src;
     const char* end = src + *len;
     bool escape_next_char = false;
 
@@ -66,9 +66,9 @@ inline void escape_string(const char* src, size_t* len, char escape_char) {
 }
 
 // specially escape quote with double quote
-inline void escape_string_for_csv(const char* src, size_t* len, char escape_char, char quote_char) {
+inline void escape_string_for_csv(char* src, size_t* len, char escape_char, char quote_char) {
     const char* start = src;
-    char* dest_ptr = const_cast<char*>(src);
+    char* dest_ptr = src;
     const char* end = src + *len;
     bool escape_next_char = false;
 
@@ -183,6 +183,10 @@ public:
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;
 
+    Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
+                                                const ColumnString& from_column,
+                                                CastParameters& castParms) const override;
+
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
                                  int32_t col_id, int64_t row_num) const override;
 
@@ -228,6 +232,8 @@ public:
         memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(size_t), data_ref.data,
                data_size);
     }
+
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
 
 private:
     template <bool is_binary_format>

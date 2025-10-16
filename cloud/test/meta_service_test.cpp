@@ -26,6 +26,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
@@ -100,7 +101,8 @@ std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr) {
     auto rs = mock_resource_mgr ? std::make_shared<MockResourceManager>(txn_kv)
                                 : std::make_shared<ResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
 }
 
@@ -122,7 +124,8 @@ std::unique_ptr<MetaServiceProxy> get_fdb_meta_service() {
     }
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
 }
 
@@ -195,7 +198,8 @@ static void commit_txn(MetaServiceProxy* meta_service, int64_t db_id, int64_t tx
     req.set_db_id(db_id);
     req.set_txn_id(txn_id);
     meta_service->commit_txn(&cntl, &req, &res, nullptr);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+            << label << ", res=" << res.ShortDebugString();
 }
 
 doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int partition_id = 10,
@@ -2865,8 +2869,9 @@ TEST(MetaServiceTest, CheckTxnConflictWithAbortLabelTest) {
 
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service =
-            std::make_unique<MetaServiceProxy>(std::make_unique<MetaServiceImpl>(txn_kv, rs, rl));
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceProxy>(
+            std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot));
 
     const int64_t db_id = 666;
     const int64_t table_id = 777;
@@ -2961,8 +2966,9 @@ TEST(MetaServiceTest, CleanTxnLabelTest) {
 
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service =
-            std::make_unique<MetaServiceProxy>(std::make_unique<MetaServiceImpl>(txn_kv, rs, rl));
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceProxy>(
+            std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot));
 
     // clean txn label by db_id and label
     {
@@ -3414,8 +3420,9 @@ TEST(MetaServiceTest, GetTxnTest) {
 
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service =
-            std::make_unique<MetaServiceProxy>(std::make_unique<MetaServiceImpl>(txn_kv, rs, rl));
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceProxy>(
+            std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot));
 
     {
         int64_t txn_id = -1;
@@ -3812,7 +3819,7 @@ TEST(MetaServiceTest, FilterCopyFilesTest) {
 
 extern std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(
         int64_t req_bc_cnt, int64_t bc_cnt, int64_t req_cc_cnt, int64_t cc_cnt, int64_t req_cp,
-        int64_t cp, int64_t req_start, int64_t req_end);
+        int64_t cp, int64_t req_fc_cnt, int64_t fc_cnt, int64_t req_start, int64_t req_end);
 
 TEST(MetaServiceTest, CalcSyncVersionsTest) {
     using Versions = std::vector<std::pair<int64_t, int64_t>>;
@@ -3828,7 +3835,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 1};
         auto [req_cp, cp] = std::tuple {5, 5};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{8, 12}}));
     }
@@ -3844,7 +3851,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 10};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{5, 12}})); // [5, 9] v [8, 12]
     }
@@ -3853,7 +3860,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 15};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{5, 14}})); // [5, 14] v [8, 12]
     }
@@ -3870,7 +3877,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 5};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{5, INT64_MAX - 1}})); // [5, max] v [8, 12]
     }
@@ -3886,7 +3893,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 3};
         auto [req_cp, cp] = std::tuple {5, 5};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{5, INT64_MAX - 1}})); // [5, max] v [8, 12]
     }
@@ -3901,7 +3908,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 3};
         auto [req_cp, cp] = std::tuple {5, 15};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{5, INT64_MAX - 1}})); // [5, max] v [8, 12]
     }
@@ -3917,7 +3924,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 1};
         auto [req_cp, cp] = std::tuple {5, 5};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{0, 4}, {8, 12}}));
     }
@@ -3926,7 +3933,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 1};
         auto [req_cp, cp] = std::tuple {8, 8};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{0, 12}})); // [0, 7] v [8, 12]
     }
@@ -3935,7 +3942,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 10};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{0, 12}})); // [0, 4] v [5, 9] v [8, 12]
     }
@@ -3944,7 +3951,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 15};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{0, 14}})); // [0, 4] v [5, 14] v [8, 12]
     }
@@ -3953,10 +3960,41 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 5};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         // [0, 4] v [5, max] v [8, 12]
         ASSERT_EQ(versions, (Versions {{0, INT64_MAX - 1}}));
+    }
+
+    {
+        // when there exists full compaction, we can't optimize by "* only one CC happened and CP changed"
+
+        // * one CC happened and CP changed, and full compaction happened
+        // BE  [=][=][=][=][=][=][=][=][=][=]
+        //                  ^~~~~ req_cp
+        // MS  [xxxxxxxxxxxxxx][xxxxxxxxxxxxxx][=======][=][=]
+        //                      ^~~~~~~ ms_cp
+        //                  ^___________________________^ related_versions: [req_cp, max]
+        //
+        auto [req_bc_cnt, bc_cnt] = std::tuple {0, 1};
+        auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
+        auto [req_cp, cp] = std::tuple {4, 7};
+        auto [req_start, req_end] = std::tuple {9, 12};
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 1,
+                                           req_start, req_end);
+        ASSERT_EQ(versions, (Versions {{0, INT64_MAX - 1}}));
+    }
+
+    {
+        // abnormal case:
+        auto [req_bc_cnt, bc_cnt] = std::tuple {0, 1};
+        auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
+        auto [req_cp, cp] = std::tuple {4, 7};
+        auto [req_start, req_end] = std::tuple {9, 12};
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
+                                           req_start, req_end);
+        // when not considering full compaction, the returned versions is wrong becasue rowsets in [7-8] are missed
+        ASSERT_EQ(versions, (Versions {{0, 6}, {9, 12}}));
     }
 }
 
@@ -11479,4 +11517,703 @@ TEST(MetaServiceTest, RestoreJobTest) {
     }
 }
 
+TEST(MetaServiceTest, SetSnapshotPropertyTest) {
+    auto meta_service = get_meta_service();
+
+    // Create a test instance first
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        req.set_instance_id("test_snapshot_instance");
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+            auto* key = try_any_cast<std::string*>(args[1]);
+            *key = "test";
+            auto* key_id = try_any_cast<int64_t*>(args[2]);
+            *key_id = 1;
+        });
+        sp->enable_processing();
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    }
+
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("notify_refresh_instance_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // Test case 1: Snapshot not ready (SNAPSHOT_SWITCH_DISABLED) - should fail
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("Snapshot not ready") != std::string::npos);
+    }
+
+    // Initialize snapshot switch status to OFF so we can test snapshot functionality
+    {
+        InstanceKeyInfo key_info {"test_snapshot_instance"};
+        std::string key;
+        std::string val;
+        instance_key(key_info, &key);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        InstanceInfoPB instance;
+        instance.ParseFromString(val);
+        instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
+        val = instance.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Test case 2: Valid "enabled" property with "true" value (after initialization)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 3: Valid "enabled" property with "false" value
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "false";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 4: Invalid "enabled" property value
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "invalid";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 5: Valid "max_reserved_snapshots" property (minimum value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "0";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 6: Valid "max_reserved_snapshots" property (maximum value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "35";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 7: Valid "max_reserved_snapshots" property (middle value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "10";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 8: Invalid "max_reserved_snapshots" property (negative value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "-1";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 9: Invalid "max_reserved_snapshots" property (too large value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "36";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 10: Invalid "max_reserved_snapshots" property (non-numeric value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "abc";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 11: Valid "snapshot_interval_seconds" property (minimum value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "3600";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 12: Valid "snapshot_interval_seconds" property (large value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "14400";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 13: Invalid "snapshot_interval_seconds" property (too small value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "3599";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 14: Invalid "snapshot_interval_seconds" property (non-numeric value)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "invalid";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 15: Unsupported property key
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())["unsupported_property"] = "value";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 16: Empty properties map
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        // Don't add any properties - properties map will be empty
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test case 17: Multiple valid properties in single request
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "20";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "12000";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 18: Mixed valid and invalid properties (should fail on first invalid)
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "10";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "12000";
+        (*req.mutable_properties())["unsupported_property"] = "value";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.ShortDebugString();
+    }
+
+    // Test case 19: Non-existent instance ID
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("non_existent_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::CLUSTER_NOT_FOUND);
+    }
+}
+
+TEST(MetaServiceTest, SnapshotConfigLimitsTest) {
+    auto meta_service = get_meta_service();
+
+    // Create a test instance first
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        req.set_instance_id("test_snapshot_config_instance");
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+            auto* key = try_any_cast<std::string*>(args[1]);
+            *key = "test";
+            auto* key_id = try_any_cast<int64_t*>(args[2]);
+            *key_id = 1;
+        });
+        sp->enable_processing();
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    }
+
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("notify_refresh_instance_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    // Initialize snapshot switch status to OFF so we can test snapshot functionality
+    {
+        InstanceKeyInfo key_info {"test_snapshot_config_instance"};
+        std::string key;
+        std::string val;
+        instance_key(key_info, &key);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        InstanceInfoPB instance;
+        instance.ParseFromString(val);
+        instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
+        val = instance.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Enable snapshot for this instance
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest alter_req;
+        AlterInstanceResponse alter_res;
+        alter_req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        alter_req.set_instance_id("test_snapshot_config_instance");
+        (*alter_req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &alter_req, &alter_res, nullptr);
+        ASSERT_EQ(alter_res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Save original config values
+    int32_t orig_min_interval = config::snapshot_min_interval_seconds;
+    int32_t orig_max_reserved = config::snapshot_max_reserved_num;
+
+    // Temporarily modify config for testing
+    config::snapshot_min_interval_seconds = 1800; // 30 minutes
+    config::snapshot_max_reserved_num = 20;
+
+    // Test case 1: interval below minimum limit
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_config_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "1799"; // Below min limit
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("minimum is 1800") != std::string::npos);
+    }
+
+    // Test case 2: interval within limits should succeed
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_config_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "3600"; // Within limits
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 3: max_reserved_snapshots above maximum limit
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_config_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "21"; // Above max limit
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("maximum is 20") != std::string::npos);
+    }
+
+    // Test case 4: max_reserved_snapshots within limits should succeed
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_config_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "10"; // Within limits
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 5: unknown property should fail
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_config_instance");
+        (*req.mutable_properties())["unknown_property"] = "value";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("unknown snapshot property: unknown_property") !=
+                    std::string::npos);
+    }
+
+    // Restore original config values
+    config::snapshot_min_interval_seconds = orig_min_interval;
+    config::snapshot_max_reserved_num = orig_max_reserved;
+}
+
+TEST(MetaServiceTest, SnapshotDefaultValuesTest) {
+    auto meta_service = get_meta_service();
+
+    // Create a test instance first
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        req.set_instance_id("test_instance");
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+            auto* key = try_any_cast<std::string*>(args[1]);
+            *key = "test";
+            auto* key_id = try_any_cast<int64_t*>(args[2]);
+            *key_id = 1;
+        });
+        sp->set_call_back("get_instance_id", [&](auto&& args) {
+            auto* ret = try_any_cast_ret<std::string>(args);
+            ret->first = "test_instance";
+            ret->second = true;
+        });
+        sp->enable_processing();
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    }
+
+    // Initialize snapshot switch status to OFF so we can test snapshot functionality
+    {
+        InstanceKeyInfo key_info {"test_instance"};
+        std::string key;
+        std::string val;
+        instance_key(key_info, &key);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        InstanceInfoPB instance;
+        instance.ParseFromString(val);
+        instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
+        val = instance.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // First enable snapshot - should set default values
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_instance");
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Verify default values were set by checking instance
+    {
+        brpc::Controller cntl;
+        GetInstanceRequest req;
+        GetInstanceResponse res;
+        req.set_instance_id("test_instance");
+        req.set_cloud_unique_id("test_snapshot_defaults_unique_id");
+
+        meta_service->get_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                   &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        const auto& instance = res.instance();
+        ASSERT_EQ(instance.snapshot_switch_status(), SnapshotSwitchStatus::SNAPSHOT_SWITCH_ON);
+        ASSERT_EQ(instance.snapshot_interval_seconds(), config::snapshot_min_interval_seconds);
+        ASSERT_EQ(instance.max_reserved_snapshot(), 1);
+    }
+}
+
+TEST(MetaServiceTest, CreateTabletIdempotentAndHandlingError) {
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    size_t case_num = 0;
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("meta_service_test:get_meta_tablet_key_error", [&case_num](auto&& args) {
+        if (++case_num == 3) {
+            auto* code = try_any_cast<TxnErrorCode*>(args[0]);
+            *code = TxnErrorCode::TXN_INVALID_DATA;
+        }
+    });
+    sp->enable_processing();
+
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+    CreateTabletsRequest req;
+    CreateTabletsResponse res;
+    int64_t table_id = 100;
+    int64_t index_id = 200;
+    int64_t partition_id = 300;
+    int64_t tablet_id = 400;
+    req.set_db_id(1); // default db_id
+    add_tablet(req, table_id, index_id, partition_id, tablet_id);
+    // normal create
+    meta_service->create_tablets(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // idempotent
+    meta_service->create_tablets(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // error handling
+    meta_service->create_tablets(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::KV_TXN_GET_ERR);
+}
+
+TEST(MetaServiceTest, RowsetVisibleTimeTest) {
+    auto meta_service = get_meta_service();
+    using namespace std::chrono;
+    int64_t txn_id = -1;
+    // begin txn
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_db_id(666);
+        txn_info_pb.set_label("test_label");
+        txn_info_pb.add_table_ids(1234);
+        txn_info_pb.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info_pb);
+        BeginTxnResponse res;
+        meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        txn_id = res.txn_id();
+    }
+
+    // mock rowset and tablet
+    int64_t tablet_id_base = 1103;
+    for (int i = 0; i < 5; ++i) {
+        create_tablet(meta_service.get(), 1234, 1235, 1236, tablet_id_base + i);
+        auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i);
+        CreateRowsetResponse res;
+        commit_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+    {
+        brpc::Controller cntl;
+        CommitTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(666);
+        req.set_txn_id(txn_id);
+        CommitTxnResponse res;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    for (int i = 0; i < 5; ++i) {
+        int64_t tablet_id = tablet_id_base + i;
+        int64_t ver = 2;
+        std::string rowset_key = meta_rowset_key({mock_instance, tablet_id, ver});
+        std::string val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(rowset_key, &val), TxnErrorCode::TXN_OK);
+        RowsetMetaCloudPB rowset_pb;
+        ASSERT_TRUE(rowset_pb.ParseFromString(val));
+        ASSERT_TRUE(rowset_pb.has_visible_ts_ms());
+        std::cout << rowset_pb.visible_ts_ms() << "\n";
+        ASSERT_GT(rowset_pb.visible_ts_ms(), 0);
+        auto visible_tp = time_point<system_clock>(milliseconds(rowset_pb.visible_ts_ms()));
+        std::time_t visible_time = system_clock::to_time_t(visible_tp);
+        std::cout << "visible time: "
+                  << std::put_time(std::localtime(&visible_time), "%Y%m%d %H:%M:%S") << "\n";
+    }
+}
 } // namespace doris::cloud

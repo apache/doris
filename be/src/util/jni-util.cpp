@@ -22,11 +22,9 @@
 #include <jni.h>
 #include <jni_md.h>
 
-#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <iterator>
-#include <limits>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -34,6 +32,7 @@
 #include <vector>
 
 #include "absl/strings/substitute.h"
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "util/doris_metrics.h"
 #include "util/jni_native_method.h"
@@ -42,7 +41,7 @@
 using std::string;
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 namespace {
 JavaVM* g_vm;
 [[maybe_unused]] std::once_flag g_vm_once;
@@ -146,7 +145,7 @@ const std::string GetKerb5ConfPath() {
         JavaVMInitArgs vm_args;
         vm_args.version = JNI_VERSION_1_8;
         vm_args.options = jvm_options.get();
-        vm_args.nOptions = options.size();
+        vm_args.nOptions = cast_set<int>(options.size());
         // Set it to JNI_FALSE because JNI_TRUE will let JVM ignore the max size config.
         vm_args.ignoreUnrecognized = JNI_FALSE;
 
@@ -592,20 +591,22 @@ Status JniUtil::Init() {
     if (env->ExceptionOccurred()) {
         return Status::JniError("Failed to delete local reference to JNINativeMethod class.");
     }
-    std::string resize_column_name = "resizeStringColumn";
-    std::string resize_column_sign = "(JI)J";
-    std::string memory_alloc_name = "memoryTrackerMalloc";
-    std::string memory_alloc_sign = "(J)J";
-    std::string memory_free_name = "memoryTrackerFree";
-    std::string memory_free_sign = "(J)V";
+
+    static char memory_alloc_name[] = "memoryTrackerMalloc";
+    static char memory_alloc_sign[] = "(J)J";
+    static char memory_free_name[] = "memoryTrackerFree";
+    static char memory_free_sign[] = "(J)V";
+    static char memory_alloc_batch_name[] = "memoryTrackerMallocBatch";
+    static char memory_alloc_batch_sign[] = "([I)[J";
+    static char memory_free_batch_name[] = "memoryTrackerFreeBatch";
+    static char memory_free_batch_sign[] = "([J)V";
     static JNINativeMethod java_native_methods[] = {
-            {const_cast<char*>(resize_column_name.c_str()),
-             const_cast<char*>(resize_column_sign.c_str()),
-             (void*)&JavaNativeMethods::resizeStringColumn},
-            {const_cast<char*>(memory_alloc_name.c_str()),
-             const_cast<char*>(memory_alloc_sign.c_str()), (void*)&JavaNativeMethods::memoryMalloc},
-            {const_cast<char*>(memory_free_name.c_str()),
-             const_cast<char*>(memory_free_sign.c_str()), (void*)&JavaNativeMethods::memoryFree},
+            {memory_alloc_name, memory_alloc_sign, (void*)&JavaNativeMethods::memoryMalloc},
+            {memory_free_name, memory_free_sign, (void*)&JavaNativeMethods::memoryFree},
+            {memory_alloc_batch_name, memory_alloc_batch_sign,
+             (void*)&JavaNativeMethods::memoryMallocBatch},
+            {memory_free_batch_name, memory_free_batch_sign,
+             (void*)&JavaNativeMethods::memoryFreeBatch},
     };
 
     int res = env->RegisterNatives(jni_native_method_exc_cl_, java_native_methods,
@@ -660,5 +661,5 @@ Status JniUtil::Init() {
     DorisMetrics::instance()->init_jvm_metrics(env);
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

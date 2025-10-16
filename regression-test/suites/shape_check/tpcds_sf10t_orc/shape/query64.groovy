@@ -40,6 +40,7 @@ suite("query64") {
          set push_topn_to_agg = true;
          set TOPN_OPT_LIMIT_THRESHOLD = 1024;
          set enable_parallel_result_sink=true;
+         set memo_max_group_expression_size = 1000000;
          """
     qt_ds_shape_64 '''
     explain shape plan

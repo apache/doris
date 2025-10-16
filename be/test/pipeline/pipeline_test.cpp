@@ -89,7 +89,8 @@ private:
     std::shared_ptr<PipelineFragmentContext> _build_fragment_context() {
         int fragment_id = _next_fragment_id();
         _context.push_back(std::make_shared<PipelineFragmentContext>(
-                _query_id, fragment_id, _query_ctx, ExecEnv::GetInstance(), empty_function,
+                _query_id, TPipelineFragmentParams(), _query_ctx, ExecEnv::GetInstance(),
+                empty_function,
                 std::bind<Status>(std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
                                   ExecEnv::GetInstance()->fragment_mgr(), std::placeholders::_1,
                                   std::placeholders::_2)));
@@ -556,23 +557,29 @@ TEST_F(PipelineTest, PLAN_LOCAL_EXCHANGE) {
         EXPECT_EQ(cur_pipe->num_tasks(), parallelism);
     }
     {
-        cur_pipe->init_data_distribution();
+        cur_pipe->init_data_distribution(_runtime_state.back().get());
         EXPECT_EQ(cur_pipe->data_distribution().distribution_type, ExchangeType::HASH_SHUFFLE);
-        EXPECT_EQ(cur_pipe->sink()->required_data_distribution().distribution_type,
+        EXPECT_EQ(cur_pipe->sink()
+                          ->required_data_distribution(_runtime_state.back().get())
+                          .distribution_type,
                   ExchangeType::NOOP);
-        EXPECT_EQ(
-                cur_pipe->need_to_local_exchange(cur_pipe->sink()->required_data_distribution(), 1),
-                false);
+        EXPECT_EQ(cur_pipe->need_to_local_exchange(
+                          cur_pipe->sink()->required_data_distribution(_runtime_state.back().get()),
+                          1),
+                  false);
     }
     {
         cur_pipe->operators().front()->set_serial_operator();
-        cur_pipe->init_data_distribution();
+        cur_pipe->init_data_distribution(_runtime_state.back().get());
         EXPECT_EQ(cur_pipe->data_distribution().distribution_type, ExchangeType::NOOP);
-        EXPECT_EQ(cur_pipe->sink()->required_data_distribution().distribution_type,
+        EXPECT_EQ(cur_pipe->sink()
+                          ->required_data_distribution(_runtime_state.back().get())
+                          .distribution_type,
                   ExchangeType::PASSTHROUGH);
-        EXPECT_EQ(
-                cur_pipe->need_to_local_exchange(cur_pipe->sink()->required_data_distribution(), 1),
-                true);
+        EXPECT_EQ(cur_pipe->need_to_local_exchange(
+                          cur_pipe->sink()->required_data_distribution(_runtime_state.back().get()),
+                          1),
+                  true);
     }
 }
 
@@ -870,15 +877,20 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
     }
 
     for (int pip_idx = cast_set<int>(_pipelines.size()) - 1; pip_idx >= 0; pip_idx--) {
-        _pipelines[pip_idx]->init_data_distribution();
+        _pipelines[pip_idx]->init_data_distribution(_runtime_state.back().get());
         if (pip_idx == 1) {
             // Pipeline(ExchangeOperator(id=1, HASH_PARTITIONED) -> HashJoinBuildOperator(id=0))
             EXPECT_EQ(_pipelines[pip_idx]->data_distribution().distribution_type,
                       ExchangeType::HASH_SHUFFLE);
-            EXPECT_EQ(_pipelines[pip_idx]->sink()->required_data_distribution().distribution_type,
+            EXPECT_EQ(_pipelines[pip_idx]
+                              ->sink()
+                              ->required_data_distribution(_runtime_state.back().get())
+                              .distribution_type,
                       ExchangeType::HASH_SHUFFLE);
             EXPECT_EQ(_pipelines[pip_idx]->need_to_local_exchange(
-                              _pipelines[pip_idx]->sink()->required_data_distribution(), 1),
+                              _pipelines[pip_idx]->sink()->required_data_distribution(
+                                      _runtime_state.back().get()),
+                              1),
                       false);
         } else {
             // Pipeline(ExchangeOperator(id=2, HASH_PARTITIONED) -> HashJoinProbeOperator(id=0, UNPARTITIONED) -> ExchangeSinkOperatorX(id=3, UNPARTITIONED))
@@ -887,16 +899,19 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
             EXPECT_EQ(_pipelines[pip_idx]->data_distribution().distribution_type,
                       ExchangeType::HASH_SHUFFLE);
             EXPECT_EQ(_pipelines[pip_idx]->need_to_local_exchange(
-                              _pipelines[pip_idx]->sink()->required_data_distribution(), 2),
+                              _pipelines[pip_idx]->sink()->required_data_distribution(
+                                      _runtime_state.back().get()),
+                              2),
                       false);
             EXPECT_EQ(_pipelines[pip_idx]
                               ->operators()
                               .back()
-                              ->required_data_distribution()
+                              ->required_data_distribution(_runtime_state.back().get())
                               .distribution_type,
                       ExchangeType::HASH_SHUFFLE);
             EXPECT_EQ(_pipelines[pip_idx]->need_to_local_exchange(
-                              _pipelines[pip_idx]->operators().back()->required_data_distribution(),
+                              _pipelines[pip_idx]->operators().back()->required_data_distribution(
+                                      _runtime_state.back().get()),
                               1),
                       false);
         }

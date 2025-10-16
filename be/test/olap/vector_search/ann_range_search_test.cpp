@@ -48,10 +48,10 @@
 namespace doris::vectorized {
 
 // select id, value,l2_distance_approximate(embedding, [1, 2, 3, 4, 5, 6, 7, 20]) as dist from ann_with_fulltext where l2_distance_approximate(embedding, [1, 2, 3, 4, 5, 6, 7, 20]) >= 10;
-const std::string ann_range_search_thrift =
-        R"xxx({"1":{"lst":["rec",4,{"1":{"i32":2},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":2},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"3":{"i32":14},"4":{"i32":2},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"ge"}}},"2":{"i32":0},"3":{"lst":["rec",2,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":8},"5":{"i32":0}}}}]},"3":{"i64":-1}},{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":8},"5":{"i32":0}}}}]},"3":{"i64":-1}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":2},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"5":{"tf":0},"7":{"str":"ge(double, double)"},"11":{"i64":0},"13":{"tf":1},"14":{"tf":0},"15":{"tf":0},"16":{"i64":360}}},"28":{"i32":8},"29":{"tf":0}},{"1":{"i32":5},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":8},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"3":{"i32":4},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"casttodouble"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":8},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"5":{"tf":0},"7":{"str":"casttodouble(float)"},"11":{"i64":0},"13":{"tf":1},"14":{"tf":0},"15":{"tf":0},"16":{"i64":360}}},"28":{"i32":7},"29":{"tf":0}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":4},"2":{"i32":0},"3":{"i32":2147483646},"4":{"tf":1}}},"20":{"i32":-1},"29":{"tf":0},"36":{"str":"l2_distance_approximate(embedding, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 20.0])"}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":8},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":10}}},"20":{"i32":-1},"29":{"tf":0}}]}})xxx";
+std::string ann_range_search_thrift =
+        R"xxx({"1":{"lst":["rec",3,{"1":{"i32":2},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":2},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"3":{"i32":14},"4":{"i32":2},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"ge"}}},"2":{"i32":0},"3":{"lst":["rec",2,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}},{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":2},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"5":{"tf":0},"7":{"str":"ge(float, float)"},"11":{"i64":0},"13":{"tf":1},"14":{"tf":0},"15":{"tf":0},"16":{"i64":360}}},"28":{"i32":7},"29":{"tf":0}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":4},"2":{"i32":0},"3":{"i32":2147483646},"4":{"tf":1}}},"20":{"i32":-1},"29":{"tf":0},"36":{"str":"l2_distance_approximate(embedding, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 20.0])"}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":10}}},"20":{"i32":-1},"29":{"tf":0}}]}})xxx";
 
-const std::string thrift_table_desc =
+std::string thrift_table_desc =
         R"xxx({"1":{"lst":["rec",7,{"1":{"i32":0},"2":{"i32":0},"3":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":-1},"5":{"i32":-1},"6":{"i32":0},"7":{"i32":-1},"8":{"str":"id"},"9":{"i32":0},"10":{"tf":1},"11":{"i32":0},"12":{"tf":1},"13":{"tf":1},"14":{"tf":0},"17":{"i32":5}},{"1":{"i32":1},"2":{"i32":0},"3":{"rec":{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":-1},"5":{"i32":-1},"6":{"i32":0},"7":{"i32":-1},"8":{"str":"embedding"},"9":{"i32":3},"10":{"tf":1},"11":{"i32":1},"12":{"tf":0},"13":{"tf":1},"14":{"tf":0},"17":{"i32":20}},{"1":{"i32":3},"2":{"i32":0},"3":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":-1},"5":{"i32":-1},"6":{"i32":0},"7":{"i32":0},"8":{"str":"value"},"9":{"i32":1},"10":{"tf":1},"11":{"i32":3},"12":{"tf":0},"13":{"tf":1},"14":{"tf":0},"17":{"i32":5}},{"1":{"i32":4},"2":{"i32":0},"3":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":-1},"5":{"i32":-1},"6":{"i32":0},"7":{"i32":-1},"8":{"str":"__DORIS_VIRTUAL_COL__1"},"9":{"i32":2},"10":{"tf":1},"11":{"i32":2147483646},"12":{"tf":0},"13":{"tf":1},"14":{"tf":0},"17":{"i32":7},"18":{"rec":{"1":{"lst":["rec",11,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":2},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"l2_distance_approximate"}}},"2":{"i32":0},"3":{"lst":["rec",2,{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}},{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"5":{"tf":0},"7":{"str":"l2_distance_approximate(array<float>, array<float>)"},"9":{"rec":{"1":{"str":""}}},"11":{"i64":0},"13":{"tf":1},"14":{"tf":0},"15":{"tf":0},"16":{"i64":360}}},"29":{"tf":0}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":1},"2":{"i32":0},"3":{"i32":1},"4":{"tf":0}}},"20":{"i32":-1},"29":{"tf":0},"36":{"str":"embedding"}},{"1":{"i32":21},"2":{"rec":{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":8},"20":{"i32":-1},"28":{"i32":7},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":1}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":2}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":3}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":4}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":5}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":6}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":7}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":20}}},"20":{"i32":-1},"29":{"tf":0}}]}}}},{"1":{"i32":5},"2":{"i32":1},"3":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":-1},"5":{"i32":-1},"6":{"i32":0},"7":{"i32":-1},"8":{"str":"id"},"9":{"i32":0},"10":{"tf":1},"11":{"i32":0},"12":{"tf":1},"13":{"tf":1},"14":{"tf":0},"17":{"i32":5}},{"1":{"i32":6},"2":{"i32":1},"3":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":-1},"5":{"i32":-1},"6":{"i32":0},"7":{"i32":0},"8":{"str":"value"},"9":{"i32":1},"10":{"tf":1},"11":{"i32":3},"12":{"tf":0},"13":{"tf":1},"14":{"tf":0},"17":{"i32":5}},{"1":{"i32":7},"2":{"i32":1},"3":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":-1},"5":{"i32":-1},"6":{"i32":0},"7":{"i32":-1},"8":{"str":""},"9":{"i32":2},"10":{"tf":1},"11":{"i32":-1},"12":{"tf":0},"13":{"tf":1},"14":{"tf":0},"17":{"i32":0}}]},"2":{"lst":["rec",2,{"1":{"i32":0},"2":{"i32":0},"3":{"i32":0},"4":{"i64":-794312748}},{"1":{"i32":1},"2":{"i32":0},"3":{"i32":0},"4":{"i64":-794312748}}]},"3":{"lst":["rec",1,{"1":{"i64":1755847311316},"2":{"i32":1},"3":{"i32":4},"4":{"i32":0},"7":{"str":"ann_with_fulltext"},"8":{"str":""},"11":{"rec":{"1":{"str":"ann_with_fulltext"}}}}]}})xxx";
 
 TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch) {
@@ -140,6 +140,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
     std::map<std::string, std::string> properties;
     properties["index_type"] = "hnsw";
     properties["metric_type"] = "l2_distance";
+    properties["dim"] = "8"; // match query vector size from thrift
     auto pair = vector_search_utils::create_tmp_ann_index_reader(properties);
     mock_ann_index_iter->_ann_reader = pair.second;
 
@@ -230,6 +231,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
     std::map<std::string, std::string> properties;
     properties["index_type"] = "hnsw";
     properties["metric_type"] = "l2_distance";
+    properties["dim"] = "8"; // match query vector size from thrift
     auto pair = vector_search_utils::create_tmp_ann_index_reader(properties);
     mock_ann_index_iter->_ann_reader = pair.second;
 
@@ -303,11 +305,12 @@ TEST_F(VectorSearchTest, TestRangeSearchRuntimeInfoToString) {
     runtime_info2.radius = 15.5;
     runtime_info2.metric_type = doris::segment_v2::AnnIndexMetric::L2;
     runtime_info2.dim = 4;
-    runtime_info2.query_value = std::make_unique<float[]>(4);
-    runtime_info2.query_value[0] = 1.0f;
-    runtime_info2.query_value[1] = 2.0f;
-    runtime_info2.query_value[2] = 3.0f;
-    runtime_info2.query_value[3] = 4.0f;
+    auto f32 = ColumnFloat32::create(4);
+    f32->get_data()[0] = 1.0f;
+    f32->get_data()[1] = 2.0f;
+    f32->get_data()[2] = 3.0f;
+    f32->get_data()[3] = 4.0f;
+    runtime_info2.query_value = std::move(f32);
 
     doris::VectorSearchUserParams user_params;
     user_params.hnsw_ef_search = 100;
@@ -690,6 +693,56 @@ TEST_F(VectorSearchTest, TestAnnIndexReader_NewIterator) {
     // Verify that the iterator is actually an AnnIndexIterator
     auto* ann_iterator = dynamic_cast<doris::segment_v2::AnnIndexIterator*>(iterator.get());
     EXPECT_NE(ann_iterator, nullptr);
+}
+
+TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch_DimensionMismatch) {
+    // Prepare a valid range search expr from thrift
+    TExpr texpr = read_from_json<TExpr>(ann_range_search_thrift);
+    TDescriptorTable table1 = read_from_json<TDescriptorTable>(thrift_table_desc);
+    std::unique_ptr<doris::ObjectPool> pool = std::make_unique<doris::ObjectPool>();
+    auto desc_tbl = std::make_unique<DescriptorTbl>();
+    DescriptorTbl* desc_tbl_ptr = desc_tbl.get();
+    ASSERT_TRUE(DescriptorTbl::create(pool.get(), table1, &(desc_tbl_ptr)).ok());
+    RowDescriptor row_desc = RowDescriptor(*desc_tbl_ptr, {0}, {false});
+    std::unique_ptr<doris::RuntimeState> state = std::make_unique<doris::RuntimeState>();
+    state->set_desc_tbl(desc_tbl_ptr);
+
+    VExprContextSPtr range_search_ctx;
+    ASSERT_TRUE(vectorized::VExpr::create_expr_tree(texpr, range_search_ctx).ok());
+    ASSERT_TRUE(range_search_ctx->prepare(state.get(), row_desc).ok());
+    ASSERT_TRUE(range_search_ctx->open(state.get()).ok());
+    doris::VectorSearchUserParams user_params;
+    range_search_ctx->prepare_ann_range_search(user_params);
+    ASSERT_TRUE(range_search_ctx->_ann_range_search_runtime.is_ann_range_search);
+    // Force a dimension mismatch: query dim is 8 in thrift; set index dim to 4
+    std::vector<ColumnId> idx_to_cid(4);
+    idx_to_cid[0] = 0;
+    idx_to_cid[1] = 1; // embedding
+    idx_to_cid[2] = 2;
+    idx_to_cid[3] = 3; // virtual dist
+
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> cid_to_index_iterators(4);
+    auto mock_iter = std::make_unique<doris::vector_search_utils::MockAnnIndexIterator>();
+
+    // Back its reader with a real AnnIndexReader but with dim=4
+    std::map<std::string, std::string> properties;
+    properties["index_type"] = "hnsw";
+    properties["metric_type"] = "l2_distance";
+    properties["dim"] = "4"; // mismatch
+    auto pair = vector_search_utils::create_tmp_ann_index_reader(properties);
+    mock_iter->_ann_reader = pair.second;
+    cid_to_index_iterators[1] = std::move(mock_iter);
+
+    std::vector<std::unique_ptr<segment_v2::ColumnIterator>> column_iterators(4);
+    column_iterators[3] = std::make_unique<doris::segment_v2::VirtualColumnIterator>();
+
+    roaring::Roaring row_bitmap;
+    segment_v2::AnnIndexStats stats;
+
+    auto st = range_search_ctx->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
+                                                          column_iterators, row_bitmap, stats);
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<doris::ErrorCode::INVALID_ARGUMENT>());
 }
 
 TEST_F(VectorSearchTest, TestAnnIndexIterator_ReadFromIndex_NullParam) {

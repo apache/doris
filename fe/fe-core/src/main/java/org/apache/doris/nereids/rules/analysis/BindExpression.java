@@ -56,7 +56,6 @@ import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.generator.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
@@ -280,10 +279,6 @@ public class BindExpression implements AnalysisRuleFactory {
                     "the size of nameParts of UnboundSlot in LogicalGenerate must be 2.");
 
             Expression boundGenerator = analyzer.analyze(generate.getGenerators().get(i));
-
-            if (boundGenerator instanceof RewriteWhenAnalyze) {
-                boundGenerator = ((RewriteWhenAnalyze) boundGenerator).rewrite();
-            }
 
             if (!(boundGenerator instanceof TableGeneratingFunction)) {
                 throw new AnalysisException(boundGenerator.toSql() + " is not a TableGeneratingFunction");
@@ -607,9 +602,12 @@ public class BindExpression implements AnalysisRuleFactory {
         Builder<Expression> otherJoinConjuncts = ImmutableList.builderWithExpectedSize(
                 join.getOtherJoinConjuncts().size());
         for (Expression otherJoinConjunct : join.getOtherJoinConjuncts()) {
-            otherJoinConjunct = analyzer.analyze(otherJoinConjunct);
-            otherJoinConjunct = TypeCoercionUtils.castIfNotSameType(otherJoinConjunct, BooleanType.INSTANCE);
-            otherJoinConjuncts.add(otherJoinConjunct);
+            // after analyzed, 'a between 1 and 10' will rewrite to 'a >= 1 and a <= 10'
+            Expression boundExpr = analyzer.analyze(otherJoinConjunct);
+            for (Expression conjunct : ExpressionUtils.extractConjunction(boundExpr)) {
+                conjunct = TypeCoercionUtils.castIfNotSameType(conjunct, BooleanType.INSTANCE);
+                otherJoinConjuncts.add(conjunct);
+            }
         }
         return new LogicalJoin<>(join.getJoinType(),
                 hashJoinConjuncts.build(), otherJoinConjuncts.build(),
@@ -1519,7 +1517,8 @@ public class BindExpression implements AnalysisRuleFactory {
         if (sqlCacheContext.isPresent()) {
             sqlCacheContext.get().setCannotProcessExpression(true);
         }
-        return new LogicalTVFRelation(unboundTVFRelation.getRelationId(), (TableValuedFunction) bindResult.first);
+        return new LogicalTVFRelation(unboundTVFRelation.getRelationId(),
+                (TableValuedFunction) bindResult.first, ImmutableList.of());
     }
 
     private void checkIfOutputAliasNameDuplicatedForGroupBy(Collection<Expression> expressions,

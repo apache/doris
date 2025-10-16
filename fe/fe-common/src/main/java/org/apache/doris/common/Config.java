@@ -572,6 +572,12 @@ public class Config extends ConfigBase {
             "The interval of publish task trigger thread, in milliseconds"})
     public static int publish_version_interval_ms = 10;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "If the number of publishing transactions of a table exceeds this value, new transactions will "
+            + "be rejected. Set to -1 to disable this limit.",
+            "当一个表的发布事务数量超过该值时，新的事务将被拒绝。设置为-1表示不限制。"})
+    public static long max_publishing_txn_num_per_table = 500;
+
     @ConfField(description = {"thrift server 的最大 worker 线程数", "The max worker threads of thrift server"})
     public static int thrift_server_max_worker_threads = 4096;
 
@@ -1749,6 +1755,9 @@ public class Config extends ConfigBase {
     @ConfField(masterOnly = true)
     public static int lower_case_table_names = 0;
 
+    /**
+     * Used to limit the length of table name.
+     */
     @ConfField(mutable = true, masterOnly = true)
     public static int table_name_length_limit = 64;
 
@@ -1757,6 +1766,12 @@ public class Config extends ConfigBase {
             "Used to limit the length of column comment; "
                     + "If the existing column comment is too long, it will be truncated when displayed."})
     public static int column_comment_length_limit = -1;
+
+    @ConfField(mutable = true, description = {
+            "内部表的默认压缩类型。支持的值有: LZ4, LZ4F, LZ4HC, ZLIB, ZSTD, SNAPPY, NONE。",
+            "Default compression type for internal tables. Supported values: LZ4, LZ4F, LZ4HC, ZLIB, ZSTD,"
+            + " SNAPPY, NONE."})
+    public static String default_compression_type = "LZ4F";
 
     /*
      * The job scheduling interval of the schema change handler.
@@ -1954,6 +1969,11 @@ public class Config extends ConfigBase {
             "The number of threads used to perform the dictionary import and delete tasks, which should be"
                     + " greater than 0, otherwise it defaults to 3." })
     public static int job_dictionary_task_consumer_thread_num = 3;
+
+    @ConfField(masterOnly = true, description = {"最大的 Streaming 作业数量,值应该大于0，否则默认为1024",
+            "The maximum number of Streaming jobs, "
+                    + "the value should be greater than 0, if it is <=0, default is 1024."})
+    public static int max_streaming_job_num = 1024;
 
     /* job test config */
     /**
@@ -3018,13 +3038,6 @@ public class Config extends ConfigBase {
     public static String inverted_index_storage_format = "V2";
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "是否为新分区启用倒排索引 V2 存储格式。启用后，新创建的分区将使用 V2 格式，而不管表的原始格式如何。",
-            "Enable V2 storage format for inverted indexes in new partitions. When enabled, newly created partitions "
-                    + "will use V2 format regardless of the table's original format."
-    })
-    public static boolean enable_new_partition_inverted_index_v2_format = false;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
             "是否在unique表mow上开启delete语句写delete predicate。若开启，会提升delete语句的性能，"
                     + "但delete后进行部分列更新可能会出现部分数据错误的情况。若关闭，会降低delete语句的性能来保证正确性。",
             "Enable the 'delete predicate' for DELETE statements. If enabled, it will enhance the performance of "
@@ -3600,4 +3613,31 @@ public class Config extends ConfigBase {
         "The encryption algorithm used for data, default is AES256, may be set to empty later for KMS to decide"
     })
     public static String doris_tde_algorithm = "PLAINTEXT";
+
+    @ConfField(mutable = true, description = {
+        "数据质量错误时，第一行错误信息的最大长度，默认 256 字节",
+        "The maximum length of the first row error message when data quality error occurs, default is 256 bytes"
+    })
+    public static int first_error_msg_max_length = 256;
+
+    @ConfField
+    public static String cloud_snapshot_handler_class = "org.apache.doris.cloud.snapshot.CloudSnapshotHandler";
+    @ConfField
+    public static int cloud_snapshot_handler_interval_second = 3600;
+    @ConfField(mutable = true)
+    public static long cloud_snapshot_timeout_seconds = 600;
+    @ConfField(mutable = true)
+    public static long cloud_auto_snapshot_max_reversed_num = 35;
+    @ConfField(mutable = true)
+    public static long cloud_auto_snapshot_min_interval_seconds = 3600;
+
+    @ConfField(mutable = true)
+    public static long multi_part_upload_part_size_in_bytes = 256 * 1024 * 1024L; // 256MB
+    @ConfField(mutable = true)
+    public static int multi_part_upload_max_seconds = 3600; // 1 hour
+    @ConfField(mutable = true)
+    public static int multi_part_upload_pool_size = 10;
+
+    @ConfField(mutable = true)
+    public static String aws_credentials_provider_version = "v2";
 }

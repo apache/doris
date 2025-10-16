@@ -311,7 +311,7 @@ inline int Slice::compare(const Slice& b) const {
 }
 
 // A move-only type which manage the lifecycle of externally allocated data.
-// Unlike std::unique_ptr<uint8_t[]>, OwnedSlice remembers the size of data so that clients can access
+// Unlike DorisUniqueBufferPtr<uint8_t>, OwnedSlice remembers the size of data so that clients can access
 // the underlying buffer as a Slice.
 //
 // Usage example:

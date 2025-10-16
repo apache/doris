@@ -404,8 +404,10 @@ suite("insert_group_commit_into") {
             int count = 0;
             while (count < 30) {
                 try {
+                    sql "set enable_insert_strict = false"
                     group_commit_insert """ 
                 insert into ${table} values('cib2205045_1_1s','2023/6/10 3:55:33','{"DB1":168939,"DNT":"2023-06-10 03:55:33"}');""", 1
+                    sql "set enable_insert_strict = true"
                     break
                 } catch (Exception e) {
                     logger.info("got exception:" + e)
@@ -415,9 +417,11 @@ suite("insert_group_commit_into") {
                     count++
                 }
             }
+            sql "set enable_insert_strict = false"
             group_commit_insert """insert into ${table} values('cib2205045_1_1s','2023/6/10 3:56:33','{"DB1":168939,"DNT":"2023-06-10 03:56:33"}');""", 1
             group_commit_insert """insert into ${table} values('cib2205045_1_1s','2023/6/10 3:57:33','{"DB1":168939,"DNT":"2023-06-10 03:57:33"}');""", 1
             group_commit_insert """insert into ${table} values('cib2205045_1_1s','2023/6/10 3:58:33','{"DB1":168939,"DNT":"2023-06-10 03:58:33"}');""", 1
+            sql "set enable_insert_strict = true"
 
             getRowCount(4)
 
@@ -447,7 +451,7 @@ suite("insert_group_commit_into") {
         sql """
                 CREATE TABLE IF NOT EXISTS ${table}
                 (
-                    k1 INT,
+                    k1 INT not null,
                     `or` varchar(50)
                 )
                 DUPLICATE KEY(`k1`)
@@ -465,6 +469,16 @@ suite("insert_group_commit_into") {
             getRowCount(2)
             order_qt_select8 """ select * from ${table}; """
         }
+
+        // max_filter_ratio
+        sql """ set group_commit = sync_mode; """
+        sql """ set enable_insert_strict = false; """
+        sql """ set insert_max_filter_ratio = 0.05; """
+        test {
+            sql """ insert into ${table} values('a', 'a'), ('10', 'a'), ('11', 'a'), ('12', 'a'); """
+            exception """too many filtered rows"""
+        }
+        getRowCount(2)
     } finally {
     }
 }

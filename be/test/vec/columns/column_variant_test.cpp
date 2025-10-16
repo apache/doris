@@ -1308,7 +1308,7 @@ TEST_F(ColumnVariantTest, pop_back_test) {
 }
 
 // serialize and deserialize is not implemented
-// serialize_vec, deserialize_vec, serialize_vec_with_null_map, deserialize_vec_with_null_map, get_max_row_byte_size
+// serialize, deserialize, get_max_row_byte_size
 // hash interface
 TEST_F(ColumnVariantTest, update_xxHash_with_value) {
     hash_common_test("update_xxHash_with_value", assert_update_xxHash_with_value_callback);
@@ -3078,7 +3078,7 @@ EXPECT_EQ(info.num_dimensions, 2);
 
     Field array = Field::create_field<TYPE_ARRAY>(Array());
     array.get<Array>().push_back(Field::create_field<TYPE_JSONB>(std::move(field)));
-    array.get<Array>().push_back(Field::create_field<TYPE_JSONB>(std::move(JsonbField())));
+    array.get<Array>().push_back(Field::create_field<TYPE_JSONB>(JsonbField()));
     FieldInfo info;
     schema_util::get_field_info(array, &info);
     // which should support ??!!

@@ -30,7 +30,7 @@
 #include "common/util.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-store/document_message.h"
+#include "meta-store/clone_chain_reader.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -180,7 +180,7 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
 }
 
 void internal_get_versioned_tablet_stats(MetaServiceCode& code, std::string& msg,
-                                         MetaReader& meta_reader, Transaction* txn,
+                                         CloneChainReader& meta_reader, Transaction* txn,
                                          const std::string& instance_id,
                                          const TabletIndexPB& tablet_idx, TabletStatsPB& stats,
                                          bool snapshot) {
@@ -189,7 +189,7 @@ void internal_get_versioned_tablet_stats(MetaServiceCode& code, std::string& msg
 
     // Try to read existing versioned tablet stats
     TxnErrorCode err =
-            meta_reader.get_tablet_load_stats(tablet_id, &stats, &versionstamp, snapshot);
+            meta_reader.get_tablet_load_stats(txn, tablet_id, &stats, &versionstamp, snapshot);
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         // If versioned stats doesn't exist, read from single version
         internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, stats, snapshot);

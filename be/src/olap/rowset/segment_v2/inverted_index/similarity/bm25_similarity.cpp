@@ -17,8 +17,6 @@
 
 #include "bm25_similarity.h"
 
-#include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
-
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
@@ -38,15 +36,23 @@ std::vector<float> BM25Similarity::LENGTH_TABLE = []() {
 
 BM25Similarity::BM25Similarity() : _cache(256) {}
 
+BM25Similarity::BM25Similarity(float idf, float avgdl) : _idf(idf), _avgdl(avgdl), _cache(256) {
+    _weight = _boost * _idf * (_k1 + 1.0F);
+    compute_tf_cache();
+}
+
+void BM25Similarity::compute_tf_cache() {
+    for (int i = 0; i < _cache.size(); i++) {
+        _cache[i] = 1.0F / (_k1 * ((1 - _b) + _b * LENGTH_TABLE[i] / _avgdl));
+    }
+}
+
 void BM25Similarity::for_one_term(const IndexQueryContextPtr& context,
                                   const std::wstring& field_name, const std::wstring& term) {
     _avgdl = context->collection_statistics->get_or_calculate_avg_dl(field_name);
     _idf = context->collection_statistics->get_or_calculate_idf(field_name, term);
     _weight = _boost * _idf * (_k1 + 1.0F);
-
-    for (int i = 0; i < _cache.size(); i++) {
-        _cache[i] = 1.0F / (_k1 * ((1 - _b) + _b * LENGTH_TABLE[i] / _avgdl));
-    }
+    compute_tf_cache();
 }
 
 float BM25Similarity::score(float freq, int64_t encoded_norm) {
@@ -58,16 +64,7 @@ int32_t BM25Similarity::number_of_leading_zeros(uint64_t value) {
     if (value == 0) {
         return 64;
     }
-#if defined(__GNUC__) || defined(__clang__)
-    return __builtin_clzll(value);
-#else
-    int32_t count = 0;
-    for (uint64_t mask = 1ULL << 63; mask != 0; mask >>= 1) {
-        if (value & mask) break;
-        ++count;
-    }
-    return count;
-#endif
+    return std::countl_zero(value);
 }
 
 uint32_t BM25Similarity::long_to_int4(uint64_t i) {

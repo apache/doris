@@ -169,9 +169,9 @@ public:
                          IColumn::Permutation& res) const override;
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;
-    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
+    void deserialize(StringRef* keys, const size_t num_rows) override;
     size_t get_max_row_byte_size() const override;
-    void serialize_vec(StringRef* keys, size_t num_rows) const override;
+    void serialize(StringRef* keys, size_t num_rows) const override;
     /** More efficient methods of manipulation */
     IColumn& get_data() { return *data; }
     const IColumn& get_data() const { return *data; }
@@ -238,6 +238,9 @@ public:
     size_t serialize_impl(char* pos, const size_t row) const override;
     size_t deserialize_impl(const char* pos) override;
     size_t serialize_size_at(size_t row) const override;
+
+    void replace_float_special_values() override;
+
     template <bool positive>
     struct less;
 

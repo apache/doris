@@ -135,6 +135,12 @@ message ZoneMapPB {
     optional bool has_not_null = 4;
     // whether this zone is including all values;
     optional bool pass_all = 5 [default = false];
+    // whether the zone has +Infinity value
+    optional bool has_positive_inf = 6;
+    // whether the zone has -Infinity value
+    optional bool has_negative_inf = 7;
+    // whether the zone has NaN value
+    optional bool has_nan = 8;
 }
 
 message ColumnPathPartInfo {
@@ -207,6 +213,10 @@ message ColumnMetaPB {
     optional VariantStatisticsPB variant_statistics = 21; // only used in variant type
     optional int32 variant_max_subcolumns_count = 22 [default = 0];
     optional uint64 none_null_size = 23 [default = 0];
+
+    optional uint64 compressed_data_bytes = 24;
+    optional uint64 uncompressed_data_bytes = 25;
+    optional uint64 raw_data_bytes = 26;
 }
 
 message PrimaryKeyIndexMetaPB {

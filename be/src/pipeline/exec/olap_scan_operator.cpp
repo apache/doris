@@ -27,6 +27,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
+#include "io/cache/block_file_cache_profile.h"
 #include "olap/parallel_scanner_builder.h"
 #include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "olap/storage_engine.h"
@@ -87,6 +88,7 @@ Status OlapScanLocalState::_init_profile() {
     // Rows read from storage.
     // Include the rows read from doris page cache.
     _scan_rows = ADD_COUNTER(custom_profile(), "ScanRows", TUnit::UNIT);
+
     // 1. init segment profile
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
     _scanner_profile->add_child(_segment_profile.get(), true, nullptr);
@@ -324,6 +326,19 @@ Status OlapScanLocalState::_init_profile() {
     _ann_range_result_convert_costs =
             ADD_CHILD_TIMER(_segment_profile, "AnnIndexRangeResultConvertCosts",
                             "AnnIndexRangeResultPostProcessCosts");
+    _variant_scan_sparse_column_timer = ADD_TIMER(_segment_profile, "VariantScanSparseColumnTimer");
+    _variant_scan_sparse_column_bytes =
+            ADD_COUNTER(_segment_profile, "VariantScanSparseColumnBytes", TUnit::BYTES);
+    _variant_fill_path_from_sparse_column_timer =
+            ADD_TIMER(_segment_profile, "VariantFillPathFromSparseColumnTimer");
+    _variant_subtree_default_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantSubtreeDefaultIterCount", TUnit::UNIT);
+    _variant_subtree_leaf_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantSubtreeLeafIterCount", TUnit::UNIT);
+    _variant_subtree_hierarchical_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantSubtreeHierarchicalIterCount", TUnit::UNIT);
+    _variant_subtree_sparse_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantSubtreeSparseIterCount", TUnit::UNIT);
 
     return Status::OK();
 }
@@ -494,6 +509,15 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
             RETURN_IF_ERROR(olap_scanner->init(state(), _conjuncts));
         }
 
+        const OlapReaderStatistics* stats = scanner_builder.builder_stats();
+        io::FileCacheProfileReporter cache_profile(_segment_profile.get());
+        cache_profile.update(&stats->file_cache_stats);
+
+        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+                stats->file_cache_stats.bytes_read_from_local);
+        DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
+                stats->file_cache_stats.bytes_read_from_remote);
+
         return Status::OK();
     }
 
@@ -618,6 +642,7 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
             return Status::OK();
         }
         COUNTER_UPDATE(_sync_rowset_timer, _sync_cloud_tablets_watcher.elapsed_time());
+        RETURN_IF_ERROR(_cloud_tablet_future.get());
         auto total_rowsets = std::accumulate(
                 _tablets.cbegin(), _tablets.cend(), 0LL,
                 [](long long acc, const auto& tabletWithVersion) {
@@ -690,10 +715,16 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
         }
     }
 
+    CaptureRsReaderOptions opts {
+            .skip_missing_version = _state->skip_missing_version(),
+            .enable_prefer_cached_rowset =
+                    config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
+            .query_freshness_tolerance_ms =
+                    config::is_cloud_mode() ? _state->query_freshness_tolerance_ms() : -1,
+    };
     for (size_t i = 0; i < _scan_ranges.size(); i++) {
         RETURN_IF_ERROR(_tablets[i].tablet->capture_rs_readers({0, _tablets[i].version},
-                                                               &_read_sources[i].rs_splits,
-                                                               _state->skip_missing_version()));
+                                                               &_read_sources[i].rs_splits, opts));
         if (!PipelineXLocalState<>::_state->skip_delete_predicate()) {
             _read_sources[i].fill_delete_predicates();
         }
@@ -933,6 +964,11 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
         _limit_per_scanner = _olap_scan_node.sort_limit;
     }
+    DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
+        LOG(INFO) << "limit_per_scanner: " << _limit_per_scanner
+                  << ", sort_limit: " << _olap_scan_node.sort_limit
+                  << ", isset.sort_limit: " << _olap_scan_node.__isset.sort_limit;
+    })
 }
 
 #include "common/compile_check_end.h"

@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/spill_utils.h"
 #include "pipeline/pipeline.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
@@ -54,6 +55,8 @@ public:
                          shared_state_map,
                  int task_idx);
 
+    ~PipelineTask();
+
     Status prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
                    const TDataSink& tsink);
 
@@ -65,14 +68,14 @@ public:
 
     std::weak_ptr<PipelineFragmentContext>& fragment_context() { return _fragment_context; }
 
-    int get_core_id() const { return _core_id; }
+    int get_thread_id(int num_threads) const {
+        return _thread_id == -1 ? _thread_id : _thread_id % num_threads;
+    }
 
-    PipelineTask& set_core_id(int id) {
-        if (id != _core_id) {
-            if (_core_id != -1) {
-                COUNTER_UPDATE(_core_change_times, 1);
-            }
-            _core_id = id;
+    PipelineTask& set_thread_id(int thread_id) {
+        _thread_id = thread_id;
+        if (thread_id != _thread_id) {
+            COUNTER_UPDATE(_core_change_times, 1);
         }
         return *this;
     }
@@ -117,14 +120,17 @@ public:
         return _op_shared_states[id].get();
     }
 
-    Status wake_up(Dependency* dep);
+    Status wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */);
 
     DataSinkOperatorPtr sink() const { return _sink; }
 
     int task_id() const { return _index; };
     bool is_finalized() const { return _exec_state == State::FINALIZED; }
 
-    void set_wake_up_early() { _wake_up_early = true; }
+    void set_wake_up_early(PipelineId wake_by = -1) {
+        _wake_up_early = true;
+        _wake_by = wake_by;
+    }
 
     // Execution phase should be terminated. This is called if this task is canceled or waken up early.
     void terminate();
@@ -147,7 +153,6 @@ public:
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
 
     bool is_running() { return _running.load(); }
-    bool is_revoking() const;
     PipelineTask& set_running(bool running) {
         _running.exchange(running);
         return *this;
@@ -164,7 +169,7 @@ public:
     [[nodiscard]] size_t get_revocable_size() const;
     [[nodiscard]] Status revoke_memory(const std::shared_ptr<SpillContext>& spill_context);
 
-    Status blocked(Dependency* dependency) {
+    Status blocked(Dependency* dependency, std::unique_lock<std::mutex>& /* dep_lock */) {
         DCHECK_EQ(_blocked_dep, nullptr) << "task: " << debug_string();
         _blocked_dep = dependency;
         return _state_transition(PipelineTask::State::BLOCKED);
@@ -193,7 +198,7 @@ private:
     PipelinePtr _pipeline;
     bool _opened;
     RuntimeState* _state = nullptr;
-    int _core_id = -1;
+    int _thread_id = -1;
     uint32_t _schedule_time = 0;
     std::unique_ptr<vectorized::Block> _block;
 
@@ -208,6 +213,9 @@ private:
     // 2 exe task
     // 3 update task statistics(update _queue_level/_core_id)
     int _queue_level = 0;
+
+    bool _need_to_revoke_memory = false;
+    std::shared_ptr<SpillContext> _spill_context;
 
     RuntimeProfile* _parent_profile = nullptr;
     std::unique_ptr<RuntimeProfile> _task_profile;
@@ -235,7 +243,6 @@ private:
 
     // `_read_dependencies` is stored as same order as `_operators`
     std::vector<std::vector<Dependency*>> _read_dependencies;
-    std::vector<Dependency*> _spill_dependencies;
     std::vector<Dependency*> _write_dependencies;
     std::vector<Dependency*> _finish_dependencies;
     std::vector<Dependency*> _execution_dependencies;
@@ -259,6 +266,8 @@ private:
     std::atomic<bool> _running {false};
     std::atomic<bool> _eos {false};
     std::atomic<bool> _wake_up_early {false};
+    // PipelineTask maybe hold by TaskQueue
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
 
     /**
          *
@@ -303,6 +312,7 @@ private:
     MonotonicStopWatch _state_change_watcher;
     std::atomic<bool> _spilling = false;
     const std::string _pipeline_name;
+    int _wake_by = -1;
 };
 
 using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;

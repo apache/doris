@@ -35,6 +35,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -71,7 +72,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithC
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -270,6 +270,9 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             OlapTable olapTable = olapScan.getTable();
             if (olapTable.isTemporary()) {
                 throw new AnalysisException("do not support create materialized view on temporary table");
+            }
+            if (olapScan.isDirectMvScan()) {
+                throw new AnalysisException("do not support create materialized view on another synchronized mv");
             }
             validateContext.baseIndexName = olapTable.getName();
             validateContext.dbName = olapTable.getDBName();

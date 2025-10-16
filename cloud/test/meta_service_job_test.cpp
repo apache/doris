@@ -1142,6 +1142,14 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
         auto rowset_key = meta_rowset_key({instance_id, tablet_id, input_version_end});
         std::string rowset_val;
         EXPECT_EQ(txn->get(rowset_key, &rowset_val), TxnErrorCode::TXN_OK) << hex(rowset_key);
+        doris::RowsetMetaCloudPB rowset_meta;
+        ASSERT_TRUE(rowset_meta.ParseFromString(rowset_val));
+        ASSERT_TRUE(rowset_meta.has_visible_ts_ms() && rowset_meta.visible_ts_ms() > 0);
+        using namespace std::chrono;
+        auto visible_tp = time_point<system_clock>(milliseconds(rowset_meta.visible_ts_ms()));
+        std::time_t visible_time = system_clock::to_time_t(visible_tp);
+        std::cout << "visible time: "
+                  << std::put_time(std::localtime(&visible_time), "%Y%m%d %H:%M:%S") << "\n";
     };
 
     auto test_abort_compaction_job = [&](int64_t table_id, int64_t index_id, int64_t partition_id,
@@ -1425,7 +1433,9 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
                        {tablet_id, new_tablet_id});
     }
 
-    // Create output rowsets for new tablet
+    // Now old table has rowsets [1, 2, 3, 4, 5], and new tablet has [4, 5]
+
+    // Create output rowsets for new tablet [1, 2, 3]
     std::vector<doris::RowsetMetaCloudPB> output_rowsets;
     for (int64_t i = 0; i < 3; ++i) {
         auto rowset = create_rowset(new_tablet_id, i + 2, i + 2, 100);
@@ -1471,6 +1481,8 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         schema_change->set_size_output_rowsets(300 * 110);
         schema_change->set_index_size_output_rowsets(300 * 10);
         schema_change->set_segment_size_output_rowsets(300 * 110);
+        schema_change->set_output_cumulative_point(
+                4); // cumulative point from the old table to the new one.
 
         brpc::Controller cntl;
         meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
@@ -1496,6 +1508,8 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         EXPECT_EQ(new_stats.segment_size(),
                   new_tablet_stats_pb.segment_size() +
                           req.job().schema_change().segment_size_output_rowsets());
+        EXPECT_EQ(new_stats.cumulative_point(),
+                  req.job().schema_change().output_cumulative_point());
     }
 
     {
@@ -1524,6 +1538,7 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         ASSERT_EQ(resp.rowset_meta(1).end_version(), 6);
     }
 
+    new_tablet_stats_pb = get_tablet_stats(new_tablet_id);
     {
         // Get the rowset metas of the new tablet
         GetRowsetRequest req;
@@ -1786,6 +1801,16 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     };
 
+    auto clear_tablets = [&](int64_t table_id, int64_t index_id, int64_t partition_id,
+                             int64_t tablet_id) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key =
+                meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        txn->remove(key);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    };
+
     config::use_delete_bitmap_lock_random_version = false;
     int64_t table_id = 111;
     remove_delete_bitmap_lock(meta_service.get(), table_id);
@@ -1852,8 +1877,10 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         config::delete_bitmap_lock_v2_white_list = version4 == 1 ? "" : "*";
         test_commit_compaction_job(table_id, 2, 3, tablet_id, TabletCompactionJobPB::BASE);
         ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
-        clear_rowsets(table_id);
+        clear_rowsets(tablet_id);
         clear_rowsets(new_tablet_id);
+        clear_tablets(table_id, 2, 3, tablet_id);
+        clear_tablets(table_id, 2, 3, new_tablet_id);
         remove_delete_bitmap_lock(meta_service.get(), table_id);
     }
 
@@ -3611,6 +3638,12 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
             EXPECT_EQ(saved_rowset.start_version(), rs.start_version());
             EXPECT_EQ(saved_rowset.end_version(), rs.end_version());
             EXPECT_EQ(saved_rowset.rowset_id_v2(), rs.rowset_id_v2());
+            ASSERT_TRUE(saved_rowset.has_visible_ts_ms() && saved_rowset.visible_ts_ms() > 0);
+            using namespace std::chrono;
+            auto visible_tp = time_point<system_clock>(milliseconds(saved_rowset.visible_ts_ms()));
+            std::time_t visible_time = system_clock::to_time_t(visible_tp);
+            std::cout << "visible time: "
+                      << std::put_time(std::localtime(&visible_time), "%Y%m%d %H:%M:%S") << "\n";
         }
         for (int i = 3; i < 5; ++i) { // [14-14][15-15]
             auto [k, v] = it->next();
@@ -4725,6 +4758,505 @@ TEST(MetaServiceJobTest, CancelSC) {
         ASSERT_TRUE(job_pb.ParseFromString(job_val));
         ASSERT_TRUE(job_pb.has_schema_change());
     }
+}
+
+TEST(MetaServiceJobTest, IdempotentCompactionJob) {
+    auto meta_service = get_meta_service();
+    // meta_service->resource_mgr().reset(); // Do not use resource manager
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    brpc::Controller cntl;
+
+    auto test_commit_compaction_job = [&](int64_t table_id, int64_t index_id, int64_t partition_id,
+                                          int64_t tablet_id, std::string job_id,
+                                          TabletCompactionJobPB::CompactionType type) {
+        FinishTabletJobRequest req;
+        FinishTabletJobResponse res;
+
+        auto compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(job_id);
+        compaction->set_initiator("ip:port");
+        req.mutable_job()->mutable_idx()->set_table_id(table_id);
+        req.mutable_job()->mutable_idx()->set_index_id(index_id);
+        req.mutable_job()->mutable_idx()->set_partition_id(partition_id);
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+        compaction->set_base_compaction_cnt(10);
+        compaction->set_cumulative_compaction_cnt(20);
+        req.set_action(FinishTabletJobRequest::COMMIT);
+
+        auto tablet_meta_key =
+                meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string tablet_meta_val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        doris::TabletMetaCloudPB tablet_meta_pb;
+        ASSERT_EQ(txn->get(tablet_meta_key, &tablet_meta_val), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(tablet_meta_pb.ParseFromString(tablet_meta_val));
+        tablet_meta_pb.set_cumulative_layer_point(50);
+        txn->put(tablet_meta_key, tablet_meta_pb.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Create create tablet stats, compation job will will update stats
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        auto tablet_stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string tablet_stats_val;
+        TabletStatsPB tablet_stats_pb;
+        ASSERT_EQ(txn->get(tablet_stats_key, &tablet_stats_val), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(tablet_stats_pb.ParseFromString(tablet_stats_val));
+
+        std::mt19937 rng(std::chrono::system_clock::now().time_since_epoch().count());
+        std::uniform_int_distribution<int> dist(1, 10000); // Positive numbers
+
+        compaction->set_output_cumulative_point(tablet_stats_pb.cumulative_point() + dist(rng));
+        compaction->set_num_output_rows(dist(rng));
+        compaction->set_num_output_rowsets(dist(rng));
+        compaction->set_num_output_segments(dist(rng));
+        compaction->set_num_input_rows(dist(rng));
+        compaction->set_num_input_rowsets(dist(rng));
+        compaction->set_num_input_segments(dist(rng));
+        compaction->set_size_input_rowsets(dist(rng));
+        compaction->set_size_output_rowsets(dist(rng));
+        compaction->set_index_size_input_rowsets(dist(rng));
+        compaction->set_segment_size_output_rowsets(dist(rng));
+        compaction->set_index_size_input_rowsets(dist(rng));
+        compaction->set_segment_size_output_rowsets(dist(rng));
+        compaction->set_type(type);
+
+        tablet_stats_pb.set_cumulative_compaction_cnt(dist(rng));
+        tablet_stats_pb.set_base_compaction_cnt(dist(rng));
+        tablet_stats_pb.set_cumulative_point(tablet_meta_pb.cumulative_layer_point());
+        // MUST let data stats be larger than input data size
+        tablet_stats_pb.set_num_rows(dist(rng) + compaction->num_input_rows());
+        tablet_stats_pb.set_data_size(dist(rng) + compaction->size_input_rowsets());
+        tablet_stats_pb.set_num_rowsets(dist(rng) + compaction->num_input_rowsets());
+        tablet_stats_pb.set_num_segments(dist(rng) + compaction->num_input_segments());
+        tablet_stats_pb.set_index_size(dist(rng) + compaction->index_size_input_rowsets());
+        tablet_stats_pb.set_segment_size(dist(rng) + compaction->segment_size_input_rowsets());
+
+        txn->put(tablet_stats_key, tablet_stats_pb.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Provide input and output rowset info
+        int64_t input_version_start = dist(rng);
+        int64_t input_version_end = input_version_start + 100;
+        compaction->add_input_versions(input_version_start);
+        compaction->add_input_versions(input_version_end);
+        compaction->add_output_versions(input_version_end);
+        compaction->add_output_rowset_ids("output rowset id");
+
+        // Input rowsets must exist, and more than 0
+        // Check number input rowsets
+        sp->set_call_back("process_compaction_job::loop_input_done", [](auto&& args) {
+            auto* num_input_rowsets = try_any_cast<int*>(args[0]);
+            ASSERT_EQ(*num_input_rowsets, 0); // zero existed rowsets
+        });
+
+        // Provide input rowset KVs, boundary test, 5 input rowsets
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        // clang-format off
+        std::vector<std::string> input_rowset_keys = {
+                meta_rowset_key({instance_id, tablet_id, input_version_start - 1}),
+                meta_rowset_key({instance_id, tablet_id, input_version_start}),
+                meta_rowset_key({instance_id, tablet_id, input_version_start + 1}),
+                meta_rowset_key({instance_id, tablet_id, (input_version_start + input_version_end) / 2}),
+                meta_rowset_key({instance_id, tablet_id, input_version_end - 1}),
+                meta_rowset_key({instance_id, tablet_id, input_version_end}),
+                meta_rowset_key({instance_id, tablet_id, input_version_end + 1}),
+        };
+        // clang-format on
+        std::vector<std::unique_ptr<std::string>> input_rowset_vals;
+        for (auto& i : input_rowset_keys) {
+            doris::RowsetMetaCloudPB rs_pb;
+            rs_pb.set_rowset_id(0);
+            rs_pb.set_rowset_id_v2(hex(i));
+            input_rowset_vals.emplace_back(new std::string(rs_pb.SerializeAsString()));
+            txn->put(i, *input_rowset_vals.back());
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check number input rowsets
+        sp->set_call_back("process_compaction_job::loop_input_done", [](auto&& args) {
+            auto* num_input_rowsets = try_any_cast<int*>(args[0]);
+            ASSERT_EQ(*num_input_rowsets, 5);
+        });
+
+        int64_t txn_id = dist(rng);
+        compaction->add_txn_id(txn_id);
+
+        // Provide invalid output rowset meta
+        auto tmp_rowset_key = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
+        doris::RowsetMetaCloudPB tmp_rs_pb;
+        tmp_rs_pb.set_rowset_id(0);
+        auto tmp_rowset_val = tmp_rs_pb.SerializeAsString();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(tmp_rowset_key, tmp_rowset_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Provide txn_id in output rowset meta
+        tmp_rs_pb.set_txn_id(10086);
+        tmp_rowset_val = tmp_rs_pb.SerializeAsString();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(tmp_rowset_key, tmp_rowset_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        meta_service->finish_tablet_job(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        tablet_stats_val.clear();
+        ASSERT_EQ(txn->get(tablet_stats_key, &tablet_stats_val), TxnErrorCode::TXN_OK);
+        TabletStatsPB stats;
+        ASSERT_TRUE(stats.ParseFromString(tablet_stats_val));
+
+        // clang-format off
+        EXPECT_EQ(stats.base_compaction_cnt()      , tablet_stats_pb.base_compaction_cnt() + (req.job().compaction(0).type() == TabletCompactionJobPB::BASE));
+        EXPECT_EQ(stats.cumulative_compaction_cnt(), tablet_stats_pb.cumulative_compaction_cnt() + (req.job().compaction(0).type() == TabletCompactionJobPB::CUMULATIVE));
+        EXPECT_EQ(stats.cumulative_point()         , type == TabletCompactionJobPB::BASE ? 50 : req.job().compaction(0).output_cumulative_point());
+        EXPECT_EQ(stats.num_rows()                 , tablet_stats_pb.num_rows() + (req.job().compaction(0).num_output_rows() - req.job().compaction(0).num_input_rows()));
+        EXPECT_EQ(stats.data_size()                , tablet_stats_pb.data_size() + (req.job().compaction(0).size_output_rowsets() - req.job().compaction(0).size_input_rowsets()));
+        EXPECT_EQ(stats.num_rowsets()              , tablet_stats_pb.num_rowsets() + (req.job().compaction(0).num_output_rowsets() - req.job().compaction(0).num_input_rowsets()));
+        EXPECT_EQ(stats.num_segments()             , tablet_stats_pb.num_segments() + (req.job().compaction(0).num_output_segments() - req.job().compaction(0).num_input_segments()));
+        EXPECT_EQ(stats.index_size()               , tablet_stats_pb.index_size() + (req.job().compaction(0).index_size_output_rowsets() - req.job().compaction(0).index_size_input_rowsets()));
+        EXPECT_EQ(stats.segment_size()             , tablet_stats_pb.segment_size() + (req.job().compaction(0).segment_size_output_rowsets() - req.job().compaction(0).segment_size_input_rowsets()));
+        // clang-format on
+
+        // Check job removed, tablet meta updated
+        auto job_key = job_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string job_val;
+        ASSERT_EQ(txn->get(job_key, &job_val), TxnErrorCode::TXN_OK);
+        TabletJobInfoPB job_pb;
+        ASSERT_TRUE(job_pb.ParseFromString(job_val));
+        ASSERT_TRUE(job_pb.compaction().empty());
+        tablet_meta_val.clear();
+
+        // Check tmp rowset removed
+        ASSERT_EQ(txn->get(tmp_rowset_key, &tmp_rowset_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+        // Check input rowsets removed, the largest version remains
+        for (int i = 1; i < input_rowset_keys.size() - 2; ++i) {
+            std::string val;
+            EXPECT_EQ(txn->get(input_rowset_keys[i], &val), TxnErrorCode::TXN_KEY_NOT_FOUND)
+                    << hex(input_rowset_keys[i]);
+        }
+        // Check recycle rowsets added
+        for (int i = 1; i < input_rowset_vals.size() - 1; ++i) {
+            doris::RowsetMetaCloudPB rs;
+            ASSERT_TRUE(rs.ParseFromString(*input_rowset_vals[i]));
+            auto key = recycle_rowset_key({instance_id, tablet_id, rs.rowset_id_v2()});
+            std::string val;
+            EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK) << hex(key);
+        }
+        // Check output rowset added
+        auto rowset_key = meta_rowset_key({instance_id, tablet_id, input_version_end});
+        std::string rowset_val;
+        EXPECT_EQ(txn->get(rowset_key, &rowset_val), TxnErrorCode::TXN_OK) << hex(rowset_key);
+    };
+    constexpr int64_t table_id = 1;
+    constexpr int64_t index_id = 2;
+    constexpr int64_t partition_id = 3;
+    constexpr int64_t tablet_id = 4;
+    auto type = TabletCompactionJobPB::BASE;
+    std::string job_id = "job_id1234";
+
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false);
+
+    {
+        StartTabletJobResponse res;
+        start_compaction_job(meta_service.get(), tablet_id, job_id, "ip:port", 9, 19,
+                             TabletCompactionJobPB::BASE, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    ASSERT_NO_FATAL_FAILURE(
+            test_commit_compaction_job(table_id, index_id, partition_id, tablet_id, job_id, type));
+
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false);
+    {
+        StartTabletJobResponse res;
+        start_compaction_job(meta_service.get(), tablet_id, job_id, "ip:port", 9, 19,
+                             TabletCompactionJobPB::BASE, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_TABLET_CACHE);
+    }
+}
+
+TEST(MetaServiceJobTest, UpdateStreamingJobMetaTest) {
+    auto meta_service = get_meta_service();
+    ASSERT_NE(meta_service, nullptr);
+
+    // Test case 1: First time update (job doesn't exist)
+    {
+        CommitTxnRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        // Begin a txn to obtain a valid txn_id and db_id mapping
+        int64_t db_id = 1000;
+        {
+            brpc::Controller cntl_bt;
+            BeginTxnRequest bt_req;
+            BeginTxnResponse bt_res;
+            auto* txn_info = bt_req.mutable_txn_info();
+            txn_info->set_db_id(db_id);
+            txn_info->set_label("streaming_ut_1");
+            txn_info->add_table_ids(1);
+            txn_info->set_load_job_source_type(
+                    LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
+            txn_info->set_timeout_ms(36000);
+            meta_service->begin_txn(&cntl_bt, &bt_req, &bt_res, nullptr);
+            ASSERT_EQ(bt_res.status().code(), MetaServiceCode::OK);
+            request.set_txn_id(bt_res.txn_id());
+            request.set_db_id(db_id);
+        }
+
+        TxnCommitAttachmentPB* attachment = request.mutable_commit_attachment();
+        attachment->set_type(TxnCommitAttachmentPB::STREAMING_TASK_TXN_COMMIT_ATTACHMENT);
+
+        StreamingTaskCommitAttachmentPB* streaming_attach =
+                attachment->mutable_streaming_task_txn_commit_attachment();
+        streaming_attach->set_job_id(1001);
+        streaming_attach->set_offset("test_offset_1");
+        streaming_attach->set_scanned_rows(1000);
+        streaming_attach->set_load_bytes(5000);
+        streaming_attach->set_num_files(10);
+        streaming_attach->set_file_bytes(8000);
+
+        CommitTxnResponse response;
+        brpc::Controller cntl;
+        meta_service->commit_txn(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 2: Update existing job (accumulate values)
+    {
+        CommitTxnRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        // Begin a txn to obtain a valid txn_id and db_id mapping
+        int64_t db_id = 1000;
+        {
+            brpc::Controller cntl_bt;
+            BeginTxnRequest bt_req;
+            BeginTxnResponse bt_res;
+            auto* txn_info = bt_req.mutable_txn_info();
+            txn_info->set_db_id(db_id);
+            txn_info->set_label("streaming_ut_2");
+            txn_info->add_table_ids(1);
+            txn_info->set_load_job_source_type(
+                    LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
+            txn_info->set_timeout_ms(36000);
+            meta_service->begin_txn(&cntl_bt, &bt_req, &bt_res, nullptr);
+            ASSERT_EQ(bt_res.status().code(), MetaServiceCode::OK);
+            request.set_txn_id(bt_res.txn_id());
+            request.set_db_id(db_id);
+        }
+
+        TxnCommitAttachmentPB* attachment = request.mutable_commit_attachment();
+        attachment->set_type(TxnCommitAttachmentPB::STREAMING_TASK_TXN_COMMIT_ATTACHMENT);
+
+        StreamingTaskCommitAttachmentPB* streaming_attach =
+                attachment->mutable_streaming_task_txn_commit_attachment();
+        streaming_attach->set_job_id(1001); // Same job_id as before
+        streaming_attach->set_offset("test_offset_2");
+        streaming_attach->set_scanned_rows(500);
+        streaming_attach->set_load_bytes(2000);
+        streaming_attach->set_num_files(5);
+        streaming_attach->set_file_bytes(3000);
+
+        CommitTxnResponse response;
+        brpc::Controller cntl;
+        meta_service->commit_txn(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 3: Missing commit attachment
+    {
+        CommitTxnRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        // Begin a txn to obtain a valid txn_id and db_id mapping
+        int64_t db_id = 1000;
+        {
+            brpc::Controller cntl_bt;
+            BeginTxnRequest bt_req;
+            BeginTxnResponse bt_res;
+            auto* txn_info = bt_req.mutable_txn_info();
+            txn_info->set_db_id(db_id);
+            txn_info->set_label("streaming_ut_missing_attach");
+            txn_info->add_table_ids(1);
+            txn_info->set_load_job_source_type(
+                    LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
+            txn_info->set_timeout_ms(36000);
+            meta_service->begin_txn(&cntl_bt, &bt_req, &bt_res, nullptr);
+            ASSERT_EQ(bt_res.status().code(), MetaServiceCode::OK);
+            request.set_txn_id(bt_res.txn_id());
+            request.set_db_id(db_id);
+        }
+        // No commit attachment set
+
+        CommitTxnResponse response;
+        brpc::Controller cntl;
+        meta_service->commit_txn(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_TRUE(response.status().msg().find("missing commit attachment") != std::string::npos);
+    }
+}
+
+TEST(MetaServiceJobTest, GetStreamingTaskCommitAttachTest) {
+    auto meta_service = get_meta_service();
+    ASSERT_NE(meta_service, nullptr);
+
+    // First, create a streaming job by committing a txn
+    {
+        CommitTxnRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        // Begin a txn to obtain a valid txn_id and db_id mapping
+        int64_t db_id = 1000;
+        {
+            brpc::Controller cntl_bt;
+            BeginTxnRequest bt_req;
+            BeginTxnResponse bt_res;
+            auto* txn_info = bt_req.mutable_txn_info();
+            txn_info->set_db_id(db_id);
+            txn_info->set_label("streaming_ut_3");
+            txn_info->add_table_ids(1);
+            txn_info->set_load_job_source_type(
+                    LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
+            txn_info->set_timeout_ms(36000);
+            meta_service->begin_txn(&cntl_bt, &bt_req, &bt_res, nullptr);
+            ASSERT_EQ(bt_res.status().code(), MetaServiceCode::OK);
+            request.set_txn_id(bt_res.txn_id());
+            request.set_db_id(db_id);
+        }
+
+        TxnCommitAttachmentPB* attachment = request.mutable_commit_attachment();
+        attachment->set_type(TxnCommitAttachmentPB::STREAMING_TASK_TXN_COMMIT_ATTACHMENT);
+
+        StreamingTaskCommitAttachmentPB* streaming_attach =
+                attachment->mutable_streaming_task_txn_commit_attachment();
+        streaming_attach->set_job_id(1002);
+        streaming_attach->set_offset("test_offset_3");
+        streaming_attach->set_scanned_rows(2000);
+        streaming_attach->set_load_bytes(10000);
+        streaming_attach->set_num_files(20);
+        streaming_attach->set_file_bytes(15000);
+
+        CommitTxnResponse response;
+        brpc::Controller cntl;
+        meta_service->commit_txn(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 1: Get existing streaming job
+    {
+        GetStreamingTaskCommitAttachRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        request.set_db_id(1000); // Must match db_id used when committing
+        request.set_job_id(1002);
+
+        GetStreamingTaskCommitAttachResponse response;
+        brpc::Controller cntl;
+        meta_service->get_streaming_task_commit_attach(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+        EXPECT_TRUE(response.has_commit_attach());
+        EXPECT_EQ(response.commit_attach().job_id(), 1002);
+        EXPECT_EQ(response.commit_attach().scanned_rows(), 2000);
+        EXPECT_EQ(response.commit_attach().load_bytes(), 10000);
+        EXPECT_EQ(response.commit_attach().num_files(), 20);
+        EXPECT_EQ(response.commit_attach().file_bytes(), 15000);
+    }
+
+    // Test case 2: Get non-existent streaming job
+    {
+        GetStreamingTaskCommitAttachRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        request.set_db_id(1000);
+        request.set_job_id(9999); // Non-existent job_id
+
+        GetStreamingTaskCommitAttachResponse response;
+        brpc::Controller cntl;
+        meta_service->get_streaming_task_commit_attach(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::STREAMING_JOB_PROGRESS_NOT_FOUND);
+        EXPECT_TRUE(response.status().msg().find("progress info not found") != std::string::npos);
+    }
+
+    // Test case 3: Missing required fields
+    {
+        GetStreamingTaskCommitAttachRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        // Missing db_id and job_id
+
+        GetStreamingTaskCommitAttachResponse response;
+        brpc::Controller cntl;
+        meta_service->get_streaming_task_commit_attach(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_TRUE(response.status().msg().find("empty db_id or job_id") != std::string::npos);
+    }
+}
+
+TEST(MetaServiceJobTest, DeleteJobKeyRemovesStreamingMeta) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "test_cloud_instance_id";
+    std::string cloud_unique_id = "1:test_cloud_unique_id:1";
+    MOCK_GET_INSTANCE_ID(instance_id);
+    create_and_refresh_instance(meta_service.get(), instance_id);
+
+    int64_t db_id = 1001;
+    int64_t job_id = 2002;
+
+    // Put a dummy StreamingTaskCommitAttachmentPB under streaming_job_key
+    StreamingTaskCommitAttachmentPB attach;
+    attach.set_job_id(job_id);
+    attach.set_scanned_rows(123);
+    attach.set_load_bytes(456);
+    attach.set_num_files(3);
+    attach.set_file_bytes(789);
+    std::string val = attach.SerializeAsString();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key = streaming_job_key({instance_id, db_id, job_id});
+    txn->put(key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    // Act: call delete_streaming_job
+    brpc::Controller cntl;
+    DeleteStreamingJobRequest req;
+    DeleteStreamingJobResponse res;
+    req.set_cloud_unique_id(cloud_unique_id);
+    req.set_db_id(db_id);
+    req.set_job_id(job_id);
+    meta_service->delete_streaming_job(&cntl, &req, &res, nullptr);
+
+    // Assert: RPC returns OK
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // And the key is gone
+    std::unique_ptr<Transaction> check_txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&check_txn), TxnErrorCode::TXN_OK);
+    std::string got;
+    TxnErrorCode err = check_txn->get(key, &got);
+    ASSERT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
 } // namespace doris::cloud

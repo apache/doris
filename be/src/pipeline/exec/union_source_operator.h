@@ -44,6 +44,7 @@ public:
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state) override;
 
     [[nodiscard]] std::string debug_string(int indentation_level = 0) const override;
 
@@ -101,7 +102,7 @@ public:
         return Status::OK();
     }
     [[nodiscard]] int get_child_count() const { return _child_size; }
-    bool require_shuffled_data_distribution() const override {
+    bool require_shuffled_data_distribution(RuntimeState* /*state*/) const override {
         return _followed_by_shuffled_operator;
     }
 

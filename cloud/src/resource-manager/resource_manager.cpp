@@ -30,6 +30,7 @@
 #include "meta-service/meta_service_helper.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv_error.h"
+#include "snapshot/snapshot_manager.h"
 
 namespace doris::cloud {
 
@@ -116,6 +117,9 @@ int ResourceManager::init() {
     for (auto& [inst_id, inst] : instances) {
         for (auto& c : inst.clusters()) {
             add_cluster_to_index_no_lock(inst_id, c);
+        }
+        if (inst.has_multi_version_status()) {
+            instance_multi_version_status_[inst_id] = inst.multi_version_status();
         }
     }
 
@@ -521,8 +525,12 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
     }
 
     auto& req_cluster = cluster.cluster;
+    InstanceInfoPB instance_for_log {instance};
+    for (auto& obj_info : *instance_for_log.mutable_obj_info()) {
+        obj_info.set_ak(hide_access_key(obj_info.ak()));
+    }
     LOG(INFO) << "cluster to add json=" << proto_to_json(req_cluster);
-    LOG(INFO) << "json=" << proto_to_json(instance);
+    LOG(INFO) << "json=" << proto_to_json(instance_for_log);
 
     // Check id and name, they need to be unique
     // One cluster id per name, name is alias of cluster id
@@ -803,10 +811,8 @@ std::string ResourceManager::update_cluster(
     }
 
     std::vector<ClusterPB> clusters_in_instance;
-    std::set<std::string> cluster_names;
     // collect cluster in instance pb for check
     for (auto& i : instance.clusters()) {
-        cluster_names.emplace(i.cluster_name());
         clusters_in_instance.emplace_back(i);
     }
 
@@ -837,8 +843,11 @@ std::string ResourceManager::update_cluster(
 
     // check cluster_name is empty cluster, if empty and replace_if_existing_empty_target_cluster == true, drop it
     if (replace_if_existing_empty_target_cluster) {
-        auto it = cluster_names.find(cluster_name);
-        if (it != cluster_names.end()) {
+        auto it = std::find_if(clusters_in_instance.begin(), clusters_in_instance.end(),
+                               [&cluster_name](const auto& cluster) {
+                                   return cluster_name == cluster.cluster_name();
+                               });
+        if (it != clusters_in_instance.end()) {
             // found it, if it's an empty cluster, drop it from instance
             int idx = -1;
             for (auto& cluster : instance.clusters()) {
@@ -851,7 +860,7 @@ std::string ResourceManager::update_cluster(
                                 instance.clusters());
                         clusters.DeleteSubrange(idx, 1);
                         // Remove cluster name from set
-                        cluster_names.erase(cluster_name);
+                        clusters_in_instance.erase(it);
                         LOG(INFO) << "remove empty cluster due to it is the target of a "
                                      "rename_cluster, cluster_name="
                                   << cluster_name;
@@ -1423,6 +1432,21 @@ void ResourceManager::refresh_instance(const std::string& instance_id,
     } else {
         instance_multi_version_status_.erase(instance_id);
     }
+
+    if (instance.has_source_instance_id() && !instance.source_instance_id().empty()) {
+        Versionstamp versionstamp;
+        if (!SnapshotManager::parse_snapshot_versionstamp(instance.source_snapshot_id(),
+                                                          &versionstamp)) {
+            LOG(WARNING) << "invalid source_snapshot_id, instance_id=" << instance_id
+                         << " source_snapshot_id=" << instance.source_snapshot_id()
+                         << " source_instance_id=" << instance.source_instance_id();
+            return;
+        }
+        instance_source_snapshot_info_.insert_or_assign(
+                instance_id, std::make_pair(instance.source_instance_id(), versionstamp));
+    } else {
+        instance_source_snapshot_info_.erase(instance_id);
+    }
 }
 
 bool ResourceManager::is_version_read_enabled(std::string_view instance_id) const {
@@ -1489,6 +1513,19 @@ std::pair<MetaServiceCode, std::string> ResourceManager::validate_sub_clusters(
     }
 
     return std::make_pair(MetaServiceCode::OK, "");
+}
+
+bool ResourceManager::get_source_snapshot_info(const std::string& instance_id,
+                                               std::string* source_instance_id,
+                                               Versionstamp* snapshot_versionstamp) {
+    std::shared_lock l(mtx_);
+    auto it = instance_source_snapshot_info_.find(instance_id);
+    if (it == instance_source_snapshot_info_.end()) {
+        return false;
+    }
+    *source_instance_id = it->second.first;
+    *snapshot_versionstamp = it->second.second;
+    return true;
 }
 
 } // namespace doris::cloud

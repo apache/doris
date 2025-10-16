@@ -40,8 +40,9 @@ import java.util.List;
 public class QuartersSub extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
         ComputeSignatureForDateArithmetic, PropagateNullableOnDateOrTimeLikeV2Args, DateAddSubMonotonic {
 
-    // When enable_date_conversion is true, we prefer to V2 signature.
-    // This preference follows original planner. refer to ScalarType.getDefaultDateType()
+    //ATTN: must place Datetime before Date, because for castring from string like literal, date and datetime has
+    // the same precedence, but we prefer datetime to avoid data loss. for string literal which could cast to Date
+    // without loss, we handle it by ComputeSignatureForDateArithmetic.
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT,
                     IntegerType.INSTANCE),

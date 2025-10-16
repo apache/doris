@@ -63,8 +63,26 @@ suite("test_custom_analyzer", "p0") {
         CREATE INVERTED INDEX ANALYZER IF NOT EXISTS keyword_lowercase
         PROPERTIES
         (
-        "tokenizer" = "keyword",
-        "token_filter" = "asciifolding, lowercase"
+            "tokenizer" = "keyword",
+            "token_filter" = "asciifolding, lowercase"
+        );
+    """
+
+    sql """
+        CREATE INVERTED INDEX ANALYZER IF NOT EXISTS basic_analyzer
+        PROPERTIES
+        (
+            "tokenizer" = "basic",
+            "token_filter" = "lowercase"
+        );
+    """
+
+    sql """
+        CREATE INVERTED INDEX ANALYZER IF NOT EXISTS icu_analyzer
+        PROPERTIES
+        (
+            "tokenizer" = "icu",
+            "token_filter" = "lowercase"
         );
     """
 
@@ -80,6 +98,8 @@ suite("test_custom_analyzer", "p0") {
     qt_tokenize_sql """ select tokenize("β-carbon nitride", '"analyzer"="lowercase_delimited"'); """
     qt_tokenize_sql """ select tokenize("ǁŨǁe language", '"analyzer"="lowercase_delimited"'); """
     qt_tokenize_sql """ select tokenize("1080º Avalanche", '"analyzer"="lowercase_delimited"'); """
+    qt_tokenize_sql """ select tokenize("GET /images/hm_bg.jpg HTTP/1.0", '"analyzer"="basic_analyzer"'); """
+    qt_tokenize_sql """ select tokenize("让我们说「Hello」そして世界とつながろう！", '"analyzer"="icu_analyzer"'); """
      
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
     sql """
@@ -137,5 +157,26 @@ suite("test_custom_analyzer", "p0") {
         if (e.message.contains("is used by index")) {
             logger.info("used by index")
         }
+    }
+
+    try {
+        sql "DROP TABLE IF EXISTS test_custom_analyzer_3"
+        sql """
+            CREATE TABLE test_custom_analyzer_3 (
+                `a` bigint NOT NULL AUTO_INCREMENT(1),
+                `ch` text NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`a`)
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+        """
+
+        sql """ insert into test_custom_analyzer_3 values(1, "GET /french/images/nav_venue_off.gif HTTP/1.0"); """
+        sql """ alter table test_custom_analyzer_3 add index idx_ch(`ch`) using inverted properties("support_phrase" = "true", "analyzer" = "lowercase_delimited"); """
+
+        qt_sql """ select * from test_custom_analyzer_3 where ch match 'nav_venue_off.gif'; """
+    } catch (SQLException e) {
     }
 }

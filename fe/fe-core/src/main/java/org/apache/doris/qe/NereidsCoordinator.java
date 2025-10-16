@@ -91,9 +91,30 @@ public class NereidsCoordinator extends Coordinator {
         super(context, planner, statsErrorEstimator);
 
         this.coordinatorContext = CoordinatorContext.buildForSql(planner, this);
-        this.coordinatorContext.setJobProcessor(buildJobProcessor(coordinatorContext));
         this.needEnqueue = true;
 
+        DataSink dataSink = coordinatorContext.dataSink;
+        // output to mysql or to file
+        if ((dataSink instanceof ResultSink || dataSink instanceof ResultFileSink)) {
+            setForQuery();
+        } else {
+            setForInsert(-1L);
+        }
+
+        Preconditions.checkState(!planner.getFragments().isEmpty()
+                && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
+    }
+
+    // load, with JobId
+    public NereidsCoordinator(ConnectContext context,
+            NereidsPlanner planner, StatsErrorEstimator statsErrorEstimator, long jobId) {
+        super(context, planner, statsErrorEstimator);
+
+        this.coordinatorContext = CoordinatorContext.buildForSql(planner, this);
+        this.needEnqueue = true;
+
+        // we don't need to check the dataSink, Because setting jobId means this must be a load operation
+        setForInsert(jobId);
         Preconditions.checkState(!planner.getFragments().isEmpty()
                 && coordinatorContext.instanceNum.get() > 0, "Fragment and Instance can not be empty˚");
     }
@@ -108,6 +129,8 @@ public class NereidsCoordinator extends Coordinator {
                 this, jobId, queryId, fragments, distributedPlans, scanNodes,
                 descTable, timezone, loadZeroTolerance, enableProfile
         );
+        // same reason in `setForInsert`
+        this.coordinatorContext.queryOptions.setDisableFileCache(true);
         this.needEnqueue = false;
 
         Preconditions.checkState(!fragments.isEmpty()
@@ -322,6 +345,11 @@ public class NereidsCoordinator extends Coordinator {
     }
 
     @Override
+    public String getFirstErrorMsg() {
+        return coordinatorContext.asLoadProcessor().loadContext.getFirstErrorMsg();
+    }
+
+    @Override
     public List<TErrorTabletInfo> getErrorTabletInfos() {
         return coordinatorContext.asLoadProcessor().loadContext.getErrorTabletInfos();
     }
@@ -454,6 +482,18 @@ public class NereidsCoordinator extends Coordinator {
         }
     }
 
+    private void setForInsert(long jobId) {
+        JobProcessor jobProc = new LoadProcessor(this.coordinatorContext, jobId);
+        this.coordinatorContext.setJobProcessor(jobProc);
+        // Set this field to true to avoid data entering the normal cache LRU queue
+        this.coordinatorContext.queryOptions.setDisableFileCache(true);
+    }
+
+    private void setForQuery() {
+        JobProcessor jobProc = QueryProcessor.build(this.coordinatorContext);
+        this.coordinatorContext.setJobProcessor(jobProc);
+    }
+
     private void setForBroker(
             CoordinatorContext coordinatorContext, PipelineDistributedPlan topPlan) throws AnalysisException {
         DataSink dataSink = coordinatorContext.dataSink;
@@ -509,16 +549,6 @@ public class NereidsCoordinator extends Coordinator {
             }
         }
         return false;
-    }
-
-    private JobProcessor buildJobProcessor(CoordinatorContext coordinatorContext) {
-        DataSink dataSink = coordinatorContext.dataSink;
-        if ((dataSink instanceof ResultSink || dataSink instanceof ResultFileSink)) {
-            return QueryProcessor.build(coordinatorContext);
-        } else {
-            // insert statement has jobId == -1
-            return new LoadProcessor(coordinatorContext, -1L);
-        }
     }
 
     @Override

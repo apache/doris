@@ -19,7 +19,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 
-suite('test_ingestion_load_alter_column', 'p0') {
+suite('test_ingestion_load_alter_column', 'p0,external') {
 
     def testIngestLoadJob = { testTable, loadLabel, dataFile, alterAction ->
 
@@ -27,12 +27,12 @@ suite('test_ingestion_load_alter_column', 'p0') {
 
         sql "CLEAN LABEL FROM ${context.dbName}"
 
-        Integer loadId = -1
-        Integer tableId = -1
-        Integer partitionId = -1
-        Integer indexId = -1
-        Integer bucketId = 0
-        Integer schemaHash = -1
+        long loadId = -1
+        long tableId = -1
+        long partitionId = -1
+        long indexId = -1
+        long bucketId = 0
+        long schemaHash = -1
 
         String reqBody =
                 """{
@@ -85,7 +85,7 @@ suite('test_ingestion_load_alter_column', 'p0') {
                     "msg": "",
                     "appId": "",
                     "dppResult": "${dppResult}",
-                    "filePathToSize": "{\\"${etlResultFilePath}\\": 81758}",
+                    "filePathToSize": "{\\"${etlResultFilePath}\\": 5745}",
                     "hadoopProperties": "{\\"fs.defaultFS\\":\\"${getHdfsFs()}\\",\\"hadoop.username\\":\\"${getHdfsUser()}\\",\\"hadoop.password\\":\\"${getHdfsPasswd()}\\"}"
                 }
             }"""
@@ -108,11 +108,11 @@ suite('test_ingestion_load_alter_column', 'p0') {
 
         alterAction.call()
 
-        max_try_milli_secs = 120000
+        def max_try_milli_secs = 120000
         while (max_try_milli_secs) {
-            result = sql "show load where label = '${loadLabel}'"
+            def result = sql "show load where label = '${loadLabel}'"
             if (result[0][2] == "CANCELLED") {
-                msg = result[0][7]
+                def  msg = result[0][7]
                 logger.info("err msg: " + msg)
                 assertTrue((result[0][7] =~ /schema of index \[\d+\] has changed/).find())
                 break
@@ -129,11 +129,13 @@ suite('test_ingestion_load_alter_column', 'p0') {
 
     if (enableHdfs()) {
 
-        tableName1 = 'tbl_test_spark_load_alter_column_1'
-        tableName2 = 'tbl_test_spark_load_alter_column_2'
+        def tableName1 = 'tbl_test_spark_load_alter_column_1'
+        def tableName2 = 'tbl_test_spark_load_alter_column_2'
 
         try {
 
+            sql "DROP TABLE if exists ${tableName1}"
+            sql "DROP TABLE if exists ${tableName2}"
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName1} (
                     c_int int(11) NULL,
@@ -192,17 +194,16 @@ suite('test_ingestion_load_alter_column', 'p0') {
                 )
                 """
 
-            label = "test_ingestion_load_alter_column_2"
+            def label = "test_ingestion_load_alter_column_2"
 
             testIngestLoadJob.call(tableName2, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet', {
                 sql "alter table ${tableName2} add column c_string string null"
             })
 
         } finally {
-            sql "DROP TABLE ${tableName1}"
-            sql "DROP TABLE ${tableName2}"
+            //sql "DROP TABLE ${tableName1}"
+            //sql "DROP TABLE ${tableName2}"
         }
-
     }
-
 }
+

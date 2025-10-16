@@ -231,12 +231,13 @@ QueryContext::~QueryContext() {
     _runtime_predicates.clear();
     file_scan_range_params_map.clear();
     obj_pool.clear();
+    if (_merge_controller_handler) {
+        _merge_controller_handler->release_undone_filters(this);
+    }
     _merge_controller_handler.reset();
 
-#ifndef BE_TEST
-    _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
-#endif
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
+    ExecEnv::GetInstance()->fragment_mgr()->remove_query_context(this->_query_id);
     // the only one msg shows query's end. any other msg should append to it if need.
     LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
 }
@@ -315,6 +316,16 @@ void QueryContext::set_load_error_url(std::string error_url) {
 std::string QueryContext::get_load_error_url() {
     std::lock_guard<std::mutex> lock(_error_url_lock);
     return _load_error_url;
+}
+
+void QueryContext::set_first_error_msg(std::string error_msg) {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    _first_error_msg = error_msg;
+}
+
+std::string QueryContext::get_first_error_msg() {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    return _first_error_msg;
 }
 
 void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {

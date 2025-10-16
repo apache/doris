@@ -9,5 +9,5 @@ test_base_alter_col_type_multi_level_mtmv_mv2	NORMAL	SUCCESS
 test_base_alter_col_type_multi_level_mtmv_mv3	SCHEMA_CHANGE	SUCCESS
 
 -- !add_col_t1_mv4 --
-test_base_alter_col_type_multi_level_mtmv_mv4	SCHEMA_CHANGE	SUCCESS
+test_base_alter_col_type_multi_level_mtmv_mv4	NORMAL	SUCCESS
 

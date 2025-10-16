@@ -29,6 +29,7 @@
 #include "util/byte_buffer.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 int StreamLoadForwardHandler::on_header(HttpRequest* req) {
     std::ostringstream headers_info;
@@ -62,7 +63,7 @@ int StreamLoadForwardHandler::on_header(HttpRequest* req) {
     }
 
     std::string target_host;
-    int target_port;
+    uint16_t target_port;
     Status st = parse_forward_target(it->second, target_host, target_port);
     if (!st.ok()) {
         LOG(WARNING) << "StreamLoadForward failed - invalid forward target: " << st.to_string()
@@ -172,7 +173,7 @@ void StreamLoadForwardHandler::on_chunk_data(HttpRequest* req) {
 }
 
 Status StreamLoadForwardHandler::init_forward_request(
-        HttpRequest* req, const std::string& target_host, int target_port,
+        HttpRequest* req, const std::string& target_host, uint16_t target_port,
         std::shared_ptr<StreamLoadForwardContext>& ctx) {
     ctx->original_req = req;
 
@@ -303,7 +304,7 @@ void StreamLoadForwardHandler::forward_connection_close_cb(struct evhttp_connect
 }
 
 Status StreamLoadForwardHandler::parse_forward_target(const std::string& forward_to,
-                                                      std::string& host, int& port) {
+                                                      std::string& host, uint16_t& port) {
     size_t pos = forward_to.find(':');
     if (pos == std::string::npos) {
         return Status::InvalidArgument("Invalid forward_to format, should be host:port, got: {}",
@@ -312,18 +313,21 @@ Status StreamLoadForwardHandler::parse_forward_target(const std::string& forward
 
     host = forward_to.substr(0, pos);
     std::string port_str = forward_to.substr(pos + 1);
+    int parsed_port = 0;
 
     try {
-        port = std::stoi(port_str);
+        parsed_port = std::stoi(port_str);
     } catch (const std::exception& e) {
         LOG(WARNING) << "Exception while parsing port: " << port_str << ", what(): " << e.what();
         return Status::InvalidArgument("Invalid port number in forward_to: {}, exception: {}",
                                        port_str, e.what());
     }
 
-    if (port <= 0 || port > 65535) {
-        return Status::InvalidArgument("Port number must be between 1 and 65535, got: {}", port);
+    if (parsed_port <= 0 || parsed_port > 65535) {
+        return Status::InvalidArgument("Port number must be between 1 and 65535, got: {}",
+                                       parsed_port);
     }
+    port = static_cast<uint16_t>(parsed_port);
 
     return Status::OK();
 }
@@ -394,4 +398,5 @@ void StreamLoadForwardHandler::setup_forward_headers(HttpRequest* req,
                       evhttp_request_get_host(req->get_evhttp_request()));
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

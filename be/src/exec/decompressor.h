@@ -34,6 +34,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 enum CompressType {
     UNCOMPRESSED,
@@ -237,7 +238,7 @@ private:
     }
 
     uint8_t* get_uint16(uint8_t* ptr, uint16_t* value) {
-        *value = *ptr << 8 | *(ptr + 1);
+        *value = static_cast<uint16_t>(*ptr << 8) | *(ptr + 1);
         return ptr + sizeof(uint16_t);
     }
 
@@ -305,4 +306,5 @@ private:
     const static uint64_t F_ADLER32_D;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris
