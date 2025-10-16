@@ -39,7 +39,7 @@ import java.util.List;
  * 2. otherwise if both sides are not nullable, then null safe equal can converted to equal too.
  *
  */
-public class NullSafeEqualToEqual extends ConditionRewrite implements ExpressionPatternRuleFactory {
+public class NullSafeEqualToEqual extends ConditionRewrite {
     public static final NullSafeEqualToEqual INSTANCE = new NullSafeEqualToEqual();
 
     @Override
