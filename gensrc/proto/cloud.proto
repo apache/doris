@@ -68,6 +68,32 @@ enum SnapshotSwitchStatus {
     SNAPSHOT_SWITCH_ON = 2;
 }
 
+enum KeySetType {
+    UNKNOWN_KEY_SET = 0;
+
+    // Single version keys
+    SINGLE_VERSION_PARTITION_VERSION = 1;
+    SINGLE_VERSION_TABLE_VERSION = 2;
+    SINGLE_VERSION_META_ROWSET = 3;
+    SINGLE_VERSION_META_TABLET = 4;
+    SINGLE_VERSION_META_SCHEMA = 5;
+    SINGLE_VERSION_TABLET_STATS = 6;
+    SINGLE_VERSION_TABLET_INDEX = 7;
+
+    // Multi version keys
+    MULTI_VERSION_PARTITION_VERSION = 10;
+    MULTI_VERSION_TABLE_VERSION = 12;
+    MULTI_VERSION_INDEX_PARTITION = 13;
+    MULTI_VERSION_INDEX_INDEX = 14;
+    MULTI_VERSION_INDEX_TABLET = 15;
+    MULTI_VERSION_TABLET_STATS = 16;
+    MULTI_VERSION_META_PARTITION = 17;
+    MULTI_VERSION_META_INDEX = 18;
+    MULTI_VERSION_META_TABLET = 19;
+    MULTI_VERSION_META_SCHEMA = 20;
+    MULTI_VERSION_META_ROWSET = 21;
+}
+
 message InstanceInfoPB {
     enum Status {
         NORMAL = 0;
@@ -108,6 +134,9 @@ message InstanceInfoPB {
     // Snapshot properties.
     optional int64 max_reserved_snapshot = 117;
     optional int64 snapshot_interval_seconds = 118;
+
+    repeated KeySetType migrated_key_sets = 119;    // convert single version keys to multi version keys
+    repeated KeySetType compacted_key_sets = 120;   // compact snapshot chain ...
 }
 
 message StagePB {
