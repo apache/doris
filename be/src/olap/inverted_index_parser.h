@@ -68,6 +68,7 @@ const std::string INVERTED_INDEX_PARSER_MAX_WORD = "ik_max_word";
 const std::string INVERTED_INDEX_PARSER_SMART = "ik_smart";
 
 const std::string INVERTED_INDEX_PARSER_KEY = "parser";
+const std::string INVERTED_INDEX_PARSER_KEY_ALIAS = "built-in";
 const std::string INVERTED_INDEX_PARSER_UNKNOWN = "unknown";
 const std::string INVERTED_INDEX_PARSER_NONE = "none";
 const std::string INVERTED_INDEX_PARSER_STANDARD = "standard";

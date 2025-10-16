@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "common/exception.h"
 #include "olap/rowset/segment_v2/inverted_index/abstract_analysis_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/setting.h"
 
@@ -26,6 +25,7 @@ namespace doris::segment_v2::inverted_index {
 class AnalysisFactoryMgr {
 public:
     using FactoryCreator = std::function<AbstractAnalysisFactoryPtr()>;
+    using RegistryKey = std::pair<std::type_index, std::string>;
 
     AnalysisFactoryMgr(const AnalysisFactoryMgr&) = delete;
     AnalysisFactoryMgr& operator=(const AnalysisFactoryMgr&) = delete;
@@ -36,6 +36,8 @@ public:
     }
 
     void initialise();
+
+    template <typename FactoryType>
     void registerFactory(const std::string& name, FactoryCreator creator);
 
     template <typename FactoryType>
@@ -45,7 +47,7 @@ private:
     AnalysisFactoryMgr() = default;
     ~AnalysisFactoryMgr() = default;
 
-    std::map<std::string, FactoryCreator> registry_;
+    std::map<RegistryKey, FactoryCreator> registry_;
 };
 
 } // namespace doris::segment_v2::inverted_index
