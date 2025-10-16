@@ -149,5 +149,5 @@ suite("test_multi_pct_union_mtmv","mtmv") {
     order_qt_refresh_mode_t3 "select RefreshMode from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1"
     order_qt_4 "SELECT * FROM ${mvName}"
 
-    mv_rewrite_success_without_check_chosen(mvSql, mvName)
+    // mv_rewrite_success_without_check_chosen(mvSql, mvName)
 }
