@@ -448,12 +448,20 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     }
 
     public T getJobByName(String jobName) throws JobException {
+        T job = getJobByNameOrNull(jobName);
+        if (job == null) {
+            throw new JobException("job not exist, jobName: " + jobName);
+        }
+        return job;
+    }
+
+    public T getJobByNameOrNull(String jobName) {
         for (T a : jobMap.values()) {
             if (a.getJobName().equals(jobName)) {
                 return a;
             }
         }
-        throw new JobException("job not exist, jobName:" + jobName);
+        return null;
     }
 
     /**
