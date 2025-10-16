@@ -28,7 +28,8 @@ import lombok.Getter;
 public enum BalanceTypeEnum {
     WITHOUT_WARMUP("without_warmup"),
     ASYNC_WARMUP("async_warmup"),
-    SYNC_WARMUP("sync_warmup");
+    SYNC_WARMUP("sync_warmup"),
+    PEER_READ_ASYNC_WARMUP("peer_read_async_warmup");
 
     private final String value;
 

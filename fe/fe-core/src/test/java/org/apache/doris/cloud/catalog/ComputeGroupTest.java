@@ -52,6 +52,9 @@ public class ComputeGroupTest {
 
         properties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.SYNC_WARMUP.getValue());
         computeGroup.checkProperties(properties);
+
+        properties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.PEER_READ_ASYNC_WARMUP.getValue());
+        computeGroup.checkProperties(properties);
     }
 
     @Test
@@ -106,7 +109,7 @@ public class ComputeGroupTest {
 
     @Test
     public void testModifyPropertiesWithDirectSwitch() throws DdlException {
-        // 测试direct_switch类型，应该删除timeout
+        // 测试without_warmup类型，应该删除timeout
         Map<String, String> inputProperties = Maps.newHashMap();
         inputProperties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.WITHOUT_WARMUP.getValue());
         inputProperties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT,
@@ -169,10 +172,10 @@ public class ComputeGroupTest {
 
     @Test
     public void testModifyPropertiesWithWarmupCacheAndExistingTimeout() throws DdlException {
-        // 测试warmup_cache类型，已存在timeout，不应该添加默认值
+        // 测试async_warmup类型，已存在timeout，不应该添加默认值
         Map<String, String> inputProperties = Maps.newHashMap();
         inputProperties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
-        inputProperties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
+        inputProperties.put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "600");
 
         // 先设置timeout到properties中
         computeGroup.getProperties().put(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT, "500");
@@ -180,13 +183,13 @@ public class ComputeGroupTest {
 
         computeGroup.modifyProperties(inputProperties);
 
-        // 验证timeout没有被修改
+        // 验证timeout没有被修改, 这里的意思是用户已经设置过timeout了，就不应该被覆盖
         Assertions.assertEquals(originalTimeout, computeGroup.getProperties().get(ComputeGroup.BALANCE_WARM_UP_TASK_TIMEOUT));
     }
 
     @Test
     public void testModifyPropertiesWithWarmupCacheAndNoTimeout() throws DdlException {
-        // 测试warmup_cache类型，不存在timeout，应该添加默认值
+        // 测试async_warmup类型，不存在timeout，应该添加默认值
         Map<String, String> inputProperties = Maps.newHashMap();
         inputProperties.put(ComputeGroup.BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
 

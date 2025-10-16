@@ -219,7 +219,6 @@ public class ComputeGroup {
             validateProperty(entry.getKey(), entry.getValue());
         }
 
-        // 验证：原始类型非WARMUP_CACHE时，可以修改为WARMUP_CACHE，但不能传入timeout
         validateTimeoutRestriction(inputProperties);
     }
 
@@ -229,7 +228,8 @@ public class ComputeGroup {
             return;
         }
         if (BalanceTypeEnum.WITHOUT_WARMUP.getValue().equals(balanceType)
-                || BalanceTypeEnum.SYNC_WARMUP.getValue().equals(balanceType)) {
+                || BalanceTypeEnum.SYNC_WARMUP.getValue().equals(balanceType)
+                || BalanceTypeEnum.PEER_READ_ASYNC_WARMUP.getValue().equals(balanceType)) {
             // delete BALANCE_WARM_UP_TASK_TIMEOUT if exists
             properties.remove(BALANCE_WARM_UP_TASK_TIMEOUT);
         } else if (BalanceTypeEnum.ASYNC_WARMUP.getValue().equals(balanceType)) {

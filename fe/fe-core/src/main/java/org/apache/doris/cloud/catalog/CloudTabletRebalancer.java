@@ -902,13 +902,13 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
         boolean shouldUpdateMapping = false;
         BalanceTypeEnum currentBalanceType = getCurrentBalanceType(clusterId);
-        int currentTaskTime = getCurrentTaskTimeout(clusterId);
-        LOG.debug("cluster id {}, balance type {}, tabletId {}",
-                clusterId, currentBalanceType, tabletId);
+        int currentTaskTimeout = getCurrentTaskTimeout(clusterId);
+        LOG.debug("cluster id {}, balance type {}, tabletId {}, task timeout {}s",
+                clusterId, currentBalanceType, tabletId, currentTaskTimeout);
 
         switch (currentBalanceType) {
             case ASYNC_WARMUP: {
-                boolean timeExceeded = System.currentTimeMillis() / 1000 - task.startTimestamp > currentTaskTime;
+                boolean timeExceeded = System.currentTimeMillis() / 1000 - task.startTimestamp > currentTaskTimeout;
                 if (isDone || timeExceeded) {
                     if (!isDone) {
                         // timeout but not done, not normal, info log
@@ -1174,13 +1174,27 @@ public class CloudTabletRebalancer extends MasterDaemon {
             CloudReplica cloudReplica = (CloudReplica) pickedTablet.getReplicas().get(0);
             Backend srcBackend = Env.getCurrentSystemInfo().getBackend(srcBe);
 
-            if (BalanceTypeEnum.WITHOUT_WARMUP.equals(currentBalanceType)
+            if ((BalanceTypeEnum.WITHOUT_WARMUP.equals(currentBalanceType)
+                    || BalanceTypeEnum.PEER_READ_ASYNC_WARMUP.equals(currentBalanceType))
                     && srcBackend != null && srcBackend.isAlive()) {
                 // direct switch, update fe meta directly, not send preheating task
                 if (isConflict(srcBe, destBe, cloudReplica, balanceType, partitionToTablets, beToTabletsInTable)) {
                     continue;
                 }
                 transferTablet(pickedTablet, srcBe, destBe, clusterId, balanceType, infos);
+                if (BalanceTypeEnum.PEER_READ_ASYNC_WARMUP.equals(currentBalanceType)) {
+                    LOG.debug("directly switch {} from {} to {}, cluster {}", pickedTablet.getId(), srcBe, destBe,
+                            clusterId);
+                    // send sync cache rpc, best effort
+                    try {
+                        sendPreHeatingRpc(pickedTablet, srcBe, destBe);
+                    } catch (Exception e) {
+                        LOG.debug("Failed to preheat tablet {} from {} to {}, "
+                                + "directly policy, just ignore the error",
+                                pickedTablet.getId(), srcBe, destBe, e);
+                        return;
+                    }
+                }
             } else {
                 // cache warm up
                 if (isConflict(srcBe, destBe, cloudReplica, balanceType,
