@@ -586,17 +586,17 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     }
 
-    if (!http_req->header(HTTP_RANDOM_TABLET_SWITCHING_THRESHOLD).empty()) {
+    if (!http_req->header(HTTP_RANDOM_BUCKET_SWITCHING_THRESHOLD).empty()) {
         try {
             int64_t threshold =
-                    std::stoll(http_req->header(HTTP_RANDOM_TABLET_SWITCHING_THRESHOLD));
+                    std::stoll(http_req->header(HTTP_RANDOM_BUCKET_SWITCHING_THRESHOLD));
             if (threshold > 0) {
                 request.__set_random_tablet_switching_threshold(threshold);
             }
         } catch (const std::exception&) {
             return Status::InvalidArgument(
-                    "Invalid random_tablet_switching_threshold: {}",
-                    http_req->header(HTTP_RANDOM_TABLET_SWITCHING_THRESHOLD));
+                    "Invalid random_bucket_switching_threshold: {}",
+                    http_req->header(HTTP_RANDOM_BUCKET_SWITCHING_THRESHOLD));
         }
     }
 
