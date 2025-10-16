@@ -77,7 +77,7 @@ suite("test_multi_pct_union_mtmv","mtmv") {
             k1 DATE not null,
             k2 INT not null
         )
-        DISTRIBUTED BY HASH(k3) BUCKETS 2
+        DISTRIBUTED BY HASH(k2) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1"
         );
