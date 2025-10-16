@@ -494,6 +494,13 @@ Status FunctionSearch::build_leaf_query(const FunctionSearch& function, const TS
         }
 
         if (clause_type == "ANY" || clause_type == "ALL") {
+            bool should_analyze = inverted_index::InvertedIndexAnalyzer::should_analyzer(
+                    binding.index_properties);
+            if (!should_analyze) {
+                *out = make_term_query(value_wstr);
+                return Status::OK();
+            }
+
             if (binding.index_properties.empty()) {
                 LOG(WARNING) << "search: index properties empty for tokenized clause '"
                              << clause_type << "' field=" << field_name;
