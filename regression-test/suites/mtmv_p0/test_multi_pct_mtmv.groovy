@@ -102,6 +102,8 @@ suite("test_multi_pct_mtmv","mtmv") {
         SELECT t1.k1,t1.k2,t2.k2 as k3,t3.k4 from ${tableName1} t1 inner join ${tableName2} t2 on t1.k1=t2.k1 left join ${tableName3} t3 on t1.k2=t3.k3;
         """
 
+    order_qt_MvPartitionInfo "select MvPartitionInfo from mv_infos('database'='${dbName}') where Name='${mvName}'"
+
     def showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertTrue(showPartitionsResult.toString().contains("p_20170101_20170201"))
@@ -112,5 +114,39 @@ suite("test_multi_pct_mtmv","mtmv") {
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     waitingMTMVTaskFinishedByMvName(mvName)
+
     order_qt_1 "SELECT * FROM ${mvName}"
+
+    sql """
+        insert into ${tableName1} values("2017-01-01",5);
+        """
+
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_refresh_mode_t1 "select RefreshMode from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1"
+    order_qt_2 "SELECT * FROM ${mvName}"
+
+    sql """
+        insert into ${tableName2} values("2017-02-01",6);
+        """
+
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_refresh_mode_t2 "select RefreshMode from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1"
+    order_qt_3 "SELECT * FROM ${mvName}"
+
+    sql """
+        insert into ${tableName3} values(5,5);
+        """
+
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_refresh_mode_t3 "select RefreshMode from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1"
+    order_qt_4 "SELECT * FROM ${mvName}"
 }
