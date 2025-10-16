@@ -217,6 +217,17 @@ public class RewriteDataFileManager {
         return groupIterator.next();
     }
 
+    /**
+     * Get all groups for concurrent processing
+     */
+    public List<RewriteDataGroup> getAllGroups() {
+        List<RewriteDataGroup> allGroups = new ArrayList<>();
+        for (List<RewriteDataGroup> partitionGroups : partitionedGroups.values()) {
+            allGroups.addAll(partitionGroups);
+        }
+        return allGroups;
+    }
+
     // Helper methods
     public int getTotalGroupCount() {
         return partitionedGroups.values().stream()

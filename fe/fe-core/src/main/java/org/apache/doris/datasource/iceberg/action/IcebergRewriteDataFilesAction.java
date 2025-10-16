@@ -24,10 +24,12 @@ import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFileExecutor;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFileManager;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteDataGroup;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteResult;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteJob;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteJobManager;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteJobState;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.qe.ConnectContext;
@@ -72,6 +74,10 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
     // Parameters with special default handling
     private long minFileSizeBytes;
     private long maxFileSizeBytes;
+
+    // Concurrency control
+    private static final String PARALLELISM = "parallelism";
+    private int parallelism = 1;
 
     public IcebergRewriteDataFilesAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
@@ -133,6 +139,12 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
                 "Partition specification ID for output files",
                 2L,
                 ArgumentParsers.positiveLong(OUTPUT_SPEC_ID));
+
+        // Parallelism argument
+        namedArguments.registerOptionalArgument(PARALLELISM,
+                        "Number of parallel tasks for rewrite execution",
+                        1,
+                        ArgumentParsers.intRange(PARALLELISM, 1, 32));
     }
 
     @Override
@@ -162,6 +174,9 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
         if (this.maxFileSizeBytes == 0) {
             this.maxFileSizeBytes = (long) (targetFileSizeBytes * 1.8);
         }
+
+        // Get parallelism parameter
+        this.parallelism = namedArguments.getInt(PARALLELISM);
     }
 
     @Override
@@ -190,24 +205,23 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
                 return Lists.newArrayList("0", "0", "0", "0");
             }
 
-            // Step 2: Initialize executor
-            RewriteDataFileExecutor executor = new RewriteDataFileExecutor(
-                    this.icebergTable, connectContext);
-            executor.initialize();
+            // Step 2: Create and start concurrent rewrite job
+            RewriteJobManager jobManager = new RewriteJobManager();
+            String jobLabel = "rewrite_" + table.getName() + "_" + System.currentTimeMillis();
 
-            // Step 3: Execute rewrite for each group and collect results
-            RewriteResult totalResult = new RewriteResult();
-            while (fileManager.hasMoreGroup()) {
-                RewriteDataGroup group = fileManager.nextGroup();
+            RewriteJob rewriteJob = jobManager.createAndStartJob(
+                            jobLabel, this.icebergTable, parameters, connectContext, parallelism);
 
-                // Execute the group and get result
-                // Transaction management is now handled by IcebergRewriteExecutor
-                RewriteResult groupResult = executor.executeGroup(group);
-                totalResult.merge(groupResult);
+            // Get all groups for concurrent processing
+            List<RewriteDataGroup> allGroups = fileManager.getAllGroups();
 
-                LOG.info("Completed rewrite for group with {} files, size: {} bytes",
-                        group.getTaskCount(), group.getTotalSize());
-            }
+            // Start the job with groups
+            jobManager.startRewriteJob(rewriteJob, allGroups, parallelism);
+
+            // Wait for job completion (in a real implementation, this would be
+            // asynchronous)
+            // For now, we'll simulate waiting by checking job state
+            RewriteResult totalResult = waitForJobCompletion(rewriteJob, jobManager);
 
             LOG.info("Rewrite data files completed for table: {}, result: {}",
                     table.getName(), totalResult);
@@ -232,6 +246,54 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
                 namedArguments.getLong(OUTPUT_SPEC_ID),
                 partitionNamesInfo,
                 whereCondition);
+    }
+
+    /**
+     * Wait for job completion and return result
+     */
+    private RewriteResult waitForJobCompletion(RewriteJob job, RewriteJobManager jobManager)
+                    throws UserException {
+            LOG.info("Waiting for rewrite job {} to complete", job.getId());
+
+            // In a real implementation, this would use proper synchronization
+            // For now, we'll use a simple polling approach
+            int maxWaitTime = 300; // 5 minutes
+            int waitInterval = 1000; // 1 second
+            int waited = 0;
+
+            while (!job.isFinalState() && waited < maxWaitTime * 1000) {
+                    try {
+                            Thread.sleep(waitInterval);
+                            waited += waitInterval;
+
+                            // Check job state periodically
+                            RewriteJob currentJob = jobManager.getJob(job.getId());
+                            if (currentJob != null) {
+                                    LOG.debug("Job {} state: {}, progress: {}%",
+                                                    currentJob.getId(), currentJob.getState(),
+                                                    currentJob.getProgress());
+                            }
+                    } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new UserException("Wait for job completion was interrupted");
+                    }
+            }
+
+            if (!job.isFinalState()) {
+                    throw new UserException("Rewrite job did not complete within timeout");
+            }
+
+            if (job.getState() == RewriteJobState.CANCELLED) {
+                    throw new UserException("Rewrite job was cancelled: " + job.getFailMsg());
+            }
+
+            RewriteResult result = job.getTotalResult();
+            if (result == null) {
+                    result = new RewriteResult();
+            }
+
+            LOG.info("Rewrite job {} completed with result: {}", job.getId(), result);
+            return result;
     }
 
     @Override
