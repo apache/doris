@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -43,22 +44,29 @@ import java.util.Optional;
  * for example:
  * 1. case when c1 then true when c2 then false end => (c1 <=> true or (not (c2 <=> true) and null))
  * 2. if (c1, true, false) => c1 <=> true or false
+ * 3. in a condition expression:
+ *    if(c, p, true) => not(c <=> true) or p
+ *    if(c, p, false) => c and p
+ *
  */
 public class CaseWhenToCompoundPredicate implements ExpressionPatternRuleFactory {
     public static CaseWhenToCompoundPredicate INSTANCE = new CaseWhenToCompoundPredicate();
+    private static final IfToCompoundPredicateInCond IF_REWRITE_IN_COND = new IfToCompoundPredicateInCond();
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
-        return ImmutableList.of(
-                matchesType(CaseWhen.class)
-                        .when(this::checkBooleanType)
-                        .then(this::rewriteCaseWhen)
-                        .toRule(ExpressionRuleType.CASE_WHEN_TO_COMPOUND_PREDICATE),
-                matchesType(If.class)
-                        .when(this::checkBooleanType)
-                        .then(this::rewriteIf)
-                        .toRule(ExpressionRuleType.IF_TO_COMPOUND_PREDICATE)
-        );
+        ImmutableList.Builder<ExpressionPatternMatcher<? extends Expression>> rulesBuilder
+                = ImmutableList.builder();
+        rulesBuilder.add(matchesType(CaseWhen.class)
+                .when(this::checkBooleanType)
+                .then(this::rewriteCaseWhen)
+                .toRule(ExpressionRuleType.CASE_WHEN_TO_COMPOUND_PREDICATE));
+        rulesBuilder.add(matchesType(If.class)
+                .when(this::checkBooleanType)
+                .then(this::rewriteIf)
+                .toRule(ExpressionRuleType.IF_TO_COMPOUND_PREDICATE));
+        rulesBuilder.addAll(IF_REWRITE_IN_COND.buildRules());
+        return rulesBuilder.build();
     }
 
     private boolean checkBooleanType(Expression expression) {
@@ -106,5 +114,43 @@ public class CaseWhenToCompoundPredicate implements ExpressionPatternRuleFactory
             return Optional.empty();
         }
         return Optional.of(result);
+    }
+
+    private static class IfToCompoundPredicateInCond extends ConditionRewrite {
+        @Override
+        public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+            return buildCondRules(ExpressionRuleType.IF_TO_COMPOUND_PREDICATE);
+        }
+
+        // rewrite all the expression tree, not only the condition part.
+        @Override
+        protected boolean needRewrite(Expression expression, boolean isInsideCondition) {
+            return expression.containsType(If.class)
+                    && expression.containsType(BooleanLiteral.class, NullLiteral.class);
+        }
+
+        @Override
+        public Expression visitIf(If ifExpr, Boolean isInsideCondition) {
+            Expression newCondition = ifExpr.getCondition().accept(this, true);
+            Expression newTrueValue = ifExpr.getTrueValue().accept(this, isInsideCondition);
+            Expression newFalseValue = ifExpr.getFalseValue().accept(this, isInsideCondition);
+            if (isInsideCondition) {
+                if (newFalseValue.equals(BooleanLiteral.TRUE)) {
+                    // if (c, p, true) =>  not(c <=> true) || p
+                    return ExpressionUtils.or(
+                            new Not(new NullSafeEqual(newCondition, BooleanLiteral.TRUE)), newTrueValue);
+                } else if (newFalseValue.equals(BooleanLiteral.FALSE) || newFalseValue.isNullLiteral()) {
+                    // if (c, p, false) => c && p
+                    return ExpressionUtils.and(newCondition, newTrueValue);
+                }
+            }
+            if (newCondition != ifExpr.getCondition()
+                    || newTrueValue != ifExpr.getTrueValue()
+                    || newFalseValue != ifExpr.getFalseValue()) {
+                return new If(newCondition, newTrueValue, newFalseValue);
+            } else {
+                return ifExpr;
+            }
+        }
     }
 }

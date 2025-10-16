@@ -44,14 +44,9 @@ import java.util.List;
  * And the rewrite argument isInsideCondition means the expression's ancestors to the condition root
  * are AND/OR/CASE WHEN/IF.
  *
- * for example: for NOT(null) in filter, the null will not be replaced, because its parent NOT is not AND/OR.
+ * for example: for 'a and not(b)' in filter, when visit 'a', isInsideCondition is true,
+ * while visit 'b' isInsideCondition is false because its parent NOT is not AND/OR/CASE WHEN/IF.
  *
- * 2. replace 'xx <=> yy' to 'xx = yy' for the condition expression if xx is not-nullable or yy is not-nullable,
- *    but not need both are not-nullable. (NOTE: if expression is not a condition, xx <=> yy can rewrite to xx = yy
- *    requires both xx and yy are not-nullable).
- *    a) if(a <=> 1, ...) => if(a = 1,
- *    b) case when a <=> 1 then ... => case when a = 1 then ...
- *    c) a <=> 1 or (a <=> 2 and not (a <=> 3)) =>  a = 1 or (a = 2 and not (a <=> 3))
  */
 public abstract class ConditionRewrite extends DefaultExpressionRewriter<Boolean>
         implements ExpressionPatternRuleFactory {
