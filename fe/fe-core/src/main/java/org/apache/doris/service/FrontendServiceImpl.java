@@ -356,9 +356,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(TConfirmUnusedRemoteFilesRequest request)
             throws TException {
-        if (!Env.getCurrentEnv().isMaster()) {
-            throw new TException("FE is not master");
+        TStatus status = checkMaster();
+        if (status.getStatusCode() != TStatusCode.OK) {
+            throw new TException(status.getErrorMsgs().get(0));
         }
+
         TConfirmUnusedRemoteFilesResult res = new TConfirmUnusedRemoteFilesResult();
         if (!request.isSetConfirmList()) {
             throw new TException("confirm_list in null");
@@ -1014,11 +1016,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMasterResult finishTask(TFinishTaskRequest request) throws TException {
+        TStatus status = checkMaster();
+        if (status.getStatusCode() != TStatusCode.OK) {
+            return new TMasterResult().setStatus(status);
+        }
         return masterImpl.finishTask(request);
     }
 
     @Override
     public TMasterResult report(TReportRequest request) throws TException {
+        TStatus status = checkMaster();
+        if (status.getStatusCode() != TStatusCode.OK) {
+            return new TMasterResult().setStatus(status);
+        }
         return masterImpl.report(request);
     }
 
@@ -1191,14 +1201,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to loadTxnBegin:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, clientAddr);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -1286,14 +1292,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TBeginTxnResult result = new TBeginTxnResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -1404,15 +1406,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to loadTxnPreCommit:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, clientAddr);
-            return result;
-        }
+
         try {
             loadTxnPreCommitImpl(request);
         } catch (UserException e) {
@@ -1436,13 +1432,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TGetEncryptionKeysResult result = new TGetEncryptionKeysResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to getDataKeys:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, clientAddr);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
         try {
@@ -1557,13 +1549,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TLoadTxn2PCResult result = new TLoadTxn2PCResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to loadTxn2PC:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, clientAddr);
+
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -1651,13 +1640,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TLoadTxnCommitResult result = new TLoadTxnCommitResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to loadTxnCommit:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, clientAddr);
+
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -1756,14 +1742,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TCommitTxnResult result = new TCommitTxnResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get commitTxn: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -1897,13 +1879,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.debug("receive txn rollback request: {}, backend: {}", request, clientAddr);
         }
         TLoadTxnRollbackResult result = new TLoadTxnRollbackResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to loadTxnRollback:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, clientAddr);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
         try {
@@ -1985,13 +1963,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.debug("receive txn rollback request: {}, client: {}", request, clientAddr);
         }
         TRollbackTxnResult result = new TRollbackTxnResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get rollbackTxn: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -2846,15 +2820,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LOG.info("[auto-inc] receive getAutoIncrementRange request: {}, backend: {}", request, clientAddr);
 
         TAutoIncrementRangeResult result = new TAutoIncrementRangeResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             result.setMasterAddress(getMasterAddress());
-            LOG.error("[auto-inc] failed to getAutoIncrementRange:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
             return result;
         }
 
@@ -3006,14 +2976,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LOG.trace("receive get snapshot info request: {}", request);
 
         TGetSnapshotResult result = new TGetSnapshotResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get getSnapshot: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3124,14 +3090,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LOG.trace("receive restore snapshot info request: {}", request);
 
         TRestoreSnapshotResult result = new TRestoreSnapshotResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get restoreSnapshot: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3342,13 +3304,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TPlsqlStoredProcedureResult addPlsqlStoredProcedure(TAddPlsqlStoredProcedureRequest request) {
         TPlsqlStoredProcedureResult result = new TPlsqlStoredProcedureResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to addPlsqlStoredProcedure:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3372,13 +3330,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TPlsqlStoredProcedureResult dropPlsqlStoredProcedure(TDropPlsqlStoredProcedureRequest request) {
         TPlsqlStoredProcedureResult result = new TPlsqlStoredProcedureResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to dropPlsqlStoredProcedure:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3396,13 +3350,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TPlsqlPackageResult addPlsqlPackage(TAddPlsqlPackageRequest request) throws TException {
         TPlsqlPackageResult result = new TPlsqlPackageResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to addPlsqlPackage:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3426,13 +3376,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TPlsqlPackageResult dropPlsqlPackage(TDropPlsqlPackageRequest request) throws TException {
         TPlsqlPackageResult result = new TPlsqlPackageResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to dropPlsqlPackage:{}, request:{}, backend:{}",
-                    NOT_MASTER_ERR_MSG, request, getClientAddrAsString());
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3453,13 +3399,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TGetMasterTokenResult result = new TGetMasterTokenResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get getMasterToken: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3487,14 +3429,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TGetBinlogLagResult result = new TGetBinlogLagResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get binlog lag: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3593,14 +3531,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TLockBinlogResult result = new TLockBinlogResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to lock binlog: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -3917,6 +3851,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<Long> reqPartitionIds = request.getPartitionIds();
         long taskGroupId = request.getOverwriteGroupId();
         TReplacePartitionResult result = new TReplacePartitionResult();
+
         TStatus errorStatus = new TStatus(TStatusCode.RUNTIME_ERROR);
         if (!Env.getCurrentEnv().isMaster()) {
             errorStatus.setStatusCode(TStatusCode.NOT_MASTER);
@@ -4143,14 +4078,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TGetMetaResult result = new TGetMetaResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -4261,14 +4192,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TGetColumnInfoResult getColumnInfo(TGetColumnInfoRequest request) {
         TGetColumnInfoResult result = new TGetColumnInfoResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
         long dbId = request.getDbId();
         long tableId = request.getTableId();
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            LOG.error("failed to getColumnInfo: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -4303,14 +4231,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         TGetBackendMetaResult result = new TGetBackendMetaResult();
-        TStatus status = new TStatus(TStatusCode.OK);
+        TStatus status = checkMaster();
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+        if (status.getStatusCode() != TStatusCode.OK) {
             return result;
         }
 
@@ -4546,5 +4470,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetTableTDEInfoResult result = new TGetTableTDEInfoResult();
         result.setAlgorithm(tdeAlgorithm).setStatus(status);
         return result;
+    }
+
+    private TStatus checkMaster() {
+        TStatus status = new TStatus(TStatusCode.OK);
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+        }
+        return status;
     }
 }
