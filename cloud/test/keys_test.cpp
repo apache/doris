@@ -936,6 +936,54 @@ TEST(KeysTest, JobKeysTest) {
         EXPECT_EQ("check", dec_job_suffix);
         EXPECT_EQ(instance_id, dec_instance_id);
     }
+
+    // 0x01 "job" ${instance_id} "snapshot_data_migrator"                                      -> JobSnapshotDataMigratorPB
+    {
+        JobSnapshotDataMigratorKeyInfo job_key {instance_id};
+        std::string encoded_job_key0;
+        job_snapshot_data_migrator_key(job_key, &encoded_job_key0);
+        std::cout << hex(encoded_job_key0) << std::endl;
+
+        std::string dec_instance_id;
+
+        std::string_view key_sv(encoded_job_key0);
+        std::string dec_job_prefix;
+        std::string dec_job_suffix;
+
+        remove_user_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_job_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_job_suffix), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("job", dec_job_prefix);
+        EXPECT_EQ("snapshot_data_migrator", dec_job_suffix);
+        EXPECT_EQ(instance_id, dec_instance_id);
+    }
+
+    // 0x01 "job" ${instance_id} "snapshot_chain_compactor"                                    -> JobSnapshotChainCompactorPB
+    {
+        JobSnapshotChainCompactorKeyInfo job_key {instance_id};
+        std::string encoded_job_key0;
+        job_snapshot_chain_compactor_key(job_key, &encoded_job_key0);
+        std::cout << hex(encoded_job_key0) << std::endl;
+
+        std::string dec_instance_id;
+
+        std::string_view key_sv(encoded_job_key0);
+        std::string dec_job_prefix;
+        std::string dec_job_suffix;
+
+        remove_user_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_job_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_job_suffix), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("job", dec_job_prefix);
+        EXPECT_EQ("snapshot_chain_compactor", dec_job_suffix);
+        EXPECT_EQ(instance_id, dec_instance_id);
+    }
 }
 
 TEST(KeysTest, SystemKeysTest) {
