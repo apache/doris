@@ -657,7 +657,7 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_binary(const IColumn& src_column
 template <PrimitiveType T>
 const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_column(const uint8_t* data,
                                                                      IColumn& column) {
-    auto& col = assert_cast<ColumnDecimal<T>&>(column);
+    auto& col = assert_cast<ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column);
     data += sizeof(uint8_t);
     data += sizeof(uint8_t);
     if constexpr (T == TYPE_DECIMAL32) {
@@ -697,7 +697,10 @@ const uint8_t* DataTypeDecimalSerDe<T>::deserialize_binary_to_field(const uint8_
         field = Field::create_field<TYPE_DECIMAL64>(Decimal64(v));
         data += sizeof(Int64);
     } else if constexpr (T == TYPE_DECIMAL128I) {
+        // Because __int128 in memory is not aligned, but GCC7 will generate SSE instruction
+        // for __int128 load/store. This will cause segment fault.
         PackedInt128 pack;
+        // use memcpy to avoid unaligned access
         memcpy(&pack, data, sizeof(PackedInt128));
         field = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(pack.value));
         data += sizeof(PackedInt128);

@@ -851,186 +851,6 @@ void ColumnVariant::Subcolumn::serialize_to_sparse_column(ColumnString* key, std
                            "Index ({}) for serialize to sparse column is out of range", row);
 }
 
-const NO_SANITIZE_UNDEFINED char* parse_binary_from_sparse_column(FieldType type, const char* data,
-                                                                  Field& res, FieldInfo& info_res) {
-    info_res.scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type);
-    const char* end = data;
-    switch (type) {
-    case FieldType::OLAP_FIELD_TYPE_STRING: {
-        size_t size = unaligned_load<size_t>(data);
-        data += sizeof(size_t);
-        res = Field::create_field<TYPE_STRING>(String(data, size));
-        end = data + size;
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_TINYINT: {
-        Int8 v = unaligned_load<Int8>(data);
-        res = Field::create_field<TYPE_TINYINT>(v);
-        end = data + sizeof(Int8);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_SMALLINT: {
-        Int16 v = unaligned_load<Int16>(data);
-        res = Field::create_field<TYPE_SMALLINT>(v);
-        end = data + sizeof(Int16);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_INT: {
-        Int32 v = unaligned_load<Int32>(data);
-        res = Field::create_field<TYPE_INT>(v);
-        end = data + sizeof(Int32);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_BIGINT: {
-        Int64 v = unaligned_load<Int64>(data);
-        res = Field::create_field<TYPE_BIGINT>(v);
-        end = data + sizeof(Int64);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_LARGEINT: {
-        PackedInt128 pack;
-        memcpy(&pack, data, sizeof(PackedInt128));
-        res = Field::create_field<TYPE_LARGEINT>(Int128(pack.value));
-        end = data + sizeof(PackedInt128);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_FLOAT: {
-        Float32 v = unaligned_load<Float32>(data);
-        res = Field::create_field<TYPE_FLOAT>(v);
-        end = data + sizeof(Float32);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DOUBLE: {
-        Float64 v = unaligned_load<Float64>(data);
-        res = Field::create_field<TYPE_DOUBLE>(v);
-        end = data + sizeof(Float64);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_JSONB: {
-        size_t size = unaligned_load<size_t>(data);
-        data += sizeof(size_t);
-        res = Field::create_field<TYPE_JSONB>(JsonbField(data, size));
-        end = data + size;
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-        const size_t size = unaligned_load<size_t>(data);
-        data += sizeof(size_t);
-        res = Field::create_field<TYPE_ARRAY>(Array(size));
-        auto& array = res.get<Array>();
-        info_res.num_dimensions++;
-        FieldType nested_filed_type = FieldType::OLAP_FIELD_TYPE_NONE;
-        for (size_t i = 0; i < size; ++i) {
-            Field nested_field;
-            const auto nested_type =
-                    static_cast<FieldType>(*reinterpret_cast<const uint8_t*>(data++));
-            data = parse_binary_from_sparse_column(nested_type, data, nested_field, info_res);
-            array[i] = std::move(nested_field);
-            if (nested_type != FieldType::OLAP_FIELD_TYPE_NONE) {
-                nested_filed_type = nested_type;
-            }
-        }
-        info_res.scalar_type_id = TabletColumn::get_primitive_type_by_field_type(nested_filed_type);
-        end = data;
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_IPV4: {
-        IPv4 v = unaligned_load<IPv4>(data);
-        res = Field::create_field<TYPE_IPV4>(v);
-        end = data + sizeof(IPv4);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_IPV6: {
-        PackedUInt128 pack;
-        memcpy(&pack, data, sizeof(PackedUInt128));
-        auto v = pack.value;
-        res = Field::create_field<TYPE_IPV6>(v);
-        end = data + sizeof(PackedUInt128);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATEV2: {
-        UInt32 v = unaligned_load<UInt32>(data);
-        res = Field::create_field<TYPE_DATEV2>(v);
-        end = data + sizeof(UInt32);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
-        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        UInt64 v = unaligned_load<UInt64>(data);
-        res = Field::create_field<TYPE_DATETIMEV2>(v);
-        info_res.precision = -1;
-        info_res.scale = static_cast<int>(scale);
-        end = data + sizeof(UInt64);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL32: {
-        const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        Int32 v = unaligned_load<Int32>(data);
-        res = Field::create_field<TYPE_DECIMAL32>(Decimal32(v));
-        info_res.precision = static_cast<int>(precision);
-        info_res.scale = static_cast<int>(scale);
-        end = data + sizeof(Int32);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL64: {
-        const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        Int64 v = unaligned_load<Int64>(data);
-        res = Field::create_field<TYPE_DECIMAL64>(Decimal64(v));
-        info_res.precision = static_cast<int>(precision);
-        info_res.scale = static_cast<int>(scale);
-        end = data + sizeof(Int64);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
-        const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        PackedInt128 pack;
-        memcpy(&pack, data, sizeof(PackedInt128));
-        res = Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(pack.value));
-        info_res.precision = static_cast<int>(precision);
-        info_res.scale = static_cast<int>(scale);
-        end = data + sizeof(PackedInt128);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
-        const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
-        data += sizeof(uint8_t);
-        wide::Int256 v;
-        memcpy(&v, data, sizeof(wide::Int256));
-        res = Field::create_field<TYPE_DECIMAL256>(Decimal256(v));
-        info_res.precision = static_cast<int>(precision);
-        info_res.scale = static_cast<int>(scale);
-        end = data + sizeof(wide::Int256);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_BOOL: {
-        res = Field::create_field<TYPE_BOOLEAN>(*reinterpret_cast<const uint8_t*>(data));
-        end = data + sizeof(uint8_t);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_NONE: {
-        res = Field();
-        end = data;
-        break;
-    }
-    default:
-        throw doris::Exception(ErrorCode::OUT_OF_BOUND,
-                               "Type ({}) for deserialize_from_sparse_column is invalid", type);
-    }
-    return end;
-}
-
 std::pair<Field, FieldInfo> ColumnVariant::deserialize_from_sparse_column(const ColumnString* value,
                                                                           size_t row) {
     const auto& data_ref = value->get_data_at(row);
@@ -2489,20 +2309,23 @@ void ColumnVariant::Subcolumn::deserialize_from_sparse_column(const ColumnString
     const PrimitiveType type =
             TabletColumn::get_primitive_type_by_field_type(static_cast<FieldType>(*start_data));
     auto check_end = [&](const uint8_t* end_ptr) {
-        CHECK_EQ(end_ptr - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
+        DCHECK_EQ(end_ptr - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
     };
 
-    bool need_field_deser = type != least_common_type.get_type_id();
+    // check if the type is same as least common type
+    // if the type is same as least common type, we can directly deserialize to the subcolumn
+    // if not, we need to deserialize to the field first, then insert to the subcolumn
+    bool same_as_least_common_type = type != least_common_type.get_type_id();
 
     // array needs to check nested type is same as least common type's nested type
-    if (!need_field_deser && type == PrimitiveType::TYPE_ARRAY) {
+    if (!same_as_least_common_type && type == PrimitiveType::TYPE_ARRAY) {
         const auto* nested_start_data = start_data + 1;
         const PrimitiveType nested_type = TabletColumn::get_primitive_type_by_field_type(
                 static_cast<FieldType>(*nested_start_data));
-        need_field_deser = (nested_type != least_common_type.get_base_type_id());
+        same_as_least_common_type = (nested_type != least_common_type.get_base_type_id());
     }
 
-    if (need_field_deser) {
+    if (same_as_least_common_type) {
         Field res;
         FieldInfo info;
         const uint8_t* end_data = DataTypeSerDe::deserialize_binary_to_field(start_data, res, info);

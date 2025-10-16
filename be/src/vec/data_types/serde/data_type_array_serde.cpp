@@ -529,7 +529,7 @@ void DataTypeArraySerDe::write_one_cell_to_binary(const IColumn& src_column,
 
 const uint8_t* DataTypeArraySerDe::deserialize_binary_to_column(const uint8_t* data,
                                                                 IColumn& column) {
-    auto& array_col = assert_cast<ColumnArray&>(column);
+    auto& array_col = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(column);
     auto& offsets = array_col.get_offsets();
     auto& nested_column = array_col.get_data();
     const size_t nested_size = unaligned_load<size_t>(data);

@@ -124,25 +124,6 @@ public:
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
 
-    //     static std::pair<Field, FieldInfo> deserialize_from_binary(const ColumnString* value, size_t row) {
-    //         const auto& data_ref = value->get_data_at(row);
-    //         const char* data = data_ref.data;
-    //         DCHECK(data_ref.size > 1);
-    //         const FieldType type = static_cast<FieldType>(*reinterpret_cast<const uint8_t*>(data++));
-    //         Field res;
-    //         FieldInfo info_res = {
-    //             .scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type),
-    //             .have_nulls = false,
-    //             .need_convert = false,
-    //             .num_dimensions = 0,
-    //         };
-
-    //         DCHECK_EQ(end - data_ref.data, data_ref.size)
-    //             << "FieldType: " << (int)type << " data_ref.size: " << data_ref.size << " end: " << end
-    //             << " data: " << data;
-    //         return {std::move(res), std::move(info_res)};
-    //     }
-
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

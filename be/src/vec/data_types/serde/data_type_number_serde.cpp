@@ -773,7 +773,7 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
 template <PrimitiveType T>
 const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_column(const uint8_t* data,
                                                                     IColumn& column) {
-    auto& col = assert_cast<ColumnType&>(column);
+    auto& col = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
     if constexpr (T == TYPE_BOOLEAN) {
         col.insert_value(unaligned_load<UInt8>(data));
         data += sizeof(UInt8);

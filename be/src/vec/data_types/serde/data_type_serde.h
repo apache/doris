@@ -458,21 +458,6 @@ public:
     static const uint8_t* deserialize_binary_to_field(const uint8_t* data, Field& field,
                                                       FieldInfo& info);
 
-    // static std::pair<Field, FieldInfo> deserialize_binary_to_field(const uint8_t* data, size_t size) {
-    //     Field res;
-    //     FieldInfo info_res = {
-    //         .scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type),
-    //         .have_nulls = false,
-    //         .need_convert = false,
-    //         .num_dimensions = 0,
-    //     };
-    //     const char* end = parse_binary_from_sparse_column(type, data, res, info_res);
-    //     DCHECK_EQ(end - data_ref.data, data_ref.size)
-    //         << "FieldType: " << (int)type << " data_ref.size: " << data_ref.size << " end: " << end
-    //         << " data: " << data;
-    //     return {std::move(res), std::move(info_res)};
-    // }
-
 protected:
     bool _return_object_as_string = false;
     // This parameter indicates what level the serde belongs to and is mainly used for complex types

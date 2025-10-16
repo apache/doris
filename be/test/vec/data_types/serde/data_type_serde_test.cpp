@@ -339,7 +339,8 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
     // ipv6_subcolumn.insert(ipv6_field, info);
     // ipv6_subcolumn.serialize_to_sparse_column(&key, "i", &value, 0);
 
-    // Field decimal32_field = Field::create_field<TYPE_DECIMAL32>(DecimalField<Decimal32>(3456345634, 2));
+    // Field decimal32_field =
+    //         Field::create_field<TYPE_DECIMAL32>(DecimalField<Decimal32>(3456345634, 2));
     // info.scalar_type_id = PrimitiveType::TYPE_DECIMAL32;
     // info.precision = 5;
     // info.scale = 2;
@@ -347,7 +348,8 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
     // decimal32_subcolumn.insert(decimal32_field, info);
     // decimal32_subcolumn.serialize_to_sparse_column(&key, "j", &value, 0);
 
-    // Field decimal64_field = Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(13452435, 6));
+    // Field decimal64_field =
+    //         Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(13452435, 6));
     // info.scalar_type_id = PrimitiveType::TYPE_DECIMAL64;
     // info.precision = 12;
     // info.scale = 6;
@@ -355,7 +357,8 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
     // decimal64_subcolumn.insert(decimal64_field, info);
     // decimal64_subcolumn.serialize_to_sparse_column(&key, "k", &value, 0);
 
-    // Field decimal128i_field = Field::create_field<TYPE_DECIMAL128I>(DecimalField<Decimal128V3>(2342345, 12));
+    // Field decimal128i_field =
+    //         Field::create_field<TYPE_DECIMAL128I>(DecimalField<Decimal128V3>(2342345, 12));
     // info.scalar_type_id = PrimitiveType::TYPE_DECIMAL128I;
     // info.precision = 32;
     // info.scale = 12;
@@ -363,7 +366,8 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
     // decimal128i_subcolumn.insert(decimal128i_field, info);
     // decimal128i_subcolumn.serialize_to_sparse_column(&key, "l", &value, 0);
 
-    // Field decimal256_field = Field::create_field<TYPE_DECIMAL256>(DecimalField<Decimal256>(Decimal256(2345243), 5));
+    // Field decimal256_field =
+    //         Field::create_field<TYPE_DECIMAL256>(DecimalField<Decimal256>(Decimal256(2345243), 5));
     // info.scalar_type_id = PrimitiveType::TYPE_DECIMAL256;
     // info.precision = 52;
     // info.scale = 5;
@@ -381,9 +385,9 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
     // info.scalar_type_id = PrimitiveType::TYPE_JSONB;
     // info.num_dimensions = 1;
     // auto& array = array_field.get<Array>();
-    // array[0] = Field();
-    // array[1] = jsonb_field;
-    // array[2] = Field();
+    // array[0] = jsonb_field;
+    // array[1] = Field();
+    // array[2] = jsonb_field;
 
     // ColumnVariant::Subcolumn array_subcolumn = {0, true, true};
     // array_subcolumn.insert(array_field, info);
@@ -394,7 +398,6 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
     // char* buf = new char[size];
     // data_type->serialize(*sparse_column, buf, 8);
     // {
-
     //     std::ofstream ofs(file_path, std::ios::binary);
     //     ASSERT_TRUE(ofs.is_open());
     //     ofs.write(buf, static_cast<std::streamsize>(size));
@@ -626,9 +629,9 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         auto v = subcolumn.get_last_field();
         auto& arr = v.get<Array>();
         EXPECT_EQ(arr.size(), 3);
-        EXPECT_TRUE(arr[0].is_null());
-        EXPECT_FALSE(arr[1].is_null());
-        EXPECT_TRUE(arr[2].is_null());
+        EXPECT_FALSE(arr[0].is_null());
+        EXPECT_TRUE(arr[1].is_null());
+        EXPECT_FALSE(arr[2].is_null());
         subcolumn.deserialize_from_sparse_column(&value, 14);
         EXPECT_EQ(subcolumn.data.size(), 1);
         EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(),
@@ -639,9 +642,9 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         v = subcolumn.get_last_field();
         arr = v.get<Array>();
         EXPECT_EQ(arr.size(), 3);
-        EXPECT_TRUE(arr[0].is_null());
-        EXPECT_FALSE(arr[1].is_null());
-        EXPECT_TRUE(arr[2].is_null());
+        EXPECT_FALSE(arr[0].is_null());
+        EXPECT_TRUE(arr[1].is_null());
+        EXPECT_FALSE(arr[2].is_null());
     }
 }
 } // namespace doris::vectorized

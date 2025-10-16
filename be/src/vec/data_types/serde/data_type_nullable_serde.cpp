@@ -423,21 +423,6 @@ void DataTypeNullableSerDe::write_one_cell_to_binary(const IColumn& src_column,
     }
 }
 
-// const uint8_t* DataTypeNullableSerDe::deserialize_binary_to_column(const uint8_t* data,
-//                                                                    IColumn& column,
-//                                                                    size_t size) const {
-//     auto& col = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
-//     if (*data == static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_NONE)) [[unlikely]] {
-//         data++;
-//         col.insert_default();
-//         return data;
-//     }
-//     auto& nested_col = col.get_nested_column();
-//     const uint8_t* new_data = nested_serde->deserialize_binary_to_column(data, nested_col, size);
-//     col.push_false_to_nullmap(1);
-//     return new_data;
-// }
-
 void DataTypeNullableSerDe::to_string(const IColumn& column, size_t row_num,
                                       BufferWritable& bw) const {
     const auto& col_null = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
