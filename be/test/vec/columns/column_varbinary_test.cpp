@@ -28,6 +28,7 @@
 #include <string>
 #include <vector>
 
+#include "common/exception.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
@@ -366,9 +367,9 @@ TEST_F(ColumnVarbinaryTest, InsertField) {
     std::string big_v = make_bytes(doris::StringView::kInlineSize + 10, 0x22);
 
     Field f_inline = Field::create_field<TYPE_VARBINARY>(
-            doris::StringView(inline_v.data(), inline_v.size()));
-    Field f_big =
-            Field::create_field<TYPE_VARBINARY>(doris::StringView(big_v.data(), big_v.size()));
+            doris::StringView(inline_v.data(), static_cast<uint32_t>(inline_v.size())));
+    Field f_big = Field::create_field<TYPE_VARBINARY>(
+            doris::StringView(big_v.data(), static_cast<uint32_t>(big_v.size())));
 
     col->insert(f_inline);
     col->insert(f_big);
@@ -420,12 +421,13 @@ TEST_F(ColumnVarbinaryTest, AllocatedBytesAndHasEnoughCapacity) {
     auto dest = ColumnVarbinary::create();
     // Grow dest to obtain some spare capacity
     for (int i = 0; i < 64; ++i) {
-        std::string v = make_bytes((i % 5) + 1, 0x40 + i); // mostly inline
+        std::string v = make_bytes((i % 5) + 1, static_cast<uint8_t>(0x40 + i)); // mostly inline
         dest->insert_data(v.data(), v.size());
     }
     // Force some non-inline values to ensure arena usage
     for (int i = 0; i < 3; ++i) {
-        auto big = make_bytes(doris::StringView::kInlineSize + 20 + i, 0x90 + i);
+        auto big =
+                make_bytes(doris::StringView::kInlineSize + 20 + i, static_cast<uint8_t>(0x90 + i));
         dest->insert_data(big.data(), big.size());
     }
     // Capture capacity & size
@@ -452,6 +454,77 @@ TEST_F(ColumnVarbinaryTest, AllocatedBytesAndHasEnoughCapacity) {
         src_big->insert_data(v.data(), v.size());
     }
     ASSERT_FALSE(dest->has_enough_capacity(*src_big));
+}
+
+TEST_F(ColumnVarbinaryTest, InsertRangeFromOutOfBoundsThrows) {
+    auto src = ColumnVarbinary::create();
+    std::vector<std::string> vals = {make_bytes(2, 0x10), make_bytes(3, 0x20)};
+    for (auto& v : vals) {
+        src->insert_data(v.data(), v.size());
+    }
+
+    auto dst = ColumnVarbinary::create();
+    // start+length 超界应抛出 doris::Exception
+    EXPECT_THROW(dst->insert_range_from(*src, /*start=*/1, /*length=*/5), doris::Exception);
+}
+
+TEST_F(ColumnVarbinaryTest, PermuteThrowsOnShortPermutation) {
+    auto col = ColumnVarbinary::create();
+    std::vector<std::string> vals = {make_bytes(1, 0x31), make_bytes(1, 0x32),
+                                     make_bytes(doris::StringView::kInlineSize + 2, 0x33)};
+    for (auto& v : vals) {
+        col->insert_data(v.data(), v.size());
+    }
+
+    // perm.size() < limit 应抛异常
+    IColumn::Permutation perm = {1};
+    EXPECT_THROW(col->permute(perm, 2), doris::Exception);
+}
+
+TEST_F(ColumnVarbinaryTest, ReplaceColumnDataOnNonInlineTarget) {
+    auto col = ColumnVarbinary::create();
+    std::string inl = make_bytes(3, 0x41);                                   // inline
+    std::string big1 = make_bytes(doris::StringView::kInlineSize + 5, 0xB1); // non-inline
+    std::string big2 = make_bytes(doris::StringView::kInlineSize + 7, 0xB2); // non-inline
+    col->insert_data(inl.data(), inl.size());
+    col->insert_data(big1.data(), big1.size()); // row 1: non-inline target
+
+    auto rhs = ColumnVarbinary::create();
+    std::string rhs_inline = make_bytes(2, 0x51);           // inline
+    rhs->insert_data(rhs_inline.data(), rhs_inline.size()); // row 0 inline
+    rhs->insert_data(big2.data(), big2.size());             // row 1 non-inline
+
+    // 用 inline 替换非内联目标
+    col->replace_column_data(*rhs, /*row=*/0, /*self_row=*/1);
+    auto r1 = col->get_data_at(1);
+    ASSERT_EQ(r1.size, rhs_inline.size());
+    ASSERT_EQ(memcmp(r1.data, rhs_inline.data(), r1.size), 0);
+
+    // 再用 non-inline 替换同一目标
+    col->replace_column_data(*rhs, /*row=*/1, /*self_row=*/1);
+    auto r1b = col->get_data_at(1);
+    ASSERT_EQ(r1b.size, big2.size());
+    ASSERT_EQ(memcmp(r1b.data, big2.data(), r1b.size), 0);
+}
+
+TEST_F(ColumnVarbinaryTest, SerializeSizeAtForNonInline) {
+    auto col = ColumnVarbinary::create();
+    std::string small = make_bytes(4, 0x61);
+    std::string big = make_bytes(doris::StringView::kInlineSize + 9, 0x62);
+    col->insert_data(small.data(), small.size());
+    col->insert_data(big.data(), big.size());
+
+    EXPECT_EQ(col->serialize_size_at(0), small.size() + sizeof(uint32_t));
+    EXPECT_EQ(col->serialize_size_at(1), big.size() + sizeof(uint32_t));
+}
+
+TEST_F(ColumnVarbinaryTest, CloneResizedZero) {
+    auto col = ColumnVarbinary::create();
+    col->insert_data("a", 1);
+    col->insert_data("", 0);
+    auto c0 = col->clone_resized(0);
+    const auto& cc0 = assert_cast<const ColumnVarbinary&>(*c0);
+    EXPECT_EQ(cc0.size(), 0U);
 }
 
 } // namespace doris::vectorized
