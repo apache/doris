@@ -145,6 +145,8 @@ public class DatabaseTransactionMgr {
     // it must exists in dbIdToTxnLabels, and vice versa
     private final Map<String, Set<Long>> labelToTxnIds = Maps.newHashMap();
 
+    private final Map<Long, Set<String>> tableIdToLabelSet = Maps.newHashMap();
+
     private final Map<Long, Long> tableCommittedTxnCount = Maps.newConcurrentMap();
 
     private Long lastCommittedTxnCountUpdateTime = 0L;
@@ -1718,6 +1720,14 @@ public class DatabaseTransactionMgr {
                 cleanSubTransactions(transactionState.getTransactionId());
             }
         }
+        // Must update labelToTxnIds in all cases to maintain consistency with 
+        // idToRunningTransactionState/idToFinalStatusTransactionState. Reasons:
+        // 1. During journal replay, transactions may be directly replayed with final status
+        //    (COMMITTED/VISIBLE/ABORTED), skipping the non-final status branch.
+        // 2. During normal operation, transaction status changes from non-final to final will
+        //    cause this method to be called multiple times. The Set's deduplication ensures safety.
+        // 
+        // (TODO Refrain) maybe we can call this during journal replay
         updateTxnLabels(transactionState);
     }
 
