@@ -1042,6 +1042,9 @@ Status ParquetReader::_process_column_stat_filter(const tparquet::RowGroup& row_
     }
 
     for (const auto& [_, predicates] : _push_down_simple_predicates) {
+        if (predicates.empty()) {
+            continue;
+        }
         auto* slot = _tuple_descriptor->slots()[predicates.front()->column_id()];
         if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
             continue;

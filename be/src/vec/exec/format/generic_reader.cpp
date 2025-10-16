@@ -50,8 +50,8 @@ Status ExprPushDownHelper::_extract_predicates(const VExprSPtr& expr, int& cid,
             continue;
         }
         values.emplace_back(literal->get_column_ptr()->operator[](0));
+        parsed = true;
     }
-    parsed = true;
     return Status::OK();
 }
 
@@ -103,7 +103,7 @@ Status ExprPushDownHelper::convert_predicates(const VExprSPtrs& exprs,
                     // TODO(gabriel): Use string view
                     std::vector<std::string> conditions(values.size());
                     for (size_t i = 0; i < conditions.size(); i++) {
-                        conditions[i] = std::string(values[i].to_string());
+                        conditions[i] = values[i].to_string();
                     }
                     predicates.push_back(create_list_predicate<PredicateType::IN_LIST>(
                             data_type, cid, conditions, false, arena));

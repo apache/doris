@@ -293,10 +293,17 @@ public:
         if (!vectorized::ParquetPredicate::get_min_max_value(
                     statistic->col_schema, statistic->encoded_min_value,
                     statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)) {
-            return false;
+            return true;
         };
-        T min_value = min_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
-        T max_value = max_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+        T min_value;
+        T max_value;
+        if constexpr (std::is_same_v<T, float>) {
+            min_value = (float)(min_field.template get<Type>());
+            max_value = (float)(max_field.template get<Type>());
+        } else {
+            min_value = min_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+            max_value = max_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+        }
 
         if constexpr (PT == PredicateType::IN_LIST) {
             return Compare::less_equal(min_value, _max_value) &&
