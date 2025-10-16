@@ -243,6 +243,18 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
                              << " is not int64: " << value.GetString() << " , use 0 as default";
             }
         }
+        if (config::enable_file_cache_query_limit) {
+            if (map.HasMember(CACHE_QUERY_LIMIT_SIZE.c_str())) {
+                auto& value = map.FindMember(CACHE_QUERY_LIMIT_SIZE.c_str())->value;
+                if (value.IsInt64()) {
+                    query_limit_bytes = value.GetInt64();
+                } else {
+                    query_limit_bytes = 0;
+                    LOG(WARNING) << "[FileCache] the value of " << CACHE_QUERY_LIMIT_SIZE.c_str()
+                                 << " is not int64: " << value.GetString() << " , use 0 as default";
+                }
+            }
+        }
         if (total_size < 0 || (config::enable_file_cache_query_limit && query_limit_bytes < 0)) {
             return Status::InvalidArgument("total_size or query_limit should not less than zero");
         }
