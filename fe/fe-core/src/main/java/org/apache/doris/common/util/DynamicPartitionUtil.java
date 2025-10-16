@@ -518,7 +518,7 @@ public class DynamicPartitionUtil {
         if (olapTable.getTableProperty() != null) {
             if (olapTable.getTableProperty().getDynamicPartitionProperty() != null
                     && olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()
-                    || olapTable.getPartitionPreservedNum() > 0) {
+                    || olapTable.getPartitionRetentionCount() > 0) {
                 Env.getCurrentEnv().getDynamicPartitionScheduler()
                         .registerDynamicPartitionTable(dbId, olapTable.getId());
             } else {

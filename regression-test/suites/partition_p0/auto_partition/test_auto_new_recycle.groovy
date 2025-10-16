@@ -32,10 +32,10 @@ suite("test_auto_new_recycle", "nonConcurrent") {
                 "dynamic_partition.prefix" = "p",
                 "dynamic_partition.create_history_partition" = "true",
                 "replication_num" = "1",
-                "partition.preserved_num" = "3"
+                "partition.retention_count" = "3"
             );
         """
-        exception "Please remove dynamic_partition properties when partition.preserved_num enabled"
+        exception "Please remove dynamic_partition properties when partition.retention_count enabled"
     }
     test {
         sql """
@@ -46,10 +46,10 @@ suite("test_auto_new_recycle", "nonConcurrent") {
             DISTRIBUTED BY HASH(`k0`) BUCKETS 1
             properties(
                 "replication_num" = "1",
-                "partition.preserved_num" = "3"
+                "partition.retention_count" = "3"
             );
         """
-        exception "Only AUTO RANGE PARTITION table could set partition.preserved_num"
+        exception "Only AUTO RANGE PARTITION table could set partition.retention_count"
     }
     
     sql """
@@ -60,11 +60,11 @@ suite("test_auto_new_recycle", "nonConcurrent") {
         DISTRIBUTED BY HASH(`k0`) BUCKETS 1
         properties(
             "replication_num" = "1",
-            "partition.preserved_num" = "3"
+            "partition.retention_count" = "3"
         );
     """
     def res = sql "show create table auto_recycle"
-    assertTrue(res[0][1].contains('"partition.preserved_num" = "3"'))
+    assertTrue(res[0][1].contains('"partition.retention_count" = "3"'))
 
     sql "drop table auto_recycle force"
     sql """
@@ -75,7 +75,7 @@ suite("test_auto_new_recycle", "nonConcurrent") {
         DISTRIBUTED BY HASH(`k0`) BUCKETS 1
         properties(
             "replication_num" = "1",
-            "partition.preserved_num" = "3"
+            "partition.retention_count" = "3"
         );
     """
     test {
@@ -88,11 +88,11 @@ suite("test_auto_new_recycle", "nonConcurrent") {
             "dynamic_partition.buckets" = "32"
             );
         """
-        exception "Can not use partition.preserved_num and dynamic_partition properties at the same time"
+        exception "Can not use partition.retention_count and dynamic_partition properties at the same time"
     }
     test {
-        sql "alter table auto_recycle set ('partition.preserved_num' = '0')"
-        exception "partition.preserved_num should be > 0"
+        sql "alter table auto_recycle set ('partition.retention_count' = '0')"
+        exception "partition.retention_count should be > 0"
     }
 
 
@@ -119,22 +119,42 @@ suite("test_auto_new_recycle", "nonConcurrent") {
     res = sql "show partitions from auto_recycle"
     assertEquals(res.size(), 100)
 
-    sql "alter table auto_recycle set ('partition.preserved_num' = '3')"
+    sql "alter table auto_recycle set ('partition.retention_count' = '3')"
     res = sql "show create table auto_recycle"
-    assertTrue(res[0][1].contains('"partition.preserved_num" = "3"'))
+    assertTrue(res[0][1].contains('"partition.retention_count" = "3"'))
 
     sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '1') """
     sleep(8000)
     res = sql "show partitions from auto_recycle"
     assertEquals(res.size(), 3)
 
+    sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
+    sleep(8000)
     sql """
     insert into auto_recycle select date_add('2020-01-01 00:00:00', interval number day) from numbers("number" = "100");
     """
-    sleep(5000)
+    sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '1') """
+    sleep(8000)
     res = sql "show partitions from auto_recycle"
     assertEquals(res.size(), 3)
-    qt_sql "select * from auto_recycle order by k0"
+    qt_sql0 "select * from auto_recycle order by k0"
+
+    sql "alter table auto_recycle set ('partition.retention_count' = '1')"
+    sleep(5000)
+    res = sql "show partitions from auto_recycle"
+    assertEquals(res.size(), 1)
+
+    sql "alter table auto_recycle set ('partition.retention_count' = '10')"
+    sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
+    sleep(8000)
+    sql """
+    insert into auto_recycle select date_add('2022-01-01 00:00:00', interval number day) from numbers("number" = "100");
+    """
+    sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '1') """
+    sleep(8000)
+    res = sql "show partitions from auto_recycle"
+    assertEquals(res.size(), 10)
+    qt_sql1 "select * from auto_recycle order by k0"
 
     sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
 }
