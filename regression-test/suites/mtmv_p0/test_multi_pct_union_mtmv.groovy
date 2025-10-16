@@ -85,7 +85,7 @@ suite("test_multi_pct_union_mtmv","mtmv") {
 
      sql """
         insert into ${tableName3} values("2017-04-01",5);
-        insert into ${tableName3} values("2017-05-01",6);
+        insert into ${tableName3} values("2017-04-01",6);
         """
 
     String mvSql = "SELECT * from ${tableName1} union all SELECT * from ${tableName2} union all SELECT * from ${tableName3};";
@@ -139,7 +139,7 @@ suite("test_multi_pct_union_mtmv","mtmv") {
     order_qt_3 "SELECT * FROM ${mvName}"
 
     sql """
-        insert into ${tableName3} values(5,5);
+        insert into ${tableName3} values("2017-04-01",7);
         """
 
     sql """
