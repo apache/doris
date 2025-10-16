@@ -43,6 +43,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
+#include "util/defer_op.h"
 #include "util/runtime_profile.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -593,9 +594,16 @@ Status FileScanner::_cast_to_input_block(Block* block) {
     SCOPED_TIMER(_cast_to_input_block_timer);
     // cast primitive type(PT0) to primitive type(PT1)
     uint32_t idx = 0;
-    for (auto& slot_desc : _input_tuple_desc->slots()) {
-        if (_slot_lower_name_to_col_type.find(slot_desc->col_name()) ==
-            _slot_lower_name_to_col_type.end()) {
+
+    // tmp column to store cast result
+    _src_block_ptr->insert(ColumnWithTypeAndName {nullptr, nullptr, "tmp_cast_colmn"});
+    auto result_column_id = _src_block_ptr->columns() - 1;
+
+    // make sure remove tmp column at the end of function
+    Defer remove_tmp_column([&]() { _src_block_ptr->erase(result_column_id); });
+
+    for (const auto& slot_desc : _input_tuple_desc->slots()) {
+        if (!_slot_lower_name_to_col_type.contains(slot_desc->col_name())) {
             // skip columns which does not exist in file
             continue;
         }
@@ -607,8 +615,7 @@ Status FileScanner::_cast_to_input_block(Block* block) {
         auto return_type = slot_desc->get_data_type_ptr();
         // remove nullable here, let the get_function decide whether nullable
         auto data_type = get_data_type_with_default_argument(remove_nullable(return_type));
-        ColumnsWithTypeAndName arguments {
-                arg, {data_type->create_column(), data_type, slot_desc->col_name()}};
+        ColumnsWithTypeAndName arguments {arg, {nullptr, data_type, slot_desc->col_name()}};
         auto func_cast = SimpleFunctionFactory::instance().get_function(
                 "CAST", arguments, return_type,
                 {.enable_decimal256 = runtime_state()->enable_decimal256()});
@@ -618,8 +625,16 @@ Status FileScanner::_cast_to_input_block(Block* block) {
                                          return_type->get_name());
         }
         idx = _src_block_name_to_idx[slot_desc->col_name()];
-        RETURN_IF_ERROR(
-                func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
+
+        // set tmp column type as cast function return type
+        _src_block_ptr->get_by_position(result_column_id).type = data_type;
+
+        // do cast, the result column is at result_column_id
+        RETURN_IF_ERROR(func_cast->execute(nullptr, *_src_block_ptr, {idx}, result_column_id,
+                                           arg.column->size()));
+        // replace original column with casted result column
+        _src_block_ptr->get_by_position(idx).column =
+                std::move(_src_block_ptr->get_by_position(result_column_id).column);
         _src_block_ptr->get_by_position(idx).type = std::move(return_type);
     }
     return Status::OK();
