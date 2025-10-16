@@ -137,7 +137,7 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         waitingMTMVTaskFinishedByMvName(mvName1, dbName)
         qt_test_ts_refresh_null """select * from ${mvName1} order by value"""
 
-        qt_test_iceberg_table_partition_ts """show partitions from ${catalog_name}.${icebergDb}.${icebergTable1};"""
+        qt_test_iceberg_table_partition_ts """select `partition` from ${catalog_name}.${icebergDb}.${icebergTable1}\$partitions order by `partition`;"""
 
         def showPartitionsResult = sql """show partitions from ${mvName1}"""
         logger.info("showPartitionsResult: " + showPartitionsResult.toString())
@@ -198,7 +198,7 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         waitingMTMVTaskFinishedByMvName(mvName2, dbName)
         qt_test_d_refresh5 "select * from ${mvName2} order by value"
 
-        qt_test_iceberg_table_partition_d """show partitions from ${catalog_name}.${icebergDb}.${icebergTable2};"""
+        qt_test_iceberg_table_partition_d """select `partition` from ${catalog_name}.${icebergDb}.${icebergTable2}\$partitions order by `partition`;"""
 
         showPartitionsResult = sql """show partitions from ${mvName2}"""
         logger.info("showPartitionsResult: " + showPartitionsResult.toString())
