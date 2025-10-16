@@ -408,6 +408,9 @@ struct TQueryOptions {
   173: optional i64 query_freshness_tolerance_ms
   174: optional i64 merge_read_slice_size = 8388608;
 
+  175: optional bool enable_fuzzy_blockable_task = false;
+  176: optional list<i32> shuffled_agg_ids;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

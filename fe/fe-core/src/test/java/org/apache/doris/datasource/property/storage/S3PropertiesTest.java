@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
 import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.services.sts.StsClient;
@@ -193,7 +195,7 @@ public class S3PropertiesTest {
         Assertions.assertEquals("us-west-2", s3Properties.getRegion());
         Assertions.assertEquals("myCOSAccessKey", s3Properties.getAccessKey());
         Assertions.assertEquals("myCOSSecretKey", s3Properties.getSecretKey());
-        Assertions.assertEquals("s3.us-west-2.amazonaws.com", s3Properties.getEndpoint());
+        Assertions.assertEquals("https://s3.us-west-2.amazonaws.com", s3Properties.getEndpoint());
         Map<String, String> s3EndpointProps = new HashMap<>();
         s3EndpointProps.put("oss.access_key", "myCOSAccessKey");
         s3EndpointProps.put("oss.secret_key", "myCOSSecretKey");
@@ -410,10 +412,15 @@ public class S3PropertiesTest {
 
     @Test
     public void testS3PropertiesAwsAnonymousCredentialsProvider() {
+        Config.aws_credentials_provider_version = "v1";
         Map<String, String> props = Maps.newHashMap();
         props.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
         S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(props);
         AwsCredentialsProvider provider = s3Properties.getAwsCredentialsProvider();
         Assertions.assertEquals(AnonymousCredentialsProvider.class, provider.getClass());
+        Config.aws_credentials_provider_version = "v2";
+        provider = s3Properties.getAwsCredentialsProvider();
+        Assertions.assertEquals(AwsCredentialsProviderChain.class, provider.getClass());
+        Config.aws_credentials_provider_version = "v2";
     }
 }

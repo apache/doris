@@ -1495,6 +1495,9 @@ DEFINE_mBool(skip_loading_stale_rowset_meta, "false");
 
 DEFINE_Bool(enable_file_logger, "true");
 
+// Enable partition column fallback when partition columns are missing from file
+DEFINE_Bool(enable_iceberg_partition_column_fallback, "true");
+
 // The minimum row group size when exporting Parquet files. default 128MB
 DEFINE_Int64(min_row_group_size, "134217728");
 
@@ -1598,6 +1601,11 @@ DEFINE_mBool(enable_wal_tde, "false");
 DEFINE_mBool(print_stack_when_cache_miss, "false");
 
 DEFINE_mBool(read_cluster_cache_opt_verbose_log, "false");
+
+DEFINE_String(aws_credentials_provider_version, "v2");
+DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config) -> bool {
+    return config == "v1" || config == "v2";
+});
 
 // clang-format off
 #ifdef BE_TEST
