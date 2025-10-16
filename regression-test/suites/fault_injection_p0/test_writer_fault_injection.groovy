@@ -84,10 +84,15 @@ suite("test_writer_fault_injection", "nonConcurrent") {
         }
 
         // VTabletWriter close logic injection tests
+        def custoBeConfig = [
+            mem_tracker_limit_small_memory_task_bytes : 0
+        ]
+        setBeConfigTemporary(custoBeConfig) {
         // Test VNodeChannel close_wait with full gc injection
         load_with_injection("VNodeChannel.close_wait_full_gc")
         // Test VNodeChannel try_send_and_fetch_status with full gc injection
         load_with_injection("VNodeChannel.try_send_and_fetch_status_full_gc")
+        }
         // Test VNodeChannel close_wait when cancelled
         load_with_injection("VNodeChannel.close_wait.cancelled")
         // Test IndexChannel close_wait with timeout
