@@ -55,9 +55,9 @@ public class NullSafeEqualToEqual extends ConditionRewrite implements Expression
 
     @Override
     public Expression visitNullSafeEqual(NullSafeEqual nullSafeEqual, Boolean isInsideCondition) {
-        Expression newLeft = nullSafeEqual.left().accept(this, false);
-        Expression newRight = nullSafeEqual.right().accept(this, false);
-
+        NullSafeEqual newNullSafeEqual = (NullSafeEqual) super.visitNullSafeEqual(nullSafeEqual, isInsideCondition);
+        Expression newLeft = newNullSafeEqual.left();
+        Expression newRight = newNullSafeEqual.right();
         boolean canConvertToEqual = (!newLeft.nullable() && !newRight.nullable())
                 || (isInsideCondition && (newLeft.nullable() || newRight.nullable()));
         if (newLeft.equals(newRight)) {
@@ -70,10 +70,8 @@ public class NullSafeEqualToEqual extends ConditionRewrite implements Expression
             return !newLeft.nullable() ? BooleanLiteral.FALSE : new IsNull(newLeft);
         } else if (canConvertToEqual) {
             return new EqualTo(newLeft, newRight);
-        } else if (newLeft != nullSafeEqual.left() || newRight != nullSafeEqual.right()) {
-            return nullSafeEqual.withChildren(newLeft, newRight);
         } else {
-            return nullSafeEqual;
+            return newNullSafeEqual;
         }
     }
 }

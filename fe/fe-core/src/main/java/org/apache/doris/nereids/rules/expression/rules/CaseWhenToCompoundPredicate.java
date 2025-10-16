@@ -131,26 +131,21 @@ public class CaseWhenToCompoundPredicate implements ExpressionPatternRuleFactory
 
         @Override
         public Expression visitIf(If ifExpr, Boolean isInsideCondition) {
-            Expression newCondition = ifExpr.getCondition().accept(this, true);
-            Expression newTrueValue = ifExpr.getTrueValue().accept(this, isInsideCondition);
-            Expression newFalseValue = ifExpr.getFalseValue().accept(this, isInsideCondition);
+            If newIf = (If) super.visitIf(ifExpr, isInsideCondition);
             if (isInsideCondition) {
+                Expression newCondition = newIf.getCondition();
+                Expression newTrueValue = newIf.getTrueValue();
+                Expression newFalseValue = newIf.getFalseValue();
                 if (newFalseValue.equals(BooleanLiteral.TRUE)) {
                     // if (c, p, true) =>  not(c <=> true) || p
                     return ExpressionUtils.or(
                             new Not(new NullSafeEqual(newCondition, BooleanLiteral.TRUE)), newTrueValue);
                 } else if (newFalseValue.equals(BooleanLiteral.FALSE) || newFalseValue.isNullLiteral()) {
-                    // if (c, p, false) => c && p
+                    // if (c, p, false) => c and p
                     return ExpressionUtils.and(newCondition, newTrueValue);
                 }
             }
-            if (newCondition != ifExpr.getCondition()
-                    || newTrueValue != ifExpr.getTrueValue()
-                    || newFalseValue != ifExpr.getFalseValue()) {
-                return new If(newCondition, newTrueValue, newFalseValue);
-            } else {
-                return ifExpr;
-            }
+            return newIf;
         }
     }
 }
