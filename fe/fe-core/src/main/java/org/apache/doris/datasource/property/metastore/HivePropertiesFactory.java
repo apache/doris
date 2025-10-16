@@ -27,12 +27,12 @@ import java.util.Map;
  * - "glue"             -> {@link HiveGlueMetaStoreProperties}
  * - "dlf"              -> {@link HiveAliyunDLFMetaStoreProperties}
  */
-public class HMSPropertiesFactory extends AbstractMetastorePropertiesFactory {
+public class HivePropertiesFactory extends AbstractMetastorePropertiesFactory {
 
     private static final String KEY = "hive.metastore.type";
     private static final String DEFAULT_TYPE = "default";
 
-    public HMSPropertiesFactory() {
+    public HivePropertiesFactory() {
         register("default", HiveProperties::new);
         register("hms", HiveProperties::new);
         register("glue", HiveGlueMetaStoreProperties::new);
