@@ -3799,4 +3799,11 @@ TEST_F(ColumnVariantTest, subcolumn_insert_range_from_test_advanced) {
     }
 }
 
+TEST_F(ColumnVariantTest, test_variant_no_data_insert) {
+    auto variant = ColumnVariant::create(1);
+    variant->insert_many_defaults(10);
+    EXPECT_EQ(variant->size(), 10);
+    EXPECT_TRUE(variant->only_have_default_values());
+}
+
 } // namespace doris::vectorized

@@ -440,14 +440,9 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
     }
 
     protected List<TabletCommitInfo> generateTabletCommitInfos() {
-        TabletInvertedIndex currentInvertedIndex = Env.getCurrentInvertedIndex();
         List<TabletCommitInfo> tabletCommitInfos = Lists.newArrayList();
         tabletDeleteInfoMap.forEach((tabletId, deleteInfo) -> deleteInfo.getFinishedReplicas()
                 .forEach(replica -> {
-                    if (currentInvertedIndex.getTabletIdByReplica(replica.getId()) == null) {
-                        LOG.warn("could not find tablet id for replica {}, the tablet maybe dropped", replica);
-                        return;
-                    }
                     tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendIdWithoutException()));
                 }));
         return tabletCommitInfos;
