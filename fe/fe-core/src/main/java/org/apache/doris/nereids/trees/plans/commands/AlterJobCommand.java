@@ -138,7 +138,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                 "The target table cannot be modified in ALTER JOB");
 
         Preconditions.checkArgument(originTvf.getFunctionName().equalsIgnoreCase(inputTvf.getFunctionName()),
-                "The tvf type %s cannot be modified in ALTER JOB", inputTvf.getFunctionName());
+                "The tvf type cannot be modified in ALTER JOB: original=%s, new=%s",
+                originTvf.getFunctionName(), inputTvf.getFunctionName());
 
         switch (originTvf.getFunctionName().toLowerCase()) {
             case "s3":
