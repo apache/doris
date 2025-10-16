@@ -89,7 +89,7 @@ suite("test_multi_pct_mtmv","mtmv") {
         insert into ${tableName3} values(3,3);
         insert into ${tableName3} values(4,4);
         """
-
+    String mvSql = "SELECT t1.k1,t1.k2,t2.k2 as k3,t3.k4 from ${tableName1} t1 inner join ${tableName2} t2 on t1.k1=t2.k1 left join ${tableName3} t3 on t1.k2=t3.k3;";
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD DEFERRED REFRESH AUTO ON MANUAL
@@ -99,7 +99,7 @@ suite("test_multi_pct_mtmv","mtmv") {
         'replication_num' = '1'
         )
         AS
-        SELECT t1.k1,t1.k2,t2.k2 as k3,t3.k4 from ${tableName1} t1 inner join ${tableName2} t2 on t1.k1=t2.k1 left join ${tableName3} t3 on t1.k2=t3.k3;
+        ${mvSql}
         """
 
     order_qt_MvPartitionInfo "select MvPartitionInfo from mv_infos('database'='${dbName}') where Name='${mvName}'"
@@ -149,4 +149,6 @@ suite("test_multi_pct_mtmv","mtmv") {
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_mode_t3 "select RefreshMode from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1"
     order_qt_4 "SELECT * FROM ${mvName}"
+
+    mv_rewrite_success_without_check_chosen(mvSql, mvName)
 }
