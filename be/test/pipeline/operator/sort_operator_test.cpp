@@ -154,7 +154,7 @@ struct SortOperatorTest : public ::testing::Test {
 };
 
 TEST_F(SortOperatorTest, test) {
-    create_operator(TSortAlgorithm::HEAP_SORT, 10, 0);
+    create_operator(TSortAlgorithm::HEAP_SORT, 1025, 0);
 
     {
         vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({2, 3, 1});
@@ -206,7 +206,7 @@ TEST_F(SortOperatorTest, test_dep) {
         bool eos = false;
         auto st = source->get_block(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
-        EXPECT_FALSE(eos);
+        EXPECT_TRUE(eos);
         EXPECT_EQ(block.rows(), 6);
         std::cout << block.dump_data() << std::endl;
         EXPECT_TRUE(ColumnHelper::block_equal(

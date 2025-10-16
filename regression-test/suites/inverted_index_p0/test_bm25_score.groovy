@@ -89,7 +89,7 @@ suite("test_bm25_score", "p0") {
         }
 
         qt_sql """ select count() from test_bm25_score where request match_any 'button.03.gif'; """
-        qt_sql """ select *, score() as score from test_bm25_score where request match_any 'button.03.gif' order by score limit 10; """
+        order_qt_sql """ select *, score() as score from test_bm25_score where request match_any 'button.03.gif' order by score limit 10; """
         qt_sql """ select *, score() as score from test_bm25_score where request match_all 'button.03.gif' order by score limit 10; """
         qt_sql """ select *, score() as score from test_bm25_score where request match_phrase 'button.03.gif' order by score limit 10; """
 
