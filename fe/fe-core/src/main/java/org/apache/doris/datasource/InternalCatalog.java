@@ -2822,19 +2822,19 @@ public class InternalCatalog implements CatalogIf<Database> {
         Long ttlSeconds = PropertyAnalyzer.analyzeTTL(properties);
         olapTable.setTTLSeconds(ttlSeconds);
 
-        int preservedNum = -1;
+        int retentionCount = -1;
         try {
-            preservedNum = PropertyAnalyzer.analyzePartitionPreservedNum(properties);
+            retentionCount = PropertyAnalyzer.analyzePartitionRetentionCount(properties);
             if ((partitionDesc == null || !partitionDesc.isAutoCreatePartitions()
-                    || partitionDesc.getType() != PartitionType.RANGE) && preservedNum > 0) {
+                    || partitionDesc.getType() != PartitionType.RANGE) && retentionCount > 0) {
                 throw new DdlException("Only AUTO RANGE PARTITION table could set "
-                        + PropertyAnalyzer.PROPERTIES_PARTITION_PRESERVED_NUM);
+                        + PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
             }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        if (preservedNum > 0) {
-            olapTable.setPartitionPreservedNum(preservedNum);
+        if (retentionCount > 0) {
+            olapTable.setPartitionRetentionCount(retentionCount);
         }
 
         // set storage policy
@@ -3118,9 +3118,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                     // only support one in the same time
                     if (dynamicProperty.isExist() && dynamicProperty.getEnable()
-                            && olapTable.getPartitionPreservedNum() > 0) {
+                            && olapTable.getPartitionRetentionCount() > 0) {
                         throw new DdlException(
-                                "Please remove dynamic_partition properties when partition.preserved_num enabled");
+                                "Please remove dynamic_partition properties when partition.retention_count enabled");
                     }
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());

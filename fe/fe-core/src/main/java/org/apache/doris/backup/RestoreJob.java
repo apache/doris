@@ -2720,12 +2720,16 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         partition.setState(PartitionState.NORMAL);
                     }
                 }
-                if (committed && (reserveDynamicPartitionEnable || olapTbl.getPartitionPreservedNum() > 0)) {
+                if (committed && reserveDynamicPartitionEnable) {
                     if (DynamicPartitionUtil.isDynamicPartitionTable(tbl)) {
                         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTbl, isReplay);
                         Env.getCurrentEnv().getDynamicPartitionScheduler().createOrUpdateRuntimeInfo(tbl.getId(),
                                 DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
                     }
+                }
+                // auto partition with retention_count also need to be registered to dynamic scheduler
+                if (committed && olapTbl.getPartitionRetentionCount() > 0) {
+                    DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTbl, isReplay);
                 }
                 if (committed && isBeingSynced) {
                     olapTbl.setBeingSyncedProperties();

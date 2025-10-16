@@ -3695,9 +3695,9 @@ public class Env {
         }
 
         // partition preserved num
-        if (olapTable.getPartitionPreservedNum() > 0) {
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_PARTITION_PRESERVED_NUM).append("\" = \"");
-            sb.append(olapTable.getPartitionPreservedNum()).append("\"");
+        if (olapTable.getPartitionRetentionCount() > 0) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT).append("\" = \"");
+            sb.append(olapTable.getPartitionRetentionCount()).append("\"");
         }
 
         // only display z-order sort info
@@ -6062,7 +6062,7 @@ public class Env {
                 .buildTimeSeriesCompactionLevelThreshold()
                 .buildTTLSeconds()
                 .buildAutoAnalyzeProperty()
-                .buildPartitionPreservedNum();
+                .buildPartitionRetentionCount();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {

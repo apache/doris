@@ -2005,8 +2005,8 @@ public class SchemaChangeHandler extends AlterHandler {
                         return;
                     } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
                         DynamicPartitionUtil.checkDynamicPartitionPropertyKeysValid(properties);
-                        if (olapTable.getPartitionPreservedNum() > 0) {
-                            throw new DdlException("Can not use partition.preserved_num and "
+                        if (olapTable.getPartitionRetentionCount() > 0) {
+                            throw new DdlException("Can not use partition.retention_count and "
                                     + "dynamic_partition properties at the same time");
                         }
                         if (!olapTable.dynamicPartitionExists()) {
@@ -2357,7 +2357,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD);
                 add(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
                 add(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM);
-                add(PropertyAnalyzer.PROPERTIES_PARTITION_PRESERVED_NUM);
+                add(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
             }
         };
         List<String> notAllowedProps = properties.keySet().stream().filter(s -> !allowedProps.contains(s))
@@ -2378,11 +2378,11 @@ public class SchemaChangeHandler extends AlterHandler {
             olapTable.readUnlock();
         }
 
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_PRESERVED_NUM)
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)
                 && !(olapTable.getPartitionInfo().enableAutomaticPartition()
                         && olapTable.getPartitionInfo().getType() == PartitionType.RANGE)) {
-            throw new UserException(
-                    "Only AUTO RANGE PARTITION table could set " + PropertyAnalyzer.PROPERTIES_PARTITION_PRESERVED_NUM);
+            throw new UserException("Only AUTO RANGE PARTITION table could set "
+                    + PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
         }
 
         String inMemory = properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY);
@@ -2456,7 +2456,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)
-                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_PRESERVED_NUM)) {
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
             LOG.info("Properties already up-to-date");
             return;
         }
@@ -2504,7 +2504,7 @@ public class SchemaChangeHandler extends AlterHandler {
             olapTable.writeUnlock();
         }
 
-        // after modifyTableProperties, buildPartitionPreservedNum has been done.
+        // after modifyTableProperties, buildPartitionRetentionCount has been done.
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
     }
 

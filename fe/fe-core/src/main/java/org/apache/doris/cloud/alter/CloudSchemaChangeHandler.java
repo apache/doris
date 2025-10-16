@@ -111,7 +111,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 add(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION);
                 add(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
                 add(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
-                add(PropertyAnalyzer.PROPERTIES_PARTITION_PRESERVED_NUM);
+                add(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
             }
         };
         List<String> notAllowedProps = properties.keySet().stream().filter(s -> !allowedProps.contains(s))
@@ -128,11 +128,11 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
 
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_PRESERVED_NUM)
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)
                 && !(olapTable.getPartitionInfo().enableAutomaticPartition()
                         && olapTable.getPartitionInfo().getType() == PartitionType.RANGE)) {
-            throw new UserException(
-                    "Only AUTO RANGE PARTITION table could set " + PropertyAnalyzer.PROPERTIES_PARTITION_PRESERVED_NUM);
+            throw new UserException("Only AUTO RANGE PARTITION table could set "
+                    + PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
         }
 
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
@@ -363,7 +363,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             olapTable.writeUnlock();
         }
 
-        // after modifyTableProperties, buildPartitionPreservedNum has been done.
+        // after modifyTableProperties, buildPartitionRetentionCount has been done.
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
     }
 

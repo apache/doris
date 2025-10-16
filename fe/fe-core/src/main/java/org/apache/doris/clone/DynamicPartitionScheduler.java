@@ -593,14 +593,14 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     /**
-     * Get drop partition clauses for AUTO PARTITION tables based on partition.preserved_num
+     * Get drop partition clauses for AUTO PARTITION tables based on partition.retention_count
      */
     private ArrayList<DropPartitionClause> getDropPartitionClauseForAutoPartition(Database db, OlapTable olapTable)
             throws DdlException {
         ArrayList<DropPartitionClause> dropPartitionClauses = new ArrayList<>();
 
-        // when create/modify table, we already checked preservedNum validity.
-        int preservedNum = olapTable.getTableProperty().getPartitionPreservedNum();
+        // when create/modify table, we already checked retentionCount validity.
+        int retentionCount = olapTable.getTableProperty().getPartitionRetentionCount();
 
         RangePartitionInfo info = (RangePartitionInfo) (olapTable.getPartitionInfo());
         List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());
@@ -608,7 +608,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
 
         int total = idToItems.size();
-        int keep = Math.min(preservedNum, total);
+        int keep = Math.min(retentionCount, total);
 
         // Drop partitions except the latest 'keep' partitions
         for (int i = 0; i < Math.max(0, total - keep); i++) {
@@ -645,10 +645,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             // Only OlapTable has DynamicPartitionProperty
             if (olapTable == null
                     || olapTable instanceof MTMV
-                    // OR (NOT dynamic partition AND NOT partition.preserved_num)
+                    // OR (NOT dynamic partition AND NOT partition.retention_count)
                     || (!olapTable.dynamicPartitionExists()
                             || !olapTable.getTableProperty().getDynamicPartitionProperty().getEnable())
-                    && olapTable.getPartitionPreservedNum() <= 0) {
+                    && olapTable.getPartitionRetentionCount() <= 0) {
                 iterator.remove();
                 continue;
             } else if (olapTable.isBeingSynced()) {
@@ -663,7 +663,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     skipAddPartition = true;
                 }
                 // only do clean for auto partition table
-                if (olapTable.getPartitionPreservedNum() > 0) {
+                if (olapTable.getPartitionRetentionCount() > 0) {
                     skipAddPartition = true;
                 }
 
@@ -694,8 +694,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                             executeFirstTime);
                 }
                 clearDropPartitionFailedMsg(olapTable.getId());
-                if (olapTable.getPartitionPreservedNum() > 0) {
-                    // Handle AUTO PARTITION cleanup based on partition.preserved_num
+                if (olapTable.getPartitionRetentionCount() > 0) {
+                    // Handle AUTO PARTITION cleanup based on partition.retention_count
                     dropPartitionClauses = getDropPartitionClauseForAutoPartition(db, olapTable);
                 } else {
                     // Handle dynamic partition cleanup

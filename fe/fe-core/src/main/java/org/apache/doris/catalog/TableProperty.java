@@ -64,7 +64,7 @@ public class TableProperty implements GsonPostProcessable {
     private boolean isInMemory = false;
     private short minLoadReplicaNum = -1;
     private long ttlSeconds = 0L;
-    private int partitionPreservedNum = -1;
+    private int partitionRetentionCount = -1;
     private boolean isInAtomicRestore = false;
 
     private String storagePolicy = "";
@@ -169,7 +169,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildTimeSeriesCompactionLevelThreshold();
                 buildTTLSeconds();
                 buildAutoAnalyzeProperty();
-                buildPartitionPreservedNum();
+                buildPartitionRetentionCount();
                 break;
             default:
                 break;
@@ -255,14 +255,14 @@ public class TableProperty implements GsonPostProcessable {
         return this;
     }
 
-    public TableProperty buildPartitionPreservedNum() {
-        String value = properties.get(PropertyAnalyzer.PROPERTIES_PARTITION_PRESERVED_NUM);
+    public TableProperty buildPartitionRetentionCount() {
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
         if (value != null) {
             try {
                 int n = Integer.parseInt(value);
-                partitionPreservedNum = n > 0 ? n : -1;
+                partitionRetentionCount = n > 0 ? n : -1;
             } catch (NumberFormatException e) {
-                partitionPreservedNum = -1;
+                partitionRetentionCount = -1;
             }
         }
         return this;
@@ -272,8 +272,8 @@ public class TableProperty implements GsonPostProcessable {
         return ttlSeconds;
     }
 
-    public int getPartitionPreservedNum() {
-        return partitionPreservedNum;
+    public int getPartitionRetentionCount() {
+        return partitionRetentionCount;
     }
 
     public TableProperty buildEnableLightSchemaChange() {
@@ -804,7 +804,7 @@ public class TableProperty implements GsonPostProcessable {
         buildTTLSeconds();
         buildVariantEnableFlattenNested();
         buildInAtomicRestore();
-        buildPartitionPreservedNum();
+        buildPartitionRetentionCount();
         removeDuplicateReplicaNumProperty();
         buildReplicaAllocation();
         buildTDEAlgorithm();
