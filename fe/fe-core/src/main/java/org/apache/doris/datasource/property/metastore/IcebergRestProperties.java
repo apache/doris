@@ -200,11 +200,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         ParamRules rules = new ParamRules()
                 // OAuth2 requires either credential or token, but not both
                 .mutuallyExclusive(icebergRestOauth2Credential, icebergRestOauth2Token,
-                        "OAuth2 cannot have both credential and token configured")
-                // If using credential flow, server URI is required
-                .requireAllIfPresent(icebergRestOauth2Credential,
-                        new String[] {icebergRestOauth2ServerUri},
-                        "OAuth2 credential flow requires server-uri");
+                        "OAuth2 cannot have both credential and token configured");
 
         // Custom validation: OAuth2 scope should not be used with token
         if (Strings.isNotBlank(icebergRestOauth2Token) && Strings.isNotBlank(icebergRestOauth2Scope)) {
@@ -274,7 +270,9 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         if (Strings.isNotBlank(icebergRestOauth2Credential)) {
             // Client Credentials Flow
             icebergRestCatalogProperties.put(OAuth2Properties.CREDENTIAL, icebergRestOauth2Credential);
-            icebergRestCatalogProperties.put(OAuth2Properties.OAUTH2_SERVER_URI, icebergRestOauth2ServerUri);
+            if (Strings.isNotBlank(icebergRestOauth2ServerUri)) {
+                icebergRestCatalogProperties.put(OAuth2Properties.OAUTH2_SERVER_URI, icebergRestOauth2ServerUri);
+            }
             if (Strings.isNotBlank(icebergRestOauth2Scope)) {
                 icebergRestCatalogProperties.put(OAuth2Properties.SCOPE, icebergRestOauth2Scope);
             }
