@@ -24,9 +24,11 @@ suite("test_ddl_backup_auth","p0,auth_call") {
     int hashCode = randomValue.hashCode()
     hashCode = hashCode > 0 ? hashCode : hashCode * (-1)
 
+    def label = UUID.randomUUID().toString().replaceAll("-", "")
+
     String user = 'test_ddl_backup_auth_user'
     String pwd = 'C123_567p'
-    String dbName = 'test_ddl_backup_auth_db'
+    String dbName = 'test_ddl_backup_auth_db_' + label
     String tableName = 'test_ddl_backup_auth_tb'
     String repositoryName = 'test_ddl_backup_auth_rps'
     String backupLabelName = 'test_ddl_backup_auth_backup_label' + hashCode.toString()
@@ -100,12 +102,18 @@ suite("test_ddl_backup_auth","p0,auth_call") {
         }
     }
     sql """grant LOAD_PRIV on ${dbName}.* to ${user}"""
+
+    // check backup job not exists
+    def res = sql """SHOW BACKUP FROM ${dbName};"""
+    logger.info("res: " + res)
+    assertTrue(res.size() == 0)
+
     connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """BACKUP SNAPSHOT ${dbName}.${backupLabelName}
                 TO ${repositoryName}
                 ON (${tableName})
                 PROPERTIES ("type" = "full");"""
-        def res = sql """SHOW BACKUP FROM ${dbName};"""
+        res = sql """SHOW BACKUP FROM ${dbName};"""
         logger.info("res: " + res)
         assertTrue(res.size() == 1)
 
