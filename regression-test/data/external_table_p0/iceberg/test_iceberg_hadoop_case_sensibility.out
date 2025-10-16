@@ -36,15 +36,15 @@ case_tbl13
 case_tbl22
 
 -- !sql13 --
-test_iceberg_case_sensibility_hadoop	iceberg_hadoop_case_db2	CASE_TBL22	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
-test_iceberg_case_sensibility_hadoop	iceberg_hadoop_case_db2	case_tbl22	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
+test_iceberg_case_sensibility_hadoop	iceberg_hadoop_case_db2	CASE_TBL22	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
+test_iceberg_case_sensibility_hadoop	iceberg_hadoop_case_db2	case_tbl22	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
 
 -- !sql14 --
 test_iceberg_case_sensibility_hadoop	iceberg_hadoop_case_db2	CASE_TBL22	k1	1	\N	YES	int	\N	\N	10	0	\N	\N	\N	int(11)					10	0	\N	\N
 test_iceberg_case_sensibility_hadoop	iceberg_hadoop_case_db2	case_tbl22	k1	1	\N	YES	int	\N	\N	10	0	\N	\N	\N	int(11)					10	0	\N	\N
 
 -- !sql131 --
-test_iceberg_case_sensibility_hadoop	ICEBERG_HADOOP_CASE_DB2	case_tbl21	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
+test_iceberg_case_sensibility_hadoop	ICEBERG_HADOOP_CASE_DB2	case_tbl21	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
 
 -- !sql141 --
 test_iceberg_case_sensibility_hadoop	ICEBERG_HADOOP_CASE_DB2	case_tbl21	k1	1	\N	YES	int	\N	\N	10	0	\N	\N	\N	int(11)					10	0	\N	\N
@@ -123,13 +123,13 @@ case_tbl13
 case_tbl22
 
 -- !sql13 --
-test_iceberg_case_sensibility_hadoop	iceberg_hadoop_case_db2	case_tbl22	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
+test_iceberg_case_sensibility_hadoop	iceberg_hadoop_case_db2	case_tbl22	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
 
 -- !sql14 --
 test_iceberg_case_sensibility_hadoop	iceberg_hadoop_case_db2	case_tbl22	k1	1	\N	YES	int	\N	\N	10	0	\N	\N	\N	int(11)					10	0	\N	\N
 
 -- !sql131 --
-test_iceberg_case_sensibility_hadoop	ICEBERG_HADOOP_CASE_DB2	case_tbl21	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
+test_iceberg_case_sensibility_hadoop	ICEBERG_HADOOP_CASE_DB2	case_tbl21	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
 
 -- !sql141 --
 test_iceberg_case_sensibility_hadoop	ICEBERG_HADOOP_CASE_DB2	case_tbl21	k1	1	\N	YES	int	\N	\N	10	0	\N	\N	\N	int(11)					10	0	\N	\N

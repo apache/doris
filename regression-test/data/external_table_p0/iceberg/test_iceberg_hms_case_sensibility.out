@@ -30,10 +30,10 @@ case_tbl13
 case_tbl21
 
 -- !sql13 --
-test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl11	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
-test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl12	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
-test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl13	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
-test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl14	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
+test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl11	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
+test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl12	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
+test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl13	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
+test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl14	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
 
 -- !sql14 --
 test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl11	k1	1	\N	YES	int	\N	\N	10	0	\N	\N	\N	int(11)					10	0	\N	\N
@@ -103,10 +103,10 @@ case_tbl13
 case_tbl21
 
 -- !sql13 --
-test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl11	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
-test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl12	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
-test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl13	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
-test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl14	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
+test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl11	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
+test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl12	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
+test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl13	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
+test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl14	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
 
 -- !sql14 --
 test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl11	k1	1	\N	YES	int	\N	\N	10	0	\N	\N	\N	int(11)					10	0	\N	\N
@@ -186,10 +186,10 @@ case_tbl13
 case_tbl21
 
 -- !sql13 --
-test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl11	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
-test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl12	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
-test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl13	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
-test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl14	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
+test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl11	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
+test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl12	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
+test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl13	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
+test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl14	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	\N
 
 -- !sql14 --
 test_iceberg_case_sensibility_hms	iceberg_hms_case_db1	case_tbl11	k1	1	\N	YES	int	\N	\N	10	0	\N	\N	\N	int(11)					10	0	\N	\N
