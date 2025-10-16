@@ -104,7 +104,12 @@ public abstract class ConditionRewrite extends DefaultExpressionRewriter<Boolean
             if (newChild != child) {
                 changed = true;
             }
-            builder.add(newChild);
+            if (newChild.getClass() == predicate.getClass()) {
+                builder.addAll(newChild.children());
+                changed = true;
+            } else {
+                builder.add(newChild);
+            }
         }
         if (changed) {
             return predicate.withChildren(builder.build());
