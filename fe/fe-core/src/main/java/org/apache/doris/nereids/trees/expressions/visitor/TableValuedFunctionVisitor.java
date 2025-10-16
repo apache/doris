@@ -17,27 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
-import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
-import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
-import org.apache.doris.nereids.trees.expressions.functions.table.File;
-import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
-import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
-import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
-import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
-import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
-import org.apache.doris.nereids.trees.expressions.functions.table.HudiMeta;
-import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
-import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
-import org.apache.doris.nereids.trees.expressions.functions.table.Local;
-import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
-import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
-import org.apache.doris.nereids.trees.expressions.functions.table.PaimonMeta;
-import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
-import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
-import org.apache.doris.nereids.trees.expressions.functions.table.Query;
-import org.apache.doris.nereids.trees.expressions.functions.table.S3;
-import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
-import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
+import org.apache.doris.nereids.trees.expressions.functions.table.*;
 
 /** TableValuedFunctionVisitor */
 public interface TableValuedFunctionVisitor<R, C> {
@@ -93,6 +73,10 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitHttpStream(HttpStream httpStream, C context) {
         return visitTableValuedFunction(httpStream, context);
+    }
+
+    default R visitHttp(Http http, C context) {
+        return visitTableValuedFunction(http, context);
     }
 
     default R visitHudiMeta(HudiMeta hudiMeta, C context) {
