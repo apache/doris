@@ -140,7 +140,8 @@ public class CaseWhenToCompoundPredicate implements ExpressionPatternRuleFactory
                     // if (c, p, true) =>  not(c <=> true) || p
                     return ExpressionUtils.or(
                             new Not(new NullSafeEqual(newCondition, BooleanLiteral.TRUE)), newTrueValue);
-                } else if (newFalseValue.equals(BooleanLiteral.FALSE) || newFalseValue.isNullLiteral()) {
+                } else if (newFalseValue.equals(BooleanLiteral.FALSE)
+                        || newFalseValue.equals(NullLiteral.BOOLEAN_INSTANCE)) {
                     // if (c, p, false) => c and p
                     return ExpressionUtils.and(newCondition, newTrueValue);
                 }
