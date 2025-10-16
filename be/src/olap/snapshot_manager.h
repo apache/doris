@@ -133,6 +133,8 @@ private:
                              TabletSchemaSPtr tablet_schema, const RowsetId& next_id,
                              RowsetMetaPB* new_rs_meta_pb);
 
+    Status _rename_index_ids(TabletSchemaPB& schema_pb, const TabletSchemaSPtr& tablet_schema) const;
+
     StorageEngine& _engine;
     std::atomic<uint64_t> _snapshot_base_id {0};
 
