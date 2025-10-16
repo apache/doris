@@ -145,8 +145,6 @@ public class DatabaseTransactionMgr {
     // it must exists in dbIdToTxnLabels, and vice versa
     private final Map<String, Set<Long>> labelToTxnIds = Maps.newHashMap();
 
-    private final Map<Long, Set<String>> tableIdToLabelSet = Maps.newHashMap();
-
     private final Map<Long, Long> tableCommittedTxnCount = Maps.newConcurrentMap();
 
     private Long lastCommittedTxnCountUpdateTime = 0L;
