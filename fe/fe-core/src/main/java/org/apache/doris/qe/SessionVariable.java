@@ -264,18 +264,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 60_000;
 
-    public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
-
     public static final String EXTRACT_WIDE_RANGE_EXPR = "extract_wide_range_expr";
 
     // If user set a very small value, use this value instead.
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000;
-
-    public static final String ENABLE_PIPELINE_ENGINE = "enable_pipeline_engine";
-
-    public static final String ENABLE_PIPELINE_X_ENGINE = "enable_pipeline_x_engine";
-
-    public static final String ENABLE_SHARED_SCAN = "enable_shared_scan";
 
     public static final String IGNORE_STORAGE_DATA_DISTRIBUTION = "ignore_storage_data_distribution";
 
@@ -1336,20 +1328,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
     public boolean enableStrictConsistencyDml = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, varType = VariableAnnotation.REMOVED)
-    public boolean enableVectorizedEngine = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = false, needForward = true,
-            varType = VariableAnnotation.REMOVED)
-    private boolean enablePipelineEngine = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.REMOVED)
-    private boolean enablePipelineXEngine = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_SHARED_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
-            needForward = true)
-    private boolean enableSharedScan = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_SCAN, fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
@@ -5082,14 +5060,6 @@ public class SessionVariable implements Serializable, Writable {
             }
         }
         return num;
-    }
-
-    public boolean getEnableSharedScan() {
-        return enableSharedScan;
-    }
-
-    public void setEnableSharedScan(boolean value) {
-        enableSharedScan = value;
     }
 
     public boolean getEnableParallelScan() {
