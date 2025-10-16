@@ -463,7 +463,6 @@ static inline std::string partition_index_key(const PartitionIndexKeyInfo& in) {
 
 void partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in, std::string* out);
 static inline std::string partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in) { std::string s; partition_inverted_index_key(in, &s); return s; }
-int decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id, int64_t* partition_id);
 
 void tablet_index_key(const TabletIndexKeyInfo& in, std::string* out);
 static inline std::string tablet_index_key(const TabletIndexKeyInfo& in) { std::string s; tablet_index_key(in, &s); return s; }
@@ -536,5 +535,44 @@ int decode_key(std::string_view* in,
  * Return the list of single version meta key prefixs.
  */
 std::vector<std::string> get_single_version_meta_key_prefixs();
+
+namespace versioned {
+
+// Decode partition inverted index key
+// Return true if decode successfully, otherwise false
+bool decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id,
+                                         int64_t* partition_id);
+} // namespace versioned
+
+// Decode stats tablet key
+// Return true if decode successfully, otherwise false
+bool decode_stats_tablet_key(std::string_view* in, int64_t* table_id, int64_t* index_id,
+                             int64_t* partition_id, int64_t* tablet_id);
+
+// Decode table version key
+// Return true if decode successfully, otherwise false
+bool decode_table_version_key(std::string_view* in, int64_t* db_id, int64_t* tbl_id);
+
+// Decode tablet schema key
+// Return true if decode successfully, otherwise false
+bool decode_tablet_schema_key(std::string_view* in, int64_t* index_id, int64_t* schema_version);
+
+// Decode partition version key
+// Return true if decode successfully, otherwise false
+bool decode_partition_version_key(std::string_view* in, int64_t* db_id, int64_t* tbl_id,
+                                  int64_t* partition_id);
+
+// Decode meta tablet key
+// Return true if decode successfully, otherwise false
+bool decode_meta_tablet_key(std::string_view* in, int64_t* table_id, int64_t* index_id,
+                            int64_t* partition_id, int64_t* tablet_id);
+
+// Decode meta rowset key
+// Return true if decode successfully, otherwise false
+bool decode_meta_rowset_key(std::string_view* in, int64_t* tablet_id, int64_t* version);
+
+// Decode meta tablet idx key
+// Return true if decode successfully, otherwise false
+bool decode_meta_tablet_idx_key(std::string_view* in, int64_t* tablet_id);
 
 } // namespace doris::cloud
