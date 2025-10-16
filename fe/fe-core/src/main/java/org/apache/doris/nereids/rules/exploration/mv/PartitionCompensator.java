@@ -138,12 +138,14 @@ public class PartitionCompensator {
                         .addAll(baseTableNeedUnionTable.value());
             }
             // merge all partition to delete or union
-            Set<String> unionSet = new HashSet<>();
-            mvPartitionNeedRemoveNameMap.values().forEach(unionSet::addAll);
-            mvPartitionNeedRemoveNameMap.replaceAll((k, v) -> unionSet);
+            Set<String> needRemovePartitionSet = new HashSet<>();
+            mvPartitionNeedRemoveNameMap.values().forEach(needRemovePartitionSet::addAll);
+            mvPartitionNeedRemoveNameMap.replaceAll((k, v) -> needRemovePartitionSet);
 
-            baseTablePartitionNeedUnionNameMap.values().forEach(unionSet::addAll);
-            baseTablePartitionNeedUnionNameMap.replaceAll((k, v) -> unionSet);
+            // consider multi base table partition name not same, how to handle it?
+            Set<String> needUnionPartitionSet = new HashSet<>();
+            baseTablePartitionNeedUnionNameMap.values().forEach(needUnionPartitionSet::addAll);
+            baseTablePartitionNeedUnionNameMap.replaceAll((k, v) -> needUnionPartitionSet);
         }
         if (allCompensateIsNull) {
             return null;

@@ -362,7 +362,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     return rewriteResults;
                 }
                 boolean partitionNeedUnion = PartitionCompensator.needUnionRewrite(invalidPartitions, cascadesContext);
-                boolean canUnionRewrite = canUnionRewrite(rewrittenPlan, mtmv, cascadesContext);
+                boolean canUnionRewrite = canUnionRewrite(queryPlan,
+                        (AsyncMaterializationContext) materializationContext, cascadesContext);
                 if (partitionNeedUnion && !canUnionRewrite) {
                     materializationContext.recordFailReason(queryStructInfo,
                             "need compensate union all, but can not, because the query structInfo",
@@ -478,7 +479,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      * If mv part partition is invalid, can not compensate union all, because result is wrong after
      * compensate union all.
      */
-    protected boolean canUnionRewrite(Plan rewrittenPlan, MTMV mtmv, CascadesContext cascadesContext) {
+    protected boolean canUnionRewrite(Plan queryPlan, AsyncMaterializationContext context,
+            CascadesContext cascadesContext) {
         return true;
     }
 
