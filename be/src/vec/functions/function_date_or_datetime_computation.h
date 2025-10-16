@@ -1327,6 +1327,7 @@ private:
         for (int i = 0; i < input_rows_count; ++i) {
             StringRef format_ref = right_col->get_data_at(i);
             std::string format_str(format_ref.data, format_ref.size);
+            std::transform(format_str.begin(), format_str.end(), format_str.begin(), ::toupper);
 
             std::string_view format_res;
             if (format_str == "USA") {
