@@ -92,4 +92,7 @@ MetaServiceResponseStatus check_new_tablet_stats(
         std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
         const std::vector<std::shared_ptr<TabletStatsPB>>& tablet_stat_shared_ptr_vec_batch);
 
+std::pair<TabletStatsPB, TabletStatsPB> split_tablet_stats_into_load_and_compact_parts(
+        const TabletStatsPB& stats);
+
 } // namespace doris::cloud

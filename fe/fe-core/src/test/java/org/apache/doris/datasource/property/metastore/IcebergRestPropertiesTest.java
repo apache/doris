@@ -131,14 +131,14 @@ public class IcebergRestPropertiesTest {
         IcebergRestProperties restProps2 = new IcebergRestProperties(props2);
         Assertions.assertThrows(IllegalArgumentException.class, restProps2::initNormalizeAndCheckProps);
 
-        // Test: credential flow without server URI
+        // Test: credential flow without server URI is ok
         Map<String, String> props3 = new HashMap<>();
         props3.put("iceberg.rest.uri", "http://localhost:8080");
         props3.put("iceberg.rest.security.type", "oauth2");
         props3.put("iceberg.rest.oauth2.credential", "client_credentials");
 
         IcebergRestProperties restProps3 = new IcebergRestProperties(props3);
-        Assertions.assertThrows(IllegalArgumentException.class, restProps3::initNormalizeAndCheckProps);
+        Assertions.assertDoesNotThrow(restProps3::initNormalizeAndCheckProps);
 
         // Test: scope with token (should fail)
         Map<String, String> props4 = new HashMap<>();

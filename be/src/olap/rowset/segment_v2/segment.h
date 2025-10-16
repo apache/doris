@@ -210,6 +210,8 @@ public:
     Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
                              OlapReaderStatistics* stats);
 
+    Status traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor);
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
