@@ -218,21 +218,22 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
                     } else {
                         nullmap_column->insert_many_defaults(max_step);
                     }
-                } else {
+                } else if (element_size > _cur_offset) {
+                    const auto current_insert_num = element_size - _cur_offset;
                     nullable_column->get_nested_column_ptr()->insert_range_from(
-                            *detail.nested_col, pos, element_size - _cur_offset);
+                            *detail.nested_col, pos, current_insert_num);
                     if (detail.nested_nullmap_data) {
-                        for (int j = 0; j < element_size - _cur_offset; j++) {
-                            if (detail.nested_nullmap_data[pos + j]) {
-                                nullmap_column->insert_value(1);
-                            } else {
-                                nullmap_column->insert_value(0);
-                            }
-                        }
+                        const auto old_size = nullmap_column->size();
+                        nullmap_column->resize(old_size + current_insert_num);
+                        memcpy(nullmap_column->get_data().data() + old_size,
+                               detail.nested_nullmap_data + pos,
+                               current_insert_num * sizeof(UInt8));
                     } else {
-                        nullmap_column->insert_many_defaults(element_size - _cur_offset);
+                        nullmap_column->insert_many_defaults(current_insert_num);
                     }
-                    nullable_column->insert_many_defaults(max_step - (element_size - _cur_offset));
+                    nullable_column->insert_many_defaults(max_step - current_insert_num);
+                } else {
+                    nullable_column->insert_many_defaults(max_step);
                 }
             }
         }
