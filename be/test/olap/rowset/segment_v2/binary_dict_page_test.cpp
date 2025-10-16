@@ -76,8 +76,10 @@ public:
         // because every slice is unique
         EXPECT_EQ(slices.size(), dict_page_decoder->count());
 
-        StringRef dict_word_info[dict_page_decoder->_num_elems];
-        dict_page_decoder->get_dict_word_info(dict_word_info);
+        auto num_dict_items = 0;
+        EXPECT_TRUE(dict_page_decoder->num_dict_items(&num_dict_items).ok());
+        StringRef dict_word_info[num_dict_items];
+        EXPECT_TRUE(dict_page_decoder->get_dict_word_info(dict_word_info).ok());
 
         // decode
         PageDecoderOptions decoder_options;
@@ -91,7 +93,7 @@ public:
         pre_decoder.decode(&auto_release, &page_slice, 0);
         BinaryDictPageDecoder page_decoder(page_slice, decoder_options);
         status = page_decoder.init();
-        page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_word_info);
+        page_decoder.set_dict_decoder(dict_page_decoder->count(), dict_word_info);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(slices.size(), page_decoder.count());
 
@@ -199,7 +201,7 @@ public:
             pre_decoder.decode(&auto_release, &page_slice, 0);
             BinaryDictPageDecoder page_decoder(page_slice, decoder_options);
             status = page_decoder.init();
-            page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_word_info);
+            page_decoder.set_dict_decoder(dict_page_decoder->count(), dict_word_info);
             EXPECT_TRUE(status.ok());
 
             //check values

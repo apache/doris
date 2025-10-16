@@ -78,6 +78,8 @@ public:
 
     Status get_dictionary_page(OwnedSlice* dictionary_page) override;
 
+    Status get_dictionary_page_encoding(EncodingTypePB* encoding) const override;
+
     Status get_first_value(void* value) const override;
 
     Status get_last_value(void* value) const override;
@@ -92,11 +94,14 @@ private:
 
     std::unique_ptr<PageBuilder> _data_page_builder;
 
-    std::unique_ptr<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>> _dict_builder =
-            nullptr;
+    std::unique_ptr<PageBuilder> _dict_builder = nullptr;
 
     EncodingTypePB _encoding_type;
-    EncodingTypePB _fallback_encoding_type;
+
+    EncodingTypePB
+            _dict_word_page_encoding_type; // currently only support PLAIN_ENCODING and PLAIN_ENCODING_V2
+    EncodingTypePB
+            _fallback_binary_encoding_type; // currently only support PLAIN_ENCODING and PLAIN_ENCODING_V2
 
     struct HashOfSlice {
         size_t operator()(const Slice& slice) const { return crc32_hash(slice.data, slice.size); }
@@ -132,7 +137,7 @@ public:
 
     bool is_dict_encoding() const;
 
-    void set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info);
+    void set_dict_decoder(uint32_t num_dict_items, StringRef* dict_word_info);
 
     ~BinaryDictPageDecoder() override;
 
@@ -140,12 +145,12 @@ private:
     Slice _data;
     PageDecoderOptions _options;
     std::unique_ptr<PageDecoder> _data_page_decoder;
-    BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>* _dict_decoder = nullptr;
     BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>* _bit_shuffle_ptr = nullptr;
     bool _parsed;
     EncodingTypePB _encoding_type;
 
     StringRef* _dict_word_info = nullptr;
+    uint32_t _num_dict_items = 0;
 
     std::vector<int32_t> _buffer;
 };

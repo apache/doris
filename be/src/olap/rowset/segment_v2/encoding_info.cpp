@@ -335,22 +335,36 @@ EncodingInfo::EncodingInfo(TraitsClass traits)
     }
 }
 
-Status EncodingInfo::get(const TypeInfo* type_info, EncodingTypePB encoding_type,
-                         const EncodingInfo** out) {
+Status EncodingInfo::get(FieldType type, EncodingTypePB encoding_type, const EncodingInfo** out) {
     auto* resolver = ExecEnv::GetInstance()->get_encoding_info_resolver();
     if (resolver == nullptr) {
         return Status::InternalError("EncodingInfoResolver not initialized");
     }
-    return resolver->get(type_info->type(), encoding_type, out);
+    return resolver->get(type, encoding_type, out);
 }
 
-EncodingTypePB EncodingInfo::get_default_encoding(const TypeInfo* type_info,
-                                                  bool optimize_value_seek) {
+EncodingTypePB EncodingInfo::get_default_encoding(FieldType type, bool optimize_value_seek) {
     auto* resolver = ExecEnv::GetInstance()->get_encoding_info_resolver();
     if (resolver == nullptr) {
         return UNKNOWN_ENCODING;
     }
-    return resolver->get_default_encoding(type_info->type(), optimize_value_seek);
+    return resolver->get_default_encoding(type, optimize_value_seek);
+}
+
+Status EncodingInfo::create_page_builder(const PageBuilderOptions& opts,
+                                         std::unique_ptr<PageBuilder>& builder) const {
+    PageBuilder* raw_builder = nullptr;
+    RETURN_IF_ERROR(_create_builder_func(opts, &raw_builder));
+    builder.reset(raw_builder);
+    return Status::OK();
+}
+
+Status EncodingInfo::create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                         std::unique_ptr<PageDecoder>& decoder) const {
+    PageDecoder* raw_decoder = nullptr;
+    RETURN_IF_ERROR(_create_decoder_func(data, opts, &raw_decoder));
+    decoder.reset(raw_decoder);
+    return Status::OK();
 }
 
 } // namespace segment_v2

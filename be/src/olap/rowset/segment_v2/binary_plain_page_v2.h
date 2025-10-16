@@ -87,6 +87,7 @@ public:
 
             _last_value_size = cast_set<uint32_t>(src->size);
             _size_estimate += length_size + src->size;
+            _raw_data_size += src->size;
 
             i++;
             vals += sizeof(Slice);
@@ -124,6 +125,7 @@ public:
             _size_estimate = sizeof(uint32_t); // For the trailer
             _finished = false;
             _last_value_size = 0;
+            _raw_data_size = 0;
         });
         return Status::OK();
     }
@@ -131,6 +133,8 @@ public:
     size_t count() const override { return _positions.size(); }
 
     uint64_t size() const override { return _size_estimate; }
+
+    uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
@@ -150,24 +154,41 @@ public:
         return Status::OK();
     }
 
+    Status get_dict_word(uint32_t value_code, Slice* word) override {
+        if (value_code >= _positions.size()) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "value_code {} is out of range [0, {})", value_code, _positions.size());
+        }
+
+        const uint8_t* ptr = reinterpret_cast<const uint8_t*>(&_buffer[_positions[value_code]]);
+        uint32_t length;
+        const uint8_t* data_ptr = decode_varint32_ptr(ptr, ptr + 5, &length);
+
+        word->data = const_cast<char*>(reinterpret_cast<const char*>(data_ptr));
+        word->size = length;
+
+        return Status::OK();
+    }
+
 private:
     BinaryPlainPageV2Builder(const PageBuilderOptions& options)
             : _size_estimate(0), _options(options) {}
 
     void _copy_value_at(size_t idx, faststring* value) const {
-        const uint8_t* ptr = reinterpret_cast<const uint8_t*>(&_buffer[_positions[idx]]);
+        const uint8_t* ptr = &_buffer[_positions[idx]];
         uint32_t length;
         const uint8_t* data_ptr = decode_varint32_ptr(ptr, ptr + 5, &length);
         value->assign_copy(data_ptr, length);
     }
 
     faststring _buffer;
-    size_t _size_estimate;
+    size_t _size_estimate = 0;
     // Positions of each entry in the buffer (pointing to the varuint length)
     std::vector<uint32_t> _positions;
-    bool _finished;
+    bool _finished = false;
     PageBuilderOptions _options;
     uint32_t _last_value_size = 0;
+    uint64_t _raw_data_size = 0;
     faststring _first_value;
     faststring _last_value;
 };
@@ -178,11 +199,7 @@ public:
     BinaryPlainPageV2Decoder(Slice data) : BinaryPlainPageV2Decoder(data, PageDecoderOptions()) {}
 
     BinaryPlainPageV2Decoder(Slice data, const PageDecoderOptions& options)
-            : _data(data),
-              _options(options),
-              _parsed(false),
-              _num_elems(0),
-              _cur_idx(0) {}
+            : _data(data), _options(options), _parsed(false), _num_elems(0), _cur_idx(0) {}
 
     Status init() override {
         CHECK(!_parsed);
@@ -330,7 +347,7 @@ public:
         return _cur_idx;
     }
 
-    Status get_dict_word_info(StringRef* dict_word_info) {
+    Status get_dict_word_info(StringRef* dict_word_info) override {
         if (UNLIKELY(_num_elems <= 0)) {
             return Status::OK();
         }

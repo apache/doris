@@ -51,20 +51,23 @@ public:
 class EncodingInfo {
 public:
     // Get EncodingInfo for TypeInfo and EncodingTypePB
-    static Status get(const TypeInfo* type_info, EncodingTypePB encoding_type,
-                      const EncodingInfo** encoding);
+    static Status get(FieldType type, EncodingTypePB encoding_type, const EncodingInfo** encoding);
 
     // optimize_value_search: whether the encoding scheme should optimize for ordered data
     // and support fast value seek operation
-    static EncodingTypePB get_default_encoding(const TypeInfo* type_info, bool optimize_value_seek);
+    static EncodingTypePB get_default_encoding(FieldType type, bool optimize_value_seek);
 
     Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) const {
         return _create_builder_func(opts, builder);
     }
+    Status create_page_builder(const PageBuilderOptions& opts,
+                               std::unique_ptr<PageBuilder>& builder) const;
     Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
                                PageDecoder** decoder) const {
         return _create_decoder_func(data, opts, decoder);
     }
+    Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                               std::unique_ptr<PageDecoder>& decoder) const;
     FieldType type() const { return _type; }
     EncodingTypePB encoding() const { return _encoding; }
 
