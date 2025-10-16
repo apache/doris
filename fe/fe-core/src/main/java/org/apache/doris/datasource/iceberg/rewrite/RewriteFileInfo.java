@@ -25,18 +25,13 @@ public class RewriteFileInfo {
     private final int filesToAddCount;
     private final long filesToDeleteSize;
     private final long filesToAddSize;
-    private final long totalRowsProcessed;
-    private final int totalFilesProcessed;
 
     public RewriteFileInfo(int filesToDeleteCount, int filesToAddCount,
-                          long filesToDeleteSize, long filesToAddSize,
-                          long totalRowsProcessed, int totalFilesProcessed) {
+                          long filesToDeleteSize, long filesToAddSize) {
         this.filesToDeleteCount = filesToDeleteCount;
         this.filesToAddCount = filesToAddCount;
         this.filesToDeleteSize = filesToDeleteSize;
         this.filesToAddSize = filesToAddSize;
-        this.totalRowsProcessed = totalRowsProcessed;
-        this.totalFilesProcessed = totalFilesProcessed;
     }
 
     public int getFilesToDeleteCount() {
@@ -55,13 +50,6 @@ public class RewriteFileInfo {
         return filesToAddSize;
     }
 
-    public long getTotalRowsProcessed() {
-        return totalRowsProcessed;
-    }
-
-    public int getTotalFilesProcessed() {
-        return totalFilesProcessed;
-    }
 
     @Override
     public String toString() {
@@ -70,8 +58,6 @@ public class RewriteFileInfo {
                 + ", filesToAddCount=" + filesToAddCount
                 + ", filesToDeleteSize=" + filesToDeleteSize
                 + ", filesToAddSize=" + filesToAddSize
-                + ", totalRowsProcessed=" + totalRowsProcessed
-                + ", totalFilesProcessed=" + totalFilesProcessed
                 + '}';
     }
 }

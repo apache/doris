@@ -26,8 +26,6 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.TransactionType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Optional;
 
@@ -38,7 +36,6 @@ import java.util.Optional;
  * rewrite-specific transaction logic instead of insert transaction logic.
  */
 public class IcebergRewriteExecutor extends BaseExternalTableInsertExecutor {
-    private static final Logger LOG = LogManager.getLogger(IcebergRewriteExecutor.class);
 
     /**
      * constructor
@@ -79,14 +76,6 @@ public class IcebergRewriteExecutor extends BaseExternalTableInsertExecutor {
         return transaction.getRewriteFileInfo();
     }
 
-    /**
-     * Get the insert command context
-     *
-     * @return InsertCommandContext
-     */
-    public Optional<InsertCommandContext> getInsertCtx() {
-        return insertCtx;
-    }
 
     public IcebergTransaction getTransaction() throws UserException {
         return (IcebergTransaction) transactionManager.getTransaction(txnId);

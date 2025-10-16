@@ -324,19 +324,6 @@ public class IcebergTransaction implements Transaction {
         }
     }
 
-    /**
-     * Get the total number of rows processed in this transaction
-     */
-    public long getTotalRowsProcessed() {
-        return commitDataList.stream().mapToLong(TIcebergCommitData::getRowCount).sum();
-    }
-
-    /**
-     * Get the total number of files processed in this transaction
-     */
-    public int getTotalFilesProcessed() {
-        return commitDataList.size();
-    }
 
     /**
      * Get detailed file information for rewrite operation
@@ -346,9 +333,7 @@ public class IcebergTransaction implements Transaction {
             getFilesToDeleteCount(),
             getFilesToAddCount(),
             getFilesToDeleteSize(),
-            getFilesToAddSize(),
-            getTotalRowsProcessed(),
-            getTotalFilesProcessed()
+            getFilesToAddSize()
         );
     }
 
