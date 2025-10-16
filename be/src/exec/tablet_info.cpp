@@ -674,9 +674,17 @@ Status VOlapTablePartitionParam::generate_partition_from(const TOlapTablePartiti
     part_result = _obj_pool.add(new VOlapTablePartition(&_partition_block));
     part_result->id = t_part.id;
     part_result->is_mutable = t_part.is_mutable;
-    // only load_to_single_tablet = true will set load_tablet_idx
+
+    // Initialize for random distribution
+    // For hash distribution, distributed_columns is not empty, so load_tablet_idx stays at -1
+    // For random distribution with load_to_single_tablet = true, FE sets load_tablet_idx
     if (t_part.__isset.load_tablet_idx) {
         part_result->load_tablet_idx = t_part.load_tablet_idx;
+    } else if (_t_param.distributed_columns.empty() && _random_bucket_switching_threshold > 0) {
+        // For random distribution with bucket switching: initialize with random tablet
+        part_result->load_tablet_idx = butil::fast_rand() % t_part.num_buckets;
+        part_result->switching_threshold = _random_bucket_switching_threshold;
+        part_result->current_tablet_rows = 0;
     }
 
     if (_is_in_partition) {

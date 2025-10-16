@@ -266,12 +266,12 @@ public class SessionVariable implements Serializable, Writable {
     // then the coordinator be will use the value of `max_send_batch_parallelism_per_job`
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
 
-    // set the row count threshold for random distribution tablet switching
+    // set the row count threshold for random bucket tablet switching
     // when load_to_single_tablet is false (default), data will be written to one tablet
     // until the row count reaches this threshold, then switch to the next tablet
     // this applies to INSERT INTO SELECT statements
-    public static final String RANDOM_DISTRIBUTION_TABLET_SWITCHING_THRESHOLD
-            = "random_distribution_tablet_switching_threshold";
+    public static final String RANDOM_BUCKET_SWITCHING_THRESHOLD
+            = "random_bucket_switching_threshold";
 
     // turn off all automatic join reorder algorithms
     public static final String DISABLE_JOIN_REORDER = "disable_join_reorder";
@@ -1358,7 +1358,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SEND_BATCH_PARALLELISM, needForward = true)
     public int sendBatchParallelism = 1;
 
-    @VariableMgr.VarAttr(name = RANDOM_DISTRIBUTION_TABLET_SWITCHING_THRESHOLD,
+    @VariableMgr.VarAttr(name = RANDOM_BUCKET_SWITCHING_THRESHOLD,
             needForward = true,
             description = {
                     "对于 RANDOM 分桶表，当 load_to_single_tablet 为 false（默认）时，"
@@ -1369,7 +1369,7 @@ public class SessionVariable implements Serializable, Writable {
                             + "then it switches to the next tablet in round-robin fashion. "
                             + "This variable is mainly used to control the INSERT INTO SELECT statement behavior. "
                             + "Default value is 10000000 (10 million rows)"})
-    public long randomDistributionTabletSwitchingThreshold = 10000000L;
+    public long randomBucketSwitchingThreshold = 10000000L;
 
     @VariableMgr.VarAttr(name = ENABLE_VARIANT_ACCESS_IN_ORIGINAL_PLANNER)
     public boolean enableVariantAccessInOriginalPlanner = false;
@@ -4267,8 +4267,8 @@ public class SessionVariable implements Serializable, Writable {
         return sendBatchParallelism;
     }
 
-    public long getRandomDistributionTabletSwitchingThreshold() {
-        return randomDistributionTabletSwitchingThreshold;
+    public long getRandomBucketSwitchingThreshold() {
+        return randomBucketSwitchingThreshold;
     }
 
     public boolean isEnableParallelOutfile() {

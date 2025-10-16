@@ -72,7 +72,7 @@ suite("test_random_tablet_switching_threshold", "p0") {
         table "${streamLoadTable}"
         set 'format', 'json'
         set 'read_json_by_line', 'true'
-        set 'random_tablet_switching_threshold', '2'
+        set 'random_bucket_switching_threshold', '2'
         file 'test_random_tablet_switching_threshold.json'
         time 30000
 
@@ -150,7 +150,7 @@ suite("test_random_tablet_switching_threshold", "p0") {
     """
 
     // Set session variable for tablet switching threshold (small value to trigger switching)
-    sql "SET random_distribution_tablet_switching_threshold = 3;"
+    sql "SET random_bucket_switching_threshold = 3;"
 
     // INSERT INTO SELECT with tablet switching
     sql "INSERT INTO ${targetTable} SELECT * FROM ${sourceTable};"
@@ -170,5 +170,102 @@ suite("test_random_tablet_switching_threshold", "p0") {
     assertEquals(sourceMaxK5[0][0], targetMaxK5[0][0], "Data integrity check: max k5 should match")
 
     // Reset session variable to default
-    sql "SET random_distribution_tablet_switching_threshold = 10000000;"
+    sql "SET random_bucket_switching_threshold = 10000000;"
+
+    // Test 3: Verify default behavior (threshold = 10M means no switching for small data)
+    def defaultTable = "test_default_threshold"
+    sql """ DROP TABLE IF EXISTS ${defaultTable} """
+    sql """
+        CREATE TABLE ${defaultTable} (
+            k1 date,
+            k2 text,
+            k3 char(50),
+            k4 varchar(200),
+            k5 int
+        ) ENGINE=OLAP
+        DUPLICATE KEY(k1)
+        DISTRIBUTED BY RANDOM BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    // Load with default threshold (10M rows) - data should go to single tablet
+    streamLoad {
+        table "${defaultTable}"
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        // No threshold specified, should use default
+        file 'test_random_tablet_switching_threshold.json'
+        time 30000
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(5, json.NumberTotalRows)
+        }
+    }
+
+    sql "sync"
+    totalCount = sql "select count() from ${defaultTable}"
+    assertEquals(5, totalCount[0][0])
+
+    // With default threshold, data likely in one tablet (but not guaranteed due to random start)
+    def defaultDistribution = getTabletDistribution(defaultTable)
+    def defaultNonEmpty = countNonEmptyTablets(defaultDistribution.rowCounts)
+    assertTrue(defaultNonEmpty >= 1, "Should have at least 1 non-empty tablet")
+
+    // Test 4: Multiple batches with threshold
+    def multiBatchTable = "test_multi_batch_switching"
+    sql """ DROP TABLE IF EXISTS ${multiBatchTable} """
+    sql """
+        CREATE TABLE ${multiBatchTable} (
+            k1 date,
+            k2 text,
+            k3 char(50),
+            k4 varchar(200),
+            k5 int
+        ) ENGINE=OLAP
+        DUPLICATE KEY(k1)
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    // Load multiple times with threshold=2
+    for (int i = 0; i < 3; i++) {
+        streamLoad {
+            table "${multiBatchTable}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'random_bucket_switching_threshold', '2'
+            file 'test_random_tablet_switching_threshold.json'
+            time 30000
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+            }
+        }
+    }
+
+    sql "sync"
+    totalCount = sql "select count() from ${multiBatchTable}"
+    assertEquals(15, totalCount[0][0])
+
+    // Verify both tablets have data after multiple loads
+    def multiBatchDistribution = getTabletDistribution(multiBatchTable)
+    def multiBatchNonEmpty = countNonEmptyTablets(multiBatchDistribution.rowCounts)
+    assertTrue(multiBatchNonEmpty >= 2, "Multiple batch loads should distribute across both tablets")
+
+    // Verify data integrity
+    def allRows = sql "SELECT DISTINCT k5 FROM ${multiBatchTable} ORDER BY k5"
+    assertEquals(5, allRows.size(), "Should have 5 distinct k5 values")
 }

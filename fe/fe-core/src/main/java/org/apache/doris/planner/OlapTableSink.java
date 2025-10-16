@@ -174,11 +174,11 @@ public class OlapTableSink extends DataSink {
         tSink.setLoadToSingleTablet(loadToSingleTablet);
         tSink.setTxnTimeoutS(txnExpirationS);
         if (randomTabletSwitchingThreshold > 0) {
-            LOG.info("OlapTableSink: setting tSink.setRandomTabletSwitchingThreshold = {}",
+            LOG.debug("OlapTableSink: setting randomTabletSwitchingThreshold = {}",
                      randomTabletSwitchingThreshold);
             tSink.setRandomTabletSwitchingThreshold(randomTabletSwitchingThreshold);
         } else {
-            LOG.info("OlapTableSink: randomTabletSwitchingThreshold <= 0, not setting. value = {}",
+            LOG.debug("OlapTableSink: randomTabletSwitchingThreshold <= 0, not setting. value = {}",
                      randomTabletSwitchingThreshold);
         }
         String vaultId = dstTable.getStorageVaultId();
@@ -222,8 +222,8 @@ public class OlapTableSink extends DataSink {
         long randomTabletSwitchingThreshold = 0L;
         if (ConnectContext.get() != null) {
             randomTabletSwitchingThreshold =
-                ConnectContext.get().getSessionVariable().getRandomDistributionTabletSwitchingThreshold();
-            LOG.info("OlapTableSink.init (legacy): reading from session variable, threshold = {}",
+                ConnectContext.get().getSessionVariable().getRandomBucketSwitchingThreshold();
+            LOG.debug("OlapTableSink.init: reading random_bucket_switching_threshold from session variable = {}",
                      randomTabletSwitchingThreshold);
         }
         init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
@@ -235,7 +235,7 @@ public class OlapTableSink extends DataSink {
             int sendBatchParallelism, boolean loadToSingleTablet, boolean isStrictMode,
             long txnExpirationS, long randomTabletSwitchingThreshold,
             OlapInsertCommandContext olapInsertCtx) throws UserException {
-        LOG.info("OlapTableSink.init: received random_distribution_tablet_switching_threshold = {}",
+        LOG.debug("OlapTableSink.init: received random_bucket_switching_threshold = {}",
                  randomTabletSwitchingThreshold);
         init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
                 isStrictMode, txnExpirationS, randomTabletSwitchingThreshold);

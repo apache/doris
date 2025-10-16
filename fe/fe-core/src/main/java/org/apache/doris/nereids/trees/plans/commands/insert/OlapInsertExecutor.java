@@ -127,10 +127,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             // TODO refactor this to avoid call legacy planner's function
             long timeout = getTimeout();
             long randomTabletSwitchingThreshold =
-                    ctx.getSessionVariable().getRandomDistributionTabletSwitchingThreshold();
-            if (LOG.isInfoEnabled()) {
-                LOG.info("OlapInsertExecutor: table={}, queryId={}, "
-                        + "random_distribution_tablet_switching_threshold={}, "
+                    ctx.getSessionVariable().getRandomBucketSwitchingThreshold();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("OlapInsertExecutor: table={}, queryId={}, "
+                        + "random_bucket_switching_threshold={}, "
                         + "distributionInfo={}",
                         table.getName(), ctx.queryId(),
                         randomTabletSwitchingThreshold,

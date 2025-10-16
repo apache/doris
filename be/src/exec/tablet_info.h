@@ -312,6 +312,10 @@ public:
         _transformed_slot_locs = new_slots;
     }
 
+    void set_random_bucket_switching_threshold(int64_t threshold) {
+        _random_bucket_switching_threshold = threshold;
+    }
+
 private:
     Status _create_partition_keys(const std::vector<TExprNode>& t_exprs, BlockRow* part_key);
 
@@ -321,6 +325,9 @@ private:
     // this partition only valid in this schema
     std::shared_ptr<OlapTableSchemaParam> _schema;
     TOlapTablePartitionParam _t_param;
+
+    // Random bucket switching threshold for controlling when to switch to next tablet
+    int64_t _random_bucket_switching_threshold = 0;
 
     const std::vector<SlotDescriptor*>& _slots;
     std::vector<uint16_t> _partition_slot_locs;

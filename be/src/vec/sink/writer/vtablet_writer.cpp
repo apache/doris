@@ -1466,27 +1466,17 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     }
     _vpartition = _pool->add(new doris::VOlapTablePartitionParam(_schema, table_sink.partition));
     _tablet_finder = std::make_unique<OlapTabletFinder>(_vpartition, find_tablet_mode);
-    RETURN_IF_ERROR(_vpartition->init());
 
+    // Set random bucket switching threshold for random distribution tables
     if (table_sink.partition.distributed_columns.empty()) {
         int64_t threshold = (table_sink.__isset.random_tablet_switching_threshold &&
                              table_sink.random_tablet_switching_threshold > 0)
                                     ? table_sink.random_tablet_switching_threshold
-                                    : config::random_distribution_tablet_switching_threshold;
-
-        // Initialize each partition with a random starting tablet and local state
-        for (auto& partition : _vpartition->get_partitions()) {
-            const_cast<VOlapTablePartition*>(partition)->switching_threshold = threshold;
-            // Start from a random tablet for better load balancing across multiple load jobs
-            const_cast<VOlapTablePartition*>(partition)->load_tablet_idx =
-                    butil::fast_rand() % partition->num_buckets;
-            const_cast<VOlapTablePartition*>(partition)->current_tablet_rows = 0;
-            LOG(INFO) << "VTabletWriter init: partition_id=" << partition->id
-                      << ", switching_threshold=" << threshold
-                      << ", load_tablet_idx=" << partition->load_tablet_idx
-                      << ", num_buckets=" << partition->num_buckets;
-        }
+                                    : config::random_bucket_switching_threshold;
+        _vpartition->set_random_bucket_switching_threshold(threshold);
     }
+
+    RETURN_IF_ERROR(_vpartition->init());
 
     _state = state;
     _operator_profile = profile;
