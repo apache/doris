@@ -794,23 +794,20 @@ public class TransactionState implements Writable {
     //      -> SHOW PROC '/transactions/dbId/txnId/tables'
     public void pruneAfterVisible() {
         // won't be used
-        {
-            publishVersionTasks.clear();
-            tableIdToTabletDeltaRows.clear();
-            involvedBackends.clear();
-        }
+        publishVersionTasks.clear();
+        tableIdToTabletDeltaRows.clear();
+        involvedBackends.clear();
         // only used by some SHOW sql
-        {
-            idToTableCommitInfos.clear();
-            txnCoordinator = null;
-            errorReplicas.clear();
-            loadedTblIndexes.clear();
-            txnSchemas.clear();
-            subTxnIds.clear();
-            subTxnIdToTableCommitInfo.clear();
-            errMsg = "";
-            errorLogUrl = "";
-        }
+        idToTableCommitInfos = null;
+        // SHOW PROC '/transactions/dbId/finished' will use it
+        // txnCoordinator = null;
+        errorReplicas = null;
+        loadedTblIndexes = null;
+        txnSchemas = null;
+        subTxnIds = null;
+        subTxnIdToTableCommitInfo = null;
+        errMsg = "";
+        errorLogUrl = "";
     }
 
     public void setSchemaForPartialUpdate(OlapTable olapTable) {
