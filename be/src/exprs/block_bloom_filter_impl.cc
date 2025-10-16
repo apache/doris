@@ -192,6 +192,8 @@ static inline ALWAYS_INLINE uint32x4x2_t make_mask(const uint32_t hash) {
     return res;
 }
 
+
+
 void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t hash) noexcept {
     const uint32x4x2_t mask = make_mask(hash);
     uint32x4x2_t* addr = &(reinterpret_cast<uint32x4x2_t*>(_directory)[bucket_idx]);
@@ -202,17 +204,55 @@ void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t h
     vst1q_u32_x2(bucket, data);
 }
 
+bool BlockBloomFilter::bucket_find_neon(const uint32_t bucket_idx, const uint32_t hash) const noexcept {
+    uint32x4_t masks[2];
+
+    uint32x4_t directory_1 = vld1q_u32(&_directory[bucket_idx][0]);
+    uint32x4_t directory_2 = vld1q_u32(&_directory[bucket_idx][4]);
+
+    make_find_mask(hash, masks);
+    // The condition for returning true is that all the bits in _directory[bucket_idx][i] specified by masks[i] are 1.
+    // This can be equivalently expressed as all the bits in not( _directory[bucket_idx][i]) specified by masks[i] are 0.
+    // vbicq_u32(vec1, vec2) : Result of (vec1 AND NOT vec2)
+    // If true is returned, out_1 and out_2 should be all zeros.
+    uint32x4_t out_1 = vbicq_u32(masks[0], directory_1);
+    uint32x4_t out_2 = vbicq_u32(masks[1], directory_2);
+
+    out_1 = vorrq_u32(out_1, out_2);
+
+    uint32x2_t low = vget_low_u32(out_1);
+    uint32x2_t high = vget_high_u32(out_1);
+    low = vorr_u32(low, high);
+    uint32_t res = vget_lane_u32(low, 0) | vget_lane_u32(low, 1);
+    return !(res);
+}
+
 bool BlockBloomFilter::bucket_find(const uint32_t bucket_idx, const uint32_t hash) const noexcept {
     const uint32x4x2_t mask = make_mask(hash);
     uint32x4x2_t* addr = &(reinterpret_cast<uint32x4x2_t*>(_directory)[bucket_idx]);
     auto* bucket = reinterpret_cast<uint32_t*>(addr);
     uint32x4x2_t data = vld1q_u32_x2(bucket);
     // We should return true if 'bucket' has a one wherever 'mask' does.
+    // Solution 1
     uint32x4_t t0 = vtstq_u32(data.val[0], mask.val[0]);
     uint32x4_t t1 = vtstq_u32(data.val[1], mask.val[1]);
     int64x2_t t = vreinterpretq_s64_u32(vandq_u32(t0, t1));
     int64_t a = vgetq_lane_s64(t, 0) & vgetq_lane_s64(t, 1);
     return a == -1;
+    // Solution 2
+    // uint32x4_t t0 = vandq_u32(data.val[0], mask.val[0]);
+    // uint32x4_t t1 = vandq_u32(data.val[1], mask.val[1]);
+    // return !(vminvq_u32(t0) == 0U || vminvq_u32(t1) == 0U);
+    // Solution 3
+    // uint32x4_t miss0 = vbicq_u32(mask.val[0], data.val[0]);
+    // uint32x4_t miss1 = vbicq_u32(mask.val[1], data.val[1]);
+    // uint32x4_t miss = vorrq_u32(miss0, miss1);
+    // return vmaxvq_u32(miss) == 0U;
+    // Solution 4
+    // uint32x4_t t0 = vtstq_u32(data.val[0], mask.val[0]);
+    // uint32x4_t t1 = vtstq_u32(data.val[1], mask.val[1]);
+    // uint32x4_t t = vandq_u32(t0, t1);
+    // return !(vminvq_u32(t) == 0U);
 }
 #elif defined(__x86_64__)
 void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t hash) noexcept {
@@ -282,54 +322,11 @@ Status BlockBloomFilter::or_equal_array(size_t n, const uint8_t* __restrict__ in
 
 void BlockBloomFilter::or_equal_array_no_avx2(size_t n, const uint8_t* __restrict__ in,
                                               uint8_t* __restrict__ out) {
-#ifdef __ARM_FEATURE_SVE
-    size_t base = 0;
-    while (base < n) {
-        svbool_t pg  = svwhilelt_b8(base, n);
-        svuint8_t a  = svld1(pg, in  + base);
-        svuint8_t b  = svld1(pg, out + base);
-        svst1(pg, out + base, svorr_u8_x(pg, b, a));
-        base += svcntb();
-    }
-#elif defined(__ARM_NEON)
-    // The trivial loop out[i] |= in[i] should auto-vectorize with gcc at -O3, but it is not
-    // written in a way that is very friendly to auto-vectorization. Instead, we manually
-    // vectorize, increasing the speed by up to 56x.
-    const uint8_t* simd_in = in;
-    const uint8_t* const simd_in_end = in + n;
-    uint8_t* simd_out = out;
-    // in.directory has a size (in bytes) that is a multiple of 32. Since sizeof(uint8x16_t)
-    // == 16, we can do two vorq's in each iteration without checking array bounds.
-    while (simd_in != simd_in_end) {
-        uint8x16x2_t a = vld1q_u8_x2(simd_in);
-        uint8x16x2_t b = vld1q_u8_x2(simd_out);
-        b.val[0] = vorrq_u8(b.val[0], a.val[0]);
-        b.val[1] = vorrq_u8(b.val[1], a.val[1]);
-        vst1q_u8_x2(simd_out, b);
-        simd_out += 32;
-        simd_in += 32;
-    }
-#elif defined(__x86_64__)
-    // The trivial loop out[i] |= in[i] should auto-vectorize with gcc at -O3, but it is not
-    // written in a way that is very friendly to auto-vectorization. Instead, we manually
-    // vectorize, increasing the speed by up to 56x.
-    const __m128i* simd_in = reinterpret_cast<const __m128i*>(in);
-    const __m128i* const simd_in_end = reinterpret_cast<const __m128i*>(in + n);
-    __m128i* simd_out = reinterpret_cast<__m128i*>(out);
-    // in.directory has a size (in bytes) that is a multiple of 32. Since sizeof(__m128i)
-    // == 16, we can do two _mm_or_si128's in each iteration without checking array
-    // bounds.
-    while (simd_in != simd_in_end) {
-        for (int i = 0; i < 2; ++i, ++simd_in, ++simd_out) {
-            _mm_storeu_si128(simd_out,
-                             _mm_or_si128(_mm_loadu_si128(simd_out), _mm_loadu_si128(simd_in)));
-        }
-    }
-#else
+    // Let compiler do auto-vectorization.
+#pragma clang loop vectorize(enable) interleave(enable)
     for (int i = 0; i < n; ++i) {
         out[i] |= in[i];
     }
-#endif
 }
 
 Status BlockBloomFilter::merge(const BlockBloomFilter& other) {
