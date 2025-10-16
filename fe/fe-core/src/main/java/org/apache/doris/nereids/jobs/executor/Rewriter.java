@@ -479,7 +479,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
                         bottomUp(
                                 new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
-                                new RewriteSearchToSlots(),
                                 new CheckMatchExpression(),
                                 new CheckMultiDistinct(),
                                 new CheckRestorePartition(),
@@ -561,6 +560,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 }
                 rewriteJobs.addAll(jobs(topic("split multi distinct",
                         custom(RuleType.SPLIT_MULTI_DISTINCT, () -> SplitMultiDistinct.INSTANCE))));
+
+                // Rewrite search function before VariantSubPathPruning
+                // so that ElementAt expressions from search can be processed
+                rewriteJobs.addAll(jobs(
+                        bottomUp(new RewriteSearchToSlots())
+                ));
 
                 if (needSubPathPushDown) {
                     rewriteJobs.addAll(jobs(

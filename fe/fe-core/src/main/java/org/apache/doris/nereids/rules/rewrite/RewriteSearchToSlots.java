@@ -23,8 +23,10 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -101,16 +103,56 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
             // Create slot reference children from field bindings
             List<Expression> slotChildren = new ArrayList<>();
             for (SearchDslParser.QsFieldBinding binding : qsPlan.fieldBindings) {
-                Slot slot = findSlotByName(binding.fieldName, scan);
-                if (slot == null) {
-                    throw new AnalysisException(String.format(
-                            "Field '%s' not found in table for search: %s",
-                            binding.fieldName, search.getDslString()));
+                String originalFieldName = binding.fieldName;
+                Expression childExpr;
+                String normalizedFieldName;
+
+                // Check if this is a variant subcolumn (contains dot)
+                if (originalFieldName.contains(".")) {
+                    int firstDotPos = originalFieldName.indexOf('.');
+                    String parentFieldName = originalFieldName.substring(0, firstDotPos);
+                    String subcolumnPath = originalFieldName.substring(firstDotPos + 1);
+
+                    // Find parent slot
+                    Slot parentSlot = findSlotByName(parentFieldName, scan);
+                    if (parentSlot == null) {
+                        throw new AnalysisException(String.format(
+                                "Parent field '%s' not found in table for search: %s",
+                                parentFieldName, search.getDslString()));
+                    }
+
+                    // Verify it's a variant type
+                    if (!parentSlot.getDataType().isVariantType()) {
+                        throw new AnalysisException(String.format(
+                                "Field '%s' is not VARIANT type for subcolumn access: %s",
+                                parentFieldName, search.getDslString()));
+                    }
+
+                    // Create ElementAt expression for variant subcolumn
+                    // This will be converted to an extracted column slot by VariantSubPathPruning rule
+                    // If the subcolumn doesn't exist, ElementAt will remain and BE will handle it gracefully
+                    childExpr = new ElementAt(parentSlot, new StringLiteral(subcolumnPath));
+                    normalizedFieldName = originalFieldName; // Keep full path for field binding
+
+                    LOG.info(
+                            "Created ElementAt expression for variant subcolumn: parent='{}', "
+                                    + "subcolumn='{}', field_name='{}'",
+                            parentFieldName, subcolumnPath, normalizedFieldName);
+                } else {
+                    // Normal field - find slot directly
+                    Slot slot = findSlotByName(originalFieldName, scan);
+                    if (slot == null) {
+                        throw new AnalysisException(String.format(
+                                "Field '%s' not found in table for search: %s",
+                                originalFieldName, search.getDslString()));
+                    }
+                    childExpr = slot;
+                    normalizedFieldName = slot.getName();
                 }
-                String normalized = slot.getName();
-                normalizedFields.put(binding.fieldName, normalized);
-                binding.fieldName = normalized;
-                slotChildren.add(slot);
+
+                normalizedFields.put(originalFieldName, normalizedFieldName);
+                binding.fieldName = normalizedFieldName;
+                slotChildren.add(childExpr);
             }
 
             LOG.info("Rewriting search function: dsl='{}' with {} slot children",
@@ -127,6 +169,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
     }
 
     private Slot findSlotByName(String fieldName, LogicalOlapScan scan) {
+        // Direct match only - variant subcolumns are handled by caller
         for (Slot slot : scan.getOutput()) {
             if (slot.getName().equalsIgnoreCase(fieldName)) {
                 return slot;
