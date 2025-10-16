@@ -158,8 +158,10 @@ Status CloudSnapshotMgr::convert_rowsets(
         RETURN_IF_ERROR(_create_rowset_meta(new_rowset_meta_pb, rowset_meta_pb, tablet_id,
                                             target_tablet, storage_resource, tablet_schema,
                                             file_mapping, rowset_id_mapping));
-        if (new_rowset_meta_pb->has_tablet_schema() && new_rowset_meta_pb->tablet_schema().index_size() > 0) {
-            RETURN_IF_ERROR(_rename_index_ids(*new_rowset_meta_pb->mutable_tablet_schema(), target_tablet_schema));
+        if (new_rowset_meta_pb->has_tablet_schema() &&
+            new_rowset_meta_pb->tablet_schema().index_size() > 0) {
+            RETURN_IF_ERROR(_rename_index_ids(*new_rowset_meta_pb->mutable_tablet_schema(),
+                                              target_tablet_schema));
         }
         Version rowset_version = {rowset_meta_pb.start_version(), rowset_meta_pb.end_version()};
         rs_version_map[rowset_version] = new_rowset_meta_pb;
@@ -282,7 +284,8 @@ Status CloudSnapshotMgr::_create_rowset_meta(
     return Status::OK();
 }
 
-Status CloudSnapshotMgr::_rename_index_ids(TabletSchemaPB& schema_pb, const TabletSchemaSPtr& tablet_schema) const {
+Status CloudSnapshotMgr::_rename_index_ids(TabletSchemaPB& schema_pb,
+                                           const TabletSchemaSPtr& tablet_schema) const {
     if (tablet_schema == nullptr) {
         return Status::OK();
     }
