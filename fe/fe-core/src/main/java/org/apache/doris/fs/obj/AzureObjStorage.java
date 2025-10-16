@@ -55,8 +55,6 @@ import org.jetbrains.annotations.Nullable;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
@@ -101,8 +99,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public BlobServiceClient getClient() throws UserException {
         if (client == null) {
-            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(azureProperties.getAccessKey(),
-                    azureProperties.getSecretKey());
+            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(azureProperties.getAccountName(),
+                    azureProperties.getAccountKey());
             BlobServiceClientBuilder builder = new BlobServiceClientBuilder();
             builder.credential(cred);
             builder.endpoint(azureProperties.getEndpoint());
@@ -509,10 +507,4 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         // Note: BlobServiceClient does NOT implement Closeable and does not require explicit closing.
     }
 
-    public static String generateBlockId(int index) {
-        ByteBuffer buffer = ByteBuffer.allocate(4);
-        buffer.order(ByteOrder.LITTLE_ENDIAN);
-        buffer.putInt(index);
-        return Base64.getEncoder().encodeToString(buffer.array()).replaceAll("=+$", "");
-    }
 }

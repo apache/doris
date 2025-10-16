@@ -68,14 +68,14 @@ public class AzureProperties extends StorageProperties {
     @ConnectorProperty(names = {"azure.account_name", "azure.access_key", "s3.access_key",
             "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
             description = "The access key of S3.")
-    protected String accessKey = "";
+    protected String accountName = "";
 
     @Getter
     @ConnectorProperty(names = {"azure.account_key", "azure.secret_key", "s3.secret_key",
             "AWS_SECRET_KEY", "secret_key"},
             sensitive = true,
             description = "The secret key of S3.")
-    protected String secretKey = "";
+    protected String accountKey = "";
 
     @Getter
     @ConnectorProperty(names = {"container", "azure.bucket", "s3.bucket"},
@@ -111,7 +111,7 @@ public class AzureProperties extends StorageProperties {
             throw new IllegalArgumentException(String.format("Endpoint '%s' is not valid. It should end with '%s'.",
                     endpoint, AZURE_ENDPOINT_SUFFIX));
         }
-        this.endpoint = formatAzureEndpoint(endpoint, accessKey);
+        this.endpoint = formatAzureEndpoint(endpoint, accountName);
     }
 
     public static boolean guessIsMe(Map<String, String> origProps) {
@@ -136,11 +136,10 @@ public class AzureProperties extends StorageProperties {
         Map<String, String> s3Props = new HashMap<>();
         s3Props.put("AWS_ENDPOINT", endpoint);
         s3Props.put("AWS_REGION", "dummy_region");
-        s3Props.put("AWS_ACCESS_KEY", accessKey);
-        s3Props.put("AWS_SECRET_KEY", secretKey);
+        s3Props.put("AWS_ACCESS_KEY", accountName);
+        s3Props.put("AWS_SECRET_KEY", accountKey);
         s3Props.put("AWS_NEED_OVERRIDE_ENDPOINT", "true");
         s3Props.put("provider", "azure");
-        s3Props.put("PROVIDER", "AZURE");
         s3Props.put("use_path_style", usePathStyle);
         return s3Props;
     }
@@ -186,7 +185,7 @@ public class AzureProperties extends StorageProperties {
                 hadoopStorageConfig.set(k, v);
             }
         });
-        setAzureAccountKeys(hadoopStorageConfig, accessKey, secretKey);
+        setAzureAccountKeys(hadoopStorageConfig, accountName, accountKey);
     }
 
     private static void setAzureAccountKeys(Configuration conf, String accountName, String accountKey) {

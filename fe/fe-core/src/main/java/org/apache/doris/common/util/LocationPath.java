@@ -194,7 +194,7 @@ public class LocationPath {
             URI uri = URI.create(encodedLocation);
             String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://"
                     + Strings.nullToEmpty(uri.getAuthority());
-            return  new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
+            return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
         } catch (UserException e) {
             throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
         }

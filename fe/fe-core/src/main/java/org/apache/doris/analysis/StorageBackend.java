@@ -146,6 +146,16 @@ public class StorageBackend implements ParseNode {
             return description;
         }
 
+        public static StorageBackend.StorageType valueOfIgnoreCase(String name) {
+            for (StorageBackend.StorageType type : StorageBackend.StorageType.values()) {
+                if (type.name().equalsIgnoreCase(name)) {
+                    return type;
+                }
+            }
+            throw new IllegalArgumentException("No enum constant "
+                    + StorageBackend.StorageType.class.getCanonicalName() + "." + name);
+        }
+
         public TStorageBackendType toThrift() {
             switch (this) {
                 case S3:

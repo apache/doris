@@ -63,9 +63,10 @@ public abstract class ObjFileSystem extends RemoteFileSystem {
 
     /**
      * download data from remote file and check data size with expected file size.
+     *
      * @param remoteFilePath remote file path
-     * @param localFilePath local file path
-     * @param fileSize download data size
+     * @param localFilePath  local file path
+     * @param fileSize       download data size
      * @return
      */
     @Override
@@ -165,6 +166,22 @@ public abstract class ObjFileSystem extends RemoteFileSystem {
     }
 
 
-    public  abstract void completeMultipartUpload(String bucket, String key,
-                                                  String uploadId, Map<Integer, String> parts);
+    /**
+     * Completes a multipart upload operation.
+     *
+     * <p>In object storage systems, large files are often uploaded in multiple parts.
+     * Once all parts have been successfully uploaded, this method is called to merge
+     * them into a single finalized object.
+     *
+     * <p>The main purpose of this method is to notify the underlying storage service
+     * to perform the final merge and make the object available for normal access.
+     *
+     * @param bucket   The name of the target bucket.
+     * @param key      The full object key (path) within the bucket.
+     * @param uploadId The unique identifier of the multipart upload session.
+     * @param parts    A mapping of part numbers to their corresponding ETag values,
+     *                 used to assemble the parts in the correct order.
+     */
+    public abstract void completeMultipartUpload(String bucket, String key,
+                                                 String uploadId, Map<Integer, String> parts);
 }
