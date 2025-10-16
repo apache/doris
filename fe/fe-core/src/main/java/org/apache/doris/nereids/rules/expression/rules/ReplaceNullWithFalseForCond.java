@@ -43,22 +43,22 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * Replace null literal with false literal for condition expression.
- * Because in nereids, we use boolean type to represent three-value logic,
- * so we need to replace null literal with false literal for condition expression.
- * For example, in filter, join condition, case when condition, if condition etc.
+ * For the condition expression, replace null literal with false literal, replace null safe equal with equal.
  *
- * When replaced, the null literal's ancestors to the condition root must be AND/OR/CASE WHEN/IF CONDITION,
- * otherwise it will not be replaced.
+ * Here condition expression means the expression used in filter, join condition, case when condition, if condition.
+ * And only replace the expression which its ancestors to the condition root are AND/OR/CASE WHEN/IF.
  *
- * for example: for not(null) in filter, it will not be replaced, because NOT is not AND/OR.
+ * for example: for NOT(null) in filter, the null will not be replaced, because its parent NOT is not AND/OR.
  *
- * rule:
- * 1. replace null with false for condition expression. example:
+ * example:
+ *
+ * 1. replace null with false for condition expression.
  *    a) if(null and a > 1, ...) => if(false and a > 1, ...)
  *    b) case when null and a > 1 then ... => case when false and a > 1 then ...
  *    c) null or (null and a > 1) or not(null) => false or (false and a > 1) or not(null)
- * 2. replace 'xx <=> yy' to 'xx = yy' if xx or yy is nullable for condition expression. example:
+ * 2. replace 'xx <=> yy' to 'xx = yy' for the condition expression if xx is not-nullable or yy is not-nullable,
+ *    but not need both are not-nullable. (NOTE: if expression is not a condition, xx <=> yy can rewrite to xx = yy
+ *    requires both xx and yy are not-nullable).
  *    a) if(a <=> 1, ...) => if(a = 1,
  *    b) case when a <=> 1 then ... => case when a = 1 then ...
  *    c) a <=> 1 or (a <=> 2 and not (a <=> 3)) =>  a = 1 or (a = 2 and not (a <=> 3))
@@ -85,7 +85,7 @@ public class ReplaceNullWithFalseForCond extends DefaultExpressionRewriter<Boole
         return isInsideCondition || expression.containsType(WhenClause.class, If.class);
     }
 
-    protected Expression rewrite(Expression expression, ExpressionRewriteContext context) {
+    private Expression rewrite(Expression expression, ExpressionRewriteContext context) {
         return expression.accept(this, rootIsCondition(context));
     }
 
