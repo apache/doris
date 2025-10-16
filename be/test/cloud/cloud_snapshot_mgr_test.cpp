@@ -92,7 +92,7 @@ TEST_F(CloudSnapshotMgrTest, TestConvertRowsets) {
     index2->set_index_name("test_index2");
     index2->set_index_type(IndexType::INVERTED);
     index2->add_col_unique_id(2);
-    
+
     RowsetMetaPB* rowset_meta = input_meta_pb.add_rs_metas();
     RowsetId rowset_id;
     rowset_id.init(10000);
@@ -124,7 +124,7 @@ TEST_F(CloudSnapshotMgrTest, TestConvertRowsets) {
     input_schema->mutable_index(1)->set_index_id(2002);
     rowset_meta->mutable_tablet_schema()->mutable_index(0)->set_index_id(2001);
     rowset_meta->mutable_tablet_schema()->mutable_index(1)->set_index_id(2002);
-    
+
     CloudTabletSPtr target_tablet = std::make_shared<CloudTablet>(*_engine, tablet_meta);
     StorageResource storage_resource {_fs};
     std::unordered_map<std::string, std::string> file_mapping;

@@ -249,7 +249,8 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
         }
 
         if (rowset_meta->has_tablet_schema() && rowset_meta->tablet_schema().index_size() > 0) {
-            RETURN_IF_ERROR_RESULT(_rename_index_ids(*rowset_meta->mutable_tablet_schema(), target_tablet_schema));
+            RETURN_IF_ERROR_RESULT(
+                    _rename_index_ids(*rowset_meta->mutable_tablet_schema(), target_tablet_schema));
         }
 
         Version rowset_version = {visible_rowset.start_version(), visible_rowset.end_version()};
@@ -289,13 +290,15 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
             rowset_meta->set_partition_id(partition_id);
         }
 
-        if (rowset_meta->has_tablet_schema() && rowset_meta->tablet_schema().index_size() > 0) { 
-            RETURN_IF_ERROR_RESULT(_rename_index_ids(*rowset_meta->mutable_tablet_schema(), target_tablet_schema));
+        if (rowset_meta->has_tablet_schema() && rowset_meta->tablet_schema().index_size() > 0) {
+            RETURN_IF_ERROR_RESULT(
+                    _rename_index_ids(*rowset_meta->mutable_tablet_schema(), target_tablet_schema));
         }
     }
 
     if (new_tablet_meta_pb.schema().index_size() > 0) {
-        RETURN_IF_ERROR_RESULT(_rename_index_ids(*new_tablet_meta_pb.mutable_schema(), target_tablet_schema));
+        RETURN_IF_ERROR_RESULT(
+                _rename_index_ids(*new_tablet_meta_pb.mutable_schema(), target_tablet_schema));
     }
 
     if (!rowset_id_mapping.empty() && cloned_tablet_meta_pb.has_delete_bitmap()) {
@@ -365,7 +368,8 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     return Status::OK();
 }
 
-Status SnapshotManager::_rename_index_ids(TabletSchemaPB& schema_pb, const TabletSchemaSPtr& tablet_schema) const {
+Status SnapshotManager::_rename_index_ids(TabletSchemaPB& schema_pb,
+                                          const TabletSchemaSPtr& tablet_schema) const {
     if (tablet_schema == nullptr) {
         return Status::OK();
     }
