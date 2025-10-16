@@ -427,8 +427,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 targetTable.get(2),
                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(),
+                    ctx.getQualifiedUser(),
+                    ctx.getRemoteIP(),
                     targetTable.get(1),
                     targetTable.get(2));
         }
