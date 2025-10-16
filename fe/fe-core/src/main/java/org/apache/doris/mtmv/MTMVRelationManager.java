@@ -59,12 +59,16 @@ import java.util.function.BiPredicate;
 public class MTMVRelationManager implements MTMVHookService {
     private static final Logger LOG = LogManager.getLogger(MTMVRelationManager.class);
     // when
-    // create mv1 as select * from table1;
+    // create v1 as select * from table1
+    // create v2 as select * from v1
+    // create mv1 as select * from v1;
     // create mv2 as select * from mv1;
-    // `tableMTMVs` will have 3 pair: table1 ==> mv1,mv1==>mv2, table1 ==> mv2
-    // `tableMTMVsOneLevel` will have 2 pair: table1 ==> mv1,mv1==>mv2
+    // `tableMTMVs` will have 3 pair: table1 ==> mv1, mv1==>mv2, table1 ==> mv2
+    // `tableMTMVsOneLevelAndFromView` will have 2 pair: table1 ==> mv1, mv1==>mv2
+    // `viewMTMVs` will have 2 pair: v1 ==> mv1, v2 ==> mv1
     private final Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
     private final Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVsOneLevelAndFromView = Maps.newConcurrentMap();
+    // view => mtmv
     private final Map<BaseTableInfo, Set<BaseTableInfo>> viewMTMVs = Maps.newConcurrentMap();
 
     public Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {

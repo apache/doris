@@ -32,7 +32,7 @@ public class MTMVRelation {
     // data of mv2 is:
     //
     // baseTables => mv1,t1,t2
-    // baseTablesWithView => mv1,t1
+    // baseTablesOneLevelAndFromView => mv1,t1
     // baseTablesOneLevel => mv1
     // baseViews => v2,v1
     // baseViewsOneLevel => v2

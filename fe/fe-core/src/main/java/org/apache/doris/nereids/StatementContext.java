@@ -188,7 +188,13 @@ public class StatementContext implements Closeable {
 
     // tables in this query directly
     private final Map<List<String>, TableIf> tables = Maps.newHashMap();
-    // onelevel tables in this query directly
+    // onelevel tables in this query directly,
+    // if
+    // create v1 as select * from t1
+    // create v2 as select * from v1
+    // current query is: select * from v2 join t2
+    // oneLevelTables will have two data: v2, t2,
+    // tables will have 4 data: t1, v1, v2, t2
     private final Map<List<String>, TableIf> oneLevelTables = Maps.newHashMap();
     // tables maybe used by mtmv rewritten in this query,
     // this contains mvs which use table in tables and the tables in mvs
