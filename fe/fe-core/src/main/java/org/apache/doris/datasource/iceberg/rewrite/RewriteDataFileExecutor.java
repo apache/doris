@@ -22,7 +22,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -32,9 +31,6 @@ import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecut
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergRewriteExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.planner.BaseExternalTableDataSink;
-import org.apache.doris.planner.DataSink;
-import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
@@ -146,7 +142,7 @@ public class RewriteDataFileExecutor {
             insertExecutor.executeSingleInsert(executor, System.currentTimeMillis());
 
             // Collect execution statistics and rewrite information
-            return new RewriteResult(group.getTaskCount(), group.getTaskCount(), group.getTotalSize(), 0);
+            return collectRewriteResult(rewriteExecutor, group);
 
         } catch (Exception e) {
             LOG.error("Failed to execute rewrite group: ", e);
@@ -163,80 +159,6 @@ public class RewriteDataFileExecutor {
         }
     }
 
-    /**
-     * Execute insert operation with specific group customization
-     */
-    private RewriteResult executeInsertWithGroup(StmtExecutor executor, RewriteDataGroup group) throws Exception {
-
-        // Create IcebergRewriteExecutor directly
-        IcebergRewriteExecutor insertExecutor = createRewriteExecutor(executor, group);
-
-        // Execute the insert operation
-        if (!insertExecutor.isEmptyInsert()) {
-            insertExecutor.beginTransaction();
-
-            // Finalize sink to bind output sink
-            NereidsCoordinator coordinator = (NereidsCoordinator) insertExecutor.getCoordinator();
-            CoordinatorContext context = coordinator.getCoordinatorContext();
-            if (context.fragments.size() > 0) {
-                PlanFragment fragment = context.fragments.get(0);
-                DataSink dataSink = fragment.getSink();
-                // Bind the data sink directly for external table
-                if (dataSink instanceof BaseExternalTableDataSink) {
-                    ((BaseExternalTableDataSink) dataSink).bindDataSink(insertExecutor.getInsertCtx());
-                }
-            }
-
-            // Execute with timeout handling
-            try {
-                LOG.info("Starting rewrite execution for group with {} tasks", group.getTaskCount());
-                insertExecutor.executeSingleInsert(executor, System.currentTimeMillis());
-                LOG.info("Rewrite execution completed successfully");
-            } catch (Exception e) {
-                LOG.error("Failed to execute rewrite insert", e);
-                throw new UserException("Rewrite execution failed: " + e.getMessage(), e);
-            }
-        }
-
-        // Collect execution statistics and rewrite information
-        RewriteResult result = collectRewriteResult(insertExecutor, group);
-        return result;
-    }
-
-    /**
-     * Create IcebergRewriteExecutor for rewrite operations
-     */
-    private IcebergRewriteExecutor createRewriteExecutor(StmtExecutor executor, RewriteDataGroup group)
-            throws UserException {
-        try {
-            // Create NereidsPlanner for the logical plan
-            NereidsPlanner planner = new NereidsPlanner(connectContext.getStatementContext());
-
-            // Plan the logical plan to get physical plan and fragments
-            planner.plan(parsedStmt, connectContext.getSessionVariable().toThrift());
-
-            // Create IcebergRewriteExecutor directly
-            String label = String.format("rewrite_label_%x_%x", connectContext.queryId().hi,
-                    connectContext.queryId().lo);
-            IcebergRewriteExecutor rewriteExecutor = new IcebergRewriteExecutor(
-                    connectContext,
-                    dorisTable,
-                    label,
-                    planner,
-                    Optional.empty(), // insertCtx
-                    false // emptyInsert
-            );
-
-            // Customize the executor for this specific group
-            customizeInsertExecutorForRewrite(rewriteExecutor, group);
-
-            return rewriteExecutor;
-
-        } catch (Exception e) {
-            LOG.error("Failed to create rewrite executor", e);
-            throw new UserException("Failed to create rewrite executor: " + e.getMessage());
-        }
-    }
 
     /**
      * Customize insert executor for Iceberg file rewrite
