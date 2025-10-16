@@ -105,7 +105,7 @@ suite("spark_connector_read_type", "connector") {
     logger.info("System java version: ${javaVersion}")
     def addOpens = ""
     if (javaVersion.startsWith("17")) {
-        addOpens = "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED  --add-opens=java.base/java.nio=ALL-UNNAMED"
+        addOpens = "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED  --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/sun.util.calendar=ALL-UNNAMED"
     }
 
     def run_cmd = "${javaPath} ${addOpens} -jar spark-doris-read.jar $context.config.feHttpAddress $context.config.feHttpUser regression_test_connector_p0_spark_connector.$tableReadName regression_test_connector_p0_spark_connector.$tableWriterName"
