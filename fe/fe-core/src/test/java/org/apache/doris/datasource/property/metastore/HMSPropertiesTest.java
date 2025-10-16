@@ -47,10 +47,10 @@ public class HMSPropertiesTest {
         Map<String, String> params = new HashMap<>();
         params.put("hive.conf.resources", "/hive-conf/hive1/hive-site.xml");
         params.put("type", "hms");
-        HiveProperties hmsProperties;
+        HiveHMSProperties hmsProperties;
         Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(params));
         params.put("hive.metastore.uris", "thrift://default:9083");
-        hmsProperties = (HiveProperties) MetastoreProperties.create(params);
+        hmsProperties = (HiveHMSProperties) MetastoreProperties.create(params);
         HiveConf hiveConf = hmsProperties.getHiveConf();
         Assertions.assertNotNull(hiveConf);
         Assertions.assertEquals("/user/hive/default", hiveConf.get("hive.metastore.warehouse.dir"));
@@ -65,7 +65,7 @@ public class HMSPropertiesTest {
         Map<String, String> params = createBaseParams();
 
         // Step 2: Test HMSProperties to PaimonOptions and Conf conversion
-        HiveProperties hmsProperties = getHMSProperties(params);
+        HiveHMSProperties hmsProperties = getHMSProperties(params);
         Assertions.assertNotNull(hmsProperties);
         Assertions.assertEquals("thrift://127.0.0.1:9083", hmsProperties.getHiveConf().get("hive.metastore.uris"));
         Assertions.assertEquals(HadoopExecutionAuthenticator.class, hmsProperties.getExecutionAuthenticator().getClass());
@@ -97,14 +97,14 @@ public class HMSPropertiesTest {
         return params;
     }
 
-    private HiveProperties getHMSProperties(Map<String, String> params) throws UserException {
-        return (HiveProperties) MetastoreProperties.create(params);
+    private HiveHMSProperties getHMSProperties(Map<String, String> params) throws UserException {
+        return (HiveHMSProperties) MetastoreProperties.create(params);
     }
 
     @Test
     public void testRefreshParams() throws UserException {
         Map<String, String> params = createBaseParams();
-        HiveProperties hmsProperties = getHMSProperties(params);
+        HiveHMSProperties hmsProperties = getHMSProperties(params);
         Assertions.assertFalse(hmsProperties.isHmsEventsIncrementalSyncEnabled());
         params.put("hive.enable_hms_events_incremental_sync", "true");
         hmsProperties = getHMSProperties(params);
@@ -131,7 +131,7 @@ public class HMSPropertiesTest {
         Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(params),
                 "Hive metastore authentication type is kerberos, but service principal, client principal or client keytab is not set.");
         params.put("hive.metastore.client.principal", "hive/127.0.0.1@EXAMPLE.COM");
-        HiveProperties hmsProperties = getHMSProperties(params);
+        HiveHMSProperties hmsProperties = getHMSProperties(params);
         Assertions.assertNotNull(hmsProperties);
     }
 }
