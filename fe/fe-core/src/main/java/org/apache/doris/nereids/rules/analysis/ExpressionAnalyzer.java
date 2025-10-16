@@ -650,7 +650,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 newChild = child;
             }
             if (newChild.getDataType().isNullType()) {
-                newChild = new NullLiteral(BooleanType.INSTANCE);
+                newChild = NullLiteral.BOOLEAN_INSTANCE;
             } else {
                 newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
             }
@@ -678,7 +678,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 newChild = child;
             }
             if (newChild.getDataType().isNullType()) {
-                newChild = new NullLiteral(BooleanType.INSTANCE);
+                newChild = NullLiteral.BOOLEAN_INSTANCE;
             } else {
                 newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
             }
