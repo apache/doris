@@ -28,7 +28,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
-class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
+class CondReplaceNullWithFalseTest extends ExpressionRewriteTestHelper {
 
     @Test
     void testInsideCondition() {
@@ -36,7 +36,7 @@ class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
                 new LogicalEmptyRelation(new RelationId(1), ImmutableList.of()));
         context = new ExpressionRewriteContext(filter, cascadesContext);
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(ReplaceNullWithFalseForCond.INSTANCE)
+                bottomUp(CondReplaceNullWithFalse.INSTANCE)
         ));
 
         assertRewriteAfterTypeCoercion("null", "false");
@@ -51,14 +51,6 @@ class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
                 "not(case when false and true then null and true else null end)");
         assertRewriteAfterTypeCoercion("not(if(null and true, null and true, null and true))",
                 "not(if(false and true, null and true, null and true))");
-        assertRewriteAfterTypeCoercion("a <=> 3", "a = 3");
-        assertRewriteAfterTypeCoercion("count(a) <=> count(b)", "count(a) = count(b)");
-        assertRewriteAfterTypeCoercion("a <=> null", "a <=> null");
-        assertRewriteAfterTypeCoercion("null <=> 3", "null = 3");
-        assertRewriteAfterTypeCoercion("not(a <=> 3)", "not(a <=> 3)");
-        assertRewriteAfterTypeCoercion("if(a <=> 3, a <=> 4, a <=> 5)", "if(a = 3, a = 4, a = 5)");
-        assertRewriteAfterTypeCoercion("not(if(a <=> 3, a <=> 4, a <=> 5))", "not(if(a = 3, a <=> 4, a <=> 5))");
-        assertRewriteAfterTypeCoercion("case when null and true then true and null end", "case when false and true then true and false else false end");
 
         assertRewriteAfterTypeCoercion(
                 "case when null then null"
@@ -99,7 +91,7 @@ class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
     void testNotInCondition() {
         context = new ExpressionRewriteContext(cascadesContext);
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(ReplaceNullWithFalseForCond.INSTANCE)
+                bottomUp(CondReplaceNullWithFalse.INSTANCE)
         ));
 
         assertRewriteAfterTypeCoercion("null", "null");
@@ -114,13 +106,6 @@ class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
                 "not(case when false and true then null and true else null end)");
         assertRewriteAfterTypeCoercion("not(if(null and true, null and true, null and true))",
                 "not(if(false and true, null and true, null and true))");
-        assertRewriteAfterTypeCoercion("a <=> 3", "a <=> 3");
-        assertRewriteAfterTypeCoercion("count(a) <=> count(b)", "count(a) <=> count(b)");
-        assertRewriteAfterTypeCoercion("a <=> null", "a <=> null");
-        assertRewriteAfterTypeCoercion("null <=> 3", "null <=> 3");
-        assertRewriteAfterTypeCoercion("not(a <=> 3)", "not(a <=> 3)");
-        assertRewriteAfterTypeCoercion("if(a <=> 3, a <=> 4, a <=> 5)", "if(a = 3, a <=> 4, a <=> 5)");
-        assertRewriteAfterTypeCoercion("not(if(a <=> 3, a <=> 4, a <=> 5))", "not(if(a = 3, a <=> 4, a <=> 5))");
         assertRewriteAfterTypeCoercion("case when null and true then true and null end", "case when false and true then true and null end");
 
         assertRewriteAfterTypeCoercion(

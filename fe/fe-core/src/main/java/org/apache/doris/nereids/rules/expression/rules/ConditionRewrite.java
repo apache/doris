@@ -24,13 +24,9 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext.Expres
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -43,19 +39,13 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * For the condition expression, replace null literal with false literal, replace null safe equal with equal.
  *
  * Here condition expression means the expression used in filter, join condition, case when condition, if condition.
- * And only replace the expression which its ancestors to the condition root are AND/OR/CASE WHEN/IF.
+ * And the rewrite argument isInsideCondition means the expression's ancestors to the condition root
+ * are AND/OR/CASE WHEN/IF.
  *
  * for example: for NOT(null) in filter, the null will not be replaced, because its parent NOT is not AND/OR.
  *
- * example:
- *
- * 1. replace null with false for condition expression.
- *    a) if(null and a > 1, ...) => if(false and a > 1, ...)
- *    b) case when null and a > 1 then ... => case when false and a > 1 then ...
- *    c) null or (null and a > 1) or not(null) => false or (false and a > 1) or not(null)
  * 2. replace 'xx <=> yy' to 'xx = yy' for the condition expression if xx is not-nullable or yy is not-nullable,
  *    but not need both are not-nullable. (NOTE: if expression is not a condition, xx <=> yy can rewrite to xx = yy
  *    requires both xx and yy are not-nullable).
@@ -63,34 +53,26 @@ import java.util.List;
  *    b) case when a <=> 1 then ... => case when a = 1 then ...
  *    c) a <=> 1 or (a <=> 2 and not (a <=> 3)) =>  a = 1 or (a = 2 and not (a <=> 3))
  */
-public class ReplaceNullWithFalseForCond extends DefaultExpressionRewriter<Boolean>
+public abstract class ConditionRewrite extends DefaultExpressionRewriter<Boolean>
         implements ExpressionPatternRuleFactory {
 
-    public static final ReplaceNullWithFalseForCond INSTANCE = new ReplaceNullWithFalseForCond();
-
-    @Override
-    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+    protected List<ExpressionPatternMatcher<? extends Expression>> buildCondRules(ExpressionRuleType ruleType) {
         return ImmutableList.of(
                 root(Expression.class)
                         .thenApply(ctx -> rewrite(ctx.expr, ctx.rewriteContext))
-                        .toRule(ExpressionRuleType.REPLACE_NULL_WITH_FALSE_FOR_COND)
+                        .toRule(ruleType)
         );
     }
 
-    private boolean needRewrite(Expression expression, boolean isInsideCondition) {
-        // check have the replaced target
-        if (!expression.containsType(NullLiteral.class, NullSafeEqual.class)) {
-            return false;
-        }
-        // check have condition or in a condition
+    protected boolean needRewrite(Expression expression, boolean isInsideCondition) {
         return isInsideCondition || expression.containsType(WhenClause.class, If.class);
     }
 
-    private Expression rewrite(Expression expression, ExpressionRewriteContext context) {
+    protected Expression rewrite(Expression expression, ExpressionRewriteContext context) {
         return expression.accept(this, rootIsCondition(context));
     }
 
-    private boolean rootIsCondition(ExpressionRewriteContext context) {
+    protected boolean rootIsCondition(ExpressionRewriteContext context) {
         Plan plan = context.plan.orElse(null);
         if (plan instanceof LogicalFilter || plan instanceof LogicalHaving) {
             return true;
@@ -111,29 +93,6 @@ public class ReplaceNullWithFalseForCond extends DefaultExpressionRewriter<Boole
             return super.visit(expr, false);
         } else {
             return expr;
-        }
-    }
-
-    @Override
-    public Expression visitNullLiteral(NullLiteral nullLiteral, Boolean isInsideCondition) {
-        if (isInsideCondition
-                && (nullLiteral.getDataType().isBooleanType() || nullLiteral.getDataType().isNullType())) {
-            return BooleanLiteral.FALSE;
-        }
-        return nullLiteral;
-    }
-
-    @Override
-    public Expression visitNullSafeEqual(NullSafeEqual nullSafeEqual, Boolean isInsideCondition) {
-        Expression newLeft = nullSafeEqual.left().accept(this, false);
-        Expression newRight = nullSafeEqual.right().accept(this, false);
-        // x <=> y  => x = y if x or y is not nullable
-        if (isInsideCondition && (!newLeft.nullable() || !newRight.nullable())) {
-            return new EqualTo(newLeft, newRight);
-        } else if (newLeft != nullSafeEqual.left() || newRight != nullSafeEqual.right()) {
-            return nullSafeEqual.withChildren(newLeft, newRight);
-        } else {
-            return nullSafeEqual;
         }
     }
 
@@ -178,9 +137,6 @@ public class ReplaceNullWithFalseForCond extends DefaultExpressionRewriter<Boole
         Expression newDefaultValue = oldDefaultValue;
         if (oldDefaultValue != null) {
             newDefaultValue = oldDefaultValue.accept(this, isInsideCondition);
-        } else if (isInsideCondition && caseWhen.getDataType().isBooleanType()) {
-            // for case when without else, the else is null, so we need to replace it with false
-            newDefaultValue = BooleanLiteral.FALSE;
         }
         if (newDefaultValue != oldDefaultValue) {
             changed = true;

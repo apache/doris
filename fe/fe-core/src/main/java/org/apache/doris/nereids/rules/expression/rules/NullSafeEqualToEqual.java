@@ -26,8 +26,6 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 
-import com.google.common.collect.ImmutableList;
-
 import java.util.List;
 
 /**
@@ -35,29 +33,47 @@ import java.util.List;
  * null <=> null : true
  * null <=> 1 : false
  * 1 <=> 2 : 1 = 2
+ *
+ * 1. if null safe equal is in a filter / join / case when / if condition, and at least one side is not nullable,
+ *    then null safe equal can be converted to equal.
+ * 2. otherwise if both sides are not nullable, then null safe equal can converted to equal too.
+ *
  */
-public class NullSafeEqualToEqual implements ExpressionPatternRuleFactory {
+public class NullSafeEqualToEqual extends ConditionRewrite implements ExpressionPatternRuleFactory {
     public static final NullSafeEqualToEqual INSTANCE = new NullSafeEqualToEqual();
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
-        return ImmutableList.of(
-                matchesType(NullSafeEqual.class).then(NullSafeEqualToEqual::rewrite)
-                        .toRule(ExpressionRuleType.NULL_SAFE_EQUAL_TO_EQUAL)
-        );
+        return buildCondRules(ExpressionRuleType.NULL_SAFE_EQUAL_TO_EQUAL);
     }
 
-    private static Expression rewrite(NullSafeEqual nullSafeEqual) {
-        // because the nullable info hasn't been finalized yet, the optimization is limited
-        if (nullSafeEqual.left().isNullLiteral() && nullSafeEqual.right().isNullLiteral()) {
+    // rewrite all the expression tree, not only the condition part.
+    @Override
+    protected boolean needRewrite(Expression expression, boolean isInsideCondition) {
+        return expression.containsType(NullSafeEqual.class);
+    }
+
+    @Override
+    public Expression visitNullSafeEqual(NullSafeEqual nullSafeEqual, Boolean isInsideCondition) {
+        Expression newLeft = nullSafeEqual.left().accept(this, false);
+        Expression newRight = nullSafeEqual.right().accept(this, false);
+
+        boolean canConvertToEqual = (!newLeft.nullable() && !newRight.nullable())
+                || (isInsideCondition && (newLeft.nullable() || newRight.nullable()));
+        if (newLeft.equals(newRight)) {
             return BooleanLiteral.TRUE;
-        } else if (nullSafeEqual.left().isNullLiteral()) {
-            return nullSafeEqual.right().isLiteral() ? BooleanLiteral.FALSE : new IsNull(nullSafeEqual.right());
-        } else if (nullSafeEqual.right().isNullLiteral()) {
-            return nullSafeEqual.left().isLiteral() ? BooleanLiteral.FALSE : new IsNull(nullSafeEqual.left());
-        } else if (nullSafeEqual.left().isLiteral() && nullSafeEqual.right().isLiteral()) {
-            return new EqualTo(nullSafeEqual.left(), nullSafeEqual.right());
+        } else if (newLeft.isNullLiteral() && newRight.isNullLiteral()) {
+            return BooleanLiteral.TRUE;
+        } else if (newLeft.isNullLiteral()) {
+            return !newRight.nullable() ? BooleanLiteral.FALSE : new IsNull(newRight);
+        } else if (newRight.isNullLiteral()) {
+            return !newLeft.nullable() ? BooleanLiteral.FALSE : new IsNull(newLeft);
+        } else if (canConvertToEqual) {
+            return new EqualTo(newLeft, newRight);
+        } else if (newLeft != nullSafeEqual.left() || newRight != nullSafeEqual.right()) {
+            return nullSafeEqual.withChildren(newLeft, newRight);
+        } else {
+            return nullSafeEqual;
         }
-        return nullSafeEqual;
     }
 }
