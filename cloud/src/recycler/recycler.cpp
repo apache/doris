@@ -1615,8 +1615,8 @@ int InstanceRecycler::recycle_orphan_partitions() {
 
         std::string_view k1(k);
         int64_t db_id, table_id, partition_id;
-        if (versioned::decode_partition_inverted_index_key(&k1, &db_id, &table_id, &partition_id) !=
-            0) {
+        if (!versioned::decode_partition_inverted_index_key(&k1, &db_id, &table_id,
+                                                            &partition_id)) {
             LOG(WARNING) << "malformed partition inverted index key " << hex(k);
             return -1;
         } else if (table_id != current_table_id) {

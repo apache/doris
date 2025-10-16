@@ -44,11 +44,11 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_vector) {
         data_strs[i] = StringRef(data + i * column_nullable->get_max_row_byte_size(), 0);
     }
 
-    column_nullable->serialize_vec(data_strs.data(), input_rows_count);
+    column_nullable->serialize(data_strs.data(), input_rows_count);
 
     ColumnNullable::MutablePtr result_column =
             ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
-    result_column->deserialize_vec(data_strs.data(), input_rows_count);
+    result_column->deserialize(data_strs.data(), input_rows_count);
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         EXPECT_EQ(column_nullable->get_data_at(i), result_column->get_data_at(i))
@@ -69,11 +69,11 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_vector_all_null) {
         data_strs[i] = StringRef(data + i * column_nullable->get_max_row_byte_size(), 0);
     }
 
-    column_nullable->serialize_vec(data_strs.data(), input_rows_count);
+    column_nullable->serialize(data_strs.data(), input_rows_count);
 
     ColumnNullable::MutablePtr result_column =
             ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
-    result_column->deserialize_vec(data_strs.data(), input_rows_count);
+    result_column->deserialize(data_strs.data(), input_rows_count);
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         EXPECT_EQ(column_nullable->get_data_at(i), result_column->get_data_at(i))
@@ -94,11 +94,11 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_vector_all_not_null
         data_strs[i] = StringRef(data + i * column_nullable->get_max_row_byte_size(), 0);
     }
 
-    column_nullable->serialize_vec(data_strs.data(), input_rows_count);
+    column_nullable->serialize(data_strs.data(), input_rows_count);
 
     ColumnNullable::MutablePtr result_column =
             ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
-    result_column->deserialize_vec(data_strs.data(), input_rows_count);
+    result_column->deserialize(data_strs.data(), input_rows_count);
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         EXPECT_EQ(column_nullable->get_data_at(i), result_column->get_data_at(i))
@@ -118,11 +118,11 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_string) {
         data_strs[i] = StringRef(data + i * column_nullable->get_max_row_byte_size(), 0);
     }
 
-    column_nullable->serialize_vec(data_strs.data(), input_rows_count);
+    column_nullable->serialize(data_strs.data(), input_rows_count);
 
     ColumnNullable::MutablePtr result_column =
             ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
-    result_column->deserialize_vec(data_strs.data(), input_rows_count);
+    result_column->deserialize(data_strs.data(), input_rows_count);
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         ASSERT_EQ(column_nullable->get_data_at(i), result_column->get_data_at(i))
@@ -143,11 +143,11 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_string_all_null) {
         data_strs[i] = StringRef(data + i * column_nullable->get_max_row_byte_size(), 0);
     }
 
-    column_nullable->serialize_vec(data_strs.data(), input_rows_count);
+    column_nullable->serialize(data_strs.data(), input_rows_count);
 
     ColumnNullable::MutablePtr result_column =
             ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
-    result_column->deserialize_vec(data_strs.data(), input_rows_count);
+    result_column->deserialize(data_strs.data(), input_rows_count);
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         ASSERT_EQ(column_nullable->get_data_at(i), result_column->get_data_at(i))
@@ -168,11 +168,11 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_string_all_not_null
         data_strs[i] = StringRef(data + i * column_nullable->get_max_row_byte_size(), 0);
     }
 
-    column_nullable->serialize_vec(data_strs.data(), input_rows_count);
+    column_nullable->serialize(data_strs.data(), input_rows_count);
 
     ColumnNullable::MutablePtr result_column =
             ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
-    result_column->deserialize_vec(data_strs.data(), input_rows_count);
+    result_column->deserialize(data_strs.data(), input_rows_count);
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         ASSERT_EQ(column_nullable->get_data_at(i), result_column->get_data_at(i))
@@ -192,11 +192,11 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_decimal) {
         data_strs[i] = StringRef(data + i * column_nullable->get_max_row_byte_size(), 0);
     }
 
-    column_nullable->serialize_vec(data_strs.data(), input_rows_count);
+    column_nullable->serialize(data_strs.data(), input_rows_count);
 
     ColumnNullable::MutablePtr result_column =
             ColumnNullable::create(ColumnDecimal64::create(0, 6), ColumnUInt8::create());
-    result_column->deserialize_vec(data_strs.data(), input_rows_count);
+    result_column->deserialize(data_strs.data(), input_rows_count);
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         ASSERT_EQ(column_nullable->get_data_at(i), result_column->get_data_at(i))
@@ -217,11 +217,11 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_decimal_all_null) {
         data_strs[i] = StringRef(data + i * column_nullable->get_max_row_byte_size(), 0);
     }
 
-    column_nullable->serialize_vec(data_strs.data(), input_rows_count);
+    column_nullable->serialize(data_strs.data(), input_rows_count);
 
     ColumnNullable::MutablePtr result_column =
             ColumnNullable::create(ColumnDecimal64::create(0, 6), ColumnUInt8::create());
-    result_column->deserialize_vec(data_strs.data(), input_rows_count);
+    result_column->deserialize(data_strs.data(), input_rows_count);
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         ASSERT_EQ(column_nullable->get_data_at(i), result_column->get_data_at(i))
@@ -242,11 +242,11 @@ TEST(ColumnNullableSerializationTest, column_nullable_column_decimal_all_not_nul
         data_strs[i] = StringRef(data + i * column_nullable->get_max_row_byte_size(), 0);
     }
 
-    column_nullable->serialize_vec(data_strs.data(), input_rows_count);
+    column_nullable->serialize(data_strs.data(), input_rows_count);
 
     ColumnNullable::MutablePtr result_column =
             ColumnNullable::create(ColumnDecimal64::create(0, 6), ColumnUInt8::create());
-    result_column->deserialize_vec(data_strs.data(), input_rows_count);
+    result_column->deserialize(data_strs.data(), input_rows_count);
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         ASSERT_EQ(column_nullable->get_data_at(i), result_column->get_data_at(i))
@@ -274,9 +274,9 @@ TEST(ColumnNullableSerializationTest, multiple_columns) {
         data_strs[i] = StringRef(data + i * max_row_byte_size, 0);
     }
 
-    column_nullable_decimal64->serialize_vec(data_strs.data(), input_rows_count);
-    column_nullable_int64->serialize_vec(data_strs.data(), input_rows_count);
-    column_nullable_string->serialize_vec(data_strs.data(), input_rows_count);
+    column_nullable_decimal64->serialize(data_strs.data(), input_rows_count);
+    column_nullable_int64->serialize(data_strs.data(), input_rows_count);
+    column_nullable_string->serialize(data_strs.data(), input_rows_count);
 
     ColumnNullable::MutablePtr result_column_decimal64 =
             ColumnNullable::create(ColumnDecimal64::create(0, 6), ColumnUInt8::create());
@@ -285,9 +285,9 @@ TEST(ColumnNullableSerializationTest, multiple_columns) {
     ColumnNullable::MutablePtr result_column_string =
             ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
 
-    result_column_decimal64->deserialize_vec(data_strs.data(), input_rows_count);
-    result_column_int64->deserialize_vec(data_strs.data(), input_rows_count);
-    result_column_string->deserialize_vec(data_strs.data(), input_rows_count);
+    result_column_decimal64->deserialize(data_strs.data(), input_rows_count);
+    result_column_int64->deserialize(data_strs.data(), input_rows_count);
+    result_column_string->deserialize(data_strs.data(), input_rows_count);
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         ASSERT_EQ(column_nullable_decimal64->get_data_at(i),
@@ -322,9 +322,9 @@ TEST(ColumnNullableSerializationTest, multiple_columns_all_null) {
         data_strs[i] = StringRef(data + i * max_row_byte_size, 0);
     }
 
-    column_nullable_decimal64->serialize_vec(data_strs.data(), input_rows_count);
-    column_nullable_int64->serialize_vec(data_strs.data(), input_rows_count);
-    column_nullable_string->serialize_vec(data_strs.data(), input_rows_count);
+    column_nullable_decimal64->serialize(data_strs.data(), input_rows_count);
+    column_nullable_int64->serialize(data_strs.data(), input_rows_count);
+    column_nullable_string->serialize(data_strs.data(), input_rows_count);
 
     ColumnNullable::MutablePtr result_column_decimal64 =
             ColumnNullable::create(ColumnDecimal64::create(0, 6), ColumnUInt8::create());
@@ -333,9 +333,9 @@ TEST(ColumnNullableSerializationTest, multiple_columns_all_null) {
     ColumnNullable::MutablePtr result_column_string =
             ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
 
-    result_column_decimal64->deserialize_vec(data_strs.data(), input_rows_count);
-    result_column_int64->deserialize_vec(data_strs.data(), input_rows_count);
-    result_column_string->deserialize_vec(data_strs.data(), input_rows_count);
+    result_column_decimal64->deserialize(data_strs.data(), input_rows_count);
+    result_column_int64->deserialize(data_strs.data(), input_rows_count);
+    result_column_string->deserialize(data_strs.data(), input_rows_count);
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         ASSERT_EQ(column_nullable_decimal64->get_data_at(i),
@@ -372,9 +372,9 @@ TEST(ColumnNullableSerializationTest, multiple_columns_all_not_null) {
         data_strs[i] = StringRef(data + i * max_row_byte_size, 0);
     }
 
-    column_nullable_decimal64->serialize_vec(data_strs.data(), input_rows_count);
-    column_nullable_int64->serialize_vec(data_strs.data(), input_rows_count);
-    column_nullable_string->serialize_vec(data_strs.data(), input_rows_count);
+    column_nullable_decimal64->serialize(data_strs.data(), input_rows_count);
+    column_nullable_int64->serialize(data_strs.data(), input_rows_count);
+    column_nullable_string->serialize(data_strs.data(), input_rows_count);
 
     ColumnNullable::MutablePtr result_column_decimal64 =
             ColumnNullable::create(ColumnDecimal64::create(0, 6), ColumnUInt8::create());
@@ -383,9 +383,9 @@ TEST(ColumnNullableSerializationTest, multiple_columns_all_not_null) {
     ColumnNullable::MutablePtr result_column_string =
             ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
 
-    result_column_decimal64->deserialize_vec(data_strs.data(), input_rows_count);
-    result_column_int64->deserialize_vec(data_strs.data(), input_rows_count);
-    result_column_string->deserialize_vec(data_strs.data(), input_rows_count);
+    result_column_decimal64->deserialize(data_strs.data(), input_rows_count);
+    result_column_int64->deserialize(data_strs.data(), input_rows_count);
+    result_column_string->deserialize(data_strs.data(), input_rows_count);
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         ASSERT_EQ(column_nullable_decimal64->get_data_at(i),
