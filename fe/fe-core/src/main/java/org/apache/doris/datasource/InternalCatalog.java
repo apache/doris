@@ -37,7 +37,6 @@ import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.BrokerTable;
@@ -123,6 +122,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -301,11 +301,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         return "Doris internal catalog";
     }
 
-    public TableName getTableNameByTableId(Long tableId) {
+    public TableNameInfo getTableNameByTableId(Long tableId) {
         for (Database db : fullNameToDb.values()) {
             Table table = db.getTableNullable(tableId);
             if (table != null) {
-                return new TableName(INTERNAL_CATALOG_NAME, db.getFullName(), table.getName());
+                return new TableNameInfo(INTERNAL_CATALOG_NAME, db.getFullName(), table.getName());
             }
         }
         return null;

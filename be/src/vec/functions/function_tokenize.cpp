@@ -105,8 +105,8 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
 
         auto reader = InvertedIndexAnalyzer::create_reader(inverted_index_ctx.char_filter_map);
         reader->init(tokenize_str.data, (int)tokenize_str.size, true);
-        auto analyzer_tokens = InvertedIndexAnalyzer::get_analyse_result(
-                reader.get(), inverted_index_ctx.analyzer);
+        auto analyzer_tokens =
+                InvertedIndexAnalyzer::get_analyse_result(reader, inverted_index_ctx.analyzer);
 
         rapidjson::Document doc;
         doc.SetArray();

@@ -89,6 +89,10 @@ class RegressionTest {
         }
 
         Config config = Config.fromCommandLine(cmd)
+        
+        // Print log file path
+        printLogFilePath()
+        
         initGroovyEnv(config)
         boolean success = true
         Integer totalFailure = 0
@@ -124,8 +128,35 @@ class RegressionTest {
         }
         scriptExecutors.shutdown()
         log.info("Test finished")
+        
+        // Print log file path again at the end
+        printLogFilePath()
+        
         if (!success) {
             System.exit(1)
+        }
+    }
+    
+    static void printLogFilePath() {
+        try {
+            ch.qos.logback.classic.Logger rootLogger = 
+                    LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME) as ch.qos.logback.classic.Logger
+            def context = rootLogger.getLoggerContext()
+            
+            // Find the RollingFileAppender
+            def appender = rootLogger.getAppender("rollingFileAppender")
+            if (appender instanceof ch.qos.logback.core.rolling.RollingFileAppender) {
+                String logFile = appender.getFile()
+                if (logFile != null) {
+                    File file = new File(logFile)
+                    String absolutePath = file.getAbsolutePath()
+                    log.info("=" * 80)
+                    log.info("Log file: ${absolutePath}")
+                    log.info("=" * 80)
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to get log file path: ${e.getMessage()}")
         }
     }
 
