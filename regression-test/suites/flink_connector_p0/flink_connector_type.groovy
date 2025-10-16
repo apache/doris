@@ -1,5 +1,3 @@
-import static java.util.concurrent.TimeUnit.SECONDS
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -20,6 +18,9 @@ import static java.util.concurrent.TimeUnit.SECONDS
 // The cases is copied from https://github.com/trinodb/trino/tree/master
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/tpcds
 // and modified by Doris.
+
+import static java.util.concurrent.TimeUnit.SECONDS
+import org.awaitility.Awaitility
 
 suite("flink_connector_type") {
 
