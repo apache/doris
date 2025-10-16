@@ -41,7 +41,7 @@ public class LakeSoulExternalCatalog extends ExternalCatalog {
 
     private static final Logger LOG = LogManager.getLogger(LakeSoulExternalCatalog.class);
 
-    private DBManager lakesoulMetadataManager;
+    private transient DBManager lakesoulMetadataManager;
 
     private final Map<String, String> props;
 
