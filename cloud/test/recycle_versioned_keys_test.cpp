@@ -1225,10 +1225,11 @@ TEST(RecycleVersionedKeysTest, RecycleTabletWithRowsetRefCount) {
         // check rowset does not exist on s3
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
-        ASSERT_TRUE(list_iter->has_next()) << dump_range(txn_kv.get());
+        ASSERT_TRUE(list_iter->has_next().status.code == TStatusCode::OK)
+                << dump_range(txn_kv.get());
         ASSERT_EQ(list_iter->next().value().path,
                   rowset_path_prefix(tablet_id, last_rowset_id) + "0.dat");
-        ASSERT_FALSE(list_iter->has_next());
+        ASSERT_FALSE(list_iter->has_next().status.code == TStatusCode::OK);
     }
 
     {
@@ -1505,11 +1506,12 @@ void recycle_tablet_with_rowset_ref_count_concurrent() {
         // Verify all rowset data objects are cleaned up from accessor
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
-        EXPECT_FALSE(list_iter->has_next()) << "Source tablet data should be cleaned up";
+        EXPECT_FALSE(list_iter->has_next().status.code == TStatusCode::OK)
+                << "Source tablet data should be cleaned up";
 
         std::unique_ptr<ListIterator> clone_iter;
         ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &clone_iter));
-        EXPECT_FALSE(clone_iter->has_next())
+        EXPECT_FALSE(clone_iter->has_next().status.code == TStatusCode::OK)
                 << "Clone tablet " << tablet_id << " data should be cleaned up";
     }
 }

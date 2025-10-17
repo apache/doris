@@ -45,12 +45,12 @@
 #include <unordered_map>
 #include <utility>
 
+#include "client/s3_common.h"
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
 #include "common/stats.h"
-#include "common/stopwatch.h"
 #include "common/string_util.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"

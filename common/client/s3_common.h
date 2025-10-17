@@ -20,6 +20,10 @@
 #include <aws/core/utils/memory/stl/AWSStreamFwd.h>
 #include <aws/core/utils/stream/PreallocatedStreamBuf.h>
 
+#include <chrono>
+
+#include "cpp/defer.h"
+
 namespace doris {
 
 // A non-copying iostream.
