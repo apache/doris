@@ -151,11 +151,24 @@ public:
     lucene::store::IndexInput* _input = nullptr;
 };
 
-void FaissVectorIndex::train(vectorized::Int64 n, const float* x) {
+doris::Status FaissVectorIndex::train(vectorized::Int64 n, const float* x) {
     DCHECK(x != nullptr);
     DCHECK(_index != nullptr);
+
+    // For PQ index, check if we have enough training data
+    if (_params.quantizer == FaissBuildParameter::Quantizer::PQ) {
+        int k = 1 << _params.pq_nbits;
+        if (n < k) {
+            // Not enough training data
+            LOG(WARNING) << "Not enough training data for PQ index: " << n << " < " << k;
+            return doris::Status::RuntimeError("Not enough training data for PQ index");
+        }
+    }
+
     omp_set_num_threads(config::omp_threads_limit);
     _index->train(n, x);
+
+    return doris::Status::OK();
 }
 
 /** Add n vectors of dimension d to the index.
@@ -178,6 +191,7 @@ doris::Status FaissVectorIndex::add(vectorized::Int64 n, const float* vec) {
 }
 
 void FaissVectorIndex::build(const FaissBuildParameter& params) {
+    _params = params;
     _dimension = params.dim;
     switch (params.metric_type) {
     case FaissBuildParameter::MetricType::L2:
@@ -216,6 +230,17 @@ void FaissVectorIndex::build(const FaissBuildParameter& params) {
                         faiss::METRIC_INNER_PRODUCT);
             }
         }
+        if (params.quantizer == FaissBuildParameter::Quantizer::PQ) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                hnsw_index = std::make_unique<faiss::IndexHNSWPQ>(
+                        params.dim, params.pq_m, params.max_degree, params.pq_nbits,
+                        faiss::METRIC_L2);
+            } else {
+                hnsw_index = std::make_unique<faiss::IndexHNSWPQ>(
+                        params.dim, params.pq_m, params.max_degree, params.pq_nbits,
+                        faiss::METRIC_INNER_PRODUCT);
+            }
+        }
         if (params.quantizer == FaissBuildParameter::Quantizer::FLAT) {
             if (params.metric_type == FaissBuildParameter::MetricType::L2) {
                 hnsw_index = std::make_unique<faiss::IndexHNSWFlat>(params.dim, params.max_degree,
@@ -226,6 +251,7 @@ void FaissVectorIndex::build(const FaissBuildParameter& params) {
             }
         }
         hnsw_index->hnsw.efConstruction = params.ef_construction;
+
         _index = std::move(hnsw_index);
     } else {
         throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Unsupported index type: {}",
