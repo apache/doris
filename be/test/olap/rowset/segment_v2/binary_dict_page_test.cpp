@@ -405,97 +405,7 @@ private:
     std::unique_ptr<segment_v2::EncodingInfoResolver> _resolver;
 };
 
-TEST_F(BinaryDictPageTest, TestBySmallDataSize) {
-    std::vector<Slice> slices;
-    slices.emplace_back("Individual");
-    slices.emplace_back("Lifetime");
-    slices.emplace_back("Objective");
-    slices.emplace_back("Value");
-    slices.emplace_back("Evolution");
-    slices.emplace_back("Nature");
-    slices.emplace_back("Captain");
-    slices.emplace_back("Xmas");
-    test_by_small_data_size(slices);
-}
-
-TEST_F(BinaryDictPageTest, TestSmallDataWithConfigFalse) {
-    config::use_plain_binary_v2 = false;
-
-    auto src_strings = generate_test_data(50, "test_");
-    std::vector<Slice> slices;
-    for (const auto& str : src_strings) {
-        slices.emplace_back(str);
-    }
-
-    test_by_small_data_size(slices);
-
-    config::use_plain_binary_v2 = false; // Reset
-}
-
-TEST_F(BinaryDictPageTest, TestSmallDataWithConfigTrue) {
-    config::use_plain_binary_v2 = true;
-
-    auto src_strings = generate_test_data(50, "test_");
-    std::vector<Slice> slices;
-    for (const auto& str : src_strings) {
-        slices.emplace_back(str);
-    }
-
-    test_by_small_data_size(slices);
-
-    config::use_plain_binary_v2 = false; // Reset
-}
-
-TEST_F(BinaryDictPageTest, TestLargeDataWithConfigFalse) {
-    config::use_plain_binary_v2 = false;
-
-    // Generate large amount of data with some repetition to test dictionary efficiency
-    std::vector<std::string> src_strings;
-    // Generate 1000 unique strings
-    auto unique_strings = generate_test_data(1000, "data_", 10, 50);
-    // Repeat them 100 times to create 100k entries
-    for (int i = 0; i < 100; ++i) {
-        for (const auto& str : unique_strings) {
-            src_strings.push_back(str);
-        }
-    }
-
-    std::vector<Slice> slices;
-    for (const auto& str : src_strings) {
-        slices.push_back(str);
-    }
-
-    LOG(INFO) << "Testing large data with config=false, entry count: " << slices.size();
-    test_with_large_data_size(slices);
-
-    config::use_plain_binary_v2 = false; // Reset
-}
-
-TEST_F(BinaryDictPageTest, TestLargeDataWithConfigTrue) {
-    config::use_plain_binary_v2 = true;
-
-    // Generate large amount of data with some repetition to test dictionary efficiency
-    std::vector<std::string> src_strings;
-    // Generate 1000 unique strings
-    auto unique_strings = generate_test_data(1000, "data_", 10, 50);
-    // Repeat them 100 times to create 100k entries
-    for (int i = 0; i < 100; ++i) {
-        for (const auto& str : unique_strings) {
-            src_strings.push_back(str);
-        }
-    }
-
-    std::vector<Slice> slices;
-    for (const auto& str : src_strings) {
-        slices.push_back(str);
-    }
-
-    LOG(INFO) << "Testing large data with config=true, entry count: " << slices.size();
-    test_with_large_data_size(slices);
-
-    config::use_plain_binary_v2 = false; // Reset
-}
-
+// Local behavior tests - test specific config behavior
 TEST_F(BinaryDictPageTest, TestConfigUsePlainBinaryV2False) {
     std::vector<Slice> slices;
     slices.emplace_back("apple");
@@ -732,6 +642,98 @@ TEST_F(BinaryDictPageTest, TestConfigAffectsFallbackEncoding) {
 
     // Reset config to default
     config::use_plain_binary_v2 = false;
+}
+
+// End-to-end tests - test full encode/decode flow
+TEST_F(BinaryDictPageTest, TestBySmallDataSize) {
+    std::vector<Slice> slices;
+    slices.emplace_back("Individual");
+    slices.emplace_back("Lifetime");
+    slices.emplace_back("Objective");
+    slices.emplace_back("Value");
+    slices.emplace_back("Evolution");
+    slices.emplace_back("Nature");
+    slices.emplace_back("Captain");
+    slices.emplace_back("Xmas");
+    test_by_small_data_size(slices);
+}
+
+TEST_F(BinaryDictPageTest, TestSmallDataWithConfigFalse) {
+    config::use_plain_binary_v2 = false;
+
+    auto src_strings = generate_test_data(50, "test_");
+    std::vector<Slice> slices;
+    for (const auto& str : src_strings) {
+        slices.emplace_back(str);
+    }
+
+    test_by_small_data_size(slices);
+
+    config::use_plain_binary_v2 = false; // Reset
+}
+
+TEST_F(BinaryDictPageTest, TestSmallDataWithConfigTrue) {
+    config::use_plain_binary_v2 = true;
+
+    auto src_strings = generate_test_data(50, "test_");
+    std::vector<Slice> slices;
+    for (const auto& str : src_strings) {
+        slices.emplace_back(str);
+    }
+
+    test_by_small_data_size(slices);
+
+    config::use_plain_binary_v2 = false; // Reset
+}
+
+TEST_F(BinaryDictPageTest, TestLargeDataWithConfigFalse) {
+    config::use_plain_binary_v2 = false;
+
+    // Generate large amount of data with some repetition to test dictionary efficiency
+    std::vector<std::string> src_strings;
+    // Generate 1000 unique strings
+    auto unique_strings = generate_test_data(1000, "data_", 10, 50);
+    // Repeat them 100 times to create 100k entries
+    for (int i = 0; i < 100; ++i) {
+        for (const auto& str : unique_strings) {
+            src_strings.push_back(str);
+        }
+    }
+
+    std::vector<Slice> slices;
+    for (const auto& str : src_strings) {
+        slices.push_back(str);
+    }
+
+    LOG(INFO) << "Testing large data with config=false, entry count: " << slices.size();
+    test_with_large_data_size(slices);
+
+    config::use_plain_binary_v2 = false; // Reset
+}
+
+TEST_F(BinaryDictPageTest, TestLargeDataWithConfigTrue) {
+    config::use_plain_binary_v2 = true;
+
+    // Generate large amount of data with some repetition to test dictionary efficiency
+    std::vector<std::string> src_strings;
+    // Generate 1000 unique strings
+    auto unique_strings = generate_test_data(1000, "data_", 10, 50);
+    // Repeat them 100 times to create 100k entries
+    for (int i = 0; i < 100; ++i) {
+        for (const auto& str : unique_strings) {
+            src_strings.push_back(str);
+        }
+    }
+
+    std::vector<Slice> slices;
+    for (const auto& str : src_strings) {
+        slices.push_back(str);
+    }
+
+    LOG(INFO) << "Testing large data with config=true, entry count: " << slices.size();
+    test_with_large_data_size(slices);
+
+    config::use_plain_binary_v2 = false; // Reset
 }
 
 } // namespace segment_v2
