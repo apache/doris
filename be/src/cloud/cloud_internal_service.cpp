@@ -99,22 +99,39 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
         std::for_each(rowsets.cbegin(), rowsets.cend(), [&](const RowsetSharedPtr& rowset) {
             std::string rowset_id = rowset->rowset_id().to_string();
             for (int32_t segment_id = 0; segment_id < rowset->num_segments(); segment_id++) {
-                std::string file_name = fmt::format("{}_{}.dat", rowset_id, segment_id);
-                auto cache_key = io::BlockFileCache::hash(file_name);
-                auto* cache = io::FileCacheFactory::instance()->get_by_path(cache_key);
+                const std::array<std::string, 2> file_extensions = {".dat", ".idx"};
+                for (int i = 0; i < 2; i++) {
+                    std::string file_name =
+                            fmt::format("{}_{}{}", rowset_id, segment_id, file_extensions[i]);
+                    auto cache_key = io::BlockFileCache::hash(file_name);
+                    auto* cache = io::FileCacheFactory::instance()->get_by_path(cache_key);
+                    auto segments_meta = cache->get_hot_blocks_meta(cache_key);
 
-                auto segments_meta = cache->get_hot_blocks_meta(cache_key);
-                for (const auto& tuple : segments_meta) {
-                    FileCacheBlockMeta* meta = response->add_file_cache_block_metas();
-                    meta->set_tablet_id(tablet_id);
-                    meta->set_rowset_id(rowset_id);
-                    meta->set_segment_id(segment_id);
-                    meta->set_file_name(file_name);
-                    meta->set_file_size(rowset->rowset_meta()->segment_file_size(segment_id));
-                    meta->set_offset(std::get<0>(tuple));
-                    meta->set_size(std::get<1>(tuple));
-                    meta->set_cache_type(cache_type_to_pb(std::get<2>(tuple)));
-                    meta->set_expiration_time(std::get<3>(tuple));
+                    for (const auto& tuple : segments_meta) {
+                        FileCacheBlockMeta* meta = response->add_file_cache_block_metas();
+                        meta->set_tablet_id(tablet_id);
+                        meta->set_rowset_id(rowset_id);
+                        meta->set_segment_id(segment_id);
+                        meta->set_file_name(file_name);
+                        if (i == 0) {
+                            // .dat
+                            meta->set_file_size(
+                                    rowset->rowset_meta()->segment_file_size(segment_id));
+                            meta->set_idx(false);
+                        } else {
+                            // .idx
+                            const auto& idx_file_info =
+                                    rowset->rowset_meta()->inverted_index_file_info(segment_id);
+                            meta->set_file_size(idx_file_info.has_index_size()
+                                                        ? idx_file_info.index_size()
+                                                        : -1);
+                            meta->set_idx(true);
+                        }
+                        meta->set_offset(std::get<0>(tuple));
+                        meta->set_size(std::get<1>(tuple));
+                        meta->set_cache_type(cache_type_to_pb(std::get<2>(tuple)));
+                        meta->set_expiration_time(std::get<3>(tuple));
+                    }
                 }
             }
         });

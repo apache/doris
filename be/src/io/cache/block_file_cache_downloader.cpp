@@ -219,9 +219,18 @@ void FileCacheBlockDownloader::download_file_cache_block(
                       << "status=" << st.to_string();
         };
 
+        std::string path;
+        if (meta.has_idx() && meta.idx()) {
+            path = storage_resource.value()->remote_idx_v2_path(*find_it->second,
+                                                                meta.segment_id());
+        } else {
+            // default .dat
+            path = storage_resource.value()->remote_segment_path(*find_it->second,
+                                                                 meta.segment_id());
+        }
+
         DownloadFileMeta download_meta {
-                .path = storage_resource.value()->remote_segment_path(*find_it->second,
-                                                                      meta.segment_id()),
+                .path = path,
                 .file_size = meta.has_file_size() ? meta.file_size()
                                                   : -1, // To avoid trigger get file size IO
                 .offset = meta.offset(),
