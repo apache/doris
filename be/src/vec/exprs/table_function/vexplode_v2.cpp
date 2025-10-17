@@ -228,7 +228,7 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
                     } else {
                         nullmap_column->insert_many_defaults(max_step);
                     }
-                } else {
+                } else if (element_size > _cur_offset) {
                     auto current_insert_num = element_size - _cur_offset;
                     nullable_column->get_nested_column_ptr()->insert_range_from(
                             *detail.nested_col, pos, current_insert_num);
@@ -242,6 +242,8 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
                         nullmap_column->insert_many_defaults(current_insert_num);
                     }
                     nullable_column->insert_many_defaults(max_step - current_insert_num);
+                } else {
+                    nullable_column->insert_many_defaults(max_step);
                 }
             }
         }

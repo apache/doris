@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.info.TableNameInfo;
 
 // alter table clause
 public abstract class AlterTableClause extends AlterClause {
@@ -29,14 +30,14 @@ public abstract class AlterTableClause extends AlterClause {
     // if set to true, the corresponding table should be stable before processing this operation on it.
     protected boolean needTableStable = true;
 
-    protected TableName tableName;
+    protected TableNameInfo tableNameInfo;
 
     public boolean isNeedTableStable() {
         return needTableStable;
     }
 
-    public void setTableName(TableName tableName) {
-        this.tableName = tableName;
+    public void setTableNameInfo(TableNameInfo tableNameInfo) {
+        this.tableNameInfo = tableNameInfo;
     }
 
     public abstract boolean allowOpMTMV();

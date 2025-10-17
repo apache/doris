@@ -79,8 +79,7 @@ public class DropIndexOp extends AlterTableOp {
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
-        return new DropIndexClause(indexName, ifExists, tableName != null ? tableName.transferToTableName() : null,
-                alter);
+        return new DropIndexClause(indexName, ifExists, tableName, alter);
     }
 
     @Override
