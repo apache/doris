@@ -747,3 +747,19 @@ j	\N	2	cd	\N
 j	\N	4	\N	2
 j	\N	5	\N	3
 
+-- !select25 --
+1	{"col1":1, "col2":"a"}
+1	{"col1":2, "col2":"b"}
+
+-- !select26 --
+1	1	a
+1	2	b
+
+-- !select27 --
+1	{"col1":{"col1":1, "col2":"a"}, "col2":{"col1":3, "col2":"c"}}
+1	{"col1":{"col1":2, "col2":"b"}, "col2":{"col1":4, "col2":"d"}}
+
+-- !select28 --
+1	{"col1":1, "col2":"a"}	{"col1":3, "col2":"c"}
+1	{"col1":2, "col2":"b"}	{"col1":4, "col2":"d"}
+
