@@ -72,6 +72,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "external_table_p0," + // run on external pipeline
     "cloud/multi_cluster," + // run in specific regression pipeline
+    "cloud_p0/multi_cluster," + // run in specific regression pipeline
     "cloud_p0/cache," +
     "workload_manager_p1," +
     "nereids_rules_p0/subquery," +
