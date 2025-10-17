@@ -2256,8 +2256,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (inputPlanNode instanceof OlapScanNode) {
                 ((OlapScanNode) inputPlanNode).updateRequiredSlots(context, requiredByProjectSlotIdSet);
             }
-            updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
-                    requiredByProjectSlotIdSet, context);
+            if (!(inputPlanNode instanceof RecursiveCteScanNode)) {
+                updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
+                        requiredByProjectSlotIdSet, context);
+            }
         } else {
             if (project.child() instanceof PhysicalDeferMaterializeTopN) {
                 inputFragment.setOutputExprs(allProjectionExprs);
@@ -2339,6 +2341,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             recursiveCteFragment.setHasColocatePlanNode(true);
             recursiveCteNode.setColocate(true);
         }
+        recursiveCteFragment.updateDataPartition(DataPartition.UNPARTITIONED);
+        recursiveCteFragment.setOutputPartition(DataPartition.UNPARTITIONED);
 
         return recursiveCteFragment;
     }
