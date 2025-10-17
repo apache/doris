@@ -24,7 +24,7 @@ import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFileManager;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFilePlanner;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteDataGroup;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteResult;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteJob;
@@ -33,6 +33,7 @@ import org.apache.doris.datasource.iceberg.rewrite.RewriteJobState;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.iceberg.Table;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -43,14 +44,13 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Action for rewriting Iceberg data files by executing INSERT-SELECT operations.
+ * Action for rewriting Iceberg data files to compact and optimize table data
  *
  * Execution Flow:
  * 1. Validate rewrite parameters and get Iceberg table
- * 2. Use RewriteDataFileManager to scan files and organize them into groups
- * 3. Create RewriteDataFileExecutor to execute rewrite for each group
- * 4. Manage IcebergTransaction directly to commit all changes atomically
- * 5. Collect and return execution results including statistics
+ * 2. Use RewriteDataFilePlanner to plan and organize file scan tasks into rewrite groups
+ * 3. Create and start rewrite job concurrently
+ * 4. Wait for job completion and return result
  */
 public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
     private static final Logger LOG = LogManager.getLogger(IcebergRewriteDataFilesAction.class);
@@ -174,7 +174,6 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
         if (this.maxFileSizeBytes == 0) {
             this.maxFileSizeBytes = (long) (targetFileSizeBytes * 1.8);
         }
-
         // Get parallelism parameter
         this.parallelism = namedArguments.getInt(PARALLELISM);
     }
@@ -182,14 +181,14 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
         try {
-            org.apache.iceberg.Table icebergTable = IcebergUtils.getIcebergTable(this.icebergTable);
+            Table icebergTable = IcebergUtils.getIcebergTable(this.icebergTable);
 
             if (icebergTable.currentSnapshot() == null) {
                 LOG.info("Table {} has no data, skipping rewrite", table.getName());
                 return Lists.newArrayList("0", "0", "0", "0");
             }
 
-            RewriteDataFileManager.Parameters parameters = buildRewriteParameters();
+            RewriteDataFilePlanner.Parameters parameters = buildRewriteParameters();
 
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext == null) {
@@ -197,13 +196,8 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
             }
 
             // Step 1: Plan and organize file scan tasks into groups
-            RewriteDataFileManager fileManager = new RewriteDataFileManager(icebergTable, parameters);
-            fileManager.planAndOrganizeTasks();
-
-            if (fileManager.getTotalGroupCount() == 0) {
-                LOG.info("No file groups need rewriting for table: {}", table.getName());
-                return Lists.newArrayList("0", "0", "0", "0");
-            }
+            RewriteDataFilePlanner fileManager = new RewriteDataFilePlanner(parameters);
+            Iterable<RewriteDataGroup> allGroups = fileManager.planAndOrganizeTasks(icebergTable);
 
             // Step 2: Create and start concurrent rewrite job
             RewriteJobManager jobManager = new RewriteJobManager();
@@ -212,29 +206,20 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
             RewriteJob rewriteJob = jobManager.createAndStartJob(
                             jobLabel, this.icebergTable, parameters, connectContext, parallelism);
 
-            // Get all groups for concurrent processing
-            List<RewriteDataGroup> allGroups = fileManager.getAllGroups();
-
             // Start the job with groups
             jobManager.startRewriteJob(rewriteJob, allGroups, parallelism);
 
-            // Wait for job completion (in a real implementation, this would be
-            // asynchronous)
-            // For now, we'll simulate waiting by checking job state
+            // Wait for job completion
             RewriteResult totalResult = waitForJobCompletion(rewriteJob, jobManager);
-
-            LOG.info("Rewrite data files completed for table: {}, result: {}",
-                    table.getName(), totalResult);
             return totalResult.toStringList();
-
         } catch (Exception e) {
             LOG.error("Failed to rewrite data files for table: " + table.getName(), e);
             throw new UserException("Rewrite data files failed: " + e.getMessage());
         }
     }
 
-    private RewriteDataFileManager.Parameters buildRewriteParameters() {
-        return new RewriteDataFileManager.Parameters(
+    private RewriteDataFilePlanner.Parameters buildRewriteParameters() {
+        return new RewriteDataFilePlanner.Parameters(
                 namedArguments.getLong(TARGET_FILE_SIZE_BYTES),
                 this.minFileSizeBytes,
                 this.maxFileSizeBytes,

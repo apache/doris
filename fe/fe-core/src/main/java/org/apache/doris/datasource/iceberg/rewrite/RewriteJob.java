@@ -68,10 +68,8 @@ public class RewriteJob {
     private RewriteFailMsg failMsg;
 
     // Job configuration
-    private IcebergExternalTable icebergTable;
-    private RewriteDataFileManager.Parameters parameters;
     private ConnectContext connectContext;
-
+    private IcebergExternalTable icebergTable;
     // Parallelism control
     private int parallelism;
 
@@ -83,13 +81,9 @@ public class RewriteJob {
     // Groups to be processed
     private List<RewriteDataGroup> allGroups = Lists.newArrayList();
 
-    public RewriteJob(long jobId, String label, IcebergExternalTable icebergTable,
-            RewriteDataFileManager.Parameters parameters, ConnectContext connectContext) {
+    public RewriteJob(long jobId, String label, IcebergExternalTable icebergTable, ConnectContext connectContext) {
         this.id = jobId;
         this.label = label;
-        this.icebergTable = icebergTable;
-        this.parameters = parameters;
-        this.connectContext = connectContext;
         this.state = RewriteJobState.PENDING;
         this.progress = 0;
         this.createTimeMs = System.currentTimeMillis();
@@ -97,13 +91,15 @@ public class RewriteJob {
         this.finishTimeMs = -1;
         this.failMsg = new RewriteFailMsg(RewriteFailMsg.CancelType.UNKNOWN, "");
         this.parallelism = 1; // Default parallelism
+        this.icebergTable = icebergTable;
+        this.connectContext = connectContext;
     }
 
     /**
      * Initialize the rewrite job with groups and create task executors
      */
     public void initializeWithGroups(List<RewriteDataGroup> groups, int parallelism) throws UserException {
-        this.allGroups = Lists.newArrayList(groups);
+        this.allGroups = groups;
         this.parallelism = Math.min(parallelism, groups.size());
 
         LOG.info("Initializing rewrite job {} with {} groups, parallelism: {}",

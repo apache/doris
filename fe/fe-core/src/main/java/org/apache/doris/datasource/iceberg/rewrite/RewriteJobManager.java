@@ -53,10 +53,10 @@ public class RewriteJobManager {
      * Create and start a new rewrite job
      */
     public RewriteJob createAndStartJob(String label, IcebergExternalTable icebergTable,
-            RewriteDataFileManager.Parameters parameters,
+            RewriteDataFilePlanner.Parameters parameters,
             ConnectContext connectContext, int parallelism) throws Exception {
         long jobId = Env.getCurrentEnv().getNextId();
-        RewriteJob job = new RewriteJob(jobId, label, icebergTable, parameters, connectContext);
+        RewriteJob job = new RewriteJob(jobId, label, icebergTable, connectContext);
 
         writeLock();
         try {
