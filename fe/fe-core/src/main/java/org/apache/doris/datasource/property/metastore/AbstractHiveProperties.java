@@ -25,7 +25,7 @@ import org.apache.hadoop.hive.conf.HiveConf;
 
 import java.util.Map;
 
-public abstract class AbstractHMSProperties extends MetastoreProperties {
+public abstract class AbstractHiveProperties extends MetastoreProperties {
 
     @Getter
     protected HiveConf hiveConf;
@@ -56,7 +56,7 @@ public abstract class AbstractHMSProperties extends MetastoreProperties {
      * @param type      metastore type
      * @param origProps original configuration
      */
-    protected AbstractHMSProperties(Type type, Map<String, String> origProps) {
+    protected AbstractHiveProperties(Type type, Map<String, String> origProps) {
         super(type, origProps);
     }
 }

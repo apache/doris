@@ -24,13 +24,13 @@ import org.apache.hadoop.hive.conf.HiveConf;
 
 import java.util.Map;
 
-public class HMSAliyunDLFMetaStoreProperties extends AbstractHMSProperties {
+public class HiveAliyunDLFMetaStoreProperties extends AbstractHiveProperties {
 
     private AliyunDLFBaseProperties baseProperties;
 
     private OSSProperties ossProperties;
 
-    public HMSAliyunDLFMetaStoreProperties(Map<String, String> origProps) {
+    public HiveAliyunDLFMetaStoreProperties(Map<String, String> origProps) {
         super(Type.DLF, origProps);
     }
 
