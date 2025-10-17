@@ -315,6 +315,7 @@ message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
 # static link gcc's lib
 set(DORIS_LINK_LIBS
     CommonCPP
+    CommonClient
     ${DORIS_DEPENDENCIES}
     -static-libstdc++
     -static-libgcc
@@ -505,6 +506,7 @@ if (${MAKE_TEST} STREQUAL "ON")
 endif ()
 
 add_subdirectory(${COMMON_SRC_DIR}/cpp ${BUILD_DIR}/src/common_cpp)
+add_subdirectory(${COMMON_SRC_DIR}/client ${BUILD_DIR}/src/common_client)
 
 if (${MAKE_TEST} STREQUAL "OFF")
     add_executable(doris_cloud src/main.cpp)
