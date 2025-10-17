@@ -35,6 +35,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -117,6 +118,54 @@ public class TableSchemaAction extends RestBaseController {
                     if (table instanceof OlapTable) {
                         resultMap.put("keysType", ((OlapTable) table).getKeysType().name());
                         resultMap.put("schema_version", ((OlapTable) table).getBaseSchemaVersion());
+
+                        // Add materialized index schemas for debugging
+                        OlapTable olapTable = (OlapTable) table;
+                        Map<Long, MaterializedIndexMeta> indexIdToMeta = olapTable.getIndexIdToMeta();
+                        Map<String, Object> materializedIndexSchemas = new HashMap<>();
+
+                        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+                            Long indexId = entry.getKey();
+                            MaterializedIndexMeta indexMeta = entry.getValue();
+                            String indexName = olapTable.getIndexNameById(indexId);
+
+                            Map<String, Object> indexInfo = new HashMap<>();
+                            indexInfo.put("index_id", indexId);
+                            indexInfo.put("keys_type", indexMeta.getKeysType().name());
+                            indexInfo.put("schema_version", indexMeta.getSchemaVersion());
+                            indexInfo.put("schema_hash", indexMeta.getSchemaHash());
+                            indexInfo.put("storage_type", indexMeta.getStorageType().name());
+
+                            // Get schema columns for this materialized index
+                            List<Column> indexColumns = indexMeta.getSchema();
+                            List<Map<String, String>> indexColumnList = new ArrayList<>();
+
+                            for (Column column : indexColumns) {
+                                Map<String, String> columnInfo = new HashMap<>();
+                                Type colType = column.getOriginType();
+                                PrimitiveType primitiveType = colType.getPrimitiveType();
+                                if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType.isDecimalV3Type()) {
+                                    ScalarType scalarType = (ScalarType) colType;
+                                    columnInfo.put("precision", scalarType.getPrecision() + "");
+                                    columnInfo.put("scale", scalarType.getScalarScale() + "");
+                                }
+                                columnInfo.put("column_uid", String.valueOf(column.getUniqueId()));
+                                columnInfo.put("type", primitiveType.toString());
+                                columnInfo.put("comment", column.getComment());
+                                columnInfo.put("name", column.getDisplayName());
+                                Optional aggregationType = Optional.ofNullable(column.getAggregationType());
+                                columnInfo.put("aggregation_type", aggregationType.isPresent()
+                                        ? column.getAggregationType().toSql() : "");
+                                columnInfo.put("is_nullable", column.isAllowNull() ? "Yes" : "No");
+                                columnInfo.put("is_key", column.isKey() ? "Yes" : "No");
+                                indexColumnList.add(columnInfo);
+                            }
+
+                            indexInfo.put("columns", indexColumnList);
+                            materializedIndexSchemas.put(indexName != null ? indexName : "index_" + indexId, indexInfo);
+                        }
+
+                        resultMap.put("materialized_indexes", materializedIndexSchemas);
                     }
                     resultMap.put("properties", propList);
                 } catch (Exception e) {
