@@ -633,16 +633,6 @@ private:
                     map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
                     map_row_nullmap, search_is_const, result_matches);
             break;
-        case TYPE_DATE:
-            _execute_column_comparison<ColumnDate>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_DATETIME:
-            _execute_column_comparison<ColumnDateTime>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
         case TYPE_DATEV2:
             _execute_column_comparison<ColumnDateV2>(
                     map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,

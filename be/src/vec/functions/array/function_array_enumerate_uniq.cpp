@@ -191,14 +191,8 @@ public:
             case TYPE_DOUBLE:
                 _execute_number<ColumnFloat64>(data_columns, *offsets, null_map, dst_values);
                 break;
-            case TYPE_DATE:
-                _execute_number<ColumnDate>(data_columns, *offsets, null_map, dst_values);
-                break;
             case TYPE_DATEV2:
                 _execute_number<ColumnDateV2>(data_columns, *offsets, null_map, dst_values);
-                break;
-            case TYPE_DATETIME:
-                _execute_number<ColumnDateTime>(data_columns, *offsets, null_map, dst_values);
                 break;
             case TYPE_DATETIMEV2:
                 _execute_number<ColumnDateTimeV2>(data_columns, *offsets, null_map, dst_values);
