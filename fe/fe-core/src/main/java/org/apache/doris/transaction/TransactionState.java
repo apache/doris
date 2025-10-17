@@ -209,11 +209,8 @@ public class TransactionState implements Writable {
     // requestId is used to judge whether a begin request is a internal retry request.
     // no need to persist it.
     private TUniqueId requestId;
-    // (Refrain)
-    // @SerializedName(value = "idToTableCommitInfos")
     private Map<Long, TableCommitInfo> idToTableCommitInfos;
     // coordinator is show who begin this txn (FE, or one of BE, etc...)
-    // (Refrain) @SerializedName(value = "txnCoordinator")
     private TxnCoordinator txnCoordinator;
     @SerializedName(value = "txnStatus")
     private TransactionStatus transactionStatus;
@@ -227,10 +224,8 @@ public class TransactionState implements Writable {
     private long commitTime;
     @SerializedName(value = "finishTime")
     private long finishTime;
-    // (Refrain) @SerializedName(value = "reason")
     private String reason = "";
     // error replica ids
-    // (Refrain) @SerializedName(value = "errorReplicas")
     private Set<Long> errorReplicas;
     // this latch will be counted down when txn status change to VISIBLE
     private CountDownLatch visibleLatch;
@@ -280,13 +275,11 @@ public class TransactionState implements Writable {
     // this map should be set when load execution begin, so that when the txn commit, it will know
     // which tables and rollups it loaded.
     // tbl id -> (index ids)
-    // (Refrain) @SerializedName(value = "loadedTblIndexes")
     private Map<Long, Set<Long>> loadedTblIndexes = Maps.newHashMap();
 
     /**
      * the value is the num delta rows of all replicas in each tablet
      */
-    // (Refrain) @SerializedName(value = "deltaRows")
     private final Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows = Maps.newHashMap();
 
     private String errorLogUrl = null;
@@ -315,10 +308,8 @@ public class TransactionState implements Writable {
     private Map<Long, SchemaInfo> txnSchemas = new HashMap<>();
 
     @Getter
-    // (Refrain) @SerializedName(value = "sti")
     private List<Long> subTxnIds;
     @Getter
-    // (Refrain) @SerializedName(value = "stot")
     private Map<Long, TableCommitInfo> subTxnIdToTableCommitInfo = new TreeMap<>();
     @Getter
     @Setter
