@@ -30,9 +30,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.PersistentFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
@@ -48,6 +46,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -211,11 +210,15 @@ public class Repository implements Writable, GsonPostProcessable {
         try {
             StorageProperties storageProperties = StorageProperties.createPrimary(this.fileSystem.properties);
             this.fileSystem = FileSystemFactory.get(storageProperties);
-        } catch (StoragePropertiesException exception) {
-            LOG.warn("Failed to create file system for repository: {}, error: {}, roll back to broker"
-                    + " filesystem", name, exception.getMessage());
-            BrokerProperties brokerProperties = BrokerProperties.of(this.fileSystem.name, this.fileSystem.properties);
-            this.fileSystem = FileSystemFactory.get(brokerProperties);
+        } catch (RuntimeException exception) {
+            LOG.warn("Failed to create file system from properties, error msg {}",
+                    ExceptionUtils.getRootCause(exception), exception);
+            throw new IllegalStateException(
+                    "Failed to initialize file system due to incompatible configuration with the current version. "
+                            + "This may be caused by a change in property formats or deprecated settings. "
+                            + "Please verify your configuration and ensure it matches the "
+                            + "new version requirements. error msg: "
+                            + ExceptionUtils.getRootCause(exception), exception);
         }
     }
 
