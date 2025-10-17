@@ -279,14 +279,6 @@ public class ComputeSignatureHelper {
                 sigType = signature.argumentsTypes.get(i);
             }
             DataType expressionType = arguments.get(i).getDataType();
-            // Convert legacy datetime/date types to v2 types, keep v2 types as is
-            if (sigType.isDateTimeType()) {
-                // Legacy DateTimeType -> DateTimeV2Type
-                sigType = DateTimeV2Type.SYSTEM_DEFAULT;
-            } else if (sigType.isDateType()) {
-                // Legacy DateType -> DateV2Type
-                sigType = DateV2Type.INSTANCE;
-            }
             collectAnyDataType(sigType, expressionType, indexToArgumentTypes);
         }
         // if all any data type's expression is NULL, we should use follow to any data type to do type coercion
@@ -335,6 +327,14 @@ public class ComputeSignatureHelper {
         // replace any data type and follow to any data type with real data type
         List<DataType> newArgTypes = Lists.newArrayListWithCapacity(signature.argumentsTypes.size());
         for (DataType sigType : signature.argumentsTypes) {
+            // Convert legacy datetime/date types to v2 types, keep v2 types as is
+            if (sigType.isDateTimeType()) {
+                // Legacy DateTimeType -> DateTimeV2Type
+                sigType = DateTimeV2Type.SYSTEM_DEFAULT;
+            } else if (sigType.isDateType()) {
+                // Legacy DateType -> DateV2Type
+                sigType = DateV2Type.INSTANCE;
+            }
             newArgTypes.add(replaceAnyDataType(sigType, indexToCommonTypes));
         }
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);

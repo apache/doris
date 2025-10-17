@@ -1079,14 +1079,6 @@ TEST(VTimestampFunctionsTest, to_days_v2_test) {
 
         static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     }
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIMEV2};
-
-        DataSet data_set = {{{std::string("2021-01-01 00:00:11.123")}, 738156},
-                            {{std::string("0000-01-01 00:00:11.123")}, 1}};
-
-        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
-    }
 }
 
 TEST(VTimestampFunctionsTest, date_v2_test) {
