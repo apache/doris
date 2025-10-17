@@ -41,7 +41,6 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
-#include <variant>
 #include <vector>
 
 #include "common/config.h"
@@ -49,7 +48,6 @@
 #include "common/logging.h"
 #include "common/string_util.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta_service.h"
@@ -763,13 +761,9 @@ static HttpResponse process_get_snapshot_property(MetaServiceImpl* service,
     // Build snapshot properties response
     rapidjson::Document doc;
     doc.SetObject();
-    auto& allocator = doc.GetAllocator();
-
-    // Add snapshot properties
-    rapidjson::Value properties(rapidjson::kObjectType);
 
     // Snapshot switch status
-    std::string switch_status;
+    std::string_view switch_status;
     switch (instance.snapshot_switch_status()) {
     case SNAPSHOT_SWITCH_DISABLED:
         switch_status = "UNSUPPORTED";
@@ -784,22 +778,20 @@ static HttpResponse process_get_snapshot_property(MetaServiceImpl* service,
         switch_status = "UNKNOWN";
         break;
     }
-    properties.AddMember("status", rapidjson::Value(switch_status.c_str(), allocator), allocator);
+    doc.AddMember("status", rapidjson::StringRef(switch_status.data(), switch_status.size()),
+                  doc.GetAllocator());
 
     // Max reserved snapshots
     if (instance.has_max_reserved_snapshot()) {
-        properties.AddMember("max_reserved_snapshots", instance.max_reserved_snapshot(), allocator);
+        doc.AddMember("max_reserved_snapshots", instance.max_reserved_snapshot(),
+                      doc.GetAllocator());
     }
 
     // Snapshot interval seconds
     if (instance.has_snapshot_interval_seconds()) {
-        properties.AddMember("snapshot_interval_seconds", instance.snapshot_interval_seconds(),
-                             allocator);
+        doc.AddMember("snapshot_interval_seconds", instance.snapshot_interval_seconds(),
+                      doc.GetAllocator());
     }
-
-    doc.AddMember("code", "OK", allocator);
-    doc.AddMember("msg", "", allocator);
-    doc.AddMember("result", properties, allocator);
 
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
