@@ -427,11 +427,25 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             HashSet<String> directorySet = new HashSet<>();
 
             String listPrefix = S3Util.getLongestPrefix(globPath); // similar to Azure
-            LOG.info("globList listPrefix: {}", listPrefix);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("globList listPrefix: '{}' (from globPath: '{}')", listPrefix, globPath);
+            }
+
+            // For Directory Buckets, ensure proper prefix handling using standardized approach
+            String finalPrefix = listPrefix;
+
+            if (uri.useS3DirectoryBucket()) {
+                String adjustedPrefix = S3URI.getDirectoryPrefixForGlob(listPrefix);
+                if (LOG.isDebugEnabled() && !adjustedPrefix.equals(listPrefix)) {
+                    LOG.debug("Directory bucket detected, adjusting prefix from '{}' to '{}'",
+                            listPrefix, adjustedPrefix);
+                }
+                finalPrefix = adjustedPrefix;
+            }
 
             ListObjectsV2Request request = ListObjectsV2Request.builder()
                     .bucket(bucket)
-                    .prefix(listPrefix)
+                    .prefix(finalPrefix)
                     .build();
 
             boolean isTruncated = false;
