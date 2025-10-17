@@ -37,7 +37,7 @@ suite("test_custom_analyzer2", "p0") {
         CREATE TABLE test_custom_analyzer2_1 (
             `a` bigint NOT NULL AUTO_INCREMENT(1),
             `ch` text NULL,
-            INDEX idx_ch (`ch`) USING INVERTED PROPERTIES("built-in" = "standard", "support_phrase" = "true")
+            INDEX idx_ch (`ch`) USING INVERTED PROPERTIES("built_in_analyzer" = "standard", "support_phrase" = "true")
         ) ENGINE=OLAP
         DUPLICATE KEY(`a`)
         DISTRIBUTED BY RANDOM BUCKETS 1

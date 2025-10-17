@@ -35,7 +35,7 @@ import java.util.Set;
 public class InvertedIndexUtil {
 
     public static String INVERTED_INDEX_PARSER_KEY = "parser";
-    public static String INVERTED_INDEX_PARSER_KEY_ALIAS = "built-in";
+    public static String INVERTED_INDEX_PARSER_KEY_ALIAS = "built_in_analyzer";
     public static String INVERTED_INDEX_PARSER_UNKNOWN = "unknown";
     public static String INVERTED_INDEX_PARSER_NONE = "none";
     public static String INVERTED_INDEX_PARSER_STANDARD = "standard";

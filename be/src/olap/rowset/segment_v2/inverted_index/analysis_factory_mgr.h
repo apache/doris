@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <typeindex>
+
 #include "olap/rowset/segment_v2/inverted_index/abstract_analysis_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/setting.h"
 
