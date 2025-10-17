@@ -23,10 +23,10 @@
 #include <memory>
 #include <string>
 
+#include "client/obj_storage_client.h"
 #include "common/status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/obj_storage_client.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_bufferpool.h"
 
@@ -54,7 +54,7 @@ public:
 
     Status appendv(const Slice* data, size_t data_cnt) override;
 
-    const Path& path() const override { return _obj_storage_path_opts.path; }
+    const Path& path() const override { return _obj_storage_path_opts.full_path; }
     size_t bytes_appended() const override { return _bytes_appended; }
     State state() const override { return _state; }
 

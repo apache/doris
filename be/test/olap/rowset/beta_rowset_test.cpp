@@ -37,6 +37,7 @@
 #include <utility>
 #include <vector>
 
+#include "client/s3_obj_storage_client.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "gen_cpp/olap_file.pb.h"
@@ -44,7 +45,6 @@
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
-#include "io/fs/s3_obj_storage_client.h"
 #include "json2pb/json_to_pb.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
@@ -312,7 +312,8 @@ TEST_F(BetaRowsetTest, ReadTest) {
                 aws_cred, aws_config, Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
                 true);
 
-        client.reset(new io::S3ObjStorageClient(std::move(s3_client)));
+        client.reset(new S3ObjStorageClient(std::move(s3_client),
+                                            {.endpoint = "endpoint", .ak = "ak", .sk = "sk"}));
 
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_remote_storage_resource(storage_resource);
@@ -326,8 +327,9 @@ TEST_F(BetaRowsetTest, ReadTest) {
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
         Aws::Client::ClientConfiguration aws_config;
-        client.reset(new io::S3ObjStorageClient(
-                std::make_shared<Aws::S3::S3Client>(S3ClientMockGetError())));
+        client.reset(
+                new S3ObjStorageClient(std::make_shared<Aws::S3::S3Client>(S3ClientMockGetError()),
+                                       {.endpoint = "endpoint", .ak = "ak", .sk = "sk"}));
 
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_remote_storage_resource(storage_resource);
@@ -341,8 +343,9 @@ TEST_F(BetaRowsetTest, ReadTest) {
     {
         Aws::Auth::AWSCredentials aws_cred("ak", "sk");
         Aws::Client::ClientConfiguration aws_config;
-        client.reset(new io::S3ObjStorageClient(
-                std::make_shared<Aws::S3::S3Client>(S3ClientMockGetErrorData())));
+        client.reset(new S3ObjStorageClient(
+                std::make_shared<Aws::S3::S3Client>(S3ClientMockGetErrorData()),
+                {.endpoint = "endpoint", .ak = "ak", .sk = "sk"}));
 
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_remote_storage_resource(storage_resource);

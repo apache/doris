@@ -37,6 +37,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "client/obj_storage_client.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_warm_up_manager.h"
@@ -53,7 +54,6 @@
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/cloud.pb.h"
 #include "gen_cpp/olap_file.pb.h"
-#include "io/fs/obj_storage_client.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"

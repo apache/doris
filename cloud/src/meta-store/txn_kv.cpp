@@ -33,12 +33,12 @@
 #include <variant>
 #include <vector>
 
+#include "client/s3_common.h"
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/defer.h"
 #include "common/lexical_util.h"
 #include "common/logging.h"
-#include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-store/keys.h"

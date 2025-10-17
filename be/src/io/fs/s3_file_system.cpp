@@ -32,6 +32,8 @@
 #include <future>
 #include <memory>
 
+#include "client/obj_storage_client.h"
+#include "client/s3_common.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -40,12 +42,11 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/remote_file_system.h"
-#include "io/fs/s3_common.h"
 #include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_writer.h"
-#include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "s3_file_system.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 
@@ -130,9 +131,11 @@ Result<int64_t> ObjClientHolder::object_file_size(const std::string& bucket,
         return ResultError(Status::InvalidArgument("init s3 client error"));
     }
 
-    auto resp = client->head_object({
-            .bucket = bucket,
-            .key = key,
+    auto resp = s3_get_rate_limit([&]() {
+        return client->head_object({
+                .bucket = bucket,
+                .key = key,
+        });
     });
 
     if (resp.resp.status.code != ErrorCode::OK) {
@@ -228,11 +231,13 @@ Status S3FileSystem::delete_directory_impl(const Path& dir) {
         prefix.push_back('/');
     }
 
-    auto resp = client->delete_objects_recursively({
-            .path = full_s3_path(prefix),
-            .bucket = _bucket,
-            .prefix = prefix,
-    });
+    auto resp = client->delete_objects_recursively(
+            {
+                    .full_path = full_s3_path(prefix),
+                    .bucket = _bucket,
+                    .key = prefix,
+            },
+            prefix);
     return {resp.status.code, std::move(resp.status.msg)};
 }
 
@@ -255,8 +260,11 @@ Status S3FileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
         if (objects.empty()) {
             return Status::OK();
         }
+        auto resp = s3_put_rate_limit([&]() {
+            return client->delete_objects({.bucket = _bucket, .key = _prefix}, std::move(objects));
+        });
         // clang-format off
-        if (auto resp = client->delete_objects( {.bucket = _bucket,}, std::move(objects)); resp.status.code != ErrorCode::OK) {
+        if ( resp.status.code != ErrorCode::OK) {
             return {resp.status.code, std::move(resp.status.msg)};
         }
         // clang-format on
@@ -272,7 +280,12 @@ Status S3FileSystem::exists_impl(const Path& path, bool* res) const {
 
     VLOG_DEBUG << "key:" << key << " path:" << path;
 
-    auto resp = client->head_object({.bucket = _bucket, .key = key});
+    auto resp = s3_get_rate_limit([&]() {
+        return client->head_object({
+                .bucket = _bucket,
+                .key = key,
+        });
+    });
 
     if (resp.resp.status.code == ErrorCode::OK) {
         *res = true;
@@ -304,16 +317,30 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
         prefix.push_back('/');
     }
 
-    // clang-format off
-    auto resp = client->list_objects( {.bucket = _bucket, .prefix = prefix,}, files);
-    // clang-format on
-    if (resp.status.code == ErrorCode::OK) {
-        for (auto&& file : *files) {
-            file.file_name.erase(0, prefix.size());
-        }
+    std::unique_ptr<ObjectListIterator> list_iter = client->list_objects({
+            .bucket = _bucket,
+            .key = prefix,
+    });
+
+    if (!list_iter) {
+        return Status::InvalidArgument("failed to list objects with prefix {}",
+                                       full_s3_path(prefix));
     }
 
-    return {resp.status.code, std::move(resp.status.msg)};
+    auto rate_limit_next_func = [&]() -> ObjectStorageListResponse {
+        return s3_get_rate_limit([&]() { return list_iter->next(); });
+    };
+
+    for (auto resp = rate_limit_next_func(); resp.results_.has_value();
+         resp = rate_limit_next_func()) {
+        auto obj = resp.results_.value();
+        obj.file_path.erase(0, prefix.size());
+        bool is_dir = obj.file_path.empty() || obj.file_path.back() == '/';
+        files->emplace_back(
+                FileInfo {.file_name = obj.file_path, .file_size = obj.size, .is_file = !is_dir});
+    }
+
+    return Status::OK();
 }
 
 Status S3FileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
@@ -419,8 +446,8 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
     std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
     size_t bytes_read = 0;
     // clang-format off
-    auto resp = client->get_object( {.bucket = _bucket, .key = key,},
-            buf.get(), 0, size, &bytes_read);
+    auto resp = s3_get_rate_limit( [&]() { return client->get_object( {.bucket = _bucket, .key = key,},
+            buf.get(), 0, size, &bytes_read); });
     // clang-format on
     if (resp.status.code != ErrorCode::OK) {
         return {resp.status.code, std::move(resp.status.msg)};
@@ -442,18 +469,18 @@ std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expir
                                                  bool is_public_endpoint) const {
     std::string key = fmt::format("{}/{}", _prefix, path.native());
     std::shared_ptr<ObjStorageClient> client;
+    S3ClientConf s3_conf = _client->s3_client_conf();
     if (is_public_endpoint &&
         _client->s3_client_conf().endpoint.ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
-        auto new_s3_conf = _client->s3_client_conf();
-        new_s3_conf.endpoint.erase(
+        s3_conf = _client->s3_client_conf();
+        s3_conf.endpoint.erase(
                 _client->s3_client_conf().endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
                 LEN_OF_OSS_PRIVATE_SUFFIX);
-        client = S3ClientFactory::instance().create(new_s3_conf);
+        client = S3ClientFactory::instance().create(s3_conf);
     } else {
         client = _client->get();
     }
-    return client->generate_presigned_url({.bucket = _bucket, .key = key}, expiration_secs,
-                                          _client->s3_client_conf());
+    return client->generate_presigned_url({.bucket = _bucket, .key = key}, expiration_secs);
 }
 
 } // namespace doris::io

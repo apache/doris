@@ -27,13 +27,6 @@
 
 namespace doris::cloud {
 
-// The time unit is the same with BE: us
-#define SCOPED_BVAR_LATENCY(bvar_item) \
-    StopWatch sw;                      \
-    DORIS_CLOUD_DEFER {                \
-        bvar_item << sw.elapsed_us();  \
-    };
-
 class TxnKv;
 
 /**

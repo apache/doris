@@ -46,6 +46,7 @@
 #include <vector>
 
 #include "agent/utils.h"
+#include "client/obj_storage_client.h"
 #include "cloud/cloud_delete_task.h"
 #include "cloud/cloud_engine_calc_delete_bitmap_task.h"
 #include "cloud/cloud_schema_change_job.h"
@@ -59,7 +60,6 @@
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/obj_storage_client.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"

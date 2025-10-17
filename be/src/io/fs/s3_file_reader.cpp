@@ -31,11 +31,11 @@
 #include <algorithm>
 #include <utility>
 
+#include "client/obj_storage_client.h"
+#include "client/s3_common.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "io/cache/block_file_cache.h"
 #include "io/fs/err_utils.h"
-#include "io/fs/obj_storage_client.h"
-#include "io/fs/s3_common.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "util/bvar_helper.h"
@@ -160,8 +160,8 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
         *bytes_read = 0;
         s3_file_reader_read_counter << 1;
         // clang-format off
-        auto resp = client->get_object( { .bucket = _bucket, .key = _key, },
-                to, offset, bytes_req, bytes_read);
+        auto resp = s3_get_rate_limit([&](){ return client->get_object( { .bucket = _bucket, .key = _key, },
+                to, offset, bytes_req, bytes_read); });
         // clang-format on
         _s3_stats.total_get_request_counter++;
         if (resp.status.code != ErrorCode::OK) {

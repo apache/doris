@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <client/obj_storage_client.h>
+
 #include <filesystem>
 #include <memory>
 #include <shared_mutex>
@@ -38,7 +40,6 @@ class PooledThreadExecutor;
 } // namespace Aws::Utils::Threading
 
 namespace doris::io {
-class ObjStorageClient;
 // In runtime, AK and SK may be modified, and the original `S3Client` instance will be replaced.
 // The `S3FileReader` cached by the `Segment` must hold a shared `ObjClientHolder` in order to
 // access S3 data with latest AK SK.
@@ -138,5 +139,38 @@ private:
     std::string _prefix;
     std::shared_ptr<ObjClientHolder> _client;
 };
+
+inline ::Aws::Client::AWSError<::Aws::S3::S3Errors> s3_error_factory() {
+    return {::Aws::S3::S3Errors::INTERNAL_FAILURE, "exceeds limit", "exceeds limit", false};
+}
+
+template <typename Func>
+auto s3_rate_limit(doris::S3RateLimitType op, Func callback) -> decltype(callback()) {
+    using T = decltype(callback());
+    if (!doris::config::enable_s3_rate_limiter) {
+        return callback();
+    }
+    auto sleep_duration = doris::S3ClientFactory::instance().rate_limiter(op)->add(1);
+    if (sleep_duration < 0) {
+        if constexpr (std::is_same_v<T, ObjectStorageUploadResponse> ||
+                      std::is_same_v<T, ObjectStorageHeadResponse> ||
+                      std::is_same_v<T, ObjectStorageListResponse>) {
+            return T {.resp = ObjectStorageRateLimitResponse()};
+        } else {
+            return ObjectStorageRateLimitResponse();
+        }
+    }
+    return callback();
+}
+
+template <typename Func>
+auto s3_get_rate_limit(Func callback) -> decltype(callback()) {
+    return s3_rate_limit(doris::S3RateLimitType::GET, std::move(callback));
+}
+
+template <typename Func>
+auto s3_put_rate_limit(Func callback) -> decltype(callback()) {
+    return s3_rate_limit(doris::S3RateLimitType::PUT, std::move(callback));
+}
 
 } // namespace doris::io

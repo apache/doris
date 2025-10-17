@@ -17,14 +17,15 @@
 
 #include <gtest/gtest.h>
 
-#include "io/fs/obj_storage_client.h"
+#include "client/obj_storage_client.h"
+#include "io/fs/file_system.h"
 #include "util/s3_util.h"
 
 namespace doris {
 
 class S3ObjStorageClientRoleTest : public testing::Test {
 protected:
-    static std::shared_ptr<io::ObjStorageClient> obj_storage_client;
+    static std::shared_ptr<ObjStorageClient> obj_storage_client;
     static std::string bucket;
     static std::string prefix;
 
@@ -55,7 +56,7 @@ protected:
                  .sk = "",
                  .token = "",
                  .bucket = bucket,
-                 .provider = io::ObjStorageType::AWS,
+                 .provider = ObjStorageType::AWS,
                  .use_virtual_addressing = false,
                  .cred_provider_type = CredProviderType::InstanceProfile,
                  .role_arn = role_arn,
@@ -71,7 +72,7 @@ protected:
     }
 };
 
-std::shared_ptr<io::ObjStorageClient> S3ObjStorageClientRoleTest::obj_storage_client = nullptr;
+std::shared_ptr<ObjStorageClient> S3ObjStorageClientRoleTest::obj_storage_client = nullptr;
 std::string S3ObjStorageClientRoleTest::bucket;
 std::string S3ObjStorageClientRoleTest::prefix;
 
@@ -85,10 +86,15 @@ TEST_F(S3ObjStorageClientRoleTest, put_list_delete_object) {
 
     std::vector<io::FileInfo> files;
     // clang-format off
-    response = S3ObjStorageClientRoleTest::obj_storage_client->list_objects({.bucket = bucket,
-            .prefix = prefix + "S3ObjStorageClientRoleTest/put_list_delete_object",}, &files);
+    auto iter = S3ObjStorageClientRoleTest::obj_storage_client->list_objects({.bucket = bucket,
+            .key = prefix + "S3ObjStorageClientRoleTest/put_list_delete_object"});
     // clang-format on
-    EXPECT_EQ(response.status.code, ErrorCode::OK);
+    for (auto obj = iter->next(); obj.results_.has_value(); obj = iter->next()) {
+        EXPECT_EQ(obj.resp.status.code, ErrorCode::OK);
+        files.push_back({.file_name = obj.results_->file_path,
+                         .file_size = obj.results_->size,
+                         .is_file = true});
+    }
     EXPECT_EQ(files.size(), 1);
     files.clear();
 
@@ -98,10 +104,15 @@ TEST_F(S3ObjStorageClientRoleTest, put_list_delete_object) {
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 
     // clang-format off
-    response = S3ObjStorageClientRoleTest::obj_storage_client->list_objects({.bucket = bucket,
-            .prefix = prefix + "S3ObjStorageClientRoleTest/put_list_delete_object",}, &files);
+    iter = S3ObjStorageClientRoleTest::obj_storage_client->list_objects({.bucket = bucket,
+            .key = prefix + "S3ObjStorageClientRoleTest/put_list_delete_object"});
     // clang-format on
-    EXPECT_EQ(response.status.code, ErrorCode::OK);
+    for (auto obj = iter->next(); obj.results_.has_value(); obj = iter->next()) {
+        EXPECT_EQ(obj.resp.status.code, ErrorCode::OK);
+        files.push_back({.file_name = obj.results_->file_path,
+                         .file_size = obj.results_->size,
+                         .is_file = true});
+    }
     EXPECT_EQ(files.size(), 0);
 }
 
@@ -120,23 +131,34 @@ TEST_F(S3ObjStorageClientRoleTest, delete_objects_recursively) {
 
     std::vector<io::FileInfo> files;
     // clang-format off
-    auto response = S3ObjStorageClientRoleTest::obj_storage_client->list_objects({.bucket = bucket,
-            .prefix = prefix + "S3ObjStorageClientRoleTest/delete_objects_recursively",}, &files);
+    auto iter = S3ObjStorageClientRoleTest::obj_storage_client->list_objects({.bucket = bucket,
+            .key = prefix + "S3ObjStorageClientRoleTest/delete_objects_recursively"});
     // clang-format on
-    EXPECT_EQ(response.status.code, ErrorCode::OK);
+    for (auto obj = iter->next(); obj.results_.has_value(); obj = iter->next()) {
+        EXPECT_EQ(obj.resp.status.code, ErrorCode::OK);
+        files.push_back({.file_name = obj.results_->file_path,
+                         .file_size = obj.results_->size,
+                         .is_file = true});
+    }
     EXPECT_EQ(files.size(), 22);
     files.clear();
 
-    response = S3ObjStorageClientRoleTest::obj_storage_client->delete_objects_recursively(
+    auto response = S3ObjStorageClientRoleTest::obj_storage_client->delete_objects_recursively(
             {.bucket = bucket,
-             .prefix = prefix + "S3ObjStorageClientRoleTest/delete_objects_recursively"});
+             .key = prefix + "S3ObjStorageClientRoleTest/delete_objects_recursively"},
+            prefix + "S3ObjStorageClientRoleTest/delete_objects_recursively");
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 
     // clang-format off
-    response = S3ObjStorageClientRoleTest::obj_storage_client->list_objects({.bucket = bucket,
-            .prefix = prefix + "S3ObjStorageClientRoleTest/delete_objects_recursively",}, &files);
+        iter = S3ObjStorageClientRoleTest::obj_storage_client->list_objects({.bucket = bucket,
+            .key = prefix + "S3ObjStorageClientRoleTest/delete_objects_recursively"});
     // clang-format on
-    EXPECT_EQ(response.status.code, ErrorCode::OK);
+    for (auto obj = iter->next(); obj.results_.has_value(); obj = iter->next()) {
+        EXPECT_EQ(obj.resp.status.code, ErrorCode::OK);
+        files.push_back({.file_name = obj.results_->file_path,
+                         .file_size = obj.results_->size,
+                         .is_file = true});
+    }
     EXPECT_EQ(files.size(), 0);
 }
 
@@ -151,7 +173,7 @@ TEST_F(S3ObjStorageClientRoleTest, multipart_upload) {
     std::string body = "S3ObjStorageClientRoleTest::multipart_upload";
     body.resize(5 * 1024 * 1024);
 
-    std::vector<doris::io::ObjectCompleteMultiPart> completed_parts;
+    std::vector<ObjectCompleteMultiPart> completed_parts;
 
     response = S3ObjStorageClientRoleTest::obj_storage_client->upload_part(
             {.bucket = bucket,
@@ -160,8 +182,9 @@ TEST_F(S3ObjStorageClientRoleTest, multipart_upload) {
             body, 1);
 
     EXPECT_EQ(response.resp.status.code, ErrorCode::OK);
-    doris::io::ObjectCompleteMultiPart completed_part {
-            1, response.etag.has_value() ? std::move(response.etag.value()) : ""};
+    ObjectCompleteMultiPart completed_part {
+            .part_num = 1,
+            .etag = response.etag.has_value() ? std::move(response.etag.value()) : ""};
 
     completed_parts.emplace_back(std::move(completed_part));
 
@@ -172,8 +195,9 @@ TEST_F(S3ObjStorageClientRoleTest, multipart_upload) {
             body, 2);
 
     EXPECT_EQ(response.resp.status.code, ErrorCode::OK);
-    doris::io::ObjectCompleteMultiPart completed_part2 {
-            2, response.etag.has_value() ? std::move(response.etag.value()) : ""};
+    ObjectCompleteMultiPart completed_part2 {
+            .part_num = 2,
+            .etag = response.etag.has_value() ? std::move(response.etag.value()) : ""};
     completed_parts.emplace_back(std::move(completed_part2));
 
     auto response2 = S3ObjStorageClientRoleTest::obj_storage_client->complete_multipart_upload(
