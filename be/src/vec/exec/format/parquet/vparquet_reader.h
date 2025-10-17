@@ -130,13 +130,9 @@ public:
     Status close() override;
 
     // set the delete rows in current parquet file
-    void set_delete_rows(const std::vector<int64_t>* delete_rows) {
-        _delete_rows = delete_rows;
-    }
+    void set_delete_rows(const std::vector<int64_t>* delete_rows) { _delete_rows = delete_rows; }
 
-    int64_t size() const {
-        return _file_reader->size();
-    }
+    int64_t size() const { return _file_reader->size(); }
 
     Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
@@ -146,13 +142,9 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<DataTypePtr>* col_types) override;
 
-    Statistics& statistics() {
-        return _statistics;
-    }
+    Statistics& statistics() { return _statistics; }
 
-    const tparquet::FileMetaData* get_meta_data() const {
-        return _t_metadata;
-    }
+    const tparquet::FileMetaData* get_meta_data() const { return _t_metadata; }
 
     // Partition columns will not be materialized in parquet files. So we should fill it with missing columns.
     Status set_fill_columns(
@@ -167,9 +159,7 @@ public:
         _row_id_column_iterator_pair = iterator_pair;
     }
 
-    bool count_read_rows() override {
-        return true;
-    }
+    bool count_read_rows() override { return true; }
 
 protected:
     void _collect_profile_before_close() override;
@@ -236,16 +226,12 @@ private:
     void _init_bloom_filter();
     Status _process_bloom_filter(bool* filter_group);
     int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
-    std::string _meta_cache_key(const std::string& path) {
-        return "meta_" + path;
-    }
+    std::string _meta_cache_key(const std::string& path) { return "meta_" + path; }
     std::vector<io::PrefetchRange> _generate_random_access_ranges(
             const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);
     void _collect_profile();
 
-    Status _set_read_one_line_impl() override {
-        return Status::OK();
-    }
+    Status _set_read_one_line_impl() override { return Status::OK(); }
 
     bool _exists_in_file(const VSlotRef* slot) const override;
     bool _type_matches(const VSlotRef*) const override;

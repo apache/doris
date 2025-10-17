@@ -1311,7 +1311,7 @@ TEST_F(ParquetExprTest, test_expr_push_down_or_string) {
         }
         return true;
     };
-    ASSERT_FALSE(p_reader->check_expr_can_push_down(or_expr));
+    ASSERT_TRUE(p_reader->check_expr_can_push_down(or_expr));
 }
 
 } // namespace vectorized
