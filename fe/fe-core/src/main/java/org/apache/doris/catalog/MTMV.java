@@ -224,6 +224,7 @@ public class MTMV extends OlapTable {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
             }
             this.jobInfo.addHistoryTask(task);
+            compatiblePctSnapshot(partitionSnapshots);
             this.refreshSnapshot.updateSnapshots(partitionSnapshots, getPartitionNames());
             Env.getCurrentEnv().getMtmvService()
                     .refreshComplete(this, relation, task);
@@ -518,11 +519,15 @@ public class MTMV extends OlapTable {
     @Override
     public void gsonPostProcess() throws IOException {
         super.gsonPostProcess();
+        Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = refreshSnapshot.getPartitionSnapshots();
+        compatiblePctSnapshot(partitionSnapshots);
+    }
+
+    private void compatiblePctSnapshot(Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots) {
         BaseTableInfo relatedTableInfo = mvPartitionInfo.getRelatedTableInfo();
         if (relatedTableInfo == null) {
             return;
         }
-        Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = refreshSnapshot.getPartitionSnapshots();
         for (MTMVRefreshPartitionSnapshot partitionSnapshot : partitionSnapshots.values()) {
             Map<String, MTMVSnapshotIf> partitions = partitionSnapshot.getPartitions();
             Map<BaseTableInfo, Map<String, MTMVSnapshotIf>> pcts = partitionSnapshot.getPcts();
