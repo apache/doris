@@ -249,6 +249,31 @@ public:
                         << "Mismatch at seek position " << seek_pos << " + " << i;
             }
         }
+
+        // Test read_by_rowids functionality
+        if (slices.size() >= 4) {
+            // Select specific rowids to read
+            std::vector<rowid_t> rowids;
+            rowids.push_back(0);                                       // First
+            rowids.push_back(2);                                       // Middle
+            rowids.push_back(slices.size() / 2);                       // Half
+            rowids.push_back(static_cast<rowid_t>(slices.size() - 1)); // Last
+
+            ordinal_t page_first_ordinal = 0;
+            column = vectorized::ColumnString::create();
+            size_t num_to_read = rowids.size();
+            status = page_decoder.read_by_rowids(rowids.data(), page_first_ordinal, &num_to_read,
+                                                 column);
+            EXPECT_TRUE(status.ok());
+            EXPECT_EQ(rowids.size(), num_to_read);
+
+            // Verify values at specific rowids
+            string_column = assert_cast<vectorized::ColumnString*>(column.get());
+            for (size_t i = 0; i < rowids.size(); ++i) {
+                EXPECT_EQ(slices[rowids[i]].to_string(), string_column->get_data_at(i).to_string())
+                        << "Mismatch at rowid " << rowids[i] << " (index " << i << ")";
+            }
+        }
     }
 
     void test_with_large_data_size(const std::vector<Slice>& contents) {
@@ -399,6 +424,116 @@ public:
 
         // Verify we consumed all entries
         EXPECT_EQ(count, current_entry) << "Should have consumed all entries";
+
+        // Test seek_to_position_in_page on all pages
+        for (size_t page_idx = 0; page_idx < results.size(); ++page_idx) {
+            size_t page_entry_count = page_start_ids[page_idx + 1] - page_start_ids[page_idx];
+            if (page_entry_count <= 2) {
+                continue; // Skip pages with too few entries
+            }
+
+            PageDecoderOptions decoder_options;
+            Slice page_slice = results[page_idx].slice();
+
+            // Decode bitshuffle
+            std::unique_ptr<DataPage> decoded_page;
+            status = decode_bitshuffle_page(page_slice, decoded_page);
+            EXPECT_TRUE(status.ok())
+                    << "Failed to decode bitshuffle for page " << page_idx << " in seek test";
+
+            // Create decoder
+            BinaryDictPageDecoder page_decoder(page_slice, decoder_options);
+            status = page_decoder.init();
+            EXPECT_TRUE(status.ok())
+                    << "Failed to init decoder for page " << page_idx << " in seek test";
+
+            // Set dict decoder if needed
+            if (page_decoder.is_dict_encoding()) {
+                page_decoder.set_dict_decoder(dict_page_decoder->count(), dict_word_info.data());
+            }
+
+            // Seek to middle of page
+            size_t seek_pos = page_entry_count / 2;
+            status = page_decoder.seek_to_position_in_page(seek_pos);
+            EXPECT_TRUE(status.ok()) << "Failed to seek in page " << page_idx;
+
+            // Read from seek position
+            vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
+            size_t num_to_read = page_entry_count - seek_pos;
+            status = page_decoder.next_batch(&num_to_read, column);
+            EXPECT_TRUE(status.ok()) << "Failed to read after seek in page " << page_idx;
+            EXPECT_EQ(page_entry_count - seek_pos, num_to_read);
+
+            // Verify values
+            auto* string_column = assert_cast<vectorized::ColumnString*>(column.get());
+            for (size_t i = 0; i < num_to_read; ++i) {
+                std::string expect = contents[page_start_ids[page_idx] + seek_pos + i].to_string();
+                std::string actual = string_column->get_data_at(i).to_string();
+                EXPECT_EQ(expect, actual)
+                        << "Seek test mismatch at page " << page_idx << ", position "
+                        << (seek_pos + i)
+                        << ", is_dict_encoding: " << page_decoder.is_dict_encoding();
+            }
+        }
+
+        // Test read_by_rowids on all pages
+        for (size_t page_idx = 0; page_idx < results.size(); ++page_idx) {
+            size_t page_entry_count = page_start_ids[page_idx + 1] - page_start_ids[page_idx];
+            if (page_entry_count < 4) {
+                continue; // Skip pages with too few entries
+            }
+
+            PageDecoderOptions decoder_options;
+            Slice page_slice = results[page_idx].slice();
+
+            // Decode bitshuffle
+            std::unique_ptr<DataPage> decoded_page;
+            status = decode_bitshuffle_page(page_slice, decoded_page);
+            EXPECT_TRUE(status.ok()) << "Failed to decode bitshuffle for page " << page_idx
+                                     << " in read_by_rowids test";
+
+            // Create decoder
+            BinaryDictPageDecoder page_decoder(page_slice, decoder_options);
+            status = page_decoder.init();
+            EXPECT_TRUE(status.ok())
+                    << "Failed to init decoder for page " << page_idx << " in read_by_rowids test";
+
+            // Set dict decoder if needed
+            if (page_decoder.is_dict_encoding()) {
+                page_decoder.set_dict_decoder(dict_page_decoder->count(), dict_word_info.data());
+            }
+
+            // Select specific rowids within the page
+            // rowids should be global rowids (relative to the entire dataset), not page-relative offsets
+            ordinal_t page_first_ordinal = page_start_ids[page_idx];
+            std::vector<rowid_t> rowids;
+            rowids.push_back(page_first_ordinal + 0);                    // First in page
+            rowids.push_back(page_first_ordinal + 2);                    // Middle
+            rowids.push_back(page_first_ordinal + page_entry_count / 2); // Half
+            rowids.push_back(page_first_ordinal + page_entry_count - 1); // Last in page
+
+            vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
+            size_t num_to_read = rowids.size();
+            status = page_decoder.read_by_rowids(rowids.data(), page_first_ordinal, &num_to_read,
+                                                 column);
+            EXPECT_TRUE(status.ok()) << "Failed to read_by_rowids in page " << page_idx;
+            EXPECT_EQ(rowids.size(), num_to_read)
+                    << "Mismatched read count in page " << page_idx
+                    << ", page_start_id:" << page_first_ordinal
+                    << ", page_entry_count:" << page_entry_count
+                    << ", is_dict_encoding: " << page_decoder.is_dict_encoding();
+
+            // Verify values
+            auto* string_column = assert_cast<vectorized::ColumnString*>(column.get());
+            for (size_t i = 0; i < rowids.size(); ++i) {
+                // rowids are global, so we use them directly to index into contents
+                std::string expect = contents[rowids[i]].to_string();
+                std::string actual = string_column->get_data_at(i).to_string();
+                EXPECT_EQ(expect, actual)
+                        << "read_by_rowids test mismatch at page " << page_idx << ", global rowid "
+                        << rowids[i] << ", is_dict_encoding: " << page_decoder.is_dict_encoding();
+            }
+        }
     }
 
 private:
