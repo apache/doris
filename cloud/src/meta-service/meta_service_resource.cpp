@@ -25,9 +25,11 @@
 #include <charconv>
 #include <chrono>
 #include <numeric>
+#include <queue>
 #include <regex>
 #include <string>
 #include <tuple>
+#include <unordered_set>
 
 #include "common/bvars.h"
 #include "common/config.h"
@@ -213,6 +215,235 @@ static void async_notify_refresh_instance(
         LOG(WARNING) << "notify refresh instance inplace, instance_id=" << instance_id;
         run_bthread_work(f);
     }
+}
+
+// Find all instances that need cascade update using BFS traversal
+// Returns 0 on success, -1 on error
+// Uses separate read-only transactions to avoid read conflicts with the main write transaction
+static int collect_direct_derived_instances(TxnKv* txn_kv, const std::string& source_instance_id,
+                                            std::vector<std::string>* derived_ids) {
+    if (!derived_ids) {
+        return -1;
+    }
+    derived_ids->clear();
+
+    if (source_instance_id.empty()) {
+        return 0;
+    }
+
+    constexpr Versionstamp kMinVersionstamp = Versionstamp::min();
+    constexpr Versionstamp kMaxVersionstamp = Versionstamp::max();
+
+    std::string key_start =
+            versioned::snapshot_reference_key_prefix(source_instance_id, kMinVersionstamp);
+    std::string key_end =
+            versioned::snapshot_reference_key_prefix(source_instance_id, kMaxVersionstamp);
+    key_end.push_back('\xff');
+    std::string current_start = key_start;
+
+    std::unique_ptr<RangeGetIterator> it;
+    while (true) {
+        std::unique_ptr<Transaction> read_txn;
+        TxnErrorCode err = txn_kv->create_txn(&read_txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create read transaction for snapshot reference scan, err="
+                         << err << " source_instance_id=" << source_instance_id;
+            return -1;
+        }
+
+        err = read_txn->get(current_start, key_end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to scan snapshot reference keys, err=" << err
+                         << " source_instance_id=" << source_instance_id;
+            return -1;
+        }
+
+        while (it->has_next()) {
+            auto [key, value] = it->next();
+            std::string derived_id;
+            std::string_view key_view = key;
+            if (versioned::decode_snapshot_ref_key(&key_view, nullptr, nullptr, &derived_id) &&
+                !derived_id.empty()) {
+                derived_ids->push_back(std::move(derived_id));
+            } else {
+                LOG(WARNING) << "failed to decode snapshot reference key for source_instance_id="
+                             << source_instance_id << " key=" << hex(key);
+            }
+        }
+
+        if (!it->more()) {
+            break;
+        }
+
+        current_start = it->next_begin_key();
+        if (current_start.empty() || current_start >= key_end) {
+            break;
+        }
+    }
+
+    return 0;
+}
+
+static int find_cascade_instances(TxnKv* txn_kv, const std::string& root_instance_id,
+                                  std::vector<std::string>* out) {
+    std::queue<std::string> to_visit;
+    std::unordered_set<std::string> visited;
+    std::vector<std::string> direct_children;
+
+    to_visit.push(root_instance_id);
+    visited.insert(root_instance_id);
+
+    while (!to_visit.empty()) {
+        std::string current_instance_id = to_visit.front();
+        to_visit.pop();
+
+        if (collect_direct_derived_instances(txn_kv, current_instance_id, &direct_children) != 0) {
+            LOG(WARNING) << "failed to collect derived instances for source_instance_id="
+                         << current_instance_id;
+            return -1;
+        }
+
+        for (auto& derived_id : direct_children) {
+            if (derived_id.empty() || visited.contains(derived_id)) {
+                continue;
+            }
+
+            out->push_back(derived_id);
+            to_visit.push(derived_id);
+            visited.insert(derived_id);
+            LOG(INFO) << "found derived instance: " << derived_id
+                      << " from source: " << current_instance_id;
+        }
+    }
+
+    LOG(INFO) << "find_cascade_instances completed, found " << out->size()
+              << " instances to cascade from root: " << root_instance_id;
+    return 0;
+}
+
+// Helper function to update AK/SK for a single instance
+// Returns 0 on success, -1 on error
+static int update_instance_ak_sk(InstanceInfoPB& instance, const UpdateAkSkRequest* request,
+                                 uint64_t time, MetaServiceCode& code, std::string& msg,
+                                 std::stringstream& update_record) {
+    // Update ram_user if has ram_user
+    if (request->has_ram_user()) {
+        if (request->ram_user().user_id().empty() || request->ram_user().ak().empty() ||
+            request->ram_user().sk().empty()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "ram user info err " + proto_to_json(*request);
+            return -1;
+        }
+        if (!instance.has_ram_user()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "instance doesn't have ram user info";
+            return -1;
+        }
+        auto& ram_user = request->ram_user();
+        EncryptionInfoPB encryption_info;
+        AkSkPair cipher_ak_sk_pair;
+        if (encrypt_ak_sk_helper(ram_user.ak(), ram_user.sk(), &encryption_info, &cipher_ak_sk_pair,
+                                 code, msg) != 0) {
+            return -1;
+        }
+        const auto& [ak, sk] = cipher_ak_sk_pair;
+        auto& instance_ram_user = *instance.mutable_ram_user();
+        if (ram_user.user_id() != instance_ram_user.user_id()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "ram user_id err";
+            return -1;
+        }
+        std::string old_ak = instance_ram_user.ak();
+        std::string old_sk = instance_ram_user.sk();
+        if (old_ak == ak && old_sk == sk) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "ak sk eq original, please check it";
+            return -1;
+        }
+        instance_ram_user.set_ak(std::move(cipher_ak_sk_pair.first));
+        instance_ram_user.set_sk(std::move(cipher_ak_sk_pair.second));
+        instance_ram_user.mutable_encryption_info()->CopyFrom(encryption_info);
+        update_record << "update ram_user's ak sk, instance_id: " << instance.instance_id()
+                      << " user_id: " << ram_user.user_id() << " old:  cipher ak: " << old_ak
+                      << " cipher sk: " << old_sk << " new: cipher ak: " << ak
+                      << " cipher sk: " << sk << "; ";
+    }
+
+    // Update internal_bucket_user
+    bool has_found_alter_obj_info = false;
+    for (auto& alter_bucket_user : request->internal_bucket_user()) {
+        if (!alter_bucket_user.has_ak() || !alter_bucket_user.has_sk() ||
+            !alter_bucket_user.has_user_id()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "s3 bucket info err " + proto_to_json(*request);
+            return -1;
+        }
+        std::string user_id = alter_bucket_user.user_id();
+        EncryptionInfoPB encryption_info;
+        AkSkPair cipher_ak_sk_pair;
+        if (encrypt_ak_sk_helper(alter_bucket_user.ak(), alter_bucket_user.sk(), &encryption_info,
+                                 &cipher_ak_sk_pair, code, msg) != 0) {
+            return -1;
+        }
+        const auto& [ak, sk] = cipher_ak_sk_pair;
+        auto& obj_info =
+                const_cast<std::decay_t<decltype(instance.obj_info())>&>(instance.obj_info());
+        for (auto& it : obj_info) {
+            std::string old_ak = it.ak();
+            std::string old_sk = it.sk();
+            if (!it.has_user_id()) {
+                has_found_alter_obj_info = true;
+                // For compatibility, obj_info without a user_id only allow
+                // single internal_bucket_user to modify it.
+                if (request->internal_bucket_user_size() != 1) {
+                    code = MetaServiceCode::INVALID_ARGUMENT;
+                    msg = "fail to update old instance's obj_info, s3 obj info err " +
+                          proto_to_json(*request);
+                    return -1;
+                }
+                if (it.ak() == ak && it.sk() == sk) {
+                    code = MetaServiceCode::INVALID_ARGUMENT;
+                    msg = "ak sk eq original, please check it";
+                    return -1;
+                }
+                it.set_mtime(time);
+                it.set_user_id(user_id);
+                it.set_ak(ak);
+                it.set_sk(sk);
+                it.mutable_encryption_info()->CopyFrom(encryption_info);
+                update_record << "update obj_info's ak sk without user_id, instance_id: "
+                              << instance.instance_id() << " obj_info_id: " << it.id()
+                              << " new user_id: " << user_id << " old:  cipher ak: " << old_ak
+                              << " cipher sk: " << old_sk << " new:  cipher ak: " << ak
+                              << " cipher sk: " << sk << "; ";
+                continue;
+            }
+            if (it.user_id() == user_id) {
+                has_found_alter_obj_info = true;
+                if (it.ak() == ak && it.sk() == sk) {
+                    code = MetaServiceCode::INVALID_ARGUMENT;
+                    msg = "ak sk eq original, please check it";
+                    return -1;
+                }
+                it.set_mtime(time);
+                it.set_ak(ak);
+                it.set_sk(sk);
+                it.mutable_encryption_info()->CopyFrom(encryption_info);
+                update_record << "update obj_info's ak sk, instance_id: " << instance.instance_id()
+                              << " obj_info_id: " << it.id() << " user_id: " << user_id
+                              << " old:  cipher ak: " << old_ak << " cipher sk: " << old_sk
+                              << " new:  cipher ak: " << ak << " cipher sk: " << sk << "; ";
+            }
+        }
+    }
+
+    if (!request->internal_bucket_user().empty() && !has_found_alter_obj_info) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "fail to find the alter obj info";
+        return -1;
+    }
+
+    return 0;
 }
 
 void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* controller,
@@ -1551,119 +1782,8 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
 
     std::stringstream update_record;
 
-    // if has ram_user, encrypt and save it
-    if (request->has_ram_user()) {
-        if (request->ram_user().user_id().empty() || request->ram_user().ak().empty() ||
-            request->ram_user().sk().empty()) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "ram user info err " + proto_to_json(*request);
-            return;
-        }
-        if (!instance.has_ram_user()) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "instance doesn't have ram user info";
-            return;
-        }
-        auto& ram_user = request->ram_user();
-        EncryptionInfoPB encryption_info;
-        AkSkPair cipher_ak_sk_pair;
-        if (encrypt_ak_sk_helper(ram_user.ak(), ram_user.sk(), &encryption_info, &cipher_ak_sk_pair,
-                                 code, msg) != 0) {
-            return;
-        }
-        const auto& [ak, sk] = cipher_ak_sk_pair;
-        auto& instance_ram_user = *instance.mutable_ram_user();
-        if (ram_user.user_id() != instance_ram_user.user_id()) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "ram user_id err";
-            return;
-        }
-        std::string old_ak = instance_ram_user.ak();
-        std::string old_sk = instance_ram_user.sk();
-        if (old_ak == ak && old_sk == sk) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "ak sk eq original, please check it";
-            return;
-        }
-        instance_ram_user.set_ak(std::move(cipher_ak_sk_pair.first));
-        instance_ram_user.set_sk(std::move(cipher_ak_sk_pair.second));
-        instance_ram_user.mutable_encryption_info()->CopyFrom(encryption_info);
-        update_record << "update ram_user's ak sk, instance_id: " << instance_id
-                      << " user_id: " << ram_user.user_id() << " old:  cipher ak: " << old_ak
-                      << " cipher sk: " << old_sk << " new: cipher ak: " << ak
-                      << " cipher sk: " << sk;
-    }
-
-    bool has_found_alter_obj_info = false;
-    for (auto& alter_bucket_user : request->internal_bucket_user()) {
-        if (!alter_bucket_user.has_ak() || !alter_bucket_user.has_sk() ||
-            !alter_bucket_user.has_user_id()) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 bucket info err " + proto_to_json(*request);
-            return;
-        }
-        std::string user_id = alter_bucket_user.user_id();
-        EncryptionInfoPB encryption_info;
-        AkSkPair cipher_ak_sk_pair;
-        if (encrypt_ak_sk_helper(alter_bucket_user.ak(), alter_bucket_user.sk(), &encryption_info,
-                                 &cipher_ak_sk_pair, code, msg) != 0) {
-            return;
-        }
-        const auto& [ak, sk] = cipher_ak_sk_pair;
-        auto& obj_info =
-                const_cast<std::decay_t<decltype(instance.obj_info())>&>(instance.obj_info());
-        for (auto& it : obj_info) {
-            std::string old_ak = it.ak();
-            std::string old_sk = it.sk();
-            if (!it.has_user_id()) {
-                has_found_alter_obj_info = true;
-                // For compatibility, obj_info without a user_id only allow
-                // single internal_bucket_user to modify it.
-                if (request->internal_bucket_user_size() != 1) {
-                    code = MetaServiceCode::INVALID_ARGUMENT;
-                    msg = "fail to update old instance's obj_info, s3 obj info err " +
-                          proto_to_json(*request);
-                    return;
-                }
-                if (it.ak() == ak && it.sk() == sk) {
-                    code = MetaServiceCode::INVALID_ARGUMENT;
-                    msg = "ak sk eq original, please check it";
-                    return;
-                }
-                it.set_mtime(time);
-                it.set_user_id(user_id);
-                it.set_ak(ak);
-                it.set_sk(sk);
-                it.mutable_encryption_info()->CopyFrom(encryption_info);
-                update_record << "update obj_info's ak sk without user_id, instance_id: "
-                              << instance_id << " obj_info_id: " << it.id()
-                              << " new user_id: " << user_id << " old:  cipher ak: " << old_ak
-                              << " cipher sk: " << old_sk << " new:  cipher ak: " << ak
-                              << " cipher sk: " << sk;
-                continue;
-            }
-            if (it.user_id() == user_id) {
-                has_found_alter_obj_info = true;
-                if (it.ak() == ak && it.sk() == sk) {
-                    code = MetaServiceCode::INVALID_ARGUMENT;
-                    msg = "ak sk eq original, please check it";
-                    return;
-                }
-                it.set_mtime(time);
-                it.set_ak(ak);
-                it.set_sk(sk);
-                it.mutable_encryption_info()->CopyFrom(encryption_info);
-                update_record << "update obj_info's ak sk, instance_id: " << instance_id
-                              << " obj_info_id: " << it.id() << " user_id: " << user_id
-                              << " old:  cipher ak: " << old_ak << " cipher sk: " << old_sk
-                              << " new:  cipher ak: " << ak << " cipher sk: " << sk;
-            }
-        }
-    }
-
-    if (!request->internal_bucket_user().empty() && !has_found_alter_obj_info) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "fail to find the alter obj info";
+    // Update instance using helper function
+    if (update_instance_ak_sk(instance, request, time, code, msg, update_record) != 0) {
         return;
     }
 
@@ -1680,13 +1800,88 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
 
     txn->put(key, val);
     LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key);
+
+    // Commit root instance first to avoid transaction timeout
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
-        msg = fmt::format("failed to commit kv txn, err={}", err);
+        msg = fmt::format("failed to commit root instance kv txn, err={}", err);
         LOG(WARNING) << msg;
+        return;
     }
+
     LOG(INFO) << update_record.str();
+    async_notify_refresh_instance(txn_kv_, instance_id, true);
+
+    // Cascade update to derived instances using separate transactions
+    // update_ak_sk is idempotent, so it's safe to use independent transactions
+    std::vector<std::string> cascade_instance_ids;
+    if (find_cascade_instances(txn_kv_.get(), instance_id, &cascade_instance_ids) != 0) {
+        LOG(WARNING) << "failed to find derived instances for cascade update, instance_id="
+                     << instance_id << ", root instance already updated successfully";
+        return;
+    }
+
+    LOG(INFO) << "Found " << cascade_instance_ids.size() << " derived instances to cascade update";
+
+    for (const auto& cascade_id : cascade_instance_ids) {
+        // Use a separate transaction for each derived instance
+        std::unique_ptr<Transaction> cascade_txn;
+        TxnErrorCode cascade_err = txn_kv_->create_txn(&cascade_txn);
+        if (cascade_err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn for derived instance, instance_id=" << cascade_id
+                         << " err=" << cascade_err;
+            continue;
+        }
+
+        InstanceKeyInfo cascade_key_info {cascade_id};
+        std::string cascade_key;
+        std::string cascade_val;
+        instance_key(cascade_key_info, &cascade_key);
+
+        cascade_err = cascade_txn->get(cascade_key, &cascade_val);
+        if (cascade_err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get derived instance, instance_id=" << cascade_id
+                         << " err=" << cascade_err;
+            continue;
+        }
+
+        InstanceInfoPB cascade_instance;
+        if (!cascade_instance.ParseFromString(cascade_val)) {
+            LOG(WARNING) << "failed to parse InstanceInfoPB for derived instance_id=" << cascade_id;
+            continue;
+        }
+
+        // Update the cascade instance using helper function
+        std::stringstream cascade_update_record;
+        MetaServiceCode cascade_code = MetaServiceCode::OK;
+        std::string cascade_msg;
+        if (update_instance_ak_sk(cascade_instance, request, time, cascade_code, cascade_msg,
+                                  cascade_update_record) != 0) {
+            LOG(WARNING) << "failed to update derived instance, instance_id=" << cascade_id
+                         << " msg=" << cascade_msg;
+            continue;
+        }
+
+        cascade_val = cascade_instance.SerializeAsString();
+        if (cascade_val.empty()) {
+            LOG(WARNING) << "failed to serialize derived instance, instance_id=" << cascade_id;
+            continue;
+        }
+
+        cascade_txn->put(cascade_key, cascade_val);
+
+        cascade_err = cascade_txn->commit();
+        if (cascade_err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to commit derived instance txn, instance_id=" << cascade_id
+                         << " err=" << cascade_err;
+            continue;
+        }
+
+        async_notify_refresh_instance(txn_kv_, cascade_id, true);
+        LOG(INFO) << "cascade update for instance_id=" << cascade_id << " "
+                  << cascade_update_record.str();
+    }
 }
 
 void MetaServiceImpl::create_instance(google::protobuf::RpcController* controller,
