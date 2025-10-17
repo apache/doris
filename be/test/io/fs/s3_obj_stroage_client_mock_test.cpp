@@ -21,8 +21,9 @@
 #include <aws/s3/model/ListObjectsV2Result.h>
 #include <aws/s3/model/Object.h>
 
+#include "client/s3_obj_storage_client.h"
 #include "gmock/gmock.h"
-#include "io/fs/s3_obj_storage_client.h"
+#include "io/fs/file_system.h"
 #include "util/s3_util.h"
 #include "util/string_util.h"
 
@@ -51,7 +52,7 @@ TEST_F(S3ObjStorageClientMockTest, list_objects_compatibility) {
     // If storage only supports ListObjectsV1, s3_obj_storage_client.list_objects
     // should return an error.
     auto mock_s3_client = std::make_shared<MockS3Client>();
-    S3ObjStorageClient s3_obj_storage_client(mock_s3_client);
+    S3ObjStorageClient s3_obj_storage_client(mock_s3_client, {});
 
     std::vector<io::FileInfo> files;
 
@@ -60,11 +61,12 @@ TEST_F(S3ObjStorageClientMockTest, list_objects_compatibility) {
     EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
             .WillOnce(testing::Return(ListObjectsV2Outcome(result)));
 
-    auto response = s3_obj_storage_client.list_objects(
-            {.bucket = "dummy-bucket", .prefix = "S3ObjStorageClientMockTest/list_objects_test"},
-            &files);
+    auto iter = s3_obj_storage_client.list_objects(
+            {.bucket = "dummy-bucket", .key = "S3ObjStorageClientMockTest/list_objects_test"});
 
-    EXPECT_EQ(response.status.code, ErrorCode::INTERNAL_ERROR);
+    for (auto obj = iter->next(); obj.results_.has_value(); obj = iter->next()) {
+        EXPECT_EQ(obj.resp.status.code, ErrorCode::INTERNAL_ERROR);
+    }
     files.clear();
 }
 
@@ -83,13 +85,20 @@ ListObjectsV2Result CreatePageResult(const std::string& nextToken,
 
 TEST_F(S3ObjStorageClientMockTest, list_objects_with_pagination) {
     auto mock_s3_client = std::make_shared<MockS3Client>();
-    S3ObjStorageClient s3_obj_storage_client(mock_s3_client);
+    S3ObjStorageClient s3_obj_storage_client(mock_s3_client, {});
+    std::string prefix = "S3ObjStorageClientMockTest/list_objects_with_pagination/";
 
     std::vector<std::vector<std::string>> pages = {
             {"key1", "key2"}, // page1
             {"key3", "key4"}, // page2
             {"key5"}          // page3
     };
+
+    for (auto& page : pages) {
+        for (auto& key : page) {
+            key = prefix + key;
+        }
+    }
 
     EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
             .WillOnce([&](const ListObjectsV2Request& req) {
@@ -110,12 +119,17 @@ TEST_F(S3ObjStorageClientMockTest, list_objects_with_pagination) {
             });
 
     std::vector<io::FileInfo> files;
-    auto response = s3_obj_storage_client.list_objects(
+    auto iter = s3_obj_storage_client.list_objects(
             {.bucket = "dummy-bucket",
-             .prefix = "S3ObjStorageClientMockTest/list_objects_with_pagination"},
-            &files);
+             .key = "S3ObjStorageClientMockTest/list_objects_with_pagination"});
 
-    EXPECT_EQ(response.status.code, ErrorCode::OK);
+    for (auto obj = iter->next(); obj.results_.has_value(); obj = iter->next()) {
+        EXPECT_EQ(obj.resp.status.code, ErrorCode::OK);
+        files.push_back({.file_name = obj.results_->file_path,
+                         .file_size = obj.results_->size,
+                         .is_file = true});
+    }
+
     EXPECT_EQ(files.size(), 5);
     files.clear();
 }

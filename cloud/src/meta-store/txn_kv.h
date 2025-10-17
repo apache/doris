@@ -31,6 +31,7 @@
 #include <utility>
 #include <vector>
 
+#include "cpp/stopwatch.h"
 #include "txn_kv_error.h"
 #include "versionstamp.h"
 
