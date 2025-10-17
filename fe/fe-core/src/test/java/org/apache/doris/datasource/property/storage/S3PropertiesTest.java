@@ -270,6 +270,18 @@ public class S3PropertiesTest {
         provider = s3Props.getAwsCredentialsProvider();
         Assertions.assertNotNull(provider);
         Assertions.assertTrue(provider instanceof StaticCredentialsProvider);
+        
+        // Test AWS_TOKEN alias (for AWS Glue/Lambda compatibility)
+        origProps.remove("s3.session_token");
+        origProps.put("AWS_TOKEN", "mySessionToken");
+        s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("mySessionToken", s3Props.getSessionToken());
+        Map<String, String> backendConfig = s3Props.getBackendConfigProperties();
+        Assertions.assertEquals("mySessionToken", backendConfig.get("AWS_TOKEN"));
+        provider = s3Props.getAwsCredentialsProvider();
+        Assertions.assertNotNull(provider);
+        Assertions.assertTrue(provider instanceof StaticCredentialsProvider);
+        
         origProps.put("s3.role_arn", "arn:aws:iam::123456789012:role/MyTestRole");
         origProps.put("s3.external_id", "external-123");
         s3Props = (S3Properties) StorageProperties.createPrimary(origProps);

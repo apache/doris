@@ -100,7 +100,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     protected String secretKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"s3.session_token", "session_token", "s3.session-token"},
+    @ConnectorProperty(names = {"s3.session_token", "session_token", "s3.session-token", "AWS_TOKEN"},
             required = false,
             description = "The session token of S3.")
     protected String sessionToken = "";
