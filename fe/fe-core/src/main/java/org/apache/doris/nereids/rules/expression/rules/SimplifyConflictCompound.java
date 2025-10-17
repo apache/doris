@@ -60,7 +60,7 @@ public class SimplifyConflictCompound implements ExpressionPatternRuleFactory {
         // ie, predicate contains expression 'expression' and 'not expression'
         Map<Expression, Pair<Boolean, Boolean>> exprExistMarks = Maps.newHashMap();
         for (Expression child : flatten) {
-            if (!child.containsNonfoldable()) {
+            if (!child.containsUniqueFunction()) {
                 if (child instanceof CompoundPredicate) {
                     Expression newChild = rewrite((CompoundPredicate) child);
                     if (!child.equals(newChild)) {
