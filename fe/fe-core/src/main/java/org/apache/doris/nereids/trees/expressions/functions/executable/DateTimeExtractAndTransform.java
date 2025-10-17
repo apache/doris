@@ -620,7 +620,7 @@ public class DateTimeExtractAndTransform {
         if (duration.getNano() == 0) {
             return String.valueOf(duration.getSeconds());
         } else {
-            return duration.getSeconds() + "." + (duration.getNano() / 1000);
+            return duration.getSeconds() + "." + String.format("%06d", duration.getNano() / 1000);
         }
     }
 
