@@ -143,120 +143,49 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_column(const uint8_t* data, 
     const FieldType type = static_cast<FieldType>(*data++);
     const uint8_t* end = data;
     switch (type) {
-    case FieldType::OLAP_FIELD_TYPE_STRING: {
-        end = DataTypeStringSerDe::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
+#define HANDLE_SIMPLE_SERDE(FT, SERDE)                                                        \
+    case FieldType::FT: {                                                                     \
+        end = SERDE::deserialize_binary_to_column(data, nullable_column.get_nested_column()); \
+        nullable_column.push_false_to_nullmap(1);                                             \
+        break;                                                                                \
     }
-    case FieldType::OLAP_FIELD_TYPE_TINYINT: {
-        end = DataTypeNumberSerDe<TYPE_TINYINT>::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
+
+#define HANDLE_T_NUM_SERDE(FT, TYPEID)                                   \
+    case FieldType::FT: {                                                \
+        end = DataTypeNumberSerDe<TYPEID>::deserialize_binary_to_column( \
+                data, nullable_column.get_nested_column());              \
+        nullable_column.push_false_to_nullmap(1);                        \
+        break;                                                           \
     }
-    case FieldType::OLAP_FIELD_TYPE_SMALLINT: {
-        end = DataTypeNumberSerDe<TYPE_SMALLINT>::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
+
+#define HANDLE_T_DEC_SERDE(FT, TYPEID)                                    \
+    case FieldType::FT: {                                                 \
+        end = DataTypeDecimalSerDe<TYPEID>::deserialize_binary_to_column( \
+                data, nullable_column.get_nested_column());               \
+        nullable_column.push_false_to_nullmap(1);                         \
+        break;                                                            \
     }
-    case FieldType::OLAP_FIELD_TYPE_INT: {
-        end = DataTypeNumberSerDe<TYPE_INT>::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_BIGINT: {
-        end = DataTypeNumberSerDe<TYPE_BIGINT>::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_LARGEINT: {
-        end = DataTypeNumberSerDe<TYPE_LARGEINT>::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_FLOAT: {
-        end = DataTypeNumberSerDe<TYPE_FLOAT>::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DOUBLE: {
-        end = DataTypeNumberSerDe<TYPE_DOUBLE>::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_JSONB: {
-        end = DataTypeJsonbSerDe::deserialize_binary_to_column(data,
-                                                               nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-        end = DataTypeArraySerDe::deserialize_binary_to_column(data,
-                                                               nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_IPV4: {
-        end = DataTypeNumberSerDe<TYPE_IPV4>::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_IPV6: {
-        end = DataTypeNumberSerDe<TYPE_IPV6>::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATEV2: {
-        end = DataTypeNumberSerDe<TYPE_DATEV2>::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
-        end = DataTypeNumberSerDe<TYPE_DATETIMEV2>::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL32: {
-        end = DataTypeDecimalSerDe<TYPE_DECIMAL32>::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL64: {
-        end = DataTypeDecimalSerDe<TYPE_DECIMAL64>::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
-        end = DataTypeDecimalSerDe<TYPE_DECIMAL128I>::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
-        end = DataTypeDecimalSerDe<TYPE_DECIMAL256>::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_BOOL: {
-        end = DataTypeNumberSerDe<TYPE_BOOLEAN>::deserialize_binary_to_column(
-                data, nullable_column.get_nested_column());
-        nullable_column.push_false_to_nullmap(1);
-        break;
-    }
+
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_STRING, DataTypeStringSerDe)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_TINYINT, TYPE_TINYINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_SMALLINT, TYPE_SMALLINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_INT, TYPE_INT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_BIGINT, TYPE_BIGINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_LARGEINT, TYPE_LARGEINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_FLOAT, TYPE_FLOAT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DOUBLE, TYPE_DOUBLE)
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_JSONB, DataTypeJsonbSerDe)
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_ARRAY, DataTypeArraySerDe)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL256, TYPE_DECIMAL256)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_BOOL, TYPE_BOOLEAN)
+
     case FieldType::OLAP_FIELD_TYPE_NONE: {
         end = data;
         nullable_column.insert_default();
@@ -266,6 +195,11 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_column(const uint8_t* data, 
         throw doris::Exception(ErrorCode::OUT_OF_BOUND,
                                "Type ({}) for deserialize_binary_to_column is invalid", type);
     }
+
+#undef HANDLE_T_DEC_SERDE
+#undef HANDLE_T_NUM_SERDE
+#undef HANDLE_SIMPLE_SERDE
+
     return end;
 }
 
@@ -275,83 +209,44 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, F
     info.scalar_type_id = TabletColumn::get_primitive_type_by_field_type(type);
     const uint8_t* end = data;
     switch (type) {
-    case FieldType::OLAP_FIELD_TYPE_STRING: {
-        end = DataTypeStringSerDe::deserialize_binary_to_field(data, field, info);
-        break;
+#define HANDLE_SIMPLE_SERDE(FT, SERDE)                               \
+    case FieldType::FT: {                                            \
+        end = SERDE::deserialize_binary_to_field(data, field, info); \
+        break;                                                       \
     }
-    case FieldType::OLAP_FIELD_TYPE_TINYINT: {
-        end = DataTypeNumberSerDe<TYPE_TINYINT>::deserialize_binary_to_field(data, field, info);
-        break;
+
+#define HANDLE_T_NUM_SERDE(FT, TYPEID)                                                     \
+    case FieldType::FT: {                                                                  \
+        end = DataTypeNumberSerDe<TYPEID>::deserialize_binary_to_field(data, field, info); \
+        break;                                                                             \
     }
-    case FieldType::OLAP_FIELD_TYPE_SMALLINT: {
-        end = DataTypeNumberSerDe<TYPE_SMALLINT>::deserialize_binary_to_field(data, field, info);
-        break;
+
+#define HANDLE_T_DEC_SERDE(FT, TYPEID)                                                      \
+    case FieldType::FT: {                                                                   \
+        end = DataTypeDecimalSerDe<TYPEID>::deserialize_binary_to_field(data, field, info); \
+        break;                                                                              \
     }
-    case FieldType::OLAP_FIELD_TYPE_INT: {
-        end = DataTypeNumberSerDe<TYPE_INT>::deserialize_binary_to_field(data, field, info);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_BIGINT: {
-        end = DataTypeNumberSerDe<TYPE_BIGINT>::deserialize_binary_to_field(data, field, info);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_LARGEINT: {
-        end = DataTypeNumberSerDe<TYPE_LARGEINT>::deserialize_binary_to_field(data, field, info);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_FLOAT: {
-        end = DataTypeNumberSerDe<TYPE_FLOAT>::deserialize_binary_to_field(data, field, info);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DOUBLE: {
-        end = DataTypeNumberSerDe<TYPE_DOUBLE>::deserialize_binary_to_field(data, field, info);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_JSONB: {
-        end = DataTypeJsonbSerDe::deserialize_binary_to_field(data, field, info);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-        end = DataTypeArraySerDe::deserialize_binary_to_field(data, field, info);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_IPV4: {
-        end = DataTypeNumberSerDe<TYPE_IPV4>::deserialize_binary_to_field(data, field, info);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_IPV6: {
-        end = DataTypeNumberSerDe<TYPE_IPV6>::deserialize_binary_to_field(data, field, info);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATEV2: {
-        end = DataTypeNumberSerDe<TYPE_DATEV2>::deserialize_binary_to_field(data, field, info);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
-        end = DataTypeNumberSerDe<TYPE_DATETIMEV2>::deserialize_binary_to_field(data, field, info);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL32: {
-        end = DataTypeDecimalSerDe<TYPE_DECIMAL32>::deserialize_binary_to_field(data, field, info);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL64: {
-        end = DataTypeDecimalSerDe<TYPE_DECIMAL64>::deserialize_binary_to_field(data, field, info);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
-        end = DataTypeDecimalSerDe<TYPE_DECIMAL128I>::deserialize_binary_to_field(data, field,
-                                                                                  info);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
-        end = DataTypeDecimalSerDe<TYPE_DECIMAL256>::deserialize_binary_to_field(data, field, info);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_BOOL: {
-        end = DataTypeNumberSerDe<TYPE_BOOLEAN>::deserialize_binary_to_field(data, field, info);
-        break;
-    }
+
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_STRING, DataTypeStringSerDe)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_TINYINT, TYPE_TINYINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_SMALLINT, TYPE_SMALLINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_INT, TYPE_INT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_BIGINT, TYPE_BIGINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_LARGEINT, TYPE_LARGEINT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_FLOAT, TYPE_FLOAT)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DOUBLE, TYPE_DOUBLE)
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_JSONB, DataTypeJsonbSerDe)
+        HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_ARRAY, DataTypeArraySerDe)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIMEV2, TYPE_DATETIMEV2)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL32, TYPE_DECIMAL32)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL64, TYPE_DECIMAL64)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL128I, TYPE_DECIMAL128I)
+        HANDLE_T_DEC_SERDE(OLAP_FIELD_TYPE_DECIMAL256, TYPE_DECIMAL256)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_BOOL, TYPE_BOOLEAN)
+
     case FieldType::OLAP_FIELD_TYPE_NONE: {
         end = data;
         break;
@@ -360,6 +255,10 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, F
         throw doris::Exception(ErrorCode::OUT_OF_BOUND,
                                "Type ({}) for deserialize_binary_to_field is invalid", type);
     }
+
+#undef HANDLE_T_DEC_SERDE
+#undef HANDLE_T_NUM_SERDE
+#undef HANDLE_SIMPLE_SERDE
     return end;
 }
 
