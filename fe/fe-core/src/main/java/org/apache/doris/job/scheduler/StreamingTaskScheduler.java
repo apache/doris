@@ -78,10 +78,11 @@ public class StreamingTaskScheduler extends MasterDaemon {
             threadPool.execute(() -> {
                 try {
                     scheduleOneTask(task);
-                }catch (Exception e){
+                } catch (Exception e) {
                     log.warn("Failed to schedule task, task id {}, job id {}",
                             task.getTaskId(), task.getJobId(), e);
-                    StreamingInsertJob job = (StreamingInsertJob) Env.getCurrentEnv().getJobManager().getJob(task.getJobId());
+                    StreamingInsertJob job =
+                            (StreamingInsertJob) Env.getCurrentEnv().getJobManager().getJob(task.getJobId());
                     job.setFailureReason(new FailureReason(e.getMessage()));
                     try {
                         job.updateJobStatus(JobStatus.PAUSED);
