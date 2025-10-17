@@ -220,7 +220,10 @@ void FileCacheBlockDownloader::download_file_cache_block(
         };
 
         std::string path;
-        if (meta.has_idx() && meta.idx()) {
+        doris::FileType file_type =
+                meta.has_file_type() ? meta.file_type() : doris::FileType::SEGMENT_FILE;
+        bool is_index = (file_type == doris::FileType::INVERTED_INDEX_FILE);
+        if (is_index) {
             path = storage_resource.value()->remote_idx_v2_path(*find_it->second,
                                                                 meta.segment_id());
         } else {
