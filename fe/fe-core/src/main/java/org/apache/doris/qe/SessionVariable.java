@@ -1341,10 +1341,11 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableVectorizedEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = false, needForward = true,
-            varType = VariableAnnotation.REMOVED)
+            varType = VariableAnnotation.REMOVED, setter = "setEnablePipelineEngine")
     private boolean enablePipelineEngine = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.REMOVED)
+    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.REMOVED,
+            setter = "setEnablePipelineXEngine")
     private boolean enablePipelineXEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_SHARED_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
@@ -3586,6 +3587,36 @@ public class SessionVariable implements Serializable, Writable {
     public void setPipelineTaskNum(String value) throws Exception {
         int val = checkFieldValue(PARALLEL_PIPELINE_TASK_NUM, 0, value);
         this.parallelPipelineTaskNum = val;
+    }
+
+    public void setEnablePipelineEngine(String value) throws Exception {
+        if (value.equalsIgnoreCase("ON")
+                || value.equalsIgnoreCase("TRUE")
+                || value.equalsIgnoreCase("1")) {
+            this.enablePipelineEngine = true;
+        } else if (value.equalsIgnoreCase("OFF")
+                || value.equalsIgnoreCase("FALSE")
+                || value.equalsIgnoreCase("0")) {
+            throw new Exception(
+                    "You cannot disable pipeline engine, because it is the only execution engine now.");
+        } else {
+            throw new IllegalAccessException(value + " can not be parsed to boolean");
+        }
+    }
+
+    public void setEnablePipelineXEngine(String value) throws Exception {
+        if (value.equalsIgnoreCase("ON")
+                || value.equalsIgnoreCase("TRUE")
+                || value.equalsIgnoreCase("1")) {
+            this.enablePipelineXEngine = true;
+        } else if (value.equalsIgnoreCase("OFF")
+                || value.equalsIgnoreCase("FALSE")
+                || value.equalsIgnoreCase("0")) {
+            throw new Exception(
+                    "You cannot disable pipeline engine, because it is the only execution engine now.");
+        } else {
+            throw new IllegalAccessException(value + " can not be parsed to boolean");
+        }
     }
 
     public void setFragmentInstanceNum(String value) {}
