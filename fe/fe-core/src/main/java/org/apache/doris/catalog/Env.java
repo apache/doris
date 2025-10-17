@@ -3350,12 +3350,12 @@ public class Env {
         if (StringUtils.isEmpty(stmt.getCtlName())) {
             catalogIf = getCurrentCatalog();
         } else {
-            catalogIf = catalogMgr.getCatalog(stmt.getCtlName());
+            catalogIf = catalogMgr.getCatalogOrDdlException(stmt.getCtlName());
         }
         catalogIf.createDb(stmt.getFullDbName(), stmt.isSetIfNotExists(), stmt.getProperties());
     }
 
-    // For replay edit log, need't lock metadata
+    // For replay edit log, no need to lock metadata
     public void unprotectCreateDb(Database db) {
         getInternalCatalog().unprotectCreateDb(db);
     }

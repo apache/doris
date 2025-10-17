@@ -160,6 +160,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         ErrorCode.ERR_UNKNOWN_CATALOG));
     }
 
+    public CatalogIf getCatalogOrDdlException(long id) throws DdlException {
+        return getCatalogOrException(id,
+                catalog -> new DdlException(ErrorCode.ERR_UNKNOWN_CATALOG.formatErrorMsg(catalog),
+                        ErrorCode.ERR_UNKNOWN_CATALOG));
+    }
+
     public <E extends Exception> CatalogIf<? extends DatabaseIf<? extends TableIf>>
             getCatalogOrException(long id, Function<Long, E> e) throws E {
         CatalogIf catalog = idToCatalog.get(id);
