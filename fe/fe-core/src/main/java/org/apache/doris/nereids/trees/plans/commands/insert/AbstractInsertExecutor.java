@@ -44,7 +44,9 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Abstract insert executor.
@@ -71,20 +73,51 @@ public abstract class AbstractInsertExecutor {
     protected long txnId = INVALID_TXN_ID;
 
     /**
-     * Constructor
+     * Insert executor listener
+     */
+    public interface InsertExecutorListener {
+        /**
+         * Called before insert execution begins
+         */
+
+        default void beforeComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId)
+                throws Exception {
+        }
+
+        default void afterComplete(AbstractInsertExecutor insertExecutor, StmtExecutor executor, long jobId)
+                throws Exception {
+        }
+    }
+
+    private List<InsertExecutorListener> listeners = new CopyOnWriteArrayList<>();
+
+    /**
+     * constructor
      */
     public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
-            Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
+            Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId) {
         this.ctx = ctx;
         this.database = table.getDatabase();
-        this.insertLoadJob = new InsertLoadJob(database.getId(), labelName);
-        ctx.getEnv().getLoadManager().addLoadJob(insertLoadJob);
+        this.insertLoadJob = new InsertLoadJob(database.getId(), labelName, jobId);
+        // Do not add load job if job id is -1.
+        if (jobId != -1) {
+            ctx.getEnv().getLoadManager().addLoadJob(insertLoadJob);
+        }
         this.coordinator = EnvFactory.getInstance().createCoordinator(
                 ctx, planner, ctx.getStatsErrorEstimator(), insertLoadJob.getId());
         this.labelName = labelName;
         this.table = table;
         this.insertCtx = insertCtx;
         this.emptyInsert = emptyInsert;
+        this.jobId = jobId;
+    }
+
+    public void registerListener(InsertExecutorListener listener) {
+        listeners.add(listener);
+    }
+
+    public void unregisterListener(InsertExecutorListener listener) {
+        listeners.remove(listener);
     }
 
     public Coordinator getCoordinator() {
@@ -137,9 +170,8 @@ public abstract class AbstractInsertExecutor {
      */
     protected abstract void afterExec(StmtExecutor executor);
 
-    protected final void execImpl(StmtExecutor executor, long jobId) throws Exception {
+    protected final void execImpl(StmtExecutor executor) throws Exception {
         String queryId = DebugUtil.printId(ctx.queryId());
-        this.jobId = jobId;
         coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
         coordinator.setQueryType(TQueryType.LOAD);
         coordinator.setIsProfileSafeStmt(executor.isProfileSafeStmt());
@@ -199,13 +231,19 @@ public abstract class AbstractInsertExecutor {
     /**
      * execute insert txn for insert into select command.
      */
-    public void executeSingleInsert(StmtExecutor executor, long jobId) throws Exception {
+    public void executeSingleInsert(StmtExecutor executor) throws Exception {
         beforeExec();
         try {
             executor.updateProfile(false);
-            execImpl(executor, jobId);
+            execImpl(executor);
             checkStrictModeAndFilterRatio();
+            for (InsertExecutorListener listener : listeners) {
+                listener.beforeComplete(this, executor, jobId);
+            }
             onComplete();
+            for (InsertExecutorListener listener : listeners) {
+                listener.afterComplete(this, executor, jobId);
+            }
         } catch (Throwable t) {
             onFail(t);
             // retry insert into from select when meet E-230 in cloud

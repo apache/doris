@@ -27,6 +27,8 @@ namespace doris::cloud {
 class InstanceRecycler;
 class InstanceChecker;
 class StorageVaultAccessor;
+class InstanceDataMigrator;
+class InstanceChainCompactor;
 
 // A abstract class for managing cluster snapshots.
 class SnapshotManager {
@@ -77,6 +79,14 @@ public:
     // Parse the serialized snapshot id to versionstamp.
     static bool parse_snapshot_versionstamp(std::string_view snapshot_id,
                                             Versionstamp* versionstamp);
+
+    // Migrate the single version keys to multi-version keys for the instance.
+    // Return 0 for success otherwise error.
+    virtual int migrate_to_versioned_keys(InstanceDataMigrator* migrator);
+
+    // Compress snapshot chains for the instance.
+    // Return 0 for success otherwise error.
+    virtual int compact_snapshot_chains(InstanceChainCompactor* compactor);
 
 private:
     SnapshotManager(const SnapshotManager&) = delete;

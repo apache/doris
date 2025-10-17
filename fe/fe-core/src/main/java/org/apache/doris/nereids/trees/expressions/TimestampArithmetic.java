@@ -130,6 +130,21 @@ public class TimestampArithmetic extends Expression
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        if (funcName != null) {
+            sb.append(funcName.toUpperCase()).append("(");
+            sb.append(child(0).toDigest()).append(", ");
+            sb.append(child(1).toDigest()).append(")");
+        } else {
+            sb.append(child(0).toDigest());
+            sb.append(" ").append(op.toString()).append(" ");
+            sb.append(child(1).toDigest());
+        }
+        return sb.toString();
+    }
+
+    @Override
     public String computeToSql() {
         StringBuilder strBuilder = new StringBuilder();
         if (funcName != null) {

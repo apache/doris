@@ -20,8 +20,11 @@ package org.apache.doris.job.manager;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -222,6 +225,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
         writeLock();
         try {
+            deleteStremingJob(job);
             jobMap.remove(job.getJobId());
             if (isReplay) {
                 job.onReplayEnd(job);
@@ -232,6 +236,29 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
             }
         } finally {
             writeUnlock();
+        }
+    }
+
+    private void deleteStremingJob(AbstractJob<?, C> job) throws JobException {
+        boolean isStreamingJob = job.getJobConfig().getExecuteType().equals(JobExecuteType.STREAMING);
+        if (!(Config.isCloudMode() && isStreamingJob)) {
+            return;
+        }
+        try {
+            long dbId = Env.getCurrentInternalCatalog().getDbOrDdlException(job.getCurrentDbName()).getId();
+            Cloud.DeleteStreamingJobRequest req = Cloud.DeleteStreamingJobRequest.newBuilder()
+                    .setCloudUniqueId(Config.cloud_unique_id)
+                    .setDbId(dbId)
+                    .setJobId(job.getJobId())
+                    .build();
+            Cloud.DeleteStreamingJobResponse resp = MetaServiceProxy.getInstance().deleteStreamingJob(req);
+            if (resp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                throw new JobException("deleteJobKey failed for jobId={}, dbId={}, status={}",
+                        job.getJobId(), dbId, resp.getStatus());
+            }
+        } catch (Exception e) {
+            throw new JobException("deleteJobKey exception for jobId={}, dbName={}",
+                    job.getJobId(), job.getCurrentDbName(), e);
         }
     }
 
@@ -448,12 +475,20 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     }
 
     public T getJobByName(String jobName) throws JobException {
+        T job = getJobByNameOrNull(jobName);
+        if (job == null) {
+            throw new JobException("job not exist, jobName: " + jobName);
+        }
+        return job;
+    }
+
+    public T getJobByNameOrNull(String jobName) {
         for (T a : jobMap.values()) {
             if (a.getJobName().equals(jobName)) {
                 return a;
             }
         }
-        throw new JobException("job not exist, jobName:" + jobName);
+        return null;
     }
 
     /**

@@ -20,25 +20,33 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertUtils;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 /**
  * alter job command.
  */
-public class AlterJobCommand extends AlterCommand implements ForwardWithSync {
+public class AlterJobCommand extends AlterCommand implements ForwardWithSync, NeedAuditEncryption {
     // exclude job name prefix, which is used by inner job
     private static final String excludeJobNamePrefix = "inner_";
     private final String jobName;
@@ -79,7 +87,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync {
             StreamingInsertJob updateJob = (StreamingInsertJob) job;
             // update sql
             if (StringUtils.isNotEmpty(sql)) {
-                updateJob.setExecuteSql(sql);
+                updateJob.updateExecuteSql(sql);
             }
             // update properties
             if (!properties.isEmpty()) {
@@ -99,18 +107,63 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync {
         if (!JobStatus.PAUSED.equals(job.getJobStatus())) {
             throw new AnalysisException("Only PAUSED job can be altered");
         }
-
         if (job.getJobConfig().getExecuteType().equals(JobExecuteType.STREAMING)
                 && job instanceof StreamingInsertJob) {
             StreamingInsertJob streamingJob = (StreamingInsertJob) job;
+            streamingJob.checkPrivilege(ConnectContext.get());
+
             boolean proCheck = checkProperties(streamingJob.getProperties());
             boolean sqlCheck = checkSql(streamingJob.getExecuteSql());
+            if (sqlCheck) {
+                checkUnmodifiableProperties(streamingJob.getExecuteSql());
+            }
             if (!proCheck && !sqlCheck) {
                 throw new AnalysisException("No properties or sql changed in ALTER JOB");
             }
         } else {
             throw new AnalysisException("Unsupported job type for ALTER:" + job.getJobType());
         }
+    }
+
+    /**
+     * Check if there are any unmodifiable properties in TVF
+     */
+    private void checkUnmodifiableProperties(String originExecuteSql) throws AnalysisException {
+        Pair<List<String>, UnboundTVFRelation> origin = getTargetTableAndTvf(originExecuteSql);
+        Pair<List<String>, UnboundTVFRelation> input = getTargetTableAndTvf(sql);
+        UnboundTVFRelation originTvf = origin.second;
+        UnboundTVFRelation inputTvf = input.second;
+
+        Preconditions.checkArgument(Objects.equals(origin.first, input.first),
+                "The target table cannot be modified in ALTER JOB");
+
+        Preconditions.checkArgument(originTvf.getFunctionName().equalsIgnoreCase(inputTvf.getFunctionName()),
+                "The tvf type cannot be modified in ALTER JOB: original=%s, new=%s",
+                originTvf.getFunctionName(), inputTvf.getFunctionName());
+
+        switch (originTvf.getFunctionName().toLowerCase()) {
+            case "s3":
+                Preconditions.checkArgument(Objects.equals(originTvf.getProperties().getMap().get("uri"),
+                        inputTvf.getProperties().getMap().get("uri")),
+                        "The uri property cannot be modified in ALTER JOB");
+                break;
+            default:
+                throw new IllegalArgumentException("Unsupported tvf type:" + inputTvf.getFunctionName());
+        }
+    }
+
+    private Pair<List<String>, UnboundTVFRelation> getTargetTableAndTvf(String sql) throws AnalysisException {
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        if (!(logicalPlan instanceof InsertIntoTableCommand)) {
+            throw new AnalysisException("Only support insert command");
+        }
+        LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
+        List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ConnectContext.get());
+        InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) logicalPlan;
+        List<UnboundTVFRelation> allTVFRelation = baseCommand.getAllTVFRelation();
+        Preconditions.checkArgument(allTVFRelation.size() == 1, "Only support one source in insert streaming job");
+        UnboundTVFRelation unboundTVFRelation = allTVFRelation.get(0);
+        return Pair.of(targetTable, unboundTVFRelation);
     }
 
     private boolean checkProperties(Map<String, String> originProps) {
@@ -124,7 +177,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync {
     }
 
     private boolean checkSql(String originSql) {
-        if (originSql == null || originSql.isEmpty()) {
+        if (originSql == null || originSql.isEmpty() || sql == null || sql.isEmpty()) {
             return false;
         }
         if (!originSql.equals(this.sql)) {
@@ -133,4 +186,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync {
         return false;
     }
 
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
+    }
 }
