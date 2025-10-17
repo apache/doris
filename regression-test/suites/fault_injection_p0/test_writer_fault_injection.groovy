@@ -92,11 +92,11 @@ suite("test_writer_fault_injection", "nonConcurrent") {
         // Execute test logic with modified configuration for mem_tracker_limit_small_memory_task_bytes
         logger.info("Backend configuration set - mem_tracker_limit_small_memory_task_bytes: 0")
         // Waiting for backend configuration update
-        (1..iterations).each { count ->
-            Thread.sleep(interval * 1000)
-            def elapsedSeconds = count * interval
-            def remainingSeconds = totalWaitTime - elapsedSeconds
-            logger.info("Waited for backend configuration update ${elapsedSeconds} seconds, ${remainingSeconds} seconds remaining")
+        (1..20).each { count ->
+            Thread.sleep(1000)
+            def elapsedSec = count * 1000
+            def remainingSec = 20 - elapsedSec
+            logger.info("Waited for backend configuration update ${elapsedSec} seconds, ${remainingSec} seconds remaining")
         }
 
         // Check if the configuration is modified
