@@ -22,56 +22,65 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <bool with_runtime_predicate>
-HeapSorter<with_runtime_predicate>::HeapSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit,
-                                               int64_t offset, ObjectPool* pool,
-                                               std::vector<bool>& is_asc_order,
-                                               std::vector<bool>& nulls_first,
-                                               const RowDescriptor& row_desc)
-        : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
-          _heap_size(limit + offset) {
-    if constexpr (with_runtime_predicate) {
-        _state = MergeSorterState::create_unique(row_desc, offset);
-    } else {
-        _heap = vectorized::SortingHeap::create_unique();
+Status HeapSorterWithRuntimePredicate::append_block(Block* block) {
+    auto tmp_block = std::make_shared<Block>(block->clone_empty());
+    RETURN_IF_ERROR(partial_sort(*block, *tmp_block, true));
+    _queue.push(
+            MergeSortCursor(std::make_shared<MergeSortCursorImpl>(tmp_block, _sort_description)));
+    _queue_row_num += tmp_block->rows();
+    _data_size += tmp_block->allocated_bytes();
+
+    while (_queue.is_valid() && _queue_row_num > _heap_size) {
+        auto [current, current_rows] = _queue.current();
+        current_rows = std::min(current_rows, _queue_row_num - _heap_size);
+
+        if (!current->impl->is_last(current_rows)) {
+            _queue.next(current_rows);
+        } else {
+            _queue.remove_top();
+            _data_size -= current->impl->block->allocated_bytes();
+        }
+        _queue_row_num -= current_rows;
     }
+    return Status::OK();
 }
 
-template <bool with_runtime_predicate>
-Status HeapSorter<with_runtime_predicate>::append_block(Block* block) {
-    if constexpr (with_runtime_predicate) {
-        return _append_block_with_runtime_predicate(block);
-    } else {
-        return _append_block_without_runtime_predicate(block);
-    }
-}
-
-template <bool with_runtime_predicate>
-Status HeapSorter<with_runtime_predicate>::prepare_for_read(bool is_spill) {
+Status HeapSorterWithRuntimePredicate::prepare_for_read(bool is_spill) {
     if (is_spill) {
         return Status::InternalError("HeapSorter does not support spill");
     }
-    if constexpr (with_runtime_predicate) {
-        prepare_for_read_with_runtime_predicate();
-    } else {
-        prepare_for_read_without_runtime_predicate();
+    while (_queue.is_valid()) {
+        auto [current, current_rows] = _queue.current();
+        if (current_rows) {
+            current->impl->reverse(_reverse_buffer);
+            _state->get_queue().push(MergeSortCursor(current->impl));
+        }
+        _queue.remove_top();
     }
     return Status::OK();
 }
 
-template <bool with_runtime_predicate>
-Status HeapSorter<with_runtime_predicate>::get_next(RuntimeState* state, Block* block, bool* eos) {
-    if constexpr (with_runtime_predicate) {
-        RETURN_IF_ERROR(_state->merge_sort_read(block, state->batch_size(), eos));
-    } else {
-        _return_block.swap(*block);
-        *eos = true;
-    }
-    return Status::OK();
+Status HeapSorterWithRuntimePredicate::get_next(RuntimeState* state, Block* block, bool* eos) {
+    return _state->merge_sort_read(block, state->batch_size(), eos);
 }
 
-template <bool with_runtime_predicate>
-Status HeapSorter<with_runtime_predicate>::_append_block_without_runtime_predicate(Block* block) {
+size_t HeapSorterWithRuntimePredicate::data_size() const {
+    return _data_size;
+}
+
+Field HeapSorterWithRuntimePredicate::get_top_value() {
+    Field field {PrimitiveType::TYPE_NULL};
+    // get field from first sort column of top row
+
+    if (_queue_row_num >= _heap_size) {
+        auto [current, current_rows] = _queue.current();
+        field = current->get_top_value();
+    }
+
+    return field;
+}
+
+Status HeapSorterWithoutRuntimePredicate::append_block(Block* block) {
     DCHECK(block->rows() > 0);
     auto tmp_block = block->clone_empty();
     RETURN_IF_ERROR(_prepare_sort_columns(*block, tmp_block, false));
@@ -116,32 +125,10 @@ Status HeapSorter<with_runtime_predicate>::_append_block_without_runtime_predica
     return Status::OK();
 }
 
-template <bool with_runtime_predicate>
-Status HeapSorter<with_runtime_predicate>::_append_block_with_runtime_predicate(Block* block) {
-    auto tmp_block = std::make_shared<Block>(block->clone_empty());
-    RETURN_IF_ERROR(partial_sort(*block, *tmp_block, true));
-    _queue.push(
-            MergeSortCursor(std::make_shared<MergeSortCursorImpl>(tmp_block, _sort_description)));
-    _queue_row_num += tmp_block->rows();
-    _data_size += tmp_block->allocated_bytes();
-
-    while (_queue.is_valid() && _queue_row_num > _heap_size) {
-        auto [current, current_rows] = _queue.current();
-        current_rows = std::min(current_rows, _queue_row_num - _heap_size);
-
-        if (!current->impl->is_last(current_rows)) {
-            _queue.next(current_rows);
-        } else {
-            _queue.remove_top();
-            _data_size -= current->impl->block->allocated_bytes();
-        }
-        _queue_row_num -= current_rows;
+Status HeapSorterWithoutRuntimePredicate::prepare_for_read(bool is_spill) {
+    if (is_spill) {
+        return Status::InternalError("HeapSorter does not support spill");
     }
-    return Status::OK();
-}
-
-template <bool with_runtime_predicate>
-void HeapSorter<with_runtime_predicate>::prepare_for_read_without_runtime_predicate() {
     if (!_heap->empty() && _heap->size() > _offset) {
         const auto& top = _heap->top();
         size_t num_columns = top.block()->columns();
@@ -174,46 +161,31 @@ void HeapSorter<with_runtime_predicate>::prepare_for_read_without_runtime_predic
         }
         _return_block = vector_to_reverse[0].block()->clone_with_columns(std::move(result_columns));
     }
+    return Status::OK();
 }
 
-template <bool with_runtime_predicate>
-void HeapSorter<with_runtime_predicate>::prepare_for_read_with_runtime_predicate() {
-    while (_queue.is_valid()) {
-        auto [current, current_rows] = _queue.current();
-        if (current_rows) {
-            current->impl->reverse(_reverse_buffer);
-            _state->get_queue().push(MergeSortCursor(current->impl));
-        }
-        _queue.remove_top();
-    }
+Status HeapSorterWithoutRuntimePredicate::get_next(RuntimeState* state, Block* block, bool* eos) {
+    _return_block.swap(*block);
+    *eos = true;
+    return Status::OK();
 }
 
-template <bool with_runtime_predicate>
-Field HeapSorter<with_runtime_predicate>::get_top_value() {
+size_t HeapSorterWithoutRuntimePredicate::data_size() const {
+    return _data_size;
+}
+
+Field HeapSorterWithoutRuntimePredicate::get_top_value() {
     Field field {PrimitiveType::TYPE_NULL};
     // get field from first sort column of top row
-    if constexpr (with_runtime_predicate) {
-        if (_queue_row_num >= _heap_size) {
-            auto [current, current_rows] = _queue.current();
-            field = current->get_top_value();
-        }
-    } else {
-        if (_heap->size() >= _heap_size) {
-            const auto& top = _heap->top();
-            top.sort_columns()[0]->get(top.row_id(), field);
-        }
+    if (_heap->size() >= _heap_size) {
+        const auto& top = _heap->top();
+        top.sort_columns()[0]->get(top.row_id(), field);
     }
     return field;
 }
 
-template <bool with_runtime_predicate>
-size_t HeapSorter<with_runtime_predicate>::data_size() const {
-    return _data_size;
-}
-
-template <bool with_runtime_predicate>
-void HeapSorter<with_runtime_predicate>::_do_filter(HeapSortCursorBlockView& block_view,
-                                                    size_t num_rows) {
+void HeapSorterWithoutRuntimePredicate::_do_filter(HeapSortCursorBlockView& block_view,
+                                                   size_t num_rows) {
     const auto& top_cursor = _heap->top();
     const auto cursor_rid = top_cursor.row_id();
     IColumn::Filter filter(num_rows, 0);
@@ -227,9 +199,6 @@ void HeapSorter<with_runtime_predicate>::_do_filter(HeapSortCursorBlockView& blo
     }
     block_view.filter_block(filter);
 }
-
-template class doris::vectorized::HeapSorter<true>;
-template class doris::vectorized::HeapSorter<false>;
 
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

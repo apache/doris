@@ -49,11 +49,11 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     switch (p._algorithm) {
     case TSortAlgorithm::HEAP_SORT: {
         if (!with_runtime_predicate && p._limit > 0 && p._limit + p._offset < 1024) {
-            _shared_state->sorter = vectorized::HeapSorter<false>::create_shared(
+            _shared_state->sorter = vectorized::HeapSorterWithoutRuntimePredicate::create_shared(
                     _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order,
                     p._nulls_first, p._child->row_desc());
         } else {
-            _shared_state->sorter = vectorized::HeapSorter<true>::create_shared(
+            _shared_state->sorter = vectorized::HeapSorterWithRuntimePredicate::create_shared(
                     _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order,
                     p._nulls_first, p._child->row_desc());
         }

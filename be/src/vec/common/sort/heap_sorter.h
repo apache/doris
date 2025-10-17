@@ -23,16 +23,51 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <bool with_runtime_predicate>
-class HeapSorter final : public Sorter {
-    ENABLE_FACTORY_CREATOR(HeapSorter);
+class HeapSorterWithRuntimePredicate final : public Sorter {
+    ENABLE_FACTORY_CREATOR(HeapSorterWithRuntimePredicate);
 
 public:
-    HeapSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset, ObjectPool* pool,
-               std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
-               const RowDescriptor& row_desc);
+    HeapSorterWithRuntimePredicate(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
+                                   ObjectPool* pool, std::vector<bool>& is_asc_order,
+                                   std::vector<bool>& nulls_first, const RowDescriptor& row_desc)
+            : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
+              _heap_size(limit + offset),
+              _state(MergeSorterState::create_unique(row_desc, offset)) {}
 
-    ~HeapSorter() override = default;
+    ~HeapSorterWithRuntimePredicate() override = default;
+
+    Status append_block(Block* block) override;
+
+    Status prepare_for_read(bool is_spill) override;
+
+    Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+
+    size_t data_size() const override;
+
+    Field get_top_value() override;
+
+private:
+    size_t _data_size = 0;
+    size_t _heap_size = 0;
+    size_t _queue_row_num = 0;
+    MergeSorterQueue _queue;
+    std::unique_ptr<MergeSorterState> _state;
+    IColumn::Permutation _reverse_buffer;
+};
+
+class HeapSorterWithoutRuntimePredicate final : public Sorter {
+    ENABLE_FACTORY_CREATOR(HeapSorterWithoutRuntimePredicate);
+
+public:
+    HeapSorterWithoutRuntimePredicate(VSortExecExprs& vsort_exec_exprs, int64_t limit,
+                                      int64_t offset, ObjectPool* pool,
+                                      std::vector<bool>& is_asc_order,
+                                      std::vector<bool>& nulls_first, const RowDescriptor& row_desc)
+            : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
+              _heap_size(limit + offset),
+              _heap(SortingHeap::create_unique()) {}
+
+    ~HeapSorterWithoutRuntimePredicate() override = default;
 
     Status append_block(Block* block) override;
 
@@ -51,25 +86,14 @@ public:
     }
 
 private:
-    Status _append_block_with_runtime_predicate(Block* block);
-    Status _append_block_without_runtime_predicate(Block* block);
     void _do_filter(HeapSortCursorBlockView& block_view, size_t num_rows);
-
-    void prepare_for_read_with_runtime_predicate();
-    void prepare_for_read_without_runtime_predicate();
-
     size_t _data_size = 0;
     size_t _heap_size = 0;
-    size_t _queue_row_num = 0;
-    MergeSorterQueue _queue;
-    std::unique_ptr<MergeSorterState> _state;
-    IColumn::Permutation _reverse_buffer;
-
+    int64_t _topn_filter_rows = 0;
+    Block _return_block;
     std::unique_ptr<SortingHeap> _heap;
     RuntimeProfile::Counter* _topn_filter_timer = nullptr;
     RuntimeProfile::Counter* _topn_filter_rows_counter = nullptr;
-    int64_t _topn_filter_rows = 0;
-    Block _return_block;
 };
 
 #include "common/compile_check_end.h"
