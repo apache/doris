@@ -245,10 +245,29 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
 
     /// buffers[0] is a null bitmap and buffers[1] are actual values
     std::shared_ptr<arrow::Buffer> buffer = arrow_array->data()->buffers[1];
-    const auto* raw_data = reinterpret_cast<const typename PrimitiveTypeTraits<T>::ColumnItemType*>(
-                                   buffer->data()) +
-                           start;
-    col_data.insert(raw_data, raw_data + row_count);
+
+    // Check data width and type
+    auto byte_width = arrow_array->type()->byte_width();
+    auto doris_size = sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType);
+    if (byte_width == doris_size) {
+        const auto* raw_data =
+                reinterpret_cast<const typename PrimitiveTypeTraits<T>::ColumnItemType*>(
+                        buffer->data()) +
+                start;
+        col_data.insert(raw_data, raw_data + row_count);
+    } else if (byte_width == 8 && doris_size == 4 && arrow_array->type_id() == arrow::Type::INT64 &&
+               T == TYPE_INT) {
+        // Convert int64 to int32
+        const auto* raw_data_int64 = reinterpret_cast<const int64_t*>(buffer->data()) + start;
+        for (size_t i = 0; i < row_count; ++i) {
+            col_data.emplace_back(static_cast<int32_t>(raw_data_int64[i]));
+        }
+
+        // TODO: Support more conversions between data types
+    } else {
+        return Status::NotSupported("Type mismatch between Arrow type {} and Doris type {}",
+                                    arrow_array->type()->name(), type_to_string(T));
+    }
     return Status::OK();
 }
 template <PrimitiveType T>
