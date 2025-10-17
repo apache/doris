@@ -962,12 +962,112 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
 
 Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
                                              vectorized::MutableColumnPtr& dst) {
-    for (size_t i = 0; i < count; ++i) {
-        RETURN_IF_ERROR(seek_to_ordinal(rowids[i]));
-        size_t num_read = 1;
-        RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
-        DCHECK(num_read == 1);
+    if (count == 0) {
+        return Status::OK();
     }
+    // resolve ColumnMap and nullable wrapper
+    const auto* column_map = vectorized::check_and_get_column<vectorized::ColumnMap>(
+            dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
+                               : *dst);
+    auto offsets_ptr = column_map->get_offsets_column().assume_mutable();
+    auto& offsets = static_cast<vectorized::ColumnArray::ColumnOffsets&>(*offsets_ptr);
+    size_t base = offsets.get_data().empty() ? 0 : offsets.get_data().back();
+
+    // 1. bulk read null-map if nullable
+    std::vector<uint8_t> null_mask; // 0: not null, 1: null
+    if (_map_reader->is_nullable()) {
+        auto null_map_ptr =
+                static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
+        size_t null_before = null_map_ptr->size();
+        RETURN_IF_ERROR(_null_iterator->read_by_rowids(rowids, count, null_map_ptr));
+        // extract a light-weight view to decide element reads
+        auto& null_map_col = assert_cast<vectorized::ColumnUInt8&>(*null_map_ptr);
+        null_mask.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            null_mask.push_back(null_map_col.get_element(null_before + i));
+        }
+    } else if (dst->is_nullable()) {
+        // in not-null to null linked-schemachange mode,
+        // actually we do not change dat data include meta in footer,
+        // so may dst from changed meta which is nullable but old data is not nullable,
+        // if so, we should set null_map to all null by default
+        auto null_map_ptr =
+                static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
+        auto& null_map = assert_cast<vectorized::ColumnUInt8&>(*null_map_ptr);
+        null_map.insert_many_vals(0, count);
+    }
+
+    // 2. bulk read start ordinals for requested rows
+    vectorized::MutableColumnPtr starts_col = vectorized::ColumnUInt64::create();
+    starts_col->reserve(count);
+    RETURN_IF_ERROR(_offsets_iterator->read_by_rowids(rowids, count, starts_col));
+
+    // 3. bulk read next-start ordinals for rowid+1 (within bounds)
+    std::vector<rowid_t> next_rowids(count);
+    for (size_t i = 0; i < count; ++i) {
+        uint64_t nr = rowids[i] + 1;
+        next_rowids[i] = nr < _map_reader->num_rows() ? static_cast<rowid_t>(nr)
+                                                      : static_cast<rowid_t>(0); // placeholder
+    }
+    vectorized::MutableColumnPtr next_starts_col = vectorized::ColumnUInt64::create();
+    next_starts_col->reserve(count);
+    // read for all; we'll fix out-of-bound cases below
+    RETURN_IF_ERROR(_offsets_iterator->read_by_rowids(next_rowids.data(), count, next_starts_col));
+
+    // 4. fix next_start for rows whose next_rowid is out-of-bound (rowid == num_rows-1)
+    for (size_t i = 0; i < count; ++i) {
+        if (rowids[i] + 1 >= _map_reader->num_rows()) {
+            // seek to the last row and consume one to move decoder to end-of-page,
+            // then peek page-tail sentinel next_array_item_ordinal as next_start
+            RETURN_IF_ERROR(_offsets_iterator->seek_to_ordinal(rowids[i]));
+            size_t one = 1;
+            bool has_null_unused = false;
+            vectorized::MutableColumnPtr tmp = vectorized::ColumnUInt64::create();
+            RETURN_IF_ERROR(_offsets_iterator->next_batch(&one, tmp, &has_null_unused));
+            ordinal_t ns = 0;
+            RETURN_IF_ERROR(_offsets_iterator->_peek_one_offset(&ns));
+            // overwrite with sentinel
+            assert_cast<vectorized::ColumnUInt64&>(*next_starts_col).get_data()[i] = ns;
+        }
+    }
+
+    // 5. compute sizes and append offsets prefix-sum
+    auto& starts_data = assert_cast<vectorized::ColumnUInt64&>(*starts_col).get_data();
+    auto& next_starts_data = assert_cast<vectorized::ColumnUInt64&>(*next_starts_col).get_data();
+    std::vector<size_t> sizes(count, 0);
+    size_t acc = base;
+    offsets.get_data().reserve(offsets.get_data().size() + count);
+    for (size_t i = 0; i < count; ++i) {
+        size_t sz = static_cast<size_t>(next_starts_data[i] - starts_data[i]);
+        if (_map_reader->is_nullable() && !null_mask.empty() && null_mask[i]) {
+            sz = 0; // null rows do not consume elements
+        }
+        sizes[i] = sz;
+        acc += sz;
+        offsets.get_data().push_back(acc);
+    }
+
+    // 6. read key/value elements for non-empty sizes
+    auto keys_ptr = column_map->get_keys().assume_mutable();
+    auto vals_ptr = column_map->get_values().assume_mutable();
+
+    for (size_t i = 0; i < count; ++i) {
+        size_t sz = sizes[i];
+        if (sz == 0) {
+            continue;
+        }
+        ordinal_t start = static_cast<ordinal_t>(starts_data[i]);
+        RETURN_IF_ERROR(_key_iterator->seek_to_ordinal(start));
+        RETURN_IF_ERROR(_val_iterator->seek_to_ordinal(start));
+        size_t n = sz;
+        bool dummy_has_null = false;
+        RETURN_IF_ERROR(_key_iterator->next_batch(&n, keys_ptr, &dummy_has_null));
+        DCHECK(n == sz);
+        n = sz;
+        RETURN_IF_ERROR(_val_iterator->next_batch(&n, vals_ptr, &dummy_has_null));
+        DCHECK(n == sz);
+    }
+
     return Status::OK();
 }
 
@@ -1052,6 +1152,8 @@ Status StructFileColumnIterator::read_by_rowids(const rowid_t* rowids, const siz
 ////////////////////////////////////////////////////////////////////////////////
 Status OffsetFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     RETURN_IF_ERROR(_offset_iterator->init(opts));
+    // allocate peek tmp column once
+    _peek_tmp_col = vectorized::ColumnUInt64::create();
     return Status::OK();
 }
 
@@ -1064,11 +1166,11 @@ Status OffsetFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
 Status OffsetFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
     if (_offset_iterator->get_current_page()->has_remaining()) {
         PageDecoder* offset_page_decoder = _offset_iterator->get_current_page()->data_decoder.get();
-        vectorized::MutableColumnPtr offset_col = vectorized::ColumnUInt64::create();
         size_t n = 1;
-        RETURN_IF_ERROR(offset_page_decoder->peek_next_batch(&n, offset_col)); // not null
-        DCHECK(offset_col->size() == 1);
-        *offset = assert_cast<const vectorized::ColumnUInt64*>(offset_col.get())->get_element(0);
+        _peek_tmp_col->clear();
+        RETURN_IF_ERROR(offset_page_decoder->peek_next_batch(&n, _peek_tmp_col)); // not null
+        DCHECK(_peek_tmp_col->size() == 1);
+        *offset = assert_cast<const vectorized::ColumnUInt64*>(_peek_tmp_col.get())->get_element(0);
     } else {
         *offset = _offset_iterator->get_current_page()->next_array_item_ordinal;
     }
