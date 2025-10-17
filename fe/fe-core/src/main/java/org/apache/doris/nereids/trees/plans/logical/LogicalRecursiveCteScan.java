@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 import java.util.Optional;
@@ -41,22 +42,42 @@ public class LogicalRecursiveCteScan extends LogicalCatalogRelation {
         super(relationId, PlanType.LOGICAL_RECURSIVE_CTE_SCAN, table, qualifier, groupExpression, logicalProperties);
     }
 
+    private LogicalRecursiveCteScan(RelationId relationId, TableIf table, List<String> qualifier,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            String tableAlias) {
+        super(relationId, PlanType.LOGICAL_RECURSIVE_CTE_SCAN, table, qualifier, groupExpression,
+                logicalProperties, tableAlias);
+    }
+
+    @Override
+    public String toString() {
+        return Utils.toSqlString("LogicalRecursiveCteScan",
+                "recursive cte name", table.getName());
+    }
+
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalRecursiveCteScan(relationId, table, qualifier,
-                groupExpression, Optional.ofNullable(getLogicalProperties()));
+                groupExpression, Optional.ofNullable(getLogicalProperties()), tableAlias);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalRecursiveCteScan(relationId, table, qualifier, groupExpression, logicalProperties);
+        return new LogicalRecursiveCteScan(relationId, table, qualifier, groupExpression, logicalProperties,
+                tableAlias);
     }
 
     @Override
     public LogicalCatalogRelation withRelationId(RelationId relationId) {
         return new LogicalRecursiveCteScan(relationId, table, qualifier,
-                groupExpression, Optional.ofNullable(getLogicalProperties()));
+                groupExpression, Optional.ofNullable(getLogicalProperties()), tableAlias);
+    }
+
+    @Override
+    public LogicalCatalogRelation withTableAlias(String tableAlias) {
+        return new LogicalRecursiveCteScan(relationId, table, qualifier,
+                groupExpression, Optional.ofNullable(getLogicalProperties()), tableAlias);
     }
 
     @Override

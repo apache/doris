@@ -83,6 +83,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -99,7 +100,7 @@ public class ThriftPlansBuilder {
             CoordinatorContext coordinatorContext) {
 
         List<PipelineDistributedPlan> distributedPlans = coordinatorContext.distributedPlans;
-        setParamsForRecursiveCteNode(distributedPlans);
+        Set<Integer> fragmentToNotifyClose = setParamsForRecursiveCteNode(distributedPlans);
 
         // we should set runtime predicate first, then we can use heap sort and to thrift
         setRuntimePredicateIfNeed(coordinatorContext.scanNodes);
@@ -125,7 +126,7 @@ public class ThriftPlansBuilder {
                 TPipelineFragmentParams currentFragmentParam = fragmentToThriftIfAbsent(
                         currentFragmentPlan, instanceJob, workerToCurrentFragment,
                         instancesPerWorker, exchangeSenderNum, sharedFileScanRangeParams,
-                        workerProcessInstanceNum, coordinatorContext);
+                        workerProcessInstanceNum, fragmentToNotifyClose, coordinatorContext);
 
                 TPipelineInstanceParams instanceParam = instanceToThrift(
                         currentFragmentParam, instanceJob, currentInstanceIndex++);
@@ -336,6 +337,7 @@ public class ThriftPlansBuilder {
             Map<Integer, Integer> exchangeSenderNum,
             Map<Integer, TFileScanRangeParams> fileScanRangeParamsMap,
             Multiset<DistributedPlanWorker> workerProcessInstanceNum,
+            Set<Integer> fragmentToNotifyClose,
             CoordinatorContext coordinatorContext) {
         DistributedPlanWorker worker = assignedJob.getAssignedWorker();
         return workerToFragmentParams.computeIfAbsent(worker, w -> {
@@ -349,6 +351,9 @@ public class ThriftPlansBuilder {
             params.setDescTbl(coordinatorContext.descriptorTable);
             params.setQueryId(coordinatorContext.queryId);
             params.setFragmentId(fragment.getFragmentId().asInt());
+            if (fragmentToNotifyClose.contains(params.getFragmentId())) {
+                params.setNeedNotifyClose(true);
+            }
 
             // Each tParam will set the total number of Fragments that need to be executed on the same BE,
             // and the BE will determine whether all Fragments have been executed based on this information.
@@ -587,7 +592,8 @@ public class ThriftPlansBuilder {
         }
     }
 
-    private static void setParamsForRecursiveCteNode(List<PipelineDistributedPlan> distributedPlans) {
+    private static Set<Integer> setParamsForRecursiveCteNode(List<PipelineDistributedPlan> distributedPlans) {
+        Set<Integer> fragmentToNotifyClose = new HashSet<>();
         Map<PlanFragmentId, TRecCTETarget> fragmentIdToRecCteTargetMap = new TreeMap<>();
         Map<PlanFragmentId, Set<TNetworkAddress>> fragmentIdToNetworkAddressMap = new TreeMap<>();
         for (PipelineDistributedPlan plan : distributedPlans) {
@@ -639,6 +645,7 @@ public class ThriftPlansBuilder {
                 planFragment.getChild(0).collectAll(PlanFragment.class::isInstance, childFragments);
                 for (PlanFragment child : childFragments) {
                     PlanFragmentId childFragmentId = child.getFragmentId();
+                    fragmentToNotifyClose.add(childFragmentId.asInt());
                     TRecCTETarget tRecCTETarget = fragmentIdToRecCteTargetMap.getOrDefault(childFragmentId, null);
                     if (tRecCTETarget != null) {
                         targets.add(tRecCTETarget);
@@ -670,6 +677,7 @@ public class ThriftPlansBuilder {
                 recursiveCteNode.settRecCTENode(tRecCTENode);
             }
         }
+        return fragmentToNotifyClose;
     }
 
     private static class PerNodeScanParams {
