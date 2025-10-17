@@ -486,4 +486,31 @@ TEST(DataTypeSerDeArrowTest, BigStringSerDeTest) {
     CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
 }
 
+TEST(DataTypeSerDeArrowTest, Int64ToInt32Conversion) {
+    // Create Doris int32 data type and serde
+    auto data_type = std::make_shared<DataTypeInt32>();
+    auto serde = data_type->get_serde();
+
+    // Create Arrow int64 array with test data
+    std::vector<int64_t> arrow_data = {1, 2, 3, 4, 5, 6};
+    auto arrow_array =
+            std::make_shared<arrow::Int64Array>(arrow_data.size(), arrow::Buffer::Wrap(arrow_data));
+
+    auto column = data_type->create_column();
+    column->reserve(arrow_data.size());
+
+    Status status = serde->read_column_from_arrow(*column, arrow_array.get(), 0, arrow_data.size(),
+                                                  cctz::utc_time_zone());
+    EXPECT_TRUE(status.ok());
+
+    const auto& result_data = static_cast<const ColumnVector<TYPE_INT>&>(*column).get_data();
+    EXPECT_EQ(result_data.size(), 6);
+    EXPECT_EQ(result_data[0], 1);
+    EXPECT_EQ(result_data[1], 2);
+    EXPECT_EQ(result_data[2], 3);
+    EXPECT_EQ(result_data[3], 4);
+    EXPECT_EQ(result_data[4], 5);
+    EXPECT_EQ(result_data[5], 6);
+}
+
 } // namespace doris::vectorized
