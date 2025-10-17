@@ -77,6 +77,11 @@ public class LogicalRecursiveCteRecursiveChild<CHILD_TYPE extends Plan> extends 
     }
 
     @Override
+    public String toString() {
+        return "LogicalRecursiveCteRecursiveChild(MUST_SHUFFLE)";
+    }
+
+    @Override
     public void computeUnique(DataTrait.Builder builder) {
 
     }
