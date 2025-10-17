@@ -228,7 +228,7 @@ private:
         bool _check_length;
         bool _is_jsonb =
                 false; // Make sure that the json binary data written in is the correct jsonb value.
-        PaddedPODArray<Slice> _slice;
+        PaddedPODArray<StringRef> _slice;
     };
 
     class OlapColumnDataConvertorAggState : public OlapColumnDataConvertorBase {

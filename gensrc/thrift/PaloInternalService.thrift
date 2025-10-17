@@ -393,20 +393,23 @@ struct TQueryOptions {
   162: optional bool dump_heap_profile_when_mem_limit_exceeded = false
   163: optional bool inverted_index_compatible_read = false
   164: optional bool check_orc_init_sargs_success = false
-  165: optional i32 exchange_multi_blocks_byte_size = 262144 
+  165: optional i32 exchange_multi_blocks_byte_size = 262144
   // true to use strict cast mode.
   166: optional bool enable_strict_cast = false
   167: optional bool new_version_unix_timestamp = false
 
   168: optional i32 hnsw_ef_search = 32;
   169: optional bool hnsw_check_relative_distance = true;
-  170: optional bool hnsw_bounded_queue = true; 
+  170: optional bool hnsw_bounded_queue = true;
 
   171: optional bool optimize_index_scan_parallelism = false;
 
   172: optional bool enable_prefer_cached_rowset
   173: optional i64 query_freshness_tolerance_ms
   174: optional i64 merge_read_slice_size = 8388608;
+
+  175: optional bool enable_fuzzy_blockable_task = false;
+  176: optional list<i32> shuffled_agg_ids;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.

@@ -197,9 +197,11 @@ public:
 
     size_t get_max_row_byte_size() const override { return data->get_max_row_byte_size(); }
 
-    void serialize_vec(StringRef* keys, size_t num_rows) const override {
+    void serialize(StringRef* keys, size_t num_rows) const override {
         DCHECK_EQ(data->size(), 1);
         for (size_t i = 0; i < num_rows; i++) {
+            // Used in hash_map_context.h, this address is allocated via Arena,
+            // but passed through StringRef, so using const_cast is acceptable.
             serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
         }
     }
