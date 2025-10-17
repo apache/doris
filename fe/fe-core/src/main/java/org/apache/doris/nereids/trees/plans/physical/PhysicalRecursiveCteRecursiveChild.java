@@ -55,6 +55,11 @@ public class PhysicalRecursiveCteRecursiveChild<CHILD_TYPE extends Plan> extends
     }
 
     @Override
+    public String toString() {
+        return "PhysicalRecursiveCteRecursiveChild(MUST_SHUFFLE)";
+    }
+
+    @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalRecursiveCteRecursiveChild<>(groupExpression, getLogicalProperties(), children.get(0));

@@ -1214,11 +1214,11 @@ querySpecification
     ;
 
 cte
-    : WITH aliasQuery (COMMA aliasQuery)*
+    : WITH RECURSIVE? aliasQuery (COMMA aliasQuery)*
     ;
 
 aliasQuery
-    : RECURSIVE? identifier columnAliases? AS LEFT_PAREN query RIGHT_PAREN
+    : identifier columnAliases? AS LEFT_PAREN query RIGHT_PAREN
     ;
 
 columnAliases
@@ -2143,6 +2143,7 @@ nonReserved
     | RANDOM
     | RECENT
     | RECOVER
+    | RECURSIVE
     | RECYCLE
     | REFRESH
     | REPEATABLE
