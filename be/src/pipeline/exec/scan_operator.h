@@ -124,7 +124,7 @@ protected:
 
     RuntimeFilterConsumerHelper _helper;
     std::mutex _conjunct_lock;
-    // magic number as seed to generate hash value for condiction cache
+    // magic number as seed to generate hash value for condition cache
     uint64_t _condition_cache_digest = 0;
 };
 
