@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
@@ -72,26 +71,7 @@ public abstract class AbstractInsertExecutor {
     protected long txnId = INVALID_TXN_ID;
 
     /**
-     * Randomly generate job ID.
-     */
-    public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
-            Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
-        this.ctx = ctx;
-        this.database = table.getDatabase();
-        if (Env.getCurrentEnv().isMaster()) {
-            this.insertLoadJob = new InsertLoadJob(database.getId(), labelName);
-            ctx.getEnv().getLoadManager().addLoadJob(insertLoadJob);
-        }
-        this.coordinator = EnvFactory.getInstance().createCoordinator(
-                ctx, planner, ctx.getStatsErrorEstimator(), insertLoadJob.getId());
-        this.labelName = labelName;
-        this.table = table;
-        this.insertCtx = insertCtx;
-        this.emptyInsert = emptyInsert;
-    }
-
-    /**
-     * Specify job ID.
+     * constructor
      */
     public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
             Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId) {
@@ -161,9 +141,8 @@ public abstract class AbstractInsertExecutor {
      */
     protected abstract void afterExec(StmtExecutor executor);
 
-    protected final void execImpl(StmtExecutor executor, long jobId) throws Exception {
+    protected final void execImpl(StmtExecutor executor) throws Exception {
         String queryId = DebugUtil.printId(ctx.queryId());
-        this.jobId = jobId;
         coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
         coordinator.setQueryType(TQueryType.LOAD);
         coordinator.setIsProfileSafeStmt(executor.isProfileSafeStmt());
@@ -223,11 +202,11 @@ public abstract class AbstractInsertExecutor {
     /**
      * execute insert txn for insert into select command.
      */
-    public void executeSingleInsert(StmtExecutor executor, long jobId) throws Exception {
+    public void executeSingleInsert(StmtExecutor executor) throws Exception {
         beforeExec();
         try {
             executor.updateProfile(false);
-            execImpl(executor, jobId);
+            execImpl(executor);
             checkStrictModeAndFilterRatio();
             onComplete();
         } catch (Throwable t) {
