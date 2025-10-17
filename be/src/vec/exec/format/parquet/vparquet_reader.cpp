@@ -937,6 +937,9 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
                 // TODO(gabriel): Simplify `get_all_column_ids`
                 std::set<ColumnId> column_id_set;
                 predicate->get_all_column_ids(column_id_set);
+                if (column_id_set.empty()) {
+                    continue;
+                }
                 DCHECK_EQ(column_id_set.size(), 1);
                 auto* slot = _tuple_descriptor->slots()[*column_id_set.begin()];
                 if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
@@ -1054,6 +1057,9 @@ Status ParquetReader::_process_column_stat_filter(const tparquet::RowGroup& row_
         // TODO(gabriel): Simplify `get_all_column_ids`
         std::set<ColumnId> column_id_set;
         predicate->get_all_column_ids(column_id_set);
+        if (column_id_set.empty()) {
+            continue;
+        }
         DCHECK_EQ(column_id_set.size(), 1);
         auto* slot = _tuple_descriptor->slots()[*column_id_set.begin()];
         if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
