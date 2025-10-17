@@ -14,17 +14,18 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/UnionNode.java
-// and modified by Doris
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TRecCTENode;
+
+import com.google.common.base.MoreObjects;
 
 public class RecursiveCteNode extends SetOperationNode {
 
@@ -48,5 +49,25 @@ public class RecursiveCteNode extends SetOperationNode {
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.REC_CTE_NODE;
         msg.rec_cte_node = tRecCTENode;
+    }
+
+    @Override
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        StringBuilder output = new StringBuilder();
+        output.append(prefix).append("Recursive Cte: ").append("\n");
+        output.append(prefix).append("isUnionAll: ").append(isUnionAll).append("\n");
+        if (!conjuncts.isEmpty()) {
+            Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
+            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+        }
+        return output.toString();
+    }
+
+    @Override
+    public String toString() {
+        return MoreObjects.toStringHelper(this)
+                .add("id", getId().asInt())
+                .add("tid", tupleId.asInt())
+                .add("isUnionAll", isUnionAll).toString();
     }
 }

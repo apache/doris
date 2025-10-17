@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
 
 import java.util.Collections;
@@ -99,6 +100,14 @@ public class RecursiveCteScanNode extends ScanNode {
             output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
         }
         return output.toString();
+    }
+
+    @Override
+    public String toString() {
+        return MoreObjects.toStringHelper(this)
+                .add("recursiveCteName", recursiveCteName)
+                .add("id", getId().asInt())
+                .add("tid", desc.getId().asInt()).toString();
     }
 
     @Override

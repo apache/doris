@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCte;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteRecursiveChild;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.ProjectProcessor;
@@ -108,7 +109,7 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         List<LogicalCTEProducer<Plan>> cteProducerPlans = new ArrayList<>();
         for (LogicalSubQueryAlias<Plan> aliasQuery : aliasQueries) {
             // we should use a chain to ensure visible of cte
-            if (aliasQuery.isRecursiveCte()) {
+            if (aliasQuery.isRecursiveCte() && logicalCTE.isRecursiveCte()) {
                 Pair<CTEContext, LogicalCTEProducer<Plan>> result = analyzeRecursiveCte(aliasQuery, outerCteCtx,
                         cascadesContext);
                 outerCteCtx = result.first;
@@ -150,13 +151,10 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         });
         cascadesContext.addPlanProcesses(innerAnchorCascadesCtx.getPlanProcesses());
         LogicalPlan analyzedAnchorChild = (LogicalPlan) innerAnchorCascadesCtx.getRewritePlan();
-        List<NamedExpression> anchorNullableOutputs = new ArrayList<>(analyzedAnchorChild.getOutput().size());
-        for (Slot slot : analyzedAnchorChild.getOutput()) {
-            anchorNullableOutputs.add(new Alias(new Nullable(slot), slot.getName()));
-        }
-        analyzedAnchorChild = new LogicalProject<>(anchorNullableOutputs, analyzedAnchorChild);
         checkColumnAlias(aliasQuery, analyzedAnchorChild.getOutput());
-
+        // make all output nullable
+        analyzedAnchorChild = forceOutputNullable(analyzedAnchorChild,
+                aliasQuery.getColumnAliases().orElse(ImmutableList.of()));
         // analyze recursive child
         LogicalPlan recursiveChild = (LogicalPlan) parsedCtePlan.child(1);
         CascadesContext innerRecursiveCascadesCtx = CascadesContext.newContextWithCteContext(
@@ -167,26 +165,28 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         });
         cascadesContext.addPlanProcesses(innerRecursiveCascadesCtx.getPlanProcesses());
         LogicalPlan analyzedRecursiveChild = (LogicalPlan) innerRecursiveCascadesCtx.getRewritePlan();
-        List<DataType> anchorChildOutputTypes = new ArrayList<>(analyzedAnchorChild.getOutput().size());
-        for (Slot slot : analyzedAnchorChild.getOutput()) {
+        List<LogicalRecursiveCteScan> recursiveCteScanList = analyzedRecursiveChild
+                .collectToList(LogicalRecursiveCteScan.class::isInstance);
+        if (recursiveCteScanList.size() > 1) {
+            throw new AnalysisException(String.format("can have only 1 recursive cte instance, but there is %d",
+                    recursiveCteScanList.size()));
+        }
+        List<Slot> anchorChildOutputs = analyzedAnchorChild.getOutput();
+        List<DataType> anchorChildOutputTypes = new ArrayList<>(anchorChildOutputs.size());
+        for (Slot slot : anchorChildOutputs) {
             anchorChildOutputTypes.add(slot.getDataType());
         }
         List<Slot> recursiveChildOutputs = analyzedRecursiveChild.getOutput();
         for (int i = 0; i < recursiveChildOutputs.size(); ++i) {
-            if (recursiveChildOutputs.get(i).getDataType() != anchorChildOutputTypes.get(i)) {
+            if (!recursiveChildOutputs.get(i).getDataType().equals(anchorChildOutputTypes.get(i))) {
                 throw new AnalysisException(String.format("recursive child's %d column's datatype in select list %s "
                                 + "is different from anchor child's output datatype %s, please add cast manually "
                                 + "to get expect datatype",
                         i + 1, recursiveChildOutputs.get(i).getDataType(), anchorChildOutputTypes.get(i)));
             }
         }
-
-        List<NamedExpression> recursiveNullableOutputs = new ArrayList<>(analyzedRecursiveChild.getOutput().size());
-        for (Slot slot : analyzedRecursiveChild.getOutput()) {
-            recursiveNullableOutputs.add(new Alias(new Nullable(slot), slot.getName()));
-        }
-        analyzedRecursiveChild = new LogicalProject<>(recursiveNullableOutputs, analyzedRecursiveChild);
-        analyzedRecursiveChild = new LogicalRecursiveCteRecursiveChild<>(analyzedRecursiveChild);
+        analyzedRecursiveChild = new LogicalRecursiveCteRecursiveChild<>(forceOutputNullable(analyzedRecursiveChild,
+                ImmutableList.of()));
 
         // create LogicalRecursiveCte
         LogicalUnion logicalUnion = (LogicalUnion) parsedCtePlan;
@@ -221,6 +221,22 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         outerCteCtx.setAnalyzedPlan(logicalSubQueryAlias);
         LogicalCTEProducer<Plan> cteProducer = new LogicalCTEProducer<>(cteId, logicalSubQueryAlias);
         return Pair.of(outerCteCtx, cteProducer);
+    }
+
+    private LogicalPlan forceOutputNullable(LogicalPlan logicalPlan, List<String> aliasNames) {
+        List<Slot> oldOutputs = logicalPlan.getOutput();
+        int size = oldOutputs.size();
+        List<NamedExpression> newOutputs = new ArrayList<>(oldOutputs.size());
+        if (!aliasNames.isEmpty()) {
+            for (int i = 0; i < size; ++i) {
+                newOutputs.add(new Alias(new Nullable(oldOutputs.get(i)), aliasNames.get(i)));
+            }
+        } else {
+            for (Slot slot : oldOutputs) {
+                newOutputs.add(new Alias(new Nullable(slot), slot.getName()));
+            }
+        }
+        return new LogicalProject<>(newOutputs, logicalPlan);
     }
 
     /**

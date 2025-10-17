@@ -2134,7 +2134,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx == null) {
             return plan;
         }
-        return new LogicalCTE<>((List) visit(ctx.aliasQuery(), LogicalSubQueryAlias.class), plan);
+        return new LogicalCTE<>(ctx.RECURSIVE() != null,
+                (List) visit(ctx.aliasQuery(), LogicalSubQueryAlias.class), plan);
     }
 
     /**
@@ -2149,8 +2150,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             .map(RuleContext::getText)
                             .collect(ImmutableList.toImmutableList())
             );
-            return new LogicalSubQueryAlias<>(ctx.identifier().getText(), columnNames, ctx.RECURSIVE() != null,
-                    queryPlan);
+            return new LogicalSubQueryAlias<>(ctx.identifier().getText(), columnNames, queryPlan);
         });
     }
 
