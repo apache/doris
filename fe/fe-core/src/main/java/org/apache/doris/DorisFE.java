@@ -188,7 +188,14 @@ public class DorisFE {
                     "software.amazon.awssdk.http.urlconnection.UrlConnectionSdkHttpService");
 
             if (cmdLineOpts.getClusterSnapshotPath() != null) {
-                Env.getCurrentEnv().setClusterSnapshotFile(dorisHomeDir + "/" + cmdLineOpts.getClusterSnapshotPath());
+                if (cmdLineOpts.getClusterSnapshotPath().startsWith("/")) {
+                    // absolute path
+                    Env.getCurrentEnv().setClusterSnapshotFile(cmdLineOpts.getClusterSnapshotPath());
+                } else {
+                    // relative path
+                    Env.getCurrentEnv()
+                            .setClusterSnapshotFile(dorisHomeDir + "/" + cmdLineOpts.getClusterSnapshotPath());
+                }
             }
             // init catalog and wait it be ready
             Env.getCurrentEnv().initialize(args);
@@ -324,7 +331,7 @@ public class DorisFE {
             cmd = commandLineParser.parse(options, args);
         } catch (final ParseException e) {
             LOG.warn("", e);
-            System.err.println("Failed to parse command line. exit now");
+            System.err.println("Failed to parse command line. exit now. error msg: " + e.getMessage());
             System.exit(-1);
         }
 

@@ -296,6 +296,64 @@ class StopCommand(SimpleCommand):
         return cluster, related_nodes
 
 
+class RollbackSnapshotCommand(Command):
+
+    def add_parser(self, args_parsers):
+        parser = args_parsers.add_parser("rollback_snapshot", help="rollback cluster from snapshot.")
+        parser.add_argument(
+            "--wait-timeout",
+            type=int,
+            default=0,
+            help=
+            "Specify wait seconds for fe/be close for service: 0 not wait (default), " \
+            "> 0 max wait seconds, -1 wait unlimited."
+        )
+        parser.add_argument("NAME", default="", help="Specific cluster name.")
+        parser.add_argument("--cluster_snapshot", default="", help="Specify cluster_snapshot json file.")
+        self._add_parser_ids_args(parser)
+        self._add_parser_common_args(parser)
+        return parser
+
+    def run(self, args):
+        if (not args.cluster_snapshot):
+            raise Exception("Need specific not empty cluster_snapshot")
+        cluster = CLUSTER.Cluster.load(args.NAME)
+        if not cluster.is_cloud:
+            raise Exception("cluster_snapshot only support cloud mode")
+        if not os.path.exists(args.cluster_snapshot):
+            raise FileNotFoundError(f"cluster_snapshot json file does not exist: {args.cluster_snapshot}")
+        if not os.path.isfile(args.cluster_snapshot):
+            raise ValueError(f"cluster_snapshot json file is not a file: {args.cluster_snapshot}")
+
+        # stop nodes
+        _, related_nodes, _ = get_ids_related_nodes(cluster, args.fe_id,
+                                                    args.be_id, args.ms_id,
+                                                    args.recycle_id,
+                                                    args.fdb_id)
+        options = []
+        output_real_time = True
+        utils.exec_docker_compose_command(cluster.get_compose_file(),
+                                          "stop",
+                                          options,
+                                          related_nodes,
+                                          output_real_time=output_real_time)
+
+        # copy snapshot json file; clean meta dir
+        for fe in related_nodes:
+            shutil.copy(args.cluster_snapshot, fe.get_path() + "/conf/")
+            os.rename(fe.get_path() + "/doris-meta/", fe.get_path() + "/doris-meta.bak/")
+            os.mkdir(fe.get_path() + "/doris-meta/")
+
+        # start nodes
+        LOG.info("try start")
+        utils.exec_docker_compose_command(cluster.get_compose_file(),
+                                          "start",
+                                          options,
+                                          related_nodes,
+                                          output_real_time=output_real_time)
+        return cluster, related_nodes
+
+
 class UpCommand(Command):
 
     def add_parser(self, args_parsers):
@@ -1504,4 +1562,5 @@ ALL_COMMANDS = [
     InfoCommand("info"),
     ListCommand("ls"),
     AddRWPermCommand("add-rw-perm"),
+    RollbackSnapshotCommand("rollback_snapshot"),
 ]
