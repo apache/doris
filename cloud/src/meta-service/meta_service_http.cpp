@@ -690,6 +690,18 @@ static HttpResponse process_set_snapshot_property(MetaServiceImpl* service,
         (*properties)[property_name] = is_enable;
         properties->erase("status");
     }
+    if (properties->contains("max_reserved_snapshots")) {
+        const std::string& property_name = AlterInstanceRequest::SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS);
+        (*properties)[property_name] = properties->at("max_reserved_snapshots");
+        properties->erase("max_reserved_snapshots");
+    }
+    if (properties->contains("snapshot_interval_seconds")) {
+        const std::string& property_name = AlterInstanceRequest::SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS);
+        (*properties)[property_name] = properties->at("snapshot_interval_seconds");
+        properties->erase("snapshot_interval_seconds");
+    }
     req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
     AlterInstanceResponse resp;
     service->alter_instance(ctrl, &req, &resp, nullptr);
