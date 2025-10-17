@@ -21,6 +21,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.job.common.FailureReason;
+import org.apache.doris.job.common.JobStatus;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertTask;
 
@@ -73,7 +76,20 @@ public class StreamingTaskScheduler extends MasterDaemon {
     private void scheduleTasks(List<StreamingInsertTask> tasks) {
         for (StreamingInsertTask task : tasks) {
             threadPool.execute(() -> {
-                scheduleOneTask(task);
+                try {
+                    scheduleOneTask(task);
+                }catch (Exception e){
+                    log.warn("Failed to schedule task, task id {}, job id {}",
+                            task.getTaskId(), task.getJobId(), e);
+                    StreamingInsertJob job = (StreamingInsertJob) Env.getCurrentEnv().getJobManager().getJob(task.getJobId());
+                    job.setFailureReason(new FailureReason(e.getMessage()));
+                    try {
+                        job.updateJobStatus(JobStatus.PAUSED);
+                    } catch (JobException ex) {
+                        log.warn("Failed to pause job {} after task {} scheduling failed",
+                                task.getJobId(), task.getTaskId(), ex);
+                    }
+                }
             });
         }
     }
