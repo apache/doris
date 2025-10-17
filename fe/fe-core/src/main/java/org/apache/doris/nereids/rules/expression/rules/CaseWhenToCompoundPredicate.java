@@ -50,7 +50,7 @@ import java.util.Optional;
  *
  */
 public class CaseWhenToCompoundPredicate implements ExpressionPatternRuleFactory {
-    public static CaseWhenToCompoundPredicate INSTANCE = new CaseWhenToCompoundPredicate();
+    public static final CaseWhenToCompoundPredicate INSTANCE = new CaseWhenToCompoundPredicate();
     private static final IfToCompoundPredicateInCond IF_REWRITE_IN_COND = new IfToCompoundPredicateInCond();
 
     @Override

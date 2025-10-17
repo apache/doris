@@ -58,7 +58,7 @@ public class NullSafeEqualToEqual extends ConditionRewrite {
         Expression newLeft = newNullSafeEqual.left();
         Expression newRight = newNullSafeEqual.right();
         boolean canConvertToEqual = (!newLeft.nullable() && !newRight.nullable())
-                || (isInsideCondition && (newLeft.nullable() || newRight.nullable()));
+                || (isInsideCondition && (!newLeft.nullable() || !newRight.nullable()));
         if (newLeft.equals(newRight)) {
             return BooleanLiteral.TRUE;
         } else if (newLeft.isNullLiteral() && newRight.isNullLiteral()) {

@@ -123,6 +123,9 @@ class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
                     bottomUp(NullSafeEqualToEqual.INSTANCE)
             ));
 
+            assertRewriteAfterTypeCoercion("a <=> a", "TRUE");
+            assertRewriteAfterTypeCoercion("a <=> b", "a <=> b");
+            assertRewriteAfterTypeCoercion("a <=> count(b)", "a = count(b)");
             assertRewriteAfterTypeCoercion("a <=> 3", "a = 3");
             assertRewriteAfterTypeCoercion("count(a) <=> count(b)", "count(a) = count(b)");
             assertRewriteAfterTypeCoercion("a <=> null", "a is null");
@@ -142,6 +145,8 @@ class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
         ));
 
         assertRewriteAfterTypeCoercion("a <=> 3", "a <=> 3");
+        assertRewriteAfterTypeCoercion("a <=> b", "a <=> b");
+        assertRewriteAfterTypeCoercion("a <=> count(b)", "a <=> count(b)");
         assertRewriteAfterTypeCoercion("count(a) <=> count(b)", "count(a) = count(b)");
         assertRewriteAfterTypeCoercion("a <=> null", "a is null");
         assertRewriteAfterTypeCoercion("null <=> 3", "false");
