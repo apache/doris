@@ -35,12 +35,6 @@
 // IWYU pragma: no_include <emmintrin.h>
 #include "util/sse_util.hpp"
 
-#ifdef __ARM_FEATURE_SVE
-#include <arm_sve.h>
-#elif defined(__ARM_NEON)
-#include <arm_neon.h>
-#endif
-
 namespace doris {
 #include "common/compile_check_begin.h"
 
@@ -126,18 +120,6 @@ void BlockBloomFilter::close() {
 }
 
 #ifdef __ARM_FEATURE_SVE
-
-static constexpr uint32_t svRehash[8] __attribute__((aligned(32))) = {BLOOM_HASH_CONSTANTS};
-
-static inline ALWAYS_INLINE svuint32_t make_mask(svbool_t pg, const uint32_t base, const uint32_t hash) {
-    const svuint32_t vones = svdup_u32(1U);
-    const svuint32_t vhash = svdup_u32(hash);
-    svuint32_t vrehash = svld1(pg, svRehash + base);
-    svuint32_t vprod = svmul_u32_x(pg, vrehash, vhash);
-    svuint32_t vshr  = svlsr_n_u32_x(pg, vprod, 27);
-    return svlsl_u32_x(pg, vones, vshr);
-}
-
 void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t hash) noexcept {
     uint32_t* bucket = _directory[bucket_idx];
 
@@ -170,38 +152,12 @@ bool BlockBloomFilter::bucket_find(uint32_t bucket_idx, uint32_t hash) const noe
     return true;
 }
 #elif defined(__ARM_NEON)
-// A static helper function for the arm64 methods. Turns a 32-bit hash into a 256-bit
-// Bucket with 1 single 1-bit set in each 32-bit lane.
-static inline ALWAYS_INLINE uint32x4x2_t make_mask(const uint32_t hash) {
-    const uint32x4_t ones = vdupq_n_u32(1);
-    constexpr uint32_t c[8] = {BLOOM_HASH_CONSTANTS};
-    const uint32x4x2_t rehash = vld1q_u32_x2(c);
-    // Load hash, repeated 4 times.
-    uint32x4_t hash_data = vdupq_n_u32(hash);
-
-    // Multiply-shift hashing ala Dietzfelbinger et al.: multiply 'hash' by eight different
-    // odd constants, then keep the 5 most significant bits from each product.
-    int32x4x2_t t;
-    t.val[0] = vreinterpretq_s32_u32(vshrq_n_u32(vmulq_u32(rehash.val[0], hash_data), 27));
-    t.val[1] = vreinterpretq_s32_u32(vshrq_n_u32(vmulq_u32(rehash.val[1], hash_data), 27));
-
-    // Use these 5 bits to shift a single bit to a location in each 32-bit lane
-    uint32x4x2_t res;
-    res.val[0] = vshlq_u32(ones, t.val[0]);
-    res.val[1] = vshlq_u32(ones, t.val[1]);
-    return res;
-}
-
-
-
 void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t hash) noexcept {
     const uint32x4x2_t mask = make_mask(hash);
-    uint32x4x2_t* addr = &(reinterpret_cast<uint32x4x2_t*>(_directory)[bucket_idx]);
-    auto* bucket = reinterpret_cast<uint32_t*>(addr);
-    uint32x4x2_t data = vld1q_u32_x2(bucket);
+    uint32x4x2_t data = vld1q_u32_x2(&_directory[bucket_idx][0]);
     data.val[0] = vorrq_u32(data.val[0], mask.val[0]);
     data.val[1] = vorrq_u32(data.val[1], mask.val[1]);
-    vst1q_u32_x2(bucket, data);
+    vst1q_u32_x2(&_directory[bucket_idx][0], data);
 }
 
 bool BlockBloomFilter::bucket_find_neon(const uint32_t bucket_idx, const uint32_t hash) const noexcept {
@@ -229,32 +185,32 @@ bool BlockBloomFilter::bucket_find_neon(const uint32_t bucket_idx, const uint32_
 
 bool BlockBloomFilter::bucket_find(const uint32_t bucket_idx, const uint32_t hash) const noexcept {
     const uint32x4x2_t mask = make_mask(hash);
-    uint32x4x2_t* addr = &(reinterpret_cast<uint32x4x2_t*>(_directory)[bucket_idx]);
-    auto* bucket = reinterpret_cast<uint32_t*>(addr);
-    uint32x4x2_t data = vld1q_u32_x2(bucket);
+    // uint32x4x2_t* addr = &(reinterpret_cast<uint32x4x2_t*>(_directory)[bucket_idx]);
+    // auto* bucket = reinterpret_cast<uint32_t*>(addr);
+    uint32x4x2_t data = vld1q_u32_x2(&_directory[bucket_idx][0]);
     // We should return true if 'bucket' has a one wherever 'mask' does.
     // Solution 1
-    uint32x4_t t0 = vtstq_u32(data.val[0], mask.val[0]);
-    uint32x4_t t1 = vtstq_u32(data.val[1], mask.val[1]);
-    int64x2_t t = vreinterpretq_s64_u32(vandq_u32(t0, t1));
-    int64_t a = vgetq_lane_s64(t, 0) & vgetq_lane_s64(t, 1);
-    return a == -1;
+    // uint32x4_t t0 = vtstq_u32(data.val[0], mask.val[0]);
+    // uint32x4_t t1 = vtstq_u32(data.val[1], mask.val[1]);
+    // int64x2_t t = vreinterpretq_s64_u32(vandq_u32(t0, t1));
+    // int64_t a = vgetq_lane_s64(t, 0) & vgetq_lane_s64(t, 1);
+    // return a == -1;
     // Solution 2
     // uint32x4_t t0 = vandq_u32(data.val[0], mask.val[0]);
     // uint32x4_t t1 = vandq_u32(data.val[1], mask.val[1]);
     // return !(vminvq_u32(t0) == 0U || vminvq_u32(t1) == 0U);
     // Solution 3
-    // uint32x4_t miss0 = vbicq_u32(mask.val[0], data.val[0]);
-    // uint32x4_t miss1 = vbicq_u32(mask.val[1], data.val[1]);
-    // uint32x4_t miss = vorrq_u32(miss0, miss1);
-    // return vmaxvq_u32(miss) == 0U;
+    uint32x4_t miss0 = vbicq_u32(mask.val[0], data.val[0]);
+    uint32x4_t miss1 = vbicq_u32(mask.val[1], data.val[1]);
+    uint32x4_t miss = vorrq_u32(miss0, miss1);
+    return vmaxvq_u32(miss) == 0U;
     // Solution 4
     // uint32x4_t t0 = vtstq_u32(data.val[0], mask.val[0]);
     // uint32x4_t t1 = vtstq_u32(data.val[1], mask.val[1]);
     // uint32x4_t t = vandq_u32(t0, t1);
     // return !(vminvq_u32(t) == 0U);
 }
-#elif defined(__x86_64__)
+#else
 void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t hash) noexcept {
     // new_bucket will be all zeros except for eight 1-bits, one in each 32-bit word. It is
     // 16-byte aligned so it can be read as a __m128i using aligned SIMD loads in the second
@@ -274,10 +230,10 @@ void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t h
 }
 
 bool BlockBloomFilter::bucket_find(const uint32_t bucket_idx, const uint32_t hash) const noexcept {
+    uint32_t masks[kBucketWords];
+    make_mask(hash, masks);
     for (int i = 0; i < kBucketWords; ++i) {
-        BucketWord hval = (kRehash[i] * hash) >> ((1 << kLogBucketWordBits) - kLogBucketWordBits);
-        hval = 1U << hval;
-        if (!(DCHECK_NOTNULL(_directory)[bucket_idx][i] & hval)) {
+        if ((DCHECK_NOTNULL(_directory)[bucket_idx][i] & masks[i]) == 0) {
             return false;
         }
     }

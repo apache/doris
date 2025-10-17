@@ -21,21 +21,23 @@
 #include "exprs/block_bloom_filter.hpp"
 
 namespace doris {
-    static std::unique_ptr<BlockBloomFilter> create_bloom_filter(int log_space_bytes = 20) {
+    static std::unique_ptr<BlockBloomFilter> create_bloom_filter(int batch, int log_space_bytes = 20) {
         auto bloom_filter = std::make_unique<BlockBloomFilter>();
         [[maybe_unused]] Status status = bloom_filter->init(log_space_bytes, 0);
+
+        for (int i = 0; i < batch; i++) {
+            bloom_filter->insert(i);
+        }
+
         return bloom_filter;
     }
 } // namespace doris
 
 static void BM_BBF_BucketInsert(benchmark::State& state) {
     const int batch = static_cast<int>(state.range(0));
+    auto bf = doris::create_bloom_filter(batch);
 
     for (auto _ : state) {
-        state.PauseTiming();
-        auto bf = doris::create_bloom_filter();
-        state.ResumeTiming();
-
         for (int i = 0; i < batch; i++) {
             bf->insert(i);
         }
@@ -46,15 +48,9 @@ static void BM_BBF_BucketInsert(benchmark::State& state) {
 
 static void BM_BBF_BucketFind_Hit(benchmark::State& state) {
     const int batch = static_cast<int>(state.range(0));
+    auto bf = doris::create_bloom_filter(batch);
 
     for (auto _ : state) {
-        state.PauseTiming();
-        auto bf = doris::create_bloom_filter();
-        for (int i = 0; i < batch; i++) {
-            bf->insert(i);
-        }
-        state.ResumeTiming();
-
         bool acc = false;
         for (int i = 0; i < batch; i++) {
             acc ^= bf->find(i);
@@ -66,15 +62,9 @@ static void BM_BBF_BucketFind_Hit(benchmark::State& state) {
 
 static void BM_BBF_BucketFind_Miss(benchmark::State& state) {
     const int batch = static_cast<int>(state.range(0));
+    auto bf = doris::create_bloom_filter(batch);
 
     for (auto _ : state) {
-        state.PauseTiming();
-        auto bf = doris::create_bloom_filter();
-        for (int i = 0; i < batch; i++) {
-            bf->insert(i);
-        }
-        state.ResumeTiming();
-
         bool acc = false;
         for (int i = 0; i < batch; i++) {
             acc ^= bf->find(i + batch);
@@ -87,15 +77,9 @@ static void BM_BBF_BucketFind_Miss(benchmark::State& state) {
 #ifdef __ARM_NEON
 static void BM_BBF_BucketFindNeon_Hit(benchmark::State& state) {
     const int batch = static_cast<int>(state.range(0));
+    auto bf = doris::create_bloom_filter(batch);
 
     for (auto _ : state) {
-        state.PauseTiming();
-        auto bf = doris::create_bloom_filter();
-        for (int i = 0; i < batch; i++) {
-            bf->insert(i);
-        }
-        state.ResumeTiming();
-
         bool acc = false;
         for (int i = 0; i < batch; i++) {
             acc ^= bf->find_neon(i);
@@ -107,15 +91,9 @@ static void BM_BBF_BucketFindNeon_Hit(benchmark::State& state) {
 
 static void BM_BBF_BucketFindNeon_Miss(benchmark::State& state) {
     const int batch = static_cast<int>(state.range(0));
+    auto bf = doris::create_bloom_filter(batch);
 
     for (auto _ : state) {
-        state.PauseTiming();
-        auto bf = doris::create_bloom_filter();
-        for (int i = 0; i < batch; i++) {
-            bf->insert(i);
-        }
-        state.ResumeTiming();
-
         bool acc = false;
         for (int i = 0; i < batch; i++) {
             acc ^= bf->find_neon(i + batch);
