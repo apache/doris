@@ -2087,8 +2087,13 @@ void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type)
     }
 }
 
-bool ColumnVariant::empty() const {
-    return subcolumns.empty() || subcolumns.begin()->get()->path.get_path() == COLUMN_NAME_DUMMY;
+bool ColumnVariant::only_have_default_values() const {
+    for (const auto& entry : subcolumns) {
+        if (entry->data.least_common_type.get_base_type_id() != PrimitiveType::INVALID_TYPE) {
+            return false;
+        }
+    }
+    return true;
 }
 
 ColumnPtr ColumnVariant::filter(const Filter& filter, ssize_t count) const {
