@@ -111,6 +111,20 @@ public class CaseWhen extends Expression {
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder("CASE");
+        for (Expression child : children()) {
+            if (child instanceof WhenClause) {
+                sb.append(child.toDigest());
+            } else {
+                sb.append(" ELSE ").append(child.toDigest());
+            }
+        }
+        sb.append(" END");
+        return sb.toString();
+    }
+
+    @Override
     public String computeToSql() throws UnboundException {
         StringBuilder output = new StringBuilder("CASE");
         for (Expression child : children()) {

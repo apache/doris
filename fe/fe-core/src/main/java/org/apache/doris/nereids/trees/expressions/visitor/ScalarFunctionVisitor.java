@@ -208,6 +208,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.EndsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EsQuery;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Even;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ExportSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ExtractUrlParameter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Field;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FindInSet;
@@ -225,6 +226,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromIso8601Da
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GetFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
@@ -357,6 +359,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NormalCdf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NormalizeJsonNumbersToDouble;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NotNullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
@@ -421,6 +424,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Decrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Encrypt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SortJsonbObjectKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Soundex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Space;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
@@ -1597,6 +1601,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(jsonbValid, context);
     }
 
+    default R visitSortJsonbObjectKeys(SortJsonbObjectKeys sort, C context) {
+        return visitScalarFunction(sort, context);
+    }
+
     default R visitL1Distance(L1Distance l1Distance, C context) {
         return visitScalarFunction(l1Distance, context);
     }
@@ -1783,6 +1791,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitNormalCdf(NormalCdf normalCdf, C context) {
         return visitScalarFunction(normalCdf, context);
+    }
+
+    default R visitNormalizeJsonNumbersToDouble(NormalizeJsonNumbersToDouble func, C context) {
+        return visitScalarFunction(func, context);
     }
 
     default R visitNotNullOrEmpty(NotNullOrEmpty notNullOrEmpty, C context) {
@@ -2584,5 +2596,13 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMakeSet(MakeSet makeSet, C context) {
         return visitScalarFunction(makeSet, context);
+    }
+
+    default R visitExportSet(ExportSet exportSet, C context) {
+        return visitScalarFunction(exportSet, context);
+    }
+
+    default R visitGetFormat(GetFormat getFormat, C context) {
+        return visitScalarFunction(getFormat, context);
     }
 }

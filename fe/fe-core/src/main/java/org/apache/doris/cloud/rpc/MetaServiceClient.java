@@ -499,6 +499,11 @@ public class MetaServiceClient {
                 .getStreamingTaskCommitAttach(request);
     }
 
+    public Cloud.DeleteStreamingJobResponse deleteStreamingJob(Cloud.DeleteStreamingJobRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .deleteStreamingJob(request);
+    }
+
     public Cloud.AlterInstanceResponse alterInstance(Cloud.AlterInstanceRequest request) {
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
                 .alterInstance(request);
