@@ -177,9 +177,9 @@ public:
         };
         T min_value;
         T max_value;
-        if constexpr (std::is_same_v<T, float>) {
-            min_value = (float)min_field.template get<Type>();
-            max_value = (float)max_field.template get<Type>();
+        if constexpr (is_int_or_bool(Type) || is_float_or_double(Type)) {
+            min_value = (typename PrimitiveTypeTraits<Type>::CppType)min_field.template get<Type>();
+            max_value = (typename PrimitiveTypeTraits<Type>::CppType)max_field.template get<Type>();
         } else {
             min_value = min_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
             max_value = max_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
