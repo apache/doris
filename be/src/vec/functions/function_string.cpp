@@ -978,32 +978,30 @@ struct UnHexImpl {
                          ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
-
-        int64_t total_size = 0;
-        for (size_t i = 0; i < rows_count; i++) {
-            size_t len = offsets[i] - offsets[i - 1];
-            total_size += len / 2;
-        }
-        ColumnString::check_chars_length(total_size, rows_count);
-        dst_data.resize(total_size);
-        char* dst_data_ptr = reinterpret_cast<char*>(dst_data.data());
-        size_t offset = 0;
-
+        std::array<char, string_hex::MAX_STACK_CIPHER_LEN> stack_buf;
+        std::vector<char> heap_buf;
         for (int i = 0; i < rows_count; ++i) {
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             ColumnString::Offset srclen = offsets[i] - offsets[i - 1];
 
-            if (UNLIKELY(srclen == 0)) {
-                dst_offsets[i] = cast_set<uint32_t>(offset);
+            if (srclen == 0) {
+                StringOP::push_empty_string(i, dst_data, dst_offsets);
                 continue;
             }
 
-            int outlen = string_hex::hex_decode(source, srclen, dst_data_ptr + offset);
+            auto cipher_len = srclen / 2;
+            char* dst = nullptr;
+            if (cipher_len <= stack_buf.size()) {
+                dst = stack_buf.data();
+            } else {
+                heap_buf.resize(cipher_len);
+                dst = heap_buf.data();
+            }
 
-            offset += outlen;
-            dst_offsets[i] = cast_set<uint32_t>(offset);
+            int outlen = string_hex::hex_decode(source, srclen, dst);
+            StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
         }
-        dst_data.pop_back(total_size - offset);
+
         return Status::OK();
     }
 
@@ -1012,39 +1010,35 @@ struct UnHexImpl {
                          ColumnUInt8::Container* null_map_data) {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
-
-        int64_t total_size = 0;
-        for (size_t i = 0; i < rows_count; i++) {
-            size_t len = offsets[i] - offsets[i - 1];
-            total_size += len / 2;
-        }
-        ColumnString::check_chars_length(total_size, rows_count);
-        dst_data.resize(total_size);
-        char* dst_data_ptr = reinterpret_cast<char*>(dst_data.data());
-        size_t offset = 0;
-
+        std::array<char, string_hex::MAX_STACK_CIPHER_LEN> stack_buf;
+        std::vector<char> heap_buf;
         for (int i = 0; i < rows_count; ++i) {
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             ColumnString::Offset srclen = offsets[i] - offsets[i - 1];
 
-            if (UNLIKELY(srclen == 0)) {
-                (*null_map_data)[i] = 1;
-                dst_offsets[i] = cast_set<uint32_t>(offset);
+            if (srclen == 0) {
+                StringOP::push_null_string(i, dst_data, dst_offsets, *null_map_data);
                 continue;
             }
 
-            int outlen = string_hex::hex_decode(source, srclen, dst_data_ptr + offset);
+            auto cipher_len = srclen / 2;
+            char* dst = nullptr;
+            if (cipher_len <= stack_buf.size()) {
+                dst = stack_buf.data();
+            } else {
+                heap_buf.resize(cipher_len);
+                dst = heap_buf.data();
+            }
 
+            int outlen = string_hex::hex_decode(source, srclen, dst);
             if (outlen == 0) {
-                (*null_map_data)[i] = 1;
-                dst_offsets[i] = cast_set<uint32_t>(offset);
+                StringOP::push_null_string(i, dst_data, dst_offsets, *null_map_data);
                 continue;
             }
 
-            offset += outlen;
-            dst_offsets[i] = cast_set<uint32_t>(offset);
+            StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
         }
-        dst_data.pop_back(total_size - offset);
+
         return Status::OK();
     }
 };
@@ -1094,33 +1088,30 @@ struct ToBase64Impl {
                          ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
-
-        size_t total_size = 0;
-        for (size_t i = 0; i < rows_count; i++) {
-            size_t len = offsets[i] - offsets[i - 1];
-            total_size += 4 * ((len + 2) / 3);
-        }
-        ColumnString::check_chars_length(total_size, rows_count);
-        dst_data.resize(total_size);
-        auto* dst_data_ptr = dst_data.data();
-        size_t offset = 0;
-
+        std::array<char, string_hex::MAX_STACK_CIPHER_LEN> stack_buf;
+        std::vector<char> heap_buf;
         for (int i = 0; i < rows_count; ++i) {
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t srclen = offsets[i] - offsets[i - 1];
 
-            if (UNLIKELY(srclen == 0)) {
-                dst_offsets[i] = cast_set<uint32_t>(offset);
+            if (srclen == 0) {
+                StringOP::push_empty_string(i, dst_data, dst_offsets);
                 continue;
             }
 
-            auto outlen = doris::base64_encode((const unsigned char*)source, srclen,
-                                               (unsigned char*)(dst_data_ptr + offset));
+            auto cipher_len = srclen / 2;
+            char* dst = nullptr;
+            if (cipher_len <= stack_buf.size()) {
+                dst = stack_buf.data();
+            } else {
+                heap_buf.resize(cipher_len);
+                dst = heap_buf.data();
+            }
 
-            offset += outlen;
-            dst_offsets[i] = cast_set<uint32_t>(offset);
+            auto outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
+
+            StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
         }
-        dst_data.pop_back(total_size - offset);
         return Status::OK();
     }
 };
@@ -1135,43 +1126,40 @@ struct FromBase64Impl {
                          NullMap& null_map) {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
-
-        size_t total_size = 0;
-        for (size_t i = 0; i < rows_count; i++) {
-            auto len = offsets[i] - offsets[i - 1];
-            total_size += len / 4 * 3;
-        }
-        ColumnString::check_chars_length(total_size, rows_count);
-        dst_data.resize(total_size);
-        char* dst_data_ptr = reinterpret_cast<char*>(dst_data.data());
-        size_t offset = 0;
-
+        std::array<char, string_hex::MAX_STACK_CIPHER_LEN> stack_buf;
+        std::vector<char> heap_buf;
         for (int i = 0; i < rows_count; ++i) {
-            if (UNLIKELY(null_map[i])) {
-                null_map[i] = 1;
-                dst_offsets[i] = cast_set<uint32_t>(offset);
+            if (null_map[i]) {
+                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
                 continue;
             }
 
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             ColumnString::Offset srclen = offsets[i] - offsets[i - 1];
 
-            if (UNLIKELY(srclen == 0)) {
-                dst_offsets[i] = cast_set<uint32_t>(offset);
+            if (srclen == 0) {
+                StringOP::push_empty_string(i, dst_data, dst_offsets);
                 continue;
             }
 
-            auto outlen = base64_decode(source, srclen, dst_data_ptr + offset);
+            auto cipher_len = srclen / 2;
+            char* dst = nullptr;
+            if (cipher_len <= stack_buf.size()) {
+                dst = stack_buf.data();
+            } else {
+                heap_buf.resize(cipher_len);
+                dst = heap_buf.data();
+            }
+            auto outlen = base64_decode(source, srclen, dst);
 
             if (outlen < 0) {
-                null_map[i] = 1;
-                dst_offsets[i] = cast_set<uint32_t>(offset);
+                StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
             } else {
-                offset += outlen;
-                dst_offsets[i] = cast_set<uint32_t>(offset);
+                StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data,
+                                            dst_offsets);
             }
         }
-        dst_data.pop_back(total_size - offset);
+
         return Status::OK();
     }
 };

@@ -64,20 +64,15 @@ public:
             auto col_res = ColumnVarbinary::create();
             const auto& data = col->get_chars();
             const auto& offsets = col->get_offsets();
-            col_res->get_data().resize_fill(input_rows_count);
+            col_res->get_data().assign(input_rows_count, StringView());
 
             for (int i = 0; i < input_rows_count; ++i) {
                 const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
                 ColumnString::Offset srclen = offsets[i] - offsets[i - 1];
 
                 int cipher_len = srclen / 2;
-                char* dst = nullptr;
-                bool cipher_inline = StringView::isInline(cipher_len);
-                if (cipher_inline) {
-                    dst = reinterpret_cast<char*>(&(col_res->get_data()[i])) + SIZE_OF_UINT;
-                } else {
-                    dst = col_res->get_memory(cipher_len);
-                }
+                auto [cipher_inline, dst] = VarBinaryOP::alloc(col_res.get(), i, cipher_len);
+
                 int outlen = string_hex::hex_decode(source, srclen, dst);
 
                 // if empty string or decode failed, may return NULL
@@ -226,7 +221,7 @@ struct FromBase64BinaryImpl {
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnVarbinary* res, NullMap& null_map) {
         auto rows_count = offsets.size();
-        res->get_data().resize_fill(rows_count);
+        res->get_data().assign(rows_count, StringView());
 
         for (size_t i = 0; i < rows_count; i++) {
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
@@ -237,14 +232,7 @@ struct FromBase64BinaryImpl {
             }
 
             int cipher_len = slen / 4 * 3;
-            char* dst = nullptr;
-
-            bool cipher_inline = StringView::isInline(cipher_len);
-            if (cipher_inline) {
-                dst = reinterpret_cast<char*>(&(res->get_data()[i])) + SIZE_OF_UINT;
-            } else {
-                dst = res->get_memory(cipher_len);
-            }
+            auto [cipher_inline, dst] = VarBinaryOP::alloc(res, i, cipher_len);
 
             auto outlen = doris::base64_decode(source, slen, dst);
 

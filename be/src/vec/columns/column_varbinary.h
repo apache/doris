@@ -70,7 +70,7 @@ public:
 
     StringRef get_data_at(size_t n) const override { return _data[n].to_string_ref(); }
 
-    char* get_memory(size_t length) { return _arena.alloc(length); }
+    char* alloc(size_t length) { return _arena.alloc(length); }
 
     void insert(const Field& x) override {
         auto value = vectorized::get<const doris::StringView&>(x);

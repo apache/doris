@@ -38,6 +38,17 @@ struct VarBinaryOP {
             sView = doris::StringView(data, len);
         }
     }
+
+    static std::pair<bool, char*> alloc(ColumnVarbinary* res_col, size_t index, uint32_t len) {
+        bool is_inline = StringView::isInline(len);
+        char* dst = nullptr;
+        if (is_inline) {
+            dst = reinterpret_cast<char*>(&(res_col->get_data()[index])) + SIZE_OF_UINT;
+        } else {
+            dst = res_col->alloc(len);
+        }
+        return {is_inline, dst};
+    }
 };
 
 struct SubBinaryUtil {
