@@ -95,7 +95,7 @@ public:
 
         if (!ctx->ready_to_return) {
             if (ctx->current_round + 1 > _max_recursion_depth) {
-                return Status::Aborted("reach max recursion depth {}", _max_recursion_depth);
+                return Status::Aborted("reach cte_max_recursion_depth {}", _max_recursion_depth);
             }
 
             ctx->source_dep->block();
@@ -109,6 +109,8 @@ public:
                 *eos = true;
             } else {
                 block->swap(ctx->blocks.back());
+                RETURN_IF_ERROR(
+                        local_state.filter_block(local_state.conjuncts(), block, block->columns()));
                 ctx->blocks.pop_back();
             }
         }

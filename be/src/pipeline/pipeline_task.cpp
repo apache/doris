@@ -859,16 +859,14 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
 }
 
 Status PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */) {
-    auto f = _fragment_context.lock();
-    if (!f || f->is_canceled()) {
-        return Status::OK();
-    }
     // call by dependency
     DCHECK_EQ(_blocked_dep, dep) << "dep : " << dep->debug_string(0) << "task: " << debug_string();
     _blocked_dep = nullptr;
     auto holder = std::dynamic_pointer_cast<PipelineTask>(shared_from_this());
     RETURN_IF_ERROR(_state_transition(PipelineTask::State::RUNNABLE));
-    RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(holder));
+    if (auto f = _fragment_context.lock(); f) {
+        RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(holder));
+    }
     return Status::OK();
 }
 
