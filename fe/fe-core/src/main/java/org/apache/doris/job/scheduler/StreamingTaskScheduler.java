@@ -20,6 +20,7 @@ package org.apache.doris.job.scheduler;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.CustomThreadFactory;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.JobStatus;
@@ -96,6 +97,9 @@ public class StreamingTaskScheduler extends MasterDaemon {
     }
 
     private void scheduleOneTask(StreamingInsertTask task) {
+        if (DebugPointUtil.isEnable("StreamingJob.scheduleTask.exception")) {
+            throw new RuntimeException("debug point StreamingJob.scheduleTask.exception");
+        }
         StreamingInsertJob job = (StreamingInsertJob) Env.getCurrentEnv().getJobManager().getJob(task.getJobId());
         if (job == null) {
             log.warn("Job not found, job id: {}", task.getJobId());

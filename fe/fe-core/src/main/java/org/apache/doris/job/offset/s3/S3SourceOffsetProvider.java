@@ -174,10 +174,11 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public boolean hasMoreDataToConsume() {
-        if (currentOffset != null
-                && currentOffset.endFile != null
-                && maxEndFile != null
-                && currentOffset.endFile.compareTo(maxEndFile) < 0) {
+        if (currentOffset == null || currentOffset.endFile == null) {
+            return true;
+        }
+
+        if (maxEndFile != null && currentOffset.endFile.compareTo(maxEndFile) < 0) {
             return true;
         }
         return false;
