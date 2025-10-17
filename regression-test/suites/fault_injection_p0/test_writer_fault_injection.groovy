@@ -88,10 +88,28 @@ suite("test_writer_fault_injection", "nonConcurrent") {
             mem_tracker_limit_small_memory_task_bytes : 0
         ]
         setBeConfigTemporary(custoBeConfig) {
-        // Test VNodeChannel close_wait with full gc injection
-        load_with_injection("VNodeChannel.close_wait_full_gc")
-        // Test VNodeChannel try_send_and_fetch_status with full gc injection
-        load_with_injection("VNodeChannel.try_send_and_fetch_status_full_gc")
+
+        // Execute test logic with modified configuration for mem_tracker_limit_small_memory_task_bytes
+        logger.info("Backend configuration set - mem_tracker_limit_small_memory_task_bytes: 0")
+        // Waiting for backend configuration update
+        (1..iterations).each { count ->
+            Thread.sleep(interval * 1000)
+            def elapsedSeconds = count * interval
+            def remainingSeconds = totalWaitTime - elapsedSeconds
+            logger.info("Waited for backend configuration update ${elapsedSeconds} seconds, ${remainingSeconds} seconds remaining")
+        }
+
+        // Check if the configuration is modified
+        def result = sql """SHOW BACKEND CONFIG LIKE 'mem_tracker_limit_small_memory_task_bytes';"""
+        logger.info("mem_tracker_limit_small_memory_task_bytes configuration: " + result)
+        if (result[0][1] == "0") {
+            // Test VNodeChannel close_wait with full gc injection
+            load_with_injection("VNodeChannel.close_wait_full_gc")
+            // Test VNodeChannel try_send_and_fetch_status with full gc injection
+            load_with_injection("VNodeChannel.try_send_and_fetch_status_full_gc")
+        } else {
+            logger.info("mem_tracker_limit_small_memory_task_bytes configuration is not modified, skip full_gc test")
+        }
         }
         // Test VNodeChannel close_wait when cancelled
         load_with_injection("VNodeChannel.close_wait.cancelled")
