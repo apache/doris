@@ -40,6 +40,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
+#include "vec/core/call_on_type_index.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -560,124 +561,19 @@ private:
                                      const ColumnArray::Offsets64& map_offsets,
                                      const UInt8* map_row_nullmap, bool search_is_const,
                                      ColumnUInt8& result_matches) const {
-        switch (type) {
-        case TYPE_BOOLEAN:
-            _execute_column_comparison<ColumnUInt8>(
+        auto call = [&](const auto& type) -> bool {
+            using DispatchType = std::decay_t<decltype(type)>;
+
+            _execute_column_comparison<typename DispatchType::ColumnType>(
                     map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
                     map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_TINYINT:
-            _execute_column_comparison<ColumnInt8>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_SMALLINT:
-            _execute_column_comparison<ColumnInt16>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_INT:
-            _execute_column_comparison<ColumnInt32>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_BIGINT:
-            _execute_column_comparison<ColumnInt64>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_LARGEINT:
-            _execute_column_comparison<ColumnInt128>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_FLOAT:
-            _execute_column_comparison<ColumnFloat32>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_DOUBLE:
-            _execute_column_comparison<ColumnFloat64>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_DECIMAL32:
-            _execute_column_comparison<ColumnDecimal32>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_DECIMAL64:
-            _execute_column_comparison<ColumnDecimal64>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_DECIMAL128I:
-            _execute_column_comparison<ColumnDecimal128V3>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_DECIMALV2:
-            _execute_column_comparison<ColumnDecimal128V2>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_DECIMAL256:
-            _execute_column_comparison<ColumnDecimal256>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_STRING:
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-            _execute_column_comparison<ColumnString>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_DATE:
-            _execute_column_comparison<ColumnDate>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_DATETIME:
-            _execute_column_comparison<ColumnDateTime>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_DATEV2:
-            _execute_column_comparison<ColumnDateV2>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_DATETIMEV2:
-            _execute_column_comparison<ColumnDateTimeV2>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_TIME:
-            _execute_column_comparison<ColumnTime>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_TIMEV2:
-            _execute_column_comparison<ColumnTimeV2>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_IPV4:
-            _execute_column_comparison<ColumnIPv4>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        case TYPE_IPV6:
-            _execute_column_comparison<ColumnIPv6>(
-                    map_entry_column, map_entry_nullmap, search_column, search_nullmap, map_offsets,
-                    map_row_nullmap, search_is_const, result_matches);
-            break;
-        default:
-            // We have done type check before dispatching, so this should not happen
-            DCHECK(false) << "Dispatching unsupported primitive type in " << get_name() << ": "
-                          << static_cast<int>(type);
-            break;
+
+            return true;
+        };
+
+        if (!dispatch_switch_all(type, call)) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "not support type {}",
+                                   type_to_string(type));
         }
     }
 
