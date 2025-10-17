@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -120,13 +121,19 @@ import javax.annotation.Nullable;
 
 /** ExpressionAnalyzer */
 public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext> {
+    // This rule only used in unit test
     @VisibleForTesting
     public static final AbstractExpressionRewriteRule FUNCTION_ANALYZER_RULE = new AbstractExpressionRewriteRule() {
         @Override
         public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
-            return new ExpressionAnalyzer(
-                    null, new Scope(ImmutableList.of()), null, false, false
-            ).analyze(expr, ctx);
+            return new ExpressionAnalyzer(null, new Scope(ImmutableList.of()), null, false, false) {
+                @Override
+                protected Expression processCompoundNewChildren(CompoundPredicate cp, List<Expression> newChildren) {
+                    // ExpressionUtils.and/ExpressionUtils.or will remove duplicate children, and simplify FALSE / TRUE.
+                    // But we don't want to simplify them in unit test.
+                    return cp.withChildren(newChildren);
+                }
+            }.analyze(expr, ctx);
         }
     };
 
@@ -583,7 +590,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 newChild = child;
             }
             if (newChild.getDataType().isNullType()) {
-                newChild = new NullLiteral(BooleanType.INSTANCE);
+                newChild = NullLiteral.BOOLEAN_INSTANCE;
             } else {
                 newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
             }
@@ -594,7 +601,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             newChildren.add(newChild);
         }
         if (hasNewChild) {
-            return ExpressionUtils.or(newChildren);
+            return processCompoundNewChildren(or, newChildren);
         } else {
             return or;
         }
@@ -611,20 +618,28 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 newChild = child;
             }
             if (newChild.getDataType().isNullType()) {
-                newChild = new NullLiteral(BooleanType.INSTANCE);
+                newChild = NullLiteral.BOOLEAN_INSTANCE;
             } else {
                 newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
             }
 
-            if (! child.equals(newChild)) {
+            if (!child.equals(newChild)) {
                 hasNewChild = true;
             }
             newChildren.add(newChild);
         }
         if (hasNewChild) {
-            return ExpressionUtils.and(newChildren);
+            return processCompoundNewChildren(and, newChildren);
         } else {
             return and;
+        }
+    }
+
+    protected Expression processCompoundNewChildren(CompoundPredicate cp, List<Expression> newChildren) {
+        if (cp instanceof And) {
+            return ExpressionUtils.and(newChildren);
+        } else {
+            return ExpressionUtils.or(newChildren);
         }
     }
 
