@@ -30,6 +30,7 @@
 
 namespace doris {
 class RowsetMetaPB;
+class TabletSchemaPB;
 class TSnapshotRequest;
 struct RowsetId;
 class StorageEngine;
