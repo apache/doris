@@ -472,7 +472,7 @@ struct TPublishVersionRequest {
 }
 
 struct TVisibleVersionReq {
-    1: required map<Types.TPartitionId, Types.TVersion> partition_version
+    1: optional map<Types.TPartitionId, Types.TVersion> partition_version
 }
 
 struct TCalcDeleteBitmapPartitionInfo {
