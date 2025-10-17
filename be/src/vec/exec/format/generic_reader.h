@@ -20,6 +20,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 
 #include "common/status.h"
+#include "olap/block_column_predicate.h"
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "util/profile_collector.h"
@@ -116,8 +117,9 @@ public:
     ExprPushDownHelper() = default;
     virtual ~ExprPushDownHelper() = default;
     bool check_expr_can_push_down(const VExprSPtr& expr) const;
-    Status convert_predicates(const VExprSPtrs& exprs, std::vector<ColumnPredicate*>& predicates,
-                              Arena& arena);
+    Status convert_predicates(const VExprSPtrs& exprs,
+                              std::vector<std::unique_ptr<ColumnPredicate>>& predicates,
+                              std::unique_ptr<MutilColumnBlockPredicate>& root, Arena& arena);
 
 protected:
     virtual bool _exists_in_file(const VSlotRef*) const = 0;

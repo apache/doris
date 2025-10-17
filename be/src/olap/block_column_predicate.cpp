@@ -48,6 +48,35 @@ bool SingleColumnBlockPredicate::evaluate_and(
     return _predicate->evaluate_and(statistic);
 }
 
+bool SingleColumnBlockPredicate::evaluate_and(
+        const vectorized::ParquetPredicate::ColumnStat* statistic) const {
+    return _predicate->evaluate_and(statistic);
+}
+
+bool OrBlockColumnPredicate::evaluate_and(
+        const vectorized::ParquetPredicate::ColumnStat* statistic) const {
+    if (num_of_column_predicate() == 1) {
+        return _block_column_predicate_vec[0]->evaluate_and(statistic);
+    } else {
+        for (int i = 0; i < num_of_column_predicate(); ++i) {
+            if (_block_column_predicate_vec[i]->evaluate_and(statistic)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+bool AndBlockColumnPredicate::evaluate_and(
+        const vectorized::ParquetPredicate::ColumnStat* statistic) const {
+    for (auto& block_column_predicate : _block_column_predicate_vec) {
+        if (!block_column_predicate->evaluate_and(statistic)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool SingleColumnBlockPredicate::evaluate_and(const segment_v2::BloomFilter* bf) const {
     return _predicate->evaluate_and(bf);
 }

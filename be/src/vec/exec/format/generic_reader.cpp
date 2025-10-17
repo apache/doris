@@ -55,9 +55,9 @@ Status ExprPushDownHelper::_extract_predicates(const VExprSPtr& expr, int& cid,
     return Status::OK();
 }
 
-Status ExprPushDownHelper::convert_predicates(const VExprSPtrs& exprs,
-                                              std::vector<ColumnPredicate*>& predicates,
-                                              Arena& arena) {
+Status ExprPushDownHelper::convert_predicates(
+        const VExprSPtrs& exprs, std::vector<std::unique_ptr<ColumnPredicate>>& predicates,
+        std::unique_ptr<MutilColumnBlockPredicate>& root, Arena& arena) {
     if (exprs.empty()) {
         return Status::OK();
     }
@@ -91,7 +91,10 @@ Status ExprPushDownHelper::convert_predicates(const VExprSPtrs& exprs,
             RETURN_IF_ERROR(_extract_predicates(expr, cid, data_type, values, parsed));
             if (parsed) {
                 // TODO(gabriel): Use string view
-                predicates.push_back(create(data_type, cid, values[0].to_string(), false, arena));
+                predicates.push_back(std::unique_ptr<ColumnPredicate>(
+                        create(data_type, cid, values[0].to_string(), false, arena)));
+                root->add_column_predicate(
+                        SingleColumnBlockPredicate::create_unique(predicates.back().get()));
             }
             break;
         }
@@ -105,8 +108,11 @@ Status ExprPushDownHelper::convert_predicates(const VExprSPtrs& exprs,
                     for (size_t i = 0; i < conditions.size(); i++) {
                         conditions[i] = values[i].to_string();
                     }
-                    predicates.push_back(create_list_predicate<PredicateType::IN_LIST>(
-                            data_type, cid, conditions, false, arena));
+                    predicates.push_back(std::unique_ptr<ColumnPredicate>(
+                            create_list_predicate<PredicateType::IN_LIST>(
+                                    data_type, cid, conditions, false, arena)));
+                    root->add_column_predicate(
+                            SingleColumnBlockPredicate::create_unique(predicates.back().get()));
                 }
                 break;
             }
@@ -120,16 +126,19 @@ Status ExprPushDownHelper::convert_predicates(const VExprSPtrs& exprs,
             switch (expr->op()) {
             case TExprOpcode::COMPOUND_AND: {
                 for (const auto& child : expr->children()) {
-                    RETURN_IF_ERROR(convert_predicates({child}, predicates, arena));
+                    RETURN_IF_ERROR(convert_predicates({child}, predicates, root, arena));
                 }
                 break;
             }
-                // FIXME(gabriel):
-                //            case TExprOpcode::COMPOUND_OR: {
-                //                std::ranges::for_each(expr->children(), [&](const auto& child) {
-                //                    RETURN_IF_ERROR(convert_predicates({child}, predicates, arena));
-                //                });
-                //            }
+            case TExprOpcode::COMPOUND_OR: {
+                std::unique_ptr<MutilColumnBlockPredicate> new_root =
+                        OrBlockColumnPredicate::create_unique();
+                for (const auto& child : expr->children()) {
+                    RETURN_IF_ERROR(convert_predicates({child}, predicates, new_root, arena));
+                }
+                root->add_column_predicate(std::move(new_root));
+                break;
+            }
             default: {
                 break;
             }
@@ -142,8 +151,8 @@ Status ExprPushDownHelper::convert_predicates(const VExprSPtrs& exprs,
             if (fn_name == "is_null_pred" || fn_name == "is_not_null_pred") {
                 RETURN_IF_ERROR(_extract_predicates(expr, cid, data_type, values, parsed));
                 if (parsed) {
-                    predicates.push_back(
-                            new NullPredicate(cid, true, fn_name == "is_not_null_pred"));
+                    predicates.push_back(std::unique_ptr<ColumnPredicate>(
+                            new NullPredicate(cid, true, fn_name == "is_not_null_pred")));
                 }
             }
             break;
@@ -186,11 +195,10 @@ bool ExprPushDownHelper::check_expr_can_push_down(const VExprSPtr& expr) const {
             });
         }
         case TExprOpcode::COMPOUND_OR: {
-            //            // all children must be pushed down
-            //            return std::ranges::all_of(expr->children(), [this](const auto& child) {
-            //                return check_expr_can_push_down(child);
-            //            });
-            // TODO(gabriel):
+            // all children must be pushed down
+            return std::ranges::all_of(expr->children(), [this](const auto& child) {
+                return check_expr_can_push_down(child);
+            });
         }
         default: {
             return false;
