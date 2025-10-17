@@ -17,9 +17,15 @@
 
 #pragma once
 
+#include <fast_float/fast_float.h>
+
 #include <charconv>
+#include <stdexcept>
+#include <string>
 #include <type_traits>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "exec/olap_utils.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
@@ -65,15 +71,29 @@ public:
 private:
     static CppType convert(const std::string& condition) {
         CppType value = 0;
-        // because std::from_chars can't compile on macOS
-        if constexpr (std::is_same_v<CppType, double>) {
-            value = std::stod(condition, nullptr);
-        } else if constexpr (std::is_same_v<CppType, float>) {
-            value = std::stof(condition, nullptr);
+        if constexpr (std::is_floating_point_v<CppType>) {
+            auto ret = fast_float::from_chars(condition.data(), condition.data() + condition.size(),
+                                              value);
+            if (ret.ptr == condition.data() + condition.size()) {
+                return value;
+            } else {
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        fmt::format("convert string to number failed, str: {}, error: [{}] {}",
+                                    condition, ret.ec, std::make_error_code(ret.ec).message()));
+            }
         } else {
-            std::from_chars(condition.data(), condition.data() + condition.size(), value);
+            auto ret =
+                    std::from_chars(condition.data(), condition.data() + condition.size(), value);
+            if (ret.ptr == condition.data() + condition.size()) {
+                return value;
+            } else {
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        fmt::format("convert string to number failed, str: {}, error: [{}] {}",
+                                    condition, ret.ec, std::make_error_code(ret.ec).message()));
+            }
         }
-        return value;
     }
 };
 
