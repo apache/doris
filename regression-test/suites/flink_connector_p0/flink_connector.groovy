@@ -42,7 +42,13 @@ suite("flink_connector") {
         return
     }
 
-    def run_cmd = "java -cp flink-doris-demo.jar com.doris.DorisFlinkDfSinkDemo $context.config.feHttpAddress regression_test_flink_connector_p0.$tableName $context.config.feHttpUser"
+    def javaPath = ["bash", "-c", "which java"].execute().text.trim()
+    logger.info("System java path: ${javaPath}")
+
+    def javaVersion = System.getProperty("java.version")
+    logger.info("System java version: ${javaVersion}")
+
+    def run_cmd = "${javaPath} -cp flink-doris-demo.jar com.doris.DorisFlinkDfSinkDemo $context.config.feHttpAddress regression_test_flink_connector_p0.$tableName $context.config.feHttpUser"
     logger.info("run_cmd : $run_cmd")
     def run_flink_jar = run_cmd.execute().getText()
     logger.info("result: $run_flink_jar")

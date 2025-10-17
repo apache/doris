@@ -28,7 +28,6 @@ import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LockTable;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.ResourceDesc;
@@ -38,7 +37,6 @@ import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StageAndPattern;
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
@@ -151,6 +149,7 @@ import org.apache.doris.nereids.DorisParser.CreateDictionaryContext;
 import org.apache.doris.nereids.DorisParser.CreateEncryptkeyContext;
 import org.apache.doris.nereids.DorisParser.CreateFileContext;
 import org.apache.doris.nereids.DorisParser.CreateIndexAnalyzerContext;
+import org.apache.doris.nereids.DorisParser.CreateIndexCharFilterContext;
 import org.apache.doris.nereids.DorisParser.CreateIndexContext;
 import org.apache.doris.nereids.DorisParser.CreateIndexTokenFilterContext;
 import org.apache.doris.nereids.DorisParser.CreateIndexTokenizerContext;
@@ -189,6 +188,7 @@ import org.apache.doris.nereids.DorisParser.DropEncryptkeyContext;
 import org.apache.doris.nereids.DorisParser.DropFileContext;
 import org.apache.doris.nereids.DorisParser.DropFunctionContext;
 import org.apache.doris.nereids.DorisParser.DropIndexAnalyzerContext;
+import org.apache.doris.nereids.DorisParser.DropIndexCharFilterContext;
 import org.apache.doris.nereids.DorisParser.DropIndexClauseContext;
 import org.apache.doris.nereids.DorisParser.DropIndexContext;
 import org.apache.doris.nereids.DorisParser.DropIndexTokenFilterContext;
@@ -383,6 +383,7 @@ import org.apache.doris.nereids.DorisParser.ShowGlobalFunctionsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsForUserContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexAnalyzerContext;
+import org.apache.doris.nereids.DorisParser.ShowIndexCharFilterContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexTokenFilterContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexTokenizerContext;
 import org.apache.doris.nereids.DorisParser.ShowLastInsertContext;
@@ -664,6 +665,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateIndexAnalyzerCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateIndexCharFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateIndexTokenFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateIndexTokenizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
@@ -699,6 +701,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropExpiredStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropIndexAnalyzerCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropIndexCharFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropIndexTokenFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropIndexTokenizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
@@ -798,6 +801,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexAnalyzerCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowIndexCharFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenFilterCommand;
@@ -1310,7 +1314,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             tableName.addAll(nameParts);
         } else if (null != ctx.tableId) {
             // process group commit insert table command send by be
-            TableName name = Env.getCurrentEnv().getCurrentCatalog()
+            TableNameInfo name = Env.getCurrentEnv().getCurrentCatalog()
                     .getTableNameByTableId(Long.valueOf(ctx.tableId.getText()));
             tableName.add(name.getDb());
             tableName.add(name.getTbl());
@@ -2014,10 +2018,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<String> mutableColNames = colNames == null ? null : new ArrayList<>(colNames);
             List<String> mutableColumnsFromPath = columnsFromPath == null ? null : new ArrayList<>(columnsFromPath);
 
-            PartitionNames partitionNames = null;
+            PartitionNamesInfo partitionNamesInfo = null;
             if (ddc.partitionSpec() != null) {
                 Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ddc.partitionSpec());
-                partitionNames = new PartitionNames(partitionSpec.first, partitionSpec.second);
+                partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
             }
             // TODO: multi location
             List<String> multiFilePaths = new ArrayList<>();
@@ -2057,7 +2061,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     : visitPropertyClause(ddc.propertyClause());
             dataDescriptions.add(new NereidsDataDescription(
                     tableName,
-                    partitionNames,
+                    partitionNamesInfo,
                     filePaths,
                     mutableColNames,
                     new Separator(columnSeparator),
@@ -4121,6 +4125,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<OrderKey> orderKeys = Lists.newArrayList();
             LogicalPlan aggregate = withAggregate(filter, selectColumnCtx, aggClause, orderKeys);
             boolean isDistinct = (selectClause.DISTINCT() != null);
+            if (!isDistinct) {
+                if (aggregate instanceof LogicalRepeat) {
+                    aggregate = ((LogicalRepeat) aggregate).withInProjection(false);
+                } else if (aggregate instanceof LogicalAggregate) {
+                    aggregate = ((LogicalAggregate) aggregate).withInProjection(false);
+                }
+            }
             LogicalPlan selectPlan;
             if (!(aggregate instanceof Aggregate) && havingClause.isPresent()) {
                 // create a project node for pattern match of ProjectToGlobalAggregate rule
@@ -5382,14 +5393,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         if (ctx.limitClause() != null) {
             limit = ctx.limitClause().limit != null
-                ? Long.parseLong(ctx.limitClause().limit.getText())
-                : 0;
+                    ? Long.parseLong(ctx.limitClause().limit.getText()) : 0;
             if (limit < 0) {
                 throw new ParseException("Limit requires non-negative number", ctx.limitClause());
             }
             offset = ctx.limitClause().offset != null
-                ? Long.parseLong(ctx.limitClause().offset.getText())
-                : 0;
+                    ? Long.parseLong(ctx.limitClause().offset.getText()) : 0;
             if (offset < 0) {
                 throw new ParseException("Offset requires non-negative number", ctx.limitClause());
             }
@@ -9107,6 +9116,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitCreateIndexCharFilter(CreateIndexCharFilterContext ctx) {
+        boolean ifNotExists = ctx.IF() != null;
+        String policyName = ctx.name.getText();
+        Map<String, String> properties = visitPropertyClause(ctx.properties);
+
+        return new CreateIndexCharFilterCommand(ifNotExists, policyName, properties);
+    }
+
+    @Override
     public LogicalPlan visitDropIndexAnalyzer(DropIndexAnalyzerContext ctx) {
         String policyName = ctx.name.getText();
         boolean ifExists = ctx.IF() != null;
@@ -9131,6 +9149,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitDropIndexCharFilter(DropIndexCharFilterContext ctx) {
+        String policyName = ctx.name.getText();
+        boolean ifExists = ctx.IF() != null;
+
+        return new DropIndexCharFilterCommand(policyName, ifExists);
+    }
+
+    @Override
     public LogicalPlan visitShowIndexAnalyzer(ShowIndexAnalyzerContext ctx) {
         return new ShowIndexAnalyzerCommand();
     }
@@ -9143,6 +9169,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowIndexTokenFilter(ShowIndexTokenFilterContext ctx) {
         return new ShowIndexTokenFilterCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowIndexCharFilter(ShowIndexCharFilterContext ctx) {
+        return new ShowIndexCharFilterCommand();
     }
 
     @Override
