@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.base.Preconditions;
@@ -35,6 +36,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -257,6 +259,11 @@ public class Partition extends MetaObject {
         } else {
             return idToShadowIndex.get(indexId);
         }
+    }
+
+    public MaterializedIndex getIndexOrMetaException(long indexId) throws MetaNotFoundException {
+        return Optional.ofNullable(getIndex(indexId))
+                .orElseThrow(() -> new MetaNotFoundException("Index=" + indexId + " not found"));
     }
 
     public List<MaterializedIndex> getMaterializedIndices(IndexExtState extState) {
