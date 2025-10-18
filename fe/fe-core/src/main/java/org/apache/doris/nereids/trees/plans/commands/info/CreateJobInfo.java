@@ -211,7 +211,12 @@ public class CreateJobInfo {
         startsTimeStampOptional.ifPresent(s -> timerDefinition.setStartTimeMs(stripQuotesAndParseTimestamp(s)));
     }
 
-    protected static void checkAuth() throws AnalysisException {
+    protected void checkAuth() throws AnalysisException {
+        if (streamingJob) {
+            StreamingInsertJob.checkPrivilege(ConnectContext.get(), executeSql);
+            return;
+        }
+
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
