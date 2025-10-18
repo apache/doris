@@ -213,6 +213,9 @@ private:
     void _aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block, RowInBlock* new_row,
                                      RowInBlock* row_in_skiplist);
 
+    void _aggregate_two_row_with_sequence_map(vectorized::MutableBlock& mutable_block,
+                                              RowInBlock* new_row, RowInBlock* row_in_skiplist);
+
     // Used to wrapped by to_block to do exception handle logic
     Status _to_block(std::unique_ptr<vectorized::Block>* res);
 
