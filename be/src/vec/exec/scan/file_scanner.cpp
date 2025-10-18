@@ -150,6 +150,8 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT, 1);
     _not_found_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
                                                      "NotFoundFileNum", TUnit::UNIT, 1);
+    _fully_skipped_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                         "FullySkippedFileNum", TUnit::UNIT, 1);
     _file_counter =
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT, 1);
 
@@ -450,6 +452,10 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
             if (st.is<ErrorCode::NOT_FOUND>() && config::ignore_not_found_file_in_external_table) {
                 _cur_reader_eof = true;
                 COUNTER_UPDATE(_not_found_file_counter, 1);
+                continue;
+            } else if (st.is<ErrorCode::END_OF_FILE>()) {
+                _cur_reader_eof = true;
+                COUNTER_UPDATE(_fully_skipped_file_counter, 1);
                 continue;
             } else if (!st) {
                 return st;

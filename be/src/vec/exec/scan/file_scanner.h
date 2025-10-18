@@ -210,6 +210,7 @@ private:
     RuntimeProfile::Counter* _runtime_filter_partition_prune_timer = nullptr;
     RuntimeProfile::Counter* _empty_file_counter = nullptr;
     RuntimeProfile::Counter* _not_found_file_counter = nullptr;
+    RuntimeProfile::Counter* _fully_skipped_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
     RuntimeProfile::Counter* _file_read_bytes_counter = nullptr;
     RuntimeProfile::Counter* _file_read_calls_counter = nullptr;
