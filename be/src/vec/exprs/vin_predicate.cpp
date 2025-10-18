@@ -116,10 +116,10 @@ Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t seg
 
 Status VInPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {
     if (is_const_and_have_executed()) { // const have execute in open function
-        return get_result_from_const(block, _expr_name, result_column_id);
+        return CEHCK_EXPR_EXECTUED(get_result_from_const(block, _expr_name, result_column_id));
     }
     if (fast_execute(context, block, result_column_id)) {
-        return Status::OK();
+        return CEHCK_EXPR_EXECTUED(Status::OK());
     }
     DCHECK(_open_finished || _getting_const_col);
 
@@ -143,7 +143,7 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
-    return Status::OK();
+    return CEHCK_EXPR_EXECTUED(Status::OK());
 }
 
 size_t VInPredicate::estimate_memory(const size_t rows) {
