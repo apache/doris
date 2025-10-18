@@ -20,6 +20,8 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
 import org.apache.doris.common.security.authentication.SimpleAuthenticationConfig;
+import org.apache.doris.datasource.connectivity.HdfsCompatibleConnectivityTester;
+import org.apache.doris.datasource.connectivity.StorageConnectivityTester;
 
 import lombok.Getter;
 
@@ -47,6 +49,11 @@ public abstract class HdfsCompatibleProperties extends StorageProperties {
     @Override
     public void initializeHadoopStorageConfig() {
         //nothing to do
+    }
+
+    @Override
+    public StorageConnectivityTester createConnectivityTester(String testLocation) {
+        return new HdfsCompatibleConnectivityTester(this, testLocation);
     }
 
 }

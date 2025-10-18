@@ -36,6 +36,8 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
+import org.apache.doris.datasource.connectivity.MetaConnectivityTester;
+import org.apache.doris.datasource.connectivity.StorageConnectivityTester;
 import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -48,6 +50,7 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
@@ -131,6 +134,9 @@ public abstract class ExternalCatalog
             USE_META_CACHE);
 
     protected static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = Runtime.getRuntime().availableProcessors();
+
+    public static final String TEST_CONNECTION = "test_connection";
+    public static final boolean DEFAULT_TEST_CONNECTION = false;
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -258,6 +264,38 @@ public abstract class ExternalCatalog
     // Will be called when creating catalog(not replaying).
     // Subclass can override this method to do some check when creating catalog.
     public void checkWhenCreating() throws DdlException {
+        boolean testConnection = Boolean.parseBoolean(
+                catalogProperty.getOrDefault(TEST_CONNECTION, String.valueOf(DEFAULT_TEST_CONNECTION)));
+
+        if (!testConnection) {
+            return;
+        }
+
+        MetaConnectivityTester metaTester = catalogProperty.getMetastoreProperties().createConnectivityTester();
+        try {
+            metaTester.testConnection();
+        } catch (Exception e) {
+            throw new DdlException(metaTester.getTestType() + " connectivity test failed: " + e.getMessage());
+        }
+
+        String testLocation = metaTester.getTestLocation();
+
+        Map<StorageProperties.Type, StorageProperties> storagePropertiesMap = catalogProperty.getStoragePropertiesMap();
+        for (StorageProperties storageProperties : storagePropertiesMap.values()) {
+            StorageConnectivityTester storageTester = storageProperties.createConnectivityTester(testLocation);
+            try {
+                storageTester.testFeConnection();
+            } catch (Exception e) {
+                throw new DdlException(storageTester.getTestType() + " connectivity test failed: " + e.getMessage());
+            }
+
+            try {
+                storageTester.testBeConnection();
+            } catch (Exception e) {
+                throw new DdlException(storageTester.getTestType() + " connectivity test failed (compute node): "
+                        + e.getMessage());
+            }
+        }
     }
 
     /**

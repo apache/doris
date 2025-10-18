@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.datasource.connectivity.IcebergRestConnectivityTester;
+import org.apache.doris.datasource.connectivity.MetaConnectivityTester;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
@@ -25,6 +27,7 @@ import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.Maps;
+import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
@@ -40,6 +43,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+
 public class IcebergRestProperties extends AbstractIcebergProperties {
 
     // REST catalog property constants
@@ -49,6 +53,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     private Map<String, String> icebergRestCatalogProperties;
 
+    @Getter
     @ConnectorProperty(names = {"iceberg.rest.uri", "uri"},
             description = "The uri of the iceberg rest catalog service.")
     private String icebergRestUri = "";
@@ -158,6 +163,11 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     @Override
     public String getIcebergCatalogType() {
         return IcebergExternalCatalog.ICEBERG_REST;
+    }
+
+    @Override
+    public MetaConnectivityTester createConnectivityTester() {
+        return new IcebergRestConnectivityTester(this);
     }
 
     @Override

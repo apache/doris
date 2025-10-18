@@ -119,6 +119,9 @@ public:
     void get_dictionary_status(TDictionaryStatusList& result,
                                const std::vector<int64_t>& dictionary_id) override;
 
+    void test_storage_connectivity(TTestStorageConnectivityResponse& response,
+                                   const TTestStorageConnectivityRequest& request) override;
+
     ////////////////////////////////////////////////////////////////////////////
     // begin cloud backend functions
     ////////////////////////////////////////////////////////////////////////////

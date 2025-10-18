@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
+import org.apache.doris.datasource.connectivity.IcebergHMSConnectivityTester;
+import org.apache.doris.datasource.connectivity.MetaConnectivityTester;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -59,6 +61,11 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
         super.initNormalizeAndCheckProps();
         hmsBaseProperties = HMSBaseProperties.of(origProps);
         this.executionAuthenticator = new HadoopExecutionAuthenticator(hmsBaseProperties.getHmsAuthenticator());
+    }
+
+    @Override
+    public MetaConnectivityTester createConnectivityTester() {
+        return new IcebergHMSConnectivityTester(this, hmsBaseProperties);
     }
 
     @Override

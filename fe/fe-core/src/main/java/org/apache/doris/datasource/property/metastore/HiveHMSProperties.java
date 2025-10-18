@@ -19,6 +19,8 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
+import org.apache.doris.datasource.connectivity.HiveHMSConnectivityTester;
+import org.apache.doris.datasource.connectivity.MetaConnectivityTester;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import lombok.extern.slf4j.Slf4j;
@@ -59,6 +61,10 @@ public class HiveHMSProperties extends AbstractHiveProperties {
         this.executionAuthenticator = new HadoopExecutionAuthenticator(hmsBaseProperties.getHmsAuthenticator());
     }
 
+    @Override
+    public MetaConnectivityTester createConnectivityTester() {
+        return new HiveHMSConnectivityTester(hmsBaseProperties);
+    }
 
     private void initRefreshParams() {
         this.hmsEventsIncrementalSyncEnabled = BooleanUtils.toBoolean(hmsEventsIncrementalSyncEnabledInput);

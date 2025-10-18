@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.connectivity.MetaConnectivityTester;
 import org.apache.doris.datasource.property.ConnectionProperties;
 
 import lombok.Getter;
@@ -121,5 +122,9 @@ public class MetastoreProperties extends ConnectionProperties {
 
     protected MetastoreProperties(Map<String, String> props) {
         super(props);
+    }
+
+    public MetaConnectivityTester createConnectivityTester() {
+        return new MetaConnectivityTester() {};
     }
 }

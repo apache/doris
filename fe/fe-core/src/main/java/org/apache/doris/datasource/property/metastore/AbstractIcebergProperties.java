@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.connectivity.MetaConnectivityTester;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
@@ -35,6 +36,7 @@ import java.util.Map;
  */
 public abstract class AbstractIcebergProperties extends MetastoreProperties {
 
+    @Getter
     @ConnectorProperty(
             names = {CatalogProperties.WAREHOUSE_LOCATION},
             required = false,
@@ -95,4 +97,10 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
             Map<String, String> catalogProps,
             List<StorageProperties> storagePropertiesList
     );
+
+
+    @Override
+    public MetaConnectivityTester createConnectivityTester() {
+        return new MetaConnectivityTester() {};
+    }
 }

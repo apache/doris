@@ -22,6 +22,8 @@ import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.connectivity.S3ConnectivityTester;
+import org.apache.doris.datasource.connectivity.StorageConnectivityTester;
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.thrift.TCredProviderType;
@@ -360,6 +362,11 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             return getAwsCredentialsProviderV2();
         }
         return getAwsCredentialsProviderV1();
+    }
+
+    @Override
+    public StorageConnectivityTester createConnectivityTester(String testLocation) {
+        return new S3ConnectivityTester(this, testLocation);
     }
 
     @Override
