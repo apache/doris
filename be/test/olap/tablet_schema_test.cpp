@@ -803,4 +803,94 @@ TEST_F(TabletSchemaTest, test_tablet_schema_need_record_variant_extended_schema)
     EXPECT_FALSE(schema_multiple_variants.need_record_variant_extended_schema());
 }
 
+TEST_F(TabletSchemaTest, test_tablet_schema_get_index) {
+    TabletSchema schema;
+
+    TabletColumn col1;
+    col1.set_unique_id(14001);
+    col1.set_name("test_col1");
+    col1.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    schema.append_column(col1);
+
+    TabletColumn col2;
+    col2.set_unique_id(14002);
+    col2.set_name("test_col2");
+    col2.set_type(FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    schema.append_column(col2);
+
+    TabletIndex inverted_index;
+    TabletIndexPB inverted_index_pb;
+    inverted_index_pb.set_index_id(5001);
+    inverted_index_pb.set_index_name("inverted_idx");
+    inverted_index_pb.set_index_type(IndexType::INVERTED);
+    inverted_index_pb.add_col_unique_id(14001);
+    inverted_index.init_from_pb(inverted_index_pb);
+
+    TabletIndex bitmap_index;
+    TabletIndexPB bitmap_index_pb;
+    bitmap_index_pb.set_index_id(5002);
+    bitmap_index_pb.set_index_name("bitmap_idx");
+    bitmap_index_pb.set_index_type(IndexType::BITMAP);
+    bitmap_index_pb.add_col_unique_id(14001);
+    bitmap_index.init_from_pb(bitmap_index_pb);
+
+    TabletIndex ann_index;
+    TabletIndexPB ann_index_pb;
+    ann_index_pb.set_index_id(5003);
+    ann_index_pb.set_index_name("ann_idx");
+    ann_index_pb.set_index_type(IndexType::ANN);
+    ann_index_pb.add_col_unique_id(14002);
+    ann_index.init_from_pb(ann_index_pb);
+
+    TabletIndex ngram_bf_index;
+    TabletIndexPB ngram_bf_index_pb;
+    ngram_bf_index_pb.set_index_id(5004);
+    ngram_bf_index_pb.set_index_name("ngram_bf_idx");
+    ngram_bf_index_pb.set_index_type(IndexType::NGRAM_BF);
+    ngram_bf_index_pb.add_col_unique_id(14002);
+    ngram_bf_index.init_from_pb(ngram_bf_index_pb);
+
+    schema.append_index(std::move(inverted_index));
+    schema.append_index(std::move(bitmap_index));
+    schema.append_index(std::move(ann_index));
+    schema.append_index(std::move(ngram_bf_index));
+
+    const TabletIndex* found_inverted = schema.get_index(14001, IndexType::INVERTED, "");
+    EXPECT_NE(nullptr, found_inverted);
+    EXPECT_EQ("inverted_idx", found_inverted->index_name());
+    EXPECT_EQ(5001, found_inverted->index_id());
+    const TabletIndex* found_bitmap = schema.get_index(14001, IndexType::BITMAP, "");
+    EXPECT_NE(nullptr, found_bitmap);
+    EXPECT_EQ("bitmap_idx", found_bitmap->index_name());
+    EXPECT_EQ(5002, found_bitmap->index_id());
+    const TabletIndex* found_ann = schema.get_index(14002, IndexType::ANN, "");
+    EXPECT_NE(nullptr, found_ann);
+    EXPECT_EQ("ann_idx", found_ann->index_name());
+    EXPECT_EQ(5003, found_ann->index_id());
+    const TabletIndex* found_ngram_bf = schema.get_index(14002, IndexType::NGRAM_BF, "");
+    EXPECT_NE(nullptr, found_ngram_bf);
+    EXPECT_EQ("ngram_bf_idx", found_ngram_bf->index_name());
+    EXPECT_EQ(5004, found_ngram_bf->index_id());
+    const TabletIndex* not_found = schema.get_index(99999, IndexType::INVERTED, "");
+    EXPECT_EQ(nullptr, not_found);
+    const TabletIndex* empty_suffix = schema.get_index(14001, IndexType::INVERTED, "");
+    EXPECT_NE(nullptr, empty_suffix);
+    EXPECT_EQ("inverted_idx", empty_suffix->index_name());
+    const TabletIndex* with_suffix = schema.get_index(14001, IndexType::INVERTED, "test_suffix");
+    EXPECT_EQ(nullptr, with_suffix);
+
+    EXPECT_TRUE(found_inverted->is_inverted_index());
+    EXPECT_EQ(IndexType::INVERTED, found_inverted->index_type());
+    EXPECT_EQ(IndexType::BITMAP, found_bitmap->index_type());
+    EXPECT_EQ(IndexType::ANN, found_ann->index_type());
+    EXPECT_EQ(IndexType::NGRAM_BF, found_ngram_bf->index_type());
+
+    const auto& inverted_col_ids = found_inverted->col_unique_ids();
+    EXPECT_EQ(1, inverted_col_ids.size());
+    EXPECT_EQ(14001, inverted_col_ids[0]);
+    const auto& ann_col_ids = found_ann->col_unique_ids();
+    EXPECT_EQ(1, ann_col_ids.size());
+    EXPECT_EQ(14002, ann_col_ids[0]);
+}
+
 } // namespace doris
