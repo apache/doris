@@ -18,11 +18,14 @@
 #include "analysis_factory_mgr.h"
 
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_replace_char_filter_factory.h"
+#include "olap/rowset/segment_v2/inverted_index/char_filter/empty_char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/token_filter/ascii_folding_filter_factory.h"
+#include "olap/rowset/segment_v2/inverted_index/token_filter/empty_token_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/token_filter/lower_case_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/token_filter/word_delimiter_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/basic/basic_tokenizer_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/char/char_group_tokenizer_factory.h"
+#include "olap/rowset/segment_v2/inverted_index/tokenizer/empty/empty_tokenizer_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/icu/icu_tokenizer_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/keyword/keyword_tokenizer_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/ngram/edge_ngram_tokenizer_factory.h"
@@ -34,31 +37,45 @@ void AnalysisFactoryMgr::initialise() {
     static std::once_flag once_flag;
     std::call_once(once_flag, [this]() {
         // char_filter
-        registerFactory("char_replace",
-                        []() { return std::make_shared<CharReplaceCharFilterFactory>(); });
+        registerFactory<CharFilterFactory>(
+                "empty", []() { return std::make_shared<EmptyCharFilterFactory>(); });
+        registerFactory<CharFilterFactory>(
+                "char_replace", []() { return std::make_shared<CharReplaceCharFilterFactory>(); });
 
         // tokenizer
-        registerFactory("standard", []() { return std::make_shared<StandardTokenizerFactory>(); });
-        registerFactory("keyword", []() { return std::make_shared<KeywordTokenizerFactory>(); });
-        registerFactory("ngram", []() { return std::make_shared<NGramTokenizerFactory>(); });
-        registerFactory("edge_ngram",
-                        []() { return std::make_shared<EdgeNGramTokenizerFactory>(); });
-        registerFactory("char_group",
-                        []() { return std::make_shared<CharGroupTokenizerFactory>(); });
-        registerFactory("basic", []() { return std::make_shared<BasicTokenizerFactory>(); });
-        registerFactory("icu", []() { return std::make_shared<ICUTokenizerFactory>(); });
+        registerFactory<TokenizerFactory>(
+                "empty", []() { return std::make_shared<EmptyTokenizerFactory>(); });
+        registerFactory<TokenizerFactory>(
+                "standard", []() { return std::make_shared<StandardTokenizerFactory>(); });
+        registerFactory<TokenizerFactory>(
+                "keyword", []() { return std::make_shared<KeywordTokenizerFactory>(); });
+        registerFactory<TokenizerFactory>(
+                "ngram", []() { return std::make_shared<NGramTokenizerFactory>(); });
+        registerFactory<TokenizerFactory>(
+                "edge_ngram", []() { return std::make_shared<EdgeNGramTokenizerFactory>(); });
+        registerFactory<TokenizerFactory>(
+                "char_group", []() { return std::make_shared<CharGroupTokenizerFactory>(); });
+        registerFactory<TokenizerFactory>(
+                "basic", []() { return std::make_shared<BasicTokenizerFactory>(); });
+        registerFactory<TokenizerFactory>("icu",
+                                          []() { return std::make_shared<ICUTokenizerFactory>(); });
 
         // token_filter
-        registerFactory("lowercase", []() { return std::make_shared<LowerCaseFilterFactory>(); });
-        registerFactory("asciifolding",
-                        []() { return std::make_shared<ASCIIFoldingFilterFactory>(); });
-        registerFactory("word_delimiter",
-                        []() { return std::make_shared<WordDelimiterFilterFactory>(); });
+        registerFactory<TokenFilterFactory>(
+                "empty", []() { return std::make_shared<EmptyTokenFilterFactory>(); });
+        registerFactory<TokenFilterFactory>(
+                "lowercase", []() { return std::make_shared<LowerCaseFilterFactory>(); });
+        registerFactory<TokenFilterFactory>(
+                "asciifolding", []() { return std::make_shared<ASCIIFoldingFilterFactory>(); });
+        registerFactory<TokenFilterFactory>(
+                "word_delimiter", []() { return std::make_shared<WordDelimiterFilterFactory>(); });
     });
 }
 
+template <typename FactoryType>
 void AnalysisFactoryMgr::registerFactory(const std::string& name, FactoryCreator creator) {
-    registry_[name] = std::move(creator);
+    RegistryKey key = {std::type_index(typeid(FactoryType)), name};
+    registry_[key] = std::move(creator);
 }
 
 template <typename FactoryType>
@@ -68,9 +85,11 @@ std::shared_ptr<FactoryType> AnalysisFactoryMgr::create(const std::string& name,
         initialise();
     }
 
-    auto it = registry_.find(name);
+    RegistryKey key = {std::type_index(typeid(FactoryType)), name};
+    auto it = registry_.find(key);
     if (it == registry_.end()) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Unknown factory name: {}", name);
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Unknown factory name: {} for type: {}", name,
+                        typeid(FactoryType).name());
     }
 
     auto factory = std::static_pointer_cast<FactoryType>(it->second());

@@ -17,34 +17,35 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer.h"
-
-using namespace lucene::analysis;
+#include "token_filter.h"
+#include "token_filter_factory.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class BasicTokenizer : public DorisTokenizer {
+class EmptyTokenFilter : public DorisTokenFilter {
 public:
-    BasicTokenizer() = default;
-    BasicTokenizer(bool own_reader);
-    ~BasicTokenizer() override = default;
+    EmptyTokenFilter(const TokenStreamPtr& in) : DorisTokenFilter(in) {}
+    ~EmptyTokenFilter() override = default;
 
-    void initialize(const std::string& extra_chars = "");
+    void initialize() {}
 
-    Token* next(Token* token) override;
-    void reset() override;
+    Token* next(Token* t) override { return _in->next(t); }
 
-private:
-    template <bool HasExtraChars>
-    void cut();
+    void reset() override { DorisTokenFilter::reset(); }
+};
 
-    int32_t _buffer_index = 0;
-    int32_t _data_len = 0;
-    std::string _buffer;
-    std::vector<std::string_view> _tokens_text;
+class EmptyTokenFilterFactory : public TokenFilterFactory {
+public:
+    EmptyTokenFilterFactory() = default;
+    ~EmptyTokenFilterFactory() override = default;
 
-    std::array<bool, 128> _extra_char_set {};
-    bool _has_extra_chars = false;
+    void initialize(const Settings& settings) override {}
+
+    TokenFilterPtr create(const TokenStreamPtr& in) override {
+        auto token_filter = std::make_shared<EmptyTokenFilter>(in);
+        token_filter->initialize();
+        return token_filter;
+    }
 };
 
 } // namespace doris::segment_v2::inverted_index

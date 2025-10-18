@@ -18,33 +18,33 @@
 #pragma once
 
 #include "basic_tokenizer.h"
-#include "common/exception.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
-
 class BasicTokenizerFactory : public TokenizerFactory {
 public:
     BasicTokenizerFactory() = default;
     ~BasicTokenizerFactory() override = default;
 
     void initialize(const Settings& settings) override {
-        int32_t mode = settings.get_int("mode", static_cast<int32_t>(BasicTokenizerMode::L1));
-        if (mode < 1 || mode > 2) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid mode for basic tokenizer: {}",
-                            mode);
+        _extra_chars = settings.get_string("extra_chars", "");
+        for (uint8_t c : _extra_chars) {
+            if (c >= 128) {
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Invalid extra_chars for basic tokenizer: contains non-ASCII character");
+            }
         }
-        _mode = static_cast<BasicTokenizerMode>(mode);
     }
 
     TokenizerPtr create() override {
         auto tokenzier = std::make_shared<BasicTokenizer>();
-        tokenzier->initialize(_mode);
+        tokenzier->initialize(_extra_chars);
         return tokenzier;
     }
 
 private:
-    BasicTokenizerMode _mode = BasicTokenizerMode::L1;
+    std::string _extra_chars;
 };
 
 } // namespace doris::segment_v2::inverted_index
