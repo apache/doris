@@ -91,7 +91,6 @@ void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controlle
         msg = "empty instance_id";
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
 
     RPC_RATE_LIMIT(prepare_index)
 
@@ -136,6 +135,7 @@ void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controlle
         pb.SerializeToString(&to_save_val);
     }
     for (auto index_id : request->index_ids()) {
+        AnnotateTag tag_index_id("index_id", index_id);
         auto key = recycle_index_key({instance_id, index_id});
         std::string val;
         err = txn->get(key, &val);
@@ -183,6 +183,7 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
         msg = "empty instance_id";
         return;
     }
+
     RPC_RATE_LIMIT(commit_index)
 
     if (request->index_ids().empty() || !request->has_table_id()) {
@@ -205,6 +206,7 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
     bool is_versioned_read = is_version_read_enabled(instance_id);
     CloneChainReader reader(instance_id, resource_mgr_.get());
     for (auto index_id : request->index_ids()) {
+        AnnotateTag tag_index_id("index_id", index_id);
         auto key = recycle_index_key({instance_id, index_id});
         std::string val;
         err = txn->get(key, &val);
@@ -328,6 +330,7 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
         msg = "empty instance_id";
         return;
     }
+
     RPC_RATE_LIMIT(drop_index)
 
     if (request->index_ids().empty() || !request->has_table_id()) {
@@ -363,6 +366,7 @@ void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
 
     CloneChainReader reader(instance_id, resource_mgr_.get());
     for (auto index_id : request->index_ids()) {
+        AnnotateTag tag_index_id("index_id", index_id);
         auto key = recycle_index_key({instance_id, index_id});
         std::string val;
         err = txn->get(key, &val);
@@ -474,7 +478,6 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
         msg = "empty instance_id";
         return;
     }
-    AnnotateTag tag_instance_id("instance_id", instance_id);
 
     RPC_RATE_LIMIT(prepare_partition)
 
@@ -531,6 +534,7 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
         pb.SerializeToString(&to_save_val);
     }
     for (int i = 0; i < request->partition_ids_size(); i++) {
+        AnnotateTag tag_partition_id("partition_id", request->partition_ids(i));
         auto key = recycle_partition_key({instance_id, request->partition_ids(i)});
         std::string val;
         err = txn->get(key, &val);
@@ -604,6 +608,7 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         msg = "empty instance_id";
         return;
     }
+
     RPC_RATE_LIMIT(commit_partition)
 
     if (request->partition_ids().empty() || !request->has_table_id()) {
@@ -627,6 +632,7 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
     bool is_versioned_read = is_version_read_enabled(instance_id);
     CloneChainReader reader(instance_id, resource_mgr_.get());
     for (auto part_id : request->partition_ids()) {
+        AnnotateTag tag_partition_id("partition_id", part_id);
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
         err = txn->get(key, &val);
@@ -663,7 +669,7 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         if (!pb.ParseFromString(val)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             msg = "malformed recycle partition value";
-            LOG_WARNING(msg).tag("partition_id", part_id);
+            LOG_WARNING(msg);
             return;
         }
         if (pb.state() != RecyclePartitionPB::PREPARED) {
@@ -686,12 +692,12 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
             PartitionIndexPB part_index_pb;
             part_index_pb.set_db_id(db_id);
             part_index_pb.set_table_id(table_id);
-            LOG(INFO) << part_index_pb.DebugString();
+            LOG_INFO(part_index_pb.DebugString());
             std::string part_index_value;
             if (!part_index_pb.SerializeToString(&part_index_value)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                 msg = fmt::format("failed to serialize PartitionIndexPB");
-                LOG_WARNING(msg).tag("part_id", part_id);
+                LOG_WARNING(msg);
                 return;
             }
             versioned_put(txn.get(), part_meta_key, "");
@@ -728,7 +734,7 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
         if (!operation_log.SerializeToString(&operation_log_value)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
             msg = fmt::format("failed to serialize OperationLogPB: {}", hex(operation_log_key));
-            LOG_WARNING(msg).tag("instance_id", instance_id).tag("table_id", request->table_id());
+            LOG_WARNING(msg).tag("table_id", request->table_id());
             return;
         }
         versioned_put(txn.get(), operation_log_key, operation_log_value);
@@ -752,6 +758,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         msg = "empty instance_id";
         return;
     }
+
     RPC_RATE_LIMIT(drop_partition)
 
     if (request->partition_ids().empty() || request->index_ids().empty() ||
@@ -789,6 +796,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
 
     CloneChainReader reader(instance_id, resource_mgr_.get());
     for (auto part_id : request->partition_ids()) {
+        AnnotateTag tag_partition_id("partition_id", part_id);
         auto key = recycle_partition_key({instance_id, part_id});
         std::string val;
         err = txn->get(key, &val);
@@ -822,7 +830,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
         if (!pb.ParseFromString(val)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             msg = "malformed recycle partition value";
-            LOG_WARNING(msg).tag("partition_id", part_id);
+            LOG_WARNING(msg);
             return;
         }
         switch (pb.state()) {
@@ -961,6 +969,7 @@ void MetaServiceImpl::check_kv(::google::protobuf::RpcController* controller,
         msg = "empty instance_id";
         return;
     }
+
     if (!request->has_op()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "op not given";
