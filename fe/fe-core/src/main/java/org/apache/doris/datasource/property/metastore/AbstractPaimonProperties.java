@@ -23,6 +23,7 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
@@ -58,7 +59,7 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
 
     public abstract Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList);
 
-    protected void appendCatalogOptions(List<StorageProperties> storagePropertiesList) {
+    protected void appendCatalogOptions() {
         if (StringUtils.isNotBlank(warehouse)) {
             catalogOptions.set(CatalogOptions.WAREHOUSE.key(), warehouse);
         }
@@ -78,10 +79,14 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
     /**
      * Build catalog options including common and subclass-specific ones.
      */
-    public void buildCatalogOptions(List<StorageProperties> storagePropertiesList) {
+    public void buildCatalogOptions() {
         catalogOptions = new Options();
-        appendCatalogOptions(storagePropertiesList);
+        appendCatalogOptions();
         appendCustomCatalogOptions();
+    }
+
+    protected void appendUserHadoopConfig(Configuration  conf) {
+        normalizeS3Config(origProps).forEach(conf::set);
     }
 
     public Map<String, String> getCatalogOptionsMap() {
@@ -110,6 +115,37 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
             // Another thread already initialized it; return the existing one
             return catalogOptionsMapRef.get();
         }
+    }
+
+    /**
+     * @See org.apache.paimon.s3.S3FileIO
+     * Possible S3 config key prefixes:
+     * 1. "s3."      - Paimon legacy custom prefix
+     * 2. "s3a."     - Paimon-supported shorthand
+     * 3. "fs.s3a."  - Hadoop S3A official prefix
+     *
+     * All of them are normalized to the Hadoop-recognized prefix "fs.s3a."
+     */
+    private static final String[] USER_STORAGE_PREFIXES = {"paimon.s3.", "paimon.s3a.", "paimon.fs.s3.",
+            "paimon.fs.oss."};
+
+    /** Hadoop S3A standard prefix */
+    private static final String FS_S3A_PREFIX = "fs.s3a.";
+
+    /**
+     * Normalizes user-provided S3 config keys to Hadoop S3A keys
+     */
+    public static Map<String, String> normalizeS3Config(Map<String, String> options) {
+        Map<String, String> result = new HashMap<>();
+        options.forEach((key, value) -> {
+            for (String prefix : USER_STORAGE_PREFIXES) {
+                if (key.startsWith(prefix)) {
+                    result.put(FS_S3A_PREFIX + key.substring(prefix.length()), value);
+                    return; // stop after the first matching prefix
+                }
+            }
+        });
+        return result;
     }
 
 
