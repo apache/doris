@@ -404,7 +404,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             // in visitLogicalProject, we set project exprs nullability same as dest table columns
             // the conjunct's nullability is based on project exprs, so we need clear the nullable info
             // and let conjunct calculate the nullability by itself to get the correct nullable info
-            expr.clearNullableFromNereids();
+            clearNullableFromNereidsRecursively(expr);
             loadPlanInfo.postFilterExprList.add(expr);
         }
         filterPredicate = logicalFilter.getPredicate();
@@ -421,6 +421,19 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             }
         }
         return null;
+    }
+
+    /**
+     * Recursively clear nullable info from expression and all its children
+     */
+    private void clearNullableFromNereidsRecursively(Expr expr) {
+        if (expr == null) {
+            return;
+        }
+        expr.clearNullableFromNereids();
+        for (Expr child : expr.getChildren()) {
+            clearNullableFromNereidsRecursively(child);
+        }
     }
 
     @Override
