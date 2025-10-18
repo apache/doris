@@ -90,6 +90,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private final long dbId;
     private StreamingJobStatistic jobStatistic = new StreamingJobStatistic();
     @Getter
+    @Setter
     @SerializedName("fr")
     protected FailureReason failureReason;
     @Getter
