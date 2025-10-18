@@ -210,7 +210,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
 
     query_v2::QueryPtr root_query;
     std::string root_binding_key;
-    RETURN_IF_ERROR(build_query_recursive(*this, search_param.root, context, resolver, &root_query,
+    RETURN_IF_ERROR(build_query_recursive(search_param.root, context, resolver, &root_query,
                                           &root_binding_key));
     if (root_query == nullptr) {
         LOG(INFO) << "search: Query tree resolved to empty query, dsl:"
@@ -390,8 +390,7 @@ InvertedIndexQueryType FunctionSearch::clause_type_to_query_type(
     return InvertedIndexQueryType::EQUAL_QUERY;
 }
 
-Status FunctionSearch::build_query_recursive(const FunctionSearch& function,
-                                             const TSearchClause& clause,
+Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
                                              const std::shared_ptr<IndexQueryContext>& context,
                                              FieldReaderResolver& resolver,
                                              inverted_index::query_v2::QueryPtr* out,
@@ -416,8 +415,8 @@ Status FunctionSearch::build_query_recursive(const FunctionSearch& function,
             for (const auto& child_clause : clause.children) {
                 query_v2::QueryPtr child_query;
                 std::string child_binding_key;
-                RETURN_IF_ERROR(build_query_recursive(function, child_clause, context, resolver,
-                                                      &child_query, &child_binding_key));
+                RETURN_IF_ERROR(build_query_recursive(child_clause, context, resolver, &child_query,
+                                                      &child_binding_key));
                 // Add all children including empty BitmapQuery
                 // BooleanQuery will handle the logic:
                 // - AND with empty bitmap → result is empty
@@ -431,10 +430,10 @@ Status FunctionSearch::build_query_recursive(const FunctionSearch& function,
         return Status::OK();
     }
 
-    return build_leaf_query(function, clause, context, resolver, out, binding_key);
+    return build_leaf_query(clause, context, resolver, out, binding_key);
 }
 
-Status FunctionSearch::build_leaf_query(const FunctionSearch& function, const TSearchClause& clause,
+Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
                                         const std::shared_ptr<IndexQueryContext>& context,
                                         FieldReaderResolver& resolver,
                                         inverted_index::query_v2::QueryPtr* out,
@@ -453,7 +452,7 @@ Status FunctionSearch::build_leaf_query(const FunctionSearch& function, const TS
     const std::string& value = clause.value;
     const std::string& clause_type = clause.clause_type;
 
-    auto query_type = function.clause_type_to_query_type(clause_type);
+    auto query_type = clause_type_to_query_type(clause_type);
 
     FieldReaderBinding binding;
     RETURN_IF_ERROR(resolver.resolve(field_name, query_type, &binding));
@@ -474,7 +473,7 @@ Status FunctionSearch::build_leaf_query(const FunctionSearch& function, const TS
         *binding_key = binding.binding_key;
     }
 
-    FunctionSearch::ClauseTypeCategory category = function.get_clause_type_category(clause_type);
+    FunctionSearch::ClauseTypeCategory category = get_clause_type_category(clause_type);
     std::wstring field_wstr = binding.stored_field_wstr;
     std::wstring value_wstr = StringHelper::to_wstring(value);
 
