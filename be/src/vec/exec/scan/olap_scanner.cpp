@@ -65,7 +65,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_avoid_begin.h"
 
-using ReadSource = TabletReader::ReadSource;
+using ReadSource = TabletReadSource;
 
 OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Params&& params)
         : Scanner(params.state, parent, params.limit, params.profile),
@@ -97,7 +97,8 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
                                  .score_runtime {},
                                  .collection_statistics {},
                                  .ann_topn_runtime {}}) {
-    _tablet_reader_params.set_read_source(std::move(params.read_source));
+    _tablet_reader_params.set_read_source(std::move(params.read_source),
+                                          _state->skip_delete_bitmap());
     _has_prepared = false;
     _vector_search_params = params.state->get_vector_search_params();
 }
@@ -218,19 +219,26 @@ Status OlapScanner::prepare() {
                 ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
             }
 
-            CaptureRsReaderOptions opts {
-                    .skip_missing_version = _state->skip_missing_version(),
-                    .enable_prefer_cached_rowset =
-                            config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
-                    .query_freshness_tolerance_ms =
-                            config::is_cloud_mode() ? _state->query_freshness_tolerance_ms() : -1,
-            };
-            auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
-                                                 &read_source.rs_splits, opts);
-            if (!st.ok()) {
-                LOG(WARNING) << "fail to init reader.res=" << st;
-                return st;
+            auto maybe_read_source = tablet->capture_read_source(
+                    _tablet_reader_params.version,
+                    {
+                            .skip_missing_versions = _state->skip_missing_version(),
+                            .enable_fetch_rowsets_from_peers =
+                                    config::enable_fetch_rowsets_from_peer_replicas,
+                            .enable_prefer_cached_rowset =
+                                    config::is_cloud_mode() ? _state->enable_prefer_cached_rowset()
+                                                            : false,
+                            .query_freshness_tolerance_ms =
+                                    config::is_cloud_mode() ? _state->query_freshness_tolerance_ms()
+                                                            : -1,
+                    });
+            if (!maybe_read_source) {
+                LOG(WARNING) << "fail to init reader. res=" << maybe_read_source.error();
+                return maybe_read_source.error();
             }
+
+            read_source = std::move(maybe_read_source.value());
+
             if (config::enable_mow_verbose_log && tablet->enable_unique_key_merge_on_write()) {
                 LOG_INFO("finish capture_rs_readers for tablet={}, query_id={}",
                          tablet->tablet_id(), print_id(_state->query_id()));
@@ -357,7 +365,6 @@ Status OlapScanner::_init_tablet_reader_params(
               std::inserter(_tablet_reader_params.function_filters,
                             _tablet_reader_params.function_filters.begin()));
 
-    auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
     // Merge the columns in delete predicate that not in latest schema in to current tablet schema
     for (auto& del_pred : _tablet_reader_params.delete_predicates) {
@@ -416,10 +423,6 @@ Status OlapScanner::_init_tablet_reader_params(
     }
 
     _tablet_reader_params.use_page_cache = _state->enable_page_cache();
-
-    if (tablet->enable_unique_key_merge_on_write() && !_state->skip_delete_bitmap()) {
-        _tablet_reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
-    }
 
     DBUG_EXECUTE_IF("NewOlapScanner::_init_tablet_reader_params.block", DBUG_BLOCK);
 
