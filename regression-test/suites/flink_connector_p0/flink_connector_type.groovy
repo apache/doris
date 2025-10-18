@@ -124,11 +124,15 @@ VALUES
         logger.info("flink-doris-case.jar download failed")
         throw new Exception("File flink-doris-case.jar download failed.")
     }
+    def systemJavaPath = ["bash", "-c", "which java"].execute().text.trim()
+    logger.info("System java path: ${systemJavaPath}")
 
-    def javaPath = ["bash", "-c", "which java"].execute().text.trim()
-    logger.info("System java path: ${javaPath}")
+    def runtimeJavaHome = System.getProperty("java.home")
+    logger.info("Runtime java home: ${runtimeJavaHome}")
+    def javaPath = "${runtimeJavaHome}/bin/java"
+
     def javaVersion = System.getProperty("java.version")
-    logger.info("System java version: ${javaVersion}")
+    logger.info("Runtime java version: ${javaVersion}")
 
     def addOpens = ""
     if (javaVersion.startsWith("17")) {
