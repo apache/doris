@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -43,21 +45,26 @@ public class MTMVRelatedPartitionDescSyncLimitGenerator implements MTMVRelatedPa
 
     @Override
     public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            RelatedPartitionDescResult lastResult) throws AnalysisException {
-        Map<String, PartitionItem> partitionItems = lastResult.getItems();
+            RelatedPartitionDescResult lastResult, List<Column> partitionColumns) throws AnalysisException {
+        Map<MTMVRelatedTableIf, Map<String, PartitionItem>> partitionItems = lastResult.getItems();
         MTMVPartitionSyncConfig config = generateMTMVPartitionSyncConfigByProperties(mvProperties);
         if (config.getSyncLimit() <= 0) {
             return;
         }
         long nowTruncSubSec = getNowTruncSubSec(config.getTimeUnit(), config.getSyncLimit());
         Optional<String> dateFormat = config.getDateFormat();
-        Map<String, PartitionItem> res = Maps.newHashMap();
-        int relatedColPos = mvPartitionInfo.getRelatedColPos();
-        for (Entry<String, PartitionItem> entry : partitionItems.entrySet()) {
-            if (entry.getValue().isGreaterThanSpecifiedTime(relatedColPos, dateFormat, nowTruncSubSec)) {
-                res.put(entry.getKey(), entry.getValue());
+        Map<MTMVRelatedTableIf, Map<String, PartitionItem>> res = Maps.newHashMap();
+        for (Entry<MTMVRelatedTableIf, Map<String, PartitionItem>> entry : partitionItems.entrySet()) {
+            Map<String, PartitionItem> onePctRes = Maps.newHashMap();
+            int relatedColPos = mvPartitionInfo.getPctColPos(entry.getKey());
+            for (Entry<String, PartitionItem> onePctEntry : entry.getValue().entrySet()) {
+                if (onePctEntry.getValue().isGreaterThanSpecifiedTime(relatedColPos, dateFormat, nowTruncSubSec)) {
+                    onePctRes.put(onePctEntry.getKey(), onePctEntry.getValue());
+                }
             }
+            res.put(entry.getKey(), onePctRes);
         }
+
         lastResult.setItems(res);
     }
 
