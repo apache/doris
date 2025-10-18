@@ -46,6 +46,7 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.DateUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -1025,40 +1026,55 @@ public class DateTimeExtractAndTransform {
         return new TinyIntLiteral((byte) date.toJavaDateType().get(WeekFields.ISO.weekOfWeekBasedYear()));
     }
 
+    /**
+     * Get locale from session variable lc_time_names, fallback to default if not available
+     */
+    private static Locale getSessionLocale() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getSessionVariable() != null) {
+            String lcTimeNames = ctx.getSessionVariable().getLcTimeNames();
+            if (lcTimeNames != null && !lcTimeNames.isEmpty()) {
+                String[] parts = lcTimeNames.split("_");
+                return new Locale(parts[0], parts[1]);
+            }
+        }
+        return Locale.getDefault();
+    }
+
     @ExecFunction(name = "dayname")
     public static Expression dayName(DateTimeV2Literal dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getDayOfWeek().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "dayname")
     public static Expression dayName(DateTimeLiteral dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getDayOfWeek().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "dayname")
     public static Expression dayName(DateV2Literal date) {
         return new VarcharLiteral(date.toJavaDateType().getDayOfWeek().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "monthname")
     public static Expression monthName(DateTimeV2Literal dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getMonth().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "monthname")
     public static Expression monthName(DateTimeLiteral dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getMonth().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "monthname")
     public static Expression monthName(DateV2Literal date) {
         return new VarcharLiteral(date.toJavaDateType().getMonth().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "from_second")
