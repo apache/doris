@@ -95,37 +95,38 @@ public class MTMVRelationManagerTest {
     }
 
     @Test
-    public void testGetMtmvsByBaseTableOneLevel() {
+    public void testGetMtmvsByBaseTableOneLevelAndFromView() {
         // mock mv2==>mv1,t3; mv1==>t4
         MTMVRelationManager manager = new MTMVRelationManager();
         MTMVRelation mv2Relation = new MTMVRelation(Sets.newHashSet(mv1, t3, t4), Sets.newHashSet(mv1, t3),
-                Sets.newHashSet());
-        MTMVRelation mv1Relation = new MTMVRelation(Sets.newHashSet(t4), Sets.newHashSet(t4),
-                Sets.newHashSet());
+                Sets.newHashSet(mv1, t3),
+                Sets.newHashSet(), Sets.newHashSet());
+        MTMVRelation mv1Relation = new MTMVRelation(Sets.newHashSet(t4), Sets.newHashSet(t4), Sets.newHashSet(t4),
+                Sets.newHashSet(), Sets.newHashSet());
         manager.refreshMTMVCache(mv2Relation, mv2);
         manager.refreshMTMVCache(mv1Relation, mv1);
         // should return mv2
-        Set<BaseTableInfo> mv1OneLevel = manager.getMtmvsByBaseTableOneLevel(mv1);
+        Set<BaseTableInfo> mv1OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(mv1);
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), mv1OneLevel));
         // should return mv2
-        Set<BaseTableInfo> t3OneLevel = manager.getMtmvsByBaseTableOneLevel(t3);
+        Set<BaseTableInfo> t3OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(t3);
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3OneLevel));
         // should return mv1
-        Set<BaseTableInfo> t4OneLevel = manager.getMtmvsByBaseTableOneLevel(t4);
+        Set<BaseTableInfo> t4OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(t4);
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1), t4OneLevel));
 
         // update mv2 only use t3,remove mv1
-        mv2Relation = new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3),
-                Sets.newHashSet());
+        mv2Relation = new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3), Sets.newHashSet(t3),
+                Sets.newHashSet(), Sets.newHashSet());
         manager.refreshMTMVCache(mv2Relation, mv2);
         // should return empty
-        mv1OneLevel = manager.getMtmvsByBaseTableOneLevel(mv1);
+        mv1OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(mv1);
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(), mv1OneLevel));
         // should return mv2
-        t3OneLevel = manager.getMtmvsByBaseTableOneLevel(t3);
+        t3OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(t3);
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3OneLevel));
         // should return mv1
-        t4OneLevel = manager.getMtmvsByBaseTableOneLevel(t4);
+        t4OneLevel = manager.getMtmvsByBaseTableOneLevelAndFromView(t4);
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1), t4OneLevel));
     }
 
@@ -134,9 +135,10 @@ public class MTMVRelationManagerTest {
         // mock mv2==>mv1,t3; mv1==>t4
         MTMVRelationManager manager = new MTMVRelationManager();
         MTMVRelation mv2Relation = new MTMVRelation(Sets.newHashSet(mv1, t3, t4), Sets.newHashSet(mv1, t3),
-                Sets.newHashSet());
-        MTMVRelation mv1Relation = new MTMVRelation(Sets.newHashSet(t4), Sets.newHashSet(t4),
-                Sets.newHashSet());
+                Sets.newHashSet(mv1, t3),
+                Sets.newHashSet(), Sets.newHashSet());
+        MTMVRelation mv1Relation = new MTMVRelation(Sets.newHashSet(t4), Sets.newHashSet(t4), Sets.newHashSet(t4),
+                Sets.newHashSet(), Sets.newHashSet());
         manager.refreshMTMVCache(mv2Relation, mv2);
         manager.refreshMTMVCache(mv1Relation, mv1);
         // should return mv2
@@ -150,17 +152,17 @@ public class MTMVRelationManagerTest {
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1, mv2), t4All));
 
         // update mv2 only use t3,remove mv1
-        mv2Relation = new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3),
-                Sets.newHashSet());
+        mv2Relation = new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3), Sets.newHashSet(t3),
+                Sets.newHashSet(), Sets.newHashSet());
         manager.refreshMTMVCache(mv2Relation, mv2);
         // should return empty
-        mv1All = manager.getMtmvsByBaseTableOneLevel(mv1);
+        mv1All = manager.getMtmvsByBaseTableOneLevelAndFromView(mv1);
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(), mv1All));
         // should return mv2
-        t3All = manager.getMtmvsByBaseTableOneLevel(t3);
+        t3All = manager.getMtmvsByBaseTableOneLevelAndFromView(t3);
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv2), t3All));
         // should return mv1
-        t4All = manager.getMtmvsByBaseTableOneLevel(t4);
+        t4All = manager.getMtmvsByBaseTableOneLevelAndFromView(t4);
         Assert.assertTrue(CollectionUtils.isEqualCollection(Sets.newHashSet(mv1), t4All));
     }
 }
