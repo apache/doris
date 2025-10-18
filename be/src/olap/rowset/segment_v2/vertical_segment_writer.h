@@ -71,7 +71,7 @@ struct VerticalSegmentWriterOptions {
 };
 
 struct RowsInBlock {
-    const vectorized::Block* block;
+    vectorized::Block* block;
     size_t row_pos;
     size_t num_rows;
 };
@@ -92,7 +92,7 @@ public:
     // Add one block to batch, memory is owned by the caller.
     // The batched blocks will be flushed in write_batch.
     // Once write_batch is called, no more blocks shoud be added.
-    Status batch_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
+    Status batch_block(vectorized::Block* block, size_t row_pos, size_t num_rows);
     Status write_batch();
 
     [[nodiscard]] std::string data_dir_path() const {
@@ -162,7 +162,7 @@ private:
     void _set_min_max_key(const Slice& key);
     void _set_min_key(const Slice& key);
     void _set_max_key(const Slice& key);
-    void _serialize_block_to_row_column(vectorized::Block& block);
+    void _serialize_block_to_row_column(const vectorized::Block& block);
     Status _probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
                               bool have_delete_sign,
                               const std::vector<RowsetSharedPtr>& specified_rowsets,

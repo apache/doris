@@ -54,7 +54,7 @@ public:
 
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
-    Status add_block(const vectorized::Block* block) override {
+    Status add_block(vectorized::Block* block) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>("add_block is not implemented");
     }
 
