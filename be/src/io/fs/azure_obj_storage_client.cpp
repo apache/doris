@@ -199,13 +199,14 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
                                                                std::string_view stream,
                                                                int part_num) {
     auto client = _client->GetBlockBlobClient(opts.key);
+    std::string block_id = base64_encode_part_num(part_num);
     try {
         Azure::Core::IO::MemoryBodyStream memory_body(
                 reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
         // The blockId must be base64 encoded
         s3_put_rate_limit([&]() {
             SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-            client.StageBlock(base64_encode_part_num(part_num), memory_body);
+            client.StageBlock(block_id, memory_body);
         });
     } catch (Azure::Core::RequestFailedException& e) {
         auto msg = fmt::format(
@@ -224,9 +225,7 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
         };
         // clang-format on
     }
-    return ObjectStorageUploadResponse {
-            .resp = ObjectStorageResponse::OK(),
-    };
+    return ObjectStorageUploadResponse {.etag = std::move(block_id)};
 }
 
 ObjectStorageResponse AzureObjStorageClient::complete_multipart_upload(
