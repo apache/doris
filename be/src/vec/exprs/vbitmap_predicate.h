@@ -70,6 +70,9 @@ public:
         return fmt::format(" VBitmapPredicate:{}", VExpr::debug_string());
     }
 
+    // not need support bitmap filter get_digest
+    uint64_t get_digest(uint64_t seed) const override { return 0; }
+
 private:
     std::shared_ptr<BitmapFilterFuncBase> _filter;
     inline static const std::string EXPR_NAME = "bitmap_predicate";
