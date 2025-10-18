@@ -47,7 +47,7 @@ public interface MTMVPartitionExprService {
      * @throws AnalysisException
      */
     PartitionKeyDesc generateRollUpPartitionKeyDesc(
-            PartitionKeyDesc partitionKeyDesc, MTMVPartitionInfo mvPartitionInfo)
+            PartitionKeyDesc partitionKeyDesc, MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf pctTable)
             throws AnalysisException;
 
     /**
