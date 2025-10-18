@@ -53,7 +53,6 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.aliyun.odps.OdpsType;
 import com.aliyun.odps.PartitionSpec;
-import com.aliyun.odps.table.TableIdentifier;
 import com.aliyun.odps.table.configuration.ArrowOptions;
 import com.aliyun.odps.table.configuration.ArrowOptions.TimestampUnit;
 import com.aliyun.odps.table.optimizer.predicate.Predicate;
@@ -183,7 +182,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         retryTimes = mcCatalog.getRetryTimes();
 
         TableReadSessionBuilder scanBuilder = new TableReadSessionBuilder();
-        return scanBuilder.identifier(TableIdentifier.of(table.getDbName(), table.getName()))
+
+        return scanBuilder.identifier(table.getTableIdentifier())
                         .withSettings(mcCatalog.getSettings())
                         .withSplitOptions(mcCatalog.getSplitOption())
                         .requiredPartitionColumns(requiredPartitionColumns)

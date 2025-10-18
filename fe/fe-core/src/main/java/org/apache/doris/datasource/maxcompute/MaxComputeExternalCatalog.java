@@ -30,6 +30,7 @@ import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.Partition;
 import com.aliyun.odps.Project;
+import com.aliyun.odps.Schema;
 import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AccountFormat;
 import com.aliyun.odps.account.AliyunAccount;
@@ -80,6 +81,8 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     public boolean dateTimePredicatePushDown;
 
     AccountFormat accountFormat = AccountFormat.DISPLAYNAME;
+
+    public boolean projectSchemaTable = false;
 
     private static final Map<String, ZoneId> REGION_ZONE_MAP;
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
@@ -225,6 +228,9 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         Credentials credentials = Credentials.newBuilder().withAccount(odps.getAccount())
                 .withAppAccount(odps.getAppAccount()).build();
 
+        projectSchemaTable = Boolean.parseBoolean(
+                props.getOrDefault(MCProperties.PROJECT_SCHEMA_TABLE, MCProperties.DEFAULT_PROJECT_SCHEMA_TABLE));
+
         settings = EnvironmentSettings.newBuilder()
                 .withCredentials(credentials)
                 .withServiceEndpoint(odps.getEndpoint())
@@ -239,36 +245,48 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     }
 
     protected List<String> listDatabaseNames() {
+        makeSureInitialized();
         List<String> result = new ArrayList<>();
-        result.add(defaultProject);
-
-        try {
-            result.add(defaultProject);
-            if (StringUtils.isNullOrEmpty(catalogOwner)) {
-                SecurityManager sm = odps.projects().get().getSecurityManager();
-                String whoami = sm.runQuery("whoami", false);
-
-                JsonObject js = JsonParser.parseString(whoami).getAsJsonObject();
-                catalogOwner = js.get("DisplayName").getAsString();
-            }
-            Iterator<Project> iterator = odps.projects().iterator(catalogOwner);
+        if (projectSchemaTable) {
+            Iterator<Schema> iterator = odps.schemas().iterator(defaultProject);
             while (iterator.hasNext()) {
-                Project project = iterator.next();
-                if (!project.getName().equals(defaultProject)) {
-                    result.add(project.getName());
-                }
+                Schema schema = iterator.next();
+                result.add(schema.getName());
             }
-        } catch (OdpsException e) {
-            throw new RuntimeException(e);
+        } else {
+            result.add(defaultProject);
+            try {
+                result.add(defaultProject);
+                if (StringUtils.isNullOrEmpty(catalogOwner)) {
+                    SecurityManager sm = odps.projects().get().getSecurityManager();
+                    String whoami = sm.runQuery("whoami", false);
+
+                    JsonObject js = JsonParser.parseString(whoami).getAsJsonObject();
+                    catalogOwner = js.get("DisplayName").getAsString();
+                }
+                Iterator<Project> iterator = odps.projects().iterator(catalogOwner);
+                while (iterator.hasNext()) {
+                    Project project = iterator.next();
+                    if (!project.getName().equals(defaultProject)) {
+                        result.add(project.getName());
+                    }
+                }
+            } catch (OdpsException e) {
+                throw new RuntimeException(e);
+            }
         }
+
         return result;
     }
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
+
         try {
-            return getClient().tables().exists(dbName, tblName);
+            return projectSchemaTable
+                    ? getClient().tables().exists(defaultProject, dbName, tblName)
+                    : getClient().tables().exists(dbName, tblName);
         } catch (OdpsException e) {
             throw new RuntimeException(e);
         }
@@ -280,30 +298,59 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
 
     public List<String> listPartitionNames(String dbName, String tbl, long skip, long limit) {
         try {
-            if (getClient().projects().exists(dbName)) {
-                List<Partition> parts;
-                if (limit < 0) {
-                    parts = getClient().tables().get(dbName, tbl).getPartitions();
-                } else {
-                    skip = skip < 0 ? 0 : skip;
-                    parts = new ArrayList<>();
-                    Iterator<Partition> it = getClient().tables().get(dbName, tbl).getPartitionIterator();
-                    int count = 0;
-                    while (it.hasNext()) {
-                        if (count < skip) {
-                            count++;
-                            it.next();
-                        } else if (parts.size() >= limit) {
-                            break;
-                        } else {
-                            parts.add(it.next());
+            if (projectSchemaTable) {
+                if (getClient().schemas().exists(dbName)) {
+                    List<Partition> parts;
+                    if (limit < 0) {
+                        parts = getClient().tables().get(defaultProject, dbName, tbl).getPartitions();
+                    } else {
+                        skip = skip < 0 ? 0 : skip;
+                        parts = new ArrayList<>();
+                        Iterator<Partition> it = getClient().tables().get(defaultProject, dbName, tbl)
+                                .getPartitionIterator();
+                        int count = 0;
+                        while (it.hasNext()) {
+                            if (count < skip) {
+                                count++;
+                                it.next();
+                            } else if (parts.size() >= limit) {
+                                break;
+                            } else {
+                                parts.add(it.next());
+                            }
                         }
                     }
+                    return parts.stream().map(p -> p.getPartitionSpec().toString(false, true))
+                            .collect(Collectors.toList());
+                } else {
+                    throw new OdpsException("MaxCompute schema: " + dbName + " not exists.");
                 }
-                return parts.stream().map(p -> p.getPartitionSpec().toString(false, true))
-                        .collect(Collectors.toList());
             } else {
-                throw new OdpsException("Max compute project: " + dbName + " not exists.");
+                if (getClient().projects().exists(dbName)) {
+                    List<Partition> parts;
+                    if (limit < 0) {
+                        parts = getClient().tables().get(dbName, tbl).getPartitions();
+                    } else {
+                        skip = skip < 0 ? 0 : skip;
+                        parts = new ArrayList<>();
+                        Iterator<Partition> it = getClient().tables().get(dbName, tbl).getPartitionIterator();
+                        int count = 0;
+                        while (it.hasNext()) {
+                            if (count < skip) {
+                                count++;
+                                it.next();
+                            } else if (parts.size() >= limit) {
+                                break;
+                            } else {
+                                parts.add(it.next());
+                            }
+                        }
+                    }
+                    return parts.stream().map(p -> p.getPartitionSpec().toString(false, true))
+                            .collect(Collectors.toList());
+                } else {
+                    throw new OdpsException("MaxCompute project: " + dbName + " not exists.");
+                }
             }
         } catch (OdpsException e) {
             throw new RuntimeException(e);
@@ -314,7 +361,12 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
         List<String> result = new ArrayList<>();
-        getClient().tables().iterable(dbName).forEach(e -> result.add(e.getName()));
+        if (projectSchemaTable) {
+            getClient().tables().iterable(defaultProject, dbName, null, false)
+                    .forEach(e -> result.add(e.getName()));
+        } else {
+            getClient().tables().iterable(dbName).forEach(e -> result.add(e.getName()));
+        }
         return result;
     }
 
@@ -402,6 +454,10 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         return splitByteSize;
     }
 
+    public boolean isProjectSchemaTable() {
+        return projectSchemaTable;
+    }
+
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
@@ -476,5 +532,8 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
             throw new DdlException("Max-Compute credential properties '"
                     + MCProperties.ACCESS_KEY + "' and  '" + MCProperties.SECRET_KEY + "' are required.");
         }
+
+        projectSchemaTable = Boolean.parseBoolean(
+                props.getOrDefault(MCProperties.PROJECT_SCHEMA_TABLE, MCProperties.DEFAULT_PROJECT_SCHEMA_TABLE));
     }
 }

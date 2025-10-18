@@ -36,6 +36,7 @@ import org.apache.doris.thrift.TTableType;
 
 import com.aliyun.odps.OdpsType;
 import com.aliyun.odps.Table;
+import com.aliyun.odps.table.TableIdentifier;
 import com.aliyun.odps.type.ArrayTypeInfo;
 import com.aliyun.odps.type.CharTypeInfo;
 import com.aliyun.odps.type.DecimalTypeInfo;
@@ -172,9 +173,17 @@ public class MaxComputeExternalTable extends ExternalTable {
     public Optional<SchemaCacheValue> initSchema() {
         // this method will be called at semantic parsing.
         makeSureInitialized();
-        Table odpsTable = ((MaxComputeExternalCatalog) catalog).getClient().tables().get(dbName, name);
-        List<com.aliyun.odps.Column> columns = odpsTable.getSchema().getColumns();
+        MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) catalog;
 
+        Table odpsTable = mcCatalog.isProjectSchemaTable()
+                ? mcCatalog.getClient().tables().get(mcCatalog.getDefaultProject(), dbName, name)
+                : mcCatalog.getClient().tables().get(dbName, name);
+
+        TableIdentifier tableIdentifier = mcCatalog.isProjectSchemaTable()
+                ? TableIdentifier.of(mcCatalog.getDefaultProject(), getDbName(), getName())
+                : TableIdentifier.of(getDbName(), getName());
+
+        List<com.aliyun.odps.Column> columns = odpsTable.getSchema().getColumns();
 
         for (com.aliyun.odps.Column column : columns) {
             columnNameToOdpsColumn.put(column.getName(), column);
@@ -213,8 +222,8 @@ public class MaxComputeExternalTable extends ExternalTable {
             partitionSpecs = ImmutableList.of();
         }
 
-        return Optional.of(new MaxComputeSchemaCacheValue(schema, odpsTable, partitionColumnNames,
-                partitionSpecs, partitionDorisColumns, partitionTypes));
+        return Optional.of(new MaxComputeSchemaCacheValue(schema, odpsTable, tableIdentifier,
+                partitionColumnNames, partitionSpecs, partitionDorisColumns, partitionTypes));
     }
 
     private Type mcTypeToDorisType(TypeInfo typeInfo) {
@@ -301,6 +310,13 @@ public class MaxComputeExternalTable extends ExternalTable {
             default:
                 throw new IllegalArgumentException("Cannot transform unknown type: " + odpsType);
         }
+    }
+
+    public TableIdentifier getTableIdentifier() {
+        makeSureInitialized();
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        return schemaCacheValue.map(value -> ((MaxComputeSchemaCacheValue) value).getTableIdentifier())
+                .orElse(null);
     }
 
     @Override
