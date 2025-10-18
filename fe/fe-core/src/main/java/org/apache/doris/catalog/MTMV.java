@@ -198,7 +198,8 @@ public class MTMV extends OlapTable {
                 if (!isReplay) {
                     ConnectContext currentContext = ConnectContext.get();
                     // shouldn't do this while holding mvWriteLock
-                    mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
+                    mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this,
+                                    MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE), true,
                             true, currentContext);
                 }
             } catch (Throwable e) {
@@ -323,7 +324,8 @@ public class MTMV extends OlapTable {
         }
         // Concurrent situations may result in duplicate cache generation,
         // but we tolerate this in order to prevent nested use of readLock and write MvLock for the table
-        MTMVCache mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
+        MTMVCache mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this,
+                        MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE), true,
                 false, connectionContext);
         writeMvLock();
         try {
