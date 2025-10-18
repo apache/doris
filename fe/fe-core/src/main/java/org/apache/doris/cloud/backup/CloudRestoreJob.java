@@ -544,6 +544,7 @@ public class CloudRestoreJob extends RestoreJob {
 
     @Override
     public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
         storageVaultName = properties.get(PROP_STORAGE_VAULT_NAME);
     }
 
