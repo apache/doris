@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggArraySum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
@@ -128,6 +129,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(Covar.class, "covar", "covar_pop"),
             agg(CovarSamp.class, "covar_samp"),
             agg(GroupArrayIntersect.class, "group_array_intersect"),
+            agg(AggArraySum.class, "agg_array_sum"),
             agg(GroupBitAnd.class, "group_bit_and"),
             agg(GroupBitOr.class, "group_bit_or"),
             agg(GroupBitXor.class, "group_bit_xor"),
