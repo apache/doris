@@ -114,6 +114,9 @@ public class IcebergScanNode extends FileQueryScanNode {
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
     private Map<String, String> backendStorageProperties;
 
+    // Custom file scan tasks for rewrite operations
+    private List<FileScanTask> customFileScanTasks = null;
+
     // for test
     @VisibleForTesting
     public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
@@ -250,6 +253,24 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
     }
 
+    /**
+     * Reset file scan tasks to a custom list for rewrite operations.
+     * This method allows the rewrite executor to specify exactly which files
+     * should be scanned, overriding the normal table scan planning.
+     */
+    public void resetFileScanTasks(List<FileScanTask> tasks) {
+        LOG.info("Resetting file scan tasks to {} custom tasks for rewrite operation", tasks.size());
+        this.customFileScanTasks = new ArrayList<>(tasks);
+
+        // Log the files that will be scanned
+        if (LOG.isDebugEnabled()) {
+            for (FileScanTask task : tasks) {
+                LOG.debug("Custom file scan task: {}, size: {} bytes",
+                         task.file().location(), task.file().fileSizeInBytes());
+            }
+        }
+    }
+
     @Override
     public void startSplit(int numBackends) throws UserException {
         try {
@@ -380,8 +401,20 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private List<Split> doGetSplits(int numBackends) throws UserException {
 
-        TableScan scan = createTableScan();
         List<Split> splits = new ArrayList<>();
+
+        // Use custom file scan tasks if available (for rewrite operations)
+        if (customFileScanTasks != null) {
+            LOG.info("Using {} custom file scan tasks for rewrite operation", customFileScanTasks.size());
+            for (FileScanTask task : customFileScanTasks) {
+                splits.add(createIcebergSplit(task));
+            }
+            selectedPartitionNum = partitionMapInfos.size();
+            return splits;
+        }
+
+        // Normal table scan planning
+        TableScan scan = createTableScan();
 
         try (CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan)) {
             if (tableLevelPushDownCount) {

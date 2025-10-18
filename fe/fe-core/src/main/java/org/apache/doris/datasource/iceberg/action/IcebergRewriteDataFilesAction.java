@@ -23,21 +23,37 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFilePlanner;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteDataGroup;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteResult;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteJob;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteJobManager;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteJobState;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.iceberg.Table;
 
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 /**
- * Iceberg rewrite data files action implementation.
- * This action rewrites data files in Iceberg tables to optimize file sizes
- * and improve query performance.
+ * Action for rewriting Iceberg data files to compact and optimize table data
+ *
+ * Execution Flow:
+ * 1. Validate rewrite parameters and get Iceberg table
+ * 2. Use RewriteDataFilePlanner to plan and organize file scan tasks into rewrite groups
+ * 3. Create and start rewrite job concurrently
+ * 4. Wait for job completion and return result
  */
 public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
+    private static final Logger LOG = LogManager.getLogger(IcebergRewriteDataFilesAction.class);
     // File size parameters
     public static final String TARGET_FILE_SIZE_BYTES = "target-file-size-bytes";
     public static final String MIN_FILE_SIZE_BYTES = "min-file-size-bytes";
@@ -54,6 +70,14 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
 
     // Output specification parameter
     public static final String OUTPUT_SPEC_ID = "output-spec-id";
+
+    // Parameters with special default handling
+    private long minFileSizeBytes;
+    private long maxFileSizeBytes;
+
+    // Concurrency control
+    private static final String PARALLELISM = "parallelism";
+    private int parallelism = 1;
 
     public IcebergRewriteDataFilesAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
@@ -115,6 +139,12 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
                 "Partition specification ID for output files",
                 2L,
                 ArgumentParsers.positiveLong(OUTPUT_SPEC_ID));
+
+        // Parallelism argument
+        namedArguments.registerOptionalArgument(PARALLELISM,
+                        "Number of parallel tasks for rewrite execution",
+                        1,
+                        ArgumentParsers.intRange(PARALLELISM, 1, 32));
     }
 
     @Override
@@ -132,14 +162,123 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
 
     @Override
     protected void validateIcebergAction() throws UserException {
-        // TODO: Implement validation logic for rewrite_data_files parameters
+        // Validate min and max file size parameters
+        long targetFileSizeBytes = namedArguments.getLong(TARGET_FILE_SIZE_BYTES);
+        // min-file-size-bytes default to 75% of target file size
+        this.minFileSizeBytes = namedArguments.getLong(MIN_FILE_SIZE_BYTES);
+        if (this.minFileSizeBytes == 0) {
+            this.minFileSizeBytes = (long) (targetFileSizeBytes * 0.75);
+        }
+        // max-file-size-bytes default to 180% of target file size
+        this.maxFileSizeBytes = namedArguments.getLong(MAX_FILE_SIZE_BYTES);
+        if (this.maxFileSizeBytes == 0) {
+            this.maxFileSizeBytes = (long) (targetFileSizeBytes * 1.8);
+        }
+        // Get parallelism parameter
+        this.parallelism = namedArguments.getInt(PARALLELISM);
     }
 
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
-        // TODO: Implement the logic to rewrite data files in the Iceberg table
-        // For now, just return dummy values
-        return Lists.newArrayList("0", "1", "2", "3");
+        try {
+            Table icebergTable = IcebergUtils.getIcebergTable(this.icebergTable);
+
+            if (icebergTable.currentSnapshot() == null) {
+                LOG.info("Table {} has no data, skipping rewrite", table.getName());
+                return Lists.newArrayList("0", "0", "0", "0");
+            }
+
+            RewriteDataFilePlanner.Parameters parameters = buildRewriteParameters();
+
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext == null) {
+                throw new UserException("No active connection context found");
+            }
+
+            // Step 1: Plan and organize file scan tasks into groups
+            RewriteDataFilePlanner fileManager = new RewriteDataFilePlanner(parameters);
+            Iterable<RewriteDataGroup> allGroups = fileManager.planAndOrganizeTasks(icebergTable);
+
+            // Step 2: Create and start concurrent rewrite job
+            RewriteJobManager jobManager = new RewriteJobManager();
+            String jobLabel = "rewrite_" + table.getName() + "_" + System.currentTimeMillis();
+
+            RewriteJob rewriteJob = jobManager.createAndStartJob(
+                            jobLabel, this.icebergTable, parameters, connectContext, parallelism);
+
+            // Start the job with groups
+            jobManager.startRewriteJob(rewriteJob, allGroups, parallelism);
+
+            // Wait for job completion
+            RewriteResult totalResult = waitForJobCompletion(rewriteJob, jobManager);
+            return totalResult.toStringList();
+        } catch (Exception e) {
+            LOG.error("Failed to rewrite data files for table: " + table.getName(), e);
+            throw new UserException("Rewrite data files failed: " + e.getMessage());
+        }
+    }
+
+    private RewriteDataFilePlanner.Parameters buildRewriteParameters() {
+        return new RewriteDataFilePlanner.Parameters(
+                namedArguments.getLong(TARGET_FILE_SIZE_BYTES),
+                this.minFileSizeBytes,
+                this.maxFileSizeBytes,
+                namedArguments.getInt(MIN_INPUT_FILES),
+                namedArguments.getBoolean(REWRITE_ALL),
+                namedArguments.getLong(MAX_FILE_GROUP_SIZE_BYTES),
+                namedArguments.getInt(DELETE_FILE_THRESHOLD),
+                namedArguments.getDouble(DELETE_RATIO_THRESHOLD),
+                namedArguments.getLong(OUTPUT_SPEC_ID),
+                partitionNamesInfo,
+                whereCondition);
+    }
+
+    /**
+     * Wait for job completion and return result
+     */
+    private RewriteResult waitForJobCompletion(RewriteJob job, RewriteJobManager jobManager)
+                    throws UserException {
+            LOG.info("Waiting for rewrite job {} to complete", job.getId());
+
+            // In a real implementation, this would use proper synchronization
+            // For now, we'll use a simple polling approach
+            int maxWaitTime = 300; // 5 minutes
+            int waitInterval = 1000; // 1 second
+            int waited = 0;
+
+            while (!job.isFinalState() && waited < maxWaitTime * 1000) {
+                    try {
+                            Thread.sleep(waitInterval);
+                            waited += waitInterval;
+
+                            // Check job state periodically
+                            RewriteJob currentJob = jobManager.getJob(job.getId());
+                            if (currentJob != null) {
+                                    LOG.debug("Job {} state: {}, progress: {}%",
+                                                    currentJob.getId(), currentJob.getState(),
+                                                    currentJob.getProgress());
+                            }
+                    } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new UserException("Wait for job completion was interrupted");
+                    }
+            }
+
+            if (!job.isFinalState()) {
+                    throw new UserException("Rewrite job did not complete within timeout");
+            }
+
+            if (job.getState() == RewriteJobState.CANCELLED) {
+                    throw new UserException("Rewrite job was cancelled: " + job.getFailMsg());
+            }
+
+            RewriteResult result = job.getTotalResult();
+            if (result == null) {
+                    result = new RewriteResult();
+            }
+
+            LOG.info("Rewrite job {} completed with result: {}", job.getId(), result);
+            return result;
     }
 
     @Override
