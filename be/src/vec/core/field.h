@@ -339,6 +339,14 @@ public:
         return *ptr;
     }
 
+    template <PrimitiveType T>
+    typename PrimitiveTypeTraits<T>::NearestFieldType get() const {
+        const auto* MAY_ALIAS ptr =
+                reinterpret_cast<const typename PrimitiveTypeTraits<T>::NearestFieldType*>(
+                        &storage);
+        return *ptr;
+    }
+
     bool operator==(const Field& rhs) const {
         return operator<=>(rhs) == std::strong_ordering::equal;
     }
@@ -484,6 +492,7 @@ public:
     }
 
     std::string_view as_string_view() const;
+    std::string to_string() const;
 
 private:
     std::aligned_union_t<

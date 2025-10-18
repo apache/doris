@@ -105,8 +105,8 @@ static void fill_array_offset(FieldSchema* field, ColumnArray::Offsets64& offset
 
 Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                    const tparquet::RowGroup& row_group,
-                                   const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
-                                   io::IOContext* io_ctx,
+                                   const std::vector<RowRange>& row_ranges,
+                                   const cctz::time_zone* ctz, io::IOContext* io_ctx,
                                    std::unique_ptr<ParquetColumnReader>& reader,
                                    size_t max_buf_size, const tparquet::OffsetIndex* offset_index) {
     if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
