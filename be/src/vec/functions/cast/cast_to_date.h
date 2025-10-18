@@ -444,6 +444,73 @@ public:
     }
 };
 
+template <>
+class CastToImpl<CastModeType::StrictMode, DataTypeTimeStampTz, DataTypeDateTimeV2>
+        : public CastToBase {
+public:
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
+        const auto& col_from =
+                assert_cast<const ColumnTimeStampTz&>(*block.get_by_position(arguments[0]).column)
+                        .get_data();
+
+        auto col_to = ColumnDateTimeV2::create(input_rows_count);
+        auto& col_to_data = col_to->get_data();
+        const auto& local_time_zone = context->state()->timezone_obj();
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            if (null_map && null_map[i]) {
+                continue;
+            }
+            TimestampTzValue from_tz {col_from[i]};
+            DateV2Value<DateTimeV2ValueType> dt;
+            if (!from_tz.to_datetime(dt, local_time_zone)) {
+                return Status::InternalError(
+                        "can not cast from  timestamptz : {} to datetime in timezone : {}",
+                        from_tz.to_string(local_time_zone), context->state()->timezone());
+            }
+            col_to_data[i] = dt.to_date_int_val();
+        }
+
+        block.get_by_position(result).column = std::move(col_to);
+        return Status::OK();
+    }
+};
+
+template <>
+class CastToImpl<CastModeType::NonStrictMode, DataTypeTimeStampTz, DataTypeDateTimeV2>
+        : public CastToBase {
+public:
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type*) const override {
+        const auto& col_from =
+                assert_cast<const ColumnTimeStampTz&>(*block.get_by_position(arguments[0]).column)
+                        .get_data();
+
+        auto col_to = ColumnDateTimeV2::create(input_rows_count);
+        auto& col_to_data = col_to->get_data();
+        auto col_null = ColumnBool::create(input_rows_count, 0);
+        auto& col_null_map = col_null->get_data();
+        const auto& local_time_zone = context->state()->timezone_obj();
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            TimestampTzValue from_tz {col_from[i]};
+            DateV2Value<DateTimeV2ValueType> dt;
+            if (from_tz.to_datetime(dt, local_time_zone)) {
+                col_to_data[i] = dt.to_date_int_val();
+            } else {
+                col_null_map[i] = 1;
+                col_to_data[i] = MIN_DATETIME_V2;
+            }
+        }
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(col_to), std::move(col_null));
+        return Status::OK();
+    }
+};
+
 namespace CastWrapper {
 
 template <typename ToDataType> // must datelike type
@@ -454,7 +521,8 @@ WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr&
         using Types = std::decay_t<decltype(types)>;
         using FromDataType = typename Types::LeftType;
         if constexpr (CastUtil::IsPureDigitType<FromDataType> || IsDatelikeTypes<FromDataType> ||
-                      IsStringType<FromDataType>) {
+                      IsStringType<FromDataType> ||
+                      std::is_same_v<FromDataType, DataTypeTimeStampTz>) {
             if (context->enable_strict_mode()) {
                 cast_to_datelike = std::make_shared<
                         CastToImpl<CastModeType::StrictMode, FromDataType, ToDataType>>();
