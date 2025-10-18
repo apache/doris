@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.common.JobStatus;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -108,6 +110,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
         if (job.getJobConfig().getExecuteType().equals(JobExecuteType.STREAMING)
                 && job instanceof StreamingInsertJob) {
             StreamingInsertJob streamingJob = (StreamingInsertJob) job;
+            streamingJob.checkPrivilege(ConnectContext.get());
+
             boolean proCheck = checkProperties(streamingJob.getProperties());
             boolean sqlCheck = checkSql(streamingJob.getExecuteSql());
             if (sqlCheck) {
@@ -124,11 +128,19 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
     /**
      * Check if there are any unmodifiable properties in TVF
      */
-    private void checkUnmodifiableProperties(String originExecuteSql) {
-        UnboundTVFRelation originTvf = getTvf(originExecuteSql);
-        UnboundTVFRelation inputTvf = getTvf(sql);
+    private void checkUnmodifiableProperties(String originExecuteSql) throws AnalysisException {
+        Pair<List<String>, UnboundTVFRelation> origin = getTargetTableAndTvf(originExecuteSql);
+        Pair<List<String>, UnboundTVFRelation> input = getTargetTableAndTvf(sql);
+        UnboundTVFRelation originTvf = origin.second;
+        UnboundTVFRelation inputTvf = input.second;
+
+        Preconditions.checkArgument(Objects.equals(origin.first, input.first),
+                "The target table cannot be modified in ALTER JOB");
+
         Preconditions.checkArgument(originTvf.getFunctionName().equalsIgnoreCase(inputTvf.getFunctionName()),
-                "The tvf type %s cannot be modified in ALTER JOB", inputTvf);
+                "The tvf type cannot be modified in ALTER JOB: original=%s, new=%s",
+                originTvf.getFunctionName(), inputTvf.getFunctionName());
+
         switch (originTvf.getFunctionName().toLowerCase()) {
             case "s3":
                 Preconditions.checkArgument(Objects.equals(originTvf.getProperties().getMap().get("uri"),
@@ -140,13 +152,18 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
         }
     }
 
-    private UnboundTVFRelation getTvf(String sql) {
+    private Pair<List<String>, UnboundTVFRelation> getTargetTableAndTvf(String sql) throws AnalysisException {
         LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        if (!(logicalPlan instanceof InsertIntoTableCommand)) {
+            throw new AnalysisException("Only support insert command");
+        }
+        LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
+        List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ConnectContext.get());
         InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) logicalPlan;
         List<UnboundTVFRelation> allTVFRelation = baseCommand.getAllTVFRelation();
         Preconditions.checkArgument(allTVFRelation.size() == 1, "Only support one source in insert streaming job");
         UnboundTVFRelation unboundTVFRelation = allTVFRelation.get(0);
-        return unboundTVFRelation;
+        return Pair.of(targetTable, unboundTVFRelation);
     }
 
     private boolean checkProperties(Map<String, String> originProps) {
