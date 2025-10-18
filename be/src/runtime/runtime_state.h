@@ -519,6 +519,12 @@ public:
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }
 
+    int cte_max_recursion_depth() const {
+        return _query_options.__isset.cte_max_recursion_depth
+                       ? _query_options.cte_max_recursion_depth
+                       : 0;
+    }
+
     int rpc_verbose_profile_max_instance_count() const {
         return _query_options.__isset.rpc_verbose_profile_max_instance_count
                        ? _query_options.rpc_verbose_profile_max_instance_count
@@ -700,6 +706,8 @@ public:
                                       _query_options.hnsw_check_relative_distance,
                                       _query_options.hnsw_bounded_queue);
     }
+
+    void reset_to_rerun();
 
 private:
     Status create_error_log_file();

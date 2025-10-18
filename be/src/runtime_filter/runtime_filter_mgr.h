@@ -104,6 +104,17 @@ public:
 
     std::string debug_string();
 
+    std::set<int32_t> get_producer_ids() const { return _producer_id_set; }
+
+    void remove_producer(const std::set<int32_t>& filter_ids) {
+        std::lock_guard<std::mutex> l(_lock);
+        for (const auto& id : filter_ids) {
+            _consumer_map.erase(id);
+            _local_merge_map.erase(id);
+            _producer_id_set.erase(id);
+        }
+    }
+
 private:
     /**
      * `_is_global = true` means this runtime filter manager menages query-level runtime filters.

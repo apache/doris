@@ -60,6 +60,28 @@ message PTransmitDataResult {
     optional int64 receive_time = 2;
 };
 
+message PTransmitRecCTEBlockParams {
+    repeated PBlock blocks = 1;
+    optional bool eos = 2;
+    optional PUniqueId query_id = 3;
+    optional PUniqueId fragment_instance_id = 4;
+    optional int32 node_id = 5;
+};
+
+message PTransmitRecCTEBlockResult {
+    optional PStatus status = 1;
+};
+
+message PResetFragmentParams {
+    optional PUniqueId query_id = 1;
+    optional int32 fragment_id = 2;
+    optional bool close = 3;
+};
+
+message PResetFragmentResult {
+    optional PStatus status = 1;
+};
+
 message PTabletWithPartition {
     required int64 partition_id = 1;
     required int64 tablet_id = 2;
@@ -1091,6 +1113,8 @@ service PBackendService {
     rpc sync_filter_size(PSyncFilterSizeRequest) returns (PSyncFilterSizeResponse);
     rpc apply_filterv2(PPublishFilterRequestV2) returns (PPublishFilterResponse);
     rpc fold_constant_expr(PConstantExprRequest) returns (PConstantExprResult);
+    rpc reset_fragment(PResetFragmentParams) returns (PResetFragmentResult);
+    rpc transmit_rec_cte_block(PTransmitRecCTEBlockParams) returns (PTransmitRecCTEBlockResult);
     rpc transmit_block(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_block_by_http(PEmptyRequest) returns (PTransmitDataResult);
     rpc check_rpc_channel(PCheckRPCChannelRequest) returns (PCheckRPCChannelResponse);
