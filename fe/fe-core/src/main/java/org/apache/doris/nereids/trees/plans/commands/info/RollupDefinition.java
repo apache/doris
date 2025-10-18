@@ -60,6 +60,10 @@ public class RollupDefinition {
         return new AddRollupClause(name, cols, dupKeys, name, properties);
     }
 
+    public AddRollupOp translateToAddRollupOp() {
+        return new AddRollupOp(name, cols, dupKeys, name, properties);
+    }
+
     public String getName() {
         return name;
     }

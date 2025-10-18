@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AddColumnsClause;
-import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -97,11 +95,6 @@ public class AddColumnsOp extends AlterTableOp {
             Column col = columnDef.translateToCatalogStyle();
             columns.add(col);
         }
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new AddColumnsClause(toSql(), columns, rollupName, properties);
     }
 
     @Override

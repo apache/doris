@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.info.TableNameInfo;
@@ -75,11 +73,6 @@ public class DropIndexOp extends AlterTableOp {
         if (tableName != null) {
             tableName.analyze(ctx);
         }
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new DropIndexClause(indexName, ifExists, tableName, alter);
     }
 
     @Override

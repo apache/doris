@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AddColumnClause;
-import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -88,11 +86,6 @@ public class AddColumnOp extends AlterTableOp {
         }
         validateColumnDef(tableName, columnDef, colPos, rollupName);
         column = columnDef.translateToCatalogStyleForSchemaChange();
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new AddColumnClause(toSql(), column, colPos, rollupName, properties);
     }
 
     @Override

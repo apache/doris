@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AlterTableClause;
-import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
@@ -62,11 +60,6 @@ public class RenameRollupOp extends AlterTableOp {
         }
 
         FeNameFormat.checkTableName(newRollupName);
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new RollupRenameClause(rollupName, newRollupName);
     }
 
     @Override

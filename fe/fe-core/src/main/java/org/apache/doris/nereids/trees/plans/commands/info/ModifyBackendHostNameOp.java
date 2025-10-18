@@ -17,39 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.common.UserException;
-import org.apache.doris.qe.ConnectContext;
-
-import java.util.Map;
-
 /**
- * AlterSystemOp
+ * ModifyBackendHostNameOp
  */
-public abstract class AlterSystemOp extends AlterOp {
-    protected AlterOpType opType;
+public class ModifyBackendHostNameOp extends ModifyNodeHostNameOp {
 
-    public AlterSystemOp(AlterOpType opType) {
-        super(opType);
-        this.opType = opType;
+    public ModifyBackendHostNameOp(String hostPort, String newHost, ModifyOpType modifyOpType) {
+        super(hostPort, newHost, modifyOpType);
     }
 
-    public AlterOpType getOpType() {
-        return opType;
-    }
-
-    public boolean allowOpMTMV() {
-        return true;
-    }
-
-    public boolean needChangeMTMVState() {
-        return false;
-    }
-
-    public abstract String toSql();
-
-    public abstract Map<String, String> getProperties();
-
-    public void validate(ConnectContext ctx) throws UserException {
+    public ModifyBackendHostNameOp(String hostPort, String newHost, ModifyOpType modifyOpType,
+                                   String host, int port) {
+        super(hostPort, newHost, modifyOpType);
+        this.host = host;
+        this.port = port;
     }
 }

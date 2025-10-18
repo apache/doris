@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.analysis.AddPartitionClause;
-import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Column;
@@ -63,7 +61,7 @@ public class AddPartitionOp extends AlterTableOp {
         this.needTableStable = false;
     }
 
-    private SinglePartitionDesc getSingeRangePartitionDesc() {
+    public SinglePartitionDesc getSingeRangePartitionDesc() {
         SinglePartitionDesc singlePartitionDesc = (SinglePartitionDesc) partitionDesc.translateToCatalogStyle();
         // TODO fe/fe-core/src/main/java/org/apache/doris/datasource/InternalCatalog.java#addPartition
         // will call singlePartitionDesc.analyze method, so have to set analyzed to false to let it work
@@ -71,7 +69,7 @@ public class AddPartitionOp extends AlterTableOp {
         return singlePartitionDesc;
     }
 
-    private DistributionDesc getDistributionDesc() {
+    public DistributionDesc getDistributionDesc() {
         return distributionDesc != null ? distributionDesc.translateToCatalogStyle() : null;
     }
 
@@ -96,11 +94,6 @@ public class AddPartitionOp extends AlterTableOp {
             partitionDesc.setPartitionTypes(partitionTypes);
         }
         partitionDesc.validate(properties);
-    }
-
-    @Override
-    public AlterTableClause translateToLegacyAlterClause() {
-        return new AddPartitionClause(getSingeRangePartitionDesc(), getDistributionDesc(), properties, isTempPartition);
     }
 
     public boolean isTempPartition() {

@@ -36,7 +36,7 @@ public class IdGeneratorUtil {
         long bufferSize = 1;
         long partitionNum = createTableInfo.getPartitionDesc() == null ? 1 :
                 createTableInfo.getPartitionDesc().getSinglePartitionDescs().size();
-        long indexNum = createTableInfo.getRollupAlterClauseList().size() + 1;
+        long indexNum = createTableInfo.getAddRollupOps().size() + 1;
         long bucketNum = createTableInfo.getDistributionDesc().toDistributionInfo(createTableInfo.getColumns())
                 .getBucketNum();
         bufferSize = bufferSize + partitionNum + indexNum;
