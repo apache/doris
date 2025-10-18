@@ -92,10 +92,13 @@ Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block)
     }
 
     std::vector<int> variant_column_pos;
+    std::vector<std::vector<std::string>> flatten_keys;
     for (int i = 0; i < block.columns(); ++i) {
         const auto& entry = block.get_by_position(i);
         if (entry.type->get_primitive_type() == TYPE_VARIANT) {
             variant_column_pos.push_back(i);
+            // add flatten keys for each variant column
+            flatten_keys.push_back(_context.tablet_schema->column(i).variant_flatten_keys());
         }
     }
 
@@ -105,8 +108,8 @@ Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block)
 
     vectorized::ParseConfig config;
     config.enable_flatten_nested = _context.tablet_schema->variant_flatten_nested();
-    RETURN_IF_ERROR(
-            vectorized::schema_util::parse_variant_columns(block, variant_column_pos, config));
+    RETURN_IF_ERROR(vectorized::schema_util::parse_variant_columns(block, variant_column_pos,
+                                                                   flatten_keys, config));
     return Status::OK();
 }
 
