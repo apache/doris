@@ -20,12 +20,14 @@
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_replace_char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/token_filter/ascii_folding_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/token_filter/lower_case_filter_factory.h"
+#include "olap/rowset/segment_v2/inverted_index/token_filter/pinyin_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/token_filter/word_delimiter_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/basic/basic_tokenizer_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/char/char_group_tokenizer_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/icu/icu_tokenizer_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/keyword/keyword_tokenizer_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/ngram/edge_ngram_tokenizer_factory.h"
+#include "olap/rowset/segment_v2/inverted_index/tokenizer/pinyin/pinyin_tokenizer_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/standard/standard_tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -47,6 +49,7 @@ void AnalysisFactoryMgr::initialise() {
                         []() { return std::make_shared<CharGroupTokenizerFactory>(); });
         registerFactory("basic", []() { return std::make_shared<BasicTokenizerFactory>(); });
         registerFactory("icu", []() { return std::make_shared<ICUTokenizerFactory>(); });
+        registerFactory("pinyin", []() { return std::make_shared<PinyinTokenizerFactory>(); });
 
         // token_filter
         registerFactory("lowercase", []() { return std::make_shared<LowerCaseFilterFactory>(); });
@@ -54,6 +57,7 @@ void AnalysisFactoryMgr::initialise() {
                         []() { return std::make_shared<ASCIIFoldingFilterFactory>(); });
         registerFactory("word_delimiter",
                         []() { return std::make_shared<WordDelimiterFilterFactory>(); });
+        registerFactory("pinyin_filter", []() { return std::make_shared<PinyinFilterFactory>(); });
     });
 }
 

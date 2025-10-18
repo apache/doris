@@ -251,6 +251,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             case "char_group":
                 validator = new CharGroupTokenizerValidator();
                 break;
+            case "pinyin":
+                validator = new PinyinTokenizerValidator();
+                break;
             default:
                 throw new DdlException("Unsupported tokenizer type: " + type
                         + ". Supported types: " + IndexPolicy.BUILTIN_TOKENIZERS);
@@ -273,6 +276,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 break;
             case "lowercase":
                 validator = new LowerCaseTokenFilterValidator();
+                break;
+            case "pinyin_filter":
+                validator = new PinyinTokenFilterValidator();
                 break;
             default:
                 throw new DdlException("Unsupported token filter type: " + type
