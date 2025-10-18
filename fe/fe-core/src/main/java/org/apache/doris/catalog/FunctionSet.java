@@ -236,6 +236,7 @@ public class FunctionSet<T> {
 
     public static final String BITMAP_AGG = "bitmap_agg";
     public static final String COUNT_BY_ENUM = "count_by_enum";
+    public static final String AGG_ARRAY_SUM = "agg_array_sum";
 
     private static final Map<Type, String> TOPN_UPDATE_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -2035,6 +2036,14 @@ public class FunctionSet<T> {
                 Lists.<Type>newArrayList(Type.STRING, Type.STRING, Type.STRING), Type.STRING, Type.STRING,
                 "", "", "", "", "", "", "",
                 false, false, false, true));
+
+        // AGG_ARRAY_SUM
+        for (Type t : Type.getNumericTypes()) {
+            addBuiltin(AggregateFunction.createBuiltin(AGG_ARRAY_SUM,
+                    Lists.newArrayList(new ArrayType(t)), new ArrayType(t), new ArrayType(t),
+                    "", "", "", "", "", "", "",
+                    true, false, true, true));
+        }
     }
 
     public Map<String, List<Function>> getVectorizedFunctions() {

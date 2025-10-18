@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggArraySum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
@@ -200,6 +201,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitGroupArrayIntersect(GroupArrayIntersect groupArrayIntersect, C context) {
         return visitAggregateFunction(groupArrayIntersect, context);
+    }
+
+    default R visitAggArraySum(AggArraySum aggArraySum, C context) {
+        return visitAggregateFunction(aggArraySum, context);
     }
 
     default R visitGroupBitAnd(GroupBitAnd groupBitAnd, C context) {
