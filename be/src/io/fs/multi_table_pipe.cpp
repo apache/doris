@@ -341,7 +341,7 @@ void MultiTablePipe::_handle_consumer_finished() {
               << " number_filtered_rows=" << _ctx->number_filtered_rows
               << " number_unselected_rows=" << _ctx->number_unselected_rows
               << ", ctx: " << _ctx->brief();
-    _ctx->promise.set_value(_status); // when all done, finish the routine load task
+    _ctx->load_status_promise.set_value(_status); // when all done, finish the routine load task
 }
 
 } // namespace io
