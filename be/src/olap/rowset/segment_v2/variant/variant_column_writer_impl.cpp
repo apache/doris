@@ -158,6 +158,213 @@ Status convert_and_write_column(vectorized::OlapBlockDataConvertor* converter,
     return Status::OK();
 }
 
+// UnifiedSparseColumnWriter implementation
+Status UnifiedSparseColumnWriter::init_single(const TabletColumn& sparse_column, int& column_id,
+                                              const ColumnWriterOptions& base_opts,
+                                              SegmentFooterPB* footer) {
+    _single_opts = base_opts;
+    _single_opts.meta = footer->add_columns();
+    _init_column_meta(_single_opts.meta, column_id, sparse_column, base_opts.compression_type);
+    RETURN_IF_ERROR(ColumnWriter::create_map_writer(_single_opts, &sparse_column,
+                                                    base_opts.file_writer, &_single_writer));
+    RETURN_IF_ERROR(_single_writer->init());
+    _first_column_id = column_id;
+    ++column_id;
+    return Status::OK();
+}
+
+Status UnifiedSparseColumnWriter::init_buckets(int bucket_num, const TabletColumn& parent_column,
+                                               int& column_id, const ColumnWriterOptions& base_opts,
+                                               SegmentFooterPB* footer) {
+    _bucket_writers.clear();
+    _bucket_opts.clear();
+    _bucket_writers.resize(bucket_num);
+    _bucket_opts.resize(bucket_num);
+    for (int b = 0; b < bucket_num; ++b) {
+        TabletColumn bucket_col =
+                vectorized::schema_util::create_sparse_shard_column(parent_column, b);
+        _bucket_opts[b] = base_opts;
+        _bucket_opts[b].meta = footer->add_columns();
+        _init_column_meta(_bucket_opts[b].meta, column_id, bucket_col, base_opts.compression_type);
+        RETURN_IF_ERROR(ColumnWriter::create_map_writer(
+                _bucket_opts[b], &bucket_col, base_opts.file_writer, &_bucket_writers[b]));
+        RETURN_IF_ERROR(_bucket_writers[b]->init());
+        if (b == 0) {
+            _first_column_id = column_id;
+        }
+        ++column_id;
+    }
+    return Status::OK();
+}
+
+uint64_t UnifiedSparseColumnWriter::estimate_buffer_size() const {
+    uint64_t size = 0;
+    if (_single_writer) {
+        size += _single_writer->estimate_buffer_size();
+    }
+    for (const auto& w : _bucket_writers) {
+        if (w) {
+            size += w->estimate_buffer_size();
+        }
+    }
+    return size;
+}
+
+Status UnifiedSparseColumnWriter::finish() {
+    if (_single_writer) {
+        RETURN_IF_ERROR(_single_writer->finish());
+    }
+    for (auto& w : _bucket_writers) {
+        if (w) {
+            RETURN_IF_ERROR(w->finish());
+        }
+    }
+    return Status::OK();
+}
+
+Status UnifiedSparseColumnWriter::write_data() {
+    if (_single_writer) {
+        RETURN_IF_ERROR(_single_writer->write_data());
+    }
+    for (auto& w : _bucket_writers) {
+        if (w) {
+            RETURN_IF_ERROR(w->write_data());
+        }
+    }
+    return Status::OK();
+}
+
+Status UnifiedSparseColumnWriter::write_ordinal_index() {
+    if (_single_writer) {
+        RETURN_IF_ERROR(_single_writer->write_ordinal_index());
+    }
+    for (auto& w : _bucket_writers) {
+        if (w) {
+            RETURN_IF_ERROR(w->write_ordinal_index());
+        }
+    }
+    return Status::OK();
+}
+
+Status UnifiedSparseColumnWriter::append_from_variant(const vectorized::ColumnVariant& src,
+                                                      size_t num_rows,
+                                                      vectorized::OlapBlockDataConvertor* converter,
+                                                      const TabletColumn& tablet_column,
+                                                      VariantStatistics* out_stats) {
+    // Single sparse mode path:
+    // - Convert the pre-serialized sparse ColumnMap from the engine format
+    //   (src.get_sparse_column()) to storage format using converter, binding
+    //   to the column id allocated during init_single (stored in _first_column_id).
+    // - Append to the single writer and populate sparse path statistics into
+    //   out_stats and the single column meta.
+    if (_single_writer) {
+        TabletColumn sparse_column = vectorized::schema_util::create_sparse_column(tablet_column);
+        converter->add_column_data_convertor(sparse_column);
+        DCHECK_EQ(src.get_sparse_column()->size(), num_rows);
+        RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
+                {src.get_sparse_column(), nullptr, ""}, 0, num_rows, _first_column_id));
+        auto [status, column] = converter->convert_column_data(_first_column_id);
+        RETURN_IF_ERROR(status);
+        RETURN_IF_ERROR(
+                _single_writer->append(column->get_nullmap(), column->get_data(), num_rows));
+        converter->clear_source_content(_first_column_id);
+
+        // Build path frequency statistics with upper bound limit to avoid
+        // large memory and metadata size. Persist to meta for readers.
+        std::unordered_map<StringRef, size_t> path_counts;
+        const auto [paths, _] = src.get_sparse_data_paths_and_values();
+        size_t limit = tablet_column.variant_max_sparse_column_statistics_size();
+        for (size_t i = 0; i != paths->size(); ++i) {
+            auto k = paths->get_data_at(i);
+            if (auto it = path_counts.find(k); it != path_counts.end())
+                ++it->second;
+            else if (path_counts.size() < limit)
+                path_counts.emplace(k, 1);
+        }
+        if (out_stats) {
+            for (const auto& [k, cnt] : path_counts) {
+                out_stats->sparse_column_non_null_size.emplace(k.to_string(), cnt);
+            }
+            out_stats->to_pb(_single_opts.meta->mutable_variant_statistics());
+        }
+        _single_opts.meta->set_num_rows(num_rows);
+        return Status::OK();
+    }
+
+    // Bucketized sparse mode path:
+    // - Materialize N temporary ColumnMap (keys, values, offsets)
+    // - For each row, distribute (path,value) pairs to the bucket decided by
+    //   schema_util::variant_sparse_shard_of(path)
+    // - Convert and append each bucket map to its writer using the column id
+    //   sequence initialized by init_buckets (starting at _first_column_id)
+    // - Compute per-bucket path stats and persist into each bucket's meta
+    const int bucket_num = static_cast<int>(_bucket_writers.size());
+    const auto [paths_col, values_col] = src.get_sparse_data_paths_and_values();
+    const auto& offsets = src.serialized_sparse_column_offsets();
+
+    std::vector<vectorized::MutableColumnPtr> tmp_maps(bucket_num);
+    for (int b = 0; b < bucket_num; ++b) {
+        tmp_maps[b] = vectorized::ColumnMap::create(
+                vectorized::ColumnString::create(), vectorized::ColumnString::create(),
+                vectorized::ColumnArray::ColumnOffsets::create());
+    }
+    for (int b = 0; b < bucket_num; ++b) {
+        auto& m = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]);
+        m.get_offsets().reserve(num_rows);
+    }
+    for (ssize_t row = 0; row < static_cast<ssize_t>(num_rows); ++row) {
+        size_t start = offsets[row - 1];
+        size_t end = offsets[row];
+        for (size_t i = start; i < end; ++i) {
+            StringRef path = paths_col->get_data_at(i);
+            uint32_t b = vectorized::schema_util::variant_sparse_shard_of(path, bucket_num);
+            auto& map_col = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]);
+            map_col.get_keys_ptr()->assume_mutable()->insert_from(*paths_col, i);
+            map_col.get_values_ptr()->assume_mutable()->insert_from(*values_col, i);
+        }
+        for (int b = 0; b < bucket_num; ++b) {
+            auto& map_col = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]);
+            map_col.get_offsets().push_back(map_col.get_keys().size());
+        }
+    }
+    for (int b = 0; b < bucket_num; ++b) {
+        TabletColumn bucket_col =
+                vectorized::schema_util::create_sparse_shard_column(tablet_column, b);
+        converter->add_column_data_convertor(bucket_col);
+        int this_col_id = _first_column_id + b;
+        RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
+                {tmp_maps[b]->get_ptr(), nullptr, ""}, 0, num_rows, this_col_id));
+        auto [st, converted] = converter->convert_column_data(this_col_id);
+        RETURN_IF_ERROR(st);
+        RETURN_IF_ERROR(_bucket_writers[b]->append(converted->get_nullmap(), converted->get_data(),
+                                                   num_rows));
+        converter->clear_source_content(this_col_id);
+        _bucket_opts[b].meta->set_num_rows(num_rows);
+    }
+    // per-bucket statistics
+    for (int b = 0; b < bucket_num; ++b) {
+        auto& map_col = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]);
+        const auto& keys = assert_cast<const vectorized::ColumnString&>(map_col.get_keys());
+        std::unordered_map<StringRef, size_t> bucket_path_counts;
+        bucket_path_counts.reserve(1024);
+        size_t limit = tablet_column.variant_max_sparse_column_statistics_size();
+        for (size_t i = 0; i < keys.size(); ++i) {
+            StringRef k = keys.get_data_at(i);
+            if (auto it = bucket_path_counts.find(k); it != bucket_path_counts.end())
+                ++it->second;
+            else if (bucket_path_counts.size() < limit)
+                bucket_path_counts.emplace(k, 1);
+        }
+        segment_v2::VariantStatistics bucket_stats;
+        for (const auto& [k, cnt] : bucket_path_counts) {
+            bucket_stats.sparse_column_non_null_size.emplace(k.to_string(),
+                                                             static_cast<int64_t>(cnt));
+        }
+        bucket_stats.to_pb(_bucket_opts[b].meta->mutable_variant_statistics());
+    }
+    return Status::OK();
+}
+
 VariantColumnWriterImpl::VariantColumnWriterImpl(const ColumnWriterOptions& opts,
                                                  const TabletColumn* column) {
     _opts = opts;
@@ -313,55 +520,22 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
     return Status::OK();
 }
 
+// Serialize and write Variant sparse data. Decides mode based on FE-configured bucket num,
+// initializes the corresponding writer(s), and delegates conversion/append/statistics to the
+// unified sparse writer. Column id consumption order remains identical to the previous logic.
 Status VariantColumnWriterImpl::_process_sparse_column(
         vectorized::ColumnVariant* ptr, vectorized::OlapBlockDataConvertor* converter,
         size_t num_rows, int& column_id) {
-    // create sparse column writer
-    TabletColumn sparse_column = vectorized::schema_util::create_sparse_column(*_tablet_column);
-    ColumnWriterOptions sparse_writer_opts;
-    sparse_writer_opts.meta = _opts.footer->add_columns();
-
-    _init_column_meta(sparse_writer_opts.meta, column_id, sparse_column, _opts.compression_type);
-    RETURN_IF_ERROR(ColumnWriter::create_map_writer(sparse_writer_opts, &sparse_column,
-                                                    _opts.file_writer, &_sparse_column_writer));
-    RETURN_IF_ERROR(_sparse_column_writer->init());
-
-    // convert root column data from engine format to storage layer format
-    converter->add_column_data_convertor(sparse_column);
-    DCHECK_EQ(ptr->get_sparse_column()->size(), num_rows);
-    RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
-            {ptr->get_sparse_column(), nullptr, ""}, 0, num_rows, column_id));
-    auto [status, column] = converter->convert_column_data(column_id);
-    if (!status.ok()) {
-        return status;
+    int bucket_num = std::max(1, _tablet_column->variant_sparse_hash_shard_count());
+    if (bucket_num <= 1) {
+        TabletColumn sparse_column = vectorized::schema_util::create_sparse_column(*_tablet_column);
+        RETURN_IF_ERROR(_sparse_writer.init_single(sparse_column, column_id, _opts, _opts.footer));
+    } else {
+        RETURN_IF_ERROR(_sparse_writer.init_buckets(bucket_num, *_tablet_column, column_id, _opts,
+                                                    _opts.footer));
     }
-    RETURN_IF_ERROR(
-            _sparse_column_writer->append(column->get_nullmap(), column->get_data(), num_rows));
-    converter->clear_source_content(column_id);
-    ++column_id;
-
-    // get stastics
-    // todo: reuse the statics from collected stastics from compaction stage
-    std::unordered_map<StringRef, size_t> sparse_data_paths_statistics;
-    const auto [sparse_data_paths, _] = ptr->get_sparse_data_paths_and_values();
-    for (size_t i = 0; i != sparse_data_paths->size(); ++i) {
-        auto path = sparse_data_paths->get_data_at(i);
-        if (auto it = sparse_data_paths_statistics.find(path);
-            it != sparse_data_paths_statistics.end()) {
-            ++it->second;
-        } else if (sparse_data_paths_statistics.size() <
-                   _tablet_column->variant_max_sparse_column_statistics_size()) {
-            sparse_data_paths_statistics.emplace(path, 1);
-        }
-    }
-
-    // assign to _statistics.sparse_column_non_null_size
-    for (const auto& [path, size] : sparse_data_paths_statistics) {
-        _statistics.sparse_column_non_null_size.emplace(path.to_string(), size);
-    }
-    // set statistics info
-    _statistics.to_pb(sparse_writer_opts.meta->mutable_variant_statistics());
-    sparse_writer_opts.meta->set_num_rows(num_rows);
+    RETURN_IF_ERROR(_sparse_writer.append_from_variant(*ptr, num_rows, converter, *_tablet_column,
+                                                       &_statistics));
     return Status::OK();
 }
 
@@ -451,7 +625,7 @@ uint64_t VariantColumnWriterImpl::estimate_buffer_size() {
     for (auto& column_writer : _subcolumn_writers) {
         size += column_writer->estimate_buffer_size();
     }
-    size += _sparse_column_writer ? _sparse_column_writer->estimate_buffer_size() : 0;
+    size += _sparse_writer.estimate_buffer_size();
     return size;
 }
 
@@ -463,9 +637,7 @@ Status VariantColumnWriterImpl::finish() {
     for (auto& column_writer : _subcolumn_writers) {
         RETURN_IF_ERROR(column_writer->finish());
     }
-    if (_sparse_column_writer) {
-        RETURN_IF_ERROR(_sparse_column_writer->finish());
-    }
+    RETURN_IF_ERROR(_sparse_writer.finish());
     return Status::OK();
 }
 Status VariantColumnWriterImpl::write_data() {
@@ -476,9 +648,7 @@ Status VariantColumnWriterImpl::write_data() {
     for (auto& column_writer : _subcolumn_writers) {
         RETURN_IF_ERROR(column_writer->write_data());
     }
-    if (_sparse_column_writer) {
-        RETURN_IF_ERROR(_sparse_column_writer->write_data());
-    }
+    RETURN_IF_ERROR(_sparse_writer.write_data());
     return Status::OK();
 }
 Status VariantColumnWriterImpl::write_ordinal_index() {
@@ -488,9 +658,7 @@ Status VariantColumnWriterImpl::write_ordinal_index() {
     for (auto& column_writer : _subcolumn_writers) {
         RETURN_IF_ERROR(column_writer->write_ordinal_index());
     }
-    if (_sparse_column_writer) {
-        RETURN_IF_ERROR(_sparse_column_writer->write_ordinal_index());
-    }
+    RETURN_IF_ERROR(_sparse_writer.write_ordinal_index());
     return Status::OK();
 }
 

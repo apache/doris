@@ -59,6 +59,148 @@ const SubcolumnColumnMetaInfo::Node* VariantColumnReader::get_subcolumn_meta_by_
     return node;
 }
 
+// Combine multiple bucket sparse iterators into one logical sparse iterator by row-wise merging.
+class CombineBucketsSparseIterator : public ColumnIterator {
+public:
+    explicit CombineBucketsSparseIterator(std::vector<std::unique_ptr<ColumnIterator>>&& iters)
+            : _iters(std::move(iters)) {}
+
+    Status init(const ColumnIteratorOptions& opts) override {
+        for (auto& it : _iters) {
+            RETURN_IF_ERROR(it->init(opts));
+        }
+        return Status::OK();
+    }
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        for (auto& it : _iters) {
+            RETURN_IF_ERROR(it->seek_to_ordinal(ord_idx));
+        }
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
+        // read each bucket into temp maps
+        _sparse_data_buckets.clear();
+        _sparse_data_buckets.reserve(_iters.size());
+        for (auto& it : _iters) {
+            vectorized::MutableColumnPtr m = vectorized::ColumnVariant::create_sparse_column_fn();
+            RETURN_IF_ERROR(it->next_batch(n, m, has_null));
+            _sparse_data_buckets.emplace_back(std::move(m));
+        }
+        _collect_sparse_data_from_buckets(*dst);
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override {
+        _sparse_data_buckets.clear();
+        _sparse_data_buckets.reserve(_iters.size());
+        for (auto& it : _iters) {
+            vectorized::MutableColumnPtr m = vectorized::ColumnVariant::create_sparse_column_fn();
+            RETURN_IF_ERROR(it->read_by_rowids(rowids, count, m));
+            _sparse_data_buckets.emplace_back(std::move(m));
+        }
+        _collect_sparse_data_from_buckets(*dst);
+        return Status::OK();
+    }
+
+    ordinal_t get_current_ordinal() const override {
+        return _iters.empty() ? 0 : _iters.front()->get_current_ordinal();
+    }
+
+private:
+    void _collect_sparse_data_from_buckets(vectorized::IColumn& sparse_data_column) {
+        using namespace vectorized;
+
+        // get path, value, offset from all buckets
+        auto& column_map = assert_cast<ColumnMap&>(sparse_data_column);
+        auto& dst_sparse_data_paths = assert_cast<vectorized::ColumnString&>(column_map.get_keys());
+        auto& dst_sparse_data_values =
+                assert_cast<vectorized::ColumnString&>(column_map.get_values());
+        auto& dst_sparse_data_offsets =
+                assert_cast<vectorized::ColumnArray::Offsets64&>(column_map.get_offsets());
+        std::vector<const ColumnString*> src_sparse_data_paths_buckets(_sparse_data_buckets.size());
+        std::vector<const ColumnString*> src_sparse_data_values_buckets(
+                _sparse_data_buckets.size());
+        std::vector<const ColumnArray::Offsets64*> src_sparse_data_offsets_buckets(
+                _sparse_data_buckets.size());
+        for (size_t i = 0; i != _sparse_data_buckets.size(); ++i) {
+            const auto& src_map =
+                    assert_cast<const vectorized::ColumnMap&>(*_sparse_data_buckets[i]);
+            src_sparse_data_paths_buckets[i] =
+                    assert_cast<const vectorized::ColumnString*>(&src_map.get_keys());
+            src_sparse_data_values_buckets[i] =
+                    assert_cast<const vectorized::ColumnString*>(&src_map.get_values());
+            src_sparse_data_offsets_buckets[i] =
+                    assert_cast<const vectorized::ColumnArray::Offsets64*>(&src_map.get_offsets());
+        }
+
+        size_t num_rows = _sparse_data_buckets[0]->size();
+        for (size_t i = 0; i != num_rows; ++i) {
+            // Sparse data contains paths in sorted order in each row.
+            // Collect all paths from all buckets in this row and sort them.
+            // Save each path bucket and index to be able find corresponding value later.
+            std::vector<std::tuple<std::string_view, size_t, size_t>> all_paths;
+            for (size_t bucket = 0; bucket != _sparse_data_buckets.size(); ++bucket) {
+                size_t offset_start = (*src_sparse_data_offsets_buckets[bucket])[ssize_t(i) - 1];
+                size_t offset_end = (*src_sparse_data_offsets_buckets[bucket])[ssize_t(i)];
+
+                // collect all paths.
+                for (size_t j = offset_start; j != offset_end; ++j) {
+                    auto path =
+                            src_sparse_data_paths_buckets[bucket]->get_data_at(j).to_string_view();
+                    all_paths.emplace_back(path, bucket, j);
+                }
+            }
+
+            std::sort(all_paths.begin(), all_paths.end());
+            for (const auto& [path, bucket, offset] : all_paths) {
+                dst_sparse_data_paths.insert_data(path.data(), path.size());
+                dst_sparse_data_values.insert_from(*src_sparse_data_values_buckets[bucket], offset);
+            }
+
+            dst_sparse_data_offsets.push_back(dst_sparse_data_paths.size());
+        }
+    }
+
+    std::vector<std::unique_ptr<ColumnIterator>> _iters;
+    std::vector<vectorized::MutableColumnPtr> _sparse_data_buckets;
+};
+
+// Implement UnifiedSparseColumnReader helpers declared in header
+Status UnifiedSparseColumnReader::new_sparse_iterator(ColumnIteratorUPtr* iter) const {
+    if (has_buckets()) {
+        std::vector<std::unique_ptr<ColumnIterator>> iters;
+        iters.reserve(_buckets.size());
+        for (const auto& br : _buckets) {
+            if (!br) continue;
+            ColumnIteratorUPtr it;
+            RETURN_IF_ERROR(br->new_iterator(&it, nullptr));
+            iters.emplace_back(std::move(it));
+        }
+        *iter = std::make_unique<CombineBucketsSparseIterator>(std::move(iters));
+        return Status::OK();
+    }
+    if (_single) {
+        return _single->new_iterator(iter, nullptr);
+    }
+    return Status::NotFound("No sparse readers available");
+}
+
+std::pair<std::shared_ptr<ColumnReader>, std::string>
+UnifiedSparseColumnReader::select_reader_and_cache_key(const std::string& relative_path) const {
+    if (has_buckets()) {
+        uint32_t N = static_cast<uint32_t>(_buckets.size());
+        uint32_t bucket_index = vectorized::schema_util::variant_sparse_shard_of(
+                StringRef {relative_path.data(), relative_path.size()}, N);
+        DCHECK(bucket_index < _buckets.size());
+        std::string key = std::string(SPARSE_COLUMN_PATH) + ".b" + std::to_string(bucket_index);
+        return {_buckets[bucket_index], key};
+    }
+    return {_single, std::string(SPARSE_COLUMN_PATH)};
+}
+
 bool VariantColumnReader::exist_in_sparse_column(
         const vectorized::PathInData& relative_path) const {
     // Check if path exist in sparse column
@@ -120,10 +262,10 @@ Status VariantColumnReader::_create_hierarchical_reader(ColumnIteratorUPtr* read
     // Node contains column with children columns or has correspoding sparse columns
     // Create reader with hirachical data.
     std::unique_ptr<SubstreamIterator> sparse_iter;
-    if (_statistics && !_statistics->sparse_column_non_null_size.empty()) {
-        // Sparse column exists or reached sparse size limit, read sparse column
+    if (_statistics && !_statistics->sparse_column_non_null_size.empty() &&
+        !_sparse_reader.empty()) {
         ColumnIteratorUPtr iter;
-        RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&iter, nullptr));
+        RETURN_IF_ERROR(_sparse_reader.new_sparse_iterator(&iter));
         sparse_iter = std::make_unique<SubstreamIterator>(
                 vectorized::ColumnVariant::create_sparse_column_fn(), std::move(iter), nullptr);
     }
@@ -152,7 +294,8 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
                                                         const StorageReadOptions* opts,
                                                         const TabletColumn& target_col,
                                                         SparseColumnCacheSPtr sparse_column_cache,
-                                                        ColumnReaderCache* column_reader_cache) {
+                                                        ColumnReaderCache* column_reader_cache,
+                                                        std::optional<uint32_t> bucket_index) {
     // Get subcolumns path set from tablet schema
     const auto& path_set_info = opts->tablet_schema->path_set_info(target_col.parent_unique_id());
 
@@ -164,6 +307,18 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
             path_set_info.sparse_path_set.end()) {
             // The subcolumn is not a sparse column, skip it
             continue;
+        }
+        // If bucketized sparse column is requested (per-bucket sparse output column),
+        // only collect subcolumns that belong to this bucket to avoid extra IO.
+        if (bucket_index.has_value() && _sparse_reader.has_buckets()) {
+            uint32_t N = static_cast<uint32_t>(_sparse_reader.num_buckets());
+            if (N > 1) {
+                uint32_t b = vectorized::schema_util::variant_sparse_shard_of(
+                        StringRef {path.data(), path.size()}, N);
+                if (b != bucket_index.value()) {
+                    continue; // prune subcolumns of other buckets early
+                }
+            }
         }
         // Create subcolumn iterator
         std::shared_ptr<ColumnReader> column_reader;
@@ -227,10 +382,11 @@ Status VariantColumnReader::_new_default_iter_with_same_nested(
 }
 
 Result<SparseColumnCacheSPtr> VariantColumnReader::_get_shared_column_cache(
-        PathToSparseColumnCache* sparse_column_cache_ptr, const std::string& path) {
+        PathToSparseColumnCache* sparse_column_cache_ptr, const std::string& path,
+        std::shared_ptr<ColumnReader> sparse_column_reader) {
     if (!sparse_column_cache_ptr || !sparse_column_cache_ptr->contains(path)) {
         ColumnIteratorUPtr inner_iter;
-        RETURN_IF_ERROR_RESULT(_sparse_column_reader->new_iterator(&inner_iter, nullptr));
+        RETURN_IF_ERROR_RESULT(sparse_column_reader->new_iterator(&inner_iter, nullptr));
         vectorized::MutableColumnPtr sparse_column =
                 vectorized::ColumnVariant::create_sparse_column_fn();
         auto sparse_column_cache = std::make_shared<SparseColumnCache>(std::move(inner_iter),
@@ -255,13 +411,36 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(
     const auto* node =
             target_col.has_path_info() ? _subcolumns_meta_info->find_leaf(relative_path) : nullptr;
     if (!node) {
-        if (relative_path.get_path() == SPARSE_COLUMN_PATH && _sparse_column_reader != nullptr) {
+        // Handle sparse column reads in flat-leaf compaction.
+        const std::string rel = relative_path.get_path();
+        // Case 1: single sparse column path
+        if (rel == SPARSE_COLUMN_PATH && !_sparse_reader.has_buckets() &&
+            _sparse_reader.single() != nullptr) {
             // read sparse column and filter extracted columns in subcolumn_path_map
-            SparseColumnCacheSPtr sparse_column_cache = DORIS_TRY(
-                    _get_shared_column_cache(sparse_column_cache_ptr, SPARSE_COLUMN_PATH));
+            SparseColumnCacheSPtr sparse_column_cache = DORIS_TRY(_get_shared_column_cache(
+                    sparse_column_cache_ptr, SPARSE_COLUMN_PATH, _sparse_reader.single()));
             // get subcolumns in sparse path set which will be merged into sparse column
             RETURN_IF_ERROR(_create_sparse_merge_reader(iterator, opts, target_col,
                                                         sparse_column_cache, column_reader_cache));
+            return Status::OK();
+        }
+        // Case 2: bucketized sparse column path: __DORIS_VARIANT_SPARSE__.b{i}
+        if (rel.rfind(std::string(SPARSE_COLUMN_PATH) + ".b", 0) == 0 &&
+            _sparse_reader.has_buckets()) {
+            // parse bucket index
+            uint32_t bucket_index = static_cast<uint32_t>(
+                    atoi(rel.substr(std::string(SPARSE_COLUMN_PATH).size() + 2).c_str()));
+            const auto& buckets = _sparse_reader.buckets();
+            if (bucket_index >= buckets.size() || !buckets[bucket_index]) {
+                return Status::NotFound("bucket sparse column reader not found: {}", rel);
+            }
+            std::string cache_key =
+                    std::string(SPARSE_COLUMN_PATH) + ".b" + std::to_string(bucket_index);
+            SparseColumnCacheSPtr sparse_column_cache = DORIS_TRY(_get_shared_column_cache(
+                    sparse_column_cache_ptr, cache_key, buckets[bucket_index]));
+            RETURN_IF_ERROR(_create_sparse_merge_reader(iterator, opts, target_col,
+                                                        sparse_column_cache, column_reader_cache,
+                                                        bucket_index));
             return Status::OK();
         }
 
@@ -276,8 +455,11 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(
         // even if the sparse column size is reached limit
         if (existed_in_sparse_column || exceeded_sparse_column_limit) {
             // Sparse column exists or reached sparse size limit, read sparse column
-            SparseColumnCacheSPtr sparse_column_cache = DORIS_TRY(
-                    _get_shared_column_cache(sparse_column_cache_ptr, SPARSE_COLUMN_PATH));
+            auto [reader, cache_key] =
+                    _sparse_reader.select_reader_and_cache_key(relative_path.get_path());
+            DCHECK(reader != nullptr);
+            SparseColumnCacheSPtr sparse_column_cache =
+                    DORIS_TRY(_get_shared_column_cache(sparse_column_cache_ptr, cache_key, reader));
             DCHECK(opts);
             *iterator = std::make_unique<SparseColumnExtractIterator>(
                     relative_path.get_path(), std::move(sparse_column_cache), opts);
@@ -390,8 +572,10 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
         // {"b" : {"c":456}}   b.c in subcolumn
         // {"b" : 123}         b in sparse column
         // Then we should use hierarchical reader to read b
+        auto [reader, cache_key] =
+                _sparse_reader.select_reader_and_cache_key(relative_path.get_path());
         SparseColumnCacheSPtr sparse_column_cache =
-                DORIS_TRY(_get_shared_column_cache(sparse_column_cache_ptr, SPARSE_COLUMN_PATH));
+                DORIS_TRY(_get_shared_column_cache(sparse_column_cache_ptr, cache_key, reader));
         DCHECK(opt);
         // Sparse column exists or reached sparse size limit, read sparse column
         *iterator = std::make_unique<SparseColumnExtractIterator>(
@@ -436,6 +620,10 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
             opts.tablet_schema->column_by_uid(self_column_pb.unique_id())
                     .variant_max_sparse_column_statistics_size();
 
+    // collect bucketized sparse readers for this variant column
+    std::map<int, std::shared_ptr<ColumnReader>> tmp_bucket_readers;
+    std::map<std::string, int64_t> aggregated_bucket_stats;
+
     for (int32_t ordinal = 0; ordinal < footer.columns_size(); ++ordinal) {
         const ColumnMetaPB& column_pb = footer.columns(ordinal);
         // Find all columns belonging to the current variant column
@@ -459,16 +647,36 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
         vectorized::PathInData path;
         path.from_protobuf(column_pb.column_path_info());
 
-        // init sparse column
-        if (path.copy_pop_front().get_path() == SPARSE_COLUMN_PATH) {
+        // init sparse column readers
+        auto relative_sparse = path.copy_pop_front();
+        auto rel_str = relative_sparse.get_path();
+        if (rel_str == SPARSE_COLUMN_PATH) {
             DCHECK(column_pb.has_variant_statistics()) << column_pb.DebugString();
             const auto& variant_stats = column_pb.variant_statistics();
             for (const auto& [subpath, size] : variant_stats.sparse_column_non_null_size()) {
                 _statistics->sparse_column_non_null_size.emplace(subpath, size);
             }
+            std::shared_ptr<ColumnReader> single_reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, column_pb, footer.num_rows(), file_reader,
-                                                 &_sparse_column_reader));
+                                                 &single_reader));
+            _sparse_reader.set_single(std::move(single_reader));
             continue;
+        } else {
+            // detect bucket: __DORIS_VARIANT_SPARSE__.b{idx}
+            std::string bucket_prefix = std::string(SPARSE_COLUMN_PATH) + ".b";
+            if (rel_str.rfind(bucket_prefix, 0) == 0) {
+                int idx = atoi(rel_str.substr(bucket_prefix.size()).c_str());
+                DCHECK(column_pb.has_variant_statistics()) << column_pb.DebugString();
+                const auto& variant_stats = column_pb.variant_statistics();
+                for (const auto& [subpath, size] : variant_stats.sparse_column_non_null_size()) {
+                    aggregated_bucket_stats[subpath] += size;
+                }
+                std::shared_ptr<ColumnReader> reader;
+                RETURN_IF_ERROR(
+                        ColumnReader::create(opts, column_pb, num_rows, file_reader, &reader));
+                tmp_bucket_readers[idx] = reader;
+                continue;
+            }
         }
 
         // init subcolumns
@@ -516,8 +724,17 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, const SegmentF
         }
     }
 
-    // init sparse column set in stats
-    if (self_column_pb.has_variant_statistics()) {
+    // finalize bucket readers if any
+    if (!tmp_bucket_readers.empty()) {
+        for (auto& kv : tmp_bucket_readers) {
+            _sparse_reader.add_bucket(kv.first, std::move(kv.second));
+        }
+        // set aggregated stats across buckets for existence/prefix checks
+        for (const auto& [path, size] : aggregated_bucket_stats) {
+            _statistics->sparse_column_non_null_size.emplace(path, size);
+        }
+    } else if (self_column_pb.has_variant_statistics()) {
+        // single sparse column mode: use parent meta stats
         _statistics = std::make_unique<VariantStatistics>();
         const auto& variant_stats = self_column_pb.variant_statistics();
         for (const auto& [path, size] : variant_stats.sparse_column_non_null_size()) {
