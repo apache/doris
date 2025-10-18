@@ -97,6 +97,13 @@ run_fe() {
 }
 
 start_cloud_fe() {
+    if [ -f "${DORIS_HOME}/conf/cluster_snapshot.json" ]; then
+        fe_daemon &
+        cluster_snapshot_path="conf/cluster_snapshot.json"
+        run_fe --cluster_snapshot $cluster_snapshot_path
+        return
+    fi
+
     if [ -f "$REGISTER_FILE" ]; then
         fe_daemon &
         run_fe

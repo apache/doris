@@ -598,6 +598,13 @@ class SuiteCluster {
         waitHbChanged()
     }
 
+    void rollbackSnapshotFrontends(String clusterSnapshotJson, int... indices) {
+        def op = "rollback_snapshot --cluster_snapshot " + clusterSnapshotJson + " --wait-timeout " + START_WAIT_TIMEOUT
+        def cmd = op + ' ' + name + ' --fe-id ' + indices.join(' ')
+        runCmd(cmd, timeoutSecond)
+        waitHbChanged()
+    }
+
     // indices start from 1, not 0
     // if not specific be indices, then stop all backends
     void stopBackends(int... indices) {
