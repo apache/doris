@@ -134,6 +134,7 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
             assertTrue(e.getMessage().contains("ComputeGroupException: CURRENT_USER_NO_AUTH_TO_USE_COMPUTE_GROUP"))
             assertTrue(e.getMessage().contains("set default compute group failed"))
         } 
+        sql """SET PROPERTY FOR 'root' 'default_cloud_cluster' = ${currentCluster.cluster}"""
 
         // no cluster
         def tag = getCloudBeTagByName(currentCluster.cluster)
@@ -153,14 +154,37 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
             result.size() == 0
         }
 
+        cluster.addBackend(1, "testCluster")
+
         try {
-            // errCode = 2, detailMessage = Can not find compute group:compute_cluster
-            sql """
-                select * from $table
-            """
+            // test root's default cluster invalid
+            connectInDocker('root', '') {
+                sql """insert into $table values (3, 3)"""
+            }
         } catch (Exception e) {
             logger.info("exception: {}", e.getMessage())
-            assertTrue(e.getMessage().contains("Can not find compute group"))
+            assertTrue(e.getMessage().contains("Current strategy: default compute group from user"))
         } 
+
+        try {
+            connectInDocker('root', '') {
+                sql """select * from $table"""
+            }
+        } catch (Exception e) {
+            logger.info("exception: {}", e.getMessage())
+            assertTrue(e.getMessage().contains("Current strategy: default compute group from user"))
+        } 
+
+
+        try {
+            // test tvf
+            connectInDocker('root', '') {
+                sql """select * from numbers("number" = "100")"""
+            }
+        } catch (Exception e) {
+            logger.info("exception: {}", e.getMessage())
+            assertTrue(e.getMessage().contains("Current strategy: default compute group from user"))
+        }
+        
     }
 }
