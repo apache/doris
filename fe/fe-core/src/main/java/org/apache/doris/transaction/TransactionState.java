@@ -787,11 +787,26 @@ public class TransactionState implements Writable {
         return this.errMsg;
     }
 
-    // reduce memory
+    // This func will be called after the txn set VISIBLE, so we can clear some useless files.
+    // But we should care that, doris will not use some SHOW sql to visible txn.
+    //      -> SHOW TRANSACTION statements
+    //      -> SHOW PROC '/transactions/dbId/txnId/tables'
     public void pruneAfterVisible() {
+        // won't be used
         publishVersionTasks.clear();
         tableIdToTabletDeltaRows.clear();
         involvedBackends.clear();
+        // only used by some SHOW sql
+        idToTableCommitInfos = null;
+        // SHOW PROC '/transactions/dbId/finished' will use it
+        // txnCoordinator = null;
+        errorReplicas = null;
+        loadedTblIndexes = null;
+        txnSchemas = null;
+        subTxnIds = null;
+        subTxnIdToTableCommitInfo = null;
+        errMsg = "";
+        errorLogUrl = "";
     }
 
     public void setSchemaForPartialUpdate(OlapTable olapTable) {

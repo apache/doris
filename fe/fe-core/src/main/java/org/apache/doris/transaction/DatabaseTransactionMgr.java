@@ -1718,6 +1718,14 @@ public class DatabaseTransactionMgr {
                 cleanSubTransactions(transactionState.getTransactionId());
             }
         }
+        // Must update labelToTxnIds in all cases to maintain consistency with
+        // idToRunningTransactionState/idToFinalStatusTransactionState. Reasons:
+        // 1. During journal replay, transactions may be directly replayed with final status
+        //    (COMMITTED/VISIBLE/ABORTED), skipping the non-final status branch.
+        // 2. During normal operation, transaction status changes from non-final to final will
+        //    cause this method to be called multiple times. The Set's deduplication ensures safety.
+        //
+        // (TODO Refrain) maybe we can call this during journal replay
         updateTxnLabels(transactionState);
     }
 
