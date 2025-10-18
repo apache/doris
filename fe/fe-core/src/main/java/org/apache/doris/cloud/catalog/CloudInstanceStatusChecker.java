@@ -102,8 +102,61 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
         List<Cloud.ClusterPB> virtualClusters = new ArrayList<>();
         List<Cloud.ClusterPB> computeClusters = new ArrayList<>();
         categorizeClusters(clusters, virtualClusters, computeClusters);
+        handleComputeClusters(computeClusters);
         handleVirtualClusters(virtualClusters, computeClusters);
         removeObsoleteVirtualGroups(virtualClusters);
+    }
+
+    private void handleComputeClusters(List<Cloud.ClusterPB> computeClusters) {
+        for (Cloud.ClusterPB computeClusterInMs : computeClusters) {
+            ComputeGroup computeGroupInFe = cloudSystemInfoService
+                    .getComputeGroupById(computeClusterInMs.getClusterId());
+            if (computeGroupInFe == null) {
+                // cluster checker will sync it
+                LOG.info("found compute cluster {} in ms, but not in fe mem, "
+                        + "it may be wait cluster checker to sync, ignore it",
+                        computeClusterInMs);
+            } else {
+                // exist compute group, check properties changed and update if needed
+                updatePropertiesIfChanged(computeGroupInFe, computeClusterInMs);
+            }
+        }
+    }
+
+    /**
+     * Compare properties between compute cluster in MS and compute group in FE,
+     * update only the changed key-value pairs to avoid unnecessary updates.
+     */
+    private void updatePropertiesIfChanged(ComputeGroup computeGroupInFe, Cloud.ClusterPB computeClusterInMs) {
+        Map<String, String> propertiesInMs = computeClusterInMs.getPropertiesMap();
+        Map<String, String> propertiesInFe = computeGroupInFe.getProperties();
+
+        if (propertiesInMs == null || propertiesInMs.isEmpty()) {
+            return;
+        }
+        Map<String, String> changedProperties = new HashMap<>();
+
+        // Check for changed or new properties
+        for (Map.Entry<String, String> entry : propertiesInMs.entrySet()) {
+            String key = entry.getKey();
+            String valueInMs = entry.getValue();
+            String valueInFe = propertiesInFe.get(key);
+
+            if (valueInFe.equalsIgnoreCase(valueInMs)) {
+                continue;
+            }
+            changedProperties.put(key, valueInMs);
+
+            LOG.debug("Property changed for compute group {}: {} = {} (was: {})",
+                    computeGroupInFe.getName(), key, valueInMs, valueInFe);
+        }
+
+        // Only update if there are actual changes
+        if (!changedProperties.isEmpty()) {
+            LOG.info("Updating properties for compute group {}: {}",
+                    computeGroupInFe.getName(), changedProperties);
+            computeGroupInFe.setProperties(changedProperties);
+        }
     }
 
     private void categorizeClusters(List<Cloud.ClusterPB> clusters,
