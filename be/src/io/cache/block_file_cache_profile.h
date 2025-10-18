@@ -70,6 +70,7 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* bytes_scanned_from_cache = nullptr;
     RuntimeProfile::Counter* bytes_scanned_from_remote = nullptr;
     RuntimeProfile::Counter* remote_io_timer = nullptr;
+    RuntimeProfile::Counter* remote_wait_timer = nullptr;
     RuntimeProfile::Counter* write_cache_io_timer = nullptr;
     RuntimeProfile::Counter* bytes_write_into_cache = nullptr;
     RuntimeProfile::Counter* num_skip_cache_io_total = nullptr;
