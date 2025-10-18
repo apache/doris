@@ -711,6 +711,7 @@ DECLARE_mInt32(memory_gc_sleep_time_ms);
 
 // max write buffer size before flush, default 200MB
 DECLARE_mInt64(write_buffer_size);
+DECLARE_mBool(enable_adaptive_write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
 DECLARE_mInt64(write_buffer_size_for_agg);
 
@@ -1560,6 +1561,9 @@ DECLARE_mBool(skip_loading_stale_rowset_meta);
 // Only works when starting BE with --console.
 DECLARE_Bool(enable_file_logger);
 
+// Enable partition column fallback when partition columns are missing from file
+DECLARE_Bool(enable_iceberg_partition_column_fallback);
+
 // The minimum row group size when exporting Parquet files.
 DECLARE_Int64(min_row_group_size);
 
@@ -1656,6 +1660,8 @@ DECLARE_mBool(enable_wal_tde);
 DECLARE_mBool(print_stack_when_cache_miss);
 
 DECLARE_mBool(read_cluster_cache_opt_verbose_log);
+
+DECLARE_mString(aws_credentials_provider_version);
 
 #ifdef BE_TEST
 // test s3

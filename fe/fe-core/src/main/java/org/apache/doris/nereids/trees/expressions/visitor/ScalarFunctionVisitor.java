@@ -208,6 +208,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.EndsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EsQuery;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Even;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ExportSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ExtractUrlParameter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Field;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FindInSet;
@@ -225,6 +226,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromIso8601Da
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GetFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
@@ -269,6 +271,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtractNoQuotes;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
@@ -1499,6 +1502,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(jsonExtract, context);
     }
 
+    default R visitJsonHash(JsonHash jsonhash, C context) {
+        return visitScalarFunction(jsonhash, context);
+    }
+
     default R visitJsonKeys(JsonKeys jsonKeys, C context) {
         return visitScalarFunction(jsonKeys, context);
     }
@@ -2594,5 +2601,13 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMakeSet(MakeSet makeSet, C context) {
         return visitScalarFunction(makeSet, context);
+    }
+
+    default R visitExportSet(ExportSet exportSet, C context) {
+        return visitScalarFunction(exportSet, context);
+    }
+
+    default R visitGetFormat(GetFormat getFormat, C context) {
+        return visitScalarFunction(getFormat, context);
     }
 }

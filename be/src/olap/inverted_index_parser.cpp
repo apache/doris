@@ -17,7 +17,6 @@
 
 #include "olap/inverted_index_parser.h"
 
-#include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "util/string_util.h"
 
 namespace doris {

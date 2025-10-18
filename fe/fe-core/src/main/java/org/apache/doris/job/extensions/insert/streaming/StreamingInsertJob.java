@@ -23,11 +23,14 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
@@ -44,11 +47,13 @@ import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -144,10 +149,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
         } catch (AnalysisException ae) {
             log.warn("parse streaming insert job failed, props: {}", properties, ae);
-            throw new RuntimeException("parse streaming insert job failed, " +  ae.getMessage());
+            throw new RuntimeException(ae.getMessage());
         } catch (Exception ex) {
             log.warn("init streaming insert job failed, sql: {}", getExecuteSql(), ex);
-            throw new RuntimeException("init streaming insert job failed, " +  ex.getMessage());
+            throw new RuntimeException(ex.getMessage());
         }
     }
 
@@ -387,7 +392,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getFailedTaskCount().get())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getCanceledTaskCount().get())));
         trow.addToColumnValue(new TCell().setStringVal(getComment()));
-        trow.addToColumnValue(new TCell().setStringVal(properties != null
+        trow.addToColumnValue(new TCell().setStringVal(properties != null && !properties.isEmpty()
                 ? GsonUtils.GSON.toJson(properties) : FeConstants.null_string));
 
         if (offsetProvider != null && StringUtils.isNotEmpty(offsetProvider.getShowCurrentOffset())) {
@@ -407,6 +412,54 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(failureReason == null
                 ? FeConstants.null_string : failureReason.getMsg()));
         return trow;
+    }
+
+    private static boolean checkPrivilege(ConnectContext ctx, LogicalPlan logicalPlan) throws AnalysisException {
+        if (!(logicalPlan instanceof InsertIntoTableCommand)) {
+            throw new AnalysisException("Only support insert command");
+        }
+        LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
+        List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ctx);
+        Preconditions.checkArgument(targetTable.size() == 3, "target table name is invalid");
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx,
+                InternalCatalog.INTERNAL_CATALOG_NAME,
+                targetTable.get(1),
+                targetTable.get(2),
+                PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ctx.getQualifiedUser(),
+                    ctx.getRemoteIP(),
+                    targetTable.get(1),
+                    targetTable.get(2));
+        }
+        return true;
+    }
+
+    public boolean checkPrivilege(ConnectContext ctx) throws AnalysisException {
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
+        return checkPrivilege(ctx, logicalPlan);
+    }
+
+    public static boolean checkPrivilege(ConnectContext ctx, String sql) throws AnalysisException {
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        return checkPrivilege(ctx, logicalPlan);
+    }
+
+    public boolean hasPrivilege(UserIdentity userIdentity) {
+        ConnectContext ctx = InsertTask.makeConnectContext(userIdentity, getCurrentDbName());
+        try {
+            LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
+            LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
+            List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ctx);
+            Preconditions.checkArgument(targetTable.size() == 3, "target table name is invalid");
+            return Env.getCurrentEnv().getAccessManager().checkTblPriv(userIdentity,
+                    InternalCatalog.INTERNAL_CATALOG_NAME,
+                    targetTable.get(1),
+                    targetTable.get(2),
+                    PrivPredicate.LOAD);
+        } finally {
+            ctx.cleanup();
+        }
     }
 
     private String generateEncryptedSql() {

@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.DateUtils;
 
 import org.apache.commons.lang3.StringUtils;
@@ -1341,5 +1342,84 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "sec_to_time")
     public static Expression secToTime(DoubleLiteral sec) {
         return new TimeV2Literal(sec.getValue() * 1000000);
+    }
+
+    /**
+     * get_format function for constant folding
+     */
+    @ExecFunction(name = "get_format")
+    public static Expression getFormat(StringLikeLiteral type, StringLikeLiteral format) {
+        String typeStr = type.getValue();
+        String formatStr = format.getValue().toUpperCase();
+
+        String result = null;
+
+        switch (typeStr) {
+            case "DATE":
+                switch (formatStr) {
+                    case "USA":
+                        result = "%m.%d.%Y";
+                        break;
+                    case "JIS":
+                    case "ISO":
+                        result = "%Y-%m-%d";
+                        break;
+                    case "EUR":
+                        result = "%d.%m.%Y";
+                        break;
+                    case "INTERNAL":
+                        result = "%Y%m%d";
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            case "DATETIME":
+                switch (formatStr) {
+                    case "USA":
+                        result = "%Y-%m-%d %H.%i.%s";
+                        break;
+                    case "JIS":
+                    case "ISO":
+                        result = "%Y-%m-%d %H:%i:%s";
+                        break;
+                    case "EUR":
+                        result = "%Y-%m-%d %H.%i.%s";
+                        break;
+                    case "INTERNAL":
+                        result = "%Y%m%d%H%i%s";
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            case "TIME":
+                switch (formatStr) {
+                    case "USA":
+                        result = "%h:%i:%s %p";
+                        break;
+                    case "JIS":
+                    case "ISO":
+                        result = "%H:%i:%s";
+                        break;
+                    case "EUR":
+                        result = "%H.%i.%s";
+                        break;
+                    case "INTERNAL":
+                        result = "%H%i%s";
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            default:
+                break;
+        }
+
+        if (result == null) {
+            return new NullLiteral(StringType.INSTANCE);
+        }
+
+        return new VarcharLiteral(result);
     }
 }

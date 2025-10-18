@@ -951,9 +951,9 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 importColumnDescs.descs.add(new NereidsImportColumnDesc(desc.getColumnName(), expression));
             }
         }
-        return new NereidsRoutineLoadTaskInfo(execMemLimit, new HashMap<>(jobProperties), maxBatchIntervalS, partitions,
-                mergeType, deleteCondition, sequenceCol, maxFilterRatio, importColumnDescs, precedingFilter,
-                whereExpr, columnSeparator, lineDelimiter, enclose, escape, sendBatchParallelism, loadToSingleTablet,
-                isPartialUpdate, memtableOnSinkNode);
+        return new NereidsRoutineLoadTaskInfo(execMemLimit, new HashMap<>(jobProperties), maxBatchIntervalS,
+                partitionNamesInfo, mergeType, deleteCondition, sequenceCol, maxFilterRatio, importColumnDescs,
+                precedingFilter, whereExpr, columnSeparator, lineDelimiter, enclose, escape, sendBatchParallelism,
+                loadToSingleTablet, isPartialUpdate, memtableOnSinkNode);
     }
 }

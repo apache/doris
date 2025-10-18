@@ -376,5 +376,13 @@ CONF_Bool(enable_multi_version_status, "false");
 // New instance enable cluster snapshot, it only works when enable_multi_version_status is true.
 // The new instance snapshot switch status will be set to SNAPSHOT_SWITCH_ON, and the auto snapshot will be open.
 CONF_Bool(enable_cluster_snapshot, "false");
+CONF_Bool(enable_snapshot_data_migrator, "false");
+CONF_Bool(enable_snapshot_chain_compactor, "false");
+CONF_Int32(snapshot_data_migrator_concurrent, "2");
+CONF_Int32(snapshot_chain_compactor_concurrent, "2");
+
+CONF_mString(aws_credentials_provider_version, "v2");
+CONF_Validator(aws_credentials_provider_version,
+               [](const std::string& config) -> bool { return config == "v1" || config == "v2"; });
 
 } // namespace doris::cloud::config
