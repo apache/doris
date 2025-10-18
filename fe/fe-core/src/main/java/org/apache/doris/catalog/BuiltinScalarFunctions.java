@@ -210,6 +210,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FormatNumber;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FormatRound;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fpow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64Binary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromIso8601Date;
@@ -464,6 +465,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
@@ -475,6 +477,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeToSec;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Timestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBase64Binary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmapWithCheck;
@@ -733,6 +736,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(FormatNumber.class, "format_number"),
             scalar(Fpow.class, "fpow"),
             scalar(FromBase64.class, "from_base64"),
+            scalar(FromBase64Binary.class, "from_base64_binary"),
             scalar(FromBinary.class, "from_binary", "from_hex"),
             scalar(FromDays.class, "from_days"),
             scalar(FromIso8601Date.class, "from_iso8601_date"),
@@ -999,6 +1003,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Strcmp.class, "strcmp"),
             scalar(StrToDate.class, "str_to_date"),
             scalar(StrToMap.class, "str_to_map"),
+            scalar(SubBinary.class, "sub_binary"),
             scalar(SubBitmap.class, "sub_bitmap"),
             scalar(SubReplace.class, "sub_replace"),
             scalar(Substring.class, "substr", "substring", "mid"),
@@ -1010,6 +1015,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(TimeToSec.class, "time_to_sec"),
             scalar(Timestamp.class, "timestamp"),
             scalar(ToBase64.class, "to_base64"),
+            scalar(ToBase64Binary.class, "to_base64_binary"),
             scalar(ToBinary.class, "to_binary", "to_hex"),
             scalar(ToBitmap.class, "to_bitmap"),
             scalar(ToBitmapWithCheck.class, "to_bitmap_with_check"),

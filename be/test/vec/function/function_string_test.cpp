@@ -1970,27 +1970,27 @@ TEST(function_string_test, function_md5sum_test) {
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY};
         DataSet data_set = {
-                {{std::string("asd你好")}, {std::string("a38c15675555017e6b8ea042f2eb24f5")}},
-                {{std::string("hello world")}, {std::string("5eb63bbbe01eeed093cb22bb8f5acdc3")}},
-                {{std::string("HELLO,!^%")}, {std::string("b8e6e34d1cc3dc76b784ddfdfb7df800")}},
-                {{std::string("")}, {std::string("d41d8cd98f00b204e9800998ecf8427e")}},
-                {{std::string(" ")}, {std::string("7215ee9c7d9dc229d2921a40e899ec5f")}},
+                {{VARBINARY("asd你好")}, {std::string("a38c15675555017e6b8ea042f2eb24f5")}},
+                {{VARBINARY("hello world")}, {std::string("5eb63bbbe01eeed093cb22bb8f5acdc3")}},
+                {{VARBINARY("HELLO,!^%")}, {std::string("b8e6e34d1cc3dc76b784ddfdfb7df800")}},
+                {{VARBINARY("")}, {std::string("d41d8cd98f00b204e9800998ecf8427e")}},
+                {{VARBINARY(" ")}, {std::string("7215ee9c7d9dc229d2921a40e899ec5f")}},
                 {{Null()}, {Null()}},
-                {{std::string("MYtestSTR")}, {std::string("cd24c90b3fc1192eb1879093029e87d4")}},
-                {{std::string("ò&ø")}, {std::string("fd157b4cb921fa91acc667380184d59c")}}};
+                {{VARBINARY("MYtestSTR")}, {std::string("cd24c90b3fc1192eb1879093029e87d4")}},
+                {{VARBINARY("ò&ø")}, {std::string("fd157b4cb921fa91acc667380184d59c")}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
 
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY};
-        DataSet data_set = {{{std::string("asd"), std::string("你好")},
+        DataSet data_set = {{{VARBINARY("asd"), VARBINARY("你好")},
                              {std::string("a38c15675555017e6b8ea042f2eb24f5")}},
-                            {{std::string("hello "), std::string("world")},
+                            {{VARBINARY("hello "), VARBINARY("world")},
                              {std::string("5eb63bbbe01eeed093cb22bb8f5acdc3")}},
-                            {{std::string("HELLO"), std::string(",!^%")},
+                            {{VARBINARY("HELLO"), VARBINARY(",!^%")},
                              {std::string("b8e6e34d1cc3dc76b784ddfdfb7df800")}},
-                            {{Null(), std::string("HELLO")}, {Null()}}};
+                            {{Null(), VARBINARY("HELLO")}, {Null()}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
@@ -1998,13 +1998,13 @@ TEST(function_string_test, function_md5sum_test) {
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY,
                                     PrimitiveType::TYPE_VARBINARY};
-        DataSet data_set = {{{std::string("a"), std::string("sd"), std::string("你好")},
+        DataSet data_set = {{{VARBINARY("a"), VARBINARY("sd"), VARBINARY("你好")},
                              {std::string("a38c15675555017e6b8ea042f2eb24f5")}},
-                            {{std::string(""), std::string(""), std::string("")},
+                            {{VARBINARY(""), VARBINARY(""), VARBINARY("")},
                              {std::string("d41d8cd98f00b204e9800998ecf8427e")}},
-                            {{std::string("HEL"), std::string("LO,!"), std::string("^%")},
+                            {{VARBINARY("HEL"), VARBINARY("LO,!"), VARBINARY("^%")},
                              {std::string("b8e6e34d1cc3dc76b784ddfdfb7df800")}},
-                            {{Null(), std::string("HELLO"), Null()}, {Null()}}};
+                            {{Null(), VARBINARY("HELLO"), Null()}, {Null()}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
@@ -2068,20 +2068,20 @@ TEST(function_string_test, function_sm3sum_test) {
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY};
         DataSet data_set = {
-                {{std::string("asd你好")},
+                {{VARBINARY("asd你好")},
                  {std::string("0d6b9dfa8fe5708eb0dccfbaff4f2964abaaa976cc4445a7ecace49c0ceb31d3")}},
-                {{std::string("hello world")},
+                {{VARBINARY("hello world")},
                  {std::string("44f0061e69fa6fdfc290c494654a05dc0c053da7e5c52b84ef93a9d67d3fff88")}},
-                {{std::string("HELLO,!^%")},
+                {{VARBINARY("HELLO,!^%")},
                  {std::string("5fc6e38f40b31a659a59e1daba9b68263615f20c02037b419d9deb3509e6b5c6")}},
-                {{std::string("")},
+                {{VARBINARY("")},
                  {std::string("1ab21d8355cfa17f8e61194831e81a8f22bec8c728fefb747ed035eb5082aa2b")}},
-                {{std::string(" ")},
+                {{VARBINARY(" ")},
                  {std::string("2ae1d69bb8483e5944310c877573b21d0a420c3bf4a2a91b1a8370d760ba67c5")}},
                 {{Null()}, {Null()}},
-                {{std::string("MYtestSTR")},
+                {{VARBINARY("MYtestSTR")},
                  {std::string("3155ae9f834cae035385fc15b69b6f2c051b91de943ea9a03ab8bfd497aef4c6")}},
-                {{std::string("ò&ø")},
+                {{VARBINARY("ò&ø")},
                  {std::string(
                          "aa47ac31c85aa819d4cc80c932e7900fa26a3073a67aa7eb011bc2ba4924a066")}}};
 
@@ -2091,13 +2091,13 @@ TEST(function_string_test, function_sm3sum_test) {
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY};
         DataSet data_set = {
-                {{std::string("asd"), std::string("你好")},
+                {{VARBINARY("asd"), VARBINARY("你好")},
                  {std::string("0d6b9dfa8fe5708eb0dccfbaff4f2964abaaa976cc4445a7ecace49c0ceb31d3")}},
-                {{std::string("hello "), std::string("world")},
+                {{VARBINARY("hello "), VARBINARY("world")},
                  {std::string("44f0061e69fa6fdfc290c494654a05dc0c053da7e5c52b84ef93a9d67d3fff88")}},
-                {{std::string("HELLO "), std::string(",!^%")},
+                {{VARBINARY("HELLO "), VARBINARY(",!^%")},
                  {std::string("1f5866e786ebac9ffed0dbd8f2586e3e99d1d05f7efe7c5915478b57b7423570")}},
-                {{Null(), std::string("HELLO")}, {Null()}}};
+                {{Null(), VARBINARY("HELLO")}, {Null()}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
@@ -2106,13 +2106,13 @@ TEST(function_string_test, function_sm3sum_test) {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY,
                                     PrimitiveType::TYPE_VARBINARY};
         DataSet data_set = {
-                {{std::string("a"), std::string("sd"), std::string("你好")},
+                {{VARBINARY("a"), VARBINARY("sd"), VARBINARY("你好")},
                  {std::string("0d6b9dfa8fe5708eb0dccfbaff4f2964abaaa976cc4445a7ecace49c0ceb31d3")}},
-                {{std::string(""), std::string(""), std::string("")},
+                {{VARBINARY(""), VARBINARY(""), VARBINARY("")},
                  {std::string("1ab21d8355cfa17f8e61194831e81a8f22bec8c728fefb747ed035eb5082aa2b")}},
-                {{std::string("HEL"), std::string("LO,!"), std::string("^%")},
+                {{VARBINARY("HEL"), VARBINARY("LO,!"), VARBINARY("^%")},
                  {std::string("5fc6e38f40b31a659a59e1daba9b68263615f20c02037b419d9deb3509e6b5c6")}},
-                {{Null(), std::string("HELLO"), Null()}, {Null()}}};
+                {{Null(), VARBINARY("HELLO"), Null()}, {Null()}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
@@ -3789,11 +3789,11 @@ TEST(function_string_test, function_sha1_test) {
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY};
         DataSet data_set = {
-                {{std::string("hello world")},
+                {{VARBINARY("hello world")},
                  {std::string("2aae6c35c94fcfb415dbe95f408b9ce91ee846ed")}},
-                {{std::string("doris")}, {std::string("c29bb8e55610dcfecabb065ce5d01be6e3e810e9")}},
-                {{std::string("")}, {std::string("da39a3ee5e6b4b0d3255bfef95601890afd80709")}},
-                {{std::string("abc")}, {std::string("a9993e364706816aba3e25717850c26c9cd0d89d")}},
+                {{VARBINARY("doris")}, {std::string("c29bb8e55610dcfecabb065ce5d01be6e3e810e9")}},
+                {{VARBINARY("")}, {std::string("da39a3ee5e6b4b0d3255bfef95601890afd80709")}},
+                {{VARBINARY("abc")}, {std::string("a9993e364706816aba3e25717850c26c9cd0d89d")}},
                 {{Null()}, {Null()}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
