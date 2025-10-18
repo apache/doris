@@ -87,13 +87,7 @@ void normalize_json_numbers_to_double(JsonbWriter& jsonb_writer, const JsonbValu
             CastParameters params;
             params.is_strict = false;
             JsonbCast::cast_from_json_to_float(jsonb_value, to, params);
-            if (to == 0.0) {
-                // to avoid -0.0
-                to = 0.0;
-            } else if (std::isnan(to)) {
-                // to avoid -nan
-                to = std::numeric_limits<double>::quiet_NaN();
-            }
+            NormalizeFloat(to);
             jsonb_writer.writeDouble(to);
         } else {
             jsonb_writer.writeValue(jsonb_value);

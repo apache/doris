@@ -22,6 +22,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <stdint.h>
 
+#include <cstring>
 #include <iomanip>
 #include <map>
 #include <sstream> // IWYU pragma: keep
@@ -46,6 +47,7 @@ std::string print_plan_node_type(const TPlanNodeType::type& type) {
 
 std::string get_build_version(bool compact) {
     std::stringstream ss;
+    // clang-format off
     ss << version::doris_build_version()
 #if defined(__x86_64__) || defined(_M_X64)
 #ifdef __AVX2__
@@ -74,7 +76,9 @@ std::string get_build_version(bool compact) {
        << " with BLSAN"
 #endif
 #endif
+       << (version::doris_feature_list().empty() ? "" : " features: " + version::doris_feature_list())
        << " (build " << version::doris_build_hash() << ")";
+    // clang-format on
 
     if (!compact) {
         ss << std::endl

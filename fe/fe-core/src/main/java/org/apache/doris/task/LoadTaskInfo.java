@@ -19,8 +19,8 @@ package org.apache.doris.task;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -44,7 +44,7 @@ public interface LoadTaskInfo {
 
     String getTimezone();
 
-    PartitionNames getPartitions();
+    PartitionNamesInfo getPartitionNamesInfo();
 
     LoadTask.MergeType getMergeType();
 

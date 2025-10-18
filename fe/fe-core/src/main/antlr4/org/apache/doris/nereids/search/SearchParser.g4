@@ -25,8 +25,11 @@ orClause   : andClause (OR andClause)* ;
 andClause  : notClause (AND notClause)* ;
 notClause  : NOT atomClause | atomClause ;
 atomClause : LPAREN clause RPAREN | fieldQuery ;
-fieldQuery : fieldName COLON searchValue ;
-fieldName  : TERM | QUOTED ;
+
+// Support for variant subcolumn paths (e.g., field.subcolumn, field.sub1.sub2)
+fieldQuery : fieldPath COLON searchValue ;
+fieldPath  : fieldSegment (DOT fieldSegment)* ;
+fieldSegment : TERM | QUOTED ;
 
 searchValue
     : TERM

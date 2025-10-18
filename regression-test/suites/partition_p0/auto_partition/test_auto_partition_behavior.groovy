@@ -344,4 +344,18 @@ suite("test_auto_partition_behavior") {
         """
         exception "auto create partition only support date_trunc function of RANGE partition"
     }
+
+    test {
+        sql """
+            create table ap_wrong(
+                dt datetime not null,
+                k0 varchar not null
+            )
+            AUTO PARTITION BY LIST (dt)
+            ()
+            DISTRIBUTED BY HASH(`dt`) BUCKETS AUTO
+            properties("replication_num" = "1");
+        """
+        exception "Cannot use auto bucket with auto list partition"
+    }
 }

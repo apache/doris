@@ -18,10 +18,10 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
@@ -58,7 +58,7 @@ public class MetadataViewerTest {
         getTabletStatusMethod = MetadataViewer.class.getDeclaredMethod("getTabletStatus", argTypes);
         getTabletStatusMethod.setAccessible(true);
 
-        argTypes = new Class[] { String.class, String.class, PartitionNames.class };
+        argTypes = new Class[] { String.class, String.class, PartitionNamesInfo.class };
         getTabletDistributionMethod = MetadataViewer.class.getDeclaredMethod("getTabletDistribution", argTypes);
         getTabletDistributionMethod.setAccessible(true);
 

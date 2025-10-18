@@ -1389,7 +1389,12 @@ void PInternalService::merge_filter(::google::protobuf::RpcController* controlle
         brpc::ClosureGuard closure_guard(done);
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
-        Status st = _exec_env->fragment_mgr()->merge_filter(request, &zero_copy_input_stream);
+        Status st;
+        try {
+            st = _exec_env->fragment_mgr()->merge_filter(request, &zero_copy_input_stream);
+        } catch (Exception& e) {
+            st = e.to_status();
+        }
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
@@ -1405,7 +1410,12 @@ void PInternalService::send_filter_size(::google::protobuf::RpcController* contr
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         signal::SignalTaskIdKeeper keeper(request->query_id());
         brpc::ClosureGuard closure_guard(done);
-        Status st = _exec_env->fragment_mgr()->send_filter_size(request);
+        Status st;
+        try {
+            st = _exec_env->fragment_mgr()->send_filter_size(request);
+        } catch (Exception& e) {
+            st = e.to_status();
+        }
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
@@ -1421,7 +1431,12 @@ void PInternalService::sync_filter_size(::google::protobuf::RpcController* contr
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         signal::SignalTaskIdKeeper keeper(request->query_id());
         brpc::ClosureGuard closure_guard(done);
-        Status st = _exec_env->fragment_mgr()->sync_filter_size(request);
+        Status st;
+        try {
+            st = _exec_env->fragment_mgr()->sync_filter_size(request);
+        } catch (Exception& e) {
+            st = e.to_status();
+        }
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
@@ -1440,7 +1455,12 @@ void PInternalService::apply_filterv2(::google::protobuf::RpcController* control
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
         VLOG_NOTICE << "rpc apply_filterv2 recv";
-        Status st = _exec_env->fragment_mgr()->apply_filterv2(request, &zero_copy_input_stream);
+        Status st;
+        try {
+            st = _exec_env->fragment_mgr()->apply_filterv2(request, &zero_copy_input_stream);
+        } catch (Exception& e) {
+            st = e.to_status();
+        }
         if (!st.ok()) {
             LOG(WARNING) << "apply filter meet error: " << st.to_string();
         }

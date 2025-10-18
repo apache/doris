@@ -187,29 +187,36 @@ TxnErrorCode FdbTxnKv::get_partition_boundaries(std::vector<std::string>* bounda
     RangeGetOptions opts;
     opts.snapshot = true;
     std::unique_ptr<RangeGetIterator> iter;
-    do {
+    int num_iterations = 0;
+    int num_kvs = 0;
+    while (iter == nullptr /* may be not init */ || iter->more()) {
         code = txn->get(begin_key, end_key, &iter, opts);
         if (code != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to get fdb boundaries")
+                    .tag("code", code)
+                    .tag("begin_key", hex(begin_key))
+                    .tag("end_key", hex(end_key))
+                    .tag("num_iterations", num_iterations)
+                    .tag("num_kvs", num_kvs);
             if (code == TxnErrorCode::TXN_TOO_OLD) {
                 code = create_txn_with_system_access(&txn);
                 if (code == TxnErrorCode::TXN_OK) {
                     continue;
                 }
             }
-            LOG_WARNING("failed to get fdb boundaries")
-                    .tag("code", code)
-                    .tag("begin_key", hex(begin_key))
-                    .tag("end_key", hex(end_key));
+            LOG_WARNING("failed to recreate txn when get fdb boundaries").tag("code", code);
             return code;
         }
 
         while (iter->has_next()) {
             auto&& [key, value] = iter->next();
             boundaries->emplace_back(key);
+            ++num_kvs;
         }
 
         begin_key = iter->next_begin_key();
-    } while (iter->more());
+        ++num_iterations;
+    }
 
     return TxnErrorCode::TXN_OK;
 }

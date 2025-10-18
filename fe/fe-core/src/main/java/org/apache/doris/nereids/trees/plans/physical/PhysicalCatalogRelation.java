@@ -60,6 +60,7 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
     protected final TableIf table;
     protected final ImmutableList<String> qualifier;
     protected final ImmutableList<Slot> operativeSlots;
+    protected final String tableAlias;
 
     /**
      * Constructor for PhysicalCatalogRelation.
@@ -75,6 +76,7 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
         this.operativeSlots = ImmutableList.copyOf(Objects.requireNonNull(operativeSlots,
                 "operativeSlots can not be null"));
+        this.tableAlias = "";
     }
 
     /**
@@ -93,6 +95,27 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
         this.operativeSlots = ImmutableList.copyOf(Objects.requireNonNull(operativeSlots,
                 "operativeSlots can not be null"));
+        this.tableAlias = "";
+    }
+
+    /**
+     * Constructor for PhysicalCatalogRelation.
+     *
+     * @param table      Doris table
+     * @param qualifier  qualified relation name
+     * @param tableAlias table alias
+     */
+    public PhysicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties,
+            Statistics statistics,
+            Collection<Slot> operativeSlots, String tableAlias) {
+        super(relationId, type, groupExpression, logicalProperties, physicalProperties, statistics);
+        this.table = Objects.requireNonNull(table, "table can not be null");
+        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
+        this.operativeSlots = ImmutableList.copyOf(Objects.requireNonNull(operativeSlots,
+                "operativeSlots can not be null"));
+        this.tableAlias = Objects.requireNonNull(tableAlias, "tableAlias can not be null");
     }
 
     @Override
@@ -151,6 +174,10 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
         return Utils.qualifiedName(qualifier, table.getName());
     }
 
+    public String getTableAlias() {
+        return tableAlias;
+    }
+
     @Override
     public boolean canPushDownRuntimeFilter() {
         return true;
@@ -159,8 +186,12 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
     @Override
     public String shapeInfo() {
         StringBuilder shapeBuilder = new StringBuilder();
+        String tableNameAndAlias = table.getName();
+        if (!"".equals(tableAlias)) {
+            tableNameAndAlias += "(" + tableAlias + ")";
+        }
         shapeBuilder.append(this.getClass().getSimpleName())
-                .append("[").append(table.getName()).append("]");
+                .append("[").append(tableNameAndAlias).append("]");
         if (!getAppliedRuntimeFilters().isEmpty()) {
             shapeBuilder.append(" apply RFs:");
             getAppliedRuntimeFilters()

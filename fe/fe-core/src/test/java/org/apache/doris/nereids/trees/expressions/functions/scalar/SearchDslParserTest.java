@@ -135,6 +135,28 @@ public class SearchDslParserTest {
     }
 
     @Test
+    public void testAllQueryWithQuotes() {
+        String dsl = "redirect:ALL(\"Rainbowman\")";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.ALL, plan.root.type);
+        Assertions.assertEquals("redirect", plan.root.field);
+        Assertions.assertEquals("Rainbowman", plan.root.value);
+    }
+
+    @Test
+    public void testAnyQueryWithQuotes() {
+        String dsl = "tags:ANY(\"Mandy Patinkin\")";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.ANY, plan.root.type);
+        Assertions.assertEquals("tags", plan.root.field);
+        Assertions.assertEquals("Mandy Patinkin", plan.root.value);
+    }
+
+    @Test
     public void testAndQuery() {
         String dsl = "title:hello AND content:world";
         QsPlan plan = SearchDslParser.parseDsl(dsl);

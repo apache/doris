@@ -18,7 +18,6 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeProperties;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -122,10 +121,10 @@ public class AnalysisManager implements Writable {
     public final Queue<QueryColumn> highPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
     public final Queue<QueryColumn> midPriorityColumns = new ArrayBlockingQueue<>(COLUMN_QUEUE_SIZE);
     // Map<TableName, Set<Pair<IndexName, ColumnName>>>
-    public final Map<TableName, Set<Pair<String, String>>> highPriorityJobs = new LinkedHashMap<>();
-    public final Map<TableName, Set<Pair<String, String>>> midPriorityJobs = new LinkedHashMap<>();
-    public final Map<TableName, Set<Pair<String, String>>> lowPriorityJobs = new LinkedHashMap<>();
-    public final Map<TableName, Set<Pair<String, String>>> veryLowPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableNameInfo, Set<Pair<String, String>>> highPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableNameInfo, Set<Pair<String, String>>> midPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableNameInfo, Set<Pair<String, String>>> lowPriorityJobs = new LinkedHashMap<>();
+    public final Map<TableNameInfo, Set<Pair<String, String>>> veryLowPriorityJobs = new LinkedHashMap<>();
 
     // Tracking running manually submitted async tasks, keep in mem only
     protected final ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
@@ -569,7 +568,7 @@ public class AnalysisManager implements Writable {
         }
     }
 
-    public List<AutoAnalysisPendingJob> showAutoPendingJobs(TableName tblName, String priority) {
+    public List<AutoAnalysisPendingJob> showAutoPendingJobs(TableNameInfo tblName, String priority) {
         List<AutoAnalysisPendingJob> result = Lists.newArrayList();
         if (priority == null || priority.isEmpty()) {
             result.addAll(getPendingJobs(highPriorityJobs, JobPriority.HIGH, tblName));
@@ -588,15 +587,16 @@ public class AnalysisManager implements Writable {
         return result;
     }
 
-    protected List<AutoAnalysisPendingJob> getPendingJobs(Map<TableName, Set<Pair<String, String>>> jobMap,
-            JobPriority priority, TableName tblName) {
+    protected List<AutoAnalysisPendingJob> getPendingJobs(Map<TableNameInfo, Set<Pair<String, String>>> jobMap,
+            JobPriority priority, TableNameInfo tableNameInfo) {
         List<AutoAnalysisPendingJob> result = Lists.newArrayList();
         synchronized (jobMap) {
-            for (Entry<TableName, Set<Pair<String, String>>> entry : jobMap.entrySet()) {
-                TableName table = entry.getKey();
-                if (tblName == null
-                        || tblName.getCtl() == null && tblName.getDb() == null && tblName.getTbl() == null
-                        || tblName.equals(table)) {
+            for (Entry<TableNameInfo, Set<Pair<String, String>>> entry : jobMap.entrySet()) {
+                TableNameInfo table = entry.getKey();
+                if (tableNameInfo == null
+                        || tableNameInfo.getCtl() == null && tableNameInfo.getDb() == null
+                        && tableNameInfo.getTbl() == null
+                        || tableNameInfo.equals(table)) {
                     result.add(new AutoAnalysisPendingJob(table.getCtl(),
                             table.getDb(), table.getTbl(), entry.getValue(), priority));
                 }
@@ -1138,8 +1138,8 @@ public class AnalysisManager implements Writable {
             return true;
         }
         return (AnalysisState.PENDING.equals(analysisInfo.state) || AnalysisState.RUNNING.equals(analysisInfo.state))
-            && ScheduleType.ONCE.equals(analysisInfo.scheduleType)
-            && JobType.MANUAL.equals(analysisInfo.jobType);
+                && ScheduleType.ONCE.equals(analysisInfo.scheduleType)
+                && JobType.MANUAL.equals(analysisInfo.jobType);
     }
 
     private static void readIdToTblStats(DataInput in, Map<Long, TableStatsMeta> map) throws IOException {
@@ -1432,7 +1432,7 @@ public class AnalysisManager implements Writable {
             return true;
         }
         return table instanceof HMSExternalTable
-            && ((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE);
+                && ((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE);
     }
 
 

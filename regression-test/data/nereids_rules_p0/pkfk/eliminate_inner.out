@@ -33,8 +33,8 @@ PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
 ----PhysicalOlapScan[pkt]
 ----hashJoin[INNER_JOIN] hashCondition=((fkt_not_null1.fk = fkt_not_null2.fk)) otherCondition=()
-------PhysicalOlapScan[fkt_not_null]
-------PhysicalOlapScan[fkt_not_null]
+------PhysicalOlapScan[fkt_not_null(fkt_not_null1)]
+------PhysicalOlapScan[fkt_not_null(fkt_not_null2)]
 
 -- !res --
 1	John	1
@@ -51,9 +51,9 @@ PhysicalResultSink
 ------PhysicalOlapScan[pkt]
 ----hashJoin[INNER_JOIN] hashCondition=((fkt_not_null1.fk = fkt_not_null2.fk)) otherCondition=()
 ------filter((fkt_not_null1.fk > 1))
---------PhysicalOlapScan[fkt_not_null]
+--------PhysicalOlapScan[fkt_not_null(fkt_not_null1)]
 ------filter((fkt_not_null2.fk > 1))
---------PhysicalOlapScan[fkt_not_null]
+--------PhysicalOlapScan[fkt_not_null(fkt_not_null2)]
 
 -- !res --
 2	Alice	2
@@ -67,7 +67,7 @@ PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
 ----PhysicalOlapScan[pkt]
 ----hashAgg[GLOBAL]
-------PhysicalOlapScan[fkt_not_null]
+------PhysicalOlapScan[fkt_not_null(fkt_not_null1)]
 
 -- !res --
 1	1
@@ -195,8 +195,8 @@ PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
 ----PhysicalOlapScan[pkt]
 ----hashJoin[INNER_JOIN] hashCondition=((fkt1.fk = fkt2.fk)) otherCondition=()
-------PhysicalOlapScan[fkt]
-------PhysicalOlapScan[fkt]
+------PhysicalOlapScan[fkt(fkt1)]
+------PhysicalOlapScan[fkt(fkt2)]
 
 -- !res --
 1	John	1
@@ -212,9 +212,9 @@ PhysicalResultSink
 ------PhysicalOlapScan[pkt]
 ----hashJoin[INNER_JOIN] hashCondition=((fkt1.fk = fkt2.fk)) otherCondition=()
 ------filter((fkt1.fk > 1))
---------PhysicalOlapScan[fkt]
+--------PhysicalOlapScan[fkt(fkt1)]
 ------filter((fkt2.fk > 1))
---------PhysicalOlapScan[fkt]
+--------PhysicalOlapScan[fkt(fkt2)]
 
 -- !res --
 2	Alice	2
@@ -227,7 +227,7 @@ PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
 ----PhysicalOlapScan[pkt]
 ----hashAgg[GLOBAL]
-------PhysicalOlapScan[fkt]
+------PhysicalOlapScan[fkt(fkt1)]
 
 -- !res --
 1	1
@@ -328,7 +328,7 @@ PhysicalResultSink
 ------filter((cast(p as DECIMALV3(38, 6)) = 1.000000))
 --------PhysicalOlapScan[pkt]
 ------PhysicalOlapScan[fkt_not_null]
-----PhysicalOlapScan[fkt_not_null]
+----PhysicalOlapScan[fkt_not_null(fkt_not_null2)]
 
 -- !res --
 
@@ -341,7 +341,7 @@ PhysicalResultSink
 ----filter((fkt_not_null.fk = 1))
 ------PhysicalOlapScan[fkt_not_null]
 ----filter((fkt_not_null2.fk = 1))
-------PhysicalOlapScan[fkt_not_null]
+------PhysicalOlapScan[fkt_not_null(fkt_not_null2)]
 
 -- !res --
 1	John

@@ -131,13 +131,21 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
                 // current data page is full, stop processing remaining inputs
                 break;
             }
+            // Track raw data size: the original string size
+            _raw_data_size += src->size;
             num_added += 1;
         }
         *count = num_added;
         return Status::OK();
     } else {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
-        return _data_page_builder->add(vals, count);
+        RETURN_IF_ERROR(_data_page_builder->add(vals, count));
+        // For plain encoding, track raw data size from the input
+        const Slice* src = reinterpret_cast<const Slice*>(vals);
+        for (size_t i = 0; i < *count; ++i) {
+            _raw_data_size += src[i].size;
+        }
+        return Status::OK();
     }
 }
 
@@ -162,6 +170,7 @@ Status BinaryDictPageBuilder::finish(OwnedSlice* slice) {
 Status BinaryDictPageBuilder::reset() {
     RETURN_IF_CATCH_EXCEPTION({
         _finished = false;
+        _raw_data_size = 0;
         _buffer.reserve(_options.data_page_size + BINARY_DICT_PAGE_HEADER_SIZE);
         _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
 
@@ -214,6 +223,10 @@ Status BinaryDictPageBuilder::get_last_value(void* value) const {
     RETURN_IF_ERROR(_data_page_builder->get_last_value(&value_code));
     *reinterpret_cast<Slice*>(value) = _dict_builder->get(value_code);
     return Status::OK();
+}
+
+uint64_t BinaryDictPageBuilder::get_raw_data_size() const {
+    return _raw_data_size;
 }
 
 BinaryDictPageDecoder::BinaryDictPageDecoder(Slice data, const PageDecoderOptions& options)

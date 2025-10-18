@@ -34,6 +34,9 @@ import org.apache.hadoop.hive.conf.HiveConf;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Base properties for Hive Metastore.
+ */
 public class HMSBaseProperties {
     public static final String HIVE_METASTORE_TYPE = "hive.metastore.type";
     public static final String DLF_TYPE = "dlf";

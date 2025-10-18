@@ -271,6 +271,9 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             if (olapTable.isTemporary()) {
                 throw new AnalysisException("do not support create materialized view on temporary table");
             }
+            if (olapScan.isDirectMvScan()) {
+                throw new AnalysisException("do not support create materialized view on another synchronized mv");
+            }
             validateContext.baseIndexName = olapTable.getName();
             validateContext.dbName = olapTable.getDBName();
             validateContext.keysType = olapTable.getKeysType();
