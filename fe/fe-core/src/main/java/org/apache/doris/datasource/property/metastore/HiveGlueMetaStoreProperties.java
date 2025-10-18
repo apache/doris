@@ -25,7 +25,7 @@ import org.apache.hadoop.hive.conf.HiveConf;
 
 import java.util.Map;
 
-public class HMSGlueMetaStoreProperties extends AbstractHMSProperties {
+public class HiveGlueMetaStoreProperties extends AbstractHiveProperties {
 
     // ========== Constants ==========
     public static final String AWS_GLUE_SECRET_KEY_KEY = "aws.glue.secret-key";
@@ -81,7 +81,7 @@ public class HMSGlueMetaStoreProperties extends AbstractHMSProperties {
      * @param type      The metastore type.
      * @param origProps The original configuration properties.
      */
-    protected HMSGlueMetaStoreProperties(Type type, Map<String, String> origProps) {
+    protected HiveGlueMetaStoreProperties(Type type, Map<String, String> origProps) {
         super(type, origProps);
     }
 
@@ -121,7 +121,7 @@ public class HMSGlueMetaStoreProperties extends AbstractHMSProperties {
         }
     }
 
-    public HMSGlueMetaStoreProperties(Map<String, String> origProps) {
+    public HiveGlueMetaStoreProperties(Map<String, String> origProps) {
         super(Type.GLUE, origProps);
     }
 }
