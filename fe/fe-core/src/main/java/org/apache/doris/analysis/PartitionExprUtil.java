@@ -122,8 +122,8 @@ public class PartitionExprUtil {
         return null;
     }
 
-    public static Map<String, AddPartitionOp> getAddPartitionClauseFromPartitionValues(OlapTable olapTable,
-                                                                                       ArrayList<List<TNullableStringLiteral>> partitionValues, PartitionInfo partitionInfo)
+    public static Map<String, AddPartitionOp> getAddPartitionClauseFromPartitionValues(
+            OlapTable olapTable, ArrayList<List<TNullableStringLiteral>> partitionValues, PartitionInfo partitionInfo)
             throws AnalysisException {
         Map<String, AddPartitionOp> result = Maps.newHashMap();
         ArrayList<Expr> partitionExprs = partitionInfo.getPartitionExprs();
@@ -198,7 +198,8 @@ public class PartitionExprUtil {
                 partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM,
                         olapTable.getStorageMedium().name());
             }
-            AddPartitionOp addPartitionClause = new AddPartitionOp(singleRangePartitionDesc.translateToPartitionDefinition(),
+            AddPartitionOp addPartitionClause = new AddPartitionOp(
+                    singleRangePartitionDesc.translateToPartitionDefinition(),
                     distributionDesc.toDistributionDescriptor(), partitionProperties, false);
             result.put(partitionName, addPartitionClause);
         }

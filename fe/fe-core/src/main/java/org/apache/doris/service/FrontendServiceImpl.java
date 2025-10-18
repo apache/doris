@@ -18,7 +18,6 @@
 package org.apache.doris.service;
 
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
-import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.SetType;

@@ -17,7 +17,6 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;

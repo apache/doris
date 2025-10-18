@@ -17,9 +17,7 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
@@ -289,7 +287,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private ArrayList<AddPartitionOp> getAddPartitionOp(Database db, OlapTable olapTable,
-                                                                Column partitionColumn, String partitionFormat, boolean executeFirstTime) throws DdlException {
+                                                            Column partitionColumn, String partitionFormat,
+                                                            boolean executeFirstTime) throws DdlException {
         ArrayList<AddPartitionOp> addPartitionOps = new ArrayList<>();
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
@@ -356,7 +355,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                         LOG.warn("check partition range {} in db {} table {} partiton idx {} fail",
                                 addPartitionKeyRange, db.getFullName(), olapTable.getName(), idx, e);
                         recordCreatePartitionFailedMsg(db.getFullName(), olapTable.getName(),
-                            e.getMessage(), olapTable.getId());
+                                e.getMessage(), olapTable.getId());
                     }
                     break;
                 }
@@ -523,7 +522,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
      * 2. get DropPartitionClause of partitions which range are before this reserved range.
      */
     private ArrayList<DropPartitionOp> getDropPartitionOp(Database db, OlapTable olapTable,
-                                                                  Column partitionColumn, String partitionFormat) throws DdlException {
+                                                              Column partitionColumn, String partitionFormat)
+            throws DdlException {
         ArrayList<DropPartitionOp> dropPartitionOps = new ArrayList<>();
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
         if (dynamicPartitionProperty.getStart() == DynamicPartitionProperty.MIN_START_OFFSET) {
@@ -769,7 +769,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private void cloudBatchAfterCreatePartitions(boolean executeFirstTime, List<PartitionPersistInfo> partsInfo,
-                                                       ArrayList<AddPartitionClause> addPartitionClauses, Database db,
+                                                       ArrayList<AddPartitionOp> addPartitionOps, Database db,
                                                        OlapTable olapTable, List<Long> indexIds,
                                                        String tableName) throws DdlException {
         if (Config.isNotCloudMode()) {
@@ -777,8 +777,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         }
         List<Long> succeedPartitionIds = partsInfo.stream().map(partitionPersistInfo
                 -> partitionPersistInfo.getPartition().getId()).collect(Collectors.toList());
-        if (!executeFirstTime || addPartitionClauses.isEmpty()) {
-            LOG.info("cloud commit rpc in batch, {}-{}", !executeFirstTime, addPartitionClauses.size());
+        if (!executeFirstTime || addPartitionOps.isEmpty()) {
+            LOG.info("cloud commit rpc in batch, {}-{}", !executeFirstTime, addPartitionOps.size());
             return;
         }
         try {
@@ -827,7 +827,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                                                   ArrayList<AddPartitionOp> addPartitionOps,
                                                   OlapTable olapTable, List<Long> indexIds, Database db,
                                                   String tableName, List<Long> generatedPartitionIds)
-        throws DdlException {
+            throws DdlException {
         if (Config.isNotCloudMode()) {
             return;
         }
@@ -856,50 +856,6 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             MetaIdGenerator.IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv()
                     .getIdGeneratorBuffer(allPartitionBufferSize);
             addPartitionOps.forEach(p -> generatedPartitionIds.add(idGeneratorBuffer.getNextId()));
-            // executeFirstTime true
-            Env.getCurrentInternalCatalog().beforeCreatePartitions(db.getId(), olapTable.getId(),
-                    generatedPartitionIds, indexIds, true);
-        } catch (Exception e) {
-            LOG.warn("cloud in prepare step, dbName {}, tableName {}, tableId {} indexId {} exception {}",
-                    db.getFullName(), tableName, olapTable.getId(), indexIds, e.getMessage());
-            recordCreatePartitionFailedMsg(db.getFullName(), tableName, e.getMessage(), olapTable.getId());
-            throw new DdlException("cloud in prepare step err");
-        }
-    }
-
-    private void cloudBatchBeforeCreatePartitions(boolean executeFirstTime,
-                                                  ArrayList<AddPartitionClause> addPartitionClauses,
-                                                  OlapTable olapTable, List<Long> indexIds, Database db,
-                                                  String tableName, List<Long> generatedPartitionIds)
-            throws DdlException {
-        if (Config.isNotCloudMode()) {
-            return;
-        }
-        if (!executeFirstTime || addPartitionClauses.isEmpty()) {
-            LOG.info("cloud prepare rpc in batch, {}-{}", !executeFirstTime, addPartitionClauses.size());
-            return;
-        }
-        AddPartitionClause addPartitionClause = addPartitionClauses.get(0);
-        DistributionDesc distributionDesc = addPartitionClause.getDistributionDesc();
-        try {
-            DistributionInfo distributionInfo = distributionDesc
-                    .toDistributionInfo(olapTable.getBaseSchema());
-            if (distributionDesc == null) {
-                distributionInfo =  olapTable.getDefaultDistributionInfo()
-                    .toDistributionDesc().toDistributionInfo(olapTable.getBaseSchema());
-            }
-            long allPartitionBufferSize = 0;
-            for (int i = 0; i < addPartitionClauses.size(); i++) {
-                long bufferSize = InternalCatalog.checkAndGetBufferSize(indexIds.size(),
-                        distributionInfo.getBucketNum(),
-                        addPartitionClause.getSingeRangePartitionDesc()
-                        .getReplicaAlloc().getTotalReplicaNum(),
-                        db, tableName);
-                allPartitionBufferSize += bufferSize;
-            }
-            MetaIdGenerator.IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv()
-                    .getIdGeneratorBuffer(allPartitionBufferSize);
-            addPartitionClauses.forEach(p -> generatedPartitionIds.add(idGeneratorBuffer.getNextId()));
             // executeFirstTime true
             Env.getCurrentInternalCatalog().beforeCreatePartitions(db.getId(), olapTable.getId(),
                     generatedPartitionIds, indexIds, true);
