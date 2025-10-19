@@ -149,7 +149,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
     assertTrue(exitCode == 0, "File cache clear failed with exit code ${exitCode}. Error: ${errorOutput.toString()}")
 
     // brpc metrics will be updated at most 5 seconds
-    def totalWaitTime = (fileCacheBackgroundMonitorIntervalMsResult[0][3].toLong() * 2 / 1000) as int
+    def totalWaitTime = (fileCacheBackgroundMonitorIntervalMsResult[0][3].toLong() / 1000) as int
     def interval = 1
     def iterations = totalWaitTime / interval
 
@@ -236,7 +236,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
 
     logger.info("==================== Start running file cache query limit test 1 ====================")
 
-    def fileCacheQueryLimitPercentTest1 = (fileCacheQueryLimitPercent / 1.5) as Long
+    def fileCacheQueryLimitPercentTest1 = (fileCacheQueryLimitPercent / 2) as Long
     logger.info("file_cache_query_limit_percent_test1: " + fileCacheQueryLimitPercentTest1)
 
     // Clear file cache
