@@ -74,6 +74,46 @@ suite("test_search_vs_match_consistency") {
     // Wait for data to be ready
     Thread.sleep(5000)
 
+    // Regression coverage: untokenized keyword indexes should keep search() and match_* aligned
+    def keywordTable = "search_keyword_exact_case"
+
+    sql "DROP TABLE IF EXISTS ${keywordTable}"
+
+    sql """
+        CREATE TABLE ${keywordTable} (
+            title VARCHAR(256),
+            redirect VARCHAR(512),
+            INDEX idx_redirect (redirect) USING INVERTED PROPERTIES("ignore_above" = "1024")
+        ) ENGINE=OLAP
+        DUPLICATE KEY(title)
+        DISTRIBUTED BY HASH(title) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        )
+    """
+
+    sql """
+        INSERT INTO ${keywordTable} VALUES
+        ('Rainbowman Page', 'Rainbowman'),
+        ('rainbowman lowercase', 'rainbowman'),
+        ('Other Entry', 'Rainbow Man'),
+        ('Null Redirect', NULL)
+    """
+
+    Thread.sleep(5000)
+
+    qt_keyword_case_match """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ title FROM ${keywordTable}
+        WHERE redirect match_all "Rainbowman"
+        ORDER BY title
+    """
+
+    qt_keyword_case_search """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ title FROM ${keywordTable}
+        WHERE search('redirect:All("Rainbowman")')
+        ORDER BY title
+    """
+
     // Test Suite 1: Basic OR query consistency
     qt_test_1_1_search """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}

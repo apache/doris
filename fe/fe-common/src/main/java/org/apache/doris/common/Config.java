@@ -3636,10 +3636,14 @@ public class Config extends ConfigBase {
     public static long cloud_auto_snapshot_max_reversed_num = 35;
     @ConfField(mutable = true)
     public static long cloud_auto_snapshot_min_interval_seconds = 3600;
+
     @ConfField(mutable = true)
-    public static long multi_part_upload_part_size_in_bytes = 512 * 1024 * 1024L; // 512MB
+    public static long multi_part_upload_part_size_in_bytes = 256 * 1024 * 1024L; // 256MB
     @ConfField(mutable = true)
     public static int multi_part_upload_max_seconds = 3600; // 1 hour
     @ConfField(mutable = true)
     public static int multi_part_upload_pool_size = 10;
+
+    @ConfField(mutable = true)
+    public static String aws_credentials_provider_version = "v2";
 }

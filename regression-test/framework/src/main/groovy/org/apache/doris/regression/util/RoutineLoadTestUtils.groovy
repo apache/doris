@@ -17,6 +17,7 @@
 
 package org.apache.doris.regression.util
 
+import groovy.json.JsonSlurper
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
@@ -126,5 +127,26 @@ class RoutineLoadTestUtils {
             }
         }
         return count
+    }
+
+    static void waitForTaskAbort(Closure sqlRunner, String job, int maxAttempts = 60) {
+        def count = 0
+        while (true) {
+            def res = sqlRunner.call("show routine load for ${job}")
+            def statistic = res[0][14].toString()
+            logger.info("Routine load statistic: ${statistic}")
+            def jsonSlurper = new JsonSlurper()
+            def json = jsonSlurper.parseText(res[0][14])
+            if (json.abortedTaskNum > 1) {
+                break
+            }
+            if (count > maxAttempts) {
+                Assert.assertEquals(1, 2)
+                break;
+            } else {
+                sleep(1000)
+                count++
+            }
+        }
     }
 }
