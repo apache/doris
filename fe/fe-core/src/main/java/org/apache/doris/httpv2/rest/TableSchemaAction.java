@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -35,7 +36,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.catalog.MaterializedIndexMeta;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -60,6 +60,36 @@ import javax.servlet.http.HttpServletResponse;
  */
 @RestController
 public class TableSchemaAction extends RestBaseController {
+
+    /**
+     * Build column information map for a given column
+     * @param column the column to build info for
+     * @return map containing column information
+     */
+    private Map<String, String> buildColumnInfo(Column column) {
+        Map<String, String> columnInfo = new HashMap<>(2);
+        Type colType = column.getOriginType();
+        PrimitiveType primitiveType = colType.getPrimitiveType();
+
+        if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType.isDecimalV3Type()) {
+            ScalarType scalarType = (ScalarType) colType;
+            columnInfo.put("precision", scalarType.getPrecision() + "");
+            columnInfo.put("scale", scalarType.getScalarScale() + "");
+        }
+
+        columnInfo.put("column_uid", String.valueOf(column.getUniqueId()));
+        columnInfo.put("type", primitiveType.toString());
+        columnInfo.put("comment", column.getComment());
+        columnInfo.put("name", column.getDisplayName());
+
+        Optional aggregationType = Optional.ofNullable(column.getAggregationType());
+        columnInfo.put("aggregation_type", aggregationType.isPresent()
+                ? column.getAggregationType().toSql() : "");
+        columnInfo.put("is_nullable", column.isAllowNull() ? "Yes" : "No");
+        columnInfo.put("is_key", column.isKey() ? "Yes" : "No");
+
+        return columnInfo;
+    }
 
     @RequestMapping(path = {"/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema",
             "/api/{" + CATALOG_KEY + "}/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema"}, method = RequestMethod.GET)
@@ -96,22 +126,7 @@ public class TableSchemaAction extends RestBaseController {
                     List<Column> columns = table.getBaseSchema();
                     List<Map<String, String>> propList = new ArrayList(columns.size());
                     for (Column column : columns) {
-                        Map<String, String> baseInfo = new HashMap<>(2);
-                        Type colType = column.getOriginType();
-                        PrimitiveType primitiveType = colType.getPrimitiveType();
-                        if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType.isDecimalV3Type()) {
-                            ScalarType scalarType = (ScalarType) colType;
-                            baseInfo.put("precision", scalarType.getPrecision() + "");
-                            baseInfo.put("scale", scalarType.getScalarScale() + "");
-                        }
-                        baseInfo.put("column_uid", String.valueOf(column.getUniqueId()));
-                        baseInfo.put("type", primitiveType.toString());
-                        baseInfo.put("comment", column.getComment());
-                        baseInfo.put("name", column.getDisplayName());
-                        Optional aggregationType = Optional.ofNullable(column.getAggregationType());
-                        baseInfo.put("aggregation_type", aggregationType.isPresent()
-                                ? column.getAggregationType().toSql() : "");
-                        baseInfo.put("is_nullable", column.isAllowNull() ? "Yes" : "No");
+                        Map<String, String> baseInfo = buildColumnInfo(column);
                         propList.add(baseInfo);
                     }
                     resultMap.put("status", 200);
@@ -141,23 +156,7 @@ public class TableSchemaAction extends RestBaseController {
                             List<Map<String, String>> indexColumnList = new ArrayList<>();
 
                             for (Column column : indexColumns) {
-                                Map<String, String> columnInfo = new HashMap<>();
-                                Type colType = column.getOriginType();
-                                PrimitiveType primitiveType = colType.getPrimitiveType();
-                                if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType.isDecimalV3Type()) {
-                                    ScalarType scalarType = (ScalarType) colType;
-                                    columnInfo.put("precision", scalarType.getPrecision() + "");
-                                    columnInfo.put("scale", scalarType.getScalarScale() + "");
-                                }
-                                columnInfo.put("column_uid", String.valueOf(column.getUniqueId()));
-                                columnInfo.put("type", primitiveType.toString());
-                                columnInfo.put("comment", column.getComment());
-                                columnInfo.put("name", column.getDisplayName());
-                                Optional aggregationType = Optional.ofNullable(column.getAggregationType());
-                                columnInfo.put("aggregation_type", aggregationType.isPresent()
-                                        ? column.getAggregationType().toSql() : "");
-                                columnInfo.put("is_nullable", column.isAllowNull() ? "Yes" : "No");
-                                columnInfo.put("is_key", column.isKey() ? "Yes" : "No");
+                                Map<String, String> columnInfo = buildColumnInfo(column);
                                 indexColumnList.add(columnInfo);
                             }
 
