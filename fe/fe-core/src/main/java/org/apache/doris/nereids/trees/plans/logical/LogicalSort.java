@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Logical Sort plan.
@@ -87,6 +88,17 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     public String toString() {
         return Utils.toSqlString("LogicalSort[" + id.asInt() + "]",
                 "orderKeys", orderKeys);
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(child().toDigest()).append(" ORDER BY ");
+        sb.append(
+                orderKeys.stream().map(OrderKey::toDigest)
+                        .collect(Collectors.joining(", "))
+        );
+        return sb.toString();
     }
 
     @Override

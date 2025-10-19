@@ -135,14 +135,14 @@ Status PipelineXSinkLocalState<SharedStateArg>::terminate(RuntimeState* state) {
     return Status::OK();
 }
 
-DataDistribution OperatorBase::required_data_distribution() const {
+DataDistribution OperatorBase::required_data_distribution(RuntimeState* /*state*/) const {
     return _child && _child->is_serial_operator() && !is_source()
                    ? DataDistribution(ExchangeType::PASSTHROUGH)
                    : DataDistribution(ExchangeType::NOOP);
 }
 
-bool OperatorBase::require_shuffled_data_distribution() const {
-    return Pipeline::is_hash_exchange(required_data_distribution().distribution_type);
+bool OperatorBase::require_shuffled_data_distribution(RuntimeState* state) const {
+    return Pipeline::is_hash_exchange(required_data_distribution(state).distribution_type);
 }
 
 const RowDescriptor& OperatorBase::row_desc() const {

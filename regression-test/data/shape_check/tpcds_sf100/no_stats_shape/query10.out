@@ -25,7 +25,7 @@ PhysicalResultSink
 ----------------------------------------filter((date_dim.d_moy <= 4) and (date_dim.d_moy >= 1) and (date_dim.d_year = 2001))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer] apply RFs: RF4 RF5
+------------------------------------PhysicalOlapScan[customer(c)] apply RFs: RF4 RF5
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ws_sold_date_sk]
 ------------------------------------PhysicalProject
@@ -36,7 +36,7 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[customer_demographics]
 --------------------------PhysicalProject
 ----------------------------filter(ca_county IN ('Cochran County', 'Kandiyohi County', 'Marquette County', 'Storey County', 'Warren County'))
-------------------------------PhysicalOlapScan[customer_address]
+------------------------------PhysicalOlapScan[customer_address(ca)]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_sold_date_sk]
 --------------------------PhysicalProject
