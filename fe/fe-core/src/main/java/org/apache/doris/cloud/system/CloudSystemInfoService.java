@@ -763,19 +763,23 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     @Override
     public int getMinPipelineExecutorSize() {
-        String clusterName = "";
+        // In cloud mode, use backends from current cluster instead of all clusters
+        List<Backend> currentBackends = null;
         try {
-            clusterName = ConnectContext.get().getCloudCluster(false);
-        } catch (ComputeGroupException e) {
-            LOG.warn("failed to get cluster name", e);
+            currentBackends = getBackendsByCurrentCluster().values().asList();
+        } catch (AnalysisException e) {
+            LOG.warn("get current cluster backends failed: ", e);
             return 1;
         }
-        if (ConnectContext.get() != null
-                && Strings.isNullOrEmpty(clusterName)) {
+        if (currentBackends.size() == 0) {
             return 1;
         }
 
-        return super.getMinPipelineExecutorSize();
+        return currentBackends.stream()
+                .mapToInt(Backend::getPipelineExecutorSize)
+                .filter(size -> size > 0)
+                .min()
+                .orElse(1);
     }
 
     @Override
