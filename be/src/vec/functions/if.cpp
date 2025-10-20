@@ -41,6 +41,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
+#include "vec/core/call_on_type_index.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -526,23 +527,15 @@ public:
         }
 
         Status vec_exec;
-        auto can_use_vec_exec = cast_type_to_either<
-                // int
-                DataTypeInt8, DataTypeInt16, DataTypeInt32, DataTypeInt64, DataTypeInt128,
-                DataTypeBool,
-                // flaot
-                DataTypeFloat32, DataTypeFloat64,
-                // date time
-                DataTypeDateTimeV2, DataTypeDateV2, DataTypeTimeV2,
-                // decimal
-                DataTypeDecimal32, DataTypeDecimal64, DataTypeDecimal128, DataTypeDecimal256,
-                // ip
-                DataTypeIPv4, DataTypeIPv6>(arg_then.type.get(), [&](const auto& type) -> bool {
+
+        auto call = [&](const auto& type) -> bool {
             using DataType = std::decay_t<decltype(type)>;
             vec_exec = execute_basic_type<DataType::PType>(block, cond_col, arg_then, arg_else,
                                                            result, vec_exec);
             return true;
-        });
+        };
+
+        auto can_use_vec_exec = dispatch_switch_scalar(arg_then.type->get_primitive_type(), call);
         if (can_use_vec_exec) {
             return vec_exec;
         } else {

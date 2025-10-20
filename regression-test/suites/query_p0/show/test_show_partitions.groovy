@@ -25,7 +25,7 @@ suite("test_show_partitions") {
             name varchar (255)
         ) ENGINE = OLAP DUPLICATE KEY(month, id)
         AUTO PARTITION BY LIST (month)()
-        distributed by hash (id) buckets auto
+        distributed by hash (id) buckets 10
         PROPERTIES(
         "replication_allocation" = "tag.location.default: 1"
         )

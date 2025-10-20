@@ -20,6 +20,10 @@ package org.apache.doris.lakesoul;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * @deprecated LakeSoul catalog support has been deprecated and will be removed in a future version.
+ */
+@Deprecated
 public class LakeSoulUtils {
     public static final String FILE_NAMES = "file_paths";
     public static final String PRIMARY_KEYS = "primary_keys";

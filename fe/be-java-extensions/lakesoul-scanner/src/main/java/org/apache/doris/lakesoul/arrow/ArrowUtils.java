@@ -30,6 +30,10 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 
+/**
+ * @deprecated LakeSoul catalog support has been deprecated and will be removed in a future version.
+ */
+@Deprecated
 public class ArrowUtils {
     public static long reloadTimeStampSecVectorBuffer(final ArrowBuf sourceDataBuffer,
                                                       final int valueCount) {
