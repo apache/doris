@@ -315,13 +315,9 @@ void murmur_hash3_x86_128(const void* key, const int len, uint32_t seed, void* o
 
 //-----------------------------------------------------------------------------
 
-void murmur_hash3_x64_128(const void* key, const int len, const uint32_t seed, void* out) {
+void murmur_hash3_x64_process(const void* key, int len, uint64_t& h1, uint64_t& h2) {
     const uint8_t* data = (const uint8_t*)key;
     const int nblocks = len / 16;
-
-    uint64_t h1 = seed;
-    uint64_t h2 = seed;
-
     const uint64_t c1 = BIG_CONSTANT(0x87c37b91114253d5);
     const uint64_t c2 = BIG_CONSTANT(0x4cf5ad432745937f);
 
@@ -430,75 +426,24 @@ void murmur_hash3_x64_128(const void* key, const int len, const uint32_t seed, v
 
     h1 += h2;
     h2 += h1;
+}
 
+//-----------------------------------------------------------------------------
+
+void murmur_hash3_x64_128(const void* key, int len, uint32_t seed, void* out) {
+    uint64_t h1 = seed;
+    uint64_t h2 = seed;
+    murmur_hash3_x64_process(key, len, h1, h2);
     ((uint64_t*)out)[0] = h1;
     ((uint64_t*)out)[1] = h2;
 }
 
-void murmur_hash3_x64_64(const void* key, const int64_t len, const uint64_t seed, void* out) {
-    const uint8_t* data = (const uint8_t*)key;
-    const int nblocks = (int)len / 8;
+//-----------------------------------------------------------------------------
+
+void murmur_hash3_x64_64(const void* key, int64_t len, uint64_t seed, void* out) {
     uint64_t h1 = seed;
-
-    const uint64_t c1 = BIG_CONSTANT(0x87c37b91114253d5);
-    const uint64_t c2 = BIG_CONSTANT(0x4cf5ad432745937f);
-
-    //----------
-    // body
-
-    const uint64_t* blocks = (const uint64_t*)(data);
-
-    for (int i = 0; i < nblocks; i++) {
-        uint64_t k1 = getblock64(blocks, i);
-
-        k1 *= c1;
-        k1 = ROTL64(k1, 31);
-        k1 *= c2;
-        h1 ^= k1;
-
-        h1 = ROTL64(h1, 27);
-        h1 = h1 * 5 + 0x52dce729;
-    }
-
-    //----------
-    // tail
-
-    const uint8_t* tail = (const uint8_t*)(data + nblocks * 8);
-    uint64_t k1 = 0;
-
-    switch (len & 7) {
-    case 7:
-        k1 ^= ((uint64_t)tail[6]) << 48;
-        [[fallthrough]];
-    case 6:
-        k1 ^= ((uint64_t)tail[5]) << 40;
-        [[fallthrough]];
-    case 5:
-        k1 ^= ((uint64_t)tail[4]) << 32;
-        [[fallthrough]];
-    case 4:
-        k1 ^= ((uint64_t)tail[3]) << 24;
-        [[fallthrough]];
-    case 3:
-        k1 ^= ((uint64_t)tail[2]) << 16;
-        [[fallthrough]];
-    case 2:
-        k1 ^= ((uint64_t)tail[1]) << 8;
-        [[fallthrough]];
-    case 1:
-        k1 ^= ((uint64_t)tail[0]) << 0;
-        k1 *= c1;
-        k1 = ROTL64(k1, 31);
-        k1 *= c2;
-        h1 ^= k1;
-    };
-
-    //----------
-    // finalization
-
-    h1 ^= len;
-    h1 = fmix64(h1);
-
+    uint64_t h2 = seed;
+    murmur_hash3_x64_process(key, static_cast<int>(len), h1, h2);
     ((uint64_t*)out)[0] = h1;
 }
 #include "common/compile_check_end.h"
