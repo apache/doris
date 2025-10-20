@@ -245,6 +245,7 @@ void FileScanner::_init_runtime_filter_partition_prune_block() {
 }
 
 Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_all) {
+    LOG(INFO) << "_process_runtime_filters_partition_prune start"
     SCOPED_TIMER(_runtime_filter_partition_prune_timer);
     if (_runtime_filter_partition_prune_ctxs.empty() || _partition_col_descs.empty()) {
         return Status::OK();
@@ -287,6 +288,8 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
         partition_slot_id_to_column[partition_slot_desc->id()] = std::move(partition_value_column);
     }
 
+    LOG(INFO) << "_process_runtime_filters_partition_prune start mid"
+
     // 2. Fill _runtime_filter_partition_prune_block from the partition column, then execute conjuncts and filter block.
     // 2.1 Fill _runtime_filter_partition_prune_block from the partition column to match the conjuncts executing.
     size_t index = 0;
@@ -318,6 +321,8 @@ Status FileScanner::_process_runtime_filters_partition_prune(bool& can_filter_al
         }
         index++;
     }
+
+    LOG(INFO) << "_process_runtime_filters_partition_prune start 3"
 
     // 2.2 Execute conjuncts.
     if (!first_column_filled) {
