@@ -17,28 +17,26 @@
 
 import org.junit.Assert;
 
-suite("test_multi_pct_union_mtmv","mtmv") {
-    String suiteName = "test_multi_pct_union_mtmv"
+suite("test_multi_pct_union_list_mtmv","mtmv") {
+    String suiteName = "test_multi_pct_union_list_mtmv"
     String dbName = context.config.getDbNameByFile(context.file)
     String tableName1 = "${suiteName}_table1"
     String tableName2 = "${suiteName}_table2"
-    String tableName3 = "${suiteName}_table3"
     String mvName = "${suiteName}_mv"
     sql """drop table if exists `${tableName1}`"""
     sql """drop table if exists `${tableName2}`"""
-    sql """drop table if exists `${tableName3}`"""
     sql """drop materialized view if exists ${mvName};"""
 
     sql """
         CREATE TABLE ${tableName1}
         (
-            k1 DATE not null,
+            k1 INT not null,
             k2 INT not null
         )
-        PARTITION BY RANGE(`k1`)
+        PARTITION BY LIST(`k1`)
         (
-            PARTITION `p201701` VALUES [("2017-01-01"),  ("2017-02-01")),
-            PARTITION `p201702` VALUES [("2017-02-01"), ("2017-03-01"))
+            PARTITION `p1` VALUES IN ("1"),
+            PARTITION `p2` VALUES IN ("2")
         )
         DISTRIBUTED BY HASH(k2) BUCKETS 2
         PROPERTIES (
@@ -46,20 +44,20 @@ suite("test_multi_pct_union_mtmv","mtmv") {
         );
         """
     sql """
-        insert into ${tableName1} values("2017-01-01",1);
-        insert into ${tableName1} values("2017-02-01",2);
+        insert into ${tableName1} values(1,1);
+        insert into ${tableName1} values(2,2);
         """
 
     sql """
         CREATE TABLE ${tableName2}
         (
-            k1 DATE not null,
+            k1 INT not null,
             k2 INT not null
         )
-        PARTITION BY RANGE(`k1`)
+        PARTITION BY LIST(`k1`)
         (
-            PARTITION `p201702` VALUES [("2017-02-01"),  ("2017-03-01")),
-            PARTITION `p201703` VALUES [("2017-03-01"), ("2017-04-01"))
+            PARTITION `p2` VALUES IN ("2"),
+            PARTITION `p3` VALUES IN ("3")
         )
         DISTRIBUTED BY HASH(k2) BUCKETS 2
         PROPERTIES (
@@ -67,10 +65,9 @@ suite("test_multi_pct_union_mtmv","mtmv") {
         );
         """
     sql """
-        insert into ${tableName2} values("2017-02-01",3);
-        insert into ${tableName2} values("2017-03-01",4);
+        insert into ${tableName2} values(2,3);
+        insert into ${tableName2} values(3,4);
         """
-
     String mvSql = "SELECT * from ${tableName1} union all SELECT * from ${tableName2};";
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
