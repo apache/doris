@@ -24,7 +24,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.common.JobStatus;
-import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
@@ -38,7 +37,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -65,6 +63,14 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
         return jobName;
     }
 
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public String getSql() {
+        return sql;
+    }
+
     @Override
     public StmtType stmtType() {
         return StmtType.ALTER;
@@ -73,31 +79,12 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate();
-        AbstractJob job = analyzeAndBuildJobInfo(ctx);
-        ctx.getEnv().getJobManager().alterJob(job);
+        ctx.getEnv().getJobManager().alterJob(this);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitAlterJobCommand(this, context);
-    }
-
-    private AbstractJob analyzeAndBuildJobInfo(ConnectContext ctx) throws JobException {
-        AbstractJob job = Env.getCurrentEnv().getJobManager().getJobByName(jobName);
-        if (job instanceof StreamingInsertJob) {
-            StreamingInsertJob updateJob = (StreamingInsertJob) job;
-            // update sql
-            if (StringUtils.isNotEmpty(sql)) {
-                updateJob.updateExecuteSql(sql);
-            }
-            // update properties
-            if (!properties.isEmpty()) {
-                updateJob.updateProperties(properties);
-            }
-            return updateJob;
-        } else {
-            throw new JobException("Unsupported job type for ALTER:" + job.getJobType());
-        }
     }
 
     private void validate() throws Exception {

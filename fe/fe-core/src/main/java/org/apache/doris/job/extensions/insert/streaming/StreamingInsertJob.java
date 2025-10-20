@@ -52,6 +52,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertUtils;
@@ -210,7 +211,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public Offset validateOffset(String offsetStr) throws AnalysisException {
         Offset offset;
         try {
-            offset = offsetProvider.deserializeOffset(offsetStr);
+            offset = offsetProvider.deserializeInitOffset(offsetStr);
         } catch (Exception ex) {
             log.info("initialize offset failed, offset: {}", offsetStr, ex);
             throw new AnalysisException("Failed to initialize offset, " + ex.getMessage());
@@ -221,23 +222,22 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return offset;
     }
 
-    /**
-     * When alter updates SQL, it is necessary to
-     * update the command maintained in memory synchronously
-     * @param sql
-     */
-    public void updateExecuteSql(String sql) {
-        setExecuteSql(sql);
-        initLogicalPlan(true);
-        generateEncryptedSql();
-    }
+    public void alterJob(AlterJobCommand alterJobCommand) throws AnalysisException {
+        List<String> logParts = new ArrayList<>();
+        // update sql
+        if (StringUtils.isNotEmpty(alterJobCommand.getSql())) {
+            setExecuteSql(alterJobCommand.getSql());
+            initLogicalPlan(true);
+            String encryptedSql = generateEncryptedSql();
+            logParts.add("sql: " + encryptedSql);
+        }
 
-    /**
-     * When alter updates Properties, it is necessary to update jobProperties
-     */
-    public void updateProperties(Map<String, String> properties) {
-        this.properties.putAll(properties);
-        this.jobProperties = new StreamingJobProperties(this.properties);
+        // update properties
+        if (!alterJobCommand.getProperties().isEmpty()) {
+            modifyPropertiesInternal(alterJobCommand.getProperties());
+            logParts.add("properties: " + alterJobCommand.getProperties());
+        }
+        log.info("Alter streaming job {}, {}", getJobId(), String.join(", ", logParts));
     }
 
     @Override
@@ -392,9 +392,31 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      */
     public void replayOnUpdated(StreamingInsertJob replayJob) {
         setJobStatus(replayJob.getJobStatus());
-        this.properties = replayJob.getProperties();
-        this.jobProperties = new StreamingJobProperties(properties);
+        try {
+            modifyPropertiesInternal(replayJob.getProperties());
+        } catch (Exception e) {
+            // should not happen
+            log.error("replay modify streaming insert job properties failed, job id: {}", getJobId(), e);
+        }
         setExecuteSql(replayJob.getExecuteSql());
+    }
+
+    /**
+     * When updating initOffset, you need to reset the offset
+     */
+    private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException {
+        StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
+        if (StringUtils.isNotEmpty(inputStreamProps.getInitOffset())) {
+            Offset offset = validateOffset(inputStreamProps.getInitOffset());
+            this.offsetProvider.updateOffset(offset);
+
+            if (Config.isCloudMode()) {
+                // todo: reset cloud currentOffset
+            }
+        }
+
+        this.properties = inputProperties;
+        this.jobProperties = inputStreamProps;
     }
 
     @Override

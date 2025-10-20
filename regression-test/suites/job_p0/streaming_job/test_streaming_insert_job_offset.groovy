@@ -94,7 +94,7 @@ suite("test_streaming_insert_job_offset") {
         sql """
            CREATE JOB ${jobName}  
            PROPERTIES(
-            "init_offset" = '{"error":"1.csv"}'
+            "init_offset" = '{"errorkey":"1.csv"}'
            )
            ON STREAMING DO INSERT INTO ${tableName} 
            SELECT * FROM S3
@@ -116,7 +116,7 @@ suite("test_streaming_insert_job_offset") {
     sql """
        CREATE JOB ${jobName}  
        PROPERTIES(
-        'init_offset' = '{"endFile":"regression/load/data/example_0.csv"}'
+        'init_offset' = '{"fileName":"regression/load/data/example_0.csv"}'
        )
        ON STREAMING DO INSERT INTO ${tableName} 
        SELECT * FROM S3
@@ -174,8 +174,48 @@ suite("test_streaming_insert_job_offset") {
     assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
     assert jobInfo.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
     assert jobInfo.get(0).get(2) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":0,\"fileSize\":0}"
-    assert jobInfo.get(0).get(3) == "{\"init_offset\":\"{\\\"endFile\\\":\\\"regression/load/data/example_0.csv\\\"}\"}"
+    assert jobInfo.get(0).get(3) == "{\"init_offset\":\"{\\\"fileName\\\":\\\"regression/load/data/example_0.csv\\\"}\"}"
 
+    // alter job init offset, Lexicographic order includes example_[0-1]
+    sql """
+        ALTER JOB ${jobName} 
+        PROPERTIES (
+            'init_offset' = '{"fileName":"regression/load/data/anoexist1234.csv"}'
+        )
+    """
+    sql """
+        RESUME JOB where jobname =  '${jobName}'
+    """
+
+    try {
+        Awaitility.await().atMost(300, SECONDS)
+                .pollInterval(1, SECONDS).until(
+                {
+                    def jobStatus = sql """ select status, SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+                    log.info("jobStatus: " + jobStatus)
+                    // check job status and succeed task count larger than 1
+                    jobStatus.size() == 1 && jobStatus.get(0).get(0) == 'RUNNING' && '2' <= jobStatus.get(0).get(1)
+                }
+        )
+    } catch (Exception ex){
+        def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
+        def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
+        log.info("show job: " + showjob)
+        log.info("show task: " + showtask)
+        throw ex;
+    }
+
+    jobInfo = sql """
+        select currentOffset, endoffset, loadStatistic, properties from jobs("type"="insert") where Name='${jobName}'
+    """
+    log.info("jobInfo: " + jobInfo)
+    assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
+    assert jobInfo.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
+    assert jobInfo.get(0).get(2) == "{\"scannedRows\":30,\"loadBytes\":643,\"fileNumber\":0,\"fileSize\":0}"
+    assert jobInfo.get(0).get(3) == "{\"init_offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
+
+    // has double example_1.csv and example_0.csv data
+    qt_select """ SELECT * FROM ${tableName} order by c1 """
 
     sql """
         DROP JOB IF EXISTS where jobname =  '${jobName}'
