@@ -181,6 +181,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     }
 
     public Catalog getOriginCatalog() {
+        makeSureInitialized();
         return catalog;
     }
 
