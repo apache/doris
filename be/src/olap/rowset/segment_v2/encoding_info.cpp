@@ -347,20 +347,32 @@ EncodingInfo::EncodingInfo(TraitsClass traits)
     }
 }
 
+#ifdef BE_TEST
+static EncodingInfoResolver s_encoding_info_resolver;
+#endif
+
 Status EncodingInfo::get(FieldType type, EncodingTypePB encoding_type, const EncodingInfo** out) {
+#ifdef BE_TEST
+    return s_encoding_info_resolver.get(type, encoding_type, out);
+#else
     auto* resolver = ExecEnv::GetInstance()->get_encoding_info_resolver();
     if (resolver == nullptr) {
         return Status::InternalError("EncodingInfoResolver not initialized");
     }
     return resolver->get(type, encoding_type, out);
+#endif
 }
 
 EncodingTypePB EncodingInfo::get_default_encoding(FieldType type, bool optimize_value_seek) {
+#ifdef BE_TEST
+    return s_encoding_info_resolver.get_default_encoding(type, optimize_value_seek);
+#else
     auto* resolver = ExecEnv::GetInstance()->get_encoding_info_resolver();
     if (resolver == nullptr) {
         return UNKNOWN_ENCODING;
     }
     return resolver->get_default_encoding(type, optimize_value_seek);
+#endif
 }
 
 Status EncodingInfo::create_page_builder(const PageBuilderOptions& opts,

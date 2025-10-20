@@ -34,14 +34,8 @@ namespace segment_v2 {
 
 class EncodingInfoTest : public testing::Test {
 public:
-    EncodingInfoTest() {
-        _resolver = std::make_unique<segment_v2::EncodingInfoResolver>();
-        ExecEnv::GetInstance()->_encoding_info_resolver = _resolver.get();
-    }
-    virtual ~EncodingInfoTest() { ExecEnv::GetInstance()->_encoding_info_resolver = nullptr; }
-
-private:
-    std::unique_ptr<segment_v2::EncodingInfoResolver> _resolver;
+    EncodingInfoTest() {}
+    virtual ~EncodingInfoTest() {}
 };
 
 TEST_F(EncodingInfoTest, normal) {

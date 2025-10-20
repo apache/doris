@@ -282,15 +282,12 @@ public:
         _binary_data.resize(max_fetch);
 
         for (size_t i = 0; i < max_fetch; i++) {
-            const uint8_t* data_ptr =
-                    reinterpret_cast<const uint8_t*>(_data.data) + _positions[_cur_idx + i];
-
-            _binary_data[i].data = const_cast<char*>(reinterpret_cast<const char*>(data_ptr));
+            _binary_data[i].data = _data.get_data() + _positions[_cur_idx + i];
             _binary_data[i].size = _lengths[_cur_idx + i];
 
             if constexpr (Type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
                 if (_options.need_check_bitmap) {
-                    RETURN_IF_ERROR(BitmapTypeCode::validate(*data_ptr));
+                    RETURN_IF_ERROR(BitmapTypeCode::validate(*(_binary_data[i].data)));
                 }
             }
         }
@@ -320,11 +317,7 @@ public:
                 break;
             }
 
-            const uint8_t* data_ptr =
-                    reinterpret_cast<const uint8_t*>(_data.data) + _positions[ord];
-
-            _binary_data[read_count].data =
-                    const_cast<char*>(reinterpret_cast<const char*>(data_ptr));
+            _binary_data[read_count].data = _data.get_data() + _positions[ord];
             _binary_data[read_count].size = _lengths[ord];
             read_count++;
         }
@@ -353,8 +346,7 @@ public:
         }
 
         for (uint32_t i = 0; i < _num_elems; ++i) {
-            const uint8_t* data_ptr = reinterpret_cast<const uint8_t*>(_data.data) + _positions[i];
-            dict_word_info[i].data = const_cast<char*>(reinterpret_cast<const char*>(data_ptr));
+            dict_word_info[i].data = _data.get_data() + _positions[i];
             dict_word_info[i].size = _lengths[i];
         }
 
