@@ -119,14 +119,6 @@ Status SchemaFrontendsScanner::_get_frontends_from_fe() {
 
     request.__set_metada_table_params(metadata_table_params);
 
-    // TSchemaTableRequestParams schema_table_request_params;
-    // for (int i = 0; i < _s_frontends_columns.size(); i++) {
-        // schema_table_request_params.__isset.columns_name = true;
-        // schema_table_request_params.columns_name.emplace_back(_s_frontends_columns[i].name);
-    // }
-    // schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
-    // request.__set_schema_table_params(schema_table_request_params);
-
     std::vector<std::string> filter_columns;
     for (int i = 0; i < _s_frontends_columns.size(); i++) {
         filter_columns.emplace_back(_s_frontends_columns[i].name);
@@ -169,8 +161,7 @@ Status SchemaFrontendsScanner::_get_frontends_from_fe() {
     for (int i = 0; i < result_data.size(); i++) {
         TRow row = result_data[i];
         for (int j = 0; j < _s_frontends_columns.size(); j++) {
-            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j,
-                                                _frontends_block.get(),
+            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j, _frontends_block.get(),
                                                 _s_frontends_columns[j].type));
         }
     }

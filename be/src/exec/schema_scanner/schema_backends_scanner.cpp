@@ -108,18 +108,6 @@ Status SchemaBackendsScanner::get_next_block_internal(vectorized::Block* block, 
 Status SchemaBackendsScanner::_get_backends_block_from_fe() {
     TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
 
-    // TSchemaTableRequestParams schema_table_request_params;
-    // for (int i = 0; i < _s_backends_columns.size(); i++) {
-    //     schema_table_request_params.__isset.columns_name = true;
-    //     schema_table_request_params.columns_name.emplace_back(_s_backends_columns[i].name);
-    // }
-    // schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
-    //
-    // TFetchSchemaTableDataRequest request;
-    // request.__set_schema_table_name(TSchemaTableName::BACKENDS);
-    // request.__set_schema_table_params(schema_table_request_params);
-
-
     TFetchSchemaTableDataRequest request;
     request.__set_cluster_name("");
     request.__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
@@ -175,8 +163,7 @@ Status SchemaBackendsScanner::_get_backends_block_from_fe() {
     for (int i = 0; i < result_data.size(); i++) {
         TRow row = result_data[i];
         for (int j = 0; j < _s_backends_columns.size(); j++) {
-            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j,
-                                                _backends_block.get(),
+            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j, _backends_block.get(),
                                                 _s_backends_columns[j].type));
         }
     }
