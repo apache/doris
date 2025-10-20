@@ -27,9 +27,9 @@ import org.apache.doris.common.util.RangeUtils;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.hadoop.util.Lists;
-import org.glassfish.jersey.internal.guava.Sets;
 
 import java.util.HashMap;
 import java.util.List;
