@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
@@ -110,17 +111,21 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     }
 
     /** prune */
-    public <K extends Comparable<K>> List<K> prune() {
+    public <K extends Comparable<K>> Pair<List<K>, Boolean> prune() {
         Builder<K> scanPartitionIdents = ImmutableList.builder();
+        boolean canPredicatePruned = true;
         for (OnePartitionEvaluator partition : partitions) {
-            if (!canBePrunedOut(partitionPredicate, partition)) {
+            Pair<Boolean, Boolean> res = canBePrunedOut(partitionPredicate, partition);
+            if (!res.first) {
+                canPredicatePruned = canPredicatePruned && res.second;
                 scanPartitionIdents.add((K) partition.getPartitionIdent());
             }
         }
-        return scanPartitionIdents.build();
+        return Pair.of(scanPartitionIdents.build(), canPredicatePruned);
     }
 
-    public static <K extends Comparable<K>> List<K> prune(List<Slot> partitionSlots, Expression partitionPredicate,
+    public static <K extends Comparable<K>> Pair<List<K>, Optional<Expression>> prune(List<Slot> partitionSlots,
+            Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType) {
         return prune(partitionSlots, partitionPredicate, idToPartitions,
@@ -130,7 +135,8 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     /**
      * prune partition with `idToPartitions` as parameter.
      */
-    public static <K extends Comparable<K>> List<K> prune(List<Slot> partitionSlots, Expression partitionPredicate,
+    public static <K extends Comparable<K>> Pair<List<K>, Optional<Expression>> prune(List<Slot> partitionSlots,
+            Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
         long startAt = System.currentTimeMillis();
@@ -146,14 +152,15 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         }
     }
 
-    private static <K extends Comparable<K>> List<K> pruneInternal(List<Slot> partitionSlots,
+    private static <K extends Comparable<K>> Pair<List<K>, Optional<Expression>> pruneInternal(
+            List<Slot> partitionSlots,
             Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
         partitionPredicate = PartitionPruneExpressionExtractor.extract(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
+        Expression originalPartitionPredicate = partitionPredicate;
         partitionPredicate = PredicateRewriteForPartitionPrune.rewrite(partitionPredicate, cascadesContext);
-
         int expandThreshold = cascadesContext.getAndCacheSessionVariable(
                 "partitionPruningExpandThreshold",
                 10, sessionVariable -> sessionVariable.partitionPruningExpandThreshold);
@@ -161,25 +168,37 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         partitionPredicate = OrToIn.EXTRACT_MODE_INSTANCE.rewriteTree(
                 partitionPredicate, new ExpressionRewriteContext(cascadesContext));
         if (BooleanLiteral.TRUE.equals(partitionPredicate)) {
-            return Utils.fastToImmutableList(idToPartitions.keySet());
+            // The partition column predicate is always true and can be deleted, the partition cannot be pruned
+            return Pair.of(Utils.fastToImmutableList(idToPartitions.keySet()), Optional.of(originalPartitionPredicate));
         } else if (BooleanLiteral.FALSE.equals(partitionPredicate) || partitionPredicate.isNullLiteral()) {
-            return ImmutableList.of();
+            // The partition column predicate is always false, and all partitions can be pruned.
+            return Pair.of(ImmutableList.of(), Optional.empty());
         }
 
         if (sortedPartitionRanges.isPresent()) {
             RangeSet<MultiColumnBound> predicateRanges = partitionPredicate.accept(
                     new PartitionPredicateToRange(partitionSlots), null);
             if (predicateRanges != null) {
-                return binarySearchFiltering(
+                Pair<List<K>, Boolean> res = binarySearchFiltering(
                         sortedPartitionRanges.get(), partitionSlots, partitionPredicate, cascadesContext,
                         expandThreshold, predicateRanges
                 );
+                if (res.second) {
+                    return Pair.of(res.first, Optional.of(originalPartitionPredicate));
+                } else {
+                    return Pair.of(res.first, Optional.empty());
+                }
             }
         }
 
-        return sequentialFiltering(
+        Pair<List<K>, Boolean> res = sequentialFiltering(
                 idToPartitions, partitionSlots, partitionPredicate, cascadesContext, expandThreshold
         );
+        if (res.second) {
+            return Pair.of(res.first, Optional.of(originalPartitionPredicate));
+        } else {
+            return Pair.of(res.first, Optional.empty());
+        }
     }
 
     /**
@@ -198,7 +217,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         }
     }
 
-    private static <K extends Comparable<K>> List<K> binarySearchFiltering(
+    private static <K extends Comparable<K>> Pair<List<K>, Boolean> binarySearchFiltering(
             SortedPartitionRanges<K> sortedPartitionRanges, List<Slot> partitionSlots,
             Expression partitionPredicate, CascadesContext cascadesContext, int expandThreshold,
             RangeSet<MultiColumnBound> predicateRanges) {
@@ -206,6 +225,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
 
         Set<K> selectedIdSets = Sets.newTreeSet();
         int leftIndex = 0;
+        boolean canPredicatePruned = true;
         for (Range<MultiColumnBound> predicateRange : predicateRanges.asRanges()) {
             int rightIndex = sortedPartitions.size();
             if (leftIndex >= rightIndex) {
@@ -246,8 +266,10 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
 
                 OnePartitionEvaluator<K> partitionEvaluator = toPartitionEvaluator(
                         partitionId, partition.partitionItem, partitionSlots, cascadesContext, expandThreshold);
-                if (!canBePrunedOut(partitionPredicate, partitionEvaluator)) {
+                Pair<Boolean, Boolean> res = canBePrunedOut(partitionPredicate, partitionEvaluator);
+                if (!res.first) {
                     selectedIdSets.add(partitionId);
+                    canPredicatePruned = canPredicatePruned && res.second;
                 }
             }
         }
@@ -256,15 +278,17 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             K partitionId = defaultPartition.id;
             OnePartitionEvaluator<K> partitionEvaluator = toPartitionEvaluator(
                     partitionId, defaultPartition.partitionItem, partitionSlots, cascadesContext, expandThreshold);
-            if (!canBePrunedOut(partitionPredicate, partitionEvaluator)) {
+            Pair<Boolean, Boolean> res = canBePrunedOut(partitionPredicate, partitionEvaluator);
+            if (!res.first) {
                 selectedIdSets.add(partitionId);
+                canPredicatePruned = canPredicatePruned && res.second;
             }
         }
 
-        return Utils.fastToImmutableList(selectedIdSets);
+        return Pair.of(Utils.fastToImmutableList(selectedIdSets), canPredicatePruned);
     }
 
-    private static <K extends Comparable<K>> List<K> sequentialFiltering(
+    private static <K extends Comparable<K>> Pair<List<K>, Boolean> sequentialFiltering(
             Map<K, PartitionItem> idToPartitions, List<Slot> partitionSlots,
             Expression partitionPredicate, CascadesContext cascadesContext, int expandThreshold) {
         List<OnePartitionEvaluator<?>> evaluators = Lists.newArrayListWithCapacity(idToPartitions.size());
@@ -278,18 +302,48 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     }
 
     /**
-     * return true if partition is not qualified. that is, can be pruned out.
+     * return Pair
+     *     pair.first is true if partition can be pruned
+     *     pair.second is true if partitionPredicate is always true in this partition
      */
-    private static <K> boolean canBePrunedOut(Expression partitionPredicate, OnePartitionEvaluator<K> evaluator) {
+    private static <K> Pair<Boolean, Boolean> canBePrunedOut(Expression partitionPredicate,
+            OnePartitionEvaluator<K> evaluator) {
         List<Map<Slot, PartitionSlotInput>> onePartitionInputs = evaluator.getOnePartitionInputs();
-        for (Map<Slot, PartitionSlotInput> currentInputs : onePartitionInputs) {
-            // evaluate whether there's possible for this partition to accept this predicate
-            Expression result = evaluator.evaluateWithDefaultPartition(partitionPredicate, currentInputs);
-            if (!result.equals(BooleanLiteral.FALSE) && !(result instanceof NullLiteral)) {
-                return false;
+        if (evaluator instanceof OneListPartitionEvaluator) {
+            // if a table has default partition, the predicate should not be pruned,
+            // because evaluateWithDefaultPartition always return true in default partition
+            // e.g. PARTITION BY LIST(k1) (
+            //     PARTITION p1 VALUES IN ("1","2","3","4"),
+            //     PARTITION p2 VALUES IN ("5","6","7","8"),
+            //     PARTITION p3 )  p3 is default partition
+            Pair<Boolean, Boolean> res = Pair.of(true, !evaluator.isDefaultPartition());
+            for (Map<Slot, PartitionSlotInput> currentInputs : onePartitionInputs) {
+                // evaluate whether there's possible for this partition to accept this predicate
+                Expression result = evaluator.evaluateWithDefaultPartition(partitionPredicate, currentInputs);
+                if (result.equals(BooleanLiteral.FALSE) || (result instanceof NullLiteral)) {
+                    // Indicates that there is a partition value that does not satisfy the predicate
+                    res.second = false;
+                } else if (result.equals(BooleanLiteral.TRUE)) {
+                    // Indicates that there is a partition value that satisfies the predicate
+                    res.first = false;
+                } else {
+                    // Indicates that this partition value may or may not satisfy the predicate
+                    res.second = false;
+                    res.first = false;
+                }
             }
+            return res;
+        } else {
+            // only prune partition predicates in list partition, therefore set pair.second always be false,
+            // meaning not to prune partition predicates in range partition
+            for (Map<Slot, PartitionSlotInput> currentInputs : onePartitionInputs) {
+                Expression result = evaluator.evaluateWithDefaultPartition(partitionPredicate, currentInputs);
+                if (!result.equals(BooleanLiteral.FALSE) && !(result instanceof NullLiteral)) {
+                    return Pair.of(false, false);
+                }
+            }
+            // only have false result: Can be pruned out. have other exprs: CanNot be pruned out
+            return Pair.of(true, false);
         }
-        // only have false result: Can be pruned out. have other exprs: CanNot be pruned out
-        return true;
     }
 }
