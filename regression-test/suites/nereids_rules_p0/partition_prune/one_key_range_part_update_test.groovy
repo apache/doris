@@ -17,8 +17,9 @@
 
 suite("one_key_range_part_update_test") {
 
-    sql """set partition_pruning_expand_threshold=1000;"""
     String dbName = context.config.getDbNameByFile(context.file)
+    sql """set partition_pruning_expand_threshold=1000;"""
+    sql """set enable_fold_constant_by_be=false;"""
 
     sql """drop table if exists key_1_special_fixed_range_date_part_update"""
     sql """create table key_1_special_fixed_range_date_part_update (a int, dt datetime, c varchar(100)) duplicate key(a)

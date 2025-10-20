@@ -604,29 +604,25 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        int n = -1; // means unassigned
-
         auto res = ColumnString::create();
         auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& source_column = assert_cast<const ColumnString&>(*col);
 
-        if (arguments.size() == 2) {
-            const auto& col = *block.get_by_position(arguments[1]).column;
-            // the 2nd arg is const. checked in fe.
-            if (col.get_int(0) < 0) [[unlikely]] {
-                return Status::InvalidArgument(
-                        "function {} only accept non-negative input for 2nd argument but got {}",
-                        name, col.get_int(0));
-            }
-            n = col.get_int(0);
-        }
-
-        if (n == -1) { // no 2nd arg, just mask all
+        if (arguments.size() == 1) { // no 2nd arg, just mask all
             FunctionMask::vector_mask(source_column, *res, FunctionMask::DEFAULT_UPPER_MASK,
                                       FunctionMask::DEFAULT_LOWER_MASK,
                                       FunctionMask::DEFAULT_NUMBER_MASK);
-        } else { // n >= 0
-            vector(source_column, n, *res);
+        } else {
+            const auto& [col_2nd, is_const] =
+                    unpack_if_const(block.get_by_position(arguments[1]).column);
+
+            const auto& col_n = assert_cast<const ColumnInt32&>(*col_2nd);
+
+            if (is_const) {
+                RETURN_IF_ERROR(vector<true>(source_column, col_n, *res));
+            } else {
+                RETURN_IF_ERROR(vector<false>(source_column, col_n, *res));
+            }
         }
 
         block.get_by_position(result).column = std::move(res);
@@ -635,7 +631,8 @@ public:
     }
 
 private:
-    static void vector(const ColumnString& src, int n, ColumnString& result) {
+    template <bool is_const>
+    static Status vector(const ColumnString& src, const ColumnInt32& col_n, ColumnString& result) {
         const auto num_rows = src.size();
         const auto* chars = src.get_chars().data();
         const auto* offsets = src.get_offsets().data();
@@ -646,9 +643,19 @@ private:
                 src.get_offsets().size() * sizeof(ColumnString::Offset));
         auto* res = result.get_chars().data();
 
+        const auto& col_n_data = col_n.get_data();
+
         for (ssize_t i = 0; i != num_rows; ++i) {
             auto offset = offsets[i - 1];
             int len = offsets[i] - offset;
+            const int n = col_n_data[index_check_const<is_const>(i)];
+
+            if (n < 0) [[unlikely]] {
+                return Status::InvalidArgument(
+                        "function {} only accept non-negative input for 2nd argument but got {}",
+                        name, n);
+            }
+
             if constexpr (Reverse) {
                 auto start = std::max(len - n, 0);
                 if (start > 0) {
@@ -666,6 +673,8 @@ private:
                                FunctionMask::DEFAULT_LOWER_MASK, FunctionMask::DEFAULT_NUMBER_MASK,
                                &res[offset]);
         }
+
+        return Status::OK();
     }
 };
 
@@ -5093,6 +5102,134 @@ private:
         if (!data.empty()) {
             data.pop_back();
         }
+        res_col.insert_data(reinterpret_cast<const char*>(data.data()), data.size());
+    }
+};
+
+class FunctionExportSet : public IFunction {
+public:
+    static constexpr auto name = "export_set";
+    static FunctionPtr create() { return std::make_shared<FunctionExportSet>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto res_col = ColumnString::create();
+
+        const size_t arg_size = arguments.size();
+        bool col_const[5];
+        ColumnPtr arg_cols[5];
+        bool all_const = true;
+        for (int i = 0; i < arg_size; ++i) {
+            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+            all_const = all_const && col_const[i];
+        }
+        std::tie(arg_cols[0], col_const[0]) =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        if (arg_size == 3) {
+            default_preprocess_parameter_columns(arg_cols, col_const, {1, 2}, block, arguments);
+        } else if (arg_size == 4) {
+            default_preprocess_parameter_columns(arg_cols, col_const, {1, 2, 3}, block, arguments);
+        } else if (arg_size == 5) {
+            default_preprocess_parameter_columns(arg_cols, col_const, {1, 2, 3, 4}, block,
+                                                 arguments);
+        }
+
+        const auto* bit_col = assert_cast<const ColumnInt128*>(arg_cols[0].get());
+        const auto* on_col = assert_cast<const ColumnString*>(arg_cols[1].get());
+        const auto* off_col = assert_cast<const ColumnString*>(arg_cols[2].get());
+        const ColumnString* sep_col = nullptr;
+        const ColumnInt32* num_bits_col = nullptr;
+        if (arg_size > 3) {
+            sep_col = assert_cast<const ColumnString*>(arg_cols[3].get());
+            if (arg_size == 5) {
+                num_bits_col = assert_cast<const ColumnInt32*>(arg_cols[4].get());
+            }
+        }
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            uint64_t bit =
+                    check_and_get_bit(bit_col->get_element(index_check_const(i, col_const[0])));
+
+            size_t idx_for_args = all_const ? 0 : i;
+            StringRef on = on_col->get_data_at(idx_for_args);
+            StringRef off = off_col->get_data_at(idx_for_args);
+            StringRef separator(",", 1);
+            int8_t num_of_bits = 64;
+
+            if (arg_size > 3) {
+                separator = sep_col->get_data_at(idx_for_args);
+                if (arg_size == 5) {
+                    num_of_bits =
+                            check_and_get_num_of_bits(num_bits_col->get_element(idx_for_args));
+                }
+            }
+
+            execute_single(bit, on, off, separator, num_of_bits, *res_col);
+        }
+        block.replace_by_position(result, std::move(res_col));
+        return Status::OK();
+    }
+
+private:
+    /* The valid range of the input `bit` parameter should be [-2^63, 2^64 - 1]
+     * If it exceeds this range, the MAX/MIN values of the signed 64-bit integer are used for calculation
+     * This behavior is consistent with MySQL.
+     */
+    uint64_t check_and_get_bit(__int128 col_bit_val) const {
+        if (col_bit_val > ULLONG_MAX) {
+            return LLONG_MAX;
+        } else if (col_bit_val < LLONG_MIN) {
+            return LLONG_MIN;
+        }
+        return static_cast<uint64_t>(col_bit_val);
+    }
+
+    // If the input value is not in the range [0, 64], return default value 64
+    int8_t check_and_get_num_of_bits(int32_t col_num_of_bits_val) const {
+        if (col_num_of_bits_val >= 0 && col_num_of_bits_val <= 64) {
+            return static_cast<int8_t>(col_num_of_bits_val);
+        }
+        return 64;
+    }
+
+    void execute_single(uint64_t bit, const StringRef& on, const StringRef& off,
+                        const StringRef& separator, int8_t num_of_bits,
+                        ColumnString& res_col) const {
+        ColumnString::Chars data;
+        data.reserve(std::max(on.size, off.size) * num_of_bits +
+                     separator.size * (num_of_bits - 1));
+
+        while (bit && num_of_bits) {
+            if (bit & 1) {
+                data.insert(on.data, on.data + on.size);
+            } else {
+                data.insert(off.data, off.data + off.size);
+            }
+            bit >>= 1;
+            if (--num_of_bits) {
+                data.insert(separator.data, separator.data + separator.size);
+            }
+        }
+
+        if (num_of_bits > 0) {
+            ColumnString::Chars off_sep_combo;
+            off_sep_combo.reserve(separator.size + off.size);
+            off_sep_combo.insert(off_sep_combo.end(), off.data, off.data + off.size);
+            off_sep_combo.insert(off_sep_combo.end(), separator.data,
+                                 separator.data + separator.size);
+
+            for (size_t i = 0; i < num_of_bits; ++i) {
+                data.insert(off_sep_combo.data(), off_sep_combo.data() + off_sep_combo.size());
+            }
+            data.erase(data.end() - separator.size, data.end());
+        }
+
         res_col.insert_data(reinterpret_cast<const char*>(data.data()), data.size());
     }
 };
