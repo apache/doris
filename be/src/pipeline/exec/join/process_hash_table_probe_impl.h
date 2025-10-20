@@ -55,6 +55,16 @@ static void insert_with_indexs(auto& dst, const auto& src, const auto& indexs, b
     }
 }
 
+static void mock_column_size(auto& col, size_t size) {
+    if (!is_column_const(*col)) {
+        DCHECK(col->empty());
+        col->insert_default();
+        col = vectorized::ColumnConst::create(std::move(col), size);
+    } else {
+        col->resize(size);
+    }
+}
+
 template <int JoinOpType>
 ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState* parent,
                                                          int batch_size)
@@ -116,9 +126,7 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(vectorized::Mut
                         _build_indexs.get_data().data() + size);
             }
         } else if (i + _right_col_idx != _parent->_mark_column_id) {
-            mcol[i + _right_col_idx]->insert_default();
-            mcol[i + _right_col_idx] =
-                    vectorized::ColumnConst::create(std::move(mcol[i + _right_col_idx]), size);
+            mock_column_size(mcol[i + _right_col_idx], size);
         }
     }
     if (_parent->_mark_column_id != -1) {
@@ -152,8 +160,7 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(vectorized::Mut
             auto& column = probe_block.get_by_position(i).column;
             insert_with_indexs(mcol[i], column, _probe_indexs.get_data(), all_match_one);
         } else {
-            mcol[i]->insert_default();
-            mcol[i] = vectorized::ColumnConst::create(std::move(mcol[i]), _probe_indexs.size());
+            mock_column_size(mcol[i], _probe_indexs.size());
         }
     }
 }
@@ -715,7 +722,7 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
                         column, _build_indexs.get_data().data(),
                         _build_indexs.get_data().data() + block_size);
             } else {
-                mcol[j + _right_col_idx]->resize(block_size);
+                mock_column_size(mcol[j + _right_col_idx], block_size);
             }
         }
 
@@ -745,7 +752,7 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
         // just resize the left table column in case with other conjunct to make block size is not zero
         if (_parent_operator->_is_right_semi_anti && _right_col_idx != 0) {
             for (int i = 0; i < _right_col_idx; ++i) {
-                mcol[i]->resize(block_size);
+                mock_column_size(mcol[i], block_size);
             }
         }
 

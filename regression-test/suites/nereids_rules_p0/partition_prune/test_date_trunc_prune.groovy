@@ -257,7 +257,7 @@ suite("test_date_trunc_prune") {
     sql "insert into null_range_date values('2022-01-03 10:00:00'),('2019-01-01 10:00:00'),('2022-01-02 10:00:00'),('2024-01-01 10:00:00'),(null);"
     explain {
         sql "select * from null_range_date where date_trunc(k0,'day') is null"
-        contains("partitions=3/3 (p10,p100,pMAX)")
+        contains("1/3 (p10)")
     }
     // test infinite range
     explain {

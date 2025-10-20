@@ -85,7 +85,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             .add(WorkloadGroup.COMPUTE_GROUP)
             .add(WorkloadGroup.READ_BYTES_PER_SECOND)
             .add(WorkloadGroup.REMOTE_READ_BYTES_PER_SECOND)
-            .add(WorkloadGroup.WRITE_BUFFER_RATIO)
             .add(WorkloadGroup.SLOT_MEMORY_POLICY)
             .add(QueryQueue.RUNNING_QUERY_NUM)
             .add(QueryQueue.WAITING_QUERY_NUM)

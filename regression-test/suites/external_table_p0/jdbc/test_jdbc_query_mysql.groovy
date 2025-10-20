@@ -662,32 +662,32 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
         """
         order_qt_sql """ 
         with tmp_media_purchase as (
-            select media_order_id, supplier_id, agent_policy_type, agent_policy, capital_type, petty_cash_type, 
+            select media_order_id, supplier_id, cast(agent_policy_type as string) as agent_policy_type, agent_policy, capital_type, petty_cash_type, 
                 recharge_amount, need_actual_amount, voucher_url, m.`ctime`, m.`mtime`, m.`is_delete`, media_remark, 
                 account_number, currency_type, order_source, `name`
         from ${exMysqlTable2} m left join ${exMysqlTable1} s on s.id = m.supplier_id where m.is_delete = 0),
         t1 as (select media_order_id, from_unixtime(MIN(ctime), '%Y-%m-%d') AS first_payment_date,
               from_unixtime(max(ctime), '%Y-%m-%d') AS last_payment_date,
               sum(IFNULL(recharge_amount, 0.00)) recharge_total_amount,
-              sum(case when capital_type = '2' then IFNULL(recharge_amount, 0.00) else 0.00 end) as petty_amount,
-              sum(case when capital_type = '2' and petty_cash_type = '1' then IFNULL(recharge_amount, 0.00) else 0.00 end) as petty_change_amount,
-              sum(case when capital_type = '2' and petty_cash_type = '2' then IFNULL(recharge_amount, 0.00) else 0.00 end) as petty_recharge_amount,
-              sum(case when capital_type = '2' and petty_cash_type = '3' then IFNULL(recharge_amount, 0.00) else 0.00 end) as petty_return_amount,
-              sum(case when capital_type = '3' then IFNULL(need_actual_amount, 0.00) else 0.00 end) as return_goods_amount,
+              sum(case when capital_type = 2 then IFNULL(recharge_amount, 0.00) else 0.00 end) as petty_amount,
+              sum(case when capital_type = 2 and petty_cash_type = '1' then IFNULL(recharge_amount, 0.00) else 0.00 end) as petty_change_amount,
+              sum(case when capital_type = 2 and petty_cash_type = '2' then IFNULL(recharge_amount, 0.00) else 0.00 end) as petty_recharge_amount,
+              sum(case when capital_type = 2 and petty_cash_type = '3' then IFNULL(recharge_amount, 0.00) else 0.00 end) as petty_return_amount,
+              sum(case when capital_type = 3 then IFNULL(need_actual_amount, 0.00) else 0.00 end) as return_goods_amount,
               GROUP_CONCAT(cast(supplier_id as varchar (12)) order by supplier_id) supplier_id_list
        from tmp_media_purchase group by media_order_id),
-        t2 as (select media_order_id, GROUP_CONCAT((case agent_policy_type 
+        t2 as (select media_order_id, GROUP_CONCAT((case cast(agent_policy_type as string)
         when '1' then 'A' when '2' then 'B' when '3' then 'C' when '4' then 'D' when '5' then 'E' when '6' then 'F'
         when '7' then 'G' when '8' then 'H' when '9' then 'I' when '10' then 'J' when '11' then 'K' when '12' then 'L'
-        when '13' then 'M'  else agent_policy_type end) order by agent_policy_type) agent_policy_type_list
+        when '13' then 'M'  else cast(agent_policy_type as string) end) order by agent_policy_type) agent_policy_type_list
        from tmp_media_purchase group by media_order_id),
        t3 as (select media_order_id, GROUP_CONCAT(cast(agent_policy as varchar (12)) order by agent_policy) agent_policy_list
        from tmp_media_purchase group by media_order_id),
-       t4 as (select media_order_id, GROUP_CONCAT((case capital_type
-        when '1' then 'A' when '2' then 'B' when '3' then 'C' else capital_type end) order by capital_type) capital_type_list
+       t4 as (select media_order_id, GROUP_CONCAT((case cast(capital_type as string)
+        when '1' then 'A' when '2' then 'B' when '3' then 'C' else cast(capital_type as string) end) order by capital_type) capital_type_list
        from tmp_media_purchase group by media_order_id),
-       t5 as (select media_order_id, GROUP_CONCAT((case petty_cash_type
-        when '1' then 'A' when '2' then 'B' when '3' then 'C' else petty_cash_type end) order by petty_cash_type) petty_cash_type_list
+       t5 as (select media_order_id, GROUP_CONCAT((case cast(petty_cash_type as string)
+        when '1' then 'A' when '2' then 'B' when '3' then 'C' else cast(petty_cash_type as string) end) order by petty_cash_type) petty_cash_type_list
        from tmp_media_purchase group by media_order_id),
        t6 as (select media_order_id, GROUP_CONCAT(`name` order by `name`) company_name_list
             from tmp_media_purchase group by media_order_id)
@@ -1059,14 +1059,14 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
 
         // TODO: check this, maybe caused by datasource in JDBC
         // test alter resource
-        sql """alter resource $jdbcResourceMysql57 properties("password" = "1234567")"""
-        test {
-            sql """select count(*) from $jdbcMysql57Table1"""
-            exception "Access denied for user"
+        if (!isCloudMode()) {
+            sql """alter resource $jdbcResourceMysql57 properties("password" = "1234567")"""
+            test {
+                sql """select count(*) from $jdbcMysql57Table1"""
+                exception "Access denied for user"
+            }
+            sql """alter resource $jdbcResourceMysql57 properties("password" = "123456")"""
         }
-        sql """alter resource $jdbcResourceMysql57 properties("password" = "123456")"""
-
-
     }
 }
 

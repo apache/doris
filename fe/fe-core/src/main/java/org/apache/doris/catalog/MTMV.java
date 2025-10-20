@@ -18,13 +18,13 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.EnvInfo;
@@ -196,9 +196,10 @@ public class MTMV extends OlapTable {
                 // The replay thread may not have initialized the catalog yet to avoid getting stuck due
                 // to connection issues such as S3, so it is directly set to null
                 if (!isReplay) {
+                    ConnectContext currentContext = ConnectContext.get();
                     // shouldn't do this while holding mvWriteLock
                     mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
-                            true, null);
+                            true, currentContext);
                 }
             } catch (Throwable e) {
                 mtmvCache = null;
@@ -290,8 +291,8 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public Set<TableName> getExcludedTriggerTables() {
-        Set<TableName> res = Sets.newHashSet();
+    public Set<TableNameInfo> getExcludedTriggerTables() {
+        Set<TableNameInfo> res = Sets.newHashSet();
         readMvLock();
         try {
             if (StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES))) {
@@ -299,7 +300,7 @@ public class MTMV extends OlapTable {
             }
             String[] split = mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES).split(",");
             for (String alias : split) {
-                res.add(new TableName(alias));
+                res.add(new TableNameInfo(alias));
             }
             return res;
         } finally {

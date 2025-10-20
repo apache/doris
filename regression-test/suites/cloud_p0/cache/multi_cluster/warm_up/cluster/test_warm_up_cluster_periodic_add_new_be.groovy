@@ -23,6 +23,7 @@ suite('test_warm_up_cluster_periodic_add_new_be', 'docker') {
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
         'fetch_cluster_cache_hotspot_interval_ms=1000',
+        'rehash_tablet_after_be_dead_seconds=1',
     ]
     options.beConfigs += [
         'file_cache_enter_disk_resource_limit_mode_percent=99',
@@ -84,6 +85,23 @@ suite('test_warm_up_cluster_periodic_add_new_be', 'docker') {
         return getBrpcMetrics(ip, port, "ttl_cache_size")
     }
 
+    def getClusterTTLCacheSizeSum = { cluster ->
+        def backends = sql """SHOW BACKENDS"""
+
+        def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
+
+        long sum = 0
+        for (be in cluster_bes) {
+            def ip = be[1]
+            def port = be[5]
+            def size = getTTLCacheSize(ip, port)
+            sum += size
+            logger.info("be be ${ip}:${port} ttl cache size ${size}")
+        }
+
+        return sum
+    }
+
     def checkTTLCacheSizeSumEqual = { cluster1, cluster2 ->
         def backends = sql """SHOW BACKENDS"""
 
@@ -94,19 +112,33 @@ suite('test_warm_up_cluster_periodic_add_new_be', 'docker') {
         for (src in srcBes) {
             def ip = src[1]
             def port = src[5]
-            srcSum += getTTLCacheSize(ip, port)
+            def size = getTTLCacheSize(ip, port)
+            srcSum += size
+            logger.info("src be ${ip}:${port} ttl cache size ${size}")
         }
 
         long tgtSum = 0
         for (tgt in tgtBes) {
             def ip = tgt[1]
             def port = tgt[5]
-            tgtSum += getTTLCacheSize(ip, port)
+            def size = getTTLCacheSize(ip, port)
+            tgtSum += size
+            logger.info("dst be ${ip}:${port} ttl cache size ${size}")
         }
 
         logger.info("ttl_cache_size: src=${srcSum} dst=${tgtSum}")
         assertTrue(srcSum > 0, "ttl_cache_size should > 0")
         assertEquals(srcSum, tgtSum)
+    }
+
+    def waitUntil = { condition, timeoutMs ->
+        long start = System.currentTimeMillis()
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            if (condition()) {
+                return
+            }
+            sleep(1000)
+        }
     }
 
     docker(options) {
@@ -162,12 +194,14 @@ suite('test_warm_up_cluster_periodic_add_new_be', 'docker') {
             sql """SELECT * FROM customer"""
         }
 
-        sleep(15000)
+        waitUntil({ getClusterTTLCacheSizeSum(clusterName1) > 0 }, 60000)
+        waitUntil({ getClusterTTLCacheSizeSum(clusterName1) == getClusterTTLCacheSizeSum(clusterName2) }, 60000)
 
         def hotspot = sql """select * from __internal_schema.cloud_cache_hotspot;"""
         logger.info("hotspot: {}", hotspot)
 
         logFileCacheDownloadMetrics(clusterName2)
+        assertTrue(getClusterTTLCacheSizeSum(clusterName1) > 0)
         checkTTLCacheSizeSumEqual(clusterName1, clusterName2)
 
         def jobInfo = sql """SHOW WARM UP JOB WHERE ID = ${jobId}"""

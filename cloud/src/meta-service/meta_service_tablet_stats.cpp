@@ -30,7 +30,7 @@
 #include "common/util.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
-#include "meta-store/document_message.h"
+#include "meta-store/clone_chain_reader.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -174,19 +174,22 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
                                TabletStatsPB& stats, bool snapshot) {
     TabletStats detached_stats;
     internal_get_tablet_stats(code, msg, txn, instance_id, idx, stats, detached_stats, snapshot);
-    merge_tablet_stats(stats, detached_stats);
+    if (code == MetaServiceCode::OK) {
+        merge_tablet_stats(stats, detached_stats);
+    }
 }
 
-void internal_get_versioned_tablet_stats(MetaServiceCode& code, std::string& msg, Transaction* txn,
+void internal_get_versioned_tablet_stats(MetaServiceCode& code, std::string& msg,
+                                         CloneChainReader& meta_reader, Transaction* txn,
                                          const std::string& instance_id,
                                          const TabletIndexPB& tablet_idx, TabletStatsPB& stats,
                                          bool snapshot) {
     int64_t tablet_id = tablet_idx.tablet_id();
-    std::string stats_key = versioned::tablet_load_stats_key({instance_id, tablet_id});
+    Versionstamp versionstamp;
 
     // Try to read existing versioned tablet stats
-    Versionstamp versionstamp;
-    TxnErrorCode err = versioned::document_get(txn, stats_key, &stats, &versionstamp, snapshot);
+    TxnErrorCode err =
+            meta_reader.get_tablet_load_stats(txn, tablet_id, &stats, &versionstamp, snapshot);
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         // If versioned stats doesn't exist, read from single version
         internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, stats, snapshot);
@@ -532,6 +535,29 @@ MetaServiceResponseStatus check_new_tablet_stats(
     }
 
     return st;
+}
+
+std::pair<TabletStatsPB, TabletStatsPB> split_tablet_stats_into_load_and_compact_parts(
+        const TabletStatsPB& stats) {
+    TabletStatsPB load_stats, compact_stats;
+    compact_stats.set_base_compaction_cnt(stats.base_compaction_cnt());
+    compact_stats.set_cumulative_compaction_cnt(stats.cumulative_compaction_cnt());
+    compact_stats.set_cumulative_point(stats.cumulative_point());
+    compact_stats.set_last_base_compaction_time_ms(stats.last_base_compaction_time_ms());
+    compact_stats.set_last_cumu_compaction_time_ms(stats.last_cumu_compaction_time_ms());
+    compact_stats.set_full_compaction_cnt(stats.full_compaction_cnt());
+    compact_stats.set_last_full_compaction_time_ms(stats.last_full_compaction_time_ms());
+    compact_stats.mutable_idx()->CopyFrom(stats.idx());
+
+    load_stats.set_num_rows(stats.num_rows());
+    load_stats.set_num_rowsets(stats.num_rowsets());
+    load_stats.set_num_segments(stats.num_segments());
+    load_stats.set_data_size(stats.data_size());
+    load_stats.set_index_size(stats.index_size());
+    load_stats.set_segment_size(stats.segment_size());
+    load_stats.mutable_idx()->CopyFrom(stats.idx());
+
+    return {load_stats, compact_stats};
 }
 
 } // namespace doris::cloud

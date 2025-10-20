@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.CreateRoutineLoadStmt;
-import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -30,7 +28,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
-import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
@@ -38,7 +35,6 @@ import org.apache.doris.transaction.TransactionState;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import java_cup.runtime.Symbol;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
@@ -53,16 +49,6 @@ import java.util.List;
 import java.util.Map;
 
 public class RoutineLoadJobTest {
-
-    @Mocked
-    EditLog editLog;
-    @Mocked
-    SqlParser sqlParser;
-    @Mocked
-    CreateRoutineLoadStmt createRoutineLoadStmt;
-    @Mocked
-    Symbol symbol;
-
     @Test
     public void testAfterAbortedReasonOffsetOutOfRange(@Mocked Env env,
                                                        @Injectable TransactionState transactionState,

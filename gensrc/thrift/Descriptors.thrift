@@ -51,6 +51,7 @@ struct TColumn {
     21: optional TPatternType pattern_type
     22: optional bool variant_enable_typed_paths_to_sparse = false
     23: optional bool is_on_update_current_timestamp = false
+    24: optional i32 variant_max_sparse_column_statistics_size = 10000
 }
 
 struct TSlotDescriptor {
@@ -154,6 +155,11 @@ enum TSchemaTableType {
     SCH_BACKEND_TABLETS = 56,
     SCH_VIEW_DEPENDENCY = 57,
     SCH_ENCRYPTION_KEYS = 58,
+    SCH_SQL_BLOCK_RULE_STATUS = 59;
+    SCH_CLUSTER_SNAPSHOTS = 60;
+    SCH_CLUSTER_SNAPSHOT_PROPERTIES = 61;
+    SCH_BLACKHOLE = 62;
+    SCH_COLUMN_DATA_SIZES = 63;
     SCH_FRONTENDS = 59;
 }
 
@@ -171,7 +177,8 @@ enum TIndexType {
   BITMAP = 0,
   INVERTED = 1,
   BLOOMFILTER = 2,
-  NGRAM_BF = 3
+  NGRAM_BF = 3,
+  ANN = 4
 }
 
 enum TPartialUpdateNewRowPolicy {

@@ -24,13 +24,11 @@ import org.apache.doris.analysis.CopyIntoProperties;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LabelName;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StageAndPattern;
 import org.apache.doris.analysis.StageProperties;
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -46,9 +44,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.constants.BosProperties;
-import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.S3PropertyUtils;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -125,7 +126,7 @@ public class CopyIntoInfo {
     private String stagePrefix;
     private RemoteBase.ObjectInfo objectInfo;
     private String userName;
-    private TableName tableName;
+    private TableNameInfo tableNameInfo;
 
     private OriginStatement originStmt;
 
@@ -185,8 +186,8 @@ public class CopyIntoInfo {
             default:
                 throw new IllegalStateException("Table name [" + nameParts + "] is invalid.");
         }
-        tableName = new TableName(ctl, db, table);
-        label = new LabelName(tableName.getDb(), labelName);
+        tableNameInfo = new TableNameInfo(ctl, db, table);
+        label = new LabelName(tableNameInfo.getDb(), labelName);
         if (stage.isEmpty()) {
             throw new AnalysisException("Stage name can not be empty");
         }
@@ -209,17 +210,19 @@ public class CopyIntoInfo {
                 copyIntoProperties.getColumnSeparator()) : null;
         String fileFormatStr = copyIntoProperties.getFileType();
         Map<String, String> dataDescProperties = copyIntoProperties.getDataDescriptionProperties();
-        copyFromDesc.validate(db, tableName, this.copyIntoProperties.useDeleteSign(),
+        copyFromDesc.validate(db, tableNameInfo, this.copyIntoProperties.useDeleteSign(),
                 copyIntoProperties.getFileTypeIgnoreCompression());
         if (LOG.isDebugEnabled()) {
             LOG.debug("copy into params. sql: {}, fileColumns: {}, columnMappingList: {}, filter: {}",
-                    copyFromDesc.getFileColumns().toString(), copyFromDesc.getColumnMappingList().toString(),
-                    copyFromDesc.getFileFilterExpr().toString());
+                    originStmt,
+                    String.valueOf(copyFromDesc.getFileColumns()),
+                    String.valueOf(copyFromDesc.getColumnMappingList()),
+                    String.valueOf(copyFromDesc.getFileFilterExpr()));
         }
 
         List<String> nameParts = Lists.newArrayList();
         nameParts.add(db);
-        nameParts.add(tableName.getTbl());
+        nameParts.add(tableNameInfo.getTbl());
         Plan unboundRelation = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), nameParts);
         CascadesContext cascadesContext = CascadesContext.initContext(ConnectContext.get().getStatementContext(),
                 unboundRelation, PhysicalProperties.ANY);
@@ -264,7 +267,7 @@ public class CopyIntoInfo {
         }
 
         dataDescProperties.put(FileFormatProperties.PROP_COMPRESS_TYPE, copyIntoProperties.getCompression());
-        dataDescription = new DataDescription(tableName.getTbl(), null, Lists.newArrayList(filePath),
+        dataDescription = new DataDescription(tableNameInfo.getTbl(), null, Lists.newArrayList(filePath),
             copyFromDesc.getFileColumns(), separator, fileFormatStr, null, false,
             legacyColumnMappingList, legacyFileFilterExpr, null, LoadTask.MergeType.APPEND, null,
             null, dataDescProperties);
@@ -281,7 +284,7 @@ public class CopyIntoInfo {
         String path;
         for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
             path = dataDescription.getFilePaths().get(i);
-            dataDescription.getFilePaths().set(i, BosProperties.convertPathToS3(path));
+            dataDescription.getFilePaths().set(i, S3PropertyUtils.convertPathToS3(path));
             StorageBackend.checkPath(path, brokerDesc.getStorageType(), null);
             dataDescription.getFilePaths().set(i, path);
         }
@@ -289,7 +292,7 @@ public class CopyIntoInfo {
         try {
             properties.putAll(copyIntoProperties.getExecProperties());
             // TODO support exec params as LoadStmt
-            LoadStmt.checkProperties(properties);
+            LoadCommand.checkProperties(properties);
         } catch (DdlException e) {
             throw new AnalysisException(e.getMessage());
         }
@@ -333,8 +336,7 @@ public class CopyIntoInfo {
             expression = analyzer.analyze(expr, new ExpressionRewriteContext(cascadesContext));
         } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException("In where clause '"
-                + expr.toSql() + "', "
-                + Utils.convertFirstChar(e.getMessage()));
+                    + expr.toSql() + "', " + Utils.convertFirstChar(e.getMessage()));
         }
         ExpressionToExpr translator = new ExpressionToExpr();
         return expression.accept(translator, context);
@@ -366,7 +368,7 @@ public class CopyIntoInfo {
         brokerProperties.put(S3_BUCKET, objInfo.getBucket());
         brokerProperties.put(S3_PREFIX, objInfo.getPrefix());
         // S3 Provider properties should be case insensitive.
-        brokerProperties.put(S3Properties.PROVIDER, objInfo.getProvider().toString().toUpperCase());
+        brokerProperties.put(StorageProperties.FS_PROVIDER_KEY, objInfo.getProvider().toString().toUpperCase());
         StageProperties stageProperties = new StageProperties(stagePB.getPropertiesMap());
         this.copyIntoProperties.mergeProperties(stageProperties);
         this.copyIntoProperties.analyze();

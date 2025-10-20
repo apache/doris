@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("dup_mv_bm_hash") {
+    // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
+    sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
     sql """ DROP TABLE IF EXISTS dup_mv_bm_hash; """
 
     sql """

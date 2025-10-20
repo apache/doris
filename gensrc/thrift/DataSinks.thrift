@@ -41,6 +41,7 @@ enum TDataSinkType {
     HIVE_TABLE_SINK = 13,
     ICEBERG_TABLE_SINK = 14,
     DICTIONARY_SINK = 15,
+    BLACKHOLE_SINK = 16,
 }
 
 enum TResultSinkType {
@@ -146,6 +147,9 @@ struct TResultFileSinkOptions {
     //hive write sink use int96
     //export data to file use by user define properties
     21: optional bool enable_int96_timestamps
+    // currently only for csv
+    // TODO: merge with parquet_compression_type and orc_compression_type
+    22: optional PlanNodes.TFileCompressType compression_type
 }
 
 struct TMemoryScratchSink {
@@ -441,6 +445,9 @@ struct TDictionarySink {
     9: optional i64 memory_limit
 }
 
+struct TBlackholeSink {
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
@@ -456,4 +463,5 @@ struct TDataSink {
   13: optional THiveTableSink hive_table_sink
   14: optional TIcebergTableSink iceberg_table_sink
   15: optional TDictionarySink dictionary_sink
+  16: optional TBlackholeSink blackhole_sink
 }

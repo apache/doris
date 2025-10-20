@@ -37,6 +37,7 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
+    bool is_blockable() const override;
 
 protected:
     friend class AggSinkOperatorX;
@@ -154,11 +155,12 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
-    DataDistribution required_data_distribution() const override {
-        if (_probe_expr_ctxs.empty()) {
+    DataDistribution required_data_distribution(RuntimeState* state) const override {
+        if (_partition_exprs.empty()) {
             return _needs_finalize
                            ? DataDistribution(ExchangeType::NOOP)
-                           : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution();
+                           : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution(
+                                     state);
         }
         return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                        ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)

@@ -24,30 +24,33 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
+// clang-format off
+#include "common/compile_check_avoid_begin.h"
 #include "CLucene/analysis/standard95/StandardAnalyzer.h"
+#include "common/compile_check_avoid_end.h"
+// clang-format on
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
 #include "olap/rowset/segment_v2/inverted_index/analyzer/basic/basic_analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/icu/icu_analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ik/IKAnalyzer.h"
-#include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
+#include "olap/rowset/segment_v2/inverted_index/char_filter/char_replace_char_filter_factory.h"
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
-#include "util/runtime_profile.h"
 
 namespace doris::segment_v2::inverted_index {
 #include "common/compile_check_begin.h"
 
-std::unique_ptr<lucene::util::Reader> InvertedIndexAnalyzer::create_reader(
-        CharFilterMap& char_filter_map) {
-    std::unique_ptr<lucene::util::Reader> reader =
-            std::make_unique<lucene::util::SStringReader<char>>();
+ReaderPtr InvertedIndexAnalyzer::create_reader(CharFilterMap& char_filter_map) {
+    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
     if (!char_filter_map.empty()) {
-        reader = std::unique_ptr<lucene::util::Reader>(CharFilterFactory::create(
-                char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE], reader.release(),
-                char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN],
-                char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT]));
+        if (char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE] ==
+            INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE) {
+            reader = std::make_shared<CharReplaceCharFilter>(
+                    reader, char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN],
+                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT]);
+        }
     }
     return reader;
 }
@@ -118,7 +121,7 @@ std::shared_ptr<lucene::analysis::Analyzer> InvertedIndexAnalyzer::create_analyz
 }
 
 std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
-        lucene::util::Reader* reader, lucene::analysis::Analyzer* analyzer) {
+        ReaderPtr reader, lucene::analysis::Analyzer* analyzer) {
     std::vector<TermInfo> analyse_result;
 
     std::unique_ptr<lucene::analysis::TokenStream> token_stream(analyzer->tokenStream(L"", reader));
@@ -157,7 +160,7 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
     inverted_index_ctx->analyzer = analyzer.get();
     auto reader = create_reader(inverted_index_ctx->char_filter_map);
     reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
-    return get_analyse_result(reader.get(), analyzer.get());
+    return get_analyse_result(reader, analyzer.get());
 }
 
 bool InvertedIndexAnalyzer::should_analyzer(const std::map<std::string, std::string>& properties) {

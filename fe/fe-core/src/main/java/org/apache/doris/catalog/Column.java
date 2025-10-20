@@ -158,6 +158,11 @@ public class Column implements GsonPostProcessable {
     @SerializedName(value = "fpt")
     private TPatternType fieldPatternType;
 
+    // used for saving some extra information, such as timezone info of datetime column
+    // Maybe deprecated if we implement real timestamp with timezone type.
+    @SerializedName(value = "ei")
+    private String extraInfo;
+
     public Column() {
         this.name = "";
         this.type = Type.NULL;
@@ -651,6 +656,7 @@ public class Column implements GsonPostProcessable {
         }
         tColumn.setClusterKeyId(this.clusterKeyId);
         tColumn.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
+        tColumn.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -878,6 +884,7 @@ public class Column implements GsonPostProcessable {
         } else if (this.type.isVariantType()) {
             builder.setVariantMaxSubcolumnsCount(this.getVariantMaxSubcolumnsCount());
             builder.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
+            builder.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
             // variant may contain predefined structured fields
             addChildren(builder);
         }
@@ -953,6 +960,9 @@ public class Column implements GsonPostProcessable {
             }
             if (this.getVariantEnableTypedPathsToSparse() != other.getVariantEnableTypedPathsToSparse()) {
                 throw new DdlException("Can not change variant enable typed paths to sparse");
+            }
+            if (this.getVariantMaxSparseColumnStatisticsSize() != other.getVariantMaxSparseColumnStatisticsSize()) {
+                throw new DdlException("Can not change variant max sparse column statistics size");
             }
             if (!this.getChildren().isEmpty() || !other.getChildren().isEmpty()) {
                 throw new DdlException("Can not change variant schema templates");
@@ -1197,6 +1207,10 @@ public class Column implements GsonPostProcessable {
         this.uniqueId = colUniqueId;
     }
 
+    public void setWithTZExtraInfo() {
+        this.extraInfo = Strings.isNullOrEmpty(extraInfo) ? "WITH_TIMEZONE" : extraInfo + ", WITH_TIMEZONE";
+    }
+
     public int getUniqueId() {
         return this.uniqueId;
     }
@@ -1285,6 +1299,10 @@ public class Column implements GsonPostProcessable {
         return type.isVariantType() ? ((ScalarType) type).getVariantEnableTypedPathsToSparse() : false;
     }
 
+    public int getVariantMaxSparseColumnStatisticsSize() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantMaxSparseColumnStatisticsSize() : -1;
+    }
+
     public void setFieldPatternType(TPatternType type) {
         fieldPatternType = type;
     }
@@ -1293,4 +1311,7 @@ public class Column implements GsonPostProcessable {
         return fieldPatternType;
     }
 
+    public String getExtraInfo() {
+        return extraInfo;
+    }
 }

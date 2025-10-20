@@ -33,6 +33,7 @@ OPTS="$(getopt \
     -l 'console' \
     -l 'version' \
     -l 'benchmark' \
+    -l 'benchmark_filter:' \
     -- "$@")"
 
 eval set -- "${OPTS}"
@@ -41,6 +42,7 @@ RUN_DAEMON=0
 RUN_CONSOLE=0
 RUN_VERSION=0
 RUN_BENCHMARK=0
+BENCHMARK_FILTER=""
 
 while true; do
     case "$1" in
@@ -59,6 +61,10 @@ while true; do
     --benchmark)
         RUN_BENCHMARK=1
         shift
+        ;;
+    --benchmark_filter)
+        BENCHMARK_FILTER="$2"
+        shift 2
         ;;
     --)
         shift
@@ -176,8 +182,11 @@ setup_java_env() {
 # prepare jvm if needed
 setup_java_env || true
 
+if [[ ! -x "${DORIS_HOME}/lib/doris_be" || ! -r "${DORIS_HOME}/lib/doris_be" ]]; then
+    chmod 550 "${DORIS_HOME}/lib/doris_be"
+fi
+
 if [[ "${RUN_VERSION}" -eq 1 ]]; then
-    chmod 755 "${DORIS_HOME}/lib/doris_be"
     "${DORIS_HOME}"/lib/doris_be --version
     exit 0
 fi
@@ -327,7 +336,6 @@ if [[ -f "${pidfile}" && "${RUN_BENCHMARK}" -eq 0 ]]; then
     fi
 fi
 
-chmod 550 "${DORIS_HOME}/lib/doris_be"
 log "Start time: $(date)"
 
 if [[ ! -f '/bin/limit3' ]]; then
@@ -447,10 +455,16 @@ else
 fi
 
 if [[ "${RUN_BENCHMARK}" -eq 1 ]]; then
+    BENCHMARK_ARGS=()
+
+    if [[ -n ${BENCHMARK_FILTER} ]]; then
+        BENCHMARK_ARGS+=("--benchmark_filter=${BENCHMARK_FILTER}")
+    fi
+
     if [[ "$(uname -s)" == 'Darwin' ]]; then
-        env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test"
+        env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test" "${BENCHMARK_ARGS[@]}"
     else
-        ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test"
+        ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test" "${BENCHMARK_ARGS[@]}"
     fi
 elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
     if [[ "$(uname -s)" == 'Darwin' ]]; then

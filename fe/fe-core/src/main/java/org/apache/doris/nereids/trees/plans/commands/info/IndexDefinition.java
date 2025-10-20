@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AnnIndexPropertiesChecker;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.InvertedIndexUtil;
@@ -24,6 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -80,6 +82,10 @@ public class IndexDefinition {
                     this.indexType = IndexType.NGRAM_BF;
                     break;
                 }
+                case "ANN": {
+                    this.indexType = IndexType.ANN;
+                    break;
+                }
                 default:
                     throw new AnalysisException("unknown index type " + indexTypeName);
             }
@@ -132,6 +138,26 @@ public class IndexDefinition {
     public void checkColumn(ColumnDefinition column, KeysType keysType,
             boolean enableUniqueKeyMergeOnWrite,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
+        if (indexType == IndexType.ANN) {
+            if (column.isNullable()) {
+                throw new AnalysisException("ANN index must be built on a column that is not nullable");
+            }
+            String indexColName = column.getName();
+            caseSensitivityCols.add(indexColName);
+            DataType colType = column.getType();
+            if (!colType.isArrayType()) {
+                throw new AnalysisException("ANN index column must be array type, invalid index: " + name);
+            }
+            DataType itemType = ((ArrayType) colType).getItemType();
+            if (!itemType.isFloatType()) {
+                throw new AnalysisException("ANN index column item type must be float type, invalid index: " + name);
+            }
+            if (keysType != KeysType.DUP_KEYS) {
+                throw new AnalysisException("ANN index can only be used in DUP_KEYS table");
+            }
+            return;
+        }
+
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
                 || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
@@ -164,7 +190,9 @@ public class IndexDefinition {
                         + " or key columns of AGG_KEYS table. invalid index: " + name);
                 } else if (keysType == KeysType.UNIQUE_KEYS && !enableUniqueKeyMergeOnWrite
                                && indexType == IndexType.INVERTED && properties != null
-                               && properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
+                               && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                                   || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
+                                   || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY))) {
                     throw new AnalysisException("INVERTED index with parser can NOT be used in value columns of"
                         + " UNIQUE_KEYS table with merge_on_write disable. invalid index: " + name);
                 }
@@ -219,6 +247,10 @@ public class IndexDefinition {
             return;
         }
 
+        if (indexType == IndexDef.IndexType.ANN) {
+            AnnIndexPropertiesChecker.checkProperties(this.properties);
+        }
+
         if (indexType == IndexDef.IndexType.BITMAP || indexType == IndexDef.IndexType.INVERTED) {
             if (cols == null || cols.size() != 1) {
                 throw new AnalysisException(
@@ -269,8 +301,7 @@ public class IndexDefinition {
      */
     public IndexDef translateToLegacyIndexDef() {
         if (isBuildDeferred) {
-            return new IndexDef(name, partitionNames != null ? partitionNames.translateToLegacyPartitionNames() : null,
-                    indexType, true);
+            return new IndexDef(name, partitionNames, indexType, true);
         } else {
             return new IndexDef(name, ifNotExists, cols, indexType, properties, comment);
         }
@@ -332,6 +363,7 @@ public class IndexDefinition {
         return indexType == IndexType.INVERTED
                 && properties != null
                         && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                            || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
                             || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
     }
 }

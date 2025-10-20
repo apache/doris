@@ -39,6 +39,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/rowset/rowset.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
@@ -70,17 +71,20 @@ Status BetaRowset::init() {
     return Status::OK(); // no op
 }
 
-Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows) {
-    DCHECK(_rowset_state_machine.rowset_state() == ROWSET_LOADED);
+Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
+                                        OlapReaderStatistics* read_stats) {
+    // `ROWSET_UNLOADING` is state for closed() called but owned by some readers.
+    // So here `ROWSET_UNLOADING` is allowed.
+    DCHECK_NE(_rowset_state_machine.rowset_state(), ROWSET_UNLOADED);
 
-    RETURN_IF_ERROR(_load_segment_rows_once.call([this] {
+    RETURN_IF_ERROR(_load_segment_rows_once.call([this, read_stats] {
         auto segment_count = num_segments();
         _segments_rows.resize(segment_count);
         for (int64_t i = 0; i != segment_count; ++i) {
             SegmentCacheHandle segment_cache_handle;
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
                     std::static_pointer_cast<BetaRowset>(shared_from_this()), i,
-                    &segment_cache_handle, false, false));
+                    &segment_cache_handle, false, false, read_stats));
             const auto& tmp_segments = segment_cache_handle.get_segments();
             _segments_rows[i] = tmp_segments[0]->num_rows();
         }
@@ -255,7 +259,7 @@ Status BetaRowset::remove() {
                 }
             }
         } else {
-            if (_schema->has_inverted_index()) {
+            if (_schema->has_inverted_index() || _schema->has_ann_index()) {
                 std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(seg_path));
                 st = fs->delete_file(inverted_index_file);
@@ -367,7 +371,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                 }
             }
         } else {
-            if (_schema->has_inverted_index() &&
+            if ((_schema->has_inverted_index() || _schema->has_ann_index()) &&
                 (without_index_uids == nullptr || without_index_uids->empty())) {
                 std::string inverted_index_file_src =
                         InvertedIndexDescriptor::get_index_file_path_v2(
@@ -434,7 +438,7 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
                 }
             }
         } else {
-            if (_schema->has_inverted_index()) {
+            if (_schema->has_inverted_index() || _schema->has_ann_index()) {
                 std::string inverted_index_src_file =
                         InvertedIndexDescriptor::get_index_file_path_v2(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(src_path));
@@ -492,7 +496,7 @@ Status BetaRowset::upload_to(const StorageResource& dest_fs, const RowsetId& new
                 }
             }
         } else {
-            if (_schema->has_inverted_index()) {
+            if (_schema->has_inverted_index() || _schema->has_ann_index()) {
                 std::string remote_inverted_index_file =
                         InvertedIndexDescriptor::get_index_file_path_v2(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(
@@ -646,7 +650,7 @@ Status BetaRowset::add_to_binlog() {
                 linked_success_files.push_back(binlog_index_file);
             }
         } else {
-            if (_schema->has_inverted_index()) {
+            if (_schema->has_inverted_index() || _schema->has_ann_index()) {
                 auto index_file = InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(seg_file));
                 auto binlog_index_file = (std::filesystem::path(binlog_dir) /
@@ -693,7 +697,7 @@ Status BetaRowset::calc_file_crc(uint32_t* crc_value, int64_t* file_count) {
                 }
             }
         } else {
-            if (_schema->has_inverted_index()) {
+            if (_schema->has_inverted_index() || _schema->has_ann_index()) {
                 std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(seg_path));
                 file_paths.emplace_back(std::move(inverted_index_file));

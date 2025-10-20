@@ -75,8 +75,7 @@ class SegmentCollector {
 public:
     virtual ~SegmentCollector() = default;
 
-    virtual Status add(uint32_t segment_id, SegmentStatistics& segstat,
-                       TabletSchemaSPtr flush_chema) = 0;
+    virtual Status add(uint32_t segment_id, SegmentStatistics& segstat) = 0;
 };
 
 template <class T>
@@ -85,9 +84,8 @@ class SegmentCollectorT : public SegmentCollector {
 public:
     explicit SegmentCollectorT(T* t) : _t(t) {}
 
-    Status add(uint32_t segment_id, SegmentStatistics& segstat,
-               TabletSchemaSPtr flush_chema) override {
-        return _t->add_segment(segment_id, segstat, flush_chema);
+    Status add(uint32_t segment_id, SegmentStatistics& segstat) override {
+        return _t->add_segment(segment_id, segstat);
     }
 
 private:
@@ -155,10 +153,8 @@ private:
     Status _create_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
                                   int32_t segment_id, bool no_compression = false);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
-                                 TabletSchemaSPtr flush_schema = nullptr,
                                  int64_t* flush_size = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
-                                 TabletSchemaSPtr flush_schema = nullptr,
                                  int64_t* flush_size = nullptr);
 
 private:

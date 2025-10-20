@@ -301,20 +301,6 @@ public class OperationType {
     @Deprecated
     public static final short OP_INIT_EXTERNAL_TABLE = 329;
 
-    @Deprecated
-    public static final short OP_CREATE_MTMV_JOB = 330;
-    @Deprecated
-    public static final short OP_DROP_MTMV_JOB = 331;
-    @Deprecated
-    public static final short OP_CHANGE_MTMV_JOB = 332;
-    @Deprecated
-    public static final short OP_CREATE_MTMV_TASK = 340;
-    @Deprecated
-    public static final short OP_DROP_MTMV_TASK = 341;
-    @Deprecated
-    public static final short OP_CHANGE_MTMV_TASK = 342;
-    @Deprecated
-    public static final short OP_ALTER_MTMV_STMT = 345;
     public static final short OP_ADD_CONSTRAINT = 346;
     public  static final short OP_DROP_CONSTRAINT = 347;
 
@@ -433,6 +419,8 @@ public class OperationType {
     @Deprecated
     public static final short OP_MODIFY_TTL_SECONDS = 1001;
     public static final short OP_MODIFY_CLOUD_WARM_UP_JOB = 1002;
+
+    public static final short OP_BEGIN_SNAPSHOT = 1100;
 
     /**
      * Get opcode name by op code.

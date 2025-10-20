@@ -21,7 +21,6 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
@@ -93,15 +92,8 @@ public class PaimonScanNodeTest {
             }
         }).when(spyPaimonScanNode).getPaimonSplitFromAPI();
 
-        // Mock PaimonSource to return catalog
-        PaimonSource mockPaimonSource = Mockito.mock(PaimonSource.class);
-        Mockito.when(mockPaimonSource.getCatalog()).thenReturn(paimonFileExternalCatalog);
-        spyPaimonScanNode.setSource(mockPaimonSource);
-
-        // Mock ExternalCatalog properties
-        CatalogProperty mockCatalogProperty = Mockito.mock(CatalogProperty.class);
-        Mockito.when(paimonFileExternalCatalog.getCatalogProperty()).thenReturn(mockCatalogProperty);
-        Mockito.when(mockCatalogProperty.getStoragePropertiesMap()).thenReturn(Collections.emptyMap());
+        // Note: The original PaimonSource is sufficient for this test
+        // No need to mock catalog properties since doInitialize() is not called in this test
         // Mock SessionVariable behavior
         Mockito.when(sv.isForceJniScanner()).thenReturn(false);
         Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");

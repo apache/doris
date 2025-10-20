@@ -27,7 +27,7 @@
 {"data":{"arr":[1.1,2.0]}}
 
 -- !sql_array --
-{"data":{"arr":[1.0,1.2]}}
+{"data":{"arr":[1.000000000,1.200000000]}}
 
 -- !sql_struct --
 {"data":{"struct":{"name":"a","age":1}}}
@@ -36,7 +36,7 @@
 {"data":{"struct":{"name":"a","age":1.1}}}
 
 -- !sql_struct --
-{"data":{"struct":{"name":"a","age":1.0}}}
+{"data":{"struct":{"name":"a","age":1.000000000}}}
 
 -- !sql_json --
 {"data":{"json":{"a":"b"}}}
@@ -86,4 +86,7 @@
 
 -- !insert6 --
 \N
+
+-- !insert7 --
+{"a":200}
 

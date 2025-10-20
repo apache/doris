@@ -296,10 +296,13 @@ private:
     WrappedPtr serialized_sparse_column = ColumnMap::create(
             ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
 
+    // if `_max_subcolumns_count == 0`, all subcolumns are materialized.
     int32_t _max_subcolumns_count = 0;
 
+    // subcolumns count materialized from typed paths
     size_t typed_path_count = 0;
 
+    // subcolumns count materialized from nested paths
     size_t nested_path_count = 0;
 
 public:
@@ -339,7 +342,7 @@ public:
     Status serialize_sparse_columns(std::map<std::string_view, Subcolumn>&& remaing_subcolumns);
 
     // ensure root node is a certain type
-    void ensure_root_node_type(const DataTypePtr& type);
+    void ensure_root_node_type(const DataTypePtr& type) const;
 
     // create root with type and column if missing
     void create_root(const DataTypePtr& type, MutableColumnPtr&& column);
@@ -487,7 +490,7 @@ public:
     template <typename Func>
     MutableColumnPtr apply_for_columns(Func&& func) const;
 
-    bool empty() const;
+    bool only_have_default_values() const;
 
     // Check if all columns and types are aligned, only in debug mode
     Status sanitize() const;
@@ -583,6 +586,24 @@ public:
     }
 
     void clear_subcolumns_data();
+
+    // Returns how many dynamic subcolumns are still allowed to be appended,
+    // The remaining quota is `max - current`.
+    size_t can_add_subcolumns_count() const {
+        // When `_max_subcolumns_count == 0`, appending dynamic subcolumns is disabled.
+        // In this case, all subcolumns are materialized.
+        if (_max_subcolumns_count == 0) {
+            return 0;
+        }
+
+        // `current_subcolumns_count` excludes:
+        //   1) subcolumns materialized from typed paths (`typed_path_count`),
+        //   2) subcolumns materialized from nested paths (`nested_path_count`),
+        //   3) the implicit root holder node in `subcolumns` (hence the `- 1`).
+        size_t current_subcolumns_count =
+                subcolumns.size() - typed_path_count - nested_path_count - 1;
+        return _max_subcolumns_count - current_subcolumns_count;
+    }
 
 private:
     // May throw execption

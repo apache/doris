@@ -62,7 +62,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         HMS,
         ES,
         AZURE,
-        LLM;
+        AI;
 
         public static ResourceType fromString(String resourceType) {
             for (ResourceType type : ResourceType.values()) {
@@ -193,8 +193,8 @@ public abstract class Resource implements Writable, GsonPostProcessable {
             case ES:
                 resource = new EsResource(name);
                 break;
-            case LLM:
-                resource = new LLMResource(name);
+            case AI:
+                resource = new AIResource(name);
                 break;
             default:
                 throw new DdlException("Unknown resource type: " + type);

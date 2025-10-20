@@ -73,7 +73,7 @@ public:
 
     OlapScanner(pipeline::ScanLocalStateBase* parent, Params&& params);
 
-    Status init() override;
+    Status prepare() override;
 
     Status open(RuntimeState* state) override;
 
@@ -101,6 +101,9 @@ private:
     TabletReader::ReaderParams _tablet_reader_params;
     std::unique_ptr<TabletReader> _tablet_reader;
 
+    int64_t _bytes_read_from_local = 0;
+    int64_t _bytes_read_from_remote = 0;
+
 public:
     std::vector<ColumnId> _return_columns;
 
@@ -118,6 +121,10 @@ public:
     // The idx of vir_col in block to its data type.
     std::map<size_t, vectorized::DataTypePtr> _vir_col_idx_to_type;
     std::shared_ptr<vectorized::ScoreRuntime> _score_runtime;
+
+    std::shared_ptr<segment_v2::AnnTopNRuntime> _ann_topn_runtime;
+
+    VectorSearchUserParams _vector_search_params;
 };
 } // namespace vectorized
 } // namespace doris

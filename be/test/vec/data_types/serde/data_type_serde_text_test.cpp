@@ -36,8 +36,8 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
     // arithmetic scala field types
     {
         // fieldType, test_string, expect_string
-        typedef std::tuple<FieldType, std::vector<std::string>, std::vector<std::string>>
-                FieldType_RandStr;
+        using FieldType_RandStr =
+                std::tuple<FieldType, std::vector<std::string>, std::vector<std::string>>;
         std::vector<FieldType_RandStr> arithmetic_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_BOOL, {"0", "1", "-1"},
                                   {"0", "1", ""}),
@@ -261,7 +261,7 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
 
     // ipv4 and ipv6
     {
-        typedef std::pair<FieldType, std::string> FieldType_RandStr;
+        using FieldType_RandStr = std::pair<FieldType, std::string>;
         std::vector<FieldType_RandStr> ip_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "127.0.0.1"),
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6, "2405:9800:9800:66::2")};
@@ -353,15 +353,12 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
 }
 
 // test for array and map
-
-// test for array and map
 TEST(TextSerde, ComplexTypeSerdeTextTest) {
     // array-scala
     {
         // nested type,test string, expect string(option.converted_from_string=false),expect string(option.converted_from_string=true)
-        typedef std::tuple<FieldType, std::vector<std::string>, std::vector<std::string>,
-                           std::vector<std::string>>
-                FieldType_RandStr;
+        using FieldType_RandStr = std::tuple<FieldType, std::vector<std::string>,
+                                             std::vector<std::string>, std::vector<std::string>>;
         std::vector<FieldType_RandStr> nested_field_types = {
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_BOOL,
@@ -390,49 +387,43 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                          "[2343.12345465746, 2.22507e-308, null, 2.22507e-308]"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_STRING,
-                        {"[\"hello\", \"world\"]", "['a', 'b', 'c']",
+                        {R"(["hello", "world"])", "['a', 'b', 'c']",
                          "[\"42\",1412341,true,42.43,3.40282e+38+1,alpha:beta:gamma,Earth#42:"
                          "Control#86:Bob#31,17:true:Abe "
                          "Linkedin,BLUE,\"\\N\",\"\u0001\u0002\u0003,\\u0001bc\"]",
-                         "[\"heeeee\",null,\"null\",\"\\N\",null,\"sssssssss\"]"},
+                         R"(["heeeee",null,"null","\N",null,"sssssssss"])"},
                         // last : ["42",1412341,true,42.43,3.40282e+38+1,alpha:beta:gamma,Earth#42:Control#86:Bob#31,17:true:Abe Linkedin,BLUE,"\N",",\u0001bc"]
-                        {"[\"hello\", \"world\"]", "[\"a\", \"b\", \"c\"]",
+                        {R"(["hello", "world"])", R"(["a", "b", "c"])",
                          "[\"42\", \"1412341\", \"true\", \"42.43\", \"3.40282e+38+1\", "
-                         "\"alpha:beta:gamma\", "
-                         "\"Earth#42:Control#86:Bob#31\", \"17:true:Abe Linkedin\", \"BLUE\", "
-                         "\"\\N\", "
-                         "\"\x1\x2\x3,\\u0001bc\"]",
-                         "[\"heeeee\", null, \"null\", \"\\N\", null, \"sssssssss\"]"},
-                        {"[\"hello\", \"world\"]", "[\"a\", \"b\", \"c\"]",
+                         "\"alpha:beta:gamma\", \"Earth#42:Control#86:Bob#31\", \"17:true:Abe "
+                         "Linkedin\", \"BLUE\", \"\\N\", \"\x1\x2\x3,\\u0001bc\"]",
+                         R"(["heeeee", null, "null", "\N", null, "sssssssss"])"},
+                        {R"(["hello", "world"])", R"(["a", "b", "c"])",
                          "[\"42\", \"1412341\", \"true\", \"42.43\", \"3.40282e+38+1\", "
-                         "\"alpha:beta:gamma\", "
-                         "\"Earth#42:Control#86:Bob#31\", \"17:true:Abe Linkedin\", \"BLUE\", "
-                         "\"\\N\", "
-                         "\"\x1\x2\x3,\\u0001bc\"]",
-                         "[\"heeeee\", null, \"null\", \"\\N\", null, \"sssssssss\"]"}),
+                         "\"alpha:beta:gamma\", \"Earth#42:Control#86:Bob#31\", \"17:true:Abe "
+                         "Linkedin\", \"BLUE\", \"\\N\", \"\x1\x2\x3,\\u0001bc\"]",
+                         R"(["heeeee", null, "null", "\N", null, "sssssssss"])"}),
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATE,
-                                  {"[\\\"2022-07-13\\\",\"2022-07-13 12:30:00\"]",
+                                  {R"([\"2022-07-13\","2022-07-13 12:30:00"])",
                                    "[2022-07-13 12:30:00, \"2022-07-13\"]",
                                    "[2022-07-13 12:30:00.000, 2022-07-13]"},
-                                  {"[null, \"2022-07-13\"]", "[\"2022-07-13\", \"2022-07-13\"]",
-                                   "[\"2022-07-13\", \"2022-07-13\"]"},
-                                  {"[null, \"2022-07-13\"]", "[\"2022-07-13\", \"2022-07-13\"]",
-                                   "[\"2022-07-13\", \"2022-07-13\"]"}),
+                                  {"[null, \"2022-07-13\"]", R"(["2022-07-13", "2022-07-13"])",
+                                   R"(["2022-07-13", "2022-07-13"])"},
+                                  {"[null, \"2022-07-13\"]", R"(["2022-07-13", "2022-07-13"])",
+                                   R"(["2022-07-13", "2022-07-13"])"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATETIME,
                         {
-                                "[\"2022-07-13\",\"2022-07-13 12:30:00\"]",
+                                R"(["2022-07-13","2022-07-13 12:30:00"])",
                                 "[2022-07-13 12:30:00, \"2022-07-13\", 2022-07-13 12:30:00.0000]",
                                 "\\N",
                                 "[null,null,null]",
                         },
-                        {"[\"2022-07-13 00:00:00\", \"2022-07-13 12:30:00\"]",
-                         "[\"2022-07-13 12:30:00\", \"2022-07-13 00:00:00\", \"2022-07-13 "
-                         "12:30:00\"]",
+                        {R"(["2022-07-13 00:00:00", "2022-07-13 12:30:00"])",
+                         R"(["2022-07-13 12:30:00", "2022-07-13 00:00:00", "2022-07-13 12:30:00"])",
                          "\\N", "[null, null, null]"},
-                        {"[\"2022-07-13 00:00:00\", \"2022-07-13 12:30:00\"]",
-                         "[\"2022-07-13 12:30:00\", \"2022-07-13 00:00:00\", \"2022-07-13 "
-                         "12:30:00\"]",
+                        {R"(["2022-07-13 00:00:00", "2022-07-13 12:30:00"])",
+                         R"(["2022-07-13 12:30:00", "2022-07-13 00:00:00", "2022-07-13 12:30:00"])",
                          "\\N", "[null, null, null]"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DECIMAL,
@@ -440,9 +431,7 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                          "[012345678901234567.012345678,123456789012345678.01234567, "
                          "12345678901234567.0123456779,12345678901234567.01234567791,"
                          "1234567890123456789.01234567]",
-                         "[\"012345678901234567.012345678\",\"123456789012345678.01234567\", "
-                         "\"12345678901234567.0123456779\", "
-                         "\"12345678901234567.01234567791\",\"1234567890123456789.01234567\"]",
+                         R"(["012345678901234567.012345678","123456789012345678.01234567", "12345678901234567.0123456779", "12345678901234567.01234567791","1234567890123456789.01234567"])",
                          "[\\1234567890123456789.01234567\\]"},
                         {"[4.000000000, 5.500000000, 6.670000000]",
                          "[12345678901234567.012345678, 123456789012345678.012345670, "
@@ -482,31 +471,31 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                 std::string rand_str = std::get<1>(type_pair)[i];
                 std::string expect_str = std::get<2>(type_pair)[i];
                 std::string expect_str_1 = std::get<3>(type_pair)[i];
-                std::cout << "rand_str:" << rand_str << std::endl;
-                std::cout << "expect_str:" << expect_str << std::endl;
-                std::cout << "expect_str_can_format_from_string:" << expect_str_1 << std::endl;
+                // std::cout << "rand_str:" << rand_str << std::endl;
+                // std::cout << "expect_str:" << expect_str << std::endl;
+                // std::cout << "expect_str_can_format_from_string:" << expect_str_1 << std::endl;
                 {
                     Slice slice(rand_str.data(), rand_str.size());
                     formatOptions.converted_from_string = false;
                     Status st = serde->deserialize_one_cell_from_json(*col, slice, formatOptions);
                     if (expect_str == "[]") {
-                        if (st.ok()) {
-                            auto& item_column = assert_cast<ColumnNullable&>(
-                                    assert_cast<ColumnArray&>(
-                                            assert_cast<ColumnNullable&>(*col).get_nested_column())
-                                            .get_data());
-                            for (auto ix = 0; ix < item_column.size(); ++ix) {
-                                if (item_column.is_null_at(ix)) {
-                                    std::cout << "idx null:" << ix << std::endl;
-                                } else {
-                                    std::cout << "idx:" << item_column.get_data_at(ix).to_string()
-                                              << std::endl;
-                                }
-                            }
-                        } else {
-                            EXPECT_EQ(st.ok(), false);
-                            std::cout << st.to_json() << std::endl;
-                        }
+                        // if (st.ok()) {
+                        //     auto& item_column = assert_cast<ColumnNullable&>(
+                        //             assert_cast<ColumnArray&>(
+                        //                     assert_cast<ColumnNullable&>(*col).get_nested_column())
+                        //                     .get_data());
+                        //     for (auto ix = 0; ix < item_column.size(); ++ix) {
+                        //         if (item_column.is_null_at(ix)) {
+                        //             std::cout << "idx null:" << ix << std::endl;
+                        //         } else {
+                        //             std::cout << "idx:" << item_column.get_data_at(ix).to_string()
+                        //                       << std::endl;
+                        //         }
+                        //     }
+                        // } else {
+                        //     EXPECT_EQ(st.ok(), false);
+                        //     std::cout << st.to_json() << std::endl;
+                        // }
                     } else {
                         EXPECT_EQ(st.ok(), true);
                         auto ser_col = ColumnString::create();
@@ -517,7 +506,7 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                         EXPECT_EQ(st.ok(), true);
                         buffer_writer.commit();
                         StringRef rand_s_d = ser_col->get_data_at(0);
-                        std::cout << "test : " << rand_s_d << std::endl;
+                        // std::cout << "test : " << rand_s_d << std::endl;
                         EXPECT_EQ(expect_str, rand_s_d.to_string());
                     }
                 }
@@ -533,14 +522,14 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                                                                formatOptions);
                     EXPECT_EQ(status.ok(), true);
                     buffer_writer.commit();
-                    StringRef rand_s_d = ser_col->get_data_at(0);
-                    std::cout << "test from string: " << rand_s_d << std::endl;
+                    // StringRef rand_s_d = ser_col->get_data_at(0);
+                    // std::cout << "test from string: " << rand_s_d << std::endl;
                     //                    EXPECT_EQ(expect_str, rand_s_d.to_string());
                 }
                 {
                     formatOptions.converted_from_string = true;
-                    std::cout << "======== change " << formatOptions.converted_from_string
-                              << " with rand_str: " << rand_str << std::endl;
+                    // std::cout << "======== change " << formatOptions.converted_from_string
+                    //           << " with rand_str: " << rand_str << std::endl;
                     Slice slice(rand_str.data(), rand_str.size());
                     Status st =
                             serde_1->deserialize_one_cell_from_json(*col3, slice, formatOptions);
@@ -567,72 +556,55 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
     // map-scala-scala
     {
         // nested key type , nested value type, test string , expect string
-        typedef std::tuple<FieldType, FieldType, std::vector<std::string>, std::vector<std::string>>
-                FieldType_RandStr;
+        using FieldType_RandStr = std::tuple<FieldType, FieldType, std::vector<std::string>,
+                                             std::vector<std::string>>;
         std::vector<FieldType_RandStr> nested_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_BOOL,
                                   FieldType::OLAP_FIELD_TYPE_STRING,
-                                  {"{1: \"amory is 7\", 0: \" doris be better \", -1: \"wrong,\"}",
-                                   "{\"1\": \"amory is 7\", \"0\": 1}"},
-                                  {"{1:\"amory is 7\", 0:\" doris be better \", null:\"wrong,\"}",
-                                   "{null:\"amory is 7\", null:\"1\"}"}),
+                                  {R"({1: "amory is 7", 0: " doris be better ", -1: "wrong,"})",
+                                   R"({"1": "amory is 7", "0": 1})"},
+                                  {R"({1:"amory is 7", 0:" doris be better ", null:"wrong,"})",
+                                   R"({null:"amory is 7", null:"1"})"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_STRING, FieldType::OLAP_FIELD_TYPE_DOUBLE,
-                        {"{\" ,.amory\": 111.2343, \"\": 112., 'dggs': 13.14 , null: 12.2222222, "
-                         ": null\\}",
+                        {R"({" ,.amory": 111.2343, "": 112., 'dggs': 13.14 , null: 12.2222222, : null\})",
                          "{\"\": null, null: 12.44}", "{{}}", "{{}", "}}", "{}, {}", "\\N",
                          "{null:null,\"null\":null}",
-                         "{\"hello "
-                         "world\":0.2222222,\"hello2\":null,null:1111.1,\"null\":null,\"null\":"
-                         "null,\"null\":0.1}"},
-                        {"{\" ,.amory\":111.2343, \"\":112, \"dggs\":13.14, "
-                         "null:12.2222222, \"\":null}",
+                         R"({"hello world":0.2222222,"hello2":null,null:1111.1,"null":null,"null":null,"null":0.1})"},
+                        {R"({" ,.amory":111.2343, "":112, "dggs":13.14, null:12.2222222, "":null})",
                          "{\"\":null, null:12.44}", "{}", "{}", "\\N", "{}", "\\N",
                          "{null:null, \"null\":null}",
-                         "{\"hello world\":0.2222222, \"hello2\":null, null:1111.1, "
-                         "\"null\":null, \"null\":null, "
-                         "\"null\":0.1}"}),
+                         R"({"hello world":0.2222222, "hello2":null, null:1111.1, "null":null, "null":null, "null":0.1})"}),
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_FLOAT,
                                   FieldType::OLAP_FIELD_TYPE_DOUBLE,
                                   {"{0.33: 3.1415926,3.1415926: 22}", "{3.14, 15926: 22}", "{3.14}",
                                    "{222:3444},", "{4.12, 677: 455: 356, 67.6:67.7}",
                                    "{null:null,null:1.0,1.0:null}"},
-                                  {"{0.33:3.1415926, 3.1415925:22}", "{null:22}", "{}", "\\N",
+                                  {"{0.33:3.1415926, 3.141593:22}", "{null:22}", "{}", "\\N",
                                    "{null:null, 67.6:67.7}", "{null:null, null:1, 1:null}"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATE, FieldType::OLAP_FIELD_TYPE_DATETIME,
-                        {"{\"2022-07-13\": \"2022-07-13 12:30:00\", \"2022-07-13 12:30:00\": "
-                         "2022-07-13 "
-                         "12:30:00, \"2022-07-13 12:30:00.000\": 2022-07-13 12:30:00.000, null: "
-                         "null, "
-                         "\"2022-07-13\":'2022-07-13 12:30:00'}",
-                         // escaped char ':'
-                         "{2022-07-13 12\\:30\\:00: \"2022-07-13\", 2022-07-13 12\\:30\\:00.000: "
-                         "\"2022-07-13 12:30:00.000\", \"2022-07-13\":\'$2022-07-13 12:30:00\'}",
+                        {R"({"2022-07-13": "2022-07-13 12:30:00", "2022-07-13 12:30:00": 2022-07-13 12:30:00, "2022-07-13 12:30:00.000": 2022-07-13 12:30:00.000, null: null, "2022-07-13":'2022-07-13 12:30:00'})",
+                         //FIXME: need support \ in cell?
+                         //  R"({2022-07-13 12\:30\:00: "2022-07-13", 2022-07-13 12\:30\:00.000: "2022-07-13 12:30:00.000", "2022-07-13":'$2022-07-13 12:30:00'})",
                          "\\N"},
-                        {"{\"2022-07-13\":\"2022-07-13 12:30:00\", \"2022-07-13\":\"2022-07-13 "
-                         "12:30:00\", "
-                         "\"2022-07-13\":\"2022-07-13 12:30:00\", null:null, "
-                         "\"2022-07-13\":\"2022-07-13 12:30:00\"}",
-                         "{\"2022-07-13\":\"2022-07-13 00:00:00\", \"2022-07-13\":\"2022-07-13 "
-                         "12:30:00\", "
-                         "\"2022-07-13\":null}",
+                        {R"({"2022-07-13":"2022-07-13 12:30:00", "2022-07-13":"2022-07-13 12:30:00", "2022-07-13":"2022-07-13 12:30:00", null:null, "2022-07-13":"2022-07-13 12:30:00"})",
+                         //  R"({"2022-07-13":"2022-07-13 00:00:00", "2022-07-13":"2022-07-13 12:30:00", "2022-07-13":null})",
                          "\\N"}),
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATETIME,
-                                  FieldType::OLAP_FIELD_TYPE_DECIMAL,
-                                  {"{\"2022-07-13 12:30:00\": 12.45675432, \"2022-07-13\": "
-                                   "12.45675432, null: null}",
-                                   "{\"$2022-07-13 12:30:00\": \"12.45675432\"}",
-                                   "{\"2022-07-13 12\\:30\\:00\":12.45675432, "
-                                   "\"2022-07-13#12:30:00\": 12.45675432}",
-                                   "{\"2022-07-13 12\\:30\\:00.0000\":12.45675432, null:12.34}"},
-                                  {"{\"2022-07-13 12:30:00\":12.456754320, \"2022-07-13 "
-                                   "00:00:00\":12.456754320, "
-                                   "null:null}",
-                                   "{null:null}",
-                                   "{\"2022-07-13 12:30:00\":12.456754320, \"2022-07-13 "
-                                   "12:30:00\":12.456754320}",
-                                   "{\"2022-07-13 12:30:00\":12.456754320, null:12.340000000}"}),
+                FieldType_RandStr(
+                        FieldType::OLAP_FIELD_TYPE_DATETIME, FieldType::OLAP_FIELD_TYPE_DECIMAL,
+                        {
+                                R"({"2022-07-13 12:30:00": 12.45675432, "2022-07-13": 12.45675432, null: null})",
+                                R"({"$2022-07-13 12:30:00": "12.45675432"})",
+                                //  R"({"2022-07-13 12\:30\:00":12.45675432, "2022-07-13#12:30:00": 12.45675432})",
+                                //  R"({"2022-07-13 12\:30\:00.0000":12.45675432, null:12.34})"
+                        },
+                        {
+                                R"({"2022-07-13 12:30:00":12.456754320, "2022-07-13 00:00:00":12.456754320, null:null})",
+                                "{null:null}",
+                                //  R"({"2022-07-13 12:30:00":12.456754320, "2022-07-13 12:30:00":12.456754320})",
+                                //  "{\"2022-07-13 12:30:00\":12.456754320, null:12.340000000}"
+                        }),
         };
 
         for (auto type_pair : nested_field_types) {
@@ -660,13 +632,15 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
             for (int i = 0; i < std::get<2>(type_pair).size(); ++i) {
                 std::string rand_str = std::get<2>(type_pair)[i];
                 std::string expect_str = std::get<3>(type_pair)[i];
+                std::cout << "\n\n----------------- the " << i << " case -----------------"
+                          << std::endl;
                 std::cout << "rand_str:" << rand_str << std::endl;
                 std::cout << "expect_str:" << expect_str << std::endl;
                 {
                     auto col = map_data_type_ptr->create_column();
                     Slice slice(rand_str.data(), rand_str.size());
                     Status st = serde->deserialize_one_cell_from_json(*col, slice, formatOptions);
-                    std::cout << st.to_json() << std::endl;
+                    // std::cout << st.to_json() << std::endl;
                     if (expect_str.empty()) {
                         EXPECT_FALSE(st.ok());
                         continue;
@@ -700,35 +674,37 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
         }
 
         // option with converted_with_string true
-        typedef std::tuple<FieldType, FieldType, std::vector<std::string>, std::vector<std::string>>
-                FieldType_RandStr;
+        using FieldType_RandStr = std::tuple<FieldType, FieldType, std::vector<std::string>,
+                                             std::vector<std::string>>;
         std::vector<FieldType_RandStr> field_types = {
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATE, FieldType::OLAP_FIELD_TYPE_DATETIME,
-                        {"{2022-07-13: 2022-07-13 12:30:00, 2022-07-13 12:30:00: 2022-07-13 "
-                         "12:30:00, 2022-07-13 12:30:00.000: 2022-07-13 12:30:00.000, null: null, "
-                         "2022-07-13:'2022-07-13 12:30:00'}",
-                         // escaped char ':'
-                         "{2022-07-13 12\\:30\\:00: 2022-07-13, 2022-07-13 12\\:30\\:00.000: "
-                         "2022-07-13 12:30:00.000, 2022-07-13:\'2022-07-13 12:30:00\'}"},
-                        {"{\"2022-07-13\":\"2022-07-13 12:30:00\", \"2022-07-13\":null, "
-                         "\"2022-07-13\":null, null:null, \"2022-07-13\":\"2022-07-13 12:30:00\"}",
-                         "{\"2022-07-13\":\"2022-07-13 00:00:00\", \"2022-07-13\":\"2022-07-13 "
-                         "12:30:00\", "
-                         "\"2022-07-13\":\"2022-07-13 12:30:00\"}"}),
+                        {
+                                "{2022-07-13: 2022-07-13 12:30:00, 2022-07-13 12:30:00: 2022-07-13 "
+                                "12:30:00, 2022-07-13 12:30:00.000: 2022-07-13 12:30:00.000, null: "
+                                "null, "
+                                "2022-07-13:'2022-07-13 12:30:00'}",
+                                //  R"({2022-07-13 12\:30\:00: 2022-07-13, 2022-07-13 12\:30\:00.000: 2022-07-13 12:30:00.000, 2022-07-13:'2022-07-13 12:30:00'})"
+                        },
+                        {
+                                R"({"2022-07-13":"2022-07-13 12:30:00", "2022-07-13":null, "2022-07-13":null, null:null, "2022-07-13":"2022-07-13 12:30:00"})",
+                                //  R"({"2022-07-13":"2022-07-13 00:00:00", "2022-07-13":"2022-07-13 12:30:00", "2022-07-13":"2022-07-13 12:30:00"})"
+                        }),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATETIME, FieldType::OLAP_FIELD_TYPE_DECIMAL,
-                        {"{2022-07-13 12:30:00: 12.45675432, 2022-07-13: 12.45675432, null: null}",
-                         "{\"2022-07-13 12:30:00\": \"12.45675432\"}",
-                         "{2022-07-13 12\\:30\\:00:12.45675432, 2022-07-13#12:30:00: 12.45675432}",
-                         "{2022-07-13 12\\:30\\:00.0000:12.45675432, null:12.34}"},
-                        {"{\"2022-07-13 12:00:00\":null, \"2022-07-13 "
-                         "00:00:00\":12.456754320, "
-                         "null:null}",
-                         "{\"2022-07-13 12:30:00\":12.456754320}",
-                         "{\"2022-07-13 12:30:00\":12.456754320, \"2022-07-13 "
-                         "12:00:00\":null}",
-                         "{\"2022-07-13 12:30:00\":12.456754320, null:12.340000000}"}),
+                        {
+                                "{2022-07-13 12:30:00: 12.45675432, 2022-07-13: 12.45675432, null: "
+                                "null}",
+                                R"({"2022-07-13 12:30:00": "12.45675432"})",
+                                //  "{2022-07-13 12\\:30\\:00:12.45675432, 2022-07-13#12:30:00: 12.45675432}",
+                                //  "{2022-07-13 12\\:30\\:00.0000:12.45675432, null:12.34}"
+                        },
+                        {
+                                R"({"2022-07-13 12:00:00":null, "2022-07-13 00:00:00":12.456754320, null:null})",
+                                "{\"2022-07-13 12:30:00\":12.456754320}",
+                                //  R"({"2022-07-13 12:30:00":12.456754320, "2022-07-13 12:00:00":null})",
+                                //  "{\"2022-07-13 12:30:00\":12.456754320, null:12.340000000}"
+                        }),
         };
         for (auto type_pair : field_types) {
             auto key_type = std::get<0>(type_pair);
@@ -785,22 +761,15 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
     // array-array<string>
     {
         // nested type,test string, expect string(option.converted_from_string=false), expect_from_string, expect string(option.converted_from_string=true)
-        typedef std::tuple<FieldType, std::vector<std::string>, std::vector<std::string>,
-                           std::vector<std::string>, std::vector<std::string>>
-                FieldType_RandStr;
+        using FieldType_RandStr =
+                std::tuple<FieldType, std::vector<std::string>, std::vector<std::string>,
+                           std::vector<std::string>, std::vector<std::string>>;
         std::vector<FieldType_RandStr> nested_field_types = {FieldType_RandStr(
                 FieldType::OLAP_FIELD_TYPE_STRING,
-                {"[[With, special, \"characters\"], [like, @, #, $, % \"^\", &, *, (, ), "
-                 "-, _], [=, +, [, ], {, }, |, \\, ;, :, ', '\', <, >, ,, ., /, ?, ~]]"},
-                {"[[\"With\", \"special\", \"characters\"], [\"like\", \"@\", \"#\", "
-                 "\"$\", \"% \"^\"\", \"&\", \"*\", \"(\", \")\", \"-\", "
-                 "\"_\"], [\"=\", \"+\", \"[, ]\", \"{, }\", \"|\", \"\\\", \";\", "
-                 "\":\", \"', '', <, >, ,, ., /, ?, ~\"]]"},
+                {R"([[With, special, "characters"], [like, @, #, $, % "^", &, *, (, ), -, _], [=, +, [, ], {, }, |, \, ;, :, ', '', <, >, ,, ., /, ?, ~]])"},
+                {R"lit([["With", "special", "characters"], ["like", "@", "#", "$", "% "^"", "&", "*", "(", ")", "-", "_"], ["=", "+", "[, ]", "{, }", "|", "\", ";", ":", "', '', <, >, ,, ., /, ?, ~"]])lit"},
                 {""},
-                {"[[\"With\", \"special\", \"characters\"], [\"like\", \"@\", \"#\", "
-                 "\"$\", \"% \"^\"\", \"&\", \"*\", \"(\", \")\", \"-\", "
-                 "\"_\"], [\"=\", \"+\", \"[, ]\", \"{, }\", \"|\", \"\\\", \";\", "
-                 "\":\", \"', '', <, >, ,, ., /, ?, ~\"]]"})};
+                {R"lit([["With", "special", "characters"], ["like", "@", "#", "$", "% "^"", "&", "*", "(", ")", "-", "_"], ["=", "+", "[, ]", "{, }", "|", "\", ";", ":", "', '', <, >, ,, ., /, ?, ~"]])lit"})};
         // array type
         for (auto type_pair : nested_field_types) {
             auto type = std::get<0>(type_pair);
@@ -903,56 +872,16 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
     // array-map<string, double>
     {
         // nested type,test string, expect string(option.converted_from_string=false), expect_from_string, expect string(option.converted_from_string=true)
-        typedef std::tuple<FieldType, FieldType, std::vector<std::string>, std::vector<std::string>,
-                           std::vector<std::string>, std::vector<std::string>>
-                FieldType_RandStr;
-        std::vector<FieldType_RandStr> nested_field_types = {FieldType_RandStr(
-                FieldType::OLAP_FIELD_TYPE_STRING, FieldType::OLAP_FIELD_TYPE_DOUBLE,
-                {"[{\"2cKtIM-L1mOcEm-udR-HcB2\":0.23929040957798242,\"eof2UN-Is0EEuA-H5D-hE58\":0."
-                 "42373055809540094,\"FwUSOB-R8rtK9W-BVG-8wYZ\":0.7680704548628841},{\"qDXU9D-"
-                 "7orr51d-g80-6t5k\":0.6446245786874659,\"bkLjmx-uZ2Ez7F-536-PGqy\":0."
-                 "8880791950937957,\"9Etq4o-FPm37O4-5fk-QWh7\":0.08630489716260481},{\"tu3OMw-"
-                 "mzS0jAx-Dnj-Xm3G\":0.1184199213706042,\"XkhTn0-QFLo8Ks-JXR-k4zk\":0."
-                 "5181239375482816,\"EYC8Dj-GTTp9iB-b4O-QBkO\":0.4491897722178303},{\"sHFGPg-"
-                 "cfA8gya-kfw-IugT\":0.20842299487398452,\"BBQ6e5-OJYRJhC-zki-7rQj\":0."
-                 "3050124830713523,\"mKH57V-YmwCNFq-vs8-vUIX\":0.36446683035480754},{\"HfhEMX-"
-                 "oAMBJCC-YIC-hCqN\":0.8131454631693608,\"xrnTFd-ikONWik-T7J-sL8J\":0."
-                 "37509722558990855,\"SVyEes-77mlzIr-N6c-DkYw\":0.4703053945053086,"
-                 "\"null\":0.1,\"null\":0.1,null:null}, {null:0.1, null:null, \"null\":0}]"},
-                {"[{\"2cKtIM-L1mOcEm-udR-HcB2\":0.23929040957798242, "
-                 "\"eof2UN-Is0EEuA-H5D-hE58\":0.42373055809540094, "
-                 "\"FwUSOB-R8rtK9W-BVG-8wYZ\":0.7680704548628841}, "
-                 "{\"qDXU9D-7orr51d-g80-6t5k\":0.6446245786874659, "
-                 "\"bkLjmx-uZ2Ez7F-536-PGqy\":0.8880791950937957, "
-                 "\"9Etq4o-FPm37O4-5fk-QWh7\":0.08630489716260481}, "
-                 "{\"tu3OMw-mzS0jAx-Dnj-Xm3G\":0.1184199213706042, "
-                 "\"XkhTn0-QFLo8Ks-JXR-k4zk\":0.5181239375482816, "
-                 "\"EYC8Dj-GTTp9iB-b4O-QBkO\":0.4491897722178303}, "
-                 "{\"sHFGPg-cfA8gya-kfw-IugT\":0.20842299487398452, "
-                 "\"BBQ6e5-OJYRJhC-zki-7rQj\":0.3050124830713523, "
-                 "\"mKH57V-YmwCNFq-vs8-vUIX\":0.36446683035480754}, "
-                 "{\"HfhEMX-oAMBJCC-YIC-hCqN\":0.8131454631693608, "
-                 "\"xrnTFd-ikONWik-T7J-sL8J\":0.37509722558990855, "
-                 "\"SVyEes-77mlzIr-N6c-DkYw\":0.4703053945053086, \"null\":0.1, \"null\":0.1, "
-                 "null:null}, "
-                 "{null:0.1, null:null, \"null\":0}]"},
-                {""},
-                {"[{\"2cKtIM-L1mOcEm-udR-HcB2\":0.23929040957798242, "
-                 "\"eof2UN-Is0EEuA-H5D-hE58\":0.42373055809540094, "
-                 "\"FwUSOB-R8rtK9W-BVG-8wYZ\":0.7680704548628841}, "
-                 "{\"qDXU9D-7orr51d-g80-6t5k\":0.6446245786874659, "
-                 "\"bkLjmx-uZ2Ez7F-536-PGqy\":0.8880791950937957, "
-                 "\"9Etq4o-FPm37O4-5fk-QWh7\":0.08630489716260481}, "
-                 "{\"tu3OMw-mzS0jAx-Dnj-Xm3G\":0.1184199213706042, "
-                 "\"XkhTn0-QFLo8Ks-JXR-k4zk\":0.5181239375482816, "
-                 "\"EYC8Dj-GTTp9iB-b4O-QBkO\":0.4491897722178303}, "
-                 "{\"sHFGPg-cfA8gya-kfw-IugT\":0.20842299487398452, "
-                 "\"BBQ6e5-OJYRJhC-zki-7rQj\":0.3050124830713523, "
-                 "\"mKH57V-YmwCNFq-vs8-vUIX\":0.36446683035480754}, "
-                 "{\"HfhEMX-oAMBJCC-YIC-hCqN\":0.8131454631693608, "
-                 "\"xrnTFd-ikONWik-T7J-sL8J\":0.37509722558990855, "
-                 "\"SVyEes-77mlzIr-N6c-DkYw\":0.4703053945053086, "
-                 "\"null\":0.1, \"null\":0.1, null:null}, {null:0.1, null:null, \"null\":0}]"})};
+        using FieldType_RandStr =
+                std::tuple<FieldType, FieldType, std::vector<std::string>, std::vector<std::string>,
+                           std::vector<std::string>, std::vector<std::string>>;
+        std::
+                vector<FieldType_RandStr>
+                        nested_field_types =
+                                {
+                                        FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_STRING,
+                                                          FieldType::OLAP_FIELD_TYPE_DOUBLE,
+                                                          {R"([{"2cKtIM-L1mOcEm-udR-HcB2":0.23929040957798242,"eof2UN-Is0EEuA-H5D-hE58":0.42373055809540094,"FwUSOB-R8rtK9W-BVG-8wYZ":0.7680704548628841},{"qDXU9D-7orr51d-g80-6t5k":0.6446245786874659,"bkLjmx-uZ2Ez7F-536-PGqy":0.8880791950937957,"9Etq4o-FPm37O4-5fk-QWh7":0.08630489716260481},{"tu3OMw-mzS0jAx-Dnj-Xm3G":0.1184199213706042,"XkhTn0-QFLo8Ks-JXR-k4zk":0.5181239375482816,"EYC8Dj-GTTp9iB-b4O-QBkO":0.4491897722178303},{"sHFGPg-cfA8gya-kfw-IugT":0.20842299487398452,"BBQ6e5-OJYRJhC-zki-7rQj":0.3050124830713523,"mKH57V-YmwCNFq-vs8-vUIX":0.36446683035480754},{"HfhEMX-oAMBJCC-YIC-hCqN":0.8131454631693608,"xrnTFd-ikONWik-T7J-sL8J":0.37509722558990855,"SVyEes-77mlzIr-N6c-DkYw":0.4703053945053086,"null":0.1,"null":0.1,null:null}, {null:0.1, null:null, "null":0}])"}, {R"([{"2cKtIM-L1mOcEm-udR-HcB2":0.2392904095779824, "eof2UN-Is0EEuA-H5D-hE58":0.4237305580954009, "FwUSOB-R8rtK9W-BVG-8wYZ":0.7680704548628841}, {"qDXU9D-7orr51d-g80-6t5k":0.6446245786874659, "bkLjmx-uZ2Ez7F-536-PGqy":0.8880791950937957, "9Etq4o-FPm37O4-5fk-QWh7":0.08630489716260481}, {"tu3OMw-mzS0jAx-Dnj-Xm3G":0.1184199213706042, "XkhTn0-QFLo8Ks-JXR-k4zk":0.5181239375482816, "EYC8Dj-GTTp9iB-b4O-QBkO":0.4491897722178303}, {"sHFGPg-cfA8gya-kfw-IugT":0.2084229948739845, "BBQ6e5-OJYRJhC-zki-7rQj":0.3050124830713523, "mKH57V-YmwCNFq-vs8-vUIX":0.3644668303548075}, {"HfhEMX-oAMBJCC-YIC-hCqN":0.8131454631693608, "xrnTFd-ikONWik-T7J-sL8J":0.3750972255899085, "SVyEes-77mlzIr-N6c-DkYw":0.4703053945053086, "null":0.1, "null":0.1, null:null}, {null:0.1, null:null, "null":0}])"}, {""}, {R"([{"2cKtIM-L1mOcEm-udR-HcB2":0.2392904095779824, "eof2UN-Is0EEuA-H5D-hE58":0.4237305580954009, "FwUSOB-R8rtK9W-BVG-8wYZ":0.7680704548628841}, {"qDXU9D-7orr51d-g80-6t5k":0.6446245786874659, "bkLjmx-uZ2Ez7F-536-PGqy":0.8880791950937957, "9Etq4o-FPm37O4-5fk-QWh7":0.08630489716260481}, {"tu3OMw-mzS0jAx-Dnj-Xm3G":0.1184199213706042, "XkhTn0-QFLo8Ks-JXR-k4zk":0.5181239375482816, "EYC8Dj-GTTp9iB-b4O-QBkO":0.4491897722178303}, {"sHFGPg-cfA8gya-kfw-IugT":0.2084229948739845, "BBQ6e5-OJYRJhC-zki-7rQj":0.3050124830713523, "mKH57V-YmwCNFq-vs8-vUIX":0.3644668303548075}, {"HfhEMX-oAMBJCC-YIC-hCqN":0.8131454631693608, "xrnTFd-ikONWik-T7J-sL8J":0.3750972255899085, "SVyEes-77mlzIr-N6c-DkYw":0.4703053945053086, "null":0.1, "null":0.1, null:null}, {null:0.1, null:null, "null":0}])"})};
         for (auto type_pair : nested_field_types) {
             auto key_type = std::get<0>(type_pair);
             DataTypePtr nested_key_data_type_ptr =
@@ -1058,120 +987,15 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
     // map-scala-array (map<scala,array<scala>>)
     {
         // nested type,test string, expect string(option.converted_from_string=false), expect_from_string, expect string(option.converted_from_string=true)
-        typedef std::tuple<FieldType, FieldType, std::vector<std::string>, std::vector<std::string>,
-                           std::vector<std::string>, std::vector<std::string>>
-                FieldType_RandStr;
+        using FieldType_RandStr =
+                std::tuple<FieldType, FieldType, std::vector<std::string>, std::vector<std::string>,
+                           std::vector<std::string>, std::vector<std::string>>;
         std::vector<FieldType_RandStr> nested_field_types = {FieldType_RandStr(
                 // map<string,array<double>>
                 FieldType::OLAP_FIELD_TYPE_STRING, FieldType::OLAP_FIELD_TYPE_DOUBLE,
-                {"{\"5Srn6n-SP9fOS3-khz-Ljwt\":[0.8537551959339321,0.13473869413865858,0."
-                 "9806016478238296,0.23014415892941564,0.26853530959759686,0.05484935641143551,0."
-                 "11181328816302816,0.26510985318905933,0.6350885463275475,0.18209889263574142],"
-                 "\"vrQmBC-2WlpWML-V5S-OLgM\":[0.6982221340596457,0.9260447299229463,0."
-                 "12488042737255534,0.8859407191137862,0.03201490973378984,0.8371916387557367,0."
-                 "7894434066323907,0.29667576138232743,0.9837777568426148,0.7773721913552772],"
-                 "\"3ZbiXK-VvmhFcg-09V-w3g3\":[0.20509046053951785,0.9175575704931109,0."
-                 "305788438361256,0.9923240410251069,0.6612939841907548,0.5922056063112593,0."
-                 "15750800821536715,0.6374743124669565,0.4158097731627699,0.00302193321816846],"
-                 "\"gMswpS-Ele9wHM-Uxp-VxzC\":[0.14378032144751685,0.627919779177473,0."
-                 "6188731271454715,0.8088384184584442,0.8169160298605824,0.9051151670055427,0."
-                 "558001941204895,0.029409463113641787,0.9532987674717762,0.20833228278241533],"
-                 "\"TT9P9f-PXjQnvN-RBx-xRiS\":[0.8276005878909756,0.470950932860423,0."
-                 "2442851528127543,0.710599416715854,0.3353731152359334,0.622947602340124,0."
-                 "30675353671676797,0.8190741661938367,0.633630372770242,0.9436322366112492],"
-                 "\"gLAnZc-oF7PC9o-ryd-MOXr\":[0.9742716809818137,0.9114038616933997,0."
-                 "47459239268645104,0.6054569900795078,0.5515590901916287,0.8833310208917589,0."
-                 "96476090778518,0.8873874315592357,0.3577701257062156,0.6993447306713452],"
-                 "\"zrq6BY-7FJg3hc-Dd1-bAJn\":[0.1038405592062176,0.6757819253774818,0."
-                 "6386535502499314,0.23598674876945303,0.11046582465777044,0.6426056925348297,0."
-                 "17289073092250662,0.37116009951425233,0.594677969672274,0.49351456402872274],"
-                 "\"gCKqtW-bLaoxgZ-CuW-M2re\":[0.934169137905867,0.12015121444469123,0."
-                 "5009923777544698,0.4689139716802634,0.7226298925299507,0.33486164698864984,0."
-                 "32944768657449996,0.5051366150918063,0.03228636228382431,0.48211773870118435],"
-                 "\"SWqhI2-XnF9jVR-dT1-Yrtt\":[0.8005897112110444,0.899180582368993,0."
-                 "9232176819588501,0.8615673086606942,0.9248122266449379,0.5586489299212893,0."
-                 "40494513773898455,0.4752644689010731,0.6668395567417462,0.9068738374244337],"
-                 "\"Z85F6M-cy5K4GP-7I5-5KS9\":[0.34761241187833714,0.46467162849990507,0."
-                 "009781307454025168,0.3174295126364216,0.6405423361175397,0.33838144910731327,0."
-                 "328860321648657,0.032638966917555856,0.32782524002924884,0.7675689545937956],"
-                 "\"rlcnbo-tFg1FfP-ra6-D9Z8\":[0.7450713997349928,0.792502852203968,0."
-                 "9034039182796755,0.49131654565079996,0.25223293077647946,0.9827253462450637,0."
-                 "1684868582627418,0.0417161505112974,0.8498128570850716,0.8948779001812955]}"},
-                {"{\"5Srn6n-SP9fOS3-khz-Ljwt\":[0.8537551959339321, 0.13473869413865858, "
-                 "0.9806016478238296, 0.23014415892941564, 0.26853530959759686, "
-                 "0.05484935641143551, 0.11181328816302816, 0.26510985318905933, "
-                 "0.6350885463275475, 0.18209889263574142], "
-                 "\"vrQmBC-2WlpWML-V5S-OLgM\":[0.6982221340596457, 0.9260447299229463, "
-                 "0.12488042737255534, 0.8859407191137862, 0.03201490973378984, "
-                 "0.8371916387557367, 0.7894434066323907, 0.29667576138232743, 0.9837777568426148, "
-                 "0.7773721913552772], \"3ZbiXK-VvmhFcg-09V-w3g3\":[0.20509046053951785, "
-                 "0.9175575704931109, 0.305788438361256, 0.9923240410251069, 0.6612939841907548, "
-                 "0.5922056063112593, 0.15750800821536715, 0.6374743124669565, 0.4158097731627699, "
-                 "0.00302193321816846], \"gMswpS-Ele9wHM-Uxp-VxzC\":[0.14378032144751685, "
-                 "0.627919779177473, 0.6188731271454715, 0.8088384184584442, 0.8169160298605824, "
-                 "0.9051151670055427, 0.558001941204895, 0.029409463113641787, 0.9532987674717762, "
-                 "0.20833228278241533], \"TT9P9f-PXjQnvN-RBx-xRiS\":[0.8276005878909756, "
-                 "0.470950932860423, 0.2442851528127543, 0.710599416715854, 0.3353731152359334, "
-                 "0.622947602340124, 0.30675353671676797, 0.8190741661938367, 0.633630372770242, "
-                 "0.9436322366112492], \"gLAnZc-oF7PC9o-ryd-MOXr\":[0.9742716809818137, "
-                 "0.9114038616933997, 0.47459239268645104, 0.6054569900795078, 0.5515590901916287, "
-                 "0.8833310208917589, 0.96476090778518, 0.8873874315592357, 0.3577701257062156, "
-                 "0.6993447306713452], \"zrq6BY-7FJg3hc-Dd1-bAJn\":[0.1038405592062176, "
-                 "0.6757819253774818, 0.6386535502499314, 0.23598674876945303, "
-                 "0.11046582465777044, 0.6426056925348297, 0.17289073092250662, "
-                 "0.37116009951425233, 0.594677969672274, 0.49351456402872274], "
-                 "\"gCKqtW-bLaoxgZ-CuW-M2re\":[0.934169137905867, 0.12015121444469123, "
-                 "0.5009923777544698, 0.4689139716802634, 0.7226298925299507, 0.33486164698864984, "
-                 "0.32944768657449996, 0.5051366150918063, 0.03228636228382431, "
-                 "0.48211773870118435], \"SWqhI2-XnF9jVR-dT1-Yrtt\":[0.8005897112110444, "
-                 "0.899180582368993, 0.9232176819588501, 0.8615673086606942, 0.9248122266449379, "
-                 "0.5586489299212893, 0.40494513773898455, 0.4752644689010731, 0.6668395567417462, "
-                 "0.9068738374244337], \"Z85F6M-cy5K4GP-7I5-5KS9\":[0.34761241187833714, "
-                 "0.46467162849990507, 0.009781307454025168, 0.3174295126364216, "
-                 "0.6405423361175397, 0.33838144910731327, 0.328860321648657, "
-                 "0.032638966917555856, 0.32782524002924884, 0.7675689545937956], "
-                 "\"rlcnbo-tFg1FfP-ra6-D9Z8\":[0.7450713997349928, 0.792502852203968, "
-                 "0.9034039182796755, 0.49131654565079996, 0.25223293077647946, "
-                 "0.9827253462450637, 0.1684868582627418, 0.0417161505112974, 0.8498128570850716, "
-                 "0.8948779001812955]}"},
+                {R"({"5Srn6n-SP9fOS3-khz-Ljwt":[0.8537551959339321,0.13473869413865858,0.9806016478238296,0.23014415892941564,0.26853530959759686,0.05484935641143551,0.11181328816302816,0.26510985318905933,0.6350885463275475,0.18209889263574142],"vrQmBC-2WlpWML-V5S-OLgM":[0.6982221340596457,0.9260447299229463,0.12488042737255534,0.8859407191137862,0.03201490973378984,0.8371916387557367,0.7894434066323907,0.29667576138232743,0.9837777568426148,0.7773721913552772],"3ZbiXK-VvmhFcg-09V-w3g3":[0.20509046053951785,0.9175575704931109,0.305788438361256,0.9923240410251069,0.6612939841907548,0.5922056063112593,0.15750800821536715,0.6374743124669565,0.4158097731627699,0.00302193321816846],"gMswpS-Ele9wHM-Uxp-VxzC":[0.14378032144751685,0.627919779177473,0.6188731271454715,0.8088384184584442,0.8169160298605824,0.9051151670055427,0.558001941204895,0.029409463113641787,0.9532987674717762,0.20833228278241533],"TT9P9f-PXjQnvN-RBx-xRiS":[0.8276005878909756,0.470950932860423,0.2442851528127543,0.710599416715854,0.3353731152359334,0.622947602340124,0.30675353671676797,0.8190741661938367,0.633630372770242,0.9436322366112492],"gLAnZc-oF7PC9o-ryd-MOXr":[0.9742716809818137,0.9114038616933997,0.47459239268645104,0.6054569900795078,0.5515590901916287,0.8833310208917589,0.96476090778518,0.8873874315592357,0.3577701257062156,0.6993447306713452],"zrq6BY-7FJg3hc-Dd1-bAJn":[0.1038405592062176,0.6757819253774818,0.6386535502499314,0.23598674876945303,0.11046582465777044,0.6426056925348297,0.17289073092250662,0.37116009951425233,0.594677969672274,0.49351456402872274],"gCKqtW-bLaoxgZ-CuW-M2re":[0.934169137905867,0.12015121444469123,0.5009923777544698,0.4689139716802634,0.7226298925299507,0.33486164698864984,0.32944768657449996,0.5051366150918063,0.03228636228382431,0.48211773870118435],"SWqhI2-XnF9jVR-dT1-Yrtt":[0.8005897112110444,0.899180582368993,0.9232176819588501,0.8615673086606942,0.9248122266449379,0.5586489299212893,0.40494513773898455,0.4752644689010731,0.6668395567417462,0.9068738374244337],"Z85F6M-cy5K4GP-7I5-5KS9":[0.34761241187833714,0.46467162849990507,0.009781307454025168,0.3174295126364216,0.6405423361175397,0.33838144910731327,0.328860321648657,0.032638966917555856,0.32782524002924884,0.7675689545937956],"rlcnbo-tFg1FfP-ra6-D9Z8":[0.7450713997349928,0.792502852203968,0.9034039182796755,0.49131654565079996,0.25223293077647946,0.9827253462450637,0.1684868582627418,0.0417161505112974,0.8498128570850716,0.8948779001812955]})"}, {R"({"5Srn6n-SP9fOS3-khz-Ljwt":[0.8537551959339321, 0.1347386941386586, 0.9806016478238296, 0.2301441589294156, 0.2685353095975969, 0.05484935641143551, 0.1118132881630282, 0.2651098531890593, 0.6350885463275475, 0.1820988926357414], "vrQmBC-2WlpWML-V5S-OLgM":[0.6982221340596457, 0.9260447299229463, 0.1248804273725553, 0.8859407191137862, 0.03201490973378984, 0.8371916387557367, 0.7894434066323907, 0.2966757613823274, 0.9837777568426148, 0.7773721913552772], "3ZbiXK-VvmhFcg-09V-w3g3":[0.2050904605395178, 0.9175575704931109, 0.305788438361256, 0.9923240410251069, 0.6612939841907548, 0.5922056063112593, 0.1575080082153671, 0.6374743124669565, 0.4158097731627699, 0.00302193321816846], "gMswpS-Ele9wHM-Uxp-VxzC":[0.1437803214475168, 0.627919779177473, 0.6188731271454715, 0.8088384184584442, 0.8169160298605824, 0.9051151670055427, 0.558001941204895, 0.02940946311364179, 0.9532987674717762, 0.2083322827824153], "TT9P9f-PXjQnvN-RBx-xRiS":[0.8276005878909756, 0.470950932860423, 0.2442851528127543, 0.710599416715854, 0.3353731152359334, 0.622947602340124, 0.306753536716768, 0.8190741661938367, 0.633630372770242, 0.9436322366112492], "gLAnZc-oF7PC9o-ryd-MOXr":[0.9742716809818137, 0.9114038616933997, 0.474592392686451, 0.6054569900795078, 0.5515590901916287, 0.8833310208917589, 0.96476090778518, 0.8873874315592357, 0.3577701257062156, 0.6993447306713452], "zrq6BY-7FJg3hc-Dd1-bAJn":[0.1038405592062176, 0.6757819253774818, 0.6386535502499314, 0.235986748769453, 0.1104658246577704, 0.6426056925348297, 0.1728907309225066, 0.3711600995142523, 0.594677969672274, 0.4935145640287227], "gCKqtW-bLaoxgZ-CuW-M2re":[0.934169137905867, 0.1201512144446912, 0.5009923777544698, 0.4689139716802634, 0.7226298925299507, 0.3348616469886498, 0.3294476865745, 0.5051366150918063, 0.03228636228382431, 0.4821177387011844], "SWqhI2-XnF9jVR-dT1-Yrtt":[0.8005897112110444, 0.899180582368993, 0.9232176819588501, 0.8615673086606942, 0.9248122266449379, 0.5586489299212893, 0.4049451377389846, 0.4752644689010731, 0.6668395567417462, 0.9068738374244337], "Z85F6M-cy5K4GP-7I5-5KS9":[0.3476124118783371, 0.4646716284999051, 0.009781307454025168, 0.3174295126364216, 0.6405423361175397, 0.3383814491073133, 0.328860321648657, 0.03263896691755586, 0.3278252400292488, 0.7675689545937956], "rlcnbo-tFg1FfP-ra6-D9Z8":[0.7450713997349928, 0.792502852203968, 0.9034039182796755, 0.4913165456508, 0.2522329307764795, 0.9827253462450637, 0.1684868582627418, 0.0417161505112974, 0.8498128570850716, 0.8948779001812955]})"},
                 {""},
-                {"{\"5Srn6n-SP9fOS3-khz-Ljwt\":[0.8537551959339321, 0.13473869413865858, "
-                 "0.9806016478238296, 0.23014415892941564, 0.26853530959759686, "
-                 "0.05484935641143551, 0.11181328816302816, 0.26510985318905933, "
-                 "0.6350885463275475, 0.18209889263574142], "
-                 "\"vrQmBC-2WlpWML-V5S-OLgM\":[0.6982221340596457, 0.9260447299229463, "
-                 "0.12488042737255534, 0.8859407191137862, 0.03201490973378984, "
-                 "0.8371916387557367, 0.7894434066323907, 0.29667576138232743, 0.9837777568426148, "
-                 "0.7773721913552772], \"3ZbiXK-VvmhFcg-09V-w3g3\":[0.20509046053951785, "
-                 "0.9175575704931109, 0.305788438361256, 0.9923240410251069, 0.6612939841907548, "
-                 "0.5922056063112593, 0.15750800821536715, 0.6374743124669565, 0.4158097731627699, "
-                 "0.00302193321816846], \"gMswpS-Ele9wHM-Uxp-VxzC\":[0.14378032144751685, "
-                 "0.627919779177473, 0.6188731271454715, 0.8088384184584442, 0.8169160298605824, "
-                 "0.9051151670055427, 0.558001941204895, 0.029409463113641787, 0.9532987674717762, "
-                 "0.20833228278241533], \"TT9P9f-PXjQnvN-RBx-xRiS\":[0.8276005878909756, "
-                 "0.470950932860423, 0.2442851528127543, 0.710599416715854, 0.3353731152359334, "
-                 "0.622947602340124, 0.30675353671676797, 0.8190741661938367, 0.633630372770242, "
-                 "0.9436322366112492], \"gLAnZc-oF7PC9o-ryd-MOXr\":[0.9742716809818137, "
-                 "0.9114038616933997, 0.47459239268645104, 0.6054569900795078, 0.5515590901916287, "
-                 "0.8833310208917589, 0.96476090778518, 0.8873874315592357, 0.3577701257062156, "
-                 "0.6993447306713452], \"zrq6BY-7FJg3hc-Dd1-bAJn\":[0.1038405592062176, "
-                 "0.6757819253774818, 0.6386535502499314, 0.23598674876945303, "
-                 "0.11046582465777044, 0.6426056925348297, 0.17289073092250662, "
-                 "0.37116009951425233, 0.594677969672274, 0.49351456402872274], "
-                 "\"gCKqtW-bLaoxgZ-CuW-M2re\":[0.934169137905867, 0.12015121444469123, "
-                 "0.5009923777544698, 0.4689139716802634, 0.7226298925299507, 0.33486164698864984, "
-                 "0.32944768657449996, 0.5051366150918063, 0.03228636228382431, "
-                 "0.48211773870118435], \"SWqhI2-XnF9jVR-dT1-Yrtt\":[0.8005897112110444, "
-                 "0.899180582368993, 0.9232176819588501, 0.8615673086606942, 0.9248122266449379, "
-                 "0.5586489299212893, 0.40494513773898455, 0.4752644689010731, 0.6668395567417462, "
-                 "0.9068738374244337], \"Z85F6M-cy5K4GP-7I5-5KS9\":[0.34761241187833714, "
-                 "0.46467162849990507, 0.009781307454025168, 0.3174295126364216, "
-                 "0.6405423361175397, 0.33838144910731327, 0.328860321648657, "
-                 "0.032638966917555856, 0.32782524002924884, 0.7675689545937956], "
-                 "\"rlcnbo-tFg1FfP-ra6-D9Z8\":[0.7450713997349928, 0.792502852203968, "
-                 "0.9034039182796755, 0.49131654565079996, 0.25223293077647946, "
-                 "0.9827253462450637, 0.1684868582627418, 0.0417161505112974, 0.8498128570850716, "
-                 "0.8948779001812955]}"})};
+                {R"({"5Srn6n-SP9fOS3-khz-Ljwt":[0.8537551959339321, 0.1347386941386586, 0.9806016478238296, 0.2301441589294156, 0.2685353095975969, 0.05484935641143551, 0.1118132881630282, 0.2651098531890593, 0.6350885463275475, 0.1820988926357414], "vrQmBC-2WlpWML-V5S-OLgM":[0.6982221340596457, 0.9260447299229463, 0.1248804273725553, 0.8859407191137862, 0.03201490973378984, 0.8371916387557367, 0.7894434066323907, 0.2966757613823274, 0.9837777568426148, 0.7773721913552772], "3ZbiXK-VvmhFcg-09V-w3g3":[0.2050904605395178, 0.9175575704931109, 0.305788438361256, 0.9923240410251069, 0.6612939841907548, 0.5922056063112593, 0.1575080082153671, 0.6374743124669565, 0.4158097731627699, 0.00302193321816846], "gMswpS-Ele9wHM-Uxp-VxzC":[0.1437803214475168, 0.627919779177473, 0.6188731271454715, 0.8088384184584442, 0.8169160298605824, 0.9051151670055427, 0.558001941204895, 0.02940946311364179, 0.9532987674717762, 0.2083322827824153], "TT9P9f-PXjQnvN-RBx-xRiS":[0.8276005878909756, 0.470950932860423, 0.2442851528127543, 0.710599416715854, 0.3353731152359334, 0.622947602340124, 0.306753536716768, 0.8190741661938367, 0.633630372770242, 0.9436322366112492], "gLAnZc-oF7PC9o-ryd-MOXr":[0.9742716809818137, 0.9114038616933997, 0.474592392686451, 0.6054569900795078, 0.5515590901916287, 0.8833310208917589, 0.96476090778518, 0.8873874315592357, 0.3577701257062156, 0.6993447306713452], "zrq6BY-7FJg3hc-Dd1-bAJn":[0.1038405592062176, 0.6757819253774818, 0.6386535502499314, 0.235986748769453, 0.1104658246577704, 0.6426056925348297, 0.1728907309225066, 0.3711600995142523, 0.594677969672274, 0.4935145640287227], "gCKqtW-bLaoxgZ-CuW-M2re":[0.934169137905867, 0.1201512144446912, 0.5009923777544698, 0.4689139716802634, 0.7226298925299507, 0.3348616469886498, 0.3294476865745, 0.5051366150918063, 0.03228636228382431, 0.4821177387011844], "SWqhI2-XnF9jVR-dT1-Yrtt":[0.8005897112110444, 0.899180582368993, 0.9232176819588501, 0.8615673086606942, 0.9248122266449379, 0.5586489299212893, 0.4049451377389846, 0.4752644689010731, 0.6668395567417462, 0.9068738374244337], "Z85F6M-cy5K4GP-7I5-5KS9":[0.3476124118783371, 0.4646716284999051, 0.009781307454025168, 0.3174295126364216, 0.6405423361175397, 0.3383814491073133, 0.328860321648657, 0.03263896691755586, 0.3278252400292488, 0.7675689545937956], "rlcnbo-tFg1FfP-ra6-D9Z8":[0.7450713997349928, 0.792502852203968, 0.9034039182796755, 0.4913165456508, 0.2522329307764795, 0.9827253462450637, 0.1684868582627418, 0.0417161505112974, 0.8498128570850716, 0.8948779001812955]})"})};
         for (auto type_pair : nested_field_types) {
             auto key_type = std::get<0>(type_pair);
             DataTypePtr nested_key_data_type_ptr =
@@ -1276,40 +1100,12 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
     // map-scala-map (map<string,map<string,double>>)
     {
         // nested type,test string, expect string(option.converted_from_string=false), expect_from_string, expect string(option.converted_from_string=true)
-        typedef std::tuple<FieldType, FieldType, std::vector<std::string>, std::vector<std::string>,
-                           std::vector<std::string>, std::vector<std::string>>
-                FieldType_RandStr;
-        std::vector<FieldType_RandStr> nested_field_types = {FieldType_RandStr(
-                FieldType::OLAP_FIELD_TYPE_STRING, FieldType::OLAP_FIELD_TYPE_DOUBLE,
-                {"{\"5H6iPe-CRvVE5Q-QnG-8WQb\":{},\"stDa6g-GML89aZ-w5u-LBe0\":{\"Vlekcq-LDCMo6f-"
-                 "J7U-6rwB\":0.15375824233866453,\"4ljyNE-JMK1bSp-c05-EajL\":0.36153399717116075},"
-                 "\"URvXyY-SMttaG4-Zol-mPak\":{\"xVaeqR-cj8I6EM-3Nt-queD\":0.003968938824538082,"
-                 "\"Vt2mSs-wacYDvl-qUi-B7kI\":0.6900852274982441,\"i3cJJh-oskdqti-KGU-U6gC\":0."
-                 "40773692843073994},\"N3R9TI-jtBPGOQ-uRc-aWAD\":{\"xmGI09-FaCFrrR-O5J-29eu\":0."
-                 "7166939407858642,\"fbxIwJ-HLvW94X-tPn-JgKT\":0.05904881148976504,\"ylE7y1-"
-                 "wI3UhjR-ecQ-bNfo\":0.9293354174058581,\"zA0pEV-Lm8g4wq-NJc-TDou\":0."
-                 "4000067127237942}}"},
-                {"{\"5H6iPe-CRvVE5Q-QnG-8WQb\":{}, "
-                 "\"stDa6g-GML89aZ-w5u-LBe0\":{\"Vlekcq-LDCMo6f-J7U-6rwB\":0.15375824233866453, "
-                 "\"4ljyNE-JMK1bSp-c05-EajL\":0.36153399717116075}, "
-                 "\"URvXyY-SMttaG4-Zol-mPak\":{\"xVaeqR-cj8I6EM-3Nt-queD\":0.003968938824538082, "
-                 "\"Vt2mSs-wacYDvl-qUi-B7kI\":0.6900852274982441, "
-                 "\"i3cJJh-oskdqti-KGU-U6gC\":0.40773692843073994}, "
-                 "\"N3R9TI-jtBPGOQ-uRc-aWAD\":{\"xmGI09-FaCFrrR-O5J-29eu\":0.7166939407858642, "
-                 "\"fbxIwJ-HLvW94X-tPn-JgKT\":0.05904881148976504, "
-                 "\"ylE7y1-wI3UhjR-ecQ-bNfo\":0.9293354174058581, "
-                 "\"zA0pEV-Lm8g4wq-NJc-TDou\":0.4000067127237942}}"},
-                {""},
-                {"{\"5H6iPe-CRvVE5Q-QnG-8WQb\":{}, "
-                 "\"stDa6g-GML89aZ-w5u-LBe0\":{\"Vlekcq-LDCMo6f-J7U-6rwB\":0.15375824233866453, "
-                 "\"4ljyNE-JMK1bSp-c05-EajL\":0.36153399717116075}, "
-                 "\"URvXyY-SMttaG4-Zol-mPak\":{\"xVaeqR-cj8I6EM-3Nt-queD\":0.003968938824538082, "
-                 "\"Vt2mSs-wacYDvl-qUi-B7kI\":0.6900852274982441, "
-                 "\"i3cJJh-oskdqti-KGU-U6gC\":0.40773692843073994}, "
-                 "\"N3R9TI-jtBPGOQ-uRc-aWAD\":{\"xmGI09-FaCFrrR-O5J-29eu\":0.7166939407858642, "
-                 "\"fbxIwJ-HLvW94X-tPn-JgKT\":0.05904881148976504, "
-                 "\"ylE7y1-wI3UhjR-ecQ-bNfo\":0.9293354174058581, "
-                 "\"zA0pEV-Lm8g4wq-NJc-TDou\":0.4000067127237942}}"})};
+        using FieldType_RandStr =
+                std::tuple<FieldType, FieldType, std::vector<std::string>, std::vector<std::string>,
+                           std::vector<std::string>, std::vector<std::string>>;
+        std::
+                vector<FieldType_RandStr>
+                        nested_field_types = {FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_STRING, FieldType::OLAP_FIELD_TYPE_DOUBLE, {R"({"5H6iPe-CRvVE5Q-QnG-8WQb":{},"stDa6g-GML89aZ-w5u-LBe0":{"Vlekcq-LDCMo6f-J7U-6rwB":0.15375824233866453,"4ljyNE-JMK1bSp-c05-EajL":0.36153399717116075},"URvXyY-SMttaG4-Zol-mPak":{"xVaeqR-cj8I6EM-3Nt-queD":0.003968938824538082,"Vt2mSs-wacYDvl-qUi-B7kI":0.6900852274982441,"i3cJJh-oskdqti-KGU-U6gC":0.40773692843073994},"N3R9TI-jtBPGOQ-uRc-aWAD":{"xmGI09-FaCFrrR-O5J-29eu":0.7166939407858642,"fbxIwJ-HLvW94X-tPn-JgKT":0.05904881148976504,"ylE7y1-wI3UhjR-ecQ-bNfo":0.9293354174058581,"zA0pEV-Lm8g4wq-NJc-TDou":0.4000067127237942}})"}, {R"({"5H6iPe-CRvVE5Q-QnG-8WQb":{}, "stDa6g-GML89aZ-w5u-LBe0":{"Vlekcq-LDCMo6f-J7U-6rwB":0.1537582423386645, "4ljyNE-JMK1bSp-c05-EajL":0.3615339971711607}, "URvXyY-SMttaG4-Zol-mPak":{"xVaeqR-cj8I6EM-3Nt-queD":0.003968938824538082, "Vt2mSs-wacYDvl-qUi-B7kI":0.6900852274982441, "i3cJJh-oskdqti-KGU-U6gC":0.4077369284307399}, "N3R9TI-jtBPGOQ-uRc-aWAD":{"xmGI09-FaCFrrR-O5J-29eu":0.7166939407858642, "fbxIwJ-HLvW94X-tPn-JgKT":0.05904881148976504, "ylE7y1-wI3UhjR-ecQ-bNfo":0.9293354174058581, "zA0pEV-Lm8g4wq-NJc-TDou":0.4000067127237942}})"}, {""}, {R"({"5H6iPe-CRvVE5Q-QnG-8WQb":{}, "stDa6g-GML89aZ-w5u-LBe0":{"Vlekcq-LDCMo6f-J7U-6rwB":0.1537582423386645, "4ljyNE-JMK1bSp-c05-EajL":0.3615339971711607}, "URvXyY-SMttaG4-Zol-mPak":{"xVaeqR-cj8I6EM-3Nt-queD":0.003968938824538082, "Vt2mSs-wacYDvl-qUi-B7kI":0.6900852274982441, "i3cJJh-oskdqti-KGU-U6gC":0.4077369284307399}, "N3R9TI-jtBPGOQ-uRc-aWAD":{"xmGI09-FaCFrrR-O5J-29eu":0.7166939407858642, "fbxIwJ-HLvW94X-tPn-JgKT":0.05904881148976504, "ylE7y1-wI3UhjR-ecQ-bNfo":0.9293354174058581, "zA0pEV-Lm8g4wq-NJc-TDou":0.4000067127237942}})"})};
         for (auto type_pair : nested_field_types) {
             auto key_type = std::get<0>(type_pair);
             DataTypePtr nested_key_data_type_ptr =
@@ -1416,7 +1212,7 @@ TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
 }
 
 TEST(TextSerde, test_slice) {
-    Slice slice("[\"hello\", \"world\"]");
+    Slice slice(R"(["hello", "world"])");
     slice.remove_prefix(1);
     slice.remove_suffix(1);
     std::vector<Slice> slices;

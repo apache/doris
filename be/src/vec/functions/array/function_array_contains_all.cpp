@@ -24,6 +24,7 @@
 #include "runtime/primitive_type.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/call_on_type_index.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/array/function_array_utils.h"
@@ -67,7 +68,6 @@ public:
                 unpack_if_const(block.get_by_position(arguments[1]).column);
         ColumnArrayExecutionData left_exec_data;
         ColumnArrayExecutionData right_exec_data;
-        Status ret = Status::OK();
 
         // extract array column
         if (!extract_column_array_info(*left_column, left_exec_data) ||
@@ -86,120 +86,29 @@ public:
         auto array_type = remove_nullable(block.get_by_position(arguments[0]).type);
         auto left_element_type =
                 remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
-        switch (left_element_type->get_primitive_type()) {
-        case TYPE_STRING:
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-            ret = _execute_internal<ColumnString>(left_exec_data, right_exec_data,
-                                                  dst_null_map_data,
-                                                  dst_nested_col->get_data().data(),
-                                                  input_rows_count, left_is_const, right_is_const);
-            break;
-        case TYPE_DATE:
-            ret = _execute_internal<ColumnDate>(left_exec_data, right_exec_data, dst_null_map_data,
-                                                dst_nested_col->get_data().data(), input_rows_count,
-                                                left_is_const, right_is_const);
-            break;
-        case TYPE_DATETIME:
-            ret = _execute_internal<ColumnDateTime>(
+
+        Status status = Status::OK();
+        auto call = [&](const auto& type) -> bool {
+            using DataType = std::decay_t<decltype(type)>;
+            status = _execute_internal<typename DataType::ColumnType>(
                     left_exec_data, right_exec_data, dst_null_map_data,
                     dst_nested_col->get_data().data(), input_rows_count, left_is_const,
                     right_is_const);
-            break;
-        case TYPE_DATEV2:
-            ret = _execute_internal<ColumnDateV2>(left_exec_data, right_exec_data,
-                                                  dst_null_map_data,
-                                                  dst_nested_col->get_data().data(),
-                                                  input_rows_count, left_is_const, right_is_const);
-            break;
-        case TYPE_DATETIMEV2:
-            ret = _execute_internal<ColumnDateTimeV2>(
-                    left_exec_data, right_exec_data, dst_null_map_data,
-                    dst_nested_col->get_data().data(), input_rows_count, left_is_const,
-                    right_is_const);
-            break;
-        case TYPE_BOOLEAN:
-            ret = _execute_internal<ColumnUInt8>(left_exec_data, right_exec_data, dst_null_map_data,
-                                                 dst_nested_col->get_data().data(),
-                                                 input_rows_count, left_is_const, right_is_const);
-            break;
-        case TYPE_TINYINT:
-            ret = _execute_internal<ColumnInt8>(left_exec_data, right_exec_data, dst_null_map_data,
-                                                dst_nested_col->get_data().data(), input_rows_count,
-                                                left_is_const, right_is_const);
-            break;
-        case TYPE_SMALLINT:
-            ret = _execute_internal<ColumnInt16>(left_exec_data, right_exec_data, dst_null_map_data,
-                                                 dst_nested_col->get_data().data(),
-                                                 input_rows_count, left_is_const, right_is_const);
-            break;
-        case TYPE_INT:
-            ret = _execute_internal<ColumnInt32>(left_exec_data, right_exec_data, dst_null_map_data,
-                                                 dst_nested_col->get_data().data(),
-                                                 input_rows_count, left_is_const, right_is_const);
-            break;
-        case TYPE_BIGINT:
-            ret = _execute_internal<ColumnInt64>(left_exec_data, right_exec_data, dst_null_map_data,
-                                                 dst_nested_col->get_data().data(),
-                                                 input_rows_count, left_is_const, right_is_const);
-            break;
-        case TYPE_LARGEINT:
-            ret = _execute_internal<ColumnInt128>(left_exec_data, right_exec_data,
-                                                  dst_null_map_data,
-                                                  dst_nested_col->get_data().data(),
-                                                  input_rows_count, left_is_const, right_is_const);
-            break;
-        case TYPE_FLOAT:
-            ret = _execute_internal<ColumnFloat32>(left_exec_data, right_exec_data,
-                                                   dst_null_map_data,
-                                                   dst_nested_col->get_data().data(),
-                                                   input_rows_count, left_is_const, right_is_const);
-            break;
-        case TYPE_DOUBLE:
-            ret = _execute_internal<ColumnFloat64>(left_exec_data, right_exec_data,
-                                                   dst_null_map_data,
-                                                   dst_nested_col->get_data().data(),
-                                                   input_rows_count, left_is_const, right_is_const);
-            break;
-        case TYPE_DECIMAL32:
-            ret = _execute_internal<ColumnDecimal32>(
-                    left_exec_data, right_exec_data, dst_null_map_data,
-                    dst_nested_col->get_data().data(), input_rows_count, left_is_const,
-                    right_is_const);
-            break;
-        case TYPE_DECIMAL64:
-            ret = _execute_internal<ColumnDecimal64>(
-                    left_exec_data, right_exec_data, dst_null_map_data,
-                    dst_nested_col->get_data().data(), input_rows_count, left_is_const,
-                    right_is_const);
-            break;
-        case TYPE_DECIMAL128I:
-            ret = _execute_internal<ColumnDecimal128V3>(
-                    left_exec_data, right_exec_data, dst_null_map_data,
-                    dst_nested_col->get_data().data(), input_rows_count, left_is_const,
-                    right_is_const);
-            break;
-        case TYPE_DECIMALV2:
-            ret = _execute_internal<ColumnDecimal128V2>(
-                    left_exec_data, right_exec_data, dst_null_map_data,
-                    dst_nested_col->get_data().data(), input_rows_count, left_is_const,
-                    right_is_const);
-            break;
-        case TYPE_DECIMAL256:
-            ret = _execute_internal<ColumnDecimal256>(
-                    left_exec_data, right_exec_data, dst_null_map_data,
-                    dst_nested_col->get_data().data(), input_rows_count, left_is_const,
-                    right_is_const);
-            break;
-        default:
-            ret = Status::RuntimeError(
-                    fmt::format("execute failed about function {}, the argument not support {} ",
-                                get_name(), block.get_by_position(arguments[0]).type->get_name()));
+            return true;
+        };
+
+        if (!dispatch_switch_all(left_element_type->get_primitive_type(), call)) {
+            return Status::InternalError(
+                    "execute failed, unsupported types for function {}({}, {})", get_name(),
+                    block.get_by_position(arguments[0]).type->get_name(),
+                    block.get_by_position(arguments[1]).type->get_name());
         }
-        if (ret.ok()) {
-            block.replace_by_position(result, std::move(dst_nested_col));
-        }
-        return ret;
+
+        RETURN_IF_ERROR(status);
+
+        block.replace_by_position(result, std::move(dst_nested_col));
+
+        return Status::OK();
     }
 
 private:

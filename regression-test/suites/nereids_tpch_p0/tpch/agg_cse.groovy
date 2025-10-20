@@ -97,4 +97,19 @@ suite("agg_cse") {
         select count(distinct k2,k3),count(*), sum(k2+k3), avg(k2+k3) from 
             nereids_test_query_db.baseall group by k1 order by 1, 2,3,4
         """
+
+    explain {
+        sql """
+            physical plan
+            select count(isnull(x)) 
+            from (
+                select case r_regionkey 
+                when 0 then 0
+                when 1 then 1
+                else null
+                end as x
+                from region) t;
+            """
+        notContains "multi_proj"
+    }
 }

@@ -58,10 +58,10 @@ namespace doris::segment_v2 {
 class SparseColumnMergeIterator : public BaseSparseColumnProcessor {
 public:
     SparseColumnMergeIterator(const TabletSchema::PathsSetInfo& path_set_info,
-                              std::unique_ptr<ColumnIterator>&& sparse_column_reader,
+                              SparseColumnCacheSPtr sparse_column_cache,
                               SubstreamReaderTree&& src_subcolumns_for_sparse,
-                              StorageReadOptions* opts, const TabletColumn& col)
-            : BaseSparseColumnProcessor(std::move(sparse_column_reader), opts, col),
+                              const StorageReadOptions* opts)
+            : BaseSparseColumnProcessor(std::move(sparse_column_cache), opts),
               _src_subcolumn_map(path_set_info.sub_path_set),
               _src_subcolumns_for_sparse(src_subcolumns_for_sparse) {}
     Status init(const ColumnIteratorOptions& opts) override;
@@ -74,9 +74,8 @@ public:
             return entry->data.iterator->next_batch(n, entry->data.column, &has_null);
         }));
         // then read sparse column
-        return _process_batch(
-                [&]() { return _sparse_column_reader->next_batch(n, _sparse_column, has_null); },
-                *n, dst);
+        return _process_batch([&]() { return _sparse_column_cache->next_batch(n, has_null); }, *n,
+                              dst);
     }
 
     // RowID-based read using template method
@@ -87,11 +86,8 @@ public:
             return entry->data.iterator->read_by_rowids(rowids, count, entry->data.column);
         }));
         // then read sparse column
-        return _process_batch(
-                [&]() {
-                    return _sparse_column_reader->read_by_rowids(rowids, count, _sparse_column);
-                },
-                count, dst);
+        return _process_batch([&]() { return _sparse_column_cache->read_by_rowids(rowids, count); },
+                              count, dst);
     }
 
     Status seek_to_ordinal(ordinal_t ord) override;

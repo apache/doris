@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/olap_file.pb.h>
 
 #include <vector>
 
@@ -43,7 +44,7 @@ public:
 private:
     Status _fill_block_impl(vectorized::Block* block);
 
-    TGetEncryptionKeysResult _result;
+    std::vector<EncryptionKeyPB> _master_keys;
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 };
 

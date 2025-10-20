@@ -44,6 +44,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/pod_array.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -79,7 +80,7 @@ static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limi
 RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
                                const std::vector<std::string>& read_columns,
                                const int32_t row_group_id, const tparquet::RowGroup& row_group,
-                               cctz::time_zone* ctz, io::IOContext* io_ctx,
+                               const cctz::time_zone* ctz, io::IOContext* io_ctx,
                                const PositionDeleteContext& position_delete_ctx,
                                const LazyReadContext& lazy_read_ctx, RuntimeState* state)
         : _file_reader(file_reader),
@@ -122,7 +123,7 @@ Status RowGroupReader::init(
     for (const auto& read_table_col : _read_table_columns) {
         auto read_file_col = _table_info_node_ptr->children_file_column_name(read_table_col);
 
-        auto* field = const_cast<FieldSchema*>(schema.get_column(read_file_col));
+        auto* field = schema.get_column(read_file_col);
         auto physical_index = field->physical_column_index;
         std::unique_ptr<ParquetColumnReader> reader;
         // TODO : support rested column types
@@ -156,7 +157,7 @@ Status RowGroupReader::init(
             int slot_id = predicate_col_slot_ids[i];
             auto predicate_file_col_name =
                     _table_info_node_ptr->children_file_column_name(predicate_col_name);
-            auto field = const_cast<FieldSchema*>(schema.get_column(predicate_file_col_name));
+            auto field = schema.get_column(predicate_file_col_name);
             if (!disable_dict_filter && !_lazy_read_ctx.has_complex_type &&
                 _can_filter_by_dict(
                         slot_id, _row_group_meta.columns[field->physical_column_index].meta_data)) {
@@ -565,7 +566,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     }
 
     FilterMap& filter_map = *filter_map_ptr;
-    std::unique_ptr<uint8_t[]> rebuild_filter_map = nullptr;
+    DorisUniqueBufferPtr<uint8_t> rebuild_filter_map = nullptr;
     if (_cached_filtered_rows != 0) {
         RETURN_IF_ERROR(_rebuild_filter_map(filter_map, rebuild_filter_map, pre_read_rows));
         pre_read_rows += _cached_filtered_rows;
@@ -625,7 +626,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
 }
 
 Status RowGroupReader::_rebuild_filter_map(FilterMap& filter_map,
-                                           std::unique_ptr<uint8_t[]>& filter_map_data,
+                                           DorisUniqueBufferPtr<uint8_t>& filter_map_data,
                                            size_t pre_read_rows) const {
     if (_cached_filtered_rows == 0) {
         return Status::OK();
@@ -636,8 +637,8 @@ Status RowGroupReader::_rebuild_filter_map(FilterMap& filter_map,
         return Status::OK();
     }
 
-    uint8_t* map = new uint8_t[total_rows];
-    filter_map_data.reset(map);
+    filter_map_data = make_unique_buffer<uint8_t>(total_rows);
+    auto* map = filter_map_data.get();
     for (size_t i = 0; i < _cached_filtered_rows; ++i) {
         map[i] = 0;
     }
@@ -661,6 +662,7 @@ Status RowGroupReader::_fill_partition_columns(
     DataTypeSerDe::FormatOptions _text_formatOptions;
     for (auto& kv : partition_columns) {
         auto doris_column = block->get_by_name(kv.first).column;
+        // obtained from block*, it is a mutable object.
         IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
         auto& [value, slot_desc] = kv.second;
         auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();

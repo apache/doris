@@ -46,6 +46,7 @@ import java.io.StringWriter;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -609,15 +610,19 @@ public class Util {
         }
     }
 
-    public static TFileCompressType getFileCompressType(String compressType) {
+    public static TFileCompressType getFileCompressType(String compressType) throws AnalysisException {
         if (Strings.isNullOrEmpty(compressType)) {
             return TFileCompressType.UNKNOWN;
         }
         final String upperCaseType = compressType.toUpperCase();
         try {
+            // for compatibility, convert lz4 to lz4frame
+            if (upperCaseType.equals("LZ4")) {
+                return TFileCompressType.LZ4FRAME;
+            }
             return TFileCompressType.valueOf(upperCaseType);
         } catch (IllegalArgumentException e) {
-            return TFileCompressType.UNKNOWN;
+            throw new AnalysisException("Unknown compression type: " + compressType);
         }
     }
 
@@ -649,15 +654,18 @@ public class Util {
 
     public static String getRootCauseMessage(Throwable t) {
         String rootCause = "unknown";
+        if (t == null) {
+            return rootCause;
+        }
         Throwable p = t;
-        while (p != null) {
-            String message = p.getMessage();
-            if (message == null) {
-                rootCause = p.getClass().getName();
-            } else {
-                rootCause = p.getClass().getName() + ": " + p.getMessage();
-            }
+        while (p.getCause() != null) {
             p = p.getCause();
+        }
+        String message = p.getMessage();
+        if (message == null) {
+            rootCause = p.getClass().getName();
+        } else {
+            rootCause = p.getClass().getName() + ": " + message;
         }
         return rootCause;
     }
@@ -711,9 +719,14 @@ public class Util {
     public static long sha256long(String str) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(str.getBytes());
+            byte[] hash = digest.digest(str.getBytes(StandardCharsets.UTF_8));
             ByteBuffer buffer = ByteBuffer.wrap(hash);
-            return buffer.getLong();
+            long result = buffer.getLong();
+            // Handle Long.MIN_VALUE case to ensure non-negative ID generation
+            if (result == Long.MIN_VALUE) {
+                return str.hashCode();
+            }
+            return result;
         } catch (NoSuchAlgorithmException e) {
             return str.hashCode();
         }

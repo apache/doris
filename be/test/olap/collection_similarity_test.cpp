@@ -187,4 +187,39 @@ TEST_F(CollectionSimilarityTest, IdenticalScoresSortingTest) {
     verify_scores(scores, {0.5f, 0.5f});
 }
 
+TEST_F(CollectionSimilarityTest, GetBm25ScoresBasicTest) {
+    similarity->collect(1, 0.4f);
+    similarity->collect(2, 0.9f);
+    similarity->collect(3, 0.1f);
+    similarity->collect(5, 0.7f);
+
+    roaring::Roaring bitmap = create_bitmap({1, 2, 3, 4, 5, 6});
+    vectorized::IColumn::MutablePtr scores;
+    std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
+
+    similarity->get_bm25_scores(&bitmap, scores, row_ids);
+
+    EXPECT_EQ(scores->size(), 6);
+    EXPECT_EQ(row_ids->size(), 6);
+
+    verify_scores(scores, {0.4f, 0.9f, 0.1f, 0.0f, 0.7f, 0.0f});
+
+    verify_row_ids(row_ids, {1, 2, 3, 4, 5, 6});
+}
+
+TEST_F(CollectionSimilarityTest, GetBm25ScoresEmptyBitmapTest) {
+    similarity->collect(10, 0.8f);
+    similarity->collect(20, 0.2f);
+    similarity->collect(30, 0.6f);
+
+    roaring::Roaring bitmap;
+    vectorized::IColumn::MutablePtr scores;
+    std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
+
+    similarity->get_bm25_scores(&bitmap, scores, row_ids);
+
+    EXPECT_EQ(scores->size(), 0);
+    EXPECT_EQ(row_ids->size(), 0);
+}
+
 } // namespace doris

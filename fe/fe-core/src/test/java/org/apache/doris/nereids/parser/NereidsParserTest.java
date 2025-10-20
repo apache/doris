@@ -31,11 +31,17 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExecuteActionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
@@ -57,14 +63,17 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -592,6 +601,107 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testAlterTableExecute() {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        // Basic ALTER TABLE EXECUTE with rewrite_data_files action
+        String sql = "ALTER TABLE t1 EXECUTE rewrite_data_files(\"target-file-size-bytes\" = \"134217728\")";
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        ExecuteActionCommand cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("rewrite_data_files", cmd.getActionName());
+        Assertions.assertEquals("134217728", cmd.getProperties().get("target-file-size-bytes"));
+
+        // ALTER TABLE EXECUTE with expire_snapshots multiple properties
+        sql = "ALTER TABLE t1 EXECUTE expire_snapshots(\"older_than\" = \"2024-01-01 00:00:00\", \"retain_last\" = \"5\")";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("expire_snapshots", cmd.getActionName());
+        Assertions.assertEquals("2024-01-01 00:00:00", cmd.getProperties().get("older_than"));
+        Assertions.assertEquals("5", cmd.getProperties().get("retain_last"));
+
+        // ALTER TABLE EXECUTE with set_current_snapshot using ref parameter
+        sql = "ALTER TABLE t1 EXECUTE set_current_snapshot(\"ref\" = \"main\")";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("set_current_snapshot", cmd.getActionName());
+        Assertions.assertEquals("main", cmd.getProperties().get("ref"));
+        Assertions.assertFalse(cmd.getWhereCondition().isPresent());
+
+        // ALTER TABLE EXECUTE with WHERE clause - simple condition
+        sql = "ALTER TABLE t1 EXECUTE rewrite_data_files(\"target-file-size-bytes\" = \"134217728\") WHERE id > 100";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("rewrite_data_files", cmd.getActionName());
+        Assertions.assertEquals("134217728", cmd.getProperties().get("target-file-size-bytes"));
+        Assertions.assertTrue(cmd.getWhereCondition().isPresent());
+
+        // ALTER TABLE EXECUTE with WHERE clause - complex condition
+        sql = "ALTER TABLE t1 EXECUTE expire_snapshots(\"older_than\" = \"2024-01-01 00:00:00\") WHERE partition_col = 'value' AND date_col < '2024-01-01'";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("expire_snapshots", cmd.getActionName());
+        Assertions.assertEquals("2024-01-01 00:00:00", cmd.getProperties().get("older_than"));
+        Assertions.assertTrue(cmd.getWhereCondition().isPresent());
+
+        // ALTER TABLE EXECUTE with WHERE clause - no properties
+        sql = "ALTER TABLE t1 EXECUTE rollback_to_snapshot(\"snapshot_id\" = \"3051729675574597004\") WHERE status = 'active'";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("rollback_to_snapshot", cmd.getActionName());
+        Assertions.assertEquals("3051729675574597004", cmd.getProperties().get("snapshot_id"));
+        Assertions.assertTrue(cmd.getWhereCondition().isPresent());
+
+        // ALTER TABLE EXECUTE with partition specification - single partition
+        sql = "ALTER TABLE t1 EXECUTE rewrite_data_files(\"target-file-size-bytes\" = \"134217728\") PARTITION (p1)";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("rewrite_data_files", cmd.getActionName());
+        Assertions.assertEquals("134217728", cmd.getProperties().get("target-file-size-bytes"));
+        Assertions.assertTrue(cmd.getPartitionNamesInfo().isPresent());
+        Assertions.assertEquals(1, cmd.getPartitionNamesInfo().get().getPartitionNames().size());
+        Assertions.assertEquals("p1", cmd.getPartitionNamesInfo().get().getPartitionNames().get(0));
+        Assertions.assertFalse(cmd.getPartitionNamesInfo().get().isTemp());
+
+        // ALTER TABLE EXECUTE with partition specification - multiple partitions
+        sql = "ALTER TABLE t1 EXECUTE expire_snapshots(\"older_than\" = \"2024-01-01 00:00:00\") PARTITIONS (p1, p2, p3)";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("expire_snapshots", cmd.getActionName());
+        Assertions.assertEquals("2024-01-01 00:00:00", cmd.getProperties().get("older_than"));
+        Assertions.assertTrue(cmd.getPartitionNamesInfo().isPresent());
+        Assertions.assertEquals(3, cmd.getPartitionNamesInfo().get().getPartitionNames().size());
+        Assertions.assertFalse(cmd.getPartitionNamesInfo().get().isTemp());
+
+        // ALTER TABLE EXECUTE with temporary partition specification
+        sql = "ALTER TABLE t1 EXECUTE rewrite_data_files(\"target-file-size-bytes\" = \"134217728\") TEMPORARY PARTITION (temp_p1)";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("rewrite_data_files", cmd.getActionName());
+        Assertions.assertTrue(cmd.getPartitionNamesInfo().isPresent());
+        Assertions.assertTrue(cmd.getPartitionNamesInfo().get().isTemp());
+        Assertions.assertEquals("temp_p1", cmd.getPartitionNamesInfo().get().getPartitionNames().get(0));
+
+        // ALTER TABLE EXECUTE with partition and WHERE clause
+        sql = "ALTER TABLE t1 EXECUTE rewrite_data_files(\"target-file-size-bytes\" = \"134217728\") PARTITION (p1) WHERE id > 100";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(ExecuteActionCommand.class, logicalPlan);
+        cmd = (ExecuteActionCommand) logicalPlan;
+        Assertions.assertEquals("rewrite_data_files", cmd.getActionName());
+        Assertions.assertTrue(cmd.getPartitionNamesInfo().isPresent());
+        Assertions.assertEquals("p1", cmd.getPartitionNamesInfo().get().getPartitionNames().get(0));
+        Assertions.assertTrue(cmd.getWhereCondition().isPresent());
+    }
+
+    @Test
     public void testKill() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "kill 1234";
@@ -954,6 +1064,131 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testSubstring() {
+        NereidsParser parser = new NereidsParser();
+        String sql;
+        Expression e;
+        UnboundFunction unboundFunction;
+
+        sql = "substring('Sakila' FROM -4 FOR 2)";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("substring", unboundFunction.getName());
+        Assertions.assertEquals(3, unboundFunction.arity());
+        Assertions.assertEquals("Sakila", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals(-4, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+        Assertions.assertEquals(2, ((IntegerLikeLiteral) unboundFunction.child(2)).getIntValue());
+
+        sql = "substring('Sakila', -5, 3)";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("substring", unboundFunction.getName());
+        Assertions.assertEquals(3, unboundFunction.arity());
+        Assertions.assertEquals("Sakila", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals(-5, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+        Assertions.assertEquals(3, ((IntegerLikeLiteral) unboundFunction.child(2)).getIntValue());
+
+        sql = "substring('foobarbar' FROM 4)";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("substring", unboundFunction.getName());
+        Assertions.assertEquals(2, unboundFunction.arity());
+        Assertions.assertEquals("foobarbar", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals(4, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+
+        sql = "substring('Quadratically', 5)";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("substring", unboundFunction.getName());
+        Assertions.assertEquals(2, unboundFunction.arity());
+        Assertions.assertEquals("Quadratically", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals(5, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substring('Sakila' for 2)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substring('Sakila' from for)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substring('Sakila' from)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substring(from 1)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substring(for 1)"));
+    }
+
+    @Test
+    public void testSubstr() {
+        NereidsParser parser = new NereidsParser();
+        String sql;
+        Expression e;
+        UnboundFunction unboundFunction;
+
+        sql = "substr('Sakila' FROM -4 FOR 2)";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("substr", unboundFunction.getName());
+        Assertions.assertEquals(3, unboundFunction.arity());
+        Assertions.assertEquals("Sakila", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals(-4, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+        Assertions.assertEquals(2, ((IntegerLikeLiteral) unboundFunction.child(2)).getIntValue());
+
+        sql = "substr('Sakila', -5, 3)";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("substr", unboundFunction.getName());
+        Assertions.assertEquals(3, unboundFunction.arity());
+        Assertions.assertEquals("Sakila", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals(-5, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+        Assertions.assertEquals(3, ((IntegerLikeLiteral) unboundFunction.child(2)).getIntValue());
+
+        sql = "substr('foobarbar' FROM 4)";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("substr", unboundFunction.getName());
+        Assertions.assertEquals(2, unboundFunction.arity());
+        Assertions.assertEquals("foobarbar", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals(4, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+
+        sql = "substr('Quadratically', 5)";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("substr", unboundFunction.getName());
+        Assertions.assertEquals(2, unboundFunction.arity());
+        Assertions.assertEquals("Quadratically", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals(5, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substr('Sakila' for 2)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substr('Sakila' from for)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substr('Sakila' from)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substr(from 1)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substr(for 1)"));
+    }
+
+    @Test
+    public void testPositon() {
+        NereidsParser parser = new NereidsParser();
+        String sql;
+        Expression e;
+        UnboundFunction unboundFunction;
+
+        sql = "position('bar' in 'foobarbar')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("position", unboundFunction.getName());
+        Assertions.assertEquals(2, unboundFunction.arity());
+        Assertions.assertEquals("bar", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals("foobarbar", ((StringLikeLiteral) unboundFunction.child(1)).getStringValue());
+
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("position('bar' in)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("position(in 'foobarbar')"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("position(in)"));
+    }
+
+    @Test
     public void testNoBackSlashEscapes() {
         testNoBackSlashEscapes("''", "", "");
         testNoBackSlashEscapes("\"\"", "", "");
@@ -1070,5 +1305,92 @@ public class NereidsParserTest extends ParserTestBase {
         parsePlan("SELECT 1 from ( select 2 as a1 ) t1 join ( select 2 as a2 ) as t2 on x -> x + 1 = t1.a1")
                 .assertThrowsExactly(ParseException.class)
                 .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testCtasWithoutAs() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE TABLE t1 SELECT * FROM t2";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateTableCommand.class, logicalPlan);
+        CreateTableCommand createTableCommand = (CreateTableCommand) logicalPlan;
+        Assertions.assertTrue(createTableCommand.getCtasQuery().isPresent());
+    }
+
+    @Test
+    public void testCreateViewWithoutAs() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE VIEW t1 SELECT * FROM t2";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateViewCommand.class, logicalPlan);
+    }
+
+    @Test
+    public void testCreateMvWithoutAs() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE MATERIALIZED VIEW t1 SELECT * FROM t2";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateMaterializedViewCommand.class, logicalPlan);
+    }
+
+    @Test
+    public void testDropTemporaryTable() throws Exception {
+        NereidsParser parser = new NereidsParser();
+        Map<String, Boolean> mustTemporaryResult = ImmutableMap.of(
+                "DROP TEMPORARY TABLE t1", true,
+                "DROP TABLE t1", false);
+        for (Map.Entry<String, Boolean> entry : mustTemporaryResult.entrySet()) {
+            LogicalPlan logicalPlan = parser.parseSingle(entry.getKey());
+            Assertions.assertInstanceOf(DropTableCommand.class, logicalPlan);
+            DropTableCommand dropTableCommand = (DropTableCommand) logicalPlan;
+            Field mustTemporary = DropTableCommand.class.getDeclaredField("mustTemporary");
+            mustTemporary.setAccessible(true);
+            Object value = mustTemporary.get(dropTableCommand);
+            Assertions.assertEquals(entry.getValue(), (boolean) value);
+        }
+    }
+
+    @Test
+    public void testAdminRotateTdeRootKey() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "admin rotate tde root key";
+        nereidsParser.parseSingle(sql);
+
+        sql = "admin rotate tde root key properties(\"k\" = \"v\")";
+        nereidsParser.parseSingle(sql);
+
+        sql = "admin rotate tde root key properties(\"k0\" = \"v0\", \"k1\" = \"v1\")";
+        nereidsParser.parseSingle(sql);
+
+        parsePlan("admin rotate tde root key properties()")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input ')' expecting");
+    }
+
+    @Test
+    public void testWarmUpSelect() {
+        ConnectContext ctx = ConnectContext.get();
+        ctx.getSessionVariable().setEnableFileCache(true);
+        ctx.getSessionVariable().setDisableFileCache(false);
+        NereidsParser nereidsParser = new NereidsParser();
+
+        // Test basic warm up select statement
+        String warmUpSql = "WARM UP SELECT * FROM test_table";
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(warmUpSql);
+        Assertions.assertNotNull(logicalPlan);
+        Assertions.assertEquals(StmtType.INSERT, logicalPlan.stmtType());
+
+        // Test warm up select with where clause
+        String warmUpSqlWithWhere = "WARM UP SELECT id, name FROM test_table WHERE id > 10";
+        LogicalPlan logicalPlanWithWhere = nereidsParser.parseSingle(warmUpSqlWithWhere);
+        Assertions.assertNotNull(logicalPlanWithWhere);
+        Assertions.assertEquals(StmtType.INSERT, logicalPlanWithWhere.stmtType());
+
+        // Negative cases: LIMIT, JOIN, UNION, AGGREGATE not allowed
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT * FROM test_table LIMIT 100"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT * FROM t1 JOIN t2 ON t1.id = t2.id"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT * FROM t1 UNION SELECT * FROM t2"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT id, COUNT(*) FROM test_table GROUP BY id"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT * FROM test_table ORDER BY id"));
     }
 }

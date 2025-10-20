@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_doris_all_types_select", "p0,external,doris,external_docker,external_docker_doris") {
-    String jdbcUrl = context.config.jdbcUrl + "&sessionVariables=return_object_data_as_binary=true"
+    String jdbcUrl = context.config.jdbcUrl + "&jdbcCompliantTruncation=false&sessionVariables=return_object_data_as_binary=true"
     String jdbcUser = context.config.jdbcUser
     String jdbcPassword = context.config.jdbcPassword
     String s3_endpoint = getS3Endpoint()

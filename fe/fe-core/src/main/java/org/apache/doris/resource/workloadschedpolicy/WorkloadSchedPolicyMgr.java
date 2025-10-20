@@ -17,7 +17,6 @@
 
 package org.apache.doris.resource.workloadschedpolicy;
 
-import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
@@ -481,10 +480,6 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
         } finally {
             writeUnlock();
         }
-    }
-
-    public void dropWorkloadSchedPolicy(DropWorkloadSchedPolicyStmt dropStmt) throws UserException {
-        dropWorkloadSchedPolicy(dropStmt.getPolicyName(), dropStmt.isIfExists());
     }
 
     public void dropWorkloadSchedPolicy(String policyName, boolean isExists) throws UserException {

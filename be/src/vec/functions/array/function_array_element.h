@@ -42,6 +42,7 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
+#include "vec/core/call_on_type_index.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
@@ -279,7 +280,6 @@ private:
 
         const auto& offsets = map_column.get_offsets();
         const size_t rows = offsets.size();
-
         if (rows <= 0) {
             return nullptr;
         }
@@ -361,103 +361,20 @@ private:
         // we should handle array index column by-self, and array index should not be nullable.
         auto idx_col = remove_nullable(arguments[1].column);
         // we should dispatch branch according to data type rather than column type
-        switch (left_element_type->get_primitive_type()) {
-        case TYPE_DATE: {
-            res = _execute_number<ColumnDate>(offsets, *nested_column, src_null_map, *idx_col,
-                                              nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_DATETIME: {
-            res = _execute_number<ColumnDateTime>(offsets, *nested_column, src_null_map, *idx_col,
-                                                  nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_DATEV2: {
-            res = _execute_number<ColumnDateV2>(offsets, *nested_column, src_null_map, *idx_col,
-                                                nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_DATETIMEV2: {
-            res = _execute_number<ColumnDateTimeV2>(offsets, *nested_column, src_null_map, *idx_col,
-                                                    nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_BOOLEAN: {
-            res = _execute_number<ColumnUInt8>(offsets, *nested_column, src_null_map, *idx_col,
-                                               nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_TINYINT: {
-            res = _execute_number<ColumnInt8>(offsets, *nested_column, src_null_map, *idx_col,
-                                              nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_SMALLINT: {
-            res = _execute_number<ColumnInt16>(offsets, *nested_column, src_null_map, *idx_col,
-                                               nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_INT: {
-            res = _execute_number<ColumnInt32>(offsets, *nested_column, src_null_map, *idx_col,
-                                               nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_BIGINT: {
-            res = _execute_number<ColumnInt64>(offsets, *nested_column, src_null_map, *idx_col,
-                                               nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_LARGEINT: {
-            res = _execute_number<ColumnInt128>(offsets, *nested_column, src_null_map, *idx_col,
-                                                nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_FLOAT: {
-            res = _execute_number<ColumnFloat32>(offsets, *nested_column, src_null_map, *idx_col,
-                                                 nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_DOUBLE: {
-            res = _execute_number<ColumnFloat64>(offsets, *nested_column, src_null_map, *idx_col,
-                                                 nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_DECIMAL32: {
-            res = _execute_number<ColumnDecimal32>(offsets, *nested_column, src_null_map, *idx_col,
-                                                   nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_DECIMAL64: {
-            res = _execute_number<ColumnDecimal64>(offsets, *nested_column, src_null_map, *idx_col,
-                                                   nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_DECIMAL256: {
-            res = _execute_number<ColumnDecimal256>(offsets, *nested_column, src_null_map, *idx_col,
-                                                    nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_DECIMALV2: {
-            res = _execute_number<ColumnDecimal128V2>(offsets, *nested_column, src_null_map,
-                                                      *idx_col, nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_DECIMAL128I: {
-            res = _execute_number<ColumnDecimal128V3>(offsets, *nested_column, src_null_map,
-                                                      *idx_col, nested_null_map, dst_null_map);
-            break;
-        }
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_STRING: {
+
+        auto call = [&](const auto& type) -> bool {
+            using DispatchType = std::decay_t<decltype(type)>;
+            res = _execute_number<typename DispatchType::ColumnType>(
+                    offsets, *nested_column, src_null_map, *idx_col, nested_null_map, dst_null_map);
+            return true;
+        };
+
+        if (is_string_type(left_element_type->get_primitive_type())) {
             res = _execute_string(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
                                   dst_null_map);
-            break;
-        }
-        default: {
+        } else if (!dispatch_switch_scalar(left_element_type->get_primitive_type(), call)) {
             res = _execute_common(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
                                   dst_null_map);
-        }
         }
         return res;
     }

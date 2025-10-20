@@ -79,6 +79,8 @@ public:
 
     int exists(const std::string& path) override;
 
+    int abort_multipart_upload(const std::string& path, const std::string& upload_id) override;
+
 private:
     int delete_prefix_impl(const std::string& path_prefix);
 
@@ -213,6 +215,11 @@ inline int MockAccessor::list_directory(const std::string& dir_path,
 inline int MockAccessor::exists(const std::string& path) {
     std::lock_guard lock(mtx_);
     return !objects_.contains(path);
+}
+
+inline int MockAccessor::abort_multipart_upload(const std::string& path,
+                                                const std::string& upload_id) {
+    return 0;
 }
 
 } // namespace doris::cloud

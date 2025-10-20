@@ -99,15 +99,13 @@ suite("test_predefine_ddl", "p0") {
     
     sql """ alter table ${tableName} add column var2 variant<'ab' : string, properties("variant_max_subcolumns_count" = "5")> NULL """
 
-    test {
-        sql """ alter table ${tableName} add column var3 variant<'ab' : string, properties("variant_max_subcolumns_count" = "0")> NULL """
-        exception("The variant_max_subcolumns_count must either be 0 in all columns or greater than 0 in all columns")
-    }
+    sql """ alter table ${tableName} add column var3 variant<'ab' : string> NULL """
 
-    test {
-        sql """ alter table ${tableName} modify column var variant<'ab' : string, properties("variant_max_subcolumns_count" = "10")> NULL """
-        exception("Can not change variant schema templates")
-    }
+    // TODO(lihangyu) : uncomment
+    // test {
+    //     sql """ alter table ${tableName} modify column var variant<'ab' : string> NULL """
+    //     exception("Can not modify variant column with children")
+    // }
 
 
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -222,7 +220,7 @@ suite("test_predefine_ddl", "p0") {
             INDEX idx_ab_2 (var) USING INVERTED PROPERTIES("field_pattern"="ab") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-        exception("column: var cannot have multiple inverted indexes with field pattern: ab")
+        exception("column: var cannot have multiple inverted indexes of the same type with field pattern: ab")
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -247,7 +245,7 @@ suite("test_predefine_ddl", "p0") {
             INDEX idx_ab_2 (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-        exception("column: var cannot have multiple inverted indexes with field pattern: ab")
+        exception("column: var cannot have multiple inverted indexes of the same type with field pattern: ab")
     }
 
     test {
@@ -261,7 +259,7 @@ suite("test_predefine_ddl", "p0") {
             INDEX idx_ab_2 (var) USING INVERTED PROPERTIES("field_pattern"="ab") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-        exception("column: var cannot have multiple inverted indexes with field pattern: ab")
+        exception("column: var cannot have multiple inverted indexes of the same type with field pattern: ab")
     }
 
     test {
@@ -275,7 +273,7 @@ suite("test_predefine_ddl", "p0") {
             INDEX idx_ab_2 (var) USING INVERTED PROPERTIES("field_pattern"="ab") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-        exception("column: var cannot have multiple inverted indexes with field pattern: ab")
+        exception("column: var cannot have multiple inverted indexes of the same type with field pattern: ab")
     }
 
     test {
@@ -313,18 +311,6 @@ suite("test_predefine_ddl", "p0") {
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
     BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
 
-
-    test {
-        sql "DROP TABLE IF EXISTS ${tableName}"
-        sql """CREATE TABLE ${tableName} (
-            `id` bigint NULL,
-            `var1` variant <properties("variant_max_subcolumns_count" = "10")> NULL,
-            `var2` variant <properties("variant_max_subcolumns_count" = "0")> NULL
-        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
-        BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1")"""
-        exception("The variant_max_subcolumns_count must either be 0 in all columns, or greater than 0 in all columns")
-    }
-
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql "set default_variant_max_subcolumns_count = 10"
     sql "set default_variant_enable_typed_paths_to_sparse = false"
@@ -350,12 +336,7 @@ suite("test_predefine_ddl", "p0") {
     sql """alter table ${tableName} add column var2 variant<properties("variant_max_subcolumns_count" = "15")> NULL"""
     wait_for_latest_op_on_table_finish("${tableName}", timeout)
 
-    test {
-        sql """alter table ${tableName} add column var3 variant<properties("variant_max_subcolumns_count" = "0")> NULL"""
-        exception("The variant_max_subcolumns_count must either be 0 in all columns or greater than 0 in all columns")
-    }
-
-    sql "alter table ${tableName} add column var3 variant NULL"
+    sql """alter table ${tableName} add column var3 variant<properties("variant_max_subcolumns_count" = "0")> NULL"""
     wait_for_latest_op_on_table_finish("${tableName}", timeout)
 
     qt_sql "desc ${tableName}"

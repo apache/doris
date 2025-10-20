@@ -4,7 +4,7 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
---------hashAgg[LOCAL]
+--------hashAgg[GLOBAL]
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_nationkey = nation.n_nationkey)) otherCondition=() build RFs:RF2 n_nationkey->[c_nationkey]
 --------------PhysicalProject

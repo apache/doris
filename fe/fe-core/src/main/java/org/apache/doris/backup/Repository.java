@@ -29,16 +29,12 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.constants.S3Properties;
-import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.PersistentFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
-import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Backend;
@@ -49,6 +45,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -68,7 +65,6 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 
 /*
@@ -202,48 +198,20 @@ public class Repository implements Writable, GsonPostProcessable {
         return GsonUtils.GSON.fromJson(Text.readString(in), Repository.class);
     }
 
-    //todo why only support alter S3 properties
-    public Status alterRepositoryS3Properties(Map<String, String> properties) {
-        if (this.fileSystem instanceof S3FileSystem) {
-            Map<String, String> oldProperties = new HashMap<>(this.getRemoteFileSystem().getProperties());
-            oldProperties.remove(S3Properties.ACCESS_KEY);
-            oldProperties.remove(S3Properties.SECRET_KEY);
-            oldProperties.remove(S3Properties.SESSION_TOKEN);
-            oldProperties.remove(S3Properties.Env.ACCESS_KEY);
-            oldProperties.remove(S3Properties.Env.SECRET_KEY);
-            oldProperties.remove(S3Properties.Env.TOKEN);
-            for (Map.Entry<String, String> entry : properties.entrySet()) {
-                if (Objects.equals(entry.getKey(), S3Properties.ACCESS_KEY)
-                        || Objects.equals(entry.getKey(), S3Properties.Env.ACCESS_KEY)) {
-                    oldProperties.putIfAbsent(S3Properties.ACCESS_KEY, entry.getValue());
-                }
-                if (Objects.equals(entry.getKey(), S3Properties.SECRET_KEY)
-                        || Objects.equals(entry.getKey(), S3Properties.Env.SECRET_KEY)) {
-                    oldProperties.putIfAbsent(S3Properties.SECRET_KEY, entry.getValue());
-                }
-                if (Objects.equals(entry.getKey(), S3Properties.SESSION_TOKEN)
-                        || Objects.equals(entry.getKey(), S3Properties.Env.TOKEN)) {
-                    oldProperties.putIfAbsent(S3Properties.SESSION_TOKEN, entry.getValue());
-                }
-            }
-            properties.clear();
-            properties.putAll(oldProperties);
-            return Status.OK;
-        } else {
-            return new Status(ErrCode.COMMON_ERROR, "Only support alter s3 repository");
-        }
-    }
-
     @Override
     public void gsonPostProcess() {
         try {
             StorageProperties storageProperties = StorageProperties.createPrimary(this.fileSystem.properties);
             this.fileSystem = FileSystemFactory.get(storageProperties);
-        } catch (StoragePropertiesException exception) {
-            LOG.warn("Failed to create file system for repository: {}, error: {}, roll back to broker"
-                    + " filesystem", name, exception.getMessage());
-            BrokerProperties brokerProperties = BrokerProperties.of(this.fileSystem.name, this.fileSystem.properties);
-            this.fileSystem = FileSystemFactory.get(brokerProperties);
+        } catch (RuntimeException exception) {
+            LOG.warn("Failed to create file system from properties, error msg {}",
+                    ExceptionUtils.getRootCause(exception), exception);
+            throw new IllegalStateException(
+                    "Failed to initialize file system due to incompatible configuration with the current version. "
+                            + "This may be caused by a change in property formats or deprecated settings. "
+                            + "Please verify your configuration and ensure it matches the "
+                            + "new version requirements. error msg: "
+                            + ExceptionUtils.getRootCause(exception), exception);
         }
     }
 

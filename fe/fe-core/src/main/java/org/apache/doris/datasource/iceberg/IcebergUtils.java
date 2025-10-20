@@ -59,7 +59,7 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
-import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.thrift.TExprOpcode;
 
@@ -829,6 +829,12 @@ public class IcebergUtils {
                             IcebergUtils.icebergTypeToDorisType(field.type()), true, null,
                             true, field.doc(), true, -1);
             updateIcebergColumnUniqueId(column, field);
+            if (field.type().isPrimitiveType() && field.type().typeId() == TypeID.TIMESTAMP) {
+                Types.TimestampType timestampType = (Types.TimestampType) field.type();
+                if (timestampType.shouldAdjustToUTC()) {
+                    column.setWithTZExtraInfo();
+                }
+            }
             resSchema.add(column);
         }
         return resSchema;
@@ -931,7 +937,7 @@ public class IcebergUtils {
             // Later, type checks will be performed when loading the table.
             catalogProperties.put(HiveCatalog.LIST_ALL_TABLES, "true");
         }
-        String metastoreUris = catalogProperties.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
+        String metastoreUris = catalogProperties.getOrDefault(HMSBaseProperties.HIVE_METASTORE_URIS, "");
         catalogProperties.put(CatalogProperties.URI, metastoreUris);
         hiveCatalog.initialize(name, catalogProperties);
         return hiveCatalog;

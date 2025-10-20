@@ -97,11 +97,11 @@ suite("test_nullif") {
     qt_if_nullif8 """select ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
             order by a.k1"""
     // make sure stable
-    qt_if_nullif8_1 """select   /*+ SET_VAR(enable_pipeline_engine=false,parallel_pipeline_task_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
-    qt_if_nullif8_2 """select   /*+ SET_VAR(enable_pipeline_engine=false,parallel_pipeline_task_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
-    qt_if_nullif8_3 """select   /*+ SET_VAR(enable_pipeline_engine=false,parallel_pipeline_task_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
-    qt_if_nullif8_4 """select   /*+ SET_VAR(enable_pipeline_engine=false,parallel_pipeline_task_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
-    qt_if_nullif8_5 """select   /*+ SET_VAR(enable_pipeline_engine=false,parallel_pipeline_task_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
+    qt_if_nullif8_1 """select   /*+ SET_VAR(parallel_pipeline_task_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
+    qt_if_nullif8_2 """select   /*+ SET_VAR(parallel_pipeline_task_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
+    qt_if_nullif8_3 """select   /*+ SET_VAR(parallel_pipeline_task_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
+    qt_if_nullif8_4 """select   /*+ SET_VAR(parallel_pipeline_task_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
+    qt_if_nullif8_5 """select   /*+ SET_VAR(parallel_pipeline_task_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
     qt_if_nullif10 """select ifnull(b.k6, "hll") k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
             order by k1"""
     qt_if_nullif11 """select ifnull(b.k10, "2017-06-06") k1 from baseall a left join bigtable b on 
@@ -110,7 +110,7 @@ suite("test_nullif") {
             b on a.k1 = b.k1 + 5 order by k1"""
     qt_if_nullif13 """select ifnull(b.k1, "-1") k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
             order by a.k1"""
-    qt_if_nullif14 """select ifnull(b.k6, 1001) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
+    qt_if_nullif14 """select ifnull(b.k6, "1001") k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
             order by k1"""
     qt_if_nullif15 """select nullif(k1, 100) k1 from baseall order by k1"""
     qt_if_nullif16 """select nullif(k6, "false") k from baseall order by k1"""

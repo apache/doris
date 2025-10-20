@@ -45,6 +45,7 @@
 #include "common/string_util.h"
 #include "common/util.h"
 #include "cpp/aws_logger.h"
+#include "cpp/custom_aws_credentials_provider_chain.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/s3_rate_limiter.h"
 #include "cpp/sync_point.h"
@@ -279,7 +280,7 @@ int S3Accessor::create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor) {
 
 static std::shared_ptr<SimpleThreadPool> worker_pool;
 
-std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::get_aws_credentials_provider(
+std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::_get_aws_credentials_provider_v1(
         const S3Conf& s3_conf) {
     if (!s3_conf.ak.empty() && !s3_conf.sk.empty()) {
         Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
@@ -292,7 +293,8 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::get_aws_credentia
             return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
         }
 
-        Aws::Client::ClientConfiguration clientConfiguration;
+        Aws::Client::ClientConfiguration clientConfiguration =
+                S3Environment::getClientConfiguration();
         if (_ca_cert_file_path.empty()) {
             _ca_cert_file_path =
                     get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
@@ -310,6 +312,47 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::get_aws_credentia
                 Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, stsClient);
     }
     return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
+}
+
+std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::_get_aws_credentials_provider_v2(
+        const S3Conf& s3_conf) {
+    if (!s3_conf.ak.empty() && !s3_conf.sk.empty()) {
+        Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
+        DCHECK(!aws_cred.IsExpiredOrEmpty());
+        return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(std::move(aws_cred));
+    }
+
+    if (s3_conf.cred_provider_type == CredProviderType::InstanceProfile) {
+        if (s3_conf.role_arn.empty()) {
+            return std::make_shared<CustomAwsCredentialsProviderChain>();
+        }
+
+        Aws::Client::ClientConfiguration clientConfiguration =
+                S3Environment::getClientConfiguration();
+        if (_ca_cert_file_path.empty()) {
+            _ca_cert_file_path =
+                    get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
+        }
+        if (!_ca_cert_file_path.empty()) {
+            clientConfiguration.caFile = _ca_cert_file_path;
+        }
+
+        auto stsClient = std::make_shared<Aws::STS::STSClient>(
+                std::make_shared<CustomAwsCredentialsProviderChain>(), clientConfiguration);
+
+        return std::make_shared<Aws::Auth::STSAssumeRoleCredentialsProvider>(
+                s3_conf.role_arn, Aws::String(), s3_conf.external_id,
+                Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, stsClient);
+    }
+    return std::make_shared<CustomAwsCredentialsProviderChain>();
+}
+
+std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::get_aws_credentials_provider(
+        const S3Conf& s3_conf) {
+    if (config::aws_credentials_provider_version == "v2") {
+        return _get_aws_credentials_provider_v2(s3_conf);
+    }
+    return _get_aws_credentials_provider_v1(s3_conf);
 }
 
 int S3Accessor::init() {
@@ -363,7 +406,7 @@ int S3Accessor::init() {
         uri_ = normalize_http_uri(uri_);
 
         // S3Conf::S3
-        Aws::Client::ClientConfiguration aws_config;
+        Aws::Client::ClientConfiguration aws_config = S3Environment::getClientConfiguration();
         aws_config.endpointOverride = conf_.endpoint;
         aws_config.region = conf_.region;
         // Aws::Http::CurlHandleContainer::AcquireCurlHandle() may be blocked if the connecitons are bottleneck
@@ -483,6 +526,23 @@ int S3Accessor::list_all(std::unique_ptr<ListIterator>* res) {
 int S3Accessor::exists(const std::string& path) {
     ObjectMeta obj_meta;
     return obj_client_->head_object({.bucket = conf_.bucket, .key = get_key(path)}, &obj_meta).ret;
+}
+
+int S3Accessor::abort_multipart_upload(const std::string& path, const std::string& upload_id) {
+    LOG_INFO("abort multipart upload").tag("uri", to_uri(path)).tag("upload_id", upload_id);
+    int ret = obj_client_
+                      ->abort_multipart_upload({.bucket = conf_.bucket, .key = get_key(path)},
+                                               upload_id)
+                      .ret;
+    static_assert(ObjectStorageResponse::OK == 0);
+    if (ret == ObjectStorageResponse::OK || ret == ObjectStorageResponse::NOT_FOUND) {
+        return 0;
+    }
+    LOG_WARNING("fail abort multipart upload")
+            .tag("uri", to_uri(path))
+            .tag("upload_id", upload_id)
+            .tag("ret", ret);
+    return ret;
 }
 
 int S3Accessor::get_life_cycle(int64_t* expiration_days) {

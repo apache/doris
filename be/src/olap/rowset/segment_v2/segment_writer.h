@@ -140,8 +140,6 @@ public:
 
     void clear();
 
-    TabletSchemaSPtr flush_schema() const { return _flush_schema; };
-
     void set_mow_context(std::shared_ptr<MowContext> mow_context);
 
     Status close_inverted_index(int64_t* inverted_index_file_size) {
@@ -168,6 +166,7 @@ private:
     Status _write_zone_map();
     Status _write_bitmap_index();
     Status _write_inverted_index();
+    Status _write_ann_index();
     Status _write_bloom_filter_index();
     Status _write_short_key_index();
     Status _write_primary_key_index();
@@ -260,8 +259,6 @@ private:
     std::shared_ptr<MowContext> _mow_context;
     // group every rowset-segment row id to speed up reader
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
-    // contains auto generated columns, should be nullptr if no variants's subcolumns
-    TabletSchemaSPtr _flush_schema = nullptr;
     std::vector<std::string> _primary_keys;
     uint64_t _primary_keys_size = 0;
     // variant statistics calculator for efficient stats collection

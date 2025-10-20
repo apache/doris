@@ -247,6 +247,7 @@ struct TFileTextScanRangeParams {
     5: optional i8 enclose;
     6: optional i8 escape;
     7: optional string null_format;
+    8: optional bool empty_field_as_null
 }
 
 struct TFileScanSlotInfo {
@@ -397,7 +398,7 @@ struct TTableFormatFileDesc {
     6: optional TMaxComputeFileDesc max_compute_params
     7: optional TTrinoConnectorFileDesc trino_connector_params
     8: optional TLakeSoulFileDesc lakesoul_params
-    9: optional i64 table_level_row_count
+    9: optional i64 table_level_row_count = -1
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -537,12 +538,15 @@ struct TDataGenScanRange {
 }
 
 
+// deprecated
 struct TIcebergMetadataParams {
-  1: optional string serialized_task
-  2: optional map<string, string> hadoop_props
+  1: optional Types.TIcebergQueryType iceberg_query_type
+  2: optional string catalog
+  3: optional string database
+  4: optional string table
 }
 
-
+// deprecated
 struct TPaimonMetadataParams {
   1: optional string db_name
   2: optional string tbl_name
@@ -612,7 +616,7 @@ struct TMetaCacheStatsParams {
 
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
-  2: optional TIcebergMetadataParams iceberg_params
+  2: optional TIcebergMetadataParams iceberg_params // deprecated
   3: optional TBackendsMetadataParams backends_params
   4: optional TFrontendsMetadataParams frontends_params
   5: optional TQueriesMetadataParams queries_params
@@ -623,7 +627,12 @@ struct TMetaScanRange {
   10: optional TMetaCacheStatsParams meta_cache_stats_params
   11: optional TPartitionValuesMetadataParams partition_values_params
   12: optional THudiMetadataParams hudi_params
-  13: optional TPaimonMetadataParams paimon_params
+  13: optional TPaimonMetadataParams paimon_params // deprecated
+
+  // for quering sys tables for Paimon/Iceberg
+  14: optional map<string, string> hadoop_props
+  15: optional string serialized_table;
+  16: optional list<string> serialized_splits;
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -761,6 +770,7 @@ struct TSchemaScanNode {
   // 13: optional list<TSchemaTableStructure> table_structure // deprecated
   14: optional string catalog
   15: optional list<Types.TNetworkAddress> fe_addr_list
+  16: optional string frontend_conjuncts
 }
 
 struct TMetaScanNode {
@@ -818,6 +828,8 @@ struct TOlapScanNode {
   18: optional list<i32> topn_filter_source_node_ids //deprecated, move to TPlanNode.106
   19: optional TSortInfo score_sort_info
   20: optional i64 score_sort_limit
+  21: optional TSortInfo ann_sort_info
+  22: optional i64 ann_sort_limit
 }
 
 struct TEqJoinCondition {

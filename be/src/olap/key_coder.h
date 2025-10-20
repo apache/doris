@@ -261,12 +261,13 @@ public:
 template <>
 class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
 public:
-    static void full_encode_ascending(const void* value, std::string* buf) {
+    NO_SANITIZE_UNDEFINED static void full_encode_ascending(const void* value, std::string* buf) {
         auto slice = reinterpret_cast<const Slice*>(value);
         buf->append(slice->get_data(), slice->get_size());
     }
 
-    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+    NO_SANITIZE_UNDEFINED static void encode_ascending(const void* value, size_t index_size,
+                                                       std::string* buf) {
         const Slice* slice = (const Slice*)value;
         CHECK(index_size <= slice->size)
                 << "index size is larger than char size, index=" << index_size
@@ -282,12 +283,13 @@ public:
 template <>
 class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {
 public:
-    static void full_encode_ascending(const void* value, std::string* buf) {
+    NO_SANITIZE_UNDEFINED static void full_encode_ascending(const void* value, std::string* buf) {
         auto slice = reinterpret_cast<const Slice*>(value);
         buf->append(slice->get_data(), slice->get_size());
     }
 
-    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+    NO_SANITIZE_UNDEFINED static void encode_ascending(const void* value, size_t index_size,
+                                                       std::string* buf) {
         const Slice* slice = (const Slice*)value;
         size_t copy_size = std::min(index_size, slice->size);
         buf->append(slice->data, copy_size);
@@ -301,12 +303,13 @@ public:
 template <>
 class KeyCoderTraits<FieldType::OLAP_FIELD_TYPE_STRING> {
 public:
-    static void full_encode_ascending(const void* value, std::string* buf) {
+    NO_SANITIZE_UNDEFINED static void full_encode_ascending(const void* value, std::string* buf) {
         auto slice = reinterpret_cast<const Slice*>(value);
         buf->append(slice->get_data(), slice->get_size());
     }
 
-    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+    NO_SANITIZE_UNDEFINED static void encode_ascending(const void* value, size_t index_size,
+                                                       std::string* buf) {
         const Slice* slice = (const Slice*)value;
         size_t copy_size = std::min(index_size, slice->size);
         buf->append(slice->data, copy_size);

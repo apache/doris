@@ -18,11 +18,9 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.ConnectorProperty;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import lombok.Getter;
-import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
@@ -50,51 +48,6 @@ import java.util.regex.Pattern;
  */
 public abstract class AbstractS3CompatibleProperties extends StorageProperties implements ObjectStorageProperties {
     private static final Logger LOG = LogManager.getLogger(AbstractS3CompatibleProperties.class);
-    /**
-     * The maximum number of concurrent connections that can be made to the object storage system.
-     * This value is optional and can be configured by the user.
-     */
-    @Getter
-    @ConnectorProperty(names = {"connection.maximum"}, required = false, description = "Maximum number of connections.")
-    protected String maxConnections = "100";
-
-    /**
-     * The timeout (in milliseconds) for requests made to the object storage system.
-     * This value is optional and can be configured by the user.
-     */
-    @Getter
-    @ConnectorProperty(names = {"connection.request.timeout"}, required = false,
-            description = "Request timeout in seconds.")
-    protected String requestTimeoutS = "10000";
-
-    /**
-     * The timeout (in milliseconds) for establishing a connection to the object storage system.
-     * This value is optional and can be configured by the user.
-     */
-    @Getter
-    @ConnectorProperty(names = {"connection.timeout"}, required = false, description = "Connection timeout in seconds.")
-    protected String connectionTimeoutS = "10000";
-
-    /**
-     * Flag indicating whether to use path-style URLs for the object storage system.
-     * This value is optional and can be configured by the user.
-     */
-    @Setter
-    @Getter
-    @ConnectorProperty(names = {"use_path_style", "s3.path-style-access"}, required = false,
-            description = "Whether to use path style URL for the storage.")
-    protected String usePathStyle = "false";
-    @ConnectorProperty(names = {"force_parsing_by_standard_uri"}, required = false,
-            description = "Whether to use path style URL for the storage.")
-    @Setter
-    @Getter
-    protected String forceParsingByStandardUrl = "false";
-
-    @Getter
-    @ConnectorProperty(names = {"s3.session_token", "session_token"},
-            required = false,
-            description = "The session token of S3.")
-    protected String sessionToken = "";
 
     /**
      * Constructor to initialize the object storage properties with the provided type and original properties map.
@@ -132,7 +85,8 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
      * @return a map containing AWS S3 configuration properties.
      */
     protected Map<String, String> generateBackendS3Configuration() {
-        return doBuildS3Configuration(maxConnections, requestTimeoutS, connectionTimeoutS, usePathStyle);
+        return doBuildS3Configuration(getMaxConnections(), getRequestTimeoutS(), getConnectionTimeoutS(),
+                getUsePathStyle());
     }
 
     /**
@@ -164,11 +118,11 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
 
     public AwsCredentialsProvider getAwsCredentialsProvider() {
         if (StringUtils.isNotBlank(getAccessKey()) && StringUtils.isNotBlank(getSecretKey())) {
-            if (Strings.isNullOrEmpty(sessionToken)) {
+            if (Strings.isNullOrEmpty(getSessionToken())) {
                 return StaticCredentialsProvider.create(AwsBasicCredentials.create(getAccessKey(), getSecretKey()));
             } else {
                 return StaticCredentialsProvider.create(AwsSessionCredentials.create(getAccessKey(), getSecretKey(),
-                        sessionToken));
+                        getSessionToken()));
             }
         }
         return null;
@@ -178,10 +132,25 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         setEndpointIfPossible();
-        if (!isValidEndpoint(getEndpoint())) {
-            throw new IllegalArgumentException("Invalid endpoint: " + getEndpoint());
-        }
         setRegionIfPossible();
+        //Allow anonymous access if both access_key and secret_key are empty
+        //But not recommended for production use.
+        if (StringUtils.isBlank(getAccessKey()) != StringUtils.isBlank(getSecretKey())) {
+            throw new IllegalArgumentException("Both the access key and the secret key must be set.");
+        }
+        if (StringUtils.isBlank(getRegion())) {
+            throw new IllegalArgumentException("Region is not set. If you are using a standard endpoint, the region "
+                    + "will be detected automatically. Otherwise, please specify it explicitly."
+            );
+        }
+        if (StringUtils.isBlank(getEndpoint())) {
+            throw new IllegalArgumentException("Endpoint is not set. Please specify it explicitly."
+            );
+        }
+    }
+
+    boolean isEndpointCheckRequired() {
+        return true;
     }
 
     /**
@@ -204,21 +173,23 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         if (StringUtils.isNotBlank(getEndpoint())) {
             return;
         }
-        String endpoint = null;
-        // 1. try getting endpoint from uri
+        // 1. try getting endpoint region
+        String endpoint = getEndpointFromRegion();
+        if (StringUtils.isNotBlank(endpoint)) {
+            setEndpoint(endpoint);
+            return;
+        }
+        // 2. try getting endpoint from uri
         try {
-            endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, usePathStyle, forceParsingByStandardUrl);
+            endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, getUsePathStyle(),
+                    getForceParsingByStandardUrl());
+            if (StringUtils.isNotBlank(endpoint)) {
+                setEndpoint(endpoint);
+            }
         } catch (Exception e) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Failed to construct endpoint from url: " + origProps, e);
+                LOG.debug("Failed to construct endpoint from url: {}", e.getMessage(), e);
             }
-        }
-        // 2. try getting endpoint region
-        if (StringUtils.isBlank(endpoint)) {
-            endpoint = getEndpointFromRegion();
-        }
-        if (!StringUtils.isBlank(endpoint)) {
-            setEndpoint(endpoint);
         }
     }
 
@@ -258,20 +229,6 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
 
     protected abstract Set<Pattern> endpointPatterns();
 
-    private boolean isValidEndpoint(String endpoint) {
-        if (StringUtils.isBlank(endpoint)) {
-            // Endpoint is not required, so we consider it valid if empty.
-            return true;
-        }
-        for (Pattern pattern : endpointPatterns()) {
-            Matcher matcher = pattern.matcher(endpoint.toLowerCase());
-            if (matcher.matches()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     // This method should be overridden by subclasses to provide a default endpoint based on the region.
     // Because for aws s3, only region is needed, the endpoint can be constructed from the region.
     // But for other s3 compatible storage, the endpoint may need to be specified explicitly.
@@ -302,13 +259,24 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     private void appendS3HdfsProperties(Configuration hadoopStorageConfig) {
         hadoopStorageConfig.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         hadoopStorageConfig.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        // use google assert not null
+        Preconditions.checkNotNull(getEndpoint(), "endpoint is null");
         hadoopStorageConfig.set("fs.s3a.endpoint", getEndpoint());
-        hadoopStorageConfig.set("fs.s3a.access.key", getAccessKey());
-        hadoopStorageConfig.set("fs.s3a.secret.key", getSecretKey());
+        Preconditions.checkNotNull(getRegion(), "region is null");
+        hadoopStorageConfig.set("fs.s3a.endpoint.region", getRegion());
+        hadoopStorageConfig.set("fs.s3.impl.disable.cache", "true");
+        hadoopStorageConfig.set("fs.s3a.impl.disable.cache", "true");
+        if (StringUtils.isNotBlank(getAccessKey())) {
+            hadoopStorageConfig.set("fs.s3a.access.key", getAccessKey());
+            hadoopStorageConfig.set("fs.s3a.secret.key", getSecretKey());
+            if (StringUtils.isNotBlank(getSessionToken())) {
+                hadoopStorageConfig.set("fs.s3a.session.token", getSessionToken());
+            }
+        }
         hadoopStorageConfig.set("fs.s3a.connection.maximum", getMaxConnections());
         hadoopStorageConfig.set("fs.s3a.connection.request.timeout", getRequestTimeoutS());
         hadoopStorageConfig.set("fs.s3a.connection.timeout", getConnectionTimeoutS());
-        hadoopStorageConfig.set("fs.s3a.path.style.access", usePathStyle);
+        hadoopStorageConfig.set("fs.s3a.path.style.access", getUsePathStyle());
     }
 
     @Override

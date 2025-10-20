@@ -32,10 +32,10 @@ PhysicalResultSink
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------NestedLoopJoin[INNER_JOIN](d3.d_date > days_add(d_date, INTERVAL 5 DAY))
 ------------------------------------------------------PhysicalProject
---------------------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------------------------PhysicalOlapScan[date_dim(d3)]
 ------------------------------------------------------PhysicalProject
 --------------------------------------------------------filter((d1.d_year = 1998))
-----------------------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF6
+----------------------------------------------------------PhysicalOlapScan[date_dim(d1)] apply RFs: RF6
 ----------------------------------------------PhysicalProject
 ------------------------------------------------filter((household_demographics.hd_buy_potential = '1001-5000'))
 --------------------------------------------------PhysicalOlapScan[household_demographics]
@@ -45,10 +45,14 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[promotion]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[date_dim] apply RFs: RF8
+--------------------------------PhysicalOlapScan[date_dim(d2)] apply RFs: RF8
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[item] apply RFs: RF9
 ----------------------PhysicalOlapScan[inventory] apply RFs: RF10
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[warehouse]
+
+
+
+ group expression count exceeds memo_max_group_expression_size(10000)
 

@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("where_invalid") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """drop table if exists a_table;"""
 
     sql """

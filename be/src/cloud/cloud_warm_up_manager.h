@@ -30,6 +30,7 @@
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "gen_cpp/BackendService.h"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -87,12 +88,19 @@ public:
 private:
     void handle_jobs();
 
-    std::vector<TReplicaInfo> get_replica_info(int64_t tablet_id);
+    Status _do_warm_up_rowset(RowsetMeta& rs_meta, std::vector<TReplicaInfo>& replicas,
+                              int64_t sync_wait_timeout_ms, bool skip_existence_check);
+
+    std::vector<TReplicaInfo> get_replica_info(int64_t tablet_id, bool bypass_cache,
+                                               bool& cache_hit);
+
+    void _warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms);
+    void _recycle_cache(int64_t tablet_id, const std::vector<RecycledRowsets>& rowsets);
 
     void submit_download_tasks(io::Path path, int64_t file_size, io::FileSystemSPtr file_system,
                                int64_t expiration_time,
-                               std::shared_ptr<bthread::CountdownEvent> wait,
-                               bool is_index = false);
+                               std::shared_ptr<bthread::CountdownEvent> wait, bool is_index = false,
+                               std::function<void(Status)> done_cb = nullptr);
     std::mutex _mtx;
     std::condition_variable _cond;
     int64_t _cur_job_id {0};
@@ -110,6 +118,8 @@ private:
     using Cache = std::unordered_map<int64_t, CacheEntry>;
     // job_id -> cache
     std::unordered_map<int64_t, Cache> _tablet_replica_cache;
+    std::unique_ptr<ThreadPool> _thread_pool;
+    std::unique_ptr<ThreadPoolToken> _thread_pool_token;
 };
 
 } // namespace doris

@@ -204,6 +204,20 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     sql """ set return_object_data_as_binary=true """
     order_qt_tb1 """ select pin_id, hll_union_agg(user_log_acct) from bowen_hll_test group by pin_id; """
 
+    sql """drop table if exists `order` """
+    sql """
+        create table `order` (
+            test_col int
+        )
+        DUPLICATE KEY(`test_col`)
+        DISTRIBUTED BY HASH(`test_col`) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """insert into `order` values (1);"""
+
     // query with jdbc external table
     sql """ refresh catalog  doris_jdbc_catalog """
     qt_sql """select current_catalog()"""
@@ -244,6 +258,9 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     order_qt_sql6 """ with tmp as (select varchar_col,tinyint_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base")) select tinyint_col,varchar_col from tmp;"""
 
     order_qt_sql7 """ with tmp as (select tinyint_col,varchar_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base")) select tinyint_col from tmp;"""
+
+
+    order_qt_keywork_table_name """ select * from `order` order by test_col; """
 
     // //clean
     // qt_sql """select current_catalog()"""

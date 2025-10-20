@@ -326,7 +326,8 @@ TEST_F(BloomFilterFuncTest, HashAlgorithm) {
             "AAAAQAAAAIAACAAAAABAACAAAAAAQAAAAQAAAACAAAAAACAEAACAAgAACAQEAAAgAASAAAABAgAAEAAIDAAAAA"
             "CQAQAAYgAAAAIBAiBAgAABAgBABAAICAAABCGAAIABBAAAAAAAIABAAAAACAAAAAAAABAAQAAAAAAAIBAAAAAA"
             "AQAiABEAAQBAIgAAgBAQEEAAACACAQAABEgAAggAAQAAAUAQAAEQECCAAABAAIgHAAAACAEAAgAJQABAIAEAAA"
-            "gAAEAAAAAAEAAAAAAQAAABAAAQAAAAAEAAAAAEAACAEAAAAAUAAAAAIBAgCAAAQAAIAAAACBAIABAAAAAABg";
+            "gAAEAAAAAAEAAAAAAQAAABAAAQAAAAAEAAAAAEAACAEAAAAAUAAAAAIBAgCAAAQAAIAAAACBAIABAAAAAABg="
+            "=";
     BloomFilterFunc<PrimitiveType::TYPE_INT> bloom_filter_func(false);
     const size_t runtime_length = 1024;
     RuntimeFilterParams params {1,
@@ -469,7 +470,7 @@ TEST_F(BloomFilterFuncTest, FindDictOlapEngine) {
     std::vector<StringRef> dicts = {StringRef("aa"),  StringRef("bb"),  StringRef("cc"),
                                     StringRef("dd"),  StringRef("aab"), StringRef("bbc"),
                                     StringRef("ccd"), StringRef("dde")};
-    auto column = vectorized::ColumnDictI32::create();
+    auto column = vectorized::ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_VARCHAR);
     column->reserve(count);
     std::vector<int32_t> data(count);
     for (size_t i = 0; i != count; ++i) {

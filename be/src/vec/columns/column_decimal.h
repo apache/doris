@@ -34,7 +34,6 @@
 #include "vec/columns/column.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
-#include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
@@ -86,6 +85,7 @@ private:
     friend class COWHelper<IColumn, Self>;
 
 public:
+    // value_type is decimal32/64/128/256 type
     using value_type =
             typename PrimitiveTypeTraits<T>::ColumnItemType; //TODO: replace with ValueType
     using CppNativeType = typename PrimitiveTypeTraits<T>::CppNativeType;
@@ -162,9 +162,9 @@ public:
 
     size_t get_max_row_byte_size() const override;
 
-    void serialize_vec(StringRef* keys, size_t num_rows) const override;
+    void serialize(StringRef* keys, size_t num_rows) const override;
 
-    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
+    void deserialize(StringRef* keys, const size_t num_rows) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     void update_hashes_with_value(uint64_t* __restrict hashes,
@@ -247,6 +247,10 @@ public:
     size_t serialize_impl(char* pos, const size_t row) const override;
     size_t deserialize_impl(const char* pos) override;
     size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }
+    void serialize_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
+                                 const uint8_t* __restrict null_map) const override;
+    void deserialize_with_nullable(StringRef* keys, const size_t num_rows,
+                                   PaddedPODArray<UInt8>& null_map) override;
 
 protected:
     Container data;

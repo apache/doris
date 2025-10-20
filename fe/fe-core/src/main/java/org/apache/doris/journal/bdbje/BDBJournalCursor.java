@@ -46,21 +46,25 @@ public class BDBJournalCursor implements JournalCursor {
     private final int maxTryTime = 3;
 
     public static BDBJournalCursor getJournalCursor(BDBEnvironment env, long fromKey, long toKey) {
+        return getJournalCursor(env, fromKey, toKey, true);
+    }
+
+    public static BDBJournalCursor getJournalCursor(BDBEnvironment env, long fromKey, long toKey,
+            boolean exitIfNotFound) {
         if (toKey < fromKey || fromKey < 0) {
             LOG.warn("Invalid key range! fromKey:{} toKey:{}", fromKey, toKey);
             return null;
         }
         BDBJournalCursor cursor = null;
         try {
-            cursor = new BDBJournalCursor(env, fromKey, toKey);
+            cursor = new BDBJournalCursor(env, fromKey, toKey, exitIfNotFound);
         } catch (Exception e) {
             LOG.error("new BDBJournalCursor error.", e);
         }
         return cursor;
     }
 
-
-    private BDBJournalCursor(BDBEnvironment env, long fromKey, long toKey) throws Exception {
+    private BDBJournalCursor(BDBEnvironment env, long fromKey, long toKey, boolean exitIfNotFound) throws Exception {
         this.environment = env;
         this.toKey = toKey;
         this.currentKey = fromKey;
@@ -82,8 +86,12 @@ public class BDBJournalCursor implements JournalCursor {
         }
 
         if (dbName == null) {
-            LOG.error("Can not find the key:{}, fail to get journal cursor. will exit.", fromKey);
-            System.exit(-1);
+            if (exitIfNotFound) {
+                LOG.error("Can not find the key:{}, fail to get journal cursor. will exit.", fromKey);
+                System.exit(-1);
+            } else {
+                throw new Exception("Can not find the key:" + fromKey + ", fail to get journal cursor.");
+            }
         }
         this.database = env.openDatabase(dbName);
     }

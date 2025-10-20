@@ -75,6 +75,10 @@ public class ModifyColumnOp extends AlterTableOp {
         return rollupName;
     }
 
+    public void setColumn(Column column) {
+        this.column = column;
+    }
+
     @Override
     public void validate(ConnectContext ctx) throws UserException {
         if (columnDef == null) {
@@ -106,10 +110,6 @@ public class ModifyColumnOp extends AlterTableOp {
                     columnDef.setIsKey(originalColumn.isKey());
                 }
                 schemaColumns = olapTable.getFullSchema();
-                if (olapTable.getPartitionColumnNames().contains(colName.toLowerCase())
-                        || olapTable.getDistributionColumnNames().contains(colName.toLowerCase())) {
-                    throw new AnalysisException("Can not modify partition or distribution column : " + colName);
-                }
                 long baseIndexId = olapTable.getBaseIndexId();
                 for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
                     long indexId = entry.getKey();
@@ -165,6 +165,10 @@ public class ModifyColumnOp extends AlterTableOp {
         if (originalColumn != null) {
             originalColumn.checkSchemaChangeAllowed(column);
         }
+    }
+
+    public ColumnDefinition getColumnDef() {
+        return columnDef;
     }
 
     @Override

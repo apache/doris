@@ -17,11 +17,9 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -55,6 +53,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
@@ -196,6 +195,8 @@ public class OlapScanNode extends ScanNode {
     protected List<Expr> rewrittenProjectList;
 
     private long maxVersion = -1L;
+    private SortInfo annSortInfo = null;
+    private long annSortLimit = -1;
 
     private SortInfo scoreSortInfo = null;
     private long scoreSortLimit = -1;
@@ -258,6 +259,14 @@ public class OlapScanNode extends ScanNode {
         this.nereidsPrunedTabletIds = nereidsPrunedTabletIds;
     }
 
+    public long getTotalTabletsNum() {
+        return totalTabletsNum;
+    }
+
+    public boolean getForceOpenPreAgg() {
+        return forceOpenPreAgg;
+    }
+
     public ArrayList<Long> getScanTabletIds() {
         return scanTabletIds;
     }
@@ -280,6 +289,14 @@ public class OlapScanNode extends ScanNode {
 
     public void setScoreSortLimit(long scoreSortLimit) {
         this.scoreSortLimit = scoreSortLimit;
+    }
+
+    public void setAnnSortInfo(SortInfo annSortInfo) {
+        this.annSortInfo = annSortInfo;
+    }
+
+    public void setAnnSortLimit(long annSortLimit) {
+        this.annSortLimit = annSortLimit;
     }
 
     public Collection<Long> getSelectedPartitionIds() {
@@ -344,13 +361,13 @@ public class OlapScanNode extends ScanNode {
 
 
     private Collection<Long> partitionPrune(PartitionInfo partitionInfo,
-            PartitionNames partitionNames) throws AnalysisException {
+            PartitionNamesInfo partitionNamesInfo) throws AnalysisException {
         PartitionPruner partitionPruner = null;
         Map<Long, PartitionItem> keyItemMap;
-        if (partitionNames != null) {
+        if (partitionNamesInfo != null) {
             keyItemMap = Maps.newHashMap();
-            for (String partName : partitionNames.getPartitionNames()) {
-                Partition partition = olapTable.getPartition(partName, partitionNames.isTemp());
+            for (String partName : partitionNamesInfo.getPartitionNames()) {
+                Partition partition = olapTable.getPartition(partName, partitionNamesInfo.isTemp());
                 if (partition == null) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_SUCH_PARTITION, partName);
                 }
@@ -713,7 +730,7 @@ public class OlapScanNode extends ScanNode {
     private void computePartitionInfo() throws AnalysisException {
         long start = System.currentTimeMillis();
         // Step1: compute partition ids
-        PartitionNames partitionNames = ((BaseTableRef) desc.getRef()).getPartitionNames();
+        PartitionNamesInfo partitionNames = desc.getRef().getPartitionNamesInfo();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
             selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);
@@ -1019,6 +1036,17 @@ public class OlapScanNode extends ScanNode {
         if (scoreSortLimit != -1) {
             output.append(prefix).append("SCORE SORT LIMIT: ").append(scoreSortLimit).append("\n");
         }
+
+        if (annSortInfo != null) {
+            output.append(prefix).append("ANN SORT INFO:\n");
+            annSortInfo.getOrderingExprs().forEach(expr -> {
+                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+            });
+        }
+        if (annSortLimit != -1) {
+            output.append(prefix).append("ANN SORT LIMIT: ").append(annSortLimit).append("\n");
+        }
+
         if (useTopnFilter()) {
             String topnFilterSources = String.join(",",
                     topnFilterSortNodes.stream()
@@ -1180,6 +1208,19 @@ public class OlapScanNode extends ScanNode {
         }
         if (scoreSortLimit != -1) {
             msg.olap_scan_node.setScoreSortLimit(scoreSortLimit);
+        }
+        if (annSortInfo != null) {
+            TSortInfo tAnnSortInfo = new TSortInfo(
+                    Expr.treesToThrift(annSortInfo.getOrderingExprs()),
+                    annSortInfo.getIsAscOrder(),
+                    annSortInfo.getNullsFirst());
+            if (annSortInfo.getSortTupleSlotExprs() != null) {
+                tAnnSortInfo.setSortTupleSlotExprs(Expr.treesToThrift(annSortInfo.getSortTupleSlotExprs()));
+            }
+            msg.olap_scan_node.setAnnSortInfo(tAnnSortInfo);
+        }
+        if (annSortLimit != -1) {
+            msg.olap_scan_node.setAnnSortLimit(annSortLimit);
         }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         String tableName = olapTable.getName();

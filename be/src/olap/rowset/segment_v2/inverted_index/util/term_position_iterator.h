@@ -32,8 +32,6 @@ using TermPositionsIterPtr = std::shared_ptr<TermPositionsIterator>;
 
 class TermPositionsIterator : public TermIterator {
 public:
-    using TermPositionsPtr = std::unique_ptr<TermPositions, CLuceneDeleter>;
-
     TermPositionsIterator() = default;
     TermPositionsIterator(std::wstring term, TermPositionsPtr term_positions)
             : TermIterator(std::move(term), std::move(term_positions)) {
@@ -54,10 +52,9 @@ public:
                                        lucene::index::IndexReader* reader,
                                        const std::wstring& field_name,
                                        const std::wstring& ws_term) {
-        auto t = make_term(field_name, ws_term);
-        auto* term_pos = reader->termPositions(t.get(), is_similarity, io_ctx);
-        return std::make_shared<TermPositionsIterator>(
-                ws_term, TermPositionsPtr(term_pos, CLuceneDeleter {}));
+        auto t = make_term_ptr(field_name.c_str(), ws_term.c_str());
+        auto term_pos = make_term_positions_ptr(reader, t.get(), is_similarity, io_ctx);
+        return std::make_shared<TermPositionsIterator>(ws_term, std::move(term_pos));
     }
 
 private:

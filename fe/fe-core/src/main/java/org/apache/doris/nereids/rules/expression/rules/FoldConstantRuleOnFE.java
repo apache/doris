@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -91,7 +92,6 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -105,12 +105,13 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.codec.digest.DigestUtils;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Predicate;
 
@@ -169,6 +170,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(ConnectionId.class, this::visitConnectionId),
                 matches(And.class, this::visitAnd),
                 matches(Or.class, this::visitOr),
+                matches(TryCast.class, this::visitTryCast),
                 matches(Cast.class, this::visitCast),
                 matches(BoundFunction.class, this::visitBoundFunction),
                 matches(BinaryArithmetic.class, this::visitBinaryArithmetic),
@@ -183,7 +185,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(Version.class, this::visitVersion),
                 matches(SessionUser.class, this::visitSessionUser),
                 matches(LastQueryId.class, this::visitLastQueryId),
-                matches(Nvl.class, this::visitNvl)
+                matches(Nvl.class, this::visitNvl),
+                matches(Match.class, this::visitMatch)
         );
     }
 
@@ -441,7 +444,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             }
         } else {
             // null and null and null and ...
-            return new NullLiteral(BooleanType.INSTANCE);
+            return NullLiteral.BOOLEAN_INSTANCE;
         }
     }
 
@@ -487,7 +490,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             return or.withChildren(nonFalseLiteral);
         } else {
             // null or null
-            return new NullLiteral(BooleanType.INSTANCE);
+            return NullLiteral.BOOLEAN_INSTANCE;
         }
     }
 
@@ -517,6 +520,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         //     }
         // }
         try {
+            // TODO: support no throw exception in `checkedCastTo` and return Optional<Expression>
+            if (cast.child().getDataType().isStringLikeType() && dataType.isComplexType()) {
+                return cast;
+            }
             Expression castResult = child.checkedCastTo(dataType);
             if (!Objects.equals(castResult, cast) && !Objects.equals(castResult, child)) {
                 castResult = rewrite(castResult, context);
@@ -530,6 +537,15 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             }
         } catch (Throwable t) {
             return cast;
+        }
+    }
+
+    @Override
+    public Expression visitTryCast(TryCast cast, ExpressionRewriteContext context) {
+        try {
+            return visitCast(cast, context);
+        } catch (CastException c) {
+            return new NullLiteral(cast.getDataType());
         }
     }
 
@@ -560,57 +576,64 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     public Expression visitCaseWhen(CaseWhen caseWhen, ExpressionRewriteContext context) {
         CaseWhen originCaseWhen = caseWhen;
         caseWhen = rewriteChildren(caseWhen, context);
-        Expression newDefault = null;
-        boolean foundNewDefault = false;
-
-        List<WhenClause> whenClauses = new ArrayList<>();
+        final Expression oldDefault = caseWhen.getDefaultValue().orElse(null);
+        Expression newDefault = oldDefault;
+        ImmutableList.Builder<WhenClause> whenClausesBuilder
+                = ImmutableList.builderWithExpectedSize(caseWhen.getWhenClauses().size());
+        Set<Expression> uniqueOperands = Sets.newHashSet();
         for (WhenClause whenClause : caseWhen.getWhenClauses()) {
             Expression whenOperand = whenClause.getOperand();
-
-            if (!(whenOperand.isLiteral())) {
-                whenClauses.add(new WhenClause(whenOperand, whenClause.getResult()));
+            if (!whenOperand.isLiteral() && uniqueOperands.add(whenOperand)) {
+                whenClausesBuilder.add(new WhenClause(whenOperand, whenClause.getResult()));
             } else if (BooleanLiteral.TRUE.equals(whenOperand)) {
-                foundNewDefault = true;
                 newDefault = whenClause.getResult();
                 break;
             }
         }
-
-        Expression defaultResult = null;
-        if (caseWhen.getDefaultValue().isPresent()) {
-            defaultResult = caseWhen.getDefaultValue().get();
-        }
-        if (foundNewDefault) {
-            defaultResult = newDefault;
-        }
-        if (whenClauses.isEmpty()) {
-            return TypeCoercionUtils.ensureSameResultType(
-                    originCaseWhen, defaultResult == null ? new NullLiteral(caseWhen.getDataType()) : defaultResult,
-                    context
-            );
-        }
-        if (defaultResult == null) {
-            if (caseWhen.getDataType().isNullType()) {
-                // if caseWhen's type is NULL_TYPE, means all possible return values are nulls
-                // it's safe to return null literal here
-                return new NullLiteral();
-            } else {
-                return TypeCoercionUtils.ensureSameResultType(originCaseWhen, new CaseWhen(whenClauses), context);
+        List<WhenClause> newWhenClauses = whenClausesBuilder.build();
+        Expression realTypeCoercionDefault = newDefault != null ? newDefault : new NullLiteral(caseWhen.getDataType());
+        boolean allThenEqualsDefault = true;
+        for (WhenClause whenClause : newWhenClauses) {
+            if (!whenClause.getResult().equals(realTypeCoercionDefault)) {
+                allThenEqualsDefault = false;
+                break;
             }
         }
-        return TypeCoercionUtils.ensureSameResultType(
-                originCaseWhen, new CaseWhen(whenClauses, defaultResult), context
-        );
+        if (allThenEqualsDefault) {
+            return realTypeCoercionDefault;
+        }
+        boolean hasNewChildren = newWhenClauses.size() != caseWhen.getWhenClauses().size()
+                || newDefault != oldDefault;
+        if (newWhenClauses.size() == caseWhen.getWhenClauses().size()) {
+            for (int i = 0; i < newWhenClauses.size(); i++) {
+                if (newWhenClauses.get(i) != caseWhen.getWhenClauses().get(i)) {
+                    hasNewChildren = true;
+                    break;
+                }
+            }
+        }
+        if (hasNewChildren) {
+            caseWhen = newDefault == null
+                    ? new CaseWhen(newWhenClauses) : new CaseWhen(newWhenClauses, newDefault);
+        }
+        return TypeCoercionUtils.ensureSameResultType(originCaseWhen, caseWhen, context);
     }
 
     @Override
     public Expression visitIf(If ifExpr, ExpressionRewriteContext context) {
         If originIf = ifExpr;
         ifExpr = rewriteChildren(ifExpr, context);
-        if (ifExpr.child(0) instanceof NullLiteral || ifExpr.child(0).equals(BooleanLiteral.FALSE)) {
-            return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr.child(2), context);
-        } else if (ifExpr.child(0).equals(BooleanLiteral.TRUE)) {
-            return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr.child(1), context);
+        Expression condition = ifExpr.getCondition();
+        Expression typeCoercionTrueValue
+                = TypeCoercionUtils.ensureSameResultType(originIf, ifExpr.getTrueValue(), context);
+        Expression typeCoercionFalseValue
+                = TypeCoercionUtils.ensureSameResultType(originIf, ifExpr.getFalseValue(), context);
+        if (condition.equals(BooleanLiteral.TRUE)) {
+            return typeCoercionTrueValue;
+        } else if (condition.equals(BooleanLiteral.FALSE) || condition.isNullLiteral()) {
+            return typeCoercionFalseValue;
+        } else if (typeCoercionTrueValue.equals(typeCoercionFalseValue)) {
+            return typeCoercionTrueValue;
         }
         return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr, context);
     }
@@ -625,7 +648,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         // now the inPredicate contains literal only.
         Expression value = inPredicate.child(0);
         if (value.isNullLiteral()) {
-            return new NullLiteral(BooleanType.INSTANCE);
+            return NullLiteral.BOOLEAN_INSTANCE;
         }
         boolean isOptionContainsNull = false;
         for (Expression item : inPredicate.getOptions()) {
@@ -636,7 +659,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             }
         }
         return isOptionContainsNull
-                ? new NullLiteral(BooleanType.INSTANCE)
+                ? NullLiteral.BOOLEAN_INSTANCE
                 : BooleanLiteral.FALSE;
     }
 

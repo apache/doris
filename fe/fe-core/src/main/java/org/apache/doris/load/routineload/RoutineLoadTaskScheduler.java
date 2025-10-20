@@ -104,7 +104,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             RoutineLoadTaskInfo routineLoadTaskInfo = needScheduleTasksQueue.take();
             // try to delay scheduling tasks that are perceived as Eof to MaxBatchInterval
             // to avoid to much small transaction
-            if (routineLoadTaskInfo.getIsEof()) {
+            if (routineLoadTaskInfo.needDedalySchedule()) {
                 RoutineLoadJob routineLoadJob = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
                 if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime()
                         < routineLoadJob.getMaxBatchIntervalS() * 1000) {
@@ -247,11 +247,18 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
 
         // Check if this is a resource pressure error that should not be immediately rescheduled
         if (errorMsg.contains("TOO_MANY_TASKS") || errorMsg.contains("MEM_LIMIT_EXCEEDED")) {
+            // submit task failed (such as TOO_MANY_TASKS/MEM_LIMIT_EXCEEDED error),
+            // but txn has already begun. Here we will still set the ExecuteStartTime of
+            // this task, which means we "assume" that this task has been successfully submitted.
+            // And this task will then be aborted because of a timeout.
+            // In this way, we can prevent the entire job from being paused due to submit errors,
+            // and we can also relieve the pressure on BE by waiting for the timeout period.
+            routineLoadTaskInfo.setExecuteStartTimeMs(System.currentTimeMillis());
             return;
         }
 
         // for other errors (network issues, BE restart, etc.), reschedule immediately
-        RoutineLoadTaskInfo newTask = routineLoadJob.unprotectRenewTask(routineLoadTaskInfo);
+        RoutineLoadTaskInfo newTask = routineLoadJob.unprotectRenewTask(routineLoadTaskInfo, false);
         addTaskInQueue(newTask);
     }
 
@@ -300,6 +307,12 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             if (DebugPointUtil.isEnable("FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED")) {
                 LOG.warn("debug point FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED, routine load task submit failed");
                 throw new LoadException("debug point FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED");
+            }
+
+            if (DebugPointUtil.isEnable("FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.MEM_LIMIT_EXCEEDED")) {
+                LOG.warn("debug point FE.ROUTINE_LOAD_TASK_SUBMIT_FAILED.MEM_LIMIT_EXCEEDED,"
+                        + "routine load task submit failed");
+                throw new LoadException("MEM_LIMIT_EXCEEDED");
             }
 
             if (tStatus.getStatusCode() != TStatusCode.OK) {

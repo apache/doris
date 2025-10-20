@@ -249,7 +249,7 @@ public class DateTimeLiteral extends DateLiteral {
         }
     }
 
-    protected boolean checkRange() {
+    public boolean checkRange() {
         return checkRange(year, month, day) || hour > MAX_DATETIME.getHour() || minute > MAX_DATETIME.getMinute()
                 || second > MAX_DATETIME.getSecond() || microSecond > MAX_MICROSECOND;
     }
@@ -341,6 +341,8 @@ public class DateTimeLiteral extends DateLiteral {
                 return new BigIntLiteral(getValue());
             } else if (targetType.isLargeIntType()) {
                 return new LargeIntLiteral(new BigInteger(String.valueOf(getValue())));
+            } else {
+                throw new AnalysisException("DateTime can not cast to " + targetType);
             }
         } else if (targetType.isDateV2Type()) {
             return new DateV2Literal(year, month, day);

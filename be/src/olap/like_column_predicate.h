@@ -62,10 +62,6 @@ public:
         return Status::OK();
     }
 
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        return input_type == T || (is_string_type(input_type) && is_string_type(T));
-    }
-
     void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
                           bool* flags) const override;
 
@@ -158,8 +154,7 @@ private:
             StringRef cell_value = column.get_shrink_value(i);
             unsigned char flag = 0;
             THROW_IF_ERROR((_state->scalar_function)(
-                    const_cast<vectorized::LikeSearchState*>(&_like_state),
-                    StringRef(cell_value.data, cell_value.size), pattern, &flag));
+                    &_like_state, StringRef(cell_value.data, cell_value.size), pattern, &flag));
             tmp_res[i] = flag;
         }
         // Sometimes the dict is not initialized when run comparison predicate here, for example,

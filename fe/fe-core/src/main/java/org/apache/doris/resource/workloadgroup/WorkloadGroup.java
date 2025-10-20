@@ -68,8 +68,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String ENABLE_MEMORY_OVERCOMMIT = "enable_memory_overcommit";
 
-    public static final String WRITE_BUFFER_RATIO = "write_buffer_ratio";
-
     public static final String MAX_CONCURRENCY = "max_concurrency";
 
     public static final String MAX_QUEUE_SIZE = "max_queue_size";
@@ -107,7 +105,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             .add(MAX_MEMORY_PERCENT).add(MIN_MEMORY_PERCENT)
             .add(MAX_CONCURRENCY).add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT)
             .add(SCAN_THREAD_NUM).add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM)
-            .add(MEMORY_LOW_WATERMARK).add(MEMORY_HIGH_WATERMARK).add(WRITE_BUFFER_RATIO)
+            .add(MEMORY_LOW_WATERMARK).add(MEMORY_HIGH_WATERMARK)
             .add(COMPUTE_GROUP).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND)
             .add(SLOT_MEMORY_POLICY).build();
 
@@ -135,7 +133,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(REMOTE_READ_BYTES_PER_SECOND, "-1");
     }
 
-    public static final int WRITE_BUFFER_RATIO_DEFAULT_VALUE = 20;
     public static final String SLOT_MEMORY_POLICY_DEFAULT_VALUE = "none";
     public static final HashSet<String> AVAILABLE_SLOT_MEMORY_POLICY_VALUES = new HashSet<String>() {{
             add("none");
@@ -167,16 +164,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         this.name = name;
         this.properties = properties;
         this.version = version;
-
-        if (properties.containsKey(WRITE_BUFFER_RATIO)) {
-            String loadBufLimitStr = properties.get(WRITE_BUFFER_RATIO);
-            if (loadBufLimitStr.endsWith("%")) {
-                loadBufLimitStr = loadBufLimitStr.substring(0, loadBufLimitStr.length() - 1);
-            }
-            this.properties.put(WRITE_BUFFER_RATIO, loadBufLimitStr);
-        } else {
-            this.properties.put(WRITE_BUFFER_RATIO, WRITE_BUFFER_RATIO_DEFAULT_VALUE + "");
-        }
 
         if (properties.containsKey(SLOT_MEMORY_POLICY)) {
             String slotPolicy = properties.get(SLOT_MEMORY_POLICY);
@@ -376,25 +363,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             throw new DdlException(MAX_MEMORY_PERCENT + "'s value " + maxMemPercent
                     + " has to be great or equal than "
                     + MIN_MEMORY_PERCENT + " " + minMemPercent);
-        }
-
-        if (properties.containsKey(WRITE_BUFFER_RATIO)) {
-            String writeBufSizeStr = properties.get(WRITE_BUFFER_RATIO);
-            String memLimitErr = WRITE_BUFFER_RATIO + " " + writeBufSizeStr
-                    + " requires a positive int number.";
-            if (writeBufSizeStr.endsWith("%")) {
-                writeBufSizeStr = writeBufSizeStr.substring(0, writeBufSizeStr.length() - 1);
-            }
-            try {
-                if (Integer.parseInt(writeBufSizeStr) < 0) {
-                    throw new DdlException(memLimitErr);
-                }
-            } catch (NumberFormatException e) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(memLimitErr, e);
-                }
-                throw new DdlException(memLimitErr);
-            }
         }
 
         if (properties.containsKey(SLOT_MEMORY_POLICY)) {
@@ -741,10 +709,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             tWorkloadGroupInfo.setMinMemoryPercent(this.getMinMemoryPercent());
         }
 
-        String writeBufferRatioStr = properties.get(WRITE_BUFFER_RATIO);
-        if (writeBufferRatioStr != null) {
-            tWorkloadGroupInfo.setWriteBufferRatio(Integer.parseInt(writeBufferRatioStr));
-        }
         String slotMemoryPolicyStr = properties.get(SLOT_MEMORY_POLICY);
         if (slotMemoryPolicyStr != null) {
             tWorkloadGroupInfo.setSlotMemoryPolicy(findSlotPolicyValueByString(slotMemoryPolicyStr));

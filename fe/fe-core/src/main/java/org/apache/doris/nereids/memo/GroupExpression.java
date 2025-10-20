@@ -359,7 +359,7 @@ public class GroupExpression {
             builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
         if (cost != null) {
-            builder.append(" cost=").append(cost.getValue() + " " + cost);
+            builder.append(" cost=").append(format.format(cost.getValue()) + " " + cost);
         } else {
             builder.append(" cost=null");
         }

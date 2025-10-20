@@ -61,7 +61,7 @@ class WorkloadGroup : public std::enable_shared_from_this<WorkloadGroup> {
     ENABLE_FACTORY_CREATOR(WorkloadGroup);
 
 public:
-    explicit WorkloadGroup(const WorkloadGroupInfo& wg_info);
+    WorkloadGroup(const WorkloadGroupInfo& wg_info);
 
     virtual ~WorkloadGroup();
 
@@ -77,19 +77,14 @@ public:
 
     int64_t total_mem_used() const { return _total_mem_used; }
 
-    int64_t write_buffer_size() const { return _write_buffer_size; }
-
-    void enable_write_buffer_limit(bool enable_limit) { _enable_write_buffer_limit = enable_limit; }
-
-    bool enable_write_buffer_limit() const { return _enable_write_buffer_limit; }
-
-    bool exceed_write_buffer_limit() const { return _write_buffer_size > write_buffer_limit(); }
-
     // make memory snapshots and refresh total memory used at the same time.
     int64_t refresh_memory_usage();
     int64_t memory_used();
 
     void do_sweep();
+#ifdef BE_TEST
+    void clear_cancelled_resource_ctx();
+#endif
 
     int memory_low_watermark() const {
         return _memory_low_watermark.load(std::memory_order_relaxed);
@@ -98,8 +93,6 @@ public:
     int memory_high_watermark() const {
         return _memory_high_watermark.load(std::memory_order_relaxed);
     }
-
-    void set_weighted_memory_ratio(double ratio);
 
     int total_query_slot_count() const {
         return _total_query_slot_count.load(std::memory_order_relaxed);
@@ -140,6 +133,8 @@ public:
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _memory_limit > 0 ? _total_mem_used > _memory_limit : false;
     }
+
+    int64_t min_memory_limit() const { return _min_memory_limit; }
 
     Status add_resource_ctx(TUniqueId query_id, std::shared_ptr<ResourceContext> resource_ctx) {
         std::unique_lock<std::shared_mutex> wlock(_mutex);
@@ -207,8 +202,6 @@ public:
     friend class WorkloadGroupMetrics;
     friend class WorkloadGroupMgr;
 
-    int64_t write_buffer_limit() const { return _memory_limit * _load_buffer_ratio / 100; }
-
     int64_t revoke_memory(int64_t need_free_mem, const std::string& revoke_reason,
                           RuntimeProfile* profile);
 
@@ -228,15 +221,12 @@ private:
     int64_t _version;
     std::atomic<int> _min_cpu_percent = 0;
     std::atomic<int> _max_cpu_percent = 100;
-    std::atomic<int64_t> _memory_limit = 1 << 30; // Default to 1GB
+    std::atomic<int64_t> _memory_limit = 1 << 30;     // Default to 1GB
+    std::atomic<int64_t> _min_memory_limit = 1 << 26; // Default to 64MB
     std::atomic<int> _min_memory_percent = 0;
     std::atomic<int> _max_memory_percent = 100;
     std::atomic<int> _memory_low_watermark;
     std::atomic<int> _memory_high_watermark;
-    // For example, load memtable, write to parquet.
-    // If the wg's memory reached high water mark, then the load buffer
-    // will be restricted to this limit.
-    int64_t _load_buffer_ratio = 0;
 
     std::atomic<int> _scan_thread_num;
     std::atomic<int> _max_remote_scan_thread_num;
@@ -246,9 +236,7 @@ private:
     std::atomic<int> _total_query_slot_count = 0;
     std::atomic<TWgSlotMemoryPolicy::type> _slot_mem_policy {TWgSlotMemoryPolicy::NONE};
 
-    std::atomic<bool> _enable_write_buffer_limit = false;
     std::atomic_int64_t _total_mem_used = 0; // bytes
-    std::atomic_int64_t _write_buffer_size = 0;
     std::atomic_int64_t _wg_refresh_interval_memory_growth;
     // means workload group is mark dropped
     // new query can not submit
@@ -292,7 +280,6 @@ struct WorkloadGroupInfo {
     const int64_t remote_read_bytes_per_second = -1;
     const int total_query_slot_count = 0;
     const TWgSlotMemoryPolicy::type slot_mem_policy = TWgSlotMemoryPolicy::NONE;
-    const int write_buffer_ratio = 0;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;

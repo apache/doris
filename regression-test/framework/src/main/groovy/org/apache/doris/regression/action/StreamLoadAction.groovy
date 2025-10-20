@@ -37,6 +37,10 @@ import org.apache.http.entity.StringEntity
 import org.apache.http.impl.client.CloseableHttpClient
 import org.apache.http.impl.client.HttpClients
 import org.apache.http.util.EntityUtils
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager
+import org.apache.http.config.ConnectionConfig
+import java.nio.charset.StandardCharsets
+import java.nio.charset.CodingErrorAction
 import org.junit.Assert
 import java.io.InputStream
 import java.io.IOException
@@ -59,6 +63,7 @@ class StreamLoadAction implements SuiteAction {
     SuiteContext context
     boolean directToBe = false
     boolean twoPhaseCommit = false
+    boolean enableUtf8Encoding = false  // 新增：UTF-8编码支持开关
 
     StreamLoadAction(SuiteContext context) {
         this.address = context.getFeHttpAddress()
@@ -154,12 +159,24 @@ class StreamLoadAction implements SuiteAction {
         this.twoPhaseCommit = twoPhaseCommit.call();
     }
 
+    void enableUtf8Encoding(boolean enable) {
+        this.enableUtf8Encoding = enable
+    }
+
+    void enableUtf8Encoding(Closure<Boolean> enable) {
+        this.enableUtf8Encoding = enable.call()
+    }
+
     // compatible with selectdb case
     void isCloud(boolean isCloud) {
     }
 
     // compatible with selectdb case
     void isCloud(Closure<Boolean> isCloud) {
+    }
+
+    void setFeAddr(String beHost, int beHttpPort) {
+        this.address = new InetSocketAddress(beHost, beHttpPort)
     }
 
     void check(@ClosureParams(value = FromString, options = ["String,Throwable,Long,Long"]) Closure check) {
@@ -189,25 +206,37 @@ class StreamLoadAction implements SuiteAction {
             } else {
                 uri = "http://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
             }
-            HttpClients.createDefault().withCloseable { client ->
+            def client
+            if (enableUtf8Encoding) {
+                // set UTF-8
+                def connConfig = ConnectionConfig.custom()
+                    .setCharset(StandardCharsets.UTF_8)
+                    .setMalformedInputAction(CodingErrorAction.REPLACE)
+                    .setUnmappableInputAction(CodingErrorAction.REPLACE)
+                    .build()
+                def cm = new PoolingHttpClientConnectionManager()
+                cm.setDefaultConnectionConfig(connConfig)
+                client = HttpClients.custom().setConnectionManager(cm).build()
+                log.info("Stream load using UTF-8 encoding for headers")
+            } else {
+                // default：ISO-8859-1
+                client = HttpClients.createDefault()
+            }
+            client.withCloseable { httpClient ->
                 RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
-                HttpEntity httpEntity = prepareHttpEntity(client)
+                HttpEntity httpEntity = prepareHttpEntity(httpClient)
                 if (!directToBe) {
-                    String beLocation = streamLoadToFe(client, requestBuilder)
+                    String beLocation = streamLoadToFe(httpClient, requestBuilder)
                     log.info("Redirect stream load to ${beLocation}".toString())
                     requestBuilder.setUri(beLocation)
                 }
                 requestBuilder.setEntity(httpEntity)
-                responseText = streamLoadToBe(client, requestBuilder)
+                responseText = streamLoadToBe(httpClient, requestBuilder)
             }
         } catch (Throwable t) {
             ex = t
         }
-        long endTime = System.currentTimeMillis()
-
-        log.info("Stream load elapsed ${endTime - startTime} ms, is http stream: ${isHttpStream}, " +
-                "response: ${responseText}, " + ex.toString())
-        checkResult(responseText, ex, startTime, endTime)
+        checkResult(isHttpStream, responseText, ex, startTime, System.currentTimeMillis())
     }
 
     private String httpGetString(CloseableHttpClient client, String url) {
@@ -346,9 +375,10 @@ class StreamLoadAction implements SuiteAction {
         return responseText
     }
 
-    private void checkResult(String responseText, Throwable ex, long startTime, long endTime) {
+    private void checkResult(boolean isHttpStream, String responseText, Throwable ex, long startTime, long endTime) {
         String finalStatus = waitForPublishOrFailure(responseText)
-        log.info("The origin stream load result: ${responseText}, final status: ${finalStatus}")
+        log.info("Stream load final status: ${finalStatus}, elapsed ${endTime - startTime} ms, is http stream: ${isHttpStream}, " +
+                "response: ${responseText}, " + ex.toString())
         responseText = responseText.replace("Publish Timeout", finalStatus)
         if (check != null) {
             check.call(responseText, ex, startTime, endTime)

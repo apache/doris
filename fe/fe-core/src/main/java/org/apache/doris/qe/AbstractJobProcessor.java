@@ -71,7 +71,7 @@ public abstract class AbstractJobProcessor implements JobProcessor {
     public final void updateFragmentExecStatus(TReportExecStatusParams params) {
         SingleFragmentPipelineTask fragmentTask = backendFragmentTasks.get().get(
                 new BackendFragmentId(params.getBackendId(), params.getFragmentId()));
-        if (fragmentTask == null || !fragmentTask.processReportExecStatus(params)) {
+        if (fragmentTask == null) {
             return;
         }
 

@@ -369,3 +369,50 @@ TEST_F(IndexReaderHelperTest, PropertiesVariationsTest) {
     EXPECT_FALSE(IndexReaderHelper::is_support_phrase(reader3));
     EXPECT_FALSE(IndexReaderHelper::is_support_phrase(reader4));
 }
+
+TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreWithInvertedIndexQueryTypeTest) {
+    TabletIndex index_meta;
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test_index");
+    index_meta_pb->add_col_unique_id(1);
+
+    auto* properties = index_meta_pb->mutable_properties();
+    (*properties)[INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY] =
+            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
+
+    index_meta.init_from_pb(*index_meta_pb);
+
+    EXPECT_TRUE(IndexReaderHelper::is_need_similarity_score(InvertedIndexQueryType::MATCH_ANY_QUERY,
+                                                            &index_meta));
+    EXPECT_TRUE(IndexReaderHelper::is_need_similarity_score(
+            InvertedIndexQueryType::MATCH_PHRASE_QUERY, &index_meta));
+
+    EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(InvertedIndexQueryType::EQUAL_QUERY,
+                                                             &index_meta));
+    EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(
+            InvertedIndexQueryType::LESS_THAN_QUERY, &index_meta));
+}
+
+TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreWithTExprOpcodeTest) {
+    TabletIndex index_meta;
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test_index");
+    index_meta_pb->add_col_unique_id(1);
+
+    auto* properties = index_meta_pb->mutable_properties();
+    (*properties)[INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY] =
+            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
+
+    index_meta.init_from_pb(*index_meta_pb);
+
+    EXPECT_TRUE(IndexReaderHelper::is_need_similarity_score(TExprOpcode::MATCH_ANY, &index_meta));
+    EXPECT_TRUE(
+            IndexReaderHelper::is_need_similarity_score(TExprOpcode::MATCH_PHRASE, &index_meta));
+
+    EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(TExprOpcode::EQ, &index_meta));
+    EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(TExprOpcode::LT, &index_meta));
+}

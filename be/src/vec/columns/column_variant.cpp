@@ -222,7 +222,8 @@ void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
             add_new_column_part(create_array_of_type(PrimitiveType::TYPE_JSONB, 0, is_nullable));
             type_changed = true;
         } else {
-            add_new_column_part(create_array_of_type(from_type_id, from_dim, is_nullable));
+            add_new_column_part(create_array_of_type(from_type_id, from_dim, is_nullable,
+                                                     info.precision, info.scale));
         }
     } else {
         if (least_common_type_dim != from_dim) {
@@ -1378,31 +1379,38 @@ const ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& k
     return &node->data;
 }
 
+const std::string_view EMPTY_JSON = "{}";
+
 size_t ColumnVariant::Subcolumn::serialize_text_json(size_t n, BufferWritable& output,
                                                      DataTypeSerDe::FormatOptions opt) const {
     if (least_common_type.get_base_type_id() == PrimitiveType::INVALID_TYPE) {
-        output.write(DataTypeSerDe::NULL_IN_COMPLEX_TYPE.data(),
-                     DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size());
-        return DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size();
+        output.write(EMPTY_JSON.data(), EMPTY_JSON.size());
+        return EMPTY_JSON.size();
     }
 
     size_t ind = n;
     if (ind < num_of_defaults_in_prefix) {
-        output.write(DataTypeSerDe::NULL_IN_COMPLEX_TYPE.data(),
-                     DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size());
-        return DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size();
+        output.write(EMPTY_JSON.data(), EMPTY_JSON.size());
+        return EMPTY_JSON.size();
     }
 
     ind -= num_of_defaults_in_prefix;
     for (size_t i = 0; i < data.size(); ++i) {
-        const auto& part = data[i];
+        const auto& part = (*data[i]);
         const auto& part_type_serde = data_serdes[i];
 
-        if (ind < part->size()) {
-            return part_type_serde->serialize_one_cell_to_json(*part, ind, output, opt);
+        if (ind < part.size()) {
+            // special case when null flag is true, but the value is empty string in JSON type,
+            // other wise will serialize to '\N'
+            const auto* nullable_col = check_and_get_column<ColumnNullable>(*data[i]);
+            if (nullable_col && nullable_col->is_null_at(ind)) {
+                output.write(EMPTY_JSON.data(), EMPTY_JSON.size());
+                return EMPTY_JSON.size();
+            }
+            return part_type_serde->serialize_one_cell_to_json(part, ind, output, opt);
         }
 
-        ind -= part->size();
+        ind -= part.size();
     }
     throw doris::Exception(ErrorCode::OUT_OF_BOUND,
                            "Index ({}) for serializing JSON is out of range", n);
@@ -1427,6 +1435,9 @@ const ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn_with_cache(const Pa
 }
 
 ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& key, size_t key_index) {
+    // Since the cache stores const types, non-const versions cannot be used. const_cast must be employed to
+    // eliminate const semantics. As all nodes are created via std::make_shared<Node>, modifying them will
+    // not result in uninitialized behavior
     return const_cast<ColumnVariant::Subcolumn*>(get_subcolumn_with_cache(key, key_index));
 }
 
@@ -1436,12 +1447,12 @@ const ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& k
 }
 
 ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& key) {
-    const auto* node = subcolumns.find_leaf(key);
+    auto* node = subcolumns.find_leaf(key);
     if (node == nullptr) {
         VLOG_DEBUG << "There is no subcolumn " << key.get_path();
         return nullptr;
     }
-    return &const_cast<Subcolumns::Node*>(node)->data;
+    return &node->data;
 }
 
 bool ColumnVariant::has_subcolumn(const PathInData& key) const {
@@ -1640,9 +1651,8 @@ struct Prefix {
 bool ColumnVariant::Subcolumn::is_empty_nested(size_t row) const {
     PrimitiveType base_type_id = least_common_type.get_base_type_id();
     const DataTypePtr& type = least_common_type.get();
-    // check if it is empty nested json array, then skip
-    if (base_type_id == PrimitiveType::TYPE_VARIANT) {
-        DCHECK(type->equals(*ColumnVariant::NESTED_TYPE));
+    if (type->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
+        // check if it is empty nested json array, then skip
         FieldWithDataType field;
         get(row, field);
         if (field.field.get_type() == PrimitiveType::TYPE_ARRAY) {
@@ -1673,8 +1683,10 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
     if (root->data.is_null_at(nrow)) {
         return false;
     }
-    if (root->data.least_common_type.get_base_type_id() == PrimitiveType::TYPE_VARIANT) {
-        // nested field
+
+    // for top level array we should also use field to check if it is empty
+    if (root->data.least_common_type.get_type_id() == PrimitiveType::TYPE_ARRAY) {
+        // nested field which field is Array
         return !root->data.is_empty_nested(nrow);
     }
     for (const auto& subcolumn : subcolumns) {
@@ -1687,17 +1699,7 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
             return false;
         }
     }
-    size_t ind = nrow - root->data.num_of_defaults_in_prefix;
-    // null value as empty json, todo: think a better way to disinguish empty json and null json.
-    for (const auto& part : root->data.data) {
-        if (ind < part->size()) {
-            return !part->get_data_at(ind).empty();
-        }
-        ind -= part->size();
-    }
-
-    throw doris::Exception(ErrorCode::OUT_OF_BOUND, "Index ({}) for getting field is out of range",
-                           nrow);
+    return !root->data.is_null_at(nrow);
 }
 
 void ColumnVariant::serialize_one_row_to_json_format(int64_t row_num, BufferWritable& output,
@@ -2072,7 +2074,7 @@ void ColumnVariant::finalize() {
     static_cast<void>(finalize(FinalizeMode::READ_MODE));
 }
 
-void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type) {
+void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type) const {
     auto& root = subcolumns.get_mutable_root()->data;
     if (!root.get_least_common_type()->equals(*expected_root_type)) {
         // make sure the root type is alawys as expected
@@ -2088,8 +2090,13 @@ void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type)
     }
 }
 
-bool ColumnVariant::empty() const {
-    return subcolumns.empty() || subcolumns.begin()->get()->path.get_path() == COLUMN_NAME_DUMMY;
+bool ColumnVariant::only_have_default_values() const {
+    for (const auto& entry : subcolumns) {
+        if (entry->data.least_common_type.get_base_type_id() != PrimitiveType::INVALID_TYPE) {
+            return false;
+        }
+    }
+    return true;
 }
 
 ColumnPtr ColumnVariant::filter(const Filter& filter, ssize_t count) const {

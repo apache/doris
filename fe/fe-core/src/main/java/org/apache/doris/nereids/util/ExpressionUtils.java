@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MaterializedViewException;
 import org.apache.doris.common.NereidsException;
@@ -57,6 +56,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -69,7 +69,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -218,7 +217,7 @@ public class ExpressionUtils {
             }
         }
 
-        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
+        List<Expression> exprList = ImmutableList.copyOf(distinctExpressions);
         if (exprList.isEmpty()) {
             return BooleanLiteral.TRUE;
         } else if (exprList.size() == 1) {
@@ -266,7 +265,7 @@ public class ExpressionUtils {
             }
         }
 
-        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
+        List<Expression> exprList = ImmutableList.copyOf(distinctExpressions);
         if (exprList.isEmpty()) {
             return BooleanLiteral.FALSE;
         } else if (exprList.size() == 1) {
@@ -278,7 +277,7 @@ public class ExpressionUtils {
 
     public static Expression falseOrNull(Expression expression) {
         if (expression.nullable()) {
-            return new And(new IsNull(expression), new NullLiteral(BooleanType.INSTANCE));
+            return new And(new IsNull(expression), NullLiteral.BOOLEAN_INSTANCE);
         } else {
             return BooleanLiteral.FALSE;
         }
@@ -286,7 +285,7 @@ public class ExpressionUtils {
 
     public static Expression trueOrNull(Expression expression) {
         if (expression.nullable()) {
-            return new Or(new Not(new IsNull(expression)), new NullLiteral(BooleanType.INSTANCE));
+            return new Or(new Not(new IsNull(expression)), NullLiteral.BOOLEAN_INSTANCE);
         } else {
             return BooleanLiteral.TRUE;
         }
@@ -301,13 +300,12 @@ public class ExpressionUtils {
     }
 
     public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan, BitSet tableBitSet) {
-        return shuttleExpressionWithLineage(Lists.newArrayList(expression),
-                plan, ImmutableSet.of(), ImmutableSet.of(), tableBitSet).get(0);
+        return shuttleExpressionWithLineage(Lists.newArrayList(expression), plan).get(0);
     }
 
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
             Plan plan, BitSet tableBitSet) {
-        return shuttleExpressionWithLineage(expressions, plan, ImmutableSet.of(), ImmutableSet.of(), tableBitSet);
+        return shuttleExpressionWithLineage(expressions, plan);
     }
 
     /**
@@ -320,24 +318,17 @@ public class ExpressionUtils {
      * todo to get from plan struct info
      */
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
-            Plan plan,
-            Set<TableType> targetTypes,
-            Set<String> tableIdentifiers,
-            BitSet tableBitSet) {
+            Plan plan) {
         if (expressions.isEmpty()) {
             return ImmutableList.of();
         }
         ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
-                new ExpressionLineageReplacer.ExpressionReplaceContext(
-                        expressions.stream().map(Expression.class::cast).collect(Collectors.toList()),
-                        targetTypes,
-                        tableIdentifiers,
-                        tableBitSet);
+                new ExpressionLineageReplacer.ExpressionReplaceContext(expressions);
 
         plan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
         // Replace expressions by expression map
-        List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
-        if (expressions.size() != replacedExpressions.size()) {
+        List<? extends Expression> replacedExpressions = replaceContext.getReplacedExpressions();
+        if (replacedExpressions == null || expressions.size() != replacedExpressions.size()) {
             throw new NereidsException("shuttle expression fail",
                     new MaterializedViewException("shuttle expression fail"));
         }
@@ -432,11 +423,59 @@ public class ExpressionUtils {
      * Replace expression node with predicate in the expression tree by `replaceMap` in top-down manner.
      */
     public static Expression replaceIf(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap,
-            Predicate<Expression> predicate) {
+            Predicate<Expression> predicate, boolean stopWhenNotMatched) {
         return expr.rewriteDownShortCircuitDown(e -> {
             Expression replacedExpr = replaceMap.get(e);
             return replacedExpr == null ? e : replacedExpr;
-        }, predicate);
+        }, predicate, stopWhenNotMatched);
+    }
+
+    public static Set<Expression> replaceWithCounter(Set<Expression> exprs,
+            Map<? extends Expression, ? extends Expression> replaceMap, Map<Expression, Integer> counterMap) {
+        ImmutableSet.Builder<Expression> result = ImmutableSet.builderWithExpectedSize(exprs.size());
+        for (Expression expr : exprs) {
+            result.add(replaceWithCounter(expr, replaceMap, counterMap));
+        }
+        return result.build();
+    }
+
+    public static List<Expression> replaceWithCounter(List<Expression> exprs,
+            Map<? extends Expression, ? extends Expression> replaceMap,
+            Map<Expression, Integer> counterMap) {
+        ImmutableList.Builder<Expression> result = ImmutableList.builderWithExpectedSize(exprs.size());
+        for (Expression expr : exprs) {
+            result.add(replaceWithCounter(expr, replaceMap, counterMap));
+        }
+        return result.build();
+    }
+
+    /**
+     * Replace expression node in the expression tree by `replaceMap` in top-down manner.
+     * This function gives counter map to record replace count.
+     * For example.
+     * <pre>
+     * input expression: a > 1
+     * replaceMap: a -> b + c
+     *
+     * output:
+     * b + c > 1
+     * </pre>
+     */
+    public static Expression replaceWithCounter(Expression expr,
+            Map<? extends Expression, ? extends Expression> replaceMap,
+            Map<Expression, Integer> counterMap) {
+        return expr.rewriteDownShortCircuit(e -> {
+            Expression replacedExpr = replaceMap.get(e);
+            if (replacedExpr != null) {
+                if (!counterMap.containsKey(e)) {
+                    counterMap.put(e, 1);
+                } else {
+                    counterMap.put(e, counterMap.get(e) + 1);
+                }
+                return replacedExpr;
+            }
+            return e;
+        });
     }
 
     /**
@@ -517,6 +556,14 @@ public class ExpressionUtils {
         return replaceExprs.build();
     }
 
+    /**
+     * set ignore unique id for unique functions
+     */
+    public static Expression setIgnoreUniqueIdForUniqueFunc(Expression expression, boolean ignoreUniqueId) {
+        return expression.rewriteDownShortCircuit(e ->
+                e instanceof UniqueFunction ? ((UniqueFunction) e).withIgnoreUniqueId(ignoreUniqueId) : e);
+    }
+
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
             Collection<E> exprs, Function<Expression, Expression> rewriteFunction) {
         ImmutableList.Builder<E> result = ImmutableList.builderWithExpectedSize(exprs.size());
@@ -524,22 +571,6 @@ public class ExpressionUtils {
             result.add((E) expr.rewriteDownShortCircuit(rewriteFunction));
         }
         return result.build();
-    }
-
-    private static class ExpressionReplacer
-            extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
-        public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
-
-        private ExpressionReplacer() {
-        }
-
-        @Override
-        public Expression visit(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
-            if (replaceMap.containsKey(expr)) {
-                return replaceMap.get(expr);
-            }
-            return super.visit(expr, replaceMap);
-        }
     }
 
     /**
@@ -636,7 +667,7 @@ public class ExpressionUtils {
          * and in semi join, we can safely change the mark conjunct to hash conjunct
          */
         ImmutableList<Literal> literals =
-                ImmutableList.of(new NullLiteral(BooleanType.INSTANCE), BooleanLiteral.FALSE);
+                ImmutableList.of(NullLiteral.BOOLEAN_INSTANCE, BooleanLiteral.FALSE);
         List<MarkJoinSlotReference> markJoinSlotReferenceList =
                 new ArrayList<>((predicate.collect(MarkJoinSlotReference.class::isInstance)));
         int markSlotSize = markJoinSlotReferenceList.size();
@@ -1205,5 +1236,19 @@ public class ExpressionUtils {
      */
     public static boolean hasNonWindowAggregateFunction(Expression expression) {
         return expression.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null);
+    }
+
+    /**
+     * check if the expressions contain a unique function which exists multiple times
+     */
+    public static boolean containUniqueFunctionExistMultiple(Collection<? extends Expression> expressions) {
+        Set<UniqueFunction> counterSet = Sets.newHashSet();
+        for (Expression expression : expressions) {
+            if (expression.anyMatch(
+                    expr -> expr instanceof UniqueFunction && !counterSet.add((UniqueFunction) expr))) {
+                return true;
+            }
+        }
+        return false;
     }
 }

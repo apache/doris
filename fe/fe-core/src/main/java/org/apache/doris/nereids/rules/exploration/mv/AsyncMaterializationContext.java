@@ -71,7 +71,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
     }
 
     @Override
-    List<String> generateMaterializationIdentifier() {
+    public List<String> generateMaterializationIdentifier() {
         if (super.identifier == null) {
             super.identifier = MaterializationContext.generateMaterializationIdentifier(mtmv, null);
         }

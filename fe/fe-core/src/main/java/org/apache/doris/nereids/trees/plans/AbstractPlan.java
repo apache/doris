@@ -162,6 +162,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         return groupExpression;
     }
 
+    @Override
     public Statistics getStats() {
         return statistics;
     }

@@ -62,13 +62,15 @@ void FileCacheMetrics::update_metrics_callback() {
 
 FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) {
     static const char* cache_profile = "FileCache";
-    ADD_TIMER_WITH_LEVEL(profile, cache_profile, 1);
+    ADD_TIMER_WITH_LEVEL(profile, cache_profile, 2);
     num_local_io_total =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
     num_remote_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumRemoteIOTotal", TUnit::UNIT,
                                                        cache_profile, 1);
     local_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LocalIOUseTimer", cache_profile, 1);
     remote_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "RemoteIOUseTimer", cache_profile, 1);
+    remote_wait_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(profile, "WaitOtherDownloaderTimer", cache_profile, 1);
     write_cache_io_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "WriteCacheIOUseTimer", cache_profile, 1);
     bytes_write_into_cache = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BytesWriteIntoCache",
@@ -108,6 +110,7 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
     COUNTER_UPDATE(num_remote_io_total, statistics->num_remote_io_total);
     COUNTER_UPDATE(local_io_timer, statistics->local_io_timer);
     COUNTER_UPDATE(remote_io_timer, statistics->remote_io_timer);
+    COUNTER_UPDATE(remote_wait_timer, statistics->remote_wait_timer);
     COUNTER_UPDATE(write_cache_io_timer, statistics->write_cache_io_timer);
     COUNTER_UPDATE(bytes_write_into_cache, statistics->bytes_write_into_cache);
     COUNTER_UPDATE(num_skip_cache_io_total, statistics->num_skip_cache_io_total);

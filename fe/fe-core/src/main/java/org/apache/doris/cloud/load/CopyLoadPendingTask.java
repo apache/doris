@@ -114,6 +114,11 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
                                 copyJob.isForceCopy());
                     }
                 }
+                if (!fileStatuses.isEmpty()) {
+                    fileGroup.initDeferredFileFormatPropertiesIfNecessary(fileStatuses.stream()
+                            .map(pair -> pair.first)
+                            .collect(Collectors.toList()));
+                }
                 boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
                 List<Pair<TBrokerFileStatus, ObjectFilePB>> filteredFileStatuses = Lists.newArrayList();
                 for (Pair<TBrokerFileStatus, ObjectFilePB> pair : fileStatuses) {

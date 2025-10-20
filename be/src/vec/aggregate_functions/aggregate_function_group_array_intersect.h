@@ -80,8 +80,8 @@ struct AggregateFunctionGroupArrayIntersectData {
         const ColVecType* nested_column_data = nullptr;
 
         if (is_column_data_nullable) {
-            auto* const_col_data = const_cast<IColumn*>(&column_data);
-            col_null = static_cast<ColumnNullable*>(const_col_data);
+            const auto* const_col_data = &column_data;
+            col_null = static_cast<const ColumnNullable*>(const_col_data);
             nested_column_data = &assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
                     col_null->get_nested_column());
         } else {
@@ -323,20 +323,17 @@ struct AggregateFunctionGroupArrayIntersectGenericData {
 /** Template parameter with true value should be used for columns that store their elements in memory continuously.
  *  For such columns group_array_intersect() can be implemented more efficiently (especially for small numeric arrays).
  */
-template <bool is_plain_column = false>
 class AggregateFunctionGroupArrayIntersectGeneric
-        : public IAggregateFunctionDataHelper<
-                  AggregateFunctionGroupArrayIntersectGenericData,
-                  AggregateFunctionGroupArrayIntersectGeneric<is_plain_column>> {
+        : public IAggregateFunctionDataHelper<AggregateFunctionGroupArrayIntersectGenericData,
+                                              AggregateFunctionGroupArrayIntersectGeneric> {
 private:
     using State = AggregateFunctionGroupArrayIntersectGenericData;
     DataTypePtr input_data_type;
 
 public:
     AggregateFunctionGroupArrayIntersectGeneric(const DataTypes& input_data_type_)
-            : IAggregateFunctionDataHelper<
-                      AggregateFunctionGroupArrayIntersectGenericData,
-                      AggregateFunctionGroupArrayIntersectGeneric<is_plain_column>>(
+            : IAggregateFunctionDataHelper<AggregateFunctionGroupArrayIntersectGenericData,
+                                           AggregateFunctionGroupArrayIntersectGeneric>(
                       input_data_type_),
               input_data_type(input_data_type_[0]) {}
 
@@ -367,24 +364,17 @@ public:
         const auto arr_size = offsets[row_num] - offset;
         const auto& column_data = column.get_data();
         const bool is_column_data_nullable = column_data.is_nullable();
-        ColumnNullable* col_null = nullptr;
+        const ColumnNullable* col_null = nullptr;
 
         if (is_column_data_nullable) {
-            auto const_col_data = const_cast<IColumn*>(&column_data);
-            col_null = static_cast<ColumnNullable*>(const_col_data);
+            col_null = static_cast<const ColumnNullable*>(&column_data);
         }
 
         auto process_element = [&](size_t i) {
             const bool is_null_element =
                     is_column_data_nullable && col_null->is_null_at(offset + i);
 
-            StringRef src = StringRef();
-            if constexpr (is_plain_column) {
-                src = nested_column_data->get_data_at(offset + i);
-            } else {
-                const char* begin = nullptr;
-                src = nested_column_data->serialize_value_into_arena(offset + i, arena, begin);
-            }
+            StringRef src = nested_column_data->get_data_at(offset + i);
 
             src.data = is_null_element ? nullptr : arena.insert(src.data, src.size);
             return src;
@@ -506,11 +496,7 @@ public:
         HybridSetBase::IteratorBase* it = set->begin();
         while (it->has_next()) {
             const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
-            if constexpr (is_plain_column) {
-                data_to.insert_data(value->data, value->size);
-            } else {
-                std::ignore = data_to.deserialize_and_insert_from_arena(value->data);
-            }
+            data_to.insert_data(value->data, value->size);
             it->next();
         }
     }

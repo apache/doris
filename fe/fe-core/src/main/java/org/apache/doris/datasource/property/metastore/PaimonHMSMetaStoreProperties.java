@@ -22,6 +22,7 @@ import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
@@ -55,7 +56,7 @@ public class PaimonHMSMetaStoreProperties extends AbstractPaimonProperties {
 
     @Override
     public String getPaimonCatalogType() {
-        return PaimonExternalCatalog.PAIMON_DLF;
+        return PaimonExternalCatalog.PAIMON_HMS;
     }
 
     protected PaimonHMSMetaStoreProperties(Map<String, String> props) {
@@ -66,7 +67,6 @@ public class PaimonHMSMetaStoreProperties extends AbstractPaimonProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         hmsBaseProperties = HMSBaseProperties.of(origProps);
-        hmsBaseProperties.initAndCheckParams();
         this.executionAuthenticator = new HadoopExecutionAuthenticator(hmsBaseProperties.getHmsAuthenticator());
     }
 
@@ -96,7 +96,8 @@ public class PaimonHMSMetaStoreProperties extends AbstractPaimonProperties {
         try {
             return executionAuthenticator.execute(() -> CatalogFactory.createCatalog(catalogContext));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to create Paimon catalog with HMS metastore", e);
+            throw new RuntimeException("Failed to create Paimon catalog with HMS metastore, msg: "
+                    + ExceptionUtils.getRootCause(e), e);
         }
 
     }
