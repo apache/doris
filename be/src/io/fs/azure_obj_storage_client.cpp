@@ -85,8 +85,7 @@ auto base64_encode_part_num(int32_t part_num) {
     buf[1] = (part_num >> 16) & 0xFF;
     buf[2] = (part_num >> 8) & 0xFF;
     buf[3] = part_num & 0xFF;
-    std::vector<unsigned char> data(buf, buf + 4);
-    return Aws::Utils::HashingUtils::Base64Encode(data);
+    return Aws::Utils::HashingUtils::Base64Encode(Aws::Utils::ByteBuffer(buf, 4));
 }
 
 template <typename Func>
