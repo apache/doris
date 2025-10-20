@@ -22,6 +22,7 @@
 #include <memory>
 #include <string>
 
+#include "common/cast_set.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index_common.h"
 #include "util/slice.h"
@@ -37,7 +38,6 @@ TEST(ReaderTest, ArrayFieldTokenStreamWorkflow) {
     char_filter_map["char_filter_pattern"] = ",";
     char_filter_map["char_filter_replacement"] = " ";
 
-    // 正确创建 InvertedIndexCtx
     auto inverted_index_ctx = std::make_shared<InvertedIndexCtx>();
     inverted_index_ctx->custom_analyzer = "";
     inverted_index_ctx->parser_type = InvertedIndexParserType::PARSER_STANDARD;

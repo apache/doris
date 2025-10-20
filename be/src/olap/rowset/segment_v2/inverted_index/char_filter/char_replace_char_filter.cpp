@@ -20,7 +20,6 @@
 #include <boost/algorithm/string/replace.hpp>
 
 namespace doris::segment_v2::inverted_index {
-#include "common/compile_check_begin.h"
 
 CharReplaceCharFilter::CharReplaceCharFilter(ReaderPtr reader, const std::string& pattern,
                                              std::string replacement)
@@ -64,5 +63,4 @@ void CharReplaceCharFilter::process_pattern(std::string& buf) {
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

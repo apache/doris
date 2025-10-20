@@ -90,4 +90,3 @@ private:
 using TokenStreamComponentsPtr = std::shared_ptr<TokenStreamComponents>;
 
 }; // namespace doris::segment_v2::inverted_index
-#include "common/compile_check_end.h"

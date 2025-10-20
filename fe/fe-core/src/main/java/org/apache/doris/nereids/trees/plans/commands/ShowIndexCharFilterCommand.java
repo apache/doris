@@ -20,41 +20,34 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
-import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 /**
  * SHOW INVERTED INDEX CHAR_FILTER;
  **/
-public class ShowIndexCharFilterCommand extends ShowCommand {
+public class ShowIndexCharFilterCommand extends Command implements NoForward {
     public ShowIndexCharFilterCommand() {
         super(PlanType.SHOW_INDEX_CHAR_FILTER_COMMAND);
     }
 
     @Override
-    public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        // check auth
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-
-        return Env.getCurrentEnv().getIndexPolicyMgr().showIndexPolicy(IndexPolicyTypeEnum.CHAR_FILTER);
+        ShowResultSet showResultSet = Env.getCurrentEnv().getIndexPolicyMgr()
+                .showIndexPolicy(IndexPolicyTypeEnum.CHAR_FILTER);
+        executor.sendResultSet(showResultSet);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowIndexCharFilterCommand(this, context);
-    }
-
-    @Override
-    public ShowResultSetMetaData getMetaData() {
-        return IndexPolicy.INDEX_POLICY_META_DATA;
     }
 }
