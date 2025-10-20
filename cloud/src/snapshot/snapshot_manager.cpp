@@ -151,11 +151,13 @@ int SnapshotManager::recycle_snapshot_meta_and_data(std::string_view instance_id
 }
 
 int SnapshotManager::migrate_to_versioned_keys(InstanceDataMigrator* migrator) {
-    return 0;
+    LOG(WARNING) << "Migrate to versioned keys is not implemented";
+    return -1;
 }
 
 int SnapshotManager::compact_snapshot_chains(InstanceChainCompactor* compactor) {
-    return 0;
+    LOG(WARNING) << "Compact snapshot chains is not implemented";
+    return -1;
 }
 
 } // namespace doris::cloud
