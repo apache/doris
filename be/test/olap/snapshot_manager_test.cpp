@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/snapshot_manager.h"
+
 #include <gen_cpp/AgentService_types.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -30,7 +32,6 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
-#include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
@@ -82,7 +83,8 @@ TEST_F(SnapshotManagerTest, TestMakeSnapshotInvalidParameters) {
     std::string* null_snapshot_path = nullptr;
     bool allow_incremental_clone = false;
 
-    Status status = _engine->snapshot_mgr()->make_snapshot(request, null_snapshot_path, &allow_incremental_clone);
+    Status status = _engine->snapshot_mgr()->make_snapshot(request, null_snapshot_path,
+                                                           &allow_incremental_clone);
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
 }
@@ -103,8 +105,8 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsInvalidDir) {
     int64_t partition_id = 100;
     int32_t schema_hash = 54321;
     
-    auto result = _engine->snapshot_mgr()->convert_rowset_ids(non_existent_dir, tablet_id, replica_id,
-                                                              table_id, partition_id, schema_hash);
+    auto result = _engine->snapshot_mgr()->convert_rowset_ids(
+            non_existent_dir, tablet_id, replica_id, table_id, partition_id, schema_hash);
     EXPECT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code(), ErrorCode::DIR_NOT_EXIST);
 }
@@ -189,17 +191,17 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsNormal) {
 
     TabletMetaPB converted_meta_pb;
     EXPECT_TRUE(TabletMeta::load_from_file(meta_file, &converted_meta_pb).ok());
-    
+
     EXPECT_EQ(converted_meta_pb.tablet_id(), tablet_id);
     EXPECT_EQ(converted_meta_pb.schema_hash(), schema_hash);
     EXPECT_EQ(converted_meta_pb.replica_id(), replica_id);
     EXPECT_EQ(converted_meta_pb.table_id(), table_id);
     EXPECT_EQ(converted_meta_pb.partition_id(), partition_id);
-    
+
     // verify schema
     EXPECT_EQ(converted_meta_pb.schema().num_short_key_columns(), 1);
     EXPECT_EQ(converted_meta_pb.schema().column_size(), 2);
-    
+
     // verify index
     EXPECT_EQ(converted_meta_pb.schema().index_size(), 1);
     const TabletIndexPB& converted_index = converted_meta_pb.schema().index(0);
@@ -208,7 +210,7 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsNormal) {
     EXPECT_EQ(converted_index.index_type(), IndexType::BITMAP);
     EXPECT_EQ(converted_index.col_unique_id_size(), 1);
     EXPECT_EQ(converted_index.col_unique_id(0), 0);
-    
+
     // verify rowset meta
     EXPECT_EQ(converted_meta_pb.rs_metas_size(), 1);
     const RowsetMetaPB& converted_rowset_meta = converted_meta_pb.rs_metas(0);
@@ -222,4 +224,4 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsNormal) {
     EXPECT_EQ(converted_rowset_meta.num_rows(), 100);
     EXPECT_EQ(converted_rowset_meta.total_disk_size(), 1024);
 }
-}
+} // namespace doris
