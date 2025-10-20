@@ -59,9 +59,10 @@ public:
     // remove the block
     virtual Status remove(const FileCacheKey& key) = 0;
     // change the block meta
-    virtual Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type) = 0;
-    virtual Status change_key_meta_expiration(const FileCacheKey& key,
-                                              const uint64_t expiration) = 0;
+    virtual Status change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
+                                        const size_t size) = 0;
+    virtual Status change_key_meta_expiration(const FileCacheKey& key, const uint64_t expiration,
+                                              const size_t size) = 0;
     // use when lazy load cache
     virtual void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                                std::lock_guard<std::mutex>& cache_lock) {}
