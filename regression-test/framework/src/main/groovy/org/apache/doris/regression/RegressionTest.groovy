@@ -392,7 +392,14 @@ class RegressionTest {
     }
 
     static boolean canRun(Config config, String suiteName, String group, GroupExecType grpExecType) {
-        return getGroupExecType(group) == grpExecType && filterGroups(config, group) && filterSuites(config, suiteName)
+        boolean b = getGroupExecType(group) == grpExecType && filterGroups(config, group) && filterSuites(config, suiteName)
+        if (b == true) {
+            // return suiteName.toLowerCase() < "a"
+            // return suiteName.toLowerCase() >= "z"
+            return suiteName.toLowerCase() >= "a" && suiteName.toLowerCase() < "b"
+        } else {
+            return false
+        }
     }
 
     static GroupExecType getGroupExecType(String group) {
