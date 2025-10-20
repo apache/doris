@@ -35,6 +35,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -112,7 +113,10 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         updateSessionVariableForDelete(ctx.getSessionVariable());
-        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        StatementContext statementContext = ctx.getStatementContext();
+        // delete not prune predicate after partition prune
+        statementContext.setSkipPrunePredicate(true);
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
         boolean originalIsSkipAuth = ctx.isSkipAuth();
         // delete not need select priv
         ctx.setSkipAuth(true);

@@ -171,10 +171,10 @@ public class OptimizeGetAvailableMvsTest extends SqlTestBase {
 
         new MockUp<PartitionPruner>() {
             @Mock
-            public <K extends Comparable<K>> List<Long> prune(List<Slot> partitionSlots, Expression partitionPredicate,
+            public <K extends Comparable<K>> Pair<List<K>, Optional<Expression>> prune(List<Slot> partitionSlots, Expression partitionPredicate,
                     Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
                     PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
-                return Lists.newArrayList(1L);
+                return Pair.of((List) Lists.newArrayList(1L), Optional.empty());
             }
         };
 
