@@ -2391,9 +2391,9 @@ TEST_F(BlockFileCacheTest, ttl_change_to_normal) {
         auto holder = cache.get_or_set(key2, 50, 10, context); /// Add range [50, 59]
         if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
             storage != nullptr) {
-            std::string dir = storage->get_path_in_local_cache(key2, 0);
+            std::string dir = storage->get_path_in_local_cache_v2(key2, 0);
             EXPECT_TRUE(fs::exists(
-                    storage->get_path_in_local_cache(dir, 50, io::FileCacheType::NORMAL)));
+                    storage->get_path_in_local_cache_v2(dir, 50, io::FileCacheType::NORMAL)));
         }
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
@@ -2522,9 +2522,9 @@ TEST_F(BlockFileCacheTest, ttl_change_expiration_time) {
         auto holder = cache.get_or_set(key2, 50, 10, context); /// Add range [50, 59]
         if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
             storage != nullptr) {
-            std::string dir = storage->get_path_in_local_cache(key2, change_time);
+            std::string dir = storage->get_path_in_local_cache_v2(key2, change_time);
             EXPECT_TRUE(
-                    fs::exists(storage->get_path_in_local_cache(dir, 50, io::FileCacheType::TTL)));
+                    fs::exists(storage->get_path_in_local_cache_v2(dir, 50, io::FileCacheType::TTL)));
         }
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
@@ -3453,9 +3453,9 @@ TEST_F(BlockFileCacheTest, append_many_time) {
                 blocks[0]->change_cache_type_between_normal_and_index(FileCacheType::INDEX).ok());
         if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
             storage != nullptr) {
-            auto dir = storage->get_path_in_local_cache(blocks[0]->get_hash_value(),
+            auto dir = storage->get_path_in_local_cache_v2(blocks[0]->get_hash_value(),
                                                         blocks[0]->expiration_time());
-            EXPECT_TRUE(fs::exists(storage->get_path_in_local_cache(dir, blocks[0]->offset(),
+            EXPECT_TRUE(fs::exists(storage->get_path_in_local_cache_v2(dir, blocks[0]->offset(),
                                                                     blocks[0]->cache_type())));
         }
         ASSERT_TRUE(
@@ -4257,7 +4257,7 @@ TEST_F(BlockFileCacheTest, test_async_load_with_error_file_1) {
     std::string dir;
     if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
         storage != nullptr) {
-        dir = storage->get_path_in_local_cache(key, 0);
+        dir = storage->get_path_in_local_cache_v2(key, 0);
     }
     sp->set_call_back("BlockFileCache::TmpFile1", [&](auto&&) {
         FileWriterPtr writer;
@@ -4326,7 +4326,7 @@ TEST_F(BlockFileCacheTest, test_async_load_with_error_file_2) {
     std::string dir;
     if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
         storage != nullptr) {
-        dir = storage->get_path_in_local_cache(key, 0);
+        dir = storage->get_path_in_local_cache_v2(key, 0);
     }
     std::atomic_bool flag1 = false;
     std::atomic_bool flag2 = false;

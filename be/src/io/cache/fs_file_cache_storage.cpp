@@ -1005,10 +1005,10 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
         }
 =======
     context_original.expiration_time = block_meta->ttl;
-    context_original.cache_type = block_meta->type;
+    context_original.cache_type = static_cast<FileCacheType>(block_meta->type);
     context_original.tablet_id = key.meta.tablet_id;
 
-    if (!mgr->_files.contains(key.hash) || !mgr->_files[key.hash].contains(offset)) {
+    if (!mgr->_files.contains(key.hash) || !mgr->_files[key.hash].contains(key.offset)) {
         mgr->add_cell(key.hash, context_original, key.offset, block_meta->size,
                       FileBlock::State::DOWNLOADED, cache_lock);
 >>>>>>> a4779a691e (cache lazy load)

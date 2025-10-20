@@ -90,9 +90,62 @@ void CacheBlockMetaStore::put(const BlockMetaKey& key, const BlockMeta& meta) {
 
 std::optional<BlockMeta> CacheBlockMetaStore::get(const BlockMetaKey& key) {
     std::string key_str = serialize_key(key);
-    std::string value_str;
 
-    rocksdb::Status status = _db->Get(rocksdb::ReadOptions(), key_str, &value_str);
+    // First check if there are any pending operations for this key in the write queue
+    WriteOperation op;
+    std::vector<WriteOperation> ops_to_requeue;
+    bool found_in_queue = false;
+    std::optional<BlockMeta> result;
+    WriteOperation target_op;
+
+    // Use a lock to protect queue access during query operations
+    // This prevents race conditions where multiple threads might dequeue and requeue operations
+    {
+        std::lock_guard<std::mutex> lock(_queue_mutex);
+        
+        // Iterate through the queue to find operations for this key
+        while (_write_queue.try_dequeue(op)) {
+            if (op.key == key_str) {
+                found_in_queue = true;
+                target_op = std::move(op);
+                // Continue processing to collect all operations for requeue
+            } else {
+                // Requeue operations for other keys
+                ops_to_requeue.push_back(std::move(op));
+            }
+        }
+
+        // Process the found operation
+        if (found_in_queue) {
+            if (target_op.type == OperationType::DELETE) {
+                // Key is marked for deletion, return nullopt
+                result = std::nullopt;
+            } else if (target_op.type == OperationType::PUT) {
+                // Key has a pending put operation, return the new value
+                result = deserialize_value(target_op.value);
+            }
+            // Requeue the target operation to maintain queue consistency
+            ops_to_requeue.push_back(std::move(target_op));
+        }
+
+        // Requeue all operations for other keys
+        for (auto& op_to_requeue : ops_to_requeue) {
+            _write_queue.enqueue(std::move(op_to_requeue));
+        }
+    }
+
+    // If we found the key in the queue, return the result
+    if (found_in_queue) {
+        return result;
+    }
+
+    // If not found in queue, query rocksdb with proper locking
+    std::string value_str;
+    rocksdb::Status status;
+    {
+        std::lock_guard<std::mutex> lock(_db_mutex);
+        status = _db->Get(rocksdb::ReadOptions(), key_str, &value_str);
+    }
 
     if (status.ok()) {
         return deserialize_value(value_str);
@@ -105,101 +158,482 @@ std::optional<BlockMeta> CacheBlockMetaStore::get(const BlockMetaKey& key) {
 }
 
 std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet_id) {
-    class RocksDBIterator : public BlockMetaIterator {
+    std::string prefix = std::to_string(tablet_id) + "_";
+
+    // Collect all pending operations from the write queue with proper locking
+    std::unordered_map<std::string, WriteOperation> tablet_ops;
+    {
+        std::vector<WriteOperation> pending_ops;
+        WriteOperation op;
+        while (_write_queue.try_dequeue(op)) {
+            pending_ops.push_back(std::move(op));
+        }
+
+        // Filter operations for the target tablet_id and requeue others
+        std::vector<WriteOperation> ops_to_requeue;
+
+        for (auto& operation : pending_ops) {
+            if (operation.key.starts_with(prefix)) {
+                // Operation for target tablet, store in map (latest operation wins)
+                // But if we have a DELETE operation, it should override any previous operations
+                if (operation.type == OperationType::DELETE) {
+                    tablet_ops[operation.key] = std::move(operation);
+                } else if (tablet_ops.find(operation.key) == tablet_ops.end() ||
+                           tablet_ops[operation.key].type != OperationType::DELETE) {
+                    // Only store PUT operation if there's no DELETE operation for this key
+                    tablet_ops[operation.key] = std::move(operation);
+                }
+            } else {
+                // Operation for other tablets, requeue
+                ops_to_requeue.push_back(std::move(operation));
+            }
+        }
+
+        // Requeue operations for other tablets
+        for (auto& op_to_requeue : ops_to_requeue) {
+            _write_queue.enqueue(std::move(op_to_requeue));
+        }
+    }
+
+    // Create merged iterator that combines rocksdb data with pending operations
+    class MergedIterator : public BlockMetaIterator {
     public:
-        RocksDBIterator(rocksdb::Iterator* iter, const std::string& prefix)
-                : _iter(iter), _prefix(prefix) {
-            _iter->Seek(_prefix);
+        MergedIterator(rocksdb::Iterator* rocksdb_iter,
+                       std::unordered_map<std::string, WriteOperation>&& pending_ops,
+                       const std::string& prefix)
+                : _rocksdb_iter(rocksdb_iter),
+                  _pending_ops(std::move(pending_ops)),
+                  _prefix(prefix) {
+            _rocksdb_iter->Seek(_prefix);
+            prepare_next();
         }
 
-        ~RocksDBIterator() override { delete _iter; }
+        ~MergedIterator() override { delete _rocksdb_iter; }
 
-        bool valid() const override { return _iter->Valid() && _iter->key().starts_with(_prefix); }
+        bool valid() const override { return !_current_key.empty(); }
 
-        void next() override { _iter->Next(); }
-
-        BlockMetaKey key() const override {
-            std::string key_str = _iter->key().ToString();
-            // Key format: "tabletid_hashstring_offset"
-            size_t pos1 = key_str.find('_');
-            size_t pos2 = key_str.find('_', pos1 + 1);
-
-            int64_t tablet_id = std::stoll(key_str.substr(0, pos1));
-            std::string hash_str = key_str.substr(pos1 + 1, pos2 - pos1 - 1);
-            size_t offset = std::stoull(key_str.substr(pos2 + 1));
-
-            // Convert hash string back to UInt128Wrapper
-            // Using unhex_uint to parse hex string to uint128_t
-            uint128_t hash_value = vectorized::unhex_uint<uint128_t>(hash_str.c_str());
-
-            return BlockMetaKey(tablet_id, UInt128Wrapper(hash_value), offset);
+        void next() override {
+            if (_current_from_pending) {
+                if (_pending_iter != _pending_ops.end()) {
+                    _pending_iter++;
+                }
+            } else {
+                _rocksdb_iter->Next();
+            }
+            prepare_next();
         }
+
+        BlockMetaKey key() const override { return deserialize_current_key(); }
 
         BlockMeta value() const override {
-            std::string value_str = _iter->value().ToString();
-            // Assuming value format is "type:size"
-            size_t pos = value_str.find(':');
-            int type = std::stoi(value_str.substr(0, pos));
-            size_t size = std::stoull(value_str.substr(pos + 1));
-            return BlockMeta(type, size);
+            if (_current_from_pending) {
+                auto it = _pending_ops.find(_current_key);
+                if (it != _pending_ops.end() && it->second.type == OperationType::PUT) {
+                    return deserialize_value(it->second.value);
+                }
+                // Should not happen for valid entries
+                return BlockMeta();
+            } else {
+                std::string value_str = _rocksdb_iter->value().ToString();
+                return deserialize_value(value_str);
+            }
         }
 
     private:
-        rocksdb::Iterator* _iter;
+        void prepare_next() {
+            _current_key.clear();
+            _current_from_pending = false;
+
+            // Initialize pending iterator if not done
+            if (_pending_iter == _pending_ops.end() && !_pending_ops_initialized) {
+                _pending_iter = _pending_ops.begin();
+                _pending_ops_initialized = true;
+            }
+
+            // Keep looking until we find a valid entry
+            while (true) {
+                // Get next candidate from both sources
+                std::string rocksdb_key;
+                std::string pending_key;
+
+                if (_rocksdb_iter->Valid() && _rocksdb_iter->key().starts_with(_prefix)) {
+                    rocksdb_key = _rocksdb_iter->key().ToString();
+                }
+
+                if (_pending_iter != _pending_ops.end()) {
+                    pending_key = _pending_iter->first;
+                }
+
+                // Choose the smallest key
+                if (!rocksdb_key.empty() && !pending_key.empty()) {
+                    if (rocksdb_key < pending_key) {
+                        // Check if rocksdb_key has a pending DELETE operation
+                        auto pending_it = _pending_ops.find(rocksdb_key);
+                        if (pending_it != _pending_ops.end() && pending_it->second.type == OperationType::DELETE) {
+                            // Skip rocksdb_key because it's marked for deletion
+                            _rocksdb_iter->Next();
+                            continue;
+                        }
+                        _current_key = rocksdb_key;
+                        _current_from_pending = false;
+                        break;
+                    } else {
+                        // Skip DELETE operations
+                        if (_pending_iter->second.type == OperationType::DELETE) {
+                            _pending_iter++;
+                            if (_pending_iter == _pending_ops.end()) {
+                                break;
+                            }
+                            continue;
+                        }
+                        _current_key = pending_key;
+                        _current_from_pending = true;
+                        break;
+                    }
+                } else if (!rocksdb_key.empty()) {
+                    // Check if rocksdb_key has a pending DELETE operation
+                    auto pending_it = _pending_ops.find(rocksdb_key);
+                    if (pending_it != _pending_ops.end() && pending_it->second.type == OperationType::DELETE) {
+                        // Skip rocksdb_key because it's marked for deletion
+                        _rocksdb_iter->Next();
+                        continue;
+                    }
+                    _current_key = rocksdb_key;
+                    _current_from_pending = false;
+                    break;
+                } else if (!pending_key.empty()) {
+                    // Skip DELETE operations
+                    if (_pending_iter->second.type == OperationType::DELETE) {
+                        _pending_iter++;
+                        if (_pending_iter == _pending_ops.end()) {
+                            break;
+                        }
+                        continue;
+                    }
+                    _current_key = pending_key;
+                    _current_from_pending = true;
+                    break;
+                } else {
+                    // No more keys
+                    break;
+                }
+            }
+        }
+
+        BlockMetaKey deserialize_current_key() const {
+            std::string key_str = _current_key;
+            // Key format: "tabletid_hashstring_offset"
+            size_t pos1 = key_str.find('_');
+            if (pos1 == std::string::npos) {
+                return BlockMetaKey();
+            }
+            
+            size_t pos2 = key_str.find('_', pos1 + 1);
+            if (pos2 == std::string::npos) {
+                return BlockMetaKey();
+            }
+
+            try {
+                int64_t tablet_id = std::stoll(key_str.substr(0, pos1));
+                std::string hash_str = key_str.substr(pos1 + 1, pos2 - pos1 - 1);
+                size_t offset = std::stoull(key_str.substr(pos2 + 1));
+
+                // Convert hash string back to UInt128Wrapper
+                uint128_t hash_value = vectorized::unhex_uint<uint128_t>(hash_str.c_str());
+
+                return BlockMetaKey(tablet_id, UInt128Wrapper(hash_value), offset);
+            } catch (const std::exception& e) {
+                LOG(WARNING) << "Failed to deserialize key: " << key_str << ", error: " << e.what();
+                return BlockMetaKey();
+            }
+        }
+
+        BlockMeta deserialize_value(const std::string& value_str) const {
+            // Value format: "type:size:ttl"
+            if (value_str.empty()) {
+                LOG(WARNING) << "Failed to deserialize empty value string";
+                return BlockMeta();
+            }
+            
+            size_t pos1 = value_str.find(':');
+            if (pos1 == std::string::npos || pos1 == 0) {
+                LOG(WARNING) << "Failed to deserialize value: " << value_str << " - missing first colon";
+                return BlockMeta();
+            }
+            
+            size_t pos2 = value_str.find(':', pos1 + 1);
+            if (pos2 == std::string::npos || pos2 == pos1 + 1) {
+                LOG(WARNING) << "Failed to deserialize value: " << value_str << " - missing second colon";
+                return BlockMeta();
+            }
+
+            try {
+                std::string type_str = value_str.substr(0, pos1);
+                std::string size_str = value_str.substr(pos1 + 1, pos2 - pos1 - 1);
+                std::string ttl_str = value_str.substr(pos2 + 1);
+                
+                if (type_str.empty() || size_str.empty() || ttl_str.empty()) {
+                    LOG(WARNING) << "Failed to deserialize value: " << value_str << " - empty field(s)";
+                    return BlockMeta();
+                }
+                
+                int type = std::stoi(type_str);
+                size_t size = std::stoull(size_str);
+                uint64_t ttl = std::stoull(ttl_str);
+                return BlockMeta(type, size, ttl);
+            } catch (const std::exception& e) {
+                LOG(WARNING) << "Failed to deserialize value: " << value_str << ", error: " << e.what();
+                return BlockMeta();
+            }
+        }
+
+        rocksdb::Iterator* _rocksdb_iter;
+        std::unordered_map<std::string, WriteOperation> _pending_ops;
         std::string _prefix;
+        std::string _current_key;
+        bool _current_from_pending = false;
+        bool _pending_ops_initialized = false;
+        typename std::unordered_map<std::string, WriteOperation>::iterator _pending_iter;
     };
 
-    std::string prefix = std::to_string(tablet_id) + "_";
     rocksdb::Iterator* iter = _db->NewIterator(rocksdb::ReadOptions());
-    return std::make_unique<RocksDBIterator>(iter, prefix);
+    return std::make_unique<MergedIterator>(iter, std::move(tablet_ops), prefix);
 }
 
 std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
-    class RocksDBFullIterator : public BlockMetaIterator {
-    public:
-        RocksDBFullIterator(rocksdb::Iterator* iter) : _iter(iter) { _iter->SeekToFirst(); }
-
-        ~RocksDBFullIterator() override { delete _iter; }
-
-        bool valid() const override { return _iter->Valid(); }
-
-        void next() override { _iter->Next(); }
-
-        BlockMetaKey key() const override {
-            std::string key_str = _iter->key().ToString();
-            // Key format: "tabletid_hashstring_offset"
-            size_t pos1 = key_str.find('_');
-            size_t pos2 = key_str.find('_', pos1 + 1);
-
-            int64_t tablet_id = std::stoll(key_str.substr(0, pos1));
-            std::string hash_str = key_str.substr(pos1 + 1, pos2 - pos1 - 1);
-            size_t offset = std::stoull(key_str.substr(pos2 + 1));
-
-            // Convert hash string back to UInt128Wrapper
-            uint128_t hash_value = vectorized::unhex_uint<uint128_t>(hash_str.c_str());
-
-            return BlockMetaKey(tablet_id, UInt128Wrapper(hash_value), offset);
+    // Collect all pending operations from the write queue with proper locking
+    std::unordered_map<std::string, WriteOperation> all_ops;
+    std::vector<WriteOperation> ops_to_requeue;
+    {
+        std::vector<WriteOperation> pending_ops;
+        WriteOperation op;
+        while (_write_queue.try_dequeue(op)) {
+            pending_ops.push_back(std::move(op));
         }
 
+        // Store operations in map (latest operation wins)
+        for (auto& operation : pending_ops) {
+            // If we have a DELETE operation, it should override any previous operations
+            if (operation.type == OperationType::DELETE) {
+                all_ops[operation.key] = std::move(operation);
+            } else if (all_ops.find(operation.key) == all_ops.end() ||
+                       all_ops[operation.key].type != OperationType::DELETE) {
+                // Only store PUT operation if there's no DELETE operation for this key
+                all_ops[operation.key] = std::move(operation);
+            }
+        }
+
+        // Store operations to requeue (only those not included in the snapshot)
+        for (auto& operation : pending_ops) {
+            if (all_ops.find(operation.key) == all_ops.end() ||
+                all_ops[operation.key].type != operation.type) {
+                ops_to_requeue.push_back(std::move(operation));
+            }
+        }
+    }
+
+    // Requeue operations that were not included in the snapshot
+    for (auto& op_to_requeue : ops_to_requeue) {
+        _write_queue.enqueue(std::move(op_to_requeue));
+    }
+
+    // Create merged iterator that combines rocksdb data with pending operations
+    class MergedFullIterator : public BlockMetaIterator {
+    public:
+        MergedFullIterator(rocksdb::Iterator* rocksdb_iter,
+                           std::unordered_map<std::string, WriteOperation> pending_ops)
+                : _rocksdb_iter(rocksdb_iter), _pending_ops(std::move(pending_ops)) {
+            _rocksdb_iter->SeekToFirst();
+            prepare_next();
+        }
+
+        ~MergedFullIterator() override { delete _rocksdb_iter; }
+
+        bool valid() const override { return !_current_key.empty(); }
+
+        void next() override {
+            if (_current_from_pending) {
+                _pending_iter++;
+            } else {
+                _rocksdb_iter->Next();
+            }
+            prepare_next();
+        }
+
+        BlockMetaKey key() const override { return deserialize_current_key(); }
+
         BlockMeta value() const override {
-            std::string value_str = _iter->value().ToString();
-            // Assuming value format is "type:size:ttl"
-            size_t pos1 = value_str.find(':');
-            size_t pos2 = value_str.find(':', pos1 + 1);
-
-            int type = std::stoi(value_str.substr(0, pos1));
-            size_t size = std::stoull(value_str.substr(pos1 + 1, pos2 - pos1 - 1));
-            uint64_t ttl = std::stoull(value_str.substr(pos2 + 1));
-
-            return BlockMeta(type, size, ttl);
+            if (_current_from_pending) {
+                auto it = _pending_ops.find(_current_key);
+                if (it != _pending_ops.end() && it->second.type == OperationType::PUT) {
+                    return deserialize_value(it->second.value);
+                }
+                // Should not happen for valid entries
+                return BlockMeta();
+            } else {
+                std::string value_str = _rocksdb_iter->value().ToString();
+                return deserialize_value(value_str);
+            }
         }
 
     private:
-        rocksdb::Iterator* _iter;
+        void prepare_next() {
+            _current_key.clear();
+            _current_from_pending = false;
+
+            // Initialize pending iterator if not done
+            if (_pending_iter == _pending_ops.end() && !_pending_ops_initialized) {
+                _pending_iter = _pending_ops.begin();
+                _pending_ops_initialized = true;
+            }
+
+            // Keep looking until we find a valid entry
+            while (true) {
+                // Get next candidate from both sources
+                std::string rocksdb_key;
+                std::string pending_key;
+
+                if (_rocksdb_iter->Valid()) {
+                    rocksdb_key = _rocksdb_iter->key().ToString();
+                }
+
+                if (_pending_iter != _pending_ops.end()) {
+                    pending_key = _pending_iter->first;
+                }
+
+                // Choose the smallest key
+                if (!rocksdb_key.empty() && !pending_key.empty()) {
+                    if (rocksdb_key < pending_key) {
+                        // Check if rocksdb_key has a pending DELETE operation
+                        auto pending_it = _pending_ops.find(rocksdb_key);
+                        if (pending_it != _pending_ops.end() && pending_it->second.type == OperationType::DELETE) {
+                            // Skip rocksdb_key because it's marked for deletion
+                            _rocksdb_iter->Next();
+                            continue;
+                        }
+                        _current_key = rocksdb_key;
+                        _current_from_pending = false;
+                        break;
+                    } else {
+                        _current_key = pending_key;
+                        _current_from_pending = true;
+                        // Skip DELETE operations
+                        if (_pending_iter->second.type == OperationType::DELETE) {
+                            _pending_iter++;
+                            if (_pending_iter == _pending_ops.end()) {
+                                break;
+                            }
+                            continue;
+                        }
+                        break;
+                    }
+                } else if (!rocksdb_key.empty()) {
+                    // Check if rocksdb_key has a pending DELETE operation
+                    auto pending_it = _pending_ops.find(rocksdb_key);
+                    if (pending_it != _pending_ops.end() && pending_it->second.type == OperationType::DELETE) {
+                        // Skip rocksdb_key because it's marked for deletion
+                        _rocksdb_iter->Next();
+                        continue;
+                    }
+                    _current_key = rocksdb_key;
+                    _current_from_pending = false;
+                    break;
+                } else if (!pending_key.empty()) {
+                    _current_key = pending_key;
+                    _current_from_pending = true;
+                    // Skip DELETE operations
+                    if (_pending_iter->second.type == OperationType::DELETE) {
+                        _pending_iter++;
+                        if (_pending_iter == _pending_ops.end()) {
+                            break;
+                        }
+                        continue;
+                    }
+                    break;
+                } else {
+                    // No more keys
+                    break;
+                }
+            }
+        }
+
+        BlockMetaKey deserialize_current_key() const {
+            std::string key_str = _current_key;
+            // Key format: "tabletid_hashstring_offset"
+            size_t pos1 = key_str.find('_');
+            if (pos1 == std::string::npos) {
+                return BlockMetaKey();
+            }
+            
+            size_t pos2 = key_str.find('_', pos1 + 1);
+            if (pos2 == std::string::npos) {
+                return BlockMetaKey();
+            }
+
+            try {
+                int64_t tablet_id = std::stoll(key_str.substr(0, pos1));
+                std::string hash_str = key_str.substr(pos1 + 1, pos2 - pos1 - 1);
+                size_t offset = std::stoull(key_str.substr(pos2 + 1));
+
+                // Convert hash string back to UInt128Wrapper
+                uint128_t hash_value = vectorized::unhex_uint<uint128_t>(hash_str.c_str());
+
+                return BlockMetaKey(tablet_id, UInt128Wrapper(hash_value), offset);
+            } catch (const std::exception& e) {
+                LOG(WARNING) << "Failed to deserialize key: " << key_str << ", error: " << e.what();
+                return BlockMetaKey();
+            }
+        }
+
+        BlockMeta deserialize_value(const std::string& value_str) const {
+            // Value format: "type:size:ttl"
+            if (value_str.empty()) {
+                LOG(WARNING) << "Failed to deserialize empty value string";
+                return BlockMeta();
+            }
+            
+            size_t pos1 = value_str.find(':');
+            if (pos1 == std::string::npos || pos1 == 0) {
+                LOG(WARNING) << "Failed to deserialize value: " << value_str << " - missing first colon";
+                return BlockMeta();
+            }
+            
+            size_t pos2 = value_str.find(':', pos1 + 1);
+            if (pos2 == std::string::npos || pos2 == pos1 + 1) {
+                LOG(WARNING) << "Failed to deserialize value: " << value_str << " - missing second colon";
+                return BlockMeta();
+            }
+
+            try {
+                std::string type_str = value_str.substr(0, pos1);
+                std::string size_str = value_str.substr(pos1 + 1, pos2 - pos1 - 1);
+                std::string ttl_str = value_str.substr(pos2 + 1);
+                
+                if (type_str.empty() || size_str.empty() || ttl_str.empty()) {
+                    LOG(WARNING) << "Failed to deserialize value: " << value_str << " - empty field(s)";
+                    return BlockMeta();
+                }
+                
+                int type = std::stoi(type_str);
+                size_t size = std::stoull(size_str);
+                uint64_t ttl = std::stoull(ttl_str);
+                return BlockMeta(type, size, ttl);
+            } catch (const std::exception& e) {
+                LOG(WARNING) << "Failed to deserialize value: " << value_str << ", error: " << e.what();
+                return BlockMeta();
+            }
+        }
+
+        rocksdb::Iterator* _rocksdb_iter;
+        std::unordered_map<std::string, WriteOperation> _pending_ops;
+        std::string _current_key;
+        bool _current_from_pending = false;
+        bool _pending_ops_initialized = false;
+        typename std::unordered_map<std::string, WriteOperation>::iterator _pending_iter;
     };
 
     rocksdb::Iterator* iter = _db->NewIterator(rocksdb::ReadOptions());
-    return std::make_unique<RocksDBFullIterator>(iter);
+    return std::make_unique<MergedFullIterator>(iter, std::move(all_ops));
 }
 
 void CacheBlockMetaStore::delete_key(const BlockMetaKey& key) {
@@ -316,13 +750,41 @@ BlockMetaKey CacheBlockMetaStore::deserialize_key(const std::string& key_str) co
 
 BlockMeta CacheBlockMetaStore::deserialize_value(const std::string& value_str) const {
     // Value format: "type:size:ttl"
+    if (value_str.empty()) {
+        LOG(WARNING) << "Failed to deserialize empty value string";
+        return BlockMeta();
+    }
+    
     size_t pos1 = value_str.find(':');
+    if (pos1 == std::string::npos || pos1 == 0) {
+        LOG(WARNING) << "Failed to deserialize value: " << value_str << " - missing first colon";
+        return BlockMeta();
+    }
+    
     size_t pos2 = value_str.find(':', pos1 + 1);
+    if (pos2 == std::string::npos || pos2 == pos1 + 1) {
+        LOG(WARNING) << "Failed to deserialize value: " << value_str << " - missing second colon";
+        return BlockMeta();
+    }
 
-    int type = std::stoi(value_str.substr(0, pos1));
-    size_t size = std::stoull(value_str.substr(pos1 + 1, pos2 - pos1 - 1));
-    uint64_t ttl = std::stoull(value_str.substr(pos2 + 1));
-    return BlockMeta(type, size, ttl);
+    try {
+        std::string type_str = value_str.substr(0, pos1);
+        std::string size_str = value_str.substr(pos1 + 1, pos2 - pos1 - 1);
+        std::string ttl_str = value_str.substr(pos2 + 1);
+        
+        if (type_str.empty() || size_str.empty() || ttl_str.empty()) {
+            LOG(WARNING) << "Failed to deserialize value: " << value_str << " - empty field(s)";
+            return BlockMeta();
+        }
+        
+        int type = std::stoi(type_str);
+        size_t size = std::stoull(size_str);
+        uint64_t ttl = std::stoull(ttl_str);
+        return BlockMeta(type, size, ttl);
+    } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to deserialize value: " << value_str << ", error: " << e.what();
+        return BlockMeta();
+    }
 }
 
 } // namespace doris::io
