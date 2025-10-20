@@ -239,6 +239,9 @@ public abstract class StorageProperties extends ConnectionProperties {
 
     private void buildHadoopStorageConfig() {
         initializeHadoopStorageConfig();
+        if (null == hadoopStorageConfig) {
+            return;
+        }
         appendUserFsConfig(origProps);
         ensureDisableCache(hadoopStorageConfig, origProps);
     }
