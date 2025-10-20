@@ -213,6 +213,13 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
     double initialHitCounts = Double.valueOf(initialHitCountsResult[0][0])
     double initialReadCounts = Double.valueOf(initialReadCountsResult[0][0])
 
+    (1..iterations).each { count ->
+        Thread.sleep(interval * 1000)
+        def elapsedSeconds = count * interval
+        def remainingSeconds = totalWaitTime - elapsedSeconds
+        logger.info("Waited for file cache statistics update ${elapsedSeconds} seconds, ${remainingSeconds} seconds remaining")
+    }
+
     // Execute the same query to trigger cache operations
     order_qt_2 """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table
         where l_orderkey=1 and l_partkey=1534 limit 1;"""
