@@ -58,7 +58,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import lombok.val;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -203,7 +202,8 @@ public class PropertyAnalyzer {
             "use_for_rewrite";
     public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
 
-    public static final String PROPERTIES_DATA_CHANGE_STILL_REWRITTEN_TABLES = "data_change_still_rewritten_tables";
+    public static final String ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES =
+            "async_mv.query_rewrite.consistency_relaxed_tables";
     public static final String PROPERTIES_REFRESH_PARTITION_NUM = "refresh_partition_num";
     public static final String PROPERTIES_WORKLOAD_GROUP = "workload_group";
     public static final String PROPERTIES_PARTITION_SYNC_LIMIT = "partition_sync_limit";
