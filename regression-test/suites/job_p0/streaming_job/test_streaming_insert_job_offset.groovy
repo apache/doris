@@ -48,7 +48,7 @@ suite("test_streaming_insert_job_offset") {
         sql """
        CREATE JOB ${jobName}  
        PROPERTIES(
-        "start_offset" = ""
+        "init_offset" = ""
        )
        ON STREAMING DO INSERT INTO ${tableName} 
        SELECT * FROM S3
@@ -71,7 +71,7 @@ suite("test_streaming_insert_job_offset") {
         sql """
        CREATE JOB ${jobName}  
        PROPERTIES(
-        "start_offset" = "xxxx"
+        "init_offset" = "xxxx"
        )
        ON STREAMING DO INSERT INTO ${tableName} 
        SELECT * FROM S3
@@ -94,7 +94,7 @@ suite("test_streaming_insert_job_offset") {
         sql """
            CREATE JOB ${jobName}  
            PROPERTIES(
-            "start_offset" = '{"error":"1.csv"}'
+            "init_offset" = '{"error":"1.csv"}'
            )
            ON STREAMING DO INSERT INTO ${tableName} 
            SELECT * FROM S3
@@ -116,7 +116,7 @@ suite("test_streaming_insert_job_offset") {
     sql """
        CREATE JOB ${jobName}  
        PROPERTIES(
-        'start_offset' = '{"endFile":"regression/load/data/example_0.csv"}'
+        'init_offset' = '{"endFile":"regression/load/data/example_0.csv"}'
        )
        ON STREAMING DO INSERT INTO ${tableName} 
        SELECT * FROM S3
@@ -174,7 +174,7 @@ suite("test_streaming_insert_job_offset") {
     assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
     assert jobInfo.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
     assert jobInfo.get(0).get(2) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":0,\"fileSize\":0}"
-    assert jobInfo.get(0).get(3) == "{\"start_offset\":\"{\\\"endFile\\\":\\\"regression/load/data/example_0.csv\\\"}\"}"
+    assert jobInfo.get(0).get(3) == "{\"init_offset\":\"{\\\"endFile\\\":\\\"regression/load/data/example_0.csv\\\"}\"}"
 
 
     sql """
