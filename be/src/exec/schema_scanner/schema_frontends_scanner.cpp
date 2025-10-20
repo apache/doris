@@ -21,13 +21,19 @@
 #include <gen_cpp/FrontendService_types.h>
 
 #include <string>
+#include <vector>
 
 #include "common/compile_check_begin.h"
 #include "common/status.h"
 #include "exec/schema_scanner/schema_helper.h"
+#include "runtime/client_cache.h"
 #include "runtime/define_primitive_type.h"
-#include "util/runtime_profile.h"
+#include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
+#include "util/thrift_rpc_helper.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 class RuntimeState;
@@ -64,23 +70,8 @@ SchemaFrontendsScanner::SchemaFrontendsScanner()
 SchemaFrontendsScanner::~SchemaFrontendsScanner() {}
 
 Status SchemaFrontendsScanner::start(RuntimeState* state) {
-    if (!_is_init) {
-        return Status::InternalError("used before initialized.");
-    }
-    RETURN_IF_ERROR(_get_new_table());
-    return Status::OK();
-}
-
-Status SchemaFrontendsScanner::_get_new_table() {
-    SCOPED_TIMER(_get_table_timer);
-    TFetchFrontendsRequest request;
-    if (nullptr != _param->common_param->ip && 0 != _param->common_param->port) {
-        RETURN_IF_ERROR(SchemaHelper::fetch_frontends(*(_param->common_param->ip),
-                                                      _param->common_param->port, request,
-                                                      &_frontends_result));
-    } else {
-        return Status::InternalError("IP or port doesn't exists");
-    }
+    _block_rows_limit = state->batch_size();
+    _rpc_timeout = state->execution_timeout() * 1000;
     return Status::OK();
 }
 
@@ -88,173 +79,101 @@ Status SchemaFrontendsScanner::get_next_block_internal(vectorized::Block* block,
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
+
     if (nullptr == block || nullptr == eos) {
         return Status::InternalError("input pointer is nullptr.");
     }
 
-    *eos = true;
-    if (_frontends_result.frontends.empty()) {
+    if (_frontends_block == nullptr) {
+        RETURN_IF_ERROR(_get_frontends_from_fe());
+        _total_rows = (int)_frontends_block->rows();
+    }
+
+    if (_row_idx == _total_rows) {
+        *eos = true;
         return Status::OK();
     }
-    return _fill_block_impl(block);
+
+    int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
+    vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block);
+    RETURN_IF_ERROR(mblock.add_rows(_frontends_block.get(), _row_idx, current_batch_rows));
+    _row_idx += current_batch_rows;
+
+    *eos = _row_idx == _total_rows;
+    return Status::OK();
 }
 
-Status SchemaFrontendsScanner::_fill_block_impl(vectorized::Block* block) {
-    SCOPED_TIMER(_fill_block_timer);
-    const std::vector<TFrontendDetailInfo>& frontends = _frontends_result.frontends;
-    size_t row_num = frontends.size();
-    if (row_num == 0) {
-        return Status::OK();
+Status SchemaFrontendsScanner::_get_frontends_from_fe() {
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
+
+    TFetchSchemaTableDataRequest request;
+    request.__set_cluster_name("");
+    request.__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::FRONTENDS);
+
+    TFrontendsMetadataParams frontends_metadata_params;
+    frontends_metadata_params.__set_cluster_name("");
+    metadata_table_params.__set_frontends_metadata_params(frontends_metadata_params);
+
+    request.__set_metada_table_params(metadata_table_params);
+
+    // TSchemaTableRequestParams schema_table_request_params;
+    // for (int i = 0; i < _s_frontends_columns.size(); i++) {
+        // schema_table_request_params.__isset.columns_name = true;
+        // schema_table_request_params.columns_name.emplace_back(_s_frontends_columns[i].name);
+    // }
+    // schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
+    // request.__set_schema_table_params(schema_table_request_params);
+
+    std::vector<std::string> filter_columns;
+    for (int i = 0; i < _s_frontends_columns.size(); i++) {
+        filter_columns.emplace_back(_s_frontends_columns[i].name);
+    }
+    request.metada_table_params.__set_columns_name(filter_columns);
+
+    TFetchSchemaTableDataResult result;
+
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&request, &result](FrontendServiceConnection& client) {
+                client->fetchSchemaTableData(result, request);
+            },
+            _rpc_timeout));
+
+    Status status(Status::create(result.status));
+    if (!status.ok()) {
+        LOG(WARNING) << "fetch frontends info from FE failed, errmsg=" << status;
+        return status;
+    }
+    std::vector<TRow> result_data = result.data_batch;
+
+    _frontends_block = vectorized::Block::create_unique();
+    for (int i = 0; i < _s_frontends_columns.size(); ++i) {
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                _s_frontends_columns[i].type, true);
+        _frontends_block->insert(vectorized::ColumnWithTypeAndName(
+                data_type->create_column(), data_type, _s_frontends_columns[i].name));
     }
 
-    std::vector<StringRef> str_refs(row_num);
-    std::vector<int32_t> int32_refs(row_num);
-    std::vector<int64_t> int64_refs(row_num);
-    std::vector<char> bool_refs(row_num);
-    std::vector<double> double_refs(row_num);
-    std::vector<void*> null_datas(row_num, nullptr);
-    std::vector<void*> datas(row_num);
+    _frontends_block->reserve(_block_rows_limit);
 
-    // NAME
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] =
-                StringRef(frontends[row_idx].name.c_str(), frontends[row_idx].name.length());
-        datas[row_idx] = str_refs.data() + row_idx;
+    if (result_data.size() > 0) {
+        auto col_size = result_data[0].column_value.size();
+        if (col_size != _s_frontends_columns.size()) {
+            return Status::InternalError<false>("transactions schema is not match for FE and BE");
+        }
     }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
 
-    // HOST
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] =
-                StringRef(frontends[row_idx].host.c_str(), frontends[row_idx].host.length());
-        datas[row_idx] = str_refs.data() + row_idx;
+    for (int i = 0; i < result_data.size(); i++) {
+        TRow row = result_data[i];
+        for (int j = 0; j < _s_frontends_columns.size(); j++) {
+            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j,
+                                                _frontends_block.get(),
+                                                _s_frontends_columns[j].type));
+        }
     }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
-
-    // EDITLOGPORT
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        int32_refs[row_idx] = frontends[row_idx].edit_log_port;
-        datas[row_idx] = int32_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
-
-    // HTTPPORT
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        int32_refs[row_idx] = frontends[row_idx].http_port;
-        datas[row_idx] = int32_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
-
-    // QUERYPORT
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        int32_refs[row_idx] = frontends[row_idx].query_port;
-        datas[row_idx] = int32_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
-
-    // RPCPORT
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        int32_refs[row_idx] = frontends[row_idx].rpc_port;
-        datas[row_idx] = int32_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
-
-    // ARROWFLIGHTSQLPORT
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        int32_refs[row_idx] = frontends[row_idx].arrowflightsqlport;
-        datas[row_idx] = int32_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, datas));
-
-    // ROLE
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] =
-                StringRef(frontends[row_idx].role.c_str(), frontends[row_idx].role.length());
-        datas[row_idx] = str_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, datas));
-
-    // ISMASTER
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        bool_refs[row_idx] = static_cast<char>(frontends[row_idx].is_master);
-        datas[row_idx] = bool_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 8, datas));
-
-    // CLUSTERID
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        int32_refs[row_idx] = frontends[row_idx].cluster_id;
-        datas[row_idx] = int32_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 9, datas));
-
-    // JOIN
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        bool_refs[row_idx] = static_cast<char>(frontends[row_idx].join);
-        datas[row_idx] = bool_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, datas));
-
-    // ALIVE
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        bool_refs[row_idx] = static_cast<char>(frontends[row_idx].alive);
-        datas[row_idx] = bool_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));
-
-    // REPLAYEDJOURNALID
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        int64_refs[row_idx] = frontends[row_idx].replayed_journal_id;
-        datas[row_idx] = int64_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, datas));
-
-    // LASTSTARTTIME
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(frontends[row_idx].last_start_time.c_str(),
-                                      frontends[row_idx].last_start_time.length());
-        datas[row_idx] = str_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, datas));
-
-    // LASTHEARTBEAT
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(frontends[row_idx].last_heartbeat.c_str(),
-                                      frontends[row_idx].last_heartbeat.length());
-        datas[row_idx] = str_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 14, datas));
-
-    // ISHELPER
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        bool_refs[row_idx] = static_cast<char>(frontends[row_idx].is_helper);
-        datas[row_idx] = bool_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 15, datas));
-
-    // ERRMSG
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] =
-                StringRef(frontends[row_idx].err_msg.c_str(), frontends[row_idx].err_msg.length());
-        datas[row_idx] = str_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 16, datas));
-
-    // VERSION
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] =
-                StringRef(frontends[row_idx].version.c_str(), frontends[row_idx].version.length());
-        datas[row_idx] = str_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 17, datas));
-
-    // CURRENTCONNECTED
-    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        bool_refs[row_idx] = static_cast<char>(frontends[row_idx].current_connected);
-        datas[row_idx] = bool_refs.data() + row_idx;
-    }
-    RETURN_IF_ERROR(fill_dest_column_for_range(block, 18, datas));
-
     return Status::OK();
 }
 

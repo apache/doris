@@ -26,7 +26,6 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TBackendDetailInfo;
 import org.apache.doris.thrift.TUnit;
 
 import com.google.common.base.Preconditions;
@@ -51,7 +50,7 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("LastStartTime").add("LastHeartbeat").add("Alive").add("SystemDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("TrashUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
             .add("MaxDiskUsedPct").add("RemoteUsedCapacity").add("Tag").add("ErrMsg").add("Version").add("Status")
-            .add("HeartbeatFailureCounter").add("NodeRole").add("CpuCores").add("Memory").add("LiveSince")
+            .add("HeartbeatFailureCounter").add("NodeRole").add("CpuCores").add("Memory")
             .build();
 
     public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -94,10 +93,20 @@ public class BackendsProcDir implements ProcDirInterface {
             return backendInfos;
         }
 
-        final List<List<Comparable>> comparableBackendInfos = new LinkedList<>();
-        handleBackends(backendIds, (backend, tabletNum) -> {
+        long start = System.currentTimeMillis();
+        Stopwatch watch = Stopwatch.createUnstarted();
+        List<List<Comparable>> comparableBackendInfos = new LinkedList<>();
+        for (long backendId : backendIds) {
+            Backend backend = systemInfoService.getBackend(backendId);
+            if (backend == null) {
+                continue;
+            }
+
+            watch.start();
+            Integer tabletNum = systemInfoService.getTabletNumByBackendId(backendId);
+            watch.stop();
             List<Comparable> backendInfo = Lists.newArrayList();
-            backendInfo.add(String.valueOf(backend.getId()));
+            backendInfo.add(String.valueOf(backendId));
             backendInfo.add(backend.getHost());
             backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
             backendInfo.add(String.valueOf(backend.getBePort()));
@@ -109,6 +118,7 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(String.valueOf(backend.isAlive()));
             backendInfo.add(String.valueOf(backend.isDecommissioned()));
             backendInfo.add(tabletNum.toString());
+
             // capacity
             // data used
             long dataUsedB = backend.getDataUsedCapacityB();
@@ -118,7 +128,7 @@ public class BackendsProcDir implements ProcDirInterface {
             long trashUsedB = backend.getTrashUsedCapacityB();
             Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedB);
             backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
-                    trashUsedCapacity.first) + " " + trashUsedCapacity.second);
+                        trashUsedCapacity.first) + " " + trashUsedCapacity.second);
             // available
             long availB = backend.getAvailableCapacityB();
             Pair<Double, String> availCapacity = DebugUtil.getByteUint(availB);
@@ -127,6 +137,7 @@ public class BackendsProcDir implements ProcDirInterface {
             long totalB = backend.getTotalCapacityB();
             Pair<Double, String> totalCapacity = DebugUtil.getByteUint(totalB);
             backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalCapacity.first) + " " + totalCapacity.second);
+
             // used percent
             double used = 0.0;
             if (totalB <= 0) {
@@ -136,11 +147,13 @@ public class BackendsProcDir implements ProcDirInterface {
             }
             backendInfo.add(String.format("%.2f", used) + " %");
             backendInfo.add(String.format("%.2f", backend.getMaxDiskUsedPct() * 100) + " %");
+
             // remote used capacity
             long remoteUsedB = backend.getRemoteUsedCapacityB();
             Pair<Double, String> totalRemoteUsedCapacity = DebugUtil.getByteUint(remoteUsedB);
             backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalRemoteUsedCapacity.first) + " "
                     + totalRemoteUsedCapacity.second);
+
             // tags
             backendInfo.add(backend.getTagMapString());
             // err msg
@@ -151,18 +164,23 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(new Gson().toJson(backend.getBackendStatus()));
             // heartbeat failure counter
             backendInfo.add(backend.getHeartbeatFailureCounter());
+
             // node role, show the value only when backend is alive.
             backendInfo.add(backend.isAlive() ? backend.getNodeRoleTag().value : "");
+
             // cpu cores
             backendInfo.add(String.valueOf(backend.getCputCores()));
+
             // memory
             backendInfo.add(RuntimeProfile.printCounter(backend.getBeMemory(), TUnit.BYTES));
-
-            // liveSince
-            backendInfo.add(TimeUtils.longToTimeString(backend.getLiveSince()));
-
             comparableBackendInfos.add(backendInfo);
-        });
+        }
+
+        // backends proc node get result too slow, add log to observer.
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("backends proc get tablet num cost: {}, total cost: {}", watch.elapsed(TimeUnit.MILLISECONDS),
+                    (System.currentTimeMillis() - start));
+        }
 
         // sort by host name
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(1);
@@ -177,82 +195,6 @@ public class BackendsProcDir implements ProcDirInterface {
         }
 
         return backendInfos;
-    }
-
-    public static List<TBackendDetailInfo> getBackendsDetail() {
-        final SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        List<Long> backendIds = systemInfoService.getAllBackendIds(false);
-        if (backendIds == null) {
-            return null;
-        }
-
-        List<TBackendDetailInfo> backendDetailInfoList = Lists.newArrayList();
-        handleBackends(backendIds, (backend, tabletNum) -> {
-            TBackendDetailInfo backendDetail = new TBackendDetailInfo();
-            backendDetail.setBackendId(backend.getId());
-            backendDetail.setHost(backend.getHost());
-            backendDetail.setHeartbeatPort(backend.getHeartbeatPort());
-            backendDetail.setBePort(backend.getBePort());
-            backendDetail.setHttpPort(backend.getHttpPort());
-            backendDetail.setBrpcPort(backend.getBrpcPort());
-            backendDetail.setArrowflightsqlport(backend.getArrowFlightSqlPort());
-            backendDetail.setLastStartTime(TimeUtils.longToTimeString(backend.getLastStartTime()));
-            backendDetail.setLastHeartbeat(TimeUtils.longToTimeString(backend.getLastUpdateMs()));
-            backendDetail.setAlive(backend.isAlive());
-            backendDetail.setSystemDecommissioned(backend.isDecommissioned());
-            backendDetail.setTabletNum(tabletNum);
-            backendDetail.setDataUsedCapacity(backend.getDataUsedCapacityB());
-            backendDetail.setTrashUsedCapacity(backend.getTrashUsedCapacityB());
-            long availB = backend.getAvailableCapacityB();
-            backendDetail.setAvailCapacity(availB);
-            long totalB = backend.getTotalCapacityB();
-            backendDetail.setTotalCapacity(totalB);
-            double used = 0.0;
-            if (totalB <= 0) {
-                used = 0.0;
-            } else {
-                used = (double) (totalB - availB) * 100 / totalB;
-            }
-            backendDetail.setUsedPct(used);
-            backendDetail.setMaxDiskUsedPct(backend.getMaxDiskUsedPct());
-            backendDetail.setRemoteUsedCapacity(backend.getRemoteUsedCapacityB());
-            backendDetail.setTag(backend.getTagMapString());
-            backendDetail.setErrmsg(backend.getHeartbeatErrMsg());
-            backendDetail.setVersion(backend.getVersion());
-            backendDetail.setStatus(new Gson().toJson(backend.getBackendStatus()));
-            backendDetail.setHeartbeatFailureCounter(backend.getHeartbeatFailureCounter());
-            backendDetail.setNodeRole(backend.isAlive() ? backend.getNodeRoleTag().value : "");
-            backendDetail.setCpuCores(backend.getCputCores());
-            backendDetail.setMemory(backend.getBeMemory());
-            backendDetailInfoList.add(backendDetail);
-        });
-        return backendDetailInfoList;
-    }
-
-    public static void handleBackends(List<Long> backendIds, BackendHandler handler) {
-        final SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        long start = System.currentTimeMillis();
-        Stopwatch watch = Stopwatch.createUnstarted();
-        for (long backendId : backendIds) {
-            Backend backend = systemInfoService.getBackend(backendId);
-            if (backend == null) {
-                continue;
-            }
-            watch.start();
-            Integer tabletNum = systemInfoService.getTabletNumByBackendId(backendId);
-            watch.stop();
-            handler.handle(backend, tabletNum);
-        }
-
-        // backends proc node get result too slow, add log to observer.
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("backends proc get tablet num cost: {}, total cost: {}", watch.elapsed(TimeUnit.MILLISECONDS),
-                    (System.currentTimeMillis() - start));
-        }
-    }
-
-    private interface BackendHandler {
-        void handle(Backend backend, Integer tabletNum);
     }
 
     @Override

@@ -99,8 +99,7 @@ public enum SchemaTableType {
     SCH_VIEW_DEPENDENCY("VIEW_DEPENDENCY", "VIEW_DEPENDENCY",
                     TSchemaTableType.SCH_VIEW_DEPENDENCY),
     SCH_ENCRYPTION_KEYS("ENCRYPTION_KEYS", "ENCRYPTION_KEYS",
-                          TSchemaTableType.SCH_ENCRYPTION_KEYS);
-                    TSchemaTableType.SCH_VIEW_DEPENDENCY),
+                          TSchemaTableType.SCH_ENCRYPTION_KEYS),
     SCH_BACKENDS("BACKENDS", "BACKENDS", TSchemaTableType.SCH_BACKENDS),
     SCH_FRONTENDS("FRONTENDS", "FRONTENDS", TSchemaTableType.SCH_FRONTENDS);
 

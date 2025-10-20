@@ -76,8 +76,6 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
-import org.apache.doris.common.proc.BackendsProcDir;
-import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
@@ -142,7 +140,6 @@ import org.apache.doris.thrift.TAddPlsqlStoredProcedureRequest;
 import org.apache.doris.thrift.TAutoIncrementRangeRequest;
 import org.apache.doris.thrift.TAutoIncrementRangeResult;
 import org.apache.doris.thrift.TBackend;
-import org.apache.doris.thrift.TBackendDetailInfo;
 import org.apache.doris.thrift.TBeginTxnRequest;
 import org.apache.doris.thrift.TBeginTxnResult;
 import org.apache.doris.thrift.TBinlog;
@@ -163,10 +160,6 @@ import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
 import org.apache.doris.thrift.TEncryptionKey;
 import org.apache.doris.thrift.TFeResult;
-import org.apache.doris.thrift.TFetchBackendsRequest;
-import org.apache.doris.thrift.TFetchBackendsResult;
-import org.apache.doris.thrift.TFetchFrontendsRequest;
-import org.apache.doris.thrift.TFetchFrontendsResult;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TFetchRoutineLoadJobRequest;
 import org.apache.doris.thrift.TFetchRoutineLoadJobResult;
@@ -177,7 +170,6 @@ import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TFetchSplitBatchRequest;
 import org.apache.doris.thrift.TFetchSplitBatchResult;
 import org.apache.doris.thrift.TFinishTaskRequest;
-import org.apache.doris.thrift.TFrontendDetailInfo;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
@@ -4463,28 +4455,4 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         return result;
     }
-
-    @Override
-    public TFetchBackendsResult fetchBackends(TFetchBackendsRequest request) {
-        TFetchBackendsResult result = new TFetchBackendsResult();
-        if (!Env.getCurrentEnv().isReady()) {
-            return result;
-        }
-        List<TBackendDetailInfo> backendDetailInfoList = BackendsProcDir.getBackendsDetail();
-        result.setBackends(backendDetailInfoList);
-        return result;
-    }
-
-    @Override
-    public TFetchFrontendsResult fetchFrontends(TFetchFrontendsRequest request) {
-        TFetchFrontendsResult result = new TFetchFrontendsResult();
-        if (!Env.getCurrentEnv().isReady()) {
-            return result;
-        }
-        List<TFrontendDetailInfo> frontendDetailInfoList = FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv());
-        result.setFrontends(frontendDetailInfoList);
-        return result;
-    }
-
-
 }

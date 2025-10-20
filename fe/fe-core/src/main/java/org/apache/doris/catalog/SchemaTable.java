@@ -707,7 +707,7 @@ public class SchemaTable extends Table {
                                     .column("LASTHEARTBEAT", ScalarType.createStringType())
                                     .column("ALIVE", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("SYSTEMDECOMMISSIONED", ScalarType.createType(PrimitiveType.BOOLEAN))
-                                    .column("TABLETNUM", ScalarType.createType(PrimitiveType.INT))
+                                    .column("TABLETNUM", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("DATAUSEDCAPACITY", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("TRASHUSEDCAPACITY", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("AVAILCAPACITY", ScalarType.createType(PrimitiveType.BIGINT))
@@ -721,8 +721,6 @@ public class SchemaTable extends Table {
                                     .column("STATUS", ScalarType.createStringType())
                                     .column("HEARTBEATFAILURECOUNTER", ScalarType.createType(PrimitiveType.INT))
                                     .column("NODEROLE", ScalarType.createStringType())
-                                    .column("CPUCORES", ScalarType.createType(PrimitiveType.INT))
-                                    .column("MEMORY", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
             .put("frontends",

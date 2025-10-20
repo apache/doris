@@ -17,15 +17,16 @@
 
 #pragma once
 
-#include <gen_cpp/FrontendService_types.h>
-
+#include <memory>
 #include <vector>
 
 #include "common/status.h"
 #include "exec/schema_scanner.h"
 
 namespace doris {
+
 class RuntimeState;
+
 namespace vectorized {
 class Block;
 } // namespace vectorized
@@ -41,10 +42,14 @@ public:
     Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
 
 private:
-    Status _get_new_table();
-    Status _fill_block_impl(vectorized::Block* block);
+    Status SchemaFrontendsScanner::_get_frontends_from_fe();
 
-    TFetchFrontendsResult _frontends_result;
+    int _block_rows_limit = 4096;
+    int _row_idx = 0;
+    int _total_rows = 0;
+    int _rpc_timeout = 3000;
+    std::unique_ptr<vectorized::Block> _frontends_block = nullptr;
+
     static std::vector<SchemaScanner::ColumnDesc> _s_frontends_columns;
 };
 

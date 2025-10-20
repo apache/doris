@@ -150,6 +150,10 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> VIEW_DEPENDENCY_COLUMN_TO_INDEX;
 
+    private static final ImmutableMap<String, Integer> FRONTENDS_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> BACKENDS_COLUMN_TO_INDEX;
+
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
         List<Column> activeQueriesColList = SchemaTable.TABLE_MAP.get("active_queries").getFullSchema();
@@ -218,6 +222,20 @@ public class MetadataGenerator {
             viewDependencyBuilder.put(viewDependencyBuilderColList.get(i).getName().toLowerCase(), i);
         }
         VIEW_DEPENDENCY_COLUMN_TO_INDEX = viewDependencyBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> frontendsBuilder = new ImmutableMap.Builder();
+        List<Column> frontendsBuilderColList = SchemaTable.TABLE_MAP.get("frontends").getFullSchema();
+        for (int i = 0; i < frontendsBuilderColList.size(); i++) {
+            frontendsBuilder.put(frontendsBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        FRONTENDS_COLUMN_TO_INDEX = viewDependencyBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> backendsBuilder = new ImmutableMap.Builder();
+        List<Column> backendsBuilderColList = SchemaTable.TABLE_MAP.get("backends").getFullSchema();
+        for (int i = 0; i < backendsBuilderColList.size(); i++) {
+            backendsBuilder.put(backendsBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        BACKENDS_COLUMN_TO_INDEX = viewDependencyBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
