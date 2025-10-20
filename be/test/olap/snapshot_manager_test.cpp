@@ -69,6 +69,7 @@ public:
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
         _engine = nullptr;
     }
+
 protected:
     StorageEngine* _engine = nullptr;
     DataDir* _data_dir = nullptr;
@@ -104,7 +105,7 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsInvalidDir) {
     int64_t table_id = 1000;
     int64_t partition_id = 100;
     int32_t schema_hash = 54321;
-    
+
     auto result = _engine->snapshot_mgr()->convert_rowset_ids(
             non_existent_dir, tablet_id, replica_id, table_id, partition_id, schema_hash);
     EXPECT_FALSE(result.has_value());
