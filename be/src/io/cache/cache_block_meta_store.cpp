@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <optional>
 #include <sstream>
 
 #include "common/status.h"
@@ -87,7 +88,7 @@ void CacheBlockMetaStore::put(const BlockMetaKey& key, const BlockMeta& meta) {
     _write_queue.enqueue(op);
 }
 
-BlockMeta CacheBlockMetaStore::get(const BlockMetaKey& key) {
+std::optional<BlockMeta> CacheBlockMetaStore::get(const BlockMetaKey& key) {
     std::string key_str = serialize_key(key);
     std::string value_str;
 
@@ -96,10 +97,10 @@ BlockMeta CacheBlockMetaStore::get(const BlockMetaKey& key) {
     if (status.ok()) {
         return deserialize_value(value_str);
     } else if (status.IsNotFound()) {
-        return BlockMeta();
+        return std::nullopt;
     } else {
         LOG(WARNING) << "Failed to get key from rocksdb: " << status.ToString();
-        return BlockMeta();
+        return std::nullopt;
     }
 }
 

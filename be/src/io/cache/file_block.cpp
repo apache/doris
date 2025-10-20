@@ -199,7 +199,7 @@ Status FileBlock::change_cache_type_between_normal_and_index(FileCacheType new_t
     if (_download_state == State::DOWNLOADED) {
         Status st;
         TEST_SYNC_POINT_CALLBACK("FileBlock::change_cache_type", &st);
-        RETURN_IF_ERROR(_mgr->_storage->change_key_meta_type(_key, new_type));
+        RETURN_IF_ERROR(_mgr->_storage->change_key_meta_type(_key, new_type, _block_range.size()));
     }
     _mgr->change_cache_type(_key.hash, _block_range.left, new_type, cache_lock);
     _key.meta.type = new_type;
@@ -209,8 +209,9 @@ Status FileBlock::change_cache_type_between_normal_and_index(FileCacheType new_t
 Status FileBlock::update_expiration_time(uint64_t expiration_time) {
     std::lock_guard block_lock(_mutex);
     if (_download_state == State::DOWNLOADED) {
-        auto st = _mgr->_storage->change_key_meta_expiration(_key, expiration_time);
-        if (!st.ok() && !st.is<ErrorCode::NOT_FOUND>()) {
+        auto st = _mgr->_storage->change_key_meta_expiration(_key, expiration_time,
+                                                             _block_range.size());
+        if (!st.ok()) {
             return st;
         }
     }
