@@ -97,9 +97,6 @@ public class PaimonAliyunDLFMetaStoreProperties extends AbstractPaimonProperties
             throw new IllegalStateException("Expected OSSProperties type.");
         }
         OSSProperties ossProperties = (OSSProperties) ossProps;
-        for (Map.Entry<String, String> entry : ossProperties.getHadoopStorageConfig()) {
-            catalogOptions.set(entry.getKey(), entry.getValue());
-        }
         hiveConf.addResource(ossProperties.getHadoopStorageConfig());
         appendUserHadoopConfig(hiveConf);
         CatalogContext catalogContext = CatalogContext.create(catalogOptions, hiveConf);

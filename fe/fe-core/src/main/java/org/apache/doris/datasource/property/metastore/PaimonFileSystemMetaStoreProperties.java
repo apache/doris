@@ -41,9 +41,6 @@ public class PaimonFileSystemMetaStoreProperties extends AbstractPaimonPropertie
         buildCatalogOptions();
         Configuration conf = new Configuration();
         storagePropertiesList.forEach(storageProperties -> {
-            for (Map.Entry<String, String> entry : storageProperties.getHadoopStorageConfig()) {
-                catalogOptions.set(entry.getKey(), entry.getValue());
-            }
             conf.addResource(storageProperties.getHadoopStorageConfig());
             if (storageProperties.getType().equals(StorageProperties.Type.HDFS)) {
                 this.executionAuthenticator = new HadoopExecutionAuthenticator(((HdfsProperties) storageProperties)

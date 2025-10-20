@@ -78,7 +78,8 @@ public class AbstractPaimonPropertiesTest {
         input.put("paimon.s3.paging.maximum", "100");
         input.put("paimon.fs.s3.read.ahead.buffer.size", "1");
         input.put("paimon.s3a.replication.factor", "3");
-        Map<String, String> result = AbstractPaimonProperties.normalizeS3Config(input);
+        TestPaimonProperties testProps = new TestPaimonProperties(input);
+        Map<String, String> result = testProps.normalizeS3Config();
         Assertions.assertTrue("1".equals(result.get("fs.s3a.list.version")));
         Assertions.assertTrue("100".equals(result.get("fs.s3a.paging.maximum")));
         Assertions.assertTrue("1".equals(result.get("fs.s3a.read.ahead.buffer.size")));

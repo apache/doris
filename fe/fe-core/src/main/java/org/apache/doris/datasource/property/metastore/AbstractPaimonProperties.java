@@ -21,6 +21,7 @@ import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import com.google.common.collect.ImmutableList;
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -70,7 +71,10 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
             if (k.toLowerCase().startsWith(USER_PROPERTY_PREFIX)) {
                 String newKey = k.substring(USER_PROPERTY_PREFIX.length());
                 if (StringUtils.isNotBlank(newKey)) {
-                    catalogOptions.set(newKey, v);
+                    boolean excluded = userStoragePrefixes.stream().anyMatch(k::startsWith);
+                    if (!excluded) {
+                        catalogOptions.set(newKey, v);
+                    }
                 }
             }
         });
@@ -86,7 +90,7 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
     }
 
     protected void appendUserHadoopConfig(Configuration  conf) {
-        normalizeS3Config(origProps).forEach(conf::set);
+        normalizeS3Config().forEach(conf::set);
     }
 
     public Map<String, String> getCatalogOptionsMap() {
@@ -126,8 +130,9 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
      *
      * All of them are normalized to the Hadoop-recognized prefix "fs.s3a."
      */
-    private static final String[] USER_STORAGE_PREFIXES = {"paimon.s3.", "paimon.s3a.", "paimon.fs.s3.",
-            "paimon.fs.oss."};
+    private final List<String> userStoragePrefixes = ImmutableList.of(
+                    "paimon.s3.", "paimon.s3a.", "paimon.fs.s3.", "paimon.fs.oss."
+    );
 
     /** Hadoop S3A standard prefix */
     private static final String FS_S3A_PREFIX = "fs.s3a.";
@@ -135,10 +140,10 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
     /**
      * Normalizes user-provided S3 config keys to Hadoop S3A keys
      */
-    public static Map<String, String> normalizeS3Config(Map<String, String> options) {
+    protected   Map<String, String> normalizeS3Config() {
         Map<String, String> result = new HashMap<>();
-        options.forEach((key, value) -> {
-            for (String prefix : USER_STORAGE_PREFIXES) {
+        origProps.forEach((key, value) -> {
+            for (String prefix : userStoragePrefixes) {
                 if (key.startsWith(prefix)) {
                     result.put(FS_S3A_PREFIX + key.substring(prefix.length()), value);
                     return; // stop after the first matching prefix

@@ -22,12 +22,15 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.hadoop.conf.Configuration;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -174,5 +177,11 @@ public class AzureProperties extends StorageProperties {
         // Azure does not require any special Hadoop configuration for S3 compatibility.
         // The properties are already set in the getBackendConfigProperties method.
         // This method will be removed in the future when FileIO is fully implemented.
+        hadoopStorageConfig = new Configuration();
+    }
+
+    @Override
+    protected Set<String> schemas() {
+        return ImmutableSet.of("wasb", "wasbs", "abfs", "abfss");
     }
 }
