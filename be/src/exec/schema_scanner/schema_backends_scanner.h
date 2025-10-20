@@ -44,7 +44,7 @@ public:
     Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
 
 private:
-    Status _get_backends_block_from_fe();
+    Status _get_backends_from_fe();
 
     int _block_rows_limit = 4096;
     int _row_idx = 0;

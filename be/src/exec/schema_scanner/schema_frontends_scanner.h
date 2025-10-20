@@ -42,7 +42,7 @@ public:
     Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
 
 private:
-    Status SchemaFrontendsScanner::_get_frontends_from_fe();
+    Status _get_frontends_from_fe();
 
     int _block_rows_limit = 4096;
     int _row_idx = 0;

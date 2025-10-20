@@ -87,7 +87,7 @@ Status SchemaBackendsScanner::get_next_block_internal(vectorized::Block* block, 
     }
 
     if (_backends_block == nullptr) {
-        RETURN_IF_ERROR(_get_backends_block_from_fe());
+        RETURN_IF_ERROR(_get_backends_from_fe());
         _total_rows = (int)_backends_block->rows();
     }
 
@@ -105,7 +105,7 @@ Status SchemaBackendsScanner::get_next_block_internal(vectorized::Block* block, 
     return Status::OK();
 }
 
-Status SchemaBackendsScanner::_get_backends_block_from_fe() {
+Status SchemaBackendsScanner::_get_backends_from_fe() {
     TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
 
     TFetchSchemaTableDataRequest request;
