@@ -336,18 +336,18 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public Set<TableName> getDataChangeStillRewrittenTables() {
-        Set<TableName> res = Sets.newHashSet();
+    public Set<TableNameInfo> getDataChangeStillRewrittenTables() {
+        Set<TableNameInfo> res = Sets.newHashSet();
         readMvLock();
         try {
             String stillRewrittenTables
-                    = mvProperties.get(PropertyAnalyzer.PROPERTIES_DATA_CHANGE_STILL_REWRITTEN_TABLES);
+                    = mvProperties.get(PropertyAnalyzer.ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES);
             if (StringUtils.isEmpty(stillRewrittenTables)) {
                 return res;
             }
             String[] split = stillRewrittenTables.split(",");
             for (String alias : split) {
-                res.add(new TableName(alias));
+                res.add(new TableNameInfo(alias));
             }
             return res;
         } finally {
