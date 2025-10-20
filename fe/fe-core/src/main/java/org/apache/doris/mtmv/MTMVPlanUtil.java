@@ -544,7 +544,7 @@ public class MTMVPlanUtil {
     private static void checkMTMVPartitionInfo(MTMV mtmv, MTMVPartitionInfo analyzedMvPartitionInfo)
             throws JobException {
         MTMVPartitionInfo originalMvPartitionInfo = mtmv.getMvPartitionInfo();
-        if (!checkMTMVPartitionInfoLike(analyzedMvPartitionInfo, originalMvPartitionInfo)) {
+        if (!checkMTMVPartitionInfoLike(originalMvPartitionInfo, analyzedMvPartitionInfo)) {
             throw new JobException("async materialized view partition info changed, analyzed: %s, original: %s",
                     analyzedMvPartitionInfo.toInfoString(), originalMvPartitionInfo.toInfoString());
         }
