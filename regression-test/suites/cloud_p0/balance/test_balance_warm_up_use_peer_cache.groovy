@@ -38,7 +38,8 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
         'report_tablet_interval_seconds=1',
         'schedule_sync_tablets_interval_s=18000',
         'disable_auto_compaction=true',
-        'sys_log_verbose_modules=*'
+        'sys_log_verbose_modules=*',
+        'cache_read_from_peer_expired_seconds=100'
     ]
     options.setFeNum(1)
     options.setBeNum(1)
@@ -193,7 +194,6 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
         }
         assert(0 != getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read"))
         assert(0 == getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_s3_read"))
-
     }
 
     docker(options) {

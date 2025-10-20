@@ -35,13 +35,25 @@ suite('test_balance_warm_up', 'docker') {
         'report_tablet_interval_seconds=1',
         'schedule_sync_tablets_interval_s=18000',
         'disable_auto_compaction=true',
-        'sys_log_verbose_modules=*'
+        'sys_log_verbose_modules=*',
+        'cache_read_from_peer_expired_seconds=100'
     ]
     options.setFeNum(1)
     options.setBeNum(1)
     options.cloudMode = true
     options.enableDebugPoints()
     
+    def getBrpcMetrics = {ip, port, name ->
+        def url = "http://${ip}:${port}/brpc_metrics"
+        def metrics = new URL(url).text
+        def matcher = metrics =~ ~"${name}\\s+(\\d+)"
+        if (matcher.find()) {
+            return matcher[0][1] as long
+        } else {
+            throw new RuntimeException("${name} not found for ${ip}:${port}")
+        }
+    }
+
     def testCase = { table -> 
         def ms = cluster.getAllMetaservices().get(0)
         def msHttpPort = ms.host + ":" + ms.httpPort
@@ -179,6 +191,11 @@ suite('test_balance_warm_up', 'docker') {
             "Expected cache file pattern ${hashFile} not found in BE ${newAddBe.Host}'s file_cache directory. " + 
             "Available subdirs: ${subDirs}")
         }
+
+        sleep(105 * 1000)
+        // test expired be tablet cache info be removed
+        // after cache_read_from_peer_expired_seconds = 100s
+        assert(0 == getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "balance_tablet_be_mapping_size"))
     }
 
     docker(options) {

@@ -82,6 +82,7 @@ bvar::Adder<uint64_t> g_file_cache_recycle_cache_requested_index_num(
 bvar::Status<int64_t> g_file_cache_warm_up_rowset_last_call_unix_ts(
         "file_cache_warm_up_rowset_last_call_unix_ts", 0);
 bvar::Adder<uint64_t> file_cache_warm_up_failed_task_num("file_cache_warm_up", "failed_task_num");
+bvar::Adder<uint64_t> g_balance_tablet_be_mapping_size("balance_tablet_be_mapping_size");
 
 bvar::LatencyRecorder g_file_cache_warm_up_rowset_wait_for_compaction_latency(
         "file_cache_warm_up_rowset_wait_for_compaction_latency");
@@ -796,8 +797,8 @@ void CloudWarmUpManager::record_balanced_tablet(int64_t tablet_id, const std::st
     JobMeta meta;
     meta.be_ip = host;
     meta.brpc_port = brpc_port;
-    meta.ctime = std::chrono::system_clock::now();
     shard.tablets.emplace(tablet_id, std::move(meta));
+    g_balance_tablet_be_mapping_size << 1;
     VLOG_DEBUG << "Recorded balanced warm up cache tablet: tablet_id=" << tablet_id
                << ", host=" << host << ":" << brpc_port;
 }
@@ -810,15 +811,6 @@ std::optional<std::pair<std::string, int32_t>> CloudWarmUpManager::get_balanced_
     if (it == shard.tablets.end()) {
         return std::nullopt;
     }
-    if (is_balanced_tablet_expired(it->second.ctime)) {
-        auto now = std::chrono::system_clock::now();
-        VLOG_DEBUG << "Expired balanced warm up cache tablet: tablet_id=" << it->first << ", age="
-                   << std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second.ctime)
-                              .count()
-                   << "ms";
-        shard.tablets.erase(it);
-        return std::nullopt;
-    }
     return std::make_pair(it->second.be_ip, it->second.brpc_port);
 }
 
@@ -827,8 +819,9 @@ void CloudWarmUpManager::remove_balanced_tablet(int64_t tablet_id) {
     std::lock_guard<std::mutex> lock(shard.mtx);
     auto it = shard.tablets.find(tablet_id);
     if (it != shard.tablets.end()) {
-        VLOG_DEBUG << "Removed balanced warm up cache tablet: tablet_id=" << tablet_id;
         shard.tablets.erase(it);
+        g_balance_tablet_be_mapping_size << -1;
+        VLOG_DEBUG << "Removed balanced warm up cache tablet: tablet_id=" << tablet_id;
     }
 }
 
@@ -848,17 +841,12 @@ void CloudWarmUpManager::remove_balanced_tablets(const std::vector<int64_t>& tab
         for (int64_t tablet_id : shard_groups[i]) {
             auto it = shard.tablets.find(tablet_id);
             if (it != shard.tablets.end()) {
-                VLOG_DEBUG << "Removed balanced warm up cache tablet: tablet_id=" << tablet_id;
                 shard.tablets.erase(it);
+                g_balance_tablet_be_mapping_size << -1;
+                VLOG_DEBUG << "Removed balanced warm up cache tablet: tablet_id=" << tablet_id;
             }
         }
     }
-}
-
-bool CloudWarmUpManager::is_balanced_tablet_expired(
-        const std::chrono::system_clock::time_point& ctime) const {
-    return std::chrono::system_clock::now() - ctime >
-           std::chrono::milliseconds(g_tablet_report_inactive_duration_ms);
 }
 
 std::unordered_map<int64_t, std::pair<std::string, int32_t>>
@@ -877,38 +865,6 @@ CloudWarmUpManager::get_all_balanced_tablets() const {
         }
     }
     return result;
-}
-
-void CloudWarmUpManager::clear_expired_balanced_tablets() {
-    size_t total_removed_count = 0;
-
-    // Process each shard independently
-    for (auto& shard : _balanced_tablets_shards) {
-        std::lock_guard<std::mutex> lock(shard.mtx);
-        auto it = shard.tablets.begin();
-        size_t removed_count = 0;
-
-        while (it != shard.tablets.end()) {
-            if (is_balanced_tablet_expired(it->second.ctime)) {
-                VLOG_DEBUG << "Clearing expired balanced warm up cache tablet: tablet_id="
-                           << it->first << ", age="
-                           << std::chrono::duration_cast<std::chrono::milliseconds>(
-                                      std::chrono::system_clock::now() - it->second.ctime)
-                                      .count()
-                           << "ms";
-                it = shard.tablets.erase(it);
-                removed_count++;
-            } else {
-                ++it;
-            }
-        }
-        total_removed_count += removed_count;
-    }
-
-    if (total_removed_count > 0) {
-        VLOG_DEBUG << "Cleared " << total_removed_count
-                   << " expired balanced warm up cache tablets";
-    }
 }
 
 #include "common/compile_check_end.h"

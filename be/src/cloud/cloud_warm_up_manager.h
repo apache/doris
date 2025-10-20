@@ -46,8 +46,6 @@ struct JobMeta {
     std::string be_ip;
     int32_t brpc_port;
     std::vector<int64_t> tablet_ids;
-    // ctime
-    std::chrono::system_clock::time_point ctime;
 };
 
 // manager for
@@ -98,7 +96,6 @@ public:
     void remove_balanced_tablets(const std::vector<int64_t>& tablet_ids);
     bool is_balanced_tablet_expired(const std::chrono::system_clock::time_point& ctime) const;
     std::unordered_map<int64_t, std::pair<std::string, int32_t>> get_all_balanced_tablets() const;
-    void clear_expired_balanced_tablets();
 
 private:
     void handle_jobs();

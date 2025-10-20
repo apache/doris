@@ -20,7 +20,9 @@
 
 #include "io/cache/block_file_cache_downloader.h"
 
+#include <bthread/bthread.h>
 #include <bthread/countdown_event.h>
+#include <bthread/unstable.h>
 #include <bvar/bvar.h>
 #include <fmt/core.h>
 #include <gen_cpp/internal_service.pb.h>
@@ -30,6 +32,7 @@
 #include <variant>
 
 #include "cloud/cloud_tablet_mgr.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
@@ -169,6 +172,13 @@ std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas(BaseTable
     return id_to_rowset_meta_map;
 }
 
+static void CleanUpExpiredMappings(void* arg) {
+    auto* tablet_id = reinterpret_cast<int64_t*>(arg);
+    auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+    manager.remove_balanced_tablet(*tablet_id);
+    VLOG_DEBUG << "Removed expired balanced warm up cache tablet: tablet_id=" << *tablet_id;
+}
+
 void FileCacheBlockDownloader::download_file_cache_block(
         const DownloadTask::FileCacheBlockMetaVec& metas) {
     std::ranges::for_each(metas, [&](const FileCacheBlockMeta& meta) {
@@ -215,8 +225,21 @@ void FileCacheBlockDownloader::download_file_cache_block(
                                << "]";
                 }
             }
+            bthread_timer_t timer_id;
+            unsigned long expired_ms = g_tablet_report_inactive_duration_ms;
+            if (doris::config::cache_read_from_peer_expired_seconds > 0 &&
+                doris::config::cache_read_from_peer_expired_seconds <=
+                        g_tablet_report_inactive_duration_ms / 1000) {
+                expired_ms = doris::config::cache_read_from_peer_expired_seconds * 1000;
+            }
+            const int rc = bthread_timer_add(&timer_id, butil::milliseconds_from_now(expired_ms),
+                                             CleanUpExpiredMappings, (void*)&tablet_id);
+            if (rc != 0) {
+                LOG(WARNING) << "Fail to add timer for CleanUpExpiredMappings for tablet_id="
+                             << tablet_id << " rc=" << rc;
+            }
             LOG(INFO) << "download_file_cache_block: download_done, tablet_Id=" << tablet_id
-                      << "status=" << st.to_string();
+                      << " status=" << st.to_string();
         };
 
         std::string path;

@@ -223,10 +223,16 @@ void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& respons
     if (!cntl.Failed()) {
         g_file_cache_warm_up_cache_async_submitted_segment_num
                 << brpc_response.file_cache_block_metas().size();
-        _engine.file_cache_block_downloader().submit_download_task(
-                std::move(*brpc_response.mutable_file_cache_block_metas()));
-        LOG(INFO) << "warm_up_cache_async: successfully submitted download task for tablets="
-                  << oss.str();
+        auto& file_cache_block_metas = *brpc_response.mutable_file_cache_block_metas();
+        if (!file_cache_block_metas.empty()) {
+            _engine.file_cache_block_downloader().submit_download_task(
+                    std::move(file_cache_block_metas));
+            LOG(INFO) << "warm_up_cache_async: successfully submitted download task for tablets="
+                      << oss.str();
+        } else {
+            LOG(INFO) << "warm_up_cache_async: no file cache block meta found, addr=" << brpc_addr;
+            manager.remove_balanced_tablets(request.tablet_ids);
+        }
     } else {
         st = Status::RpcError("{} isn't connected", brpc_addr);
         // Remove failed tablets from tracking
@@ -236,10 +242,6 @@ void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& respons
     }
     st.to_thrift(&t_status);
     response.status = t_status;
-
-    // Due to Src be, exceeding g_tablet_report_inactive_duration_ms will trigger a report to clean up the tablet
-    // Clear expired tablets from tracking
-    manager.clear_expired_balanced_tablets();
 }
 
 void CloudBackendService::check_warm_up_cache_async(TCheckWarmUpCacheAsyncResponse& response,
