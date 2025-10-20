@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg.rewrite;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
@@ -30,8 +31,10 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import lombok.extern.slf4j.Slf4j;
@@ -166,10 +169,19 @@ public class RewriteGroupTask implements TransientTaskExecutor {
      */
     private ConnectContext buildConnectContext() {
         ConnectContext taskContext = new ConnectContext();
+        // clone session variables from parent
+        taskContext.setSessionVariable(VariableMgr.cloneSessionVariable(connectContext.getSessionVariable()));
+        // set env and basic identities
+        taskContext.setEnv(Env.getCurrentEnv());
         taskContext.setDatabase(connectContext.getDatabase());
         taskContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
         taskContext.setRemoteIP(connectContext.getRemoteIP());
+        // assign query id and start time
+        UUID uuid = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        taskContext.setQueryId(queryId);
         taskContext.setThreadLocalInfo();
+        taskContext.setStartTime();
         return taskContext;
     }
 
