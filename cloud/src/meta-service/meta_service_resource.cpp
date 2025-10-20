@@ -4354,7 +4354,7 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
         } else {
             endpoint = fmt::format("{}:{}", e.ip(), e.port());
         }
-        if (include_self || endpoint == self_endpoint) continue;
+        if (endpoint == self_endpoint && !include_self) continue;
 
         // Prepare stub
         std::shared_ptr<MetaService_Stub> stub;
