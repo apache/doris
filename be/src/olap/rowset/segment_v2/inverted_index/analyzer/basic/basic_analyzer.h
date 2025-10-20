@@ -65,7 +65,7 @@ public:
 private:
     inverted_index::TokenStreamComponentsPtr create_components() {
         auto tk = std::make_shared<inverted_index::BasicTokenizer>();
-        tk->initialize(inverted_index::BasicTokenizerMode::L1);
+        tk->initialize();
         inverted_index::TokenStreamPtr ts = tk;
         if (_lowercase) {
             auto lower_case_filter = std::make_shared<inverted_index::LowerCaseFilter>(tk);

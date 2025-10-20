@@ -272,8 +272,8 @@ public class CascadesContext implements ScheduleContext {
         }
     }
 
-    public TableCollectAndHookInitializer newTableCollector() {
-        return new TableCollectAndHookInitializer(this);
+    public TableCollectAndHookInitializer newTableCollector(boolean firstLevel) {
+        return new TableCollectAndHookInitializer(this, firstLevel);
     }
 
     public Analyzer newAnalyzer() {

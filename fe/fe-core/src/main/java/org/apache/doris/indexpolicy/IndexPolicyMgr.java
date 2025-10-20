@@ -236,6 +236,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         }
         PolicyPropertyValidator validator;
         switch (type) {
+            case "empty":
+                validator = new NoOperationValidator("empty tokenizer");
+                break;
             case "ngram":
                 validator = new NGramTokenizerValidator();
                 break;
@@ -246,7 +249,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 validator = new StandardTokenizerValidator();
                 break;
             case "keyword":
-                validator = new KeywordTokenizerValidator();
+                validator = new NoOperationValidator("keyword tokenizer");
                 break;
             case "char_group":
                 validator = new CharGroupTokenizerValidator();
@@ -265,6 +268,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         }
         PolicyPropertyValidator validator;
         switch (type) {
+            case "empty":
+                validator = new NoOperationValidator("empty token filter");
+                break;
             case "asciifolding":
                 validator = new AsciiFoldingTokenFilterValidator();
                 break;
@@ -272,7 +278,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 validator = new WordDelimiterTokenFilterValidator();
                 break;
             case "lowercase":
-                validator = new LowerCaseTokenFilterValidator();
+                validator = new NoOperationValidator("lowercase token filter");
                 break;
             default:
                 throw new DdlException("Unsupported token filter type: " + type
@@ -288,6 +294,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         }
         PolicyPropertyValidator validator;
         switch (type) {
+            case "empty":
+                validator = new NoOperationValidator("empty char filter");
+                break;
             case "char_replace":
                 validator = new CharReplaceCharFilterValidator();
                 break;

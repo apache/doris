@@ -53,8 +53,8 @@ suite("scalar_quantization") {
             duplicate key(id)
             distributed by hash(id) buckets 1
             properties('replication_num' = '1');"""
-        exception """only support ann index with quantizer flat, sq4 or sq8"""
+        exception """only support ann index with quantizer flat, sq4, sq8 or pq"""
     }
-    
+
 
 }

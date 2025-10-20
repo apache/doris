@@ -150,6 +150,8 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "EmptyFileNum", TUnit::UNIT, 1);
     _not_found_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
                                                      "NotFoundFileNum", TUnit::UNIT, 1);
+    _fully_skipped_file_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                         "FullySkippedFileNum", TUnit::UNIT, 1);
     _file_counter =
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT, 1);
 
@@ -451,6 +453,10 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
                 _cur_reader_eof = true;
                 COUNTER_UPDATE(_not_found_file_counter, 1);
                 continue;
+            } else if (st.is<ErrorCode::END_OF_FILE>()) {
+                _cur_reader_eof = true;
+                COUNTER_UPDATE(_fully_skipped_file_counter, 1);
+                continue;
             } else if (!st) {
                 return st;
             }
@@ -632,6 +638,7 @@ Status FileScanner::_fill_columns_from_path(size_t rows) {
     DataTypeSerDe::FormatOptions _text_formatOptions;
     for (auto& kv : _partition_col_descs) {
         auto doris_column = _src_block_ptr->get_by_name(kv.first).column;
+        // _src_block_ptr points to a mutable block created by this class itself, so const_cast can be used here.
         IColumn* col_ptr = const_cast<IColumn*>(doris_column.get());
         auto& [value, slot_desc] = kv.second;
         auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
@@ -1034,8 +1041,8 @@ Status FileScanner::_get_next_reader() {
                                                : nullptr;
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                     _profile, *_params, range, _state->query_options().batch_size,
-                    const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
-                    file_meta_cache_ptr, _state->query_options().enable_parquet_lazy_mat);
+                    &_state->timezone_obj(), _io_ctx.get(), _state, file_meta_cache_ptr,
+                    _state->query_options().enable_parquet_lazy_mat);
 
             if (_row_id_column_iterator_pair.second != -1) {
                 RETURN_IF_ERROR(_create_row_id_column_iterator());
@@ -1479,8 +1486,7 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
                 case TFileFormatType::FORMAT_PARQUET: {
                     std::unique_ptr<vectorized::ParquetReader> parquet_reader =
                             vectorized::ParquetReader::create_unique(
-                                    _profile, *_params, range, 1,
-                                    const_cast<cctz::time_zone*>(&_state->timezone_obj()),
+                                    _profile, *_params, range, 1, &_state->timezone_obj(),
                                     _io_ctx.get(), _state, file_meta_cache_ptr, false);
 
                     RETURN_IF_ERROR(parquet_reader->read_by_rows(row_ids));
