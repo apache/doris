@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #include <memory>
+#include <string>
 
 #include "exprs/hybrid_set.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -56,17 +57,28 @@ public:
     void change_contain_null_value(bool target_value) { this->_contain_null = target_value; }
 };
 
-template <PrimitiveType T>
-struct AggregateFunctionGroupArrayIntersectData {
+template <PrimitiveType T, bool is_array_union>
+struct AggregateFunctionGroupArrayImplData {
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    using CppType = typename PrimitiveTypeTraits<T>::CppType;
+    using ColumnItemType = typename PrimitiveTypeTraits<T>::ColumnItemType;
     using NullableNumericOrDateSetType = NullableNumericOrDateSet<T>;
     using Set = std::unique_ptr<NullableNumericOrDateSetType>;
+    static constexpr bool IsArrayUnion = is_array_union;
 
-    AggregateFunctionGroupArrayIntersectData()
+    AggregateFunctionGroupArrayImplData()
             : value(std::make_unique<NullableNumericOrDateSetType>()) {}
 
     Set value;
     bool init = false;
+
+    static std::string get_name() {
+        if constexpr (is_array_union) {
+            return "group_array_union";
+        } else {
+            return "group_array_intersect";
+        }
+    }
 
     void reset() {
         init = false;
@@ -74,75 +86,57 @@ struct AggregateFunctionGroupArrayIntersectData {
     }
 
     void process_col_data(auto& column_data, size_t offset, size_t arr_size, Set& set) {
-        const bool is_column_data_nullable = column_data.is_nullable();
-
-        const ColumnNullable* col_null = nullptr;
-        const ColVecType* nested_column_data = nullptr;
-
-        if (is_column_data_nullable) {
-            const auto* const_col_data = &column_data;
-            col_null = static_cast<const ColumnNullable*>(const_col_data);
-            nested_column_data = &assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
-                    col_null->get_nested_column());
-        } else {
-            nested_column_data = &static_cast<const ColVecType&>(column_data);
-        }
-
+        DCHECK(column_data->is_nullable())
+                << "should be array(nullable(column)) " << column_data->dump_structure();
         if (!init) {
-            for (size_t i = 0; i < arr_size; ++i) {
-                const bool is_null_element =
-                        is_column_data_nullable && col_null->is_null_at(offset + i);
-                const typename PrimitiveTypeTraits<T>::ColumnItemType* src_data =
-                        is_null_element ? nullptr : &(nested_column_data->get_element(offset + i));
-
-                set->insert(src_data);
-            }
+            set->insert_fixed_len(column_data, 0);
             init = true;
         } else if (!set->empty()) {
-            Set new_set = std::make_unique<NullableNumericOrDateSetType>();
+            if constexpr (IsArrayUnion) {
+                set->insert_fixed_len(column_data, 0);
+            } else {
+                // for intersect, need to create a new set to store the intersection result
+                Set new_set = std::make_unique<NullableNumericOrDateSetType>();
+                const auto& col_nullable = assert_cast<const ColumnNullable&>(*column_data);
+                const ColVecType& nested_column_data =
+                        assert_cast<const ColVecType&>(col_nullable.get_nested_column());
+                for (size_t i = 0; i < arr_size; ++i) {
+                    const bool is_null_element = col_nullable.is_null_at(offset + i);
+                    const typename PrimitiveTypeTraits<T>::ColumnItemType* src_data =
+                            is_null_element ? nullptr
+                                            : &(nested_column_data.get_element(offset + i));
 
-            for (size_t i = 0; i < arr_size; ++i) {
-                const bool is_null_element =
-                        is_column_data_nullable && col_null->is_null_at(offset + i);
-                const typename PrimitiveTypeTraits<T>::ColumnItemType* src_data =
-                        is_null_element ? nullptr : &(nested_column_data->get_element(offset + i));
-
-                if ((!is_null_element && set->find(src_data)) ||
-                    (set->contain_null() && is_null_element)) {
-                    new_set->insert(src_data);
+                    if ((!is_null_element && set->find(src_data)) ||
+                        (set->contain_null() && is_null_element)) {
+                        new_set->insert(src_data);
+                    }
                 }
+                set = std::move(new_set);
             }
-            set = std::move(new_set);
         }
     }
 };
 
 /// Puts all values to the hybrid set. Returns an array of unique values. Implemented for numeric/date types.
-template <PrimitiveType T>
-class AggregateFunctionGroupArrayIntersect
-        : public IAggregateFunctionDataHelper<AggregateFunctionGroupArrayIntersectData<T>,
-                                              AggregateFunctionGroupArrayIntersect<T>>,
+template <typename Impl>
+class AggregateFunctionGroupArrayImpl
+        : public IAggregateFunctionDataHelper<Impl, AggregateFunctionGroupArrayImpl<Impl>>,
           UnaryExpression,
           NotNullableAggregateFunction {
 private:
-    using State = AggregateFunctionGroupArrayIntersectData<T>;
+    using State = Impl;
     DataTypePtr argument_type;
 
 public:
-    AggregateFunctionGroupArrayIntersect(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<AggregateFunctionGroupArrayIntersectData<T>,
-                                           AggregateFunctionGroupArrayIntersect<T>>(
-                      argument_types_),
+    AggregateFunctionGroupArrayImpl(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Impl, AggregateFunctionGroupArrayImpl>(argument_types_),
               argument_type(argument_types_[0]) {}
 
-    AggregateFunctionGroupArrayIntersect(const DataTypes& argument_types_,
-                                         const bool result_is_nullable)
-            : IAggregateFunctionDataHelper<AggregateFunctionGroupArrayIntersectData<T>,
-                                           AggregateFunctionGroupArrayIntersect<T>>(
-                      argument_types_),
+    AggregateFunctionGroupArrayImpl(const DataTypes& argument_types_, const bool result_is_nullable)
+            : IAggregateFunctionDataHelper<Impl, AggregateFunctionGroupArrayImpl>(argument_types_),
               argument_type(argument_types_[0]) {}
 
-    String get_name() const override { return "group_array_intersect"; }
+    String get_name() const override { return Impl::get_name(); }
 
     DataTypePtr get_return_type() const override { return argument_type; }
 
@@ -165,7 +159,7 @@ public:
         const auto& offsets = column.get_offsets();
         const auto offset = offsets[row_num - 1];
         const auto arr_size = offsets[row_num] - offset;
-        const auto& column_data = column.get_data();
+        const auto& column_data = column.get_data_ptr();
 
         data.process_col_data(column_data, offset, arr_size, set);
     }
@@ -191,24 +185,35 @@ public:
             }
             init = true;
         } else if (!set->empty()) {
-            auto create_new_set = [](auto& lhs_val, auto& rhs_val) {
-                typename State::Set new_set =
-                        std::make_unique<typename State::NullableNumericOrDateSetType>();
-                HybridSetBase::IteratorBase* it = lhs_val->begin();
+            if constexpr (Impl::IsArrayUnion) {
+                // for union, just insert all elements from rhs_set
+                HybridSetBase::IteratorBase* it = rhs_set->begin();
                 while (it->has_next()) {
                     const void* value = it->get_value();
-                    if ((rhs_val->find(value))) {
-                        new_set->insert(value);
-                    }
+                    set->insert(value);
                     it->next();
                 }
-                new_set->change_contain_null_value(lhs_val->contain_null() &&
-                                                   rhs_val->contain_null());
-                return new_set;
-            };
-            auto new_set = rhs_set->size() < set->size() ? create_new_set(rhs_set, set)
-                                                         : create_new_set(set, rhs_set);
-            set = std::move(new_set);
+                set->change_contain_null_value(set->contain_null() || rhs_set->contain_null());
+            } else {
+                auto create_new_set = [](auto& lhs_val, auto& rhs_val) {
+                    typename State::Set new_set =
+                            std::make_unique<typename State::NullableNumericOrDateSetType>();
+                    HybridSetBase::IteratorBase* it = lhs_val->begin();
+                    while (it->has_next()) {
+                        const void* value = it->get_value();
+                        if ((rhs_val->find(value))) {
+                            new_set->insert(value);
+                        }
+                        it->next();
+                    }
+                    new_set->change_contain_null_value(lhs_val->contain_null() &&
+                                                       rhs_val->contain_null());
+                    return new_set;
+                };
+                auto new_set = rhs_set->size() < set->size() ? create_new_set(rhs_set, set)
+                                                             : create_new_set(set, rhs_set);
+                set = std::move(new_set);
+            }
         }
     }
 
@@ -224,8 +229,7 @@ public:
         HybridSetBase::IteratorBase* it = set->begin();
 
         while (it->has_next()) {
-            const typename PrimitiveTypeTraits<T>::CppType* value_ptr =
-                    static_cast<const typename PrimitiveTypeTraits<T>::CppType*>(it->get_value());
+            const auto* value_ptr = static_cast<const typename Impl::CppType*>(it->get_value());
             buf.write_binary((*value_ptr));
             it->next();
         }
@@ -242,7 +246,7 @@ public:
         UInt64 size;
         buf.read_var_uint(size);
 
-        typename PrimitiveTypeTraits<T>::CppType element;
+        typename Impl::CppType element;
         for (UInt64 i = 0; i < size; ++i) {
             buf.read_binary(element);
             data.value->insert(static_cast<void*>(&element));
@@ -250,18 +254,19 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        ColumnArray& arr_to = assert_cast<ColumnArray&>(to);
+        auto& arr_to = assert_cast<ColumnArray&>(to);
         ColumnArray::Offsets64& offsets_to = arr_to.get_offsets();
         auto& to_nested_col = arr_to.get_data();
-        const bool is_nullable = to_nested_col.is_nullable();
+        DCHECK(to_nested_col.is_nullable())
+                << "should be array(nullable(column)) " << to.dump_structure();
 
         auto insert_values = [](typename State::ColVecType& nested_col, auto& set,
-                                bool is_nullable = false, ColumnNullable* col_null = nullptr) {
+                                ColumnNullable* col_null) {
             size_t old_size = nested_col.get_data().size();
             size_t res_size = set->size();
             size_t i = 0;
 
-            if (is_nullable && set->contain_null()) {
+            if (set->contain_null()) {
                 col_null->insert_data(nullptr, 0);
                 res_size += 1;
                 i = 1;
@@ -272,29 +277,20 @@ public:
             HybridSetBase::IteratorBase* it = set->begin();
             while (it->has_next()) {
                 const auto value =
-                        *reinterpret_cast<const typename PrimitiveTypeTraits<T>::ColumnItemType*>(
-                                it->get_value());
+                        *reinterpret_cast<const typename Impl::ColumnItemType*>(it->get_value());
                 nested_col.get_data()[old_size + i] = value;
-                if (is_nullable) {
-                    col_null->get_null_map_data().push_back(0);
-                }
+                col_null->get_null_map_data().push_back(0);
+
                 it->next();
                 ++i;
             }
         };
 
         const auto& set = this->data(place).value;
-        if (is_nullable) {
-            auto col_null = reinterpret_cast<ColumnNullable*>(&to_nested_col);
-            auto& nested_col =
-                    assert_cast<typename State::ColVecType&>(col_null->get_nested_column());
-            offsets_to.push_back(offsets_to.back() + set->size() + (set->contain_null() ? 1 : 0));
-            insert_values(nested_col, set, true, col_null);
-        } else {
-            auto& nested_col = static_cast<typename State::ColVecType&>(to_nested_col);
-            offsets_to.push_back(offsets_to.back() + set->size());
-            insert_values(nested_col, set);
-        }
+        auto* col_null = assert_cast<ColumnNullable*>(&to_nested_col);
+        auto& nested_col = assert_cast<typename State::ColVecType&>(col_null->get_nested_column());
+        offsets_to.push_back(offsets_to.back() + set->size() + (set->contain_null() ? 1 : 0));
+        insert_values(nested_col, set, col_null);
     }
 };
 
@@ -323,9 +319,11 @@ struct AggregateFunctionGroupArrayIntersectGenericData {
 /** Template parameter with true value should be used for columns that store their elements in memory continuously.
  *  For such columns group_array_intersect() can be implemented more efficiently (especially for small numeric arrays).
  */
+template <bool is_array_union>
 class AggregateFunctionGroupArrayIntersectGeneric
-        : public IAggregateFunctionDataHelper<AggregateFunctionGroupArrayIntersectGenericData,
-                                              AggregateFunctionGroupArrayIntersectGeneric> {
+        : public IAggregateFunctionDataHelper<
+                  AggregateFunctionGroupArrayIntersectGenericData,
+                  AggregateFunctionGroupArrayIntersectGeneric<is_array_union>> {
 private:
     using State = AggregateFunctionGroupArrayIntersectGenericData;
     DataTypePtr input_data_type;
@@ -337,7 +335,13 @@ public:
                       input_data_type_),
               input_data_type(input_data_type_[0]) {}
 
-    String get_name() const override { return "group_array_intersect"; }
+    String get_name() const override {
+        if constexpr (is_array_union) {
+            return "group_array_union";
+        } else {
+            return "group_array_intersect";
+        }
+    }
 
     DataTypePtr get_return_type() const override { return input_data_type; }
 
@@ -362,20 +366,14 @@ public:
         const auto& offsets = column.get_offsets();
         const auto offset = offsets[row_num - 1];
         const auto arr_size = offsets[row_num] - offset;
-        const auto& column_data = column.get_data();
-        const bool is_column_data_nullable = column_data.is_nullable();
-        const ColumnNullable* col_null = nullptr;
+        const auto column_data = column.get_data_ptr();
+        DCHECK(column_data->is_nullable())
+                << "should be array(nullable(column)) " << columns[0]->dump_structure();
 
-        if (is_column_data_nullable) {
-            col_null = static_cast<const ColumnNullable*>(&column_data);
-        }
-
+        const auto* col_null = assert_cast<const ColumnNullable*>(column_data.get());
         auto process_element = [&](size_t i) {
-            const bool is_null_element =
-                    is_column_data_nullable && col_null->is_null_at(offset + i);
-
+            const bool is_null_element = col_null->is_null_at(offset + i);
             StringRef src = nested_column_data->get_data_at(offset + i);
-
             src.data = is_null_element ? nullptr : arena.insert(src.data, src.size);
             return src;
         };
@@ -387,16 +385,24 @@ public:
             }
             init = true;
         } else if (!set->empty()) {
-            typename State::Set new_set = std::make_unique<NullableStringSet>();
-
-            for (size_t i = 0; i < arr_size; ++i) {
-                StringRef src = process_element(i);
-                if ((set->find(src.data, src.size) && src.data != nullptr) ||
-                    (set->contain_null() && src.data == nullptr)) {
-                    new_set->insert((void*)src.data, src.size);
+            // for union, just insert all elements
+            if constexpr (is_array_union) {
+                for (size_t i = 0; i < arr_size; ++i) {
+                    StringRef src = process_element(i);
+                    set->insert((void*)src.data, src.size);
                 }
+            } else {
+                // for intersect, need to create a new set to store the intersection result
+                typename State::Set new_set = std::make_unique<NullableStringSet>();
+                for (size_t i = 0; i < arr_size; ++i) {
+                    StringRef src = process_element(i);
+                    if ((set->find(src.data, src.size) && src.data != nullptr) ||
+                        (set->contain_null() && src.data == nullptr)) {
+                        new_set->insert((void*)src.data, src.size);
+                    }
+                }
+                set = std::move(new_set);
             }
-            set = std::move(new_set);
         }
     }
 
@@ -404,7 +410,7 @@ public:
                Arena&) const override {
         auto& data = this->data(place);
         auto& set = data.value;
-        auto& rhs_set = this->data(rhs).value;
+        const auto& rhs_set = this->data(rhs).value;
 
         if (!this->data(rhs).init) {
             return;
@@ -421,30 +427,41 @@ public:
             }
             init = true;
         } else if (!set->empty()) {
-            auto create_new_set = [](auto& lhs_val, auto& rhs_val) {
-                typename State::Set new_set = std::make_unique<NullableStringSet>();
-                HybridSetBase::IteratorBase* it = lhs_val->begin();
+            if constexpr (is_array_union) {
+                // for union, just insert all elements from rhs_set
+                HybridSetBase::IteratorBase* it = rhs_set->begin();
                 while (it->has_next()) {
                     const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
-                    if (rhs_val->find(value)) {
-                        new_set->insert((void*)value->data, value->size);
-                    }
+                    set->insert((void*)(value->data), value->size);
                     it->next();
                 }
-                new_set->change_contain_null_value(lhs_val->contain_null() &&
-                                                   rhs_val->contain_null());
-                return new_set;
-            };
-            auto new_set = rhs_set->size() < set->size() ? create_new_set(rhs_set, set)
-                                                         : create_new_set(set, rhs_set);
-            set = std::move(new_set);
+                set->change_contain_null_value(set->contain_null() || rhs_set->contain_null());
+            } else {
+                auto create_new_set = [](auto& lhs_val, auto& rhs_val) {
+                    typename State::Set new_set = std::make_unique<NullableStringSet>();
+                    HybridSetBase::IteratorBase* it = lhs_val->begin();
+                    while (it->has_next()) {
+                        const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
+                        if (rhs_val->find(value)) {
+                            new_set->insert((void*)value->data, value->size);
+                        }
+                        it->next();
+                    }
+                    new_set->change_contain_null_value(lhs_val->contain_null() &&
+                                                       rhs_val->contain_null());
+                    return new_set;
+                };
+                auto new_set = rhs_set->size() < set->size() ? create_new_set(rhs_set, set)
+                                                             : create_new_set(set, rhs_set);
+                set = std::move(new_set);
+            }
         }
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        auto& data = this->data(place);
-        auto& set = data.value;
-        auto& init = data.init;
+        const auto& data = this->data(place);
+        const auto& set = data.value;
+        const auto& init = data.init;
         const bool is_set_contain_null = set->contain_null();
 
         buf.write_binary(is_set_contain_null);
@@ -481,7 +498,7 @@ public:
         auto& arr_to = assert_cast<ColumnArray&>(to);
         ColumnArray::Offsets64& offsets_to = arr_to.get_offsets();
         auto& data_to = arr_to.get_data();
-        auto col_null = reinterpret_cast<ColumnNullable*>(&data_to);
+        auto* col_null = assert_cast<ColumnNullable*>(&data_to);
 
         const auto& set = this->data(place).value;
         auto res_size = set->size();

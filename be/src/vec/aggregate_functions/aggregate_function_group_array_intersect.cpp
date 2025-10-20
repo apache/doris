@@ -26,19 +26,35 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-inline AggregateFunctionPtr create_aggregate_function_group_array_intersect_impl(
-        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
+template <PrimitiveType T>
+using ImplArrayIntersect = AggregateFunctionGroupArrayImplData<T, false>;
+template <PrimitiveType T>
+using ImplArrayUnion = AggregateFunctionGroupArrayImplData<T, true>;
+
+inline AggregateFunctionPtr create_aggregate_function_group_array_impl(
+        bool is_array_union, const DataTypes& argument_types, const bool result_is_nullable,
         const AggregateFunctionAttr& attr) {
     const auto& nested_type = remove_nullable(
-            dynamic_cast<const DataTypeArray&>(*(argument_types[0])).get_nested_type());
-    AggregateFunctionPtr res = creator_with_type_list<
-            TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT, TYPE_DATEV2,
-            TYPE_DATETIMEV2>::create<AggregateFunctionGroupArrayIntersect>(argument_types,
-                                                                           result_is_nullable,
-                                                                           attr);
+            assert_cast<const DataTypeArray&>(*(argument_types[0])).get_nested_type());
+    using creator = creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
+                                           TYPE_LARGEINT, TYPE_DATEV2, TYPE_DATETIMEV2>;
+    AggregateFunctionPtr res = nullptr;
+    if (is_array_union) {
+        res = creator::create<AggregateFunctionGroupArrayImpl, ImplArrayUnion>(
+                argument_types, result_is_nullable, attr);
+    } else {
+        res = creator::create<AggregateFunctionGroupArrayImpl, ImplArrayIntersect>(
+                argument_types, result_is_nullable, attr);
+    }
 
     if (!res) {
-        res = AggregateFunctionPtr(new AggregateFunctionGroupArrayIntersectGeneric(argument_types));
+        if (is_array_union) {
+            res = AggregateFunctionPtr(
+                    new AggregateFunctionGroupArrayIntersectGeneric<true>(argument_types));
+        } else {
+            res = AggregateFunctionPtr(
+                    new AggregateFunctionGroupArrayIntersectGeneric<false>(argument_types));
+        }
     }
     return res;
 }
@@ -55,12 +71,30 @@ AggregateFunctionPtr create_aggregate_function_group_array_intersect(
                         "Provided argument type: " +
                                 argument_type->get_name());
     }
-    return create_aggregate_function_group_array_intersect_impl(name, {argument_type},
-                                                                result_is_nullable, attr);
+    return create_aggregate_function_group_array_impl(false, {argument_type}, result_is_nullable,
+                                                      attr);
+}
+
+AggregateFunctionPtr create_aggregate_function_group_array_union(
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr) {
+    assert_arity_range(name, argument_types, 1, 1);
+    const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
+
+    if (argument_type->get_primitive_type() != TYPE_ARRAY) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Aggregate function groupArrayIntersect accepts only array type argument. "
+                        "Provided argument type: " +
+                                argument_type->get_name());
+    }
+    return create_aggregate_function_group_array_impl(true, {argument_type}, result_is_nullable,
+                                                      attr);
 }
 
 void register_aggregate_function_group_array_intersect(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("group_array_intersect",
                                    create_aggregate_function_group_array_intersect);
+    factory.register_function_both("group_array_union",
+                                   create_aggregate_function_group_array_union);
 }
 } // namespace doris::vectorized
