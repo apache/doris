@@ -604,29 +604,25 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        int n = -1; // means unassigned
-
         auto res = ColumnString::create();
         auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& source_column = assert_cast<const ColumnString&>(*col);
 
-        if (arguments.size() == 2) {
-            const auto& col = *block.get_by_position(arguments[1]).column;
-            // the 2nd arg is const. checked in fe.
-            if (col.get_int(0) < 0) [[unlikely]] {
-                return Status::InvalidArgument(
-                        "function {} only accept non-negative input for 2nd argument but got {}",
-                        name, col.get_int(0));
-            }
-            n = col.get_int(0);
-        }
-
-        if (n == -1) { // no 2nd arg, just mask all
+        if (arguments.size() == 1) { // no 2nd arg, just mask all
             FunctionMask::vector_mask(source_column, *res, FunctionMask::DEFAULT_UPPER_MASK,
                                       FunctionMask::DEFAULT_LOWER_MASK,
                                       FunctionMask::DEFAULT_NUMBER_MASK);
-        } else { // n >= 0
-            vector(source_column, n, *res);
+        } else {
+            const auto& [col_2nd, is_const] =
+                    unpack_if_const(block.get_by_position(arguments[1]).column);
+
+            const auto& col_n = assert_cast<const ColumnInt32&>(*col_2nd);
+
+            if (is_const) {
+                RETURN_IF_ERROR(vector<true>(source_column, col_n, *res));
+            } else {
+                RETURN_IF_ERROR(vector<false>(source_column, col_n, *res));
+            }
         }
 
         block.get_by_position(result).column = std::move(res);
@@ -635,7 +631,8 @@ public:
     }
 
 private:
-    static void vector(const ColumnString& src, int n, ColumnString& result) {
+    template <bool is_const>
+    static Status vector(const ColumnString& src, const ColumnInt32& col_n, ColumnString& result) {
         const auto num_rows = src.size();
         const auto* chars = src.get_chars().data();
         const auto* offsets = src.get_offsets().data();
@@ -646,9 +643,19 @@ private:
                 src.get_offsets().size() * sizeof(ColumnString::Offset));
         auto* res = result.get_chars().data();
 
+        const auto& col_n_data = col_n.get_data();
+
         for (ssize_t i = 0; i != num_rows; ++i) {
             auto offset = offsets[i - 1];
             int len = offsets[i] - offset;
+            const int n = col_n_data[index_check_const<is_const>(i)];
+
+            if (n < 0) [[unlikely]] {
+                return Status::InvalidArgument(
+                        "function {} only accept non-negative input for 2nd argument but got {}",
+                        name, n);
+            }
+
             if constexpr (Reverse) {
                 auto start = std::max(len - n, 0);
                 if (start > 0) {
@@ -666,6 +673,8 @@ private:
                                FunctionMask::DEFAULT_LOWER_MASK, FunctionMask::DEFAULT_NUMBER_MASK,
                                &res[offset]);
         }
+
+        return Status::OK();
     }
 };
 

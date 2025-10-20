@@ -25,7 +25,7 @@ import java.util.Map;
 import java.util.Set;
 
 public class BasicTokenizerValidator extends BasePolicyValidator {
-    private static final Set<String> ALLOWED_PROPS = ImmutableSet.of("type", "mode");
+    private static final Set<String> ALLOWED_PROPS = ImmutableSet.of("type", "extra_chars");
 
     public BasicTokenizerValidator() {
         super(ALLOWED_PROPS);
@@ -38,16 +38,18 @@ public class BasicTokenizerValidator extends BasePolicyValidator {
 
     @Override
     protected void validateSpecific(Map<String, String> props) throws DdlException {
-        if (props.containsKey("mode")) {
-            try {
-                int mode = Integer.parseInt(props.get("mode"));
-                if (mode < 1 || mode > 2) {
-                    throw new DdlException("Invalid mode for basic tokenizer: " + mode
-                            + ". Mode must be 1 (L1: English + numbers + Chinese) "
-                            + "or 2 (L2: L1 + all Unicode characters)");
+        if (props.containsKey("extra_chars")) {
+            String extraChars = props.get("extra_chars");
+            if (extraChars != null && !extraChars.isEmpty()) {
+                for (int i = 0; i < extraChars.length(); i++) {
+                    char c = extraChars.charAt(i);
+                    if (c > 127) {
+                        throw new DdlException("Invalid extra_chars for basic tokenizer: "
+                                + "contains non-ASCII character '"
+                                + c + "' at position " + i
+                                + ". Only ASCII characters (0-127) are allowed.");
+                    }
                 }
-            } catch (NumberFormatException e) {
-                throw new DdlException("mode must be a positive integer (1 or 2)");
             }
         }
     }
