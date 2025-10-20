@@ -1244,6 +1244,12 @@ public class Config extends ConfigBase {
     public static int routine_load_blacklist_expire_time_second = 300;
 
     /**
+     * Minimum batch interval for adaptive routine load tasks when not at EOF.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_adaptive_min_batch_interval_sec = 360;
+
+    /**
      * The max number of files store in SmallFileMgr
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -3632,7 +3638,7 @@ public class Config extends ConfigBase {
     public static long cloud_auto_snapshot_min_interval_seconds = 3600;
 
     @ConfField(mutable = true)
-    public static long multi_part_upload_part_size_in_bytes = 512 * 1024 * 1024L; // 512MB
+    public static long multi_part_upload_part_size_in_bytes = 256 * 1024 * 1024L; // 256MB
     @ConfField(mutable = true)
     public static int multi_part_upload_max_seconds = 3600; // 1 hour
     @ConfField(mutable = true)

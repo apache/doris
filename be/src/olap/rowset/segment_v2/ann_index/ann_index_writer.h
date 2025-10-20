@@ -45,6 +45,8 @@ public:
     static constexpr const char* MAX_DEGREE = "max_degree";
     static constexpr const char* EF_CONSTRUCTION = "ef_construction";
     static constexpr const char* QUANTIZER = "quantizer";
+    static constexpr const char* PQ_M = "pq_m";
+    static constexpr const char* PQ_NBITS = "pq_nbits";
 
     explicit AnnIndexColumnWriter(IndexFileWriter* index_file_writer,
                                   const TabletIndex* index_meta);

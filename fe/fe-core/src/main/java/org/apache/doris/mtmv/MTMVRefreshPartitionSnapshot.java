@@ -166,19 +166,19 @@ public class MTMVRefreshPartitionSnapshot {
             return;
         }
         MTMVRelation relation = mtmv.getRelation();
-        if (relation == null || CollectionUtils.isEmpty(relation.getBaseTablesOneLevel())) {
+        if (relation == null || CollectionUtils.isEmpty(relation.getBaseTablesOneLevelAndFromView())) {
             return;
         }
         for (Entry<Long, MTMVSnapshotIf> entry : tables.entrySet()) {
             Optional<BaseTableInfo> tableInfo = getByTableId(entry.getKey(),
-                    relation.getBaseTablesOneLevel());
+                    relation.getBaseTablesOneLevelAndFromView());
             if (tableInfo.isPresent()) {
                 tablesInfo.put(tableInfo.get(), entry.getValue());
             } else {
                 String msg = String.format(
                         "Failed to get table info based on id during compatibility process, "
                                 + "tableId: %s, relationTables: %s",
-                        entry.getKey(), relation.getBaseTablesOneLevel());
+                        entry.getKey(), relation.getBaseTablesOneLevelAndFromView());
                 LOG.warn(msg);
                 throw new Exception(msg);
             }

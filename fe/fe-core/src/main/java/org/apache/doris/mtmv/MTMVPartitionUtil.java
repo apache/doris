@@ -204,7 +204,7 @@ public class MTMVPartitionUtil {
             return false;
         }
         try {
-            return isMTMVSync(MTMVRefreshContext.buildContext(mtmv), mtmvRelation.getBaseTablesOneLevel(),
+            return isMTMVSync(MTMVRefreshContext.buildContext(mtmv), mtmvRelation.getBaseTablesOneLevelAndFromView(),
                     Sets.newHashSet());
         } catch (AnalysisException e) {
             LOG.warn("isMTMVSync failed: ", e);
@@ -261,7 +261,7 @@ public class MTMVPartitionUtil {
                 .get(partitionName);
         Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
         List<String> res = Lists.newArrayList();
-        for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTablesOneLevel()) {
+        for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTablesOneLevelAndFromView()) {
             TableIf table = MTMVUtil.getTable(baseTableInfo);
             if (!(table instanceof MTMVRelatedTableIf)) {
                 continue;
@@ -640,11 +640,11 @@ public class MTMVPartitionUtil {
     private static Map<Long, Long> getTableVersions(MTMV mtmv) {
         Map<Long, Long> res = Maps.newHashMap();
         MTMVRelation relation = mtmv.getRelation();
-        if (relation == null || relation.getBaseTablesOneLevel() == null) {
+        if (relation == null || relation.getBaseTablesOneLevelAndFromView() == null) {
             return res;
         }
         List<OlapTable> olapTables = Lists.newArrayList();
-        for (BaseTableInfo baseTableInfo : relation.getBaseTablesOneLevel()) {
+        for (BaseTableInfo baseTableInfo : relation.getBaseTablesOneLevelAndFromView()) {
             TableIf table = null;
             try {
                 table = MTMVUtil.getTable(baseTableInfo);

@@ -31,6 +31,7 @@ import org.apache.commons.collections.CollectionUtils;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -185,6 +186,22 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
         this.pctInfos = pctInfos;
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        MTMVPartitionInfo that = (MTMVPartitionInfo) o;
+        return partitionType == that.partitionType && Objects.equals(partitionCol, that.partitionCol)
+                && Objects.equals(expr, that.expr) && Objects.equals(pctInfos, that.pctInfos)
+                && Objects.equals(filteredNonPctTables, that.filteredNonPctTables);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(partitionType, partitionCol, expr, pctInfos, filteredNonPctTables);
+    }
+
     // toString() is not easy to find where to call the method
     public String toInfoString() {
         return "MTMVPartitionInfo{"
@@ -192,6 +209,7 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
                 + ", pctInfos=" + pctInfos
                 + ", filteredNonPctTables='" + filteredNonPctTables + '\''
                 + ", partitionCol='" + partitionCol + '\''
+                + ", expr='" + expr + '\''
                 + '}';
     }
 
@@ -206,6 +224,7 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
                     + ", pctInfos=" + pctInfos
                     + ", filteredNonPctTables='" + filteredNonPctTables + '\''
                     + ", partitionCol='" + partitionCol + '\''
+                    + ", expr='" + expr + '\''
                     + '}';
         }
     }

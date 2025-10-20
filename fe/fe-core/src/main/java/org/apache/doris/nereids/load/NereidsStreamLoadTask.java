@@ -17,12 +17,12 @@
 
 package org.apache.doris.nereids.load;
 
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
@@ -64,7 +64,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     private Expression whereExpr;
     private Separator columnSeparator;
     private Separator lineDelimiter;
-    private PartitionNames partitions;
+    private PartitionNamesInfo partitionNamesInfo;
     private String path;
     private long fileSize = 0;
     private boolean negative;
@@ -188,8 +188,8 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         return loadToSingleTablet;
     }
 
-    public PartitionNames getPartitions() {
-        return partitions;
+    public PartitionNamesInfo getPartitionNamesInfo() {
+        return partitionNamesInfo;
     }
 
     public String getPath() {
@@ -369,7 +369,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         this.mergeType = task.getMergeType();
         this.columnSeparator = task.getColumnSeparator();
         this.whereExpr = task.getWhereExpr() != null ? parseWhereExpr(task.getWhereExpr().toSqlWithoutTbl()) : null;
-        this.partitions = task.getPartitions();
+        this.partitionNamesInfo = task.getPartitionNamesInfo();
         this.deleteCondition = task.getDeleteCondition() != null
                 ? parseWhereExpr(task.getDeleteCondition().toSqlWithoutTbl())
                 : null;
@@ -409,9 +409,9 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
             String[] splitPartNames = request.getPartitions().trim().split(",");
             List<String> partNames = Arrays.stream(splitPartNames).map(String::trim).collect(Collectors.toList());
             if (request.isSetIsTempPartition()) {
-                partitions = new PartitionNames(request.isIsTempPartition(), partNames);
+                partitionNamesInfo = new PartitionNamesInfo(request.isIsTempPartition(), partNames);
             } else {
-                partitions = new PartitionNames(false, partNames);
+                partitionNamesInfo = new PartitionNamesInfo(false, partNames);
             }
         }
         switch (request.getFileType()) {

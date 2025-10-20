@@ -95,7 +95,7 @@ public class MTMVRewriteUtil {
             }
             try {
                 if (MTMVPartitionUtil.isMTMVPartitionSync(refreshContext, partition.getName(),
-                        mtmvRelation.getBaseTablesOneLevel(),
+                        mtmvRelation.getBaseTablesOneLevelAndFromView(),
                         Sets.newHashSet())) {
                     res.add(partition);
                 }
