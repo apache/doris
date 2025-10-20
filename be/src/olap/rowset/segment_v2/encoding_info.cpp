@@ -66,6 +66,30 @@ struct TypeEncodingTraits<type, PLAIN_ENCODING, Slice> {
 };
 
 template <FieldType type, typename CppType>
+struct TypeEncodingTraits<type, PLAIN_ENCODING_V2, CppType> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return PlainPageBuilder<type>::create(builder, opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new PlainPageDecoder<type>(data, opts);
+        return Status::OK();
+    }
+};
+
+template <FieldType type>
+struct TypeEncodingTraits<type, PLAIN_ENCODING_V2, Slice> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return BinaryPlainPageV2Builder<type>::create(builder, opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new BinaryPlainPageV2Decoder<type>(data, opts);
+        return Status::OK();
+    }
+};
+
+template <FieldType type, typename CppType>
 struct TypeEncodingTraits<type, BIT_SHUFFLE, CppType,
                           typename std::enable_if<!std::is_same<CppType, Slice>::value>::type> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
@@ -165,18 +189,6 @@ struct TypeEncodingTraits<type, PREFIX_ENCODING, Slice> {
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
                                       PageDecoder** decoder) {
         *decoder = new BinaryPrefixPageDecoder(data, opts);
-        return Status::OK();
-    }
-};
-
-template <FieldType type>
-struct TypeEncodingTraits<type, PLAIN_ENCODING_V2, Slice> {
-    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        return BinaryPlainPageV2Builder<type>::create(builder, opts);
-    }
-    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
-                                      PageDecoder** decoder) {
-        *decoder = new BinaryPlainPageV2Decoder<type>(data, opts);
         return Status::OK();
     }
 };
