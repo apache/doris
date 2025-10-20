@@ -177,10 +177,10 @@ suite("test_streaming_insert_job_offset") {
     assert jobInfo.get(0).get(3) == "{\"start_offset\":\"{\\\"endFile\\\":\\\"regression/load/data/example_0.csv\\\"}\"}"
 
 
-//    sql """
-//        DROP JOB IF EXISTS where jobname =  '${jobName}'
-//    """
-//
-//    def jobCountRsp = sql """select count(1) from jobs("type"="insert")  where Name ='${jobName}'"""
-//    assert jobCountRsp.get(0).get(0) == 0
+    sql """
+        DROP JOB IF EXISTS where jobname =  '${jobName}'
+    """
+
+    def jobCountRsp = sql """select count(1) from jobs("type"="insert")  where Name ='${jobName}'"""
+    assert jobCountRsp.get(0).get(0) == 0
 }
