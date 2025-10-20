@@ -805,8 +805,9 @@ public class TransactionState implements Writable {
         txnSchemas = null;
         subTxnIds = null;
         subTxnIdToTableCommitInfo = null;
-        errMsg = "";
-        errorLogUrl = "";
+        errMsg = "\\";
+        errorLogUrl = "\\";
+        reason = "\\";
     }
 
     public void setSchemaForPartialUpdate(OlapTable olapTable) {
