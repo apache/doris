@@ -95,7 +95,7 @@ suite("test_file_cache_statistics", "external_docker,hive,external_docker_hive,p
             fileCacheBackgroundMonitorIntervalMsResult[0][3].trim().isEmpty(), "file_cache_background_monitor_interval_ms is empty or not set to true")
 
     // brpc metrics will be updated at most 5 seconds
-    def totalWaitTime = (fileCacheBackgroundMonitorIntervalMsResult[0][3].toInteger() / 1000) as int
+    def totalWaitTime = (fileCacheBackgroundMonitorIntervalMsResult[0][3].toInteger() * 2 / 1000) as int
     def interval = 1
     def iterations = totalWaitTime / interval
 
