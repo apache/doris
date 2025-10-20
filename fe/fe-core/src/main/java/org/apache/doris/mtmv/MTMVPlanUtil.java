@@ -555,7 +555,7 @@ public class MTMVPlanUtil {
         if (!originalMvPartitionInfo.getPartitionType().equals(analyzedMvPartitionInfo.getPartitionType())) {
             return false;
         }
-        if (originalMvPartitionInfo.getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
+        if (originalMvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return true;
         }
         // because old version only support one pct table, so can not use equal
