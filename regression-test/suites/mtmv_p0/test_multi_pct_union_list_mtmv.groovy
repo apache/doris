@@ -85,9 +85,9 @@ suite("test_multi_pct_union_list_mtmv","mtmv") {
 
     def showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-    assertTrue(showPartitionsResult.toString().contains("p_20170101_20170201"))
-    assertTrue(showPartitionsResult.toString().contains("p_20170201_20170301"))
-    assertTrue(showPartitionsResult.toString().contains("p_20170301_20170401"))
+    assertTrue(showPartitionsResult.toString().contains("p_1"))
+    assertTrue(showPartitionsResult.toString().contains("p_2"))
+    assertTrue(showPartitionsResult.toString().contains("p_3"))
 
      sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
