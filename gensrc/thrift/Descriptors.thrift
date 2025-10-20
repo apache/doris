@@ -160,7 +160,7 @@ enum TSchemaTableType {
     SCH_CLUSTER_SNAPSHOT_PROPERTIES = 61;
     SCH_BLACKHOLE = 62;
     SCH_COLUMN_DATA_SIZES = 63;
-    SCH_FRONTENDS = 59;
+    SCH_FRONTENDS = 64;
 }
 
 enum THdfsCompression {
