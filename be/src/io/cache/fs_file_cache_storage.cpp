@@ -260,22 +260,23 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     return Status::OK();
 }
 
-Status FSFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const FileCacheType type) {
+Status FSFileCacheStorage::change_key_meta_type(const FileCacheKey& key, const FileCacheType type,
+                                                const size_t size) {
     // file operation
     if (key.meta.type != type) {
         BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
-        BlockMeta meta(type, 0); // TODO(zhengyu):size into meta
+        BlockMeta meta(type, size, key.meta.expiration_time);
         _meta_store->put(mkey, meta);
     }
     return Status::OK();
 }
 
 Status FSFileCacheStorage::change_key_meta_expiration(const FileCacheKey& key,
-                                                      const uint64_t expiration) {
-    // directory operation
+                                                      const uint64_t expiration,
+                                                      const size_t size) {
     if (key.meta.expiration_time != expiration) {
         BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
-        BlockMeta meta(key.meta.type, 0, expiration); // TODO(zhengyu): size int meta
+        BlockMeta meta(key.meta.type, size, expiration);
         _meta_store->put(mkey, meta);
     }
     return Status::OK();
@@ -422,6 +423,7 @@ Status FSFileCacheStorage::collect_directory_entries(const std::filesystem::path
 }
 
 Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
+    return Status::OK(); // version 3 don't need upgrade
     /*
      * If use version2 but was version 1, do upgrade:
      *
@@ -952,20 +954,24 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
 
 void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, const FileCacheKey& key,
                                                        std::lock_guard<std::mutex>& cache_lock) {
+<<<<<<< HEAD
     // async load, can't find key, need to check exist.
     auto key_path = get_path_in_local_cache_v2(key.hash,
                                                key.meta.expiration_time); //TODO(zhengyu): need v3?
     bool exists = false;
     if (auto st = fs->exists(key_path, &exists); !exists && st.ok()) {
+=======
+    BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
+    auto block_meta = _meta_store->get(mkey);
+    if (!block_meta.has_value()) {
+>>>>>>> a4779a691e (cache lazy load)
         // cache miss
-        return;
-    } else if (!st.ok()) [[unlikely]] {
-        LOG_WARNING("failed to exists file {}", key_path).error(st);
         return;
     }
 
     CacheContext context_original;
     context_original.query_id = TUniqueId();
+<<<<<<< HEAD
     context_original.expiration_time = key.meta.expiration_time;
     std::error_code ec;
     std::filesystem::directory_iterator check_it(key_path, ec);
@@ -997,6 +1003,15 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
                               FileBlock::State::DOWNLOADED, cache_lock);
             }
         }
+=======
+    context_original.expiration_time = block_meta->ttl;
+    context_original.cache_type = block_meta->type;
+    context_original.tablet_id = key.meta.tablet_id;
+
+    if (!mgr->_files.contains(key.hash) || !mgr->_files[key.hash].contains(offset)) {
+        mgr->add_cell(key.hash, context_original, key.offset, block_meta->size,
+                      FileBlock::State::DOWNLOADED, cache_lock);
+>>>>>>> a4779a691e (cache lazy load)
     }
 }
 

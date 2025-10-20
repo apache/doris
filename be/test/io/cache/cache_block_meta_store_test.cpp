@@ -21,6 +21,7 @@
 
 #include <atomic>
 #include <filesystem>
+#include <optional>
 #include <random>
 #include <thread>
 #include <vector>
@@ -64,18 +65,17 @@ TEST_F(CacheBlockMetaStoreTest, BasicPutAndGet) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // Test get operation
-    BlockMeta result = meta_store_->get(key1);
-    EXPECT_EQ(result.type, meta1.type);
-    EXPECT_EQ(result.size, meta1.size);
-    EXPECT_EQ(result.ttl, meta1.ttl);
+    auto result = meta_store_->get(key1);
+    EXPECT_TRUE(result.has_value());
+    EXPECT_EQ(result->type, meta1.type);
+    EXPECT_EQ(result->size, meta1.size);
+    EXPECT_EQ(result->ttl, meta1.ttl);
 
     // Test non-existent key
     uint128_t hash2 = (static_cast<uint128_t>(999) << 64) | 999;
     BlockMetaKey non_existent_key(999, UInt128Wrapper(hash2), 999);
-    BlockMeta non_existent_result = meta_store_->get(non_existent_key);
-    EXPECT_EQ(non_existent_result.type, 0);
-    EXPECT_EQ(non_existent_result.size, 0);
-    EXPECT_EQ(non_existent_result.ttl, 0);
+    auto non_existent_result = meta_store_->get(non_existent_key);
+    EXPECT_FALSE(non_existent_result.has_value());
 }
 
 TEST_F(CacheBlockMetaStoreTest, MultiplePutsAndGets) {
@@ -96,10 +96,11 @@ TEST_F(CacheBlockMetaStoreTest, MultiplePutsAndGets) {
 
     // Verify all keys
     for (int i = 0; i < num_keys; ++i) {
-        BlockMeta result = meta_store_->get(keys[i]);
-        EXPECT_EQ(result.type, metas[i].type);
-        EXPECT_EQ(result.size, metas[i].size);
-        EXPECT_EQ(result.ttl, metas[i].ttl);
+        auto result = meta_store_->get(keys[i]);
+        EXPECT_TRUE(result.has_value());
+        EXPECT_EQ(result->type, metas[i].type);
+        EXPECT_EQ(result->size, metas[i].size);
+        EXPECT_EQ(result->ttl, metas[i].ttl);
     }
 }
 
@@ -156,17 +157,17 @@ TEST_F(CacheBlockMetaStoreTest, DeleteOperation) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // Verify put worked
-    BlockMeta result = meta_store_->get(key1);
-    EXPECT_EQ(result.type, meta1.type);
+    auto result = meta_store_->get(key1);
+    EXPECT_TRUE(result.has_value());
+    EXPECT_EQ(result->type, meta1.type);
 
     // Delete the key
     meta_store_->delete_key(key1);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // Verify deletion
-    BlockMeta deleted_result = meta_store_->get(key1);
-    EXPECT_EQ(deleted_result.type, 0);
-    EXPECT_EQ(deleted_result.size, 0);
+    auto deleted_result = meta_store_->get(key1);
+    EXPECT_FALSE(deleted_result.has_value());
 }
 
 TEST_F(CacheBlockMetaStoreTest, SerializationDeserialization) {
@@ -178,17 +179,17 @@ TEST_F(CacheBlockMetaStoreTest, SerializationDeserialization) {
     meta_store_->put(original_key, original_meta);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    BlockMeta retrieved = meta_store_->get(original_key);
-    EXPECT_EQ(retrieved.type, original_meta.type);
-    EXPECT_EQ(retrieved.size, original_meta.size);
-    EXPECT_EQ(retrieved.ttl, original_meta.ttl);
+    auto retrieved = meta_store_->get(original_key);
+    EXPECT_TRUE(retrieved.has_value());
+    EXPECT_EQ(retrieved->type, original_meta.type);
+    EXPECT_EQ(retrieved->size, original_meta.size);
+    EXPECT_EQ(retrieved->ttl, original_meta.ttl);
 
     // Test non-existent key
     uint128_t hash4 = (static_cast<uint128_t>(999999) << 64) | 888888;
     BlockMetaKey non_existent_key(999, UInt128Wrapper(hash4), 2048);
-    BlockMeta non_existent_result = meta_store_->get(non_existent_key);
-    EXPECT_EQ(non_existent_result.type, 0);
-    EXPECT_EQ(non_existent_result.size, 0);
+    auto non_existent_result = meta_store_->get(non_existent_key);
+    EXPECT_FALSE(non_existent_result.has_value());
 }
 
 TEST_F(CacheBlockMetaStoreTest, ConcurrencyTest) {
@@ -242,8 +243,8 @@ TEST_F(CacheBlockMetaStoreTest, ConcurrencyTest) {
     // Verify we can retrieve the data after all writes are complete
     int successful_gets = 0;
     for (const auto& key : all_keys) {
-        BlockMeta result = meta_store_->get(key);
-        if (result.size > 0) {
+        auto result = meta_store_->get(key);
+        if (result.has_value() && result->size > 0) {
             successful_gets++;
         }
     }
@@ -255,9 +256,11 @@ TEST_F(CacheBlockMetaStoreTest, ConcurrencyTest) {
         for (int i = 0; i < 5; ++i) { // Check a few samples
             uint128_t hash = (static_cast<uint128_t>(100 + i) << 64) | (200 + i);
             BlockMetaKey key(thread_id + 1, UInt128Wrapper(hash), i * 1024);
-            BlockMeta result = meta_store_->get(key);
-            EXPECT_GE(result.size, 0);
-            EXPECT_GE(result.ttl, 0);
+            auto result = meta_store_->get(key);
+            if (result.has_value()) {
+                EXPECT_GE(result->size, 0);
+                EXPECT_GE(result->ttl, 0);
+            }
         }
     }
 }
@@ -357,10 +360,11 @@ TEST_F(CacheBlockMetaStoreTest, ClearAllRecords) {
 
     // Verify all records are present
     for (int i = 0; i < num_records; ++i) {
-        BlockMeta result = meta_store_->get(keys[i]);
-        EXPECT_EQ(result.type, i % 3);
-        EXPECT_EQ(result.size, 2048 * (i + 1));
-        EXPECT_EQ(result.ttl, 3600 + i * 100);
+        auto result = meta_store_->get(keys[i]);
+        EXPECT_TRUE(result.has_value());
+        EXPECT_EQ(result->type, i % 3);
+        EXPECT_EQ(result->size, 2048 * (i + 1));
+        EXPECT_EQ(result->ttl, 3600 + i * 100);
     }
 
     // Clear all records
@@ -371,9 +375,8 @@ TEST_F(CacheBlockMetaStoreTest, ClearAllRecords) {
 
     // Verify all records are gone
     for (int i = 0; i < num_records; ++i) {
-        BlockMeta result = meta_store_->get(keys[i]);
-        EXPECT_EQ(result.type, 0);
-        EXPECT_EQ(result.size, 0);
+        auto result = meta_store_->get(keys[i]);
+        EXPECT_FALSE(result.has_value());
     }
 
     // Verify range query returns no results
@@ -398,9 +401,8 @@ TEST_F(CacheBlockMetaStoreTest, ClearWithPendingAsyncOperations) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // Verify the record was not written (cleared from queue)
-    BlockMeta result = meta_store_->get(key1);
-    EXPECT_EQ(result.type, 0);
-    EXPECT_EQ(result.size, 0);
+    auto result = meta_store_->get(key1);
+    EXPECT_FALSE(result.has_value());
 }
 
 TEST_F(CacheBlockMetaStoreTest, ClearAndThenAddNewRecords) {
@@ -429,16 +431,15 @@ TEST_F(CacheBlockMetaStoreTest, ClearAndThenAddNewRecords) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // Verify old record is gone
-    BlockMeta result1 = meta_store_->get(key1);
-    EXPECT_EQ(result1.type, 0);
-    EXPECT_EQ(result1.size, 0);
-    EXPECT_EQ(result1.ttl, 0);
+    auto result1 = meta_store_->get(key1);
+    EXPECT_FALSE(result1.has_value());
 
     // Verify new record is present
-    BlockMeta result2 = meta_store_->get(key2);
-    EXPECT_EQ(result2.type, 2);
-    EXPECT_EQ(result2.size, 2048);
-    EXPECT_EQ(result2.ttl, 7200);
+    auto result2 = meta_store_->get(key2);
+    EXPECT_TRUE(result2.has_value());
+    EXPECT_EQ(result2->type, 2);
+    EXPECT_EQ(result2->size, 2048);
+    EXPECT_EQ(result2->ttl, 7200);
 }
 
 TEST_F(CacheBlockMetaStoreTest, ClearMultipleTimes) {
@@ -462,10 +463,8 @@ TEST_F(CacheBlockMetaStoreTest, ClearMultipleTimes) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // Verify record is gone
-    BlockMeta result = meta_store_->get(key);
-    EXPECT_EQ(result.type, 0);
-    EXPECT_EQ(result.size, 0);
-    EXPECT_EQ(result.ttl, 0);
+    auto result = meta_store_->get(key);
+    EXPECT_FALSE(result.has_value());
 }
 
 TEST_F(CacheBlockMetaStoreTest, ClearEmptyStore) {
@@ -480,9 +479,8 @@ TEST_F(CacheBlockMetaStoreTest, ClearEmptyStore) {
     // Verify store is still functional
     uint128_t hash = (static_cast<uint128_t>(123) << 64) | 456;
     BlockMetaKey key(1, UInt128Wrapper(hash), 0);
-    BlockMeta result = meta_store_->get(key);
-    EXPECT_EQ(result.type, 0);
-    EXPECT_EQ(result.size, 0);
+    auto result = meta_store_->get(key);
+    EXPECT_FALSE(result.has_value());
 }
 
 TEST_F(CacheBlockMetaStoreTest, GetAllRecords) {

@@ -88,7 +88,7 @@ public:
     void put(const BlockMetaKey& key, const BlockMeta& meta);
 
     // Synchronously get BlockMeta
-    BlockMeta get(const BlockMetaKey& key);
+    std::optional<BlockMeta> get(const BlockMetaKey& key);
 
     // Range query all BlockMeta for specified tablet_id
     std::unique_ptr<BlockMetaIterator> range_get(int64_t tablet_id);
