@@ -18,6 +18,8 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.common.AnalysisException;
@@ -25,7 +27,9 @@ import org.apache.doris.common.util.RangeUtils;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.hadoop.util.Lists;
+import org.glassfish.jersey.internal.guava.Sets;
 
 import java.util.HashMap;
 import java.util.List;
@@ -61,6 +65,37 @@ public class MTMVRelatedPartitionDescTransferGenerator implements MTMVRelatedPar
     }
 
     public void checkIntersect(Set<PartitionKeyDesc> partitionKeyDescs, List<Column> partitionColumns)
+            throws AnalysisException {
+        if (CollectionUtils.isEmpty(partitionKeyDescs)) {
+            return;
+        }
+        if (partitionKeyDescs.iterator().next().getPartitionType().equals(PartitionKeyValueType.IN)) {
+            checkIntersectForList(partitionKeyDescs, partitionColumns);
+        } else {
+            checkIntersectForRange(partitionKeyDescs, partitionColumns);
+        }
+    }
+
+    public void checkIntersectForList(Set<PartitionKeyDesc> partitionKeyDescs, List<Column> partitionColumns)
+            throws AnalysisException {
+        Set<PartitionValue> allPartitionValues = Sets.newHashSet();
+        for (PartitionKeyDesc partitionKeyDesc : partitionKeyDescs) {
+            if (!partitionKeyDesc.hasInValues()) {
+                throw new AnalysisException("must have in values");
+            }
+            for (List<PartitionValue> values : partitionKeyDesc.getInValues()) {
+                for (PartitionValue partitionValue : values) {
+                    if (allPartitionValues.contains(partitionValue)) {
+                        throw new AnalysisException("PartitionValue is repeat: " + partitionValue.getStringValue());
+                    } else {
+                        allPartitionValues.add(partitionValue);
+                    }
+                }
+            }
+        }
+    }
+
+    public void checkIntersectForRange(Set<PartitionKeyDesc> partitionKeyDescs, List<Column> partitionColumns)
             throws AnalysisException {
         List<Range<PartitionKey>> sortedRanges = Lists.newArrayListWithCapacity(partitionKeyDescs.size());
         for (PartitionKeyDesc partitionKeyDesc : partitionKeyDescs) {

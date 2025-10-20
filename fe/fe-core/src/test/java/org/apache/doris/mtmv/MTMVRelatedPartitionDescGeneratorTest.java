@@ -76,6 +76,28 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
                 + "PARTITION BY RANGE(c1) (PARTITION p20500204 VALUES [('2050-02-04'), ('2050-02-05')),"
                 + "PARTITION p20500203 VALUES [('2050-02-03'), ('2050-02-04'))) distributed by hash(c1) "
                 + "buckets 1 properties('replication_num' = '1');");
+
+        createTable("CREATE TABLE `t5` (`c1` int, `c2` VARCHAR(100))\n"
+                + "ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`c1`)\n"
+                + "PARTITION BY List(c1,c2) (PARTITION p1_bj VALUES IN (('1','bj')),"
+                + "PARTITION p2_bj VALUES IN (('2','bj')),"
+                + "PARTITION p1_sh VALUES IN (('1','sh'))) distributed by hash(c1) "
+                + "buckets 1 properties('replication_num' = '1');");
+
+        createTable("CREATE TABLE `t6` (`c1` int, `c2` VARCHAR(100))\n"
+                + "ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`c1`)\n"
+                + "PARTITION BY List(c1) (PARTITION p1 VALUES IN (('1')),"
+                + "PARTITION p2 VALUES IN (('2'))) distributed by hash(c1) "
+                + "buckets 1 properties('replication_num' = '1');");
+
+        createTable("CREATE TABLE `t7` (`c1` int, `c2` VARCHAR(100))\n"
+                + "ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`c1`)\n"
+                + "PARTITION BY List(c1) (PARTITION p1_3 VALUES IN (('1'),('3')),"
+                + "PARTITION p2 VALUES IN (('2'))) distributed by hash(c1) "
+                + "buckets 1 properties('replication_num' = '1');");
     }
 
     @Test
@@ -172,6 +194,15 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
     }
 
     @Test
+    public void testIntersectList() throws Exception {
+        MTMVPartitionInfo mtmvPartitionInfo = getMTMVPartitionInfo(Lists.newArrayList("t6", "t7"));
+        Column c1Column = new Column("c1", PrimitiveType.DATE);
+        Assertions.assertThrows(AnalysisException.class,
+                () -> MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
+                        Lists.newArrayList(c1Column)));
+    }
+
+    @Test
     public void testMultiPctTables() throws Exception {
         MTMVPartitionInfo mtmvPartitionInfo = getMTMVPartitionInfo(Lists.newArrayList("t1", "t4"));
         Column c1Column = new Column("c1", PrimitiveType.DATE);
@@ -193,6 +224,55 @@ public class MTMVRelatedPartitionDescGeneratorTest extends TestWithFeService {
         }
         Assertions.assertTrue(hasOne);
         Assertions.assertTrue(hasTwo);
+    }
+
+    @Test
+    public void testMultiList() throws Exception {
+        MTMVPartitionInfo mtmvPartitionInfo = getMTMVPartitionInfo(Lists.newArrayList("t2", "t5"));
+        Column c1Column = new Column("c1", PrimitiveType.INT);
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
+                = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
+                Lists.newArrayList(c1Column));
+        // 2 partition
+        Assertions.assertEquals(2, partitionKeyDescMap.size());
+        OlapTable t2 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
+                .getTableOrAnalysisException("t2");
+        for (Map<MTMVRelatedTableIf, Set<String>> onePartitionMap : partitionKeyDescMap.values()) {
+            // key is t1
+            // value like p20210201
+            Assertions.assertEquals(2, onePartitionMap.size());
+            int partitionNum = onePartitionMap.get(t2).size();
+            Assertions.assertTrue(partitionNum == 1 || partitionNum == 2);
+        }
+    }
+
+    @Test
+    public void testMultiListComplex() throws Exception {
+        MTMVPartitionInfo mtmvPartitionInfo = getMTMVPartitionInfo(Lists.newArrayList("t2", "t6"));
+        Column c1Column = new Column("c1", PrimitiveType.DATE);
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> partitionKeyDescMap
+                = MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
+                Lists.newArrayList(c1Column));
+        // 2 partition
+        Assertions.assertEquals(2, partitionKeyDescMap.size());
+        OlapTable t6 = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test")
+                .getTableOrAnalysisException("t6");
+        for (Map<MTMVRelatedTableIf, Set<String>> onePartitionMap : partitionKeyDescMap.values()) {
+            // key is t1
+            // value like p20210201
+            Assertions.assertEquals(2, onePartitionMap.size());
+            int partitionNum = onePartitionMap.get(t6).size();
+            Assertions.assertTrue(partitionNum == 1);
+        }
+    }
+
+    @Test
+    public void testBothListAndRange() throws Exception {
+        MTMVPartitionInfo mtmvPartitionInfo = getMTMVPartitionInfo(Lists.newArrayList("t1", "t2"));
+        Column c1Column = new Column("c1", PrimitiveType.DATE);
+        Assertions.assertThrows(AnalysisException.class,
+                () -> MTMVPartitionUtil.generateRelatedPartitionDescs(mtmvPartitionInfo, Maps.newHashMap(),
+                        Lists.newArrayList(c1Column)));
     }
 
     private MTMVPartitionInfo getMTMVPartitionInfo(List<String> pctTableNames) throws AnalysisException {

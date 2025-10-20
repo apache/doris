@@ -49,9 +49,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -114,14 +116,15 @@ public class MTMVPartitionDefinition {
                     + " the fail reason is %s", relatedTableInfo.getFailReason()));
         }
         List<RelatedTableColumnInfo> tableColumnInfos = relatedTableInfo.getTableColumnInfos();
-        List<BaseColInfo> pctInfos = Lists.newArrayList();
-        List<BaseColInfo> filteredNonPctTables = Lists.newArrayList();
+        // may be repeat, so use set
+        Set<BaseColInfo> pctInfosSet = Sets.newHashSet();
+        Set<BaseColInfo> filteredNonPctTablesSet = Sets.newHashSet();
         for (RelatedTableColumnInfo tableColumnInfo : tableColumnInfos) {
             String columnStr = tableColumnInfo.getColumnStr();
             BaseTableInfo tableInfo = tableColumnInfo.getTableInfo();
             BaseColInfo baseColInfo = new BaseColInfo(columnStr, tableInfo);
             if (tableColumnInfo.isFromTablePartitionColumn()) {
-                pctInfos.add(baseColInfo);
+                pctInfosSet.add(baseColInfo);
                 Optional<Expression> partitionExpression = tableColumnInfo.getPartitionExpression();
                 if (partitionExpression.isPresent() && partitionExpression.get().getExpressionName()
                         .equalsIgnoreCase(PARTITION_BY_FUNCTION_NAME)) {
@@ -132,21 +135,25 @@ public class MTMVPartitionDefinition {
                     this.partitionType = MTMVPartitionType.EXPR;
                 }
             } else {
-                filteredNonPctTables.add(baseColInfo);
+                filteredNonPctTablesSet.add(baseColInfo);
             }
         }
-
-        if (pctInfos.isEmpty()) {
+        if (pctInfosSet.isEmpty()) {
             throw new AnalysisException(
-                    "Unable to find a suitable base table for partitioning,the fail reason is pctInfos.size() is 0");
+                    "Unable to find a suitable base table for partitioning,the fail reason is pctInfosSet.size() is 0");
         }
-
-        if (pctInfos.size() > 1) {
-            for (BaseColInfo baseColInfo : pctInfos) {
-                MTMVRelatedTableIf relatedTable = MTMVUtil.getRelatedTable(baseColInfo.getTableInfo());
-                PartitionType partitionType = relatedTable.getPartitionType(
-                        MvccUtil.getSnapshotFromContext(relatedTable));
-                if (!partitionType.equals(PartitionType.RANGE)) {
+        List<BaseColInfo> pctInfos = Lists.newArrayList(pctInfosSet);
+        List<BaseColInfo> filteredNonPctTables = Lists.newArrayList(filteredNonPctTablesSet);
+        MTMVRelatedTableIf relatedTable = MTMVUtil.getRelatedTable(pctInfos.get(0).getTableInfo());
+        PartitionType relatedTablePartitionType = relatedTable.getPartitionType(
+                MvccUtil.getSnapshotFromContext(relatedTable));
+        if (pctInfosSet.size() > 1) {
+            // check all partition type of pct table is same
+            for (BaseColInfo baseColInfo : pctInfosSet) {
+                MTMVRelatedTableIf pctTable = MTMVUtil.getRelatedTable(baseColInfo.getTableInfo());
+                PartitionType partitionType = pctTable.getPartitionType(
+                        MvccUtil.getSnapshotFromContext(pctTable));
+                if (!partitionType.equals(relatedTablePartitionType)) {
                     throw new AnalysisException(String.format(
                             "multi pctTables must is range partition, but partitionType of %s is %s",
                             baseColInfo.getTableInfo(), partitionType));
