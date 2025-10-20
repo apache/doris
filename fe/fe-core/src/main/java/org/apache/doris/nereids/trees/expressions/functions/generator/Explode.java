@@ -87,7 +87,12 @@ public class Explode extends TableGeneratingFunction implements CustomSignature,
                 SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             }
         }
-        return FunctionSignature.of(new StructType(structFields.build()), arguments);
+
+        StructType structType = new StructType(structFields.build());
+        if (arguments.size() == 1) {
+            return FunctionSignature.of(structType.getFields().get(0).getDataType(), arguments);
+        }
+        return FunctionSignature.of(structType, arguments);
     }
 
     @Override

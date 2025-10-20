@@ -67,6 +67,7 @@ struct ReadStatistics {
     int64_t bytes_read = 0;
     int64_t bytes_write_into_file_cache = 0;
     int64_t remote_read_timer = 0;
+    int64_t remote_wait_timer = 0; // wait for other downloader
     int64_t local_read_timer = 0;
     int64_t local_write_timer = 0;
     int64_t read_cache_file_directly_timer = 0;

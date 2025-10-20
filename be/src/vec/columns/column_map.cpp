@@ -544,7 +544,7 @@ Status ColumnMap::deduplicate_keys(bool recursive) {
             serialized_keys[i].size = 0;
         }
 
-        keys_column->serialize_vec(serialized_keys.data(), inner_rows);
+        keys_column->serialize(serialized_keys.data(), inner_rows);
     }
 
     auto new_offsets = COffsets::create();
@@ -716,7 +716,7 @@ void ColumnMap::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
     sorter->sort_column(static_cast<const ColumnMap&>(*this), flags, perms, range, last_column);
 }
 
-void ColumnMap::serialize_vec(StringRef* keys, size_t num_rows) const {
+void ColumnMap::serialize(StringRef* keys, size_t num_rows) const {
     for (size_t i = 0; i < num_rows; ++i) {
         // Used in hash_map_context.h, this address is allocated via Arena,
         // but passed through StringRef, so using const_cast is acceptable.
@@ -724,7 +724,7 @@ void ColumnMap::serialize_vec(StringRef* keys, size_t num_rows) const {
     }
 }
 
-void ColumnMap::deserialize_vec(StringRef* keys, const size_t num_rows) {
+void ColumnMap::deserialize(StringRef* keys, const size_t num_rows) {
     for (size_t i = 0; i != num_rows; ++i) {
         auto sz = deserialize_impl(keys[i].data);
         keys[i].data += sz;

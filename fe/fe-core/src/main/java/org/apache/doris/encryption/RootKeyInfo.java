@@ -34,7 +34,7 @@ public class RootKeyInfo {
             if (AWS_KMS.name.equalsIgnoreCase(name)) {
                 return AWS_KMS;
             }
-            throw new IllegalArgumentException("invalid name" + name);
+            throw new IllegalArgumentException("invalid name: " + name);
         }
 
         RootKeyType(String name) {
