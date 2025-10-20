@@ -35,7 +35,7 @@ suite("test_multi_pct_list_mtmv","mtmv") {
             k1 INT not null,
             k2 INT not null
         )
-        PARTITION BY RANGE(`k1`)
+        PARTITION BY LIST(`k1`)
         (
             PARTITION `p1` VALUES IN ("1"),
             PARTITION `p2` VALUES IN ("2")
@@ -56,7 +56,7 @@ suite("test_multi_pct_list_mtmv","mtmv") {
             k1 INT not null,
             k2 INT not null
         )
-        PARTITION BY RANGE(`k1`)
+        PARTITION BY LIST(`k1`)
         (
             PARTITION `p2` VALUES IN ("2"),
             PARTITION `p3` VALUES IN ("3")
