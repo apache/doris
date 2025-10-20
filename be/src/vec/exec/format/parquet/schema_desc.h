@@ -69,6 +69,7 @@ struct FieldSchema {
 
     int32_t field_id = -1;
     uint64_t column_id = UNASSIGNED_COLUMN_ID;
+    uint64_t max_column_id = 0; // Maximum column ID for this field and its children
 
     // Column ID assignment and lookup methods
     void assign_ids(uint64_t& next_id);
@@ -76,6 +77,7 @@ struct FieldSchema {
     uint64_t get_column_id() const;
     void set_column_id(uint64_t id);
     void collect_column_ids(std::vector<uint64_t>& ids) const;
+    uint64_t get_max_column_id() const;
 };
 
 class FieldDescriptor {
@@ -157,17 +159,17 @@ public:
     const FieldSchema* find_column_by_id(uint64_t column_id) const;
 
     // Legacy columnId related methods (int32_t based)
-    int32_t get_max_column_id() const;
-    const FieldSchema* find_field_by_column_id(int32_t column_id) const;
-    void traverse_fields(std::function<void(const FieldSchema&)> visitor) const;
+    // int32_t get_max_column_id() const;
+    // const FieldSchema* find_field_by_column_id(int32_t column_id) const;
+    // void traverse_fields(std::function<void(const FieldSchema&)> visitor) const;
 
 private:
     // Helper methods for columnId operations
-    const FieldSchema* find_field_by_column_id_recursive(const FieldSchema& field,
-                                                         int32_t column_id) const;
-    void traverse_fields_recursive(const FieldSchema& field,
-                                   std::function<void(const FieldSchema&)> visitor) const;
-    int32_t get_max_column_id_recursive(const FieldSchema& field, int32_t current_max) const;
+    // const FieldSchema* find_field_by_column_id_recursive(const FieldSchema& field,
+    //                                                      int32_t column_id) const;
+    // void traverse_fields_recursive(const FieldSchema& field,
+    //                                std::function<void(const FieldSchema&)> visitor) const;
+    // int32_t get_max_column_id_recursive(const FieldSchema& field, int32_t current_max) const;
 };
 #include "common/compile_check_end.h"
 

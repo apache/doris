@@ -27,6 +27,52 @@ enum TPatternType {
   MATCH_NAME_GLOB = 2
 }
 
+enum TAccessPathType {
+  NAME = 1,
+  // ICEBERG = 2 // implement in the future
+}
+
+struct TColumnNameAccessPath {
+   // the specification of special path:
+   //   <empty>: access the whole complex column
+   //   *:
+   //     1. access every items when the type is array
+   //     2. access key and value when the type is map
+   //   KEYS: only access the keys of map
+   //   VALUES: only access the keys of map
+   //
+   // example:
+   //  s: struct<
+   //    data: array<
+   //      map<
+   //        int,
+   //        struct<
+   //          a: id
+   //          b: double
+   //        >
+   //      >
+   //    >
+   //  >
+   // if we want to access `map_keys(s.data[0])`, the path will be: ['s', 'data', '*', 'KEYS'],
+   // if we want to access `map_values(s.data[0])[0].b`, the path will be: ['s', 'data', '*', 'VALUES', 'b'],
+   // if we want to access `s.data[0]['k'].b`, the path will be ['s', 'data', '*', '*', 'b']
+   // if we want to access the whole struct of s, the path will be: ['s'],
+   1: required list<string> path
+}
+
+/*
+// implement in the future
+struct TIcebergColumnAccessPath {
+   1: required list<i64> path
+}
+*/
+
+struct TColumnAccessPaths {
+  1: required TAccessPathType type
+  2: optional list<TColumnNameAccessPath> name_access_paths
+  // 3: optional list<TIcebergColumnAccessPath> iceberg_column_access_paths // implement in the future
+}
+
 struct TColumn {
     1: required string column_name
     2: required Types.TColumnType column_type
@@ -79,52 +125,6 @@ struct TSlotDescriptor {
   18: optional Exprs.TExpr virtual_column_expr
   19: optional TColumnAccessPaths all_access_paths
   20: optional TColumnAccessPaths predicate_access_paths
-}
-
-enum TAccessPathType {
-  NAME = 1,
-  // ICEBERG = 2 // implement in the future
-}
-
-struct TColumnNameAccessPath {
-   // the specification of special path:
-   //   <empty>: access the whole complex column
-   //   *:
-   //     1. access every items when the type is array
-   //     2. access key and value when the type is map
-   //   KEYS: only access the keys of map
-   //   VALUES: only access the keys of map
-   //
-   // example:
-   //  s: struct<
-   //    data: array<
-   //      map<
-   //        int,
-   //        struct<
-   //          a: id
-   //          b: double
-   //        >
-   //      >
-   //    >
-   //  >
-   // if we want to access `map_keys(s.data[0])`, the path will be: ['s', 'data', '*', 'KEYS'],
-   // if we want to access `map_values(s.data[0])[0].b`, the path will be: ['s', 'data', '*', 'VALUES', 'b'],
-   // if we want to access `s.data[0]['k'].b`, the path will be ['s', 'data', '*', '*', 'b']
-   // if we want to access the whole struct of s, the path will be: ['s'],
-   1: required list<string> path
-}
-
-/*
-// implement in the future
-struct TIcebergColumnAccessPath {
-   1: required list<i64> path
-}
-*/
-
-struct TColumnAccessPaths {
-  1: required TAccessPathType type
-  2: optional list<TColumnNameAccessPath> name_access_paths
-  // 3: optional list<TIcebergColumnAccessPath> iceberg_column_access_paths // implement in the future
 }
 
 struct TTupleDescriptor {

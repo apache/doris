@@ -100,7 +100,7 @@ Status handle_match_pred(RuntimeState* state, const TabletSchemaSPtr& tablet_sch
     auto* right_literal = static_cast<vectorized::VLiteral*>(expr->children()[1].get());
     DCHECK(right_literal != nullptr);
 
-    const auto* sd = state->desc_tbl().get_slot_descriptor(left_slot_ref->slot_id());
+    auto* sd = state->desc_tbl().get_slot_descriptor(left_slot_ref->slot_id());
     if (sd == nullptr) {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "Index statistics collection failed: Cannot find slot descriptor for slot_id={}",

@@ -99,7 +99,6 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
           _column_ids(column_ids),
           _filter_column_ids(filter_column_ids) {}
 
-
 RowGroupReader::~RowGroupReader() {
     _column_readers.clear();
     _obj_pool->clear();
@@ -135,10 +134,9 @@ Status RowGroupReader::init(
         const tparquet::OffsetIndex* offset_index =
                 col_offsets.find(physical_index) != col_offsets.end() ? &col_offsets[physical_index]
                                                                       : nullptr;
-        RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
-                                                    _read_ranges, _ctz, _io_ctx, reader,
-                                                    max_buf_size, offset_index, _column_ids,
-                                                    _filter_column_ids));
+        RETURN_IF_ERROR(ParquetColumnReader::create(
+                _file_reader, field, _row_group_meta, _read_ranges, _ctz, _io_ctx, reader,
+                max_buf_size, offset_index, _column_ids, _filter_column_ids));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
@@ -327,8 +325,8 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
     } else {
         FilterMap filter_map;
         // Non-lazy read: read all columns at once, no filter phase distinction
-        RETURN_IF_ERROR((_read_column_data<false>(block, _lazy_read_ctx.all_read_columns, batch_size,
-                                          read_rows, batch_eof, filter_map)));
+        RETURN_IF_ERROR((_read_column_data<false>(block, _lazy_read_ctx.all_read_columns,
+                                                  batch_size, read_rows, batch_eof, filter_map)));
         RETURN_IF_ERROR(
                 _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
@@ -437,7 +435,8 @@ Status RowGroupReader::_read_column_data(Block* block,
             size_t loop_rows = 0;
             RETURN_IF_ERROR(_column_readers[read_col_name]->read_column_data(
                     column_ptr, column_type, _table_info_node_ptr->get_children_node(read_col_name),
-                    filter_map, batch_size - col_read_rows, &loop_rows, &col_eof, is_dict_filter, is_filter_phase));
+                    filter_map, batch_size - col_read_rows, &loop_rows, &col_eof, is_dict_filter,
+                    is_filter_phase));
             col_read_rows += loop_rows;
         }
         if (batch_read_rows > 0 && batch_read_rows != col_read_rows) {
@@ -473,8 +472,9 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         pre_read_rows = 0;
         pre_eof = false;
         FilterMap filter_map;
-        RETURN_IF_ERROR((_read_column_data<true>(block, _lazy_read_ctx.predicate_columns.first, batch_size,
-                                          &pre_read_rows, &pre_eof, filter_map)));
+        RETURN_IF_ERROR(
+                (_read_column_data<true>(block, _lazy_read_ctx.predicate_columns.first, batch_size,
+                                         &pre_read_rows, &pre_eof, filter_map)));
         if (pre_read_rows == 0) {
             DCHECK_EQ(pre_eof, true);
             break;
@@ -587,7 +587,8 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     // lazy read columns (lazy materialization phase)
     size_t lazy_read_rows;
     bool lazy_eof;
-    RETURN_IF_ERROR((_read_column_data<false>(block, _lazy_read_ctx.lazy_read_columns, pre_read_rows,
+    RETURN_IF_ERROR(
+            (_read_column_data<false>(block, _lazy_read_ctx.lazy_read_columns, pre_read_rows,
                                       &lazy_read_rows, &lazy_eof, filter_map)));
 
     // if (pre_read_rows != lazy_read_rows) {
@@ -603,14 +604,14 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     if (!_lazy_read_ctx.partial_predicate_columns.empty()) {
         size_t partial_pred_rows;
         bool partial_pred_eof;
-        RETURN_IF_ERROR((_read_column_data<false>(block, _lazy_read_ctx.partial_predicate_columns, 
-                                          pre_read_rows, &partial_pred_rows, &partial_pred_eof, 
-                                          filter_map)));
-        
+        RETURN_IF_ERROR((_read_column_data<false>(block, _lazy_read_ctx.partial_predicate_columns,
+                                                  pre_read_rows, &partial_pred_rows,
+                                                  &partial_pred_eof, filter_map)));
+
         // if (pre_read_rows != partial_pred_rows) {
         //     return Status::Corruption("Can't read the same number of rows for partial predicate columns");
         // }
-        
+
         LOG(INFO) << "Completed reading " << _lazy_read_ctx.partial_predicate_columns.size()
                   << " partial predicate columns in lazy materialization phase";
     }
@@ -632,8 +633,8 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             } else {
                 // RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(
                 //         block, _lazy_read_ctx.all_predicate_col_ids, result_filter));
-                RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(
-                        block, columns_to_filter, result_filter));
+                RETURN_IF_CATCH_EXCEPTION(
+                        Block::filter_block_internal(block, columns_to_filter, result_filter));
                 Block::erase_useless_column(block, origin_column_num);
             }
         } else {

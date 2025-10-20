@@ -383,6 +383,13 @@ void FileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
     for (auto& child_expr : expr->children()) {
         if (child_expr->is_slot_ref()) {
             VSlotRef* slot_ref = reinterpret_cast<VSlotRef*>(child_expr.get());
+            SlotDescriptor* slot_desc = _state->desc_tbl().get_slot_descriptor(slot_ref->slot_id());
+            // if (slot_desc == nullptr) {
+            //     return Status::Error<ErrorCode::INTERNAL_ERROR>(
+            //             "couldn't resolve slot descriptor {}, desc: {}", slot_ref->slot_id(),
+            //             _state->desc_tbl().debug_string());
+            // }
+            slot_desc->set_is_predicate(true);
             slot_ids->emplace_back(slot_ref->slot_id());
         } else {
             _get_slot_ids(child_expr.get(), slot_ids);

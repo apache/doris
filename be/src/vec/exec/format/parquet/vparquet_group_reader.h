@@ -103,7 +103,7 @@ public:
         std::unordered_map<std::string, VExprContextSPtr> missing_columns;
         // should turn off filtering by page index, lazy read and dict filter if having complex type
         bool has_complex_type = false;
-        
+
         // Columns with partial predicates: some sub-columns are predicate columns, others are not.
         // These need two-phase reading: first read predicate sub-columns in filter phase,
         // then read non-predicate sub-columns in lazy materialization phase.
@@ -195,7 +195,7 @@ private:
     void _merge_read_ranges(std::vector<RowRange>& row_ranges);
     Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof,
                              bool* modify_row_ids);
-    
+
     // Template parameter is_filter_phase:
     // - true: predicate/filter read phase, read filter columns for row filtering
     // - false: lazy materialization phase, read non-filter columns after filtering
@@ -203,7 +203,7 @@ private:
     Status _read_column_data(Block* block, const std::vector<std::string>& columns,
                              size_t batch_size, size_t* read_rows, bool* batch_eof,
                              FilterMap& filter_map);
-    
+
     Status _do_lazy_read(Block* block, size_t batch_size, size_t* read_rows, bool* batch_eof);
     Status _rebuild_filter_map(FilterMap& filter_map,
                                DorisUniqueBufferPtr<uint8_t>& filter_map_data,

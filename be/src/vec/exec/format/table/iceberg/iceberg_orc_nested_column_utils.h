@@ -54,15 +54,19 @@ public:
     static void _build_iceberg_id_mapping_recursive(
             const orc::Type* orc_type, std::map<int, const orc::Type*>& iceberg_id_to_orc_type);
 
-    static std::shared_ptr<TableSchemaChangeHelper::Node> _build_table_schema_node_from_type(
-            const orc::Type& type, const std::vector<std::vector<int>>& field_paths);
+//     static std::shared_ptr<TableSchemaChangeHelper::Node> _build_table_schema_node_from_type(
+//             const orc::Type& type, const std::vector<std::vector<int>>& field_paths);
 
-    static std::shared_ptr<TableSchemaChangeHelper::Node> _build_full_table_schema_node(
-            const orc::Type& type);
+//     static std::shared_ptr<TableSchemaChangeHelper::Node> _build_full_table_schema_node(
+//             const orc::Type& type);
 
     static void _extract_nested_column_ids_efficiently(const orc::Type& type,
                                                        const std::vector<std::vector<int>>& paths,
                                                        std::set<uint64_t>& column_ids);
+
+    static void extract_nested_column_ids_efficiently(const orc::Type& type,
+                                        const std::vector<TColumnNameAccessPath>& paths,
+                                        std::set<uint64_t>& column_ids);
 
 private:
     static constexpr const char* ICEBERG_ORC_ATTRIBUTE = "iceberg.id";

@@ -127,7 +127,8 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
     if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
         std::unique_ptr<ParquetColumnReader> element_reader;
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
-                               element_reader, max_buf_size, nullptr, column_ids, filter_column_ids));
+                               element_reader, max_buf_size, nullptr, column_ids,
+                               filter_column_ids));
         element_reader->set_nested_column();
         auto array_reader = ArrayColumnReader::create_unique(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
@@ -136,10 +137,11 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
     } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
         std::unique_ptr<ParquetColumnReader> key_reader;
         std::unique_ptr<ParquetColumnReader> value_reader;
-        RETURN_IF_ERROR(create(file, &field->children[0].children[0], row_group, row_ranges, ctz,
-                               io_ctx, key_reader, max_buf_size, nullptr, column_ids, filter_column_ids));
-        RETURN_IF_ERROR(create(file, &field->children[0].children[1], row_group, row_ranges, ctz,
-                               io_ctx, value_reader, max_buf_size, nullptr, column_ids, filter_column_ids));
+        // Directly access key and value fields (no intermediate key_value node)
+        RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
+                               key_reader, max_buf_size, nullptr, column_ids, filter_column_ids));
+        RETURN_IF_ERROR(create(file, &field->children[1], row_group, row_ranges, ctz, io_ctx,
+                               value_reader, max_buf_size, nullptr, column_ids, filter_column_ids));
         key_reader->set_nested_column();
         value_reader->set_nested_column();
         auto map_reader = MapColumnReader::create_unique(row_ranges, ctz, io_ctx);
@@ -158,7 +160,8 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
             }
             std::unique_ptr<ParquetColumnReader> child_reader;
             RETURN_IF_ERROR(create(file, &field->children[i], row_group, row_ranges, ctz, io_ctx,
-                                   child_reader, max_buf_size, nullptr, column_ids, filter_column_ids));
+                                   child_reader, max_buf_size, nullptr, column_ids,
+                                   filter_column_ids));
             if (child_reader != nullptr) {
                 child_reader->set_nested_column();
                 child_readers[field->children[i].name] = std::move(child_reader);
@@ -250,7 +253,7 @@ Status ScalarColumnReader::_skip_values(size_t num_values) {
                 LOG(WARNING) << ss.str();
                 return Status::InternalError("Failed to decode definition level.");
             }
-            if (def_level == 0) {
+            if (def_level < _field_schema->definition_level) {
                 null_size += loop_skip;
             } else {
                 nonnull_size += loop_skip;
@@ -616,22 +619,23 @@ Status ScalarColumnReader::_try_load_dict_page(bool* loaded, bool* has_dict) {
 Status ScalarColumnReader::read_column_data(
         ColumnPtr& doris_column, DataTypePtr& type,
         const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
-        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter, bool is_filter_phase) {
+        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter,
+        bool is_filter_phase) {
     // Check if this column should be read based on is_filter_phase and filter_column_ids
     // uint64_t column_id = _field_schema->get_column_id();
     // bool is_filter_column = _filter_column_ids.find(column_id) != _filter_column_ids.end();
-    
+
     // if (is_filter_phase) {
     //     // In predicate read phase: only read filter columns
     //     if (!is_filter_column) {
     //         // Skip non-filter columns in predicate read phase
     //         *read_rows = 0;
     //         *eof = false;
-    //         LOG(INFO) << "Skipping non-filter column '" << _field_schema->name 
+    //         LOG(INFO) << "Skipping non-filter column '" << _field_schema->name
     //                 << "' (column_id=" << column_id << ") in predicate read phase";
     //         return Status::OK();
     //     }
-    //     LOG(INFO) << "Reading filter column '" << _field_schema->name 
+    //     LOG(INFO) << "Reading filter column '" << _field_schema->name
     //             << "' (column_id=" << column_id << ") in predicate read phase";
     // } else {
     //     // In lazy materialization phase: read all columns
@@ -640,17 +644,17 @@ Status ScalarColumnReader::read_column_data(
     //         // Filter column already has data from predicate read phase
     //         *read_rows = doris_column->size();
     //         *eof = false;
-    //         LOG(INFO) << "Skipping filter column '" << _field_schema->name 
-    //                 << "' (column_id=" << column_id << ") in lazy read phase (already has " 
+    //         LOG(INFO) << "Skipping filter column '" << _field_schema->name
+    //                 << "' (column_id=" << column_id << ") in lazy read phase (already has "
     //                 << doris_column->size() << " rows)";
     //         return Status::OK();
     //     }
     //     if (!is_filter_column) {
-    //         LOG(INFO) << "Reading non-filter column '" << _field_schema->name 
+    //         LOG(INFO) << "Reading non-filter column '" << _field_schema->name
     //                 << "' (column_id=" << column_id << ") in lazy materialization phase";
     //     }
     // }
-    
+
     if (_converter == nullptr) {
         _converter = parquet::PhysicalToLogicalConverter::get_converter(
                 _field_schema, _field_schema->data_type, type, _ctz, is_dict_filter);
@@ -766,36 +770,38 @@ Status ArrayColumnReader::init(std::unique_ptr<ParquetColumnReader> element_read
 Status ArrayColumnReader::read_column_data(
         ColumnPtr& doris_column, DataTypePtr& type,
         const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
-        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter, bool is_filter_phase) {
+        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter,
+        bool is_filter_phase) {
     // Check if the element column should be read based on is_filter_phase and filter_column_ids
     if (_element_reader && _element_reader->get_field_schema()) {
         uint64_t element_column_id = _element_reader->get_field_schema()->get_column_id();
-        bool is_filter_column = _filter_column_ids.find(element_column_id) != _filter_column_ids.end();
-        
+        bool is_filter_column =
+                _filter_column_ids.find(element_column_id) != _filter_column_ids.end();
+
         if (is_filter_phase) {
             // In predicate read phase: only read filter columns
             if (!is_filter_column) {
                 *read_rows = 0;
                 *eof = false;
-                LOG(INFO) << "Skipping non-filter array element column (column_id=" 
-                        << element_column_id << ") in predicate read phase";
+                LOG(INFO) << "Skipping non-filter array element column (column_id="
+                          << element_column_id << ") in predicate read phase";
                 return Status::OK();
             }
-            LOG(INFO) << "Reading filter array element column (column_id=" 
-                    << element_column_id << ") in predicate read phase";
+            LOG(INFO) << "Reading filter array element column (column_id=" << element_column_id
+                      << ") in predicate read phase";
         } else {
             // In lazy materialization phase: skip filter columns if already filled
             if (is_filter_column && doris_column->size() > 0) {
                 *read_rows = doris_column->size();
                 *eof = false;
-                LOG(INFO) << "Skipping filter array element column (column_id=" 
-                        << element_column_id << ") in lazy read phase (already has " 
-                        << doris_column->size() << " rows)";
+                LOG(INFO) << "Skipping filter array element column (column_id=" << element_column_id
+                          << ") in lazy read phase (already has " << doris_column->size()
+                          << " rows)";
                 return Status::OK();
             }
         }
     }
-    
+
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     if (doris_column->is_nullable()) {
@@ -819,54 +825,56 @@ Status ArrayColumnReader::read_column_data(
     auto& element_type = const_cast<DataTypePtr&>(
             (assert_cast<const DataTypeArray*>(remove_nullable(type).get()))->get_nested_type());
     // read nested column
-    RETURN_IF_ERROR(_element_reader->read_column_data(element_column, element_type,
-                                                      root_node->get_element_node(), filter_map,
-                                                      batch_size, read_rows, eof, is_dict_filter, is_filter_phase));
+    RETURN_IF_ERROR(_element_reader->read_column_data(
+            element_column, element_type, root_node->get_element_node(), filter_map, batch_size,
+            read_rows, eof, is_dict_filter, is_filter_phase));
     if (*read_rows == 0) {
         return Status::OK();
     }
 
     ColumnArray::Offsets64& offsets_data = assert_cast<ColumnArray&>(*data_column).get_offsets();
-    
+
     // Only fill offset and null map if it hasn't been filled yet (to avoid duplicate filling in lazy materialization)
     // Check if array itself or element is a filter column
     if (_element_reader && _element_reader->get_field_schema()) {
         uint64_t array_column_id = _field_schema->get_column_id();
         uint64_t element_column_id = _element_reader->get_field_schema()->get_column_id();
         bool array_is_filter = _filter_column_ids.find(array_column_id) != _filter_column_ids.end();
-        bool element_is_filter = _filter_column_ids.find(element_column_id) != _filter_column_ids.end();
-        
+        bool element_is_filter =
+                _filter_column_ids.find(element_column_id) != _filter_column_ids.end();
+
         // Only fill in predicate phase for filter columns, or in lazy phase for non-filter columns
         bool should_fill = (is_filter_phase && (array_is_filter || element_is_filter)) ||
-                          (!is_filter_phase && !array_is_filter && !element_is_filter);
-        
+                           (!is_filter_phase && !array_is_filter && !element_is_filter);
+
         size_t offsets_size_before = offsets_data.size();
         size_t null_map_size_before = null_map_ptr ? null_map_ptr->size() : 0;
-        
+
         if (should_fill) {
-            fill_array_offset(_field_schema, offsets_data, null_map_ptr, _element_reader->get_rep_level(),
-                              _element_reader->get_def_level());
-            LOG(INFO) << "Array '" << _field_schema->name << "' offsets filled: offsets_before=" << offsets_size_before
-                    << ", offsets_after=" << offsets_data.size()
-                    << ", null_map_before=" << null_map_size_before
-                    << ", null_map_after=" << (null_map_ptr ? null_map_ptr->size() : 0)
-                    << ", array_is_filter=" << array_is_filter
-                    << ", element_is_filter=" << element_is_filter
-                    << ", is_filter_phase=" << is_filter_phase;
+            fill_array_offset(_field_schema, offsets_data, null_map_ptr,
+                              _element_reader->get_rep_level(), _element_reader->get_def_level());
+            LOG(INFO) << "Array '" << _field_schema->name
+                      << "' offsets filled: offsets_before=" << offsets_size_before
+                      << ", offsets_after=" << offsets_data.size()
+                      << ", null_map_before=" << null_map_size_before
+                      << ", null_map_after=" << (null_map_ptr ? null_map_ptr->size() : 0)
+                      << ", array_is_filter=" << array_is_filter
+                      << ", element_is_filter=" << element_is_filter
+                      << ", is_filter_phase=" << is_filter_phase;
         } else {
-            LOG(INFO) << "Array '" << _field_schema->name << "' offsets skipped: offsets_size=" << offsets_size_before
-                    << ", null_map_size=" << null_map_size_before
-                    << ", array_is_filter=" << array_is_filter
-                    << ", element_is_filter=" << element_is_filter
-                    << ", should_fill=" << should_fill
-                    << ", is_filter_phase=" << is_filter_phase;
+            LOG(INFO) << "Array '" << _field_schema->name
+                      << "' offsets skipped: offsets_size=" << offsets_size_before
+                      << ", null_map_size=" << null_map_size_before
+                      << ", array_is_filter=" << array_is_filter
+                      << ", element_is_filter=" << element_is_filter
+                      << ", should_fill=" << should_fill << ", is_filter_phase=" << is_filter_phase;
         }
     } else {
         // Fallback: if no element reader, just fill
-        fill_array_offset(_field_schema, offsets_data, null_map_ptr, _element_reader->get_rep_level(),
-                          _element_reader->get_def_level());
+        fill_array_offset(_field_schema, offsets_data, null_map_ptr,
+                          _element_reader->get_rep_level(), _element_reader->get_def_level());
     }
-    
+
     DCHECK_EQ(element_column->size(), offsets_data.back());
 
     return Status::OK();
@@ -884,43 +892,45 @@ Status MapColumnReader::init(std::unique_ptr<ParquetColumnReader> key_reader,
 Status MapColumnReader::read_column_data(
         ColumnPtr& doris_column, DataTypePtr& type,
         const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
-        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter, bool is_filter_phase) {
+        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter,
+        bool is_filter_phase) {
     // Check if the key/value columns should be read based on is_filter_phase and filter_column_ids
     bool should_skip = false;
-    if (_key_reader && _key_reader->get_field_schema() && _value_reader && _value_reader->get_field_schema()) {
+    if (_key_reader && _key_reader->get_field_schema() && _value_reader &&
+        _value_reader->get_field_schema()) {
         uint64_t key_column_id = _key_reader->get_field_schema()->get_column_id();
         uint64_t value_column_id = _value_reader->get_field_schema()->get_column_id();
         bool key_is_filter = _filter_column_ids.find(key_column_id) != _filter_column_ids.end();
         bool value_is_filter = _filter_column_ids.find(value_column_id) != _filter_column_ids.end();
-        
+
         if (is_filter_phase) {
             // In predicate read phase: only read if at least one of key/value is a filter column
             if (!key_is_filter && !value_is_filter) {
                 should_skip = true;
-                LOG(INFO) << "Skipping non-filter map key/value columns (key_id=" 
-                        << key_column_id << ", value_id=" << value_column_id 
-                        << ") in predicate read phase";
+                LOG(INFO) << "Skipping non-filter map key/value columns (key_id=" << key_column_id
+                          << ", value_id=" << value_column_id << ") in predicate read phase";
             } else {
-                LOG(INFO) << "Reading filter map columns (key_id=" << key_column_id 
-                        << ", value_id=" << value_column_id << ") in predicate read phase";
+                LOG(INFO) << "Reading filter map columns (key_id=" << key_column_id
+                          << ", value_id=" << value_column_id << ") in predicate read phase";
             }
         } else {
             // In lazy materialization phase: skip if both are filter columns and already filled
             if ((key_is_filter || value_is_filter) && doris_column->size() > 0) {
                 should_skip = true;
-                LOG(INFO) << "Skipping filter map columns (key_id=" << key_column_id 
-                        << ", value_id=" << value_column_id 
-                        << ") in lazy read phase (already has " << doris_column->size() << " rows)";
+                LOG(INFO) << "Skipping filter map columns (key_id=" << key_column_id
+                          << ", value_id=" << value_column_id
+                          << ") in lazy read phase (already has " << doris_column->size()
+                          << " rows)";
             }
         }
     }
-    
+
     if (should_skip) {
         *read_rows = doris_column->size();
         *eof = false;
         return Status::OK();
     }
-    
+
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     if (doris_column->is_nullable()) {
@@ -974,50 +984,51 @@ Status MapColumnReader::read_column_data(
     }
 
     DCHECK_EQ(key_column->size(), value_column->size());
-    
+
     // Only fill offset and null map if it hasn't been filled yet (to avoid duplicate filling in lazy materialization)
     // Check if map itself or key/value are filter columns
-    if (_key_reader && _key_reader->get_field_schema() && _value_reader && _value_reader->get_field_schema()) {
+    if (_key_reader && _key_reader->get_field_schema() && _value_reader &&
+        _value_reader->get_field_schema()) {
         uint64_t map_column_id = _field_schema->get_column_id();
         uint64_t key_column_id = _key_reader->get_field_schema()->get_column_id();
         uint64_t value_column_id = _value_reader->get_field_schema()->get_column_id();
         bool map_is_filter = _filter_column_ids.find(map_column_id) != _filter_column_ids.end();
         bool key_is_filter = _filter_column_ids.find(key_column_id) != _filter_column_ids.end();
         bool value_is_filter = _filter_column_ids.find(value_column_id) != _filter_column_ids.end();
-        
+
         // Only fill in predicate phase for filter columns, or in lazy phase for non-filter columns
-        bool should_fill = (is_filter_phase && (map_is_filter || key_is_filter || value_is_filter)) ||
-                          (!is_filter_phase && !map_is_filter && !key_is_filter && !value_is_filter);
-        
+        bool should_fill =
+                (is_filter_phase && (map_is_filter || key_is_filter || value_is_filter)) ||
+                (!is_filter_phase && !map_is_filter && !key_is_filter && !value_is_filter);
+
         size_t offsets_size_before = map.get_offsets().size();
         size_t null_map_size_before = null_map_ptr ? null_map_ptr->size() : 0;
-        
+
         if (should_fill) {
-            fill_array_offset(_field_schema, map.get_offsets(), null_map_ptr, _key_reader->get_rep_level(),
-                              _key_reader->get_def_level());
-            LOG(INFO) << "Map '" << _field_schema->name << "' offsets filled: offsets_before=" << offsets_size_before
-                    << ", offsets_after=" << map.get_offsets().size()
-                    << ", null_map_before=" << null_map_size_before
-                    << ", null_map_after=" << (null_map_ptr ? null_map_ptr->size() : 0)
-                    << ", map_is_filter=" << map_is_filter
-                    << ", key_is_filter=" << key_is_filter
-                    << ", value_is_filter=" << value_is_filter
-                    << ", is_filter_phase=" << is_filter_phase;
+            fill_array_offset(_field_schema, map.get_offsets(), null_map_ptr,
+                              _key_reader->get_rep_level(), _key_reader->get_def_level());
+            LOG(INFO) << "Map '" << _field_schema->name
+                      << "' offsets filled: offsets_before=" << offsets_size_before
+                      << ", offsets_after=" << map.get_offsets().size()
+                      << ", null_map_before=" << null_map_size_before
+                      << ", null_map_after=" << (null_map_ptr ? null_map_ptr->size() : 0)
+                      << ", map_is_filter=" << map_is_filter << ", key_is_filter=" << key_is_filter
+                      << ", value_is_filter=" << value_is_filter
+                      << ", is_filter_phase=" << is_filter_phase;
         } else {
-            LOG(INFO) << "Map '" << _field_schema->name << "' offsets skipped: offsets_size=" << offsets_size_before
-                    << ", null_map_size=" << null_map_size_before
-                    << ", map_is_filter=" << map_is_filter
-                    << ", key_is_filter=" << key_is_filter
-                    << ", value_is_filter=" << value_is_filter
-                    << ", should_fill=" << should_fill
-                    << ", is_filter_phase=" << is_filter_phase;
+            LOG(INFO) << "Map '" << _field_schema->name
+                      << "' offsets skipped: offsets_size=" << offsets_size_before
+                      << ", null_map_size=" << null_map_size_before
+                      << ", map_is_filter=" << map_is_filter << ", key_is_filter=" << key_is_filter
+                      << ", value_is_filter=" << value_is_filter << ", should_fill=" << should_fill
+                      << ", is_filter_phase=" << is_filter_phase;
         }
     } else {
         // Fallback: if no key/value reader, just fill
-        fill_array_offset(_field_schema, map.get_offsets(), null_map_ptr, _key_reader->get_rep_level(),
-                          _key_reader->get_def_level());
+        fill_array_offset(_field_schema, map.get_offsets(), null_map_ptr,
+                          _key_reader->get_rep_level(), _key_reader->get_def_level());
     }
-    
+
     DCHECK_EQ(key_column->size(), map.get_offsets().back());
 
     return Status::OK();
@@ -1033,7 +1044,8 @@ Status StructColumnReader::init(
 Status StructColumnReader::read_column_data(
         ColumnPtr& doris_column, DataTypePtr& type,
         const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
-        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter, bool is_filter_phase) {
+        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter,
+        bool is_filter_phase) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     if (doris_column->is_nullable()) {
@@ -1078,25 +1090,29 @@ Status StructColumnReader::read_column_data(
 
         // Check if this child column should be read based on is_filter_phase and filter_column_ids
         auto child_reader_iter = _child_readers.find(file_name);
-        if (child_reader_iter != _child_readers.end() && child_reader_iter->second->get_field_schema()) {
-            uint64_t child_column_id = child_reader_iter->second->get_field_schema()->get_column_id();
-            bool is_filter_column = _filter_column_ids.find(child_column_id) != _filter_column_ids.end();
-            
+        if (child_reader_iter != _child_readers.end() &&
+            child_reader_iter->second->get_field_schema()) {
+            uint64_t child_column_id =
+                    child_reader_iter->second->get_field_schema()->get_column_id();
+            bool is_filter_column =
+                    _filter_column_ids.find(child_column_id) != _filter_column_ids.end();
+
             if (is_filter_phase) {
                 // In predicate read phase: only read filter columns
                 if (!is_filter_column) {
-                    LOG(INFO) << "Skipping non-filter struct child column '" << file_name 
-                            << "' (column_id=" << child_column_id << ") in predicate read phase";
+                    LOG(INFO) << "Skipping non-filter struct child column '" << file_name
+                              << "' (column_id=" << child_column_id << ") in predicate read phase";
                     continue;
                 }
-                LOG(INFO) << "Reading filter struct child column '" << file_name 
-                        << "' (column_id=" << child_column_id << ") in predicate read phase";
+                LOG(INFO) << "Reading filter struct child column '" << file_name
+                          << "' (column_id=" << child_column_id << ") in predicate read phase";
             } else {
                 // In lazy materialization phase: skip filter columns if already filled
                 if (is_filter_column && doris_field->size() > 0) {
-                    LOG(INFO) << "Skipping filter struct child column '" << file_name 
-                            << "' (column_id=" << child_column_id << ") in lazy read phase (already has " 
-                            << doris_field->size() << " rows)";
+                    LOG(INFO) << "Skipping filter struct child column '" << file_name
+                              << "' (column_id=" << child_column_id
+                              << ") in lazy read phase (already has " << doris_field->size()
+                              << " rows)";
                     continue;
                 }
             }
@@ -1115,12 +1131,12 @@ Status StructColumnReader::read_column_data(
             *read_rows = field_rows;
             *eof = field_eof;
             size_t field_size_after = doris_field->size();
-            LOG(INFO) << "Struct '" << _field_schema->name << "' first child column '" << file_name 
-                    << "' (index=" << i << "): read_rows=" << field_rows 
-                    << ", column_size_before=" << field_size_before 
-                    << ", column_size_after=" << field_size_after
-                    << ", size_delta=" << (field_size_after - field_size_before)
-                    << ", is_filter_phase=" << is_filter_phase;
+            LOG(INFO) << "Struct '" << _field_schema->name << "' first child column '" << file_name
+                      << "' (index=" << i << "): read_rows=" << field_rows
+                      << ", column_size_before=" << field_size_before
+                      << ", column_size_after=" << field_size_after
+                      << ", size_delta=" << (field_size_after - field_size_before)
+                      << ", is_filter_phase=" << is_filter_phase;
             /*
              * Considering the issue in the `_read_nested_column` function where data may span across pages, leading
              * to missing definition and repetition levels, when filling the null_map of the struct later, it is
@@ -1135,18 +1151,18 @@ Status StructColumnReader::read_column_data(
                 size_t loop_rows = 0;
                 RETURN_IF_ERROR(_child_readers[file_name]->read_column_data(
                         doris_field, doris_type, root_node->get_children_node(doris_name),
-                        filter_map, *read_rows - field_rows, &loop_rows, &field_eof,
-                        is_dict_filter, is_filter_phase));
+                        filter_map, *read_rows - field_rows, &loop_rows, &field_eof, is_dict_filter,
+                        is_filter_phase));
                 field_rows += loop_rows;
             }
             size_t field_size_after = doris_field->size();
-            LOG(INFO) << "Struct '" << _field_schema->name << "' child column '" << file_name 
-                    << "' (index=" << i << "): field_rows=" << field_rows 
-                    << ", expected_rows=" << *read_rows
-                    << ", column_size_before=" << field_size_before 
-                    << ", column_size_after=" << field_size_after
-                    << ", size_delta=" << (field_size_after - field_size_before)
-                    << ", is_filter_phase=" << is_filter_phase;
+            LOG(INFO) << "Struct '" << _field_schema->name << "' child column '" << file_name
+                      << "' (index=" << i << "): field_rows=" << field_rows
+                      << ", expected_rows=" << *read_rows
+                      << ", column_size_before=" << field_size_before
+                      << ", column_size_after=" << field_size_after
+                      << ", size_delta=" << (field_size_after - field_size_before)
+                      << ", is_filter_phase=" << is_filter_phase;
             DCHECK_EQ(*read_rows, field_rows);
             DCHECK_EQ(*eof, field_eof);
         }
@@ -1167,12 +1183,11 @@ Status StructColumnReader::read_column_data(
     //  When you first read subcolumn a, you read 5 data items and the value of *read_rows is 2.
     //  You should insert 5 records into subcolumn b instead of 2.
     auto missing_column_sz = doris_struct.get_column(not_missing_column_id).size();
-    LOG(INFO) << "Struct '" << _field_schema->name << "': missing_column_sz=" << missing_column_sz 
-            << ", read_rows=" << *read_rows
-            << ", not_missing_column_id=" << not_missing_column_id
-            << ", missing_column_idxs.size()=" << missing_column_idxs.size()
-            << ", is_filter_phase=" << is_filter_phase;
-    
+    LOG(INFO) << "Struct '" << _field_schema->name << "': missing_column_sz=" << missing_column_sz
+              << ", read_rows=" << *read_rows << ", not_missing_column_id=" << not_missing_column_id
+              << ", missing_column_idxs.size()=" << missing_column_idxs.size()
+              << ", is_filter_phase=" << is_filter_phase;
+
     // fill missing column with null or default value
     for (auto idx : missing_column_idxs) {
         auto& doris_field = doris_struct.get_column_ptr(idx);
@@ -1183,20 +1198,20 @@ Status StructColumnReader::read_column_data(
         size_t before_size = nullable_column->size();
         nullable_column->insert_many_defaults(missing_column_sz);
         size_t after_size = nullable_column->size();
-        LOG(INFO) << "Struct '" << _field_schema->name << "' filling missing column (index=" << idx 
-                << "): before_size=" << before_size 
-                << ", after_size=" << after_size
-                << ", inserted=" << missing_column_sz;
+        LOG(INFO) << "Struct '" << _field_schema->name << "' filling missing column (index=" << idx
+                  << "): before_size=" << before_size << ", after_size=" << after_size
+                  << ", inserted=" << missing_column_sz;
     }
 
     // Only fill null_map if it hasn't been filled yet (to avoid duplicate filling in lazy materialization)
     // Check if struct itself is a filter column or has any filter child columns
     if (null_map_ptr != nullptr) {
         size_t null_map_size_before = null_map_ptr->size();
-        
+
         // Check if the struct itself or any of its children are filter columns
         uint64_t struct_column_id = _field_schema->get_column_id();
-        bool struct_is_filter = _filter_column_ids.find(struct_column_id) != _filter_column_ids.end();
+        bool struct_is_filter =
+                _filter_column_ids.find(struct_column_id) != _filter_column_ids.end();
         // bool has_filter_children = false;
         // for (const auto& [name, reader] : _child_readers) {
         //     if (reader && reader->get_field_schema()) {
@@ -1207,46 +1222,48 @@ Status StructColumnReader::read_column_data(
         //         }
         //     }
         // }
-        
+
         // Only fill null_map in predicate phase for filter columns, or in lazy phase for non-filter columns
-        bool should_fill = (is_filter_phase && (struct_is_filter)) ||
-                          (!is_filter_phase && !struct_is_filter);
-        
+        bool should_fill =
+                (is_filter_phase && (struct_is_filter)) || (!is_filter_phase && !struct_is_filter);
+
         if (should_fill) {
             // Get the first child reader to access unfiltered levels
-            auto first_child_reader = dynamic_cast<ScalarColumnReader*>(
-                    _child_readers[_read_column_names[0]].get());
+            auto first_child_reader =
+                    dynamic_cast<ScalarColumnReader*>(_child_readers[_read_column_names[0]].get());
             if (first_child_reader != nullptr) {
                 // Use unfiltered levels to maintain row count consistency
                 fill_struct_null_map(_field_schema, *null_map_ptr,
-                                   first_child_reader->get_unfiltered_rep_level(),
-                                   first_child_reader->get_unfiltered_def_level());
+                                     first_child_reader->get_unfiltered_rep_level(),
+                                     first_child_reader->get_unfiltered_def_level());
             } else {
                 // Fallback to filtered levels (for non-scalar readers)
                 fill_struct_null_map(_field_schema, *null_map_ptr, this->get_rep_level(),
-                                   this->get_def_level());
+                                     this->get_def_level());
             }
             size_t null_map_size_after = null_map_ptr->size();
-            LOG(INFO) << "Struct '" << _field_schema->name << "' null_map filled: before_size=" << null_map_size_before 
-                    << ", after_size=" << null_map_size_after
-                    << ", delta=" << (null_map_size_after - null_map_size_before)
-                    << ", struct_is_filter=" << struct_is_filter
-                    << ", is_filter_phase=" << is_filter_phase;
+            LOG(INFO) << "Struct '" << _field_schema->name
+                      << "' null_map filled: before_size=" << null_map_size_before
+                      << ", after_size=" << null_map_size_after
+                      << ", delta=" << (null_map_size_after - null_map_size_before)
+                      << ", struct_is_filter=" << struct_is_filter
+                      << ", is_filter_phase=" << is_filter_phase;
         } else {
-            LOG(INFO) << "Struct '" << _field_schema->name << "' null_map skipped: size=" 
-                    << null_map_size_before << ", expected=" << missing_column_sz
-                    << ", struct_is_filter=" << struct_is_filter
-                    << ", should_fill=" << should_fill
-                    << ", is_filter_phase=" << is_filter_phase;
+            LOG(INFO) << "Struct '" << _field_schema->name
+                      << "' null_map skipped: size=" << null_map_size_before
+                      << ", expected=" << missing_column_sz
+                      << ", struct_is_filter=" << struct_is_filter
+                      << ", should_fill=" << should_fill << ", is_filter_phase=" << is_filter_phase;
         }
     }
-    
+
     // Print summary of all child columns
-    LOG(INFO) << "Struct '" << _field_schema->name << "' summary: total_children=" << doris_struct.tuple_size();
+    LOG(INFO) << "Struct '" << _field_schema->name
+              << "' summary: total_children=" << doris_struct.tuple_size();
     for (size_t i = 0; i < doris_struct.tuple_size(); ++i) {
         const auto& child_col = doris_struct.get_column(i);
-        LOG(INFO) << "  Child[" << i << "]: size=" << child_col.size() 
-                << ", name=" << doris_struct_type->get_element_name(i);
+        LOG(INFO) << "  Child[" << i << "]: size=" << child_col.size()
+                  << ", name=" << doris_struct_type->get_element_name(i);
     }
 
     return Status::OK();

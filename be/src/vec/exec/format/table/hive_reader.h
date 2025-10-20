@@ -68,14 +68,20 @@ public:
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
 
 private:
-    static ColumnIdResult _create_column_ids_and_names(const orc::Type* orc_type,
-                                                       const TupleDescriptor* tuple_descriptor);
+    static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
+                                             const TupleDescriptor* tuple_descriptor);
 
-    static ColumnIdResult _create_column_ids_and_names_by_top_level_col_index(
+    static ColumnIdResult _create_column_ids2(const orc::Type* orc_type,
+                                              const TupleDescriptor* tuple_descriptor);
+
+    static ColumnIdResult _create_column_ids_by_top_level_col_index(
             const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor);
 
-//     static ColumnIdResult _create_column_ids_and_names_by_index(
-//             const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor);
+    static ColumnIdResult _create_column_ids2_by_top_level_col_index(const orc::Type* orc_type,
+                                              const TupleDescriptor* tuple_descriptor);
+
+    //     static ColumnIdResult _create_column_ids_by_index(
+    //             const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor);
 };
 
 class HiveParquetReader final : public HiveReader {
@@ -100,14 +106,19 @@ public:
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
 
 private:
-    static ColumnIdResult _create_column_ids_and_names(const FieldDescriptor* field_desc,
-                                                       const TupleDescriptor* tuple_descriptor);
+    static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
+                                             const TupleDescriptor* tuple_descriptor);
+    static ColumnIdResult _create_column_ids2(const FieldDescriptor* field_desc,
+                                              const TupleDescriptor* tuple_descriptor);
 
-    static ColumnIdResult _create_column_ids_and_names_by_top_level_col_index(
+    static ColumnIdResult _create_column_ids_by_top_level_col_index(
             const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor);
 
-//     static ColumnIdResult _create_column_ids_and_names_by_index(
-//             const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor);
+    static ColumnIdResult _create_column_ids2_by_top_level_col_index(const FieldDescriptor* field_desc,
+                                              const TupleDescriptor* tuple_descriptor);
+
+    //     static ColumnIdResult _create_column_ids_by_index(
+    //             const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor);
 };
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

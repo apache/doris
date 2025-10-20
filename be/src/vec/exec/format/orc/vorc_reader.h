@@ -114,7 +114,7 @@ struct LazyReadContext {
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
 
     std::vector<std::string> partial_predicate_columns;
-    
+
     // Record the number of rows filled in filter phase for lazy materialization
     // This is used to check if a column was already processed in filter phase
     size_t filter_phase_rows = 0;

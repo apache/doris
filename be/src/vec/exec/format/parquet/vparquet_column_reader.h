@@ -148,7 +148,7 @@ public:
     virtual void close() = 0;
 
     virtual void reset_filter_map_index() = 0;
-    
+
     FieldSchema* get_field_schema() const { return _field_schema; }
 
 protected:

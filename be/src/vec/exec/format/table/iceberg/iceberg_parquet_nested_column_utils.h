@@ -65,6 +65,8 @@ public:
     static void _extract_nested_column_ids_efficiently(const FieldSchema& field_schema,
                                                        const std::vector<std::vector<int>>& paths,
                                                        std::set<uint64_t>& column_ids);
+    static void extract_nested_column_ids_efficiently(const FieldSchema& field_schema, const std::vector<TColumnNameAccessPath>& paths,
+        std::set<uint64_t>& column_ids);
 };
 
 } // namespace vectorized

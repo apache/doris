@@ -66,11 +66,11 @@ ColumnStruct::ColumnStruct(MutableColumns&& mutable_columns) {
 
 ColumnStruct::MutablePtr ColumnStruct::create(const Columns& columns) {
     // for (const auto& column : columns) {
-        // if (is_column_const(*column)) {
-        //     throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-        //                            "ColumnStruct cannot have ColumnConst as its element");
-        //     __builtin_unreachable();
-        // }
+    // if (is_column_const(*column)) {
+    //     throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+    //                            "ColumnStruct cannot have ColumnConst as its element");
+    //     __builtin_unreachable();
+    // }
     // }
     auto column_struct = ColumnStruct::create(MutableColumns());
     column_struct->columns.assign(columns.begin(), columns.end());

@@ -526,23 +526,24 @@ Status FieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElemen
     map_field->repetition_level++;
     map_field->definition_level++;
 
-    map_field->children.resize(1);
+    // Directly create key and value children instead of intermediate key_value node
+    map_field->children.resize(2);
     // map is a repeated node, we should set the `repeated_parent_def_level` of its children as `definition_level`
     set_child_node_level(map_field, map_field->definition_level);
-    auto map_kv_field = &map_field->children[0];
-    // produce MAP<STRUCT<KEY, VALUE>>
-    RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos + 1, map_kv_field));
+
+    auto key_field = &map_field->children[0];
+    auto value_field = &map_field->children[1];
+
+    // Parse key and value fields directly from the key_value group's children
+    _next_schema_pos = curr_pos + 2; // Skip key_value group, go directly to key
+    RETURN_IF_ERROR(parse_node_field(t_schemas, _next_schema_pos, key_field));
+    RETURN_IF_ERROR(parse_node_field(t_schemas, _next_schema_pos, value_field));
 
     map_field->name = map_schema.name;
     map_field->lower_case_name = to_lower(map_field->name);
     map_field->column_id = UNASSIGNED_COLUMN_ID; // Initialize column_id
-    map_field->data_type = std::make_shared<DataTypeMap>(
-            make_nullable(assert_cast<const DataTypeStruct*>(
-                                  remove_nullable(map_kv_field->data_type).get())
-                                  ->get_element(0)),
-            make_nullable(assert_cast<const DataTypeStruct*>(
-                                  remove_nullable(map_kv_field->data_type).get())
-                                  ->get_element(1)));
+    map_field->data_type = std::make_shared<DataTypeMap>(make_nullable(key_field->data_type),
+                                                         make_nullable(value_field->data_type));
     if (is_optional) {
         map_field->data_type = make_nullable(map_field->data_type);
     }
@@ -623,10 +624,13 @@ std::string FieldDescriptor::debug_string() const {
 }
 
 void FieldDescriptor::assign_ids() {
+    // 按照 ORC 的逻辑：从 1 开始分配 ID，类似于 ORC 的 assignIds
     uint64_t next_id = 1;
     for (auto& field : _fields) {
         field.assign_ids(next_id);
     }
+    // 设置最大 column ID，类似于 ORC 的 maximumColumnId = current - 1
+    // _max_column_id = next_id - 1;
 }
 
 const FieldSchema* FieldDescriptor::find_column_by_id(uint64_t column_id) const {
@@ -645,6 +649,9 @@ void FieldSchema::assign_ids(uint64_t& next_id) {
     for (auto& child : children) {
         child.assign_ids(next_id);
     }
+
+    // Set max_column_id similar to ORC's maximumColumnId logic
+    max_column_id = next_id - 1;
 }
 
 const FieldSchema* FieldSchema::find_column_by_id(uint64_t target_id) const {
@@ -677,6 +684,10 @@ void FieldSchema::collect_column_ids(std::vector<uint64_t>& ids) const {
     for (const auto& child : children) {
         child.collect_column_ids(ids);
     }
+}
+
+uint64_t FieldSchema::get_max_column_id() const {
+    return max_column_id;
 }
 
 #include "common/compile_check_end.h"
