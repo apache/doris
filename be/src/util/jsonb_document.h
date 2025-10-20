@@ -946,13 +946,13 @@ struct ObjectVal : public ContainerVal {
         return num;
     }
 
-    JsonbValue* find(const char* key) const {
+    const JsonbValue* find(const char* key) const {
         // Calling a non-const method on a const variable and does not modify the
         // variable; using const_cast is permissible
         return const_cast<ObjectVal*>(this)->find(key);
     }
 
-    JsonbValue* find(const char* key, unsigned int klen) const {
+    const JsonbValue* find(const char* key, unsigned int klen) const {
         // Calling a non-const method on a const variable and does not modify the
         // variable; using const_cast is permissible
         return const_cast<ObjectVal*>(this)->find(key, klen);
@@ -1264,7 +1264,7 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
             const auto* obj_value1 = unpack<ObjectVal>();
             const auto* obj_value2 = rhs->unpack<ObjectVal>();
             for (auto it = obj_value2->begin(); it != obj_value2->end(); ++it) {
-                JsonbValue* value = obj_value1->find(it->getKeyStr(), it->klen());
+                const JsonbValue* value = obj_value1->find(it->getKeyStr(), it->klen());
                 if (value == nullptr || !value->contains(it->value())) {
                     return false;
                 }
