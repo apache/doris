@@ -118,6 +118,9 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
     sql """ INSERT INTO ${tableName} VALUES (10, "40.135.0.0", "GET /images/hm_bg.jpg HTTP/1.0", 1, 2); """
 
     sql "sync"
+    
+    def count_result = sql "SELECT COUNT(*) FROM ${tableName};"
+    logger.info("Table ${tableName} row count: {}", count_result)
 
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
     logger.info("tablets: {}", tablets)
