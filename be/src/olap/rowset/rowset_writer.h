@@ -75,7 +75,7 @@ public:
 
     virtual Status init(const RowsetWriterContext& rowset_writer_context) = 0;
 
-    virtual Status add_block(vectorized::Block* block) {
+    virtual Status add_block(const vectorized::Block* block) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "RowsetWriter not support add_block");
     }
