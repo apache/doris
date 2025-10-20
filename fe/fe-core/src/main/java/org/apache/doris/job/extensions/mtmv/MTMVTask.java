@@ -582,12 +582,7 @@ public class MTMVTask extends AbstractTask {
         Map<TableIf, String> tableWithPartKey = Maps.newHashMap();
         if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             List<BaseColInfo> pctInfos = mtmv.getMvPartitionInfo().getPctInfos();
-            List<BaseColInfo> filteredNonPctTables = mtmv.getMvPartitionInfo().getFilteredNonPctTables();
             for (BaseColInfo pctInfo : pctInfos) {
-                tableWithPartKey
-                        .put(MTMVUtil.getTable(pctInfo.getTableInfo()), pctInfo.getColName());
-            }
-            for (BaseColInfo pctInfo : filteredNonPctTables) {
                 tableWithPartKey
                         .put(MTMVUtil.getTable(pctInfo.getTableInfo()), pctInfo.getColName());
             }

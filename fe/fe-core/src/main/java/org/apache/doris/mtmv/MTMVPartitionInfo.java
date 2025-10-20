@@ -60,12 +60,9 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
     private Expr expr;
     @SerializedName("pi")
     private List<BaseColInfo> pctInfos = Lists.newArrayList();
-    @SerializedName("fnpt")
-    private List<BaseColInfo> filteredNonPctTables = Lists.newArrayList();
 
     public MTMVPartitionInfo() {
         this.pctInfos = Lists.newArrayList();
-        this.filteredNonPctTables = Lists.newArrayList();
     }
 
     public MTMVPartitionInfo(MTMVPartitionType partitionType) {
@@ -102,10 +99,6 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
             res.add((MTMVRelatedTableIf) MTMVUtil.getTable(baseColInfo.getTableInfo()));
         }
         return res;
-    }
-
-    public List<BaseColInfo> getFilteredNonPctTables() {
-        return filteredNonPctTables;
     }
 
     public List<BaseColInfo> getPctInfos() {
@@ -178,10 +171,6 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
         throw new AnalysisException("not have this pct table");
     }
 
-    public void setFilteredNonPctTables(List<BaseColInfo> filteredNonPctTables) {
-        this.filteredNonPctTables = filteredNonPctTables;
-    }
-
     public void setPctInfos(List<BaseColInfo> pctInfos) {
         this.pctInfos = pctInfos;
     }
@@ -193,13 +182,12 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
         }
         MTMVPartitionInfo that = (MTMVPartitionInfo) o;
         return partitionType == that.partitionType && Objects.equals(partitionCol, that.partitionCol)
-                && Objects.equals(expr, that.expr) && Objects.equals(pctInfos, that.pctInfos)
-                && Objects.equals(filteredNonPctTables, that.filteredNonPctTables);
+                && Objects.equals(expr, that.expr) && Objects.equals(pctInfos, that.pctInfos);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(partitionType, partitionCol, expr, pctInfos, filteredNonPctTables);
+        return Objects.hash(partitionType, partitionCol, expr, pctInfos);
     }
 
     // toString() is not easy to find where to call the method
@@ -207,7 +195,6 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
         return "MTMVPartitionInfo{"
                 + "partitionType=" + partitionType
                 + ", pctInfos=" + pctInfos
-                + ", filteredNonPctTables='" + filteredNonPctTables + '\''
                 + ", partitionCol='" + partitionCol + '\''
                 + ", expr='" + expr + '\''
                 + '}';
@@ -222,7 +209,6 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
             return "MTMVPartitionInfo{"
                     + "partitionType=" + partitionType
                     + ", pctInfos=" + pctInfos
-                    + ", filteredNonPctTables='" + filteredNonPctTables + '\''
                     + ", partitionCol='" + partitionCol + '\''
                     + ", expr='" + expr + '\''
                     + '}';

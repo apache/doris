@@ -246,4 +246,18 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
                     "MTMV not support partition with column type : " + partitionColumnType);
         }
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        MTMVPartitionExprDateTrunc that = (MTMVPartitionExprDateTrunc) o;
+        return Objects.equals(timeUnit, that.timeUnit);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(timeUnit);
+    }
 }
