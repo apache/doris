@@ -53,9 +53,40 @@ std::string wrap_object_storage_path_msg(const doris::io::ObjectStoragePathOptio
                        opts.path.native());
 }
 
-auto base64_encode_part_num(int part_num) {
-    return Aws::Utils::HashingUtils::Base64Encode(
-            {reinterpret_cast<unsigned char*>(&part_num), sizeof(part_num)});
+/**
+ * Encode a 32-bit part number into a Base64 string (blockId).
+ *
+ * Design goals:
+ *  1. Platform-independent: ignores machine endianness (little-endian / big-endian)
+ *  2. Fixed length: always uses 4 bytes (int32_t)
+ *  3. Fixed byte order: Big-Endian (network byte order)
+ *  4. Consistent with Java and front-end (FE):
+ *     - Java: ByteBuffer.order(ByteOrder.BIG_ENDIAN) + Base64 encoding
+ *     - FE: must follow the same Big-Endian + Base64 rule
+ *
+ * Rules:
+ *  - Input: 32-bit integer partNum
+ *  - Manually split into 4 bytes, high byte first (Big-Endian)
+ *  - Base64 encode the 4 bytes → 8-character string
+ *  - Ensures consistency across machines, languages, and platforms
+ *
+ * Example:
+ *  partNum = 1
+ *  buf = {0x00, 0x00, 0x00, 0x01}
+ *  Base64 encoding result = "AAAAAQ=="
+ *
+ * @param part_num the integer part ID to encode
+ * @return Base64-encoded blockId string
+ */
+auto base64_encode_part_num(int32_t part_num) {
+    unsigned char buf[4];
+    // Manually write in Big-Endian (high byte first) to ignore machine endianness
+    buf[0] = (part_num >> 24) & 0xFF;
+    buf[1] = (part_num >> 16) & 0xFF;
+    buf[2] = (part_num >> 8) & 0xFF;
+    buf[3] = part_num & 0xFF;
+    std::vector<unsigned char> data(buf, buf + 4);
+    return Aws::Utils::HashingUtils::Base64Encode(data);
 }
 
 template <typename Func>
@@ -203,7 +234,6 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
         Azure::Core::IO::MemoryBodyStream memory_body(
                 reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
         // The blockId must be base64 encoded
-        LOG(INFO) << "Uploading part number: " << part_num << ", key: " << opts.key;
         s3_put_rate_limit([&]() {
             SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
             client.StageBlock(base64_encode_part_num(part_num), memory_body);
@@ -225,8 +255,9 @@ ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStora
         };
         // clang-format on
     }
-    std::string block_id = base64_encode_part_num(part_num);
-    return ObjectStorageUploadResponse {.etag = std::move(block_id)};
+    return ObjectStorageUploadResponse {
+            .resp = ObjectStorageResponse::OK(),
+    };
 }
 
 ObjectStorageResponse AzureObjStorageClient::complete_multipart_upload(
