@@ -103,15 +103,7 @@ public:
         return bucket_find(bucket_idx, hash);
 #endif
     }
-#ifdef __ARM_NEON
-    ALWAYS_INLINE bool find_neon(uint32_t hash) const noexcept {
-        if (_always_false) {
-            return false;
-        }
-        const uint32_t bucket_idx = rehash32to32(hash) & _directory_mask;
-        return bucket_find_neon(bucket_idx, hash);
-    }
-#endif
+
     // Same as above with convenience of hashing the key.
     bool find(const StringRef& key) const noexcept {
         if (key.data) {
@@ -194,10 +186,6 @@ private:
 
     bool bucket_find(uint32_t bucket_idx, uint32_t hash) const noexcept;
 
-#ifdef __ARM_NEON
-    bool bucket_find_neon(uint32_t bucket_idx, uint32_t hash) const noexcept;
-#endif
-
     // Computes out[i] |= in[i] for the arrays 'in' and 'out' of length 'n' without using AVX2
     // operations.
     static void or_equal_array_no_avx2(size_t n, const uint8_t* __restrict__ in,
@@ -252,7 +240,7 @@ private:
         // Use these 5 bits to shift a single bit to a location in each 32-bit lane
         return _mm256_sllv_epi32(ones, hash_data);
     }
-#elif defined (__ARM_FEATURE_SVE)
+#elif defined(__ARM_FEATURE_SVE)
     static inline ALWAYS_INLINE svuint32_t make_mask(svbool_t pg, const uint32_t base, const uint32_t hash) noexcept {
         const svuint32_t vones = svdup_u32(1U);
         const svuint32_t vhash = svdup_u32(hash);
@@ -261,7 +249,7 @@ private:
         svuint32_t vshr  = svlsr_n_u32_x(pg, vprod, shift_num);
         return svlsl_u32_x(pg, vones, vshr);
     }
-#elif defined (__ARM_NEON)
+#elif defined(__ARM_NEON)
     static inline ALWAYS_INLINE uint32x4x2_t make_mask(const uint32_t hash) noexcept {
         const uint32x4_t ones = vdupq_n_u32(1);
         const uint32x4x2_t rehash = vld1q_u32_x2(&kRehash[0]);

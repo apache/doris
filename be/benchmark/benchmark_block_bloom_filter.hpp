@@ -74,36 +74,6 @@ static void BM_BBF_BucketFind_Miss(benchmark::State& state) {
     state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(batch));
 }
 
-#ifdef __ARM_NEON
-static void BM_BBF_BucketFindNeon_Hit(benchmark::State& state) {
-    const int batch = static_cast<int>(state.range(0));
-    auto bf = doris::create_bloom_filter(batch);
-
-    for (auto _ : state) {
-        bool acc = false;
-        for (int i = 0; i < batch; i++) {
-            acc ^= bf->find_neon(i);
-        }
-        benchmark::DoNotOptimize(acc);
-    }
-    state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(batch));
-}
-
-static void BM_BBF_BucketFindNeon_Miss(benchmark::State& state) {
-    const int batch = static_cast<int>(state.range(0));
-    auto bf = doris::create_bloom_filter(batch);
-
-    for (auto _ : state) {
-        bool acc = false;
-        for (int i = 0; i < batch; i++) {
-            acc ^= bf->find_neon(i + batch);
-        }
-        benchmark::DoNotOptimize(acc);
-    }
-    state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(batch));
-}
-#endif
-
 static void BM_BBF_OrEqualArray(benchmark::State& state) {
     const auto n = static_cast<size_t>(state.range(0));
     std::vector<uint8_t> in(n), out(n), out_orig(n);
@@ -146,22 +116,6 @@ BENCHMARK(BM_BBF_BucketFind_Miss)
     ->Arg(1 << 18)
     ->Repetitions(5)
     ->DisplayAggregatesOnly();
-#ifdef __ARM_NEON
-BENCHMARK(BM_BBF_BucketFindNeon_Hit)
-    ->Unit(benchmark::kNanosecond)
-    ->Arg(1 << 12)
-    ->Arg(1 << 15)
-    ->Arg(1 << 18)
-    ->Repetitions(5)
-    ->DisplayAggregatesOnly();
-BENCHMARK(BM_BBF_BucketFindNeon_Miss)
-    ->Unit(benchmark::kNanosecond)
-    ->Arg(1 << 12)
-    ->Arg(1 << 15)
-    ->Arg(1 << 18)
-    ->Repetitions(5)
-    ->DisplayAggregatesOnly();
-#endif
 BENCHMARK(BM_BBF_OrEqualArray)
     ->Unit(benchmark::kNanosecond)
     ->Arg(1 << 8)
