@@ -123,6 +123,7 @@ private:
     std::atomic<bool> _stop_worker {false};
     std::thread _write_thread;
     std::mutex _db_mutex;
+    std::mutex _queue_mutex;
 
     std::unique_ptr<ThreadPool> _thread_pool;
 };

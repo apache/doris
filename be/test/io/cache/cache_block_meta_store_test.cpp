@@ -517,7 +517,7 @@ TEST_F(CacheBlockMetaStoreTest, GetAllRecords) {
         // Verify key fields
         EXPECT_GT(key.tablet_id, 0);
         EXPECT_GE(key.offset, 0);
-        EXPECT_TRUE(key.hash.value() > 0);
+        EXPECT_TRUE(key.hash.value_ > 0);
 
         // Verify value fields
         EXPECT_TRUE(value.type == 0 || value.type == 1);
@@ -627,6 +627,273 @@ TEST_F(CacheBlockMetaStoreTest, GetAllIteratorValidity) {
 
     EXPECT_EQ(count, 10);
     EXPECT_FALSE(iterator->valid());
+}
+
+TEST_F(CacheBlockMetaStoreTest, GetWithPendingPutOperation) {
+    uint128_t hash1 = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key1(1, UInt128Wrapper(hash1), 0);
+    BlockMeta meta1(1, 1024, 3600);
+
+    // Put operation but don't wait for async completion
+    meta_store_->put(key1, meta1);
+
+    // Immediately query - should find the pending operation in queue
+    auto result = meta_store_->get(key1);
+    EXPECT_TRUE(result.has_value());
+    EXPECT_EQ(result->type, meta1.type);
+    EXPECT_EQ(result->size, meta1.size);
+    EXPECT_EQ(result->ttl, meta1.ttl);
+}
+
+TEST_F(CacheBlockMetaStoreTest, GetWithPendingDeleteOperation) {
+    uint128_t hash1 = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key1(1, UInt128Wrapper(hash1), 0);
+    BlockMeta meta1(1, 1024, 3600);
+
+    // First put and wait for it to complete
+    meta_store_->put(key1, meta1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Verify the record exists
+    auto result1 = meta_store_->get(key1);
+    EXPECT_TRUE(result1.has_value());
+
+    // Delete operation but don't wait for async completion
+    meta_store_->delete_key(key1);
+
+    // Immediately query - should find the pending delete operation in queue
+    auto result2 = meta_store_->get(key1);
+    EXPECT_FALSE(result2.has_value());
+}
+
+TEST_F(CacheBlockMetaStoreTest, GetWithMixedPendingOperations) {
+    uint128_t hash1 = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key1(1, UInt128Wrapper(hash1), 0);
+    BlockMeta meta1(1, 1024, 3600);
+    BlockMeta meta2(2, 2048, 7200);
+
+    // Put first value
+    meta_store_->put(key1, meta1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Verify first value
+    auto result1 = meta_store_->get(key1);
+    EXPECT_TRUE(result1.has_value());
+    EXPECT_EQ(result1->type, 1);
+
+    // Put second value (update) but don't wait
+    meta_store_->put(key1, meta2);
+
+    // Immediately query - should find the pending update operation
+    auto result2 = meta_store_->get(key1);
+    EXPECT_TRUE(result2.has_value());
+    EXPECT_EQ(result2->type, 2);
+    EXPECT_EQ(result2->size, 2048);
+    EXPECT_EQ(result2->ttl, 7200);
+}
+
+TEST_F(CacheBlockMetaStoreTest, RangeGetWithPendingOperations) {
+    const int64_t tablet_id = 1;
+    uint128_t hash1 = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key1(tablet_id, UInt128Wrapper(hash1), 0);
+    BlockMeta meta1(1, 1024, 3600);
+
+    uint128_t hash2 = (static_cast<uint128_t>(789) << 64) | 123;
+    BlockMetaKey key2(tablet_id, UInt128Wrapper(hash2), 1024);
+    BlockMeta meta2(2, 2048, 7200);
+
+    // Add pending operations to queue
+    meta_store_->put(key1, meta1);
+    meta_store_->put(key2, meta2);
+
+    // Immediately do range query - should find both pending operations
+    auto iterator = meta_store_->range_get(tablet_id);
+    ASSERT_TRUE(iterator != nullptr);
+
+    int count = 0;
+    while (iterator->valid()) {
+        BlockMetaKey key = iterator->key();
+        BlockMeta value = iterator->value();
+
+        EXPECT_EQ(key.tablet_id, tablet_id);
+        EXPECT_TRUE(value.type == 1 || value.type == 2);
+        EXPECT_GT(value.size, 0);
+
+        iterator->next();
+        count++;
+    }
+
+    EXPECT_EQ(count, 2);
+}
+
+TEST_F(CacheBlockMetaStoreTest, RangeGetWithPendingDeleteOperations) {
+    const int64_t tablet_id = 1;
+    uint128_t hash1 = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key1(tablet_id, UInt128Wrapper(hash1), 0);
+    BlockMeta meta1(1, 1024, 3600);
+
+    // First add to database
+    meta_store_->put(key1, meta1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Verify it exists
+    auto iterator1 = meta_store_->range_get(tablet_id);
+    int count_before = 0;
+    while (iterator1->valid()) {
+        count_before++;
+        iterator1->next();
+    }
+    EXPECT_EQ(count_before, 1);
+
+    // Add delete operation to queue
+    meta_store_->delete_key(key1);
+
+    // Immediately do range query - should find the pending delete operation
+    auto iterator2 = meta_store_->range_get(tablet_id);
+    int count_after = 0;
+    while (iterator2->valid()) {
+        count_after++;
+        iterator2->next();
+    }
+
+    // Should be 0 because the key is marked for deletion
+    EXPECT_EQ(count_after, 0);
+}
+
+TEST_F(CacheBlockMetaStoreTest, GetAllWithPendingOperations) {
+    // Add pending operations from different tablets
+    uint128_t hash1 = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key1(1, UInt128Wrapper(hash1), 0);
+    BlockMeta meta1(1, 1024, 3600);
+
+    uint128_t hash2 = (static_cast<uint128_t>(789) << 64) | 123;
+    BlockMetaKey key2(2, UInt128Wrapper(hash2), 1024);
+    BlockMeta meta2(2, 2048, 7200);
+
+    // Add pending operations to queue
+    meta_store_->put(key1, meta1);
+    meta_store_->put(key2, meta2);
+
+    // Immediately do get_all query - should find both pending operations
+    auto iterator = meta_store_->get_all();
+    ASSERT_TRUE(iterator != nullptr);
+
+    int count = 0;
+    std::set<int64_t> tablet_ids_found;
+
+    while (iterator->valid()) {
+        BlockMetaKey key = iterator->key();
+        BlockMeta value = iterator->value();
+
+        EXPECT_GT(key.tablet_id, 0);
+        EXPECT_GE(key.offset, 0);
+        EXPECT_TRUE(value.type == 1 || value.type == 2);
+        EXPECT_GT(value.size, 0);
+
+        tablet_ids_found.insert(key.tablet_id);
+        iterator->next();
+        count++;
+    }
+
+    EXPECT_EQ(count, 2);
+    EXPECT_EQ(tablet_ids_found.size(), 2);
+    EXPECT_TRUE(tablet_ids_found.find(1) != tablet_ids_found.end());
+    EXPECT_TRUE(tablet_ids_found.find(2) != tablet_ids_found.end());
+}
+
+TEST_F(CacheBlockMetaStoreTest, ConcurrencyWithPendingOperations) {
+    const int num_threads = 4;
+    const int operations_per_thread = 50;
+    std::atomic<int> successful_operations(0);
+
+    auto worker = [&](int thread_id) {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dist(1, 1000);
+
+        for (int i = 0; i < operations_per_thread; ++i) {
+            int64_t tablet_id = thread_id + 1;
+            uint128_t hash_value = (static_cast<uint128_t>(dist(gen)) << 64) | dist(gen);
+            size_t offset = i * 1024;
+
+            BlockMetaKey key(tablet_id, UInt128Wrapper(hash_value), offset);
+            BlockMeta meta(thread_id % 3, 2048, 3600 + thread_id * 100 + i);
+
+            // Put operation (goes to async queue)
+            meta_store_->put(key, meta);
+            successful_operations++;
+
+            // Immediately try to read - should find in queue
+            auto result = meta_store_->get(key);
+            EXPECT_TRUE(result.has_value());
+            EXPECT_EQ(result->type, thread_id % 3);
+            EXPECT_EQ(result->size, 2048);
+        }
+    };
+
+    std::vector<std::thread> threads;
+    for (int i = 0; i < num_threads; ++i) {
+        threads.emplace_back(worker, i);
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    EXPECT_EQ(successful_operations, num_threads * operations_per_thread);
+
+    // Verify we can still retrieve data after all operations
+    for (int thread_id = 0; thread_id < num_threads; ++thread_id) {
+        for (int i = 0; i < 5; ++i) {
+            uint128_t hash = (static_cast<uint128_t>(100 + i) << 64) | (200 + i);
+            BlockMetaKey key(thread_id + 1, UInt128Wrapper(hash), i * 1024);
+            auto result = meta_store_->get(key);
+            if (result.has_value()) {
+                EXPECT_GE(result->size, 0);
+            }
+        }
+    }
+}
+
+TEST_F(CacheBlockMetaStoreTest, MultipleOperationsSameKey) {
+    uint128_t hash1 = (static_cast<uint128_t>(123) << 64) | 456;
+    BlockMetaKey key1(1, UInt128Wrapper(hash1), 0);
+
+    // Multiple operations on same key
+    BlockMeta meta1(1, 1024, 3600);
+    BlockMeta meta2(2, 2048, 7200);
+    BlockMeta meta3(3, 4096, 10800);
+
+    // Put first value
+    meta_store_->put(key1, meta1);
+
+    // Immediately query - should find first value
+    auto result1 = meta_store_->get(key1);
+    EXPECT_TRUE(result1.has_value());
+    EXPECT_EQ(result1->type, 1);
+
+    // Put second value (should override first in queue)
+    meta_store_->put(key1, meta2);
+
+    // Immediately query - should find second value
+    auto result2 = meta_store_->get(key1);
+    EXPECT_TRUE(result2.has_value());
+    EXPECT_EQ(result2->type, 2);
+
+    // Put third value (should override second in queue)
+    meta_store_->put(key1, meta3);
+
+    // Immediately query - should find third value
+    auto result3 = meta_store_->get(key1);
+    EXPECT_TRUE(result3.has_value());
+    EXPECT_EQ(result3->type, 3);
+
+    // Delete operation (should override all puts in queue)
+    meta_store_->delete_key(key1);
+
+    // Immediately query - should find delete operation
+    auto result4 = meta_store_->get(key1);
+    EXPECT_FALSE(result4.has_value());
 }
 
 } // namespace doris::io
