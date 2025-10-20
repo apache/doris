@@ -347,7 +347,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             }
             DistributionSpecHash childDistributionSpecHash = (DistributionSpecHash) childDistributionSpec;
             if (projections.entrySet().stream().allMatch(kv -> kv.getKey().equals(kv.getValue()))
-                && childDistributionSpecHash.getOrderedShuffledColumns().stream().anyMatch(obstructions::contains)) {
+                && !childDistributionSpecHash.getOrderedShuffledColumns().stream().anyMatch(obstructions::contains)) {
                 return childProperties;
             }
             DistributionSpec defaultAnySpec = childDistributionSpecHash.getShuffleType() == ShuffleType.NATURAL

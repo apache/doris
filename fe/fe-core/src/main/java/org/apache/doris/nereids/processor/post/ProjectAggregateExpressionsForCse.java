@@ -163,9 +163,12 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
                     }
                 }
             }
-            newProjections.addAll(physicalPropertiesUsed);
+            // newProjections.addAll(physicalPropertiesUsed);
 
             project = project.withProjectionsAndChild(newProjections, project.child());
+            PhysicalProperties projectPhysicalProperties = ChildOutputPropertyDeriver.computeProjectOutputProperties(
+                    project.getProjects(), ((PhysicalPlan) project.child()).getPhysicalProperties());
+            project = project.withPhysicalPropertiesAndStats(projectPhysicalProperties, project.getStats());
             aggregate = (PhysicalHashAggregate<? extends Plan>) aggregate
                     .withAggOutput(aggOutputReplaced)
                     .withChildren(project);
