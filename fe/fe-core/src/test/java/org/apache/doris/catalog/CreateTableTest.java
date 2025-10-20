@@ -1081,4 +1081,41 @@ public class CreateTableTest extends TestWithFeService {
                         + "\"dynamic_partition.start\" = \"-3\"\n"
                         + ");", true));
     }
+
+    @Test
+    public void testCreateTableOfSequenceMapping() throws Exception {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "sequence mapping do not support merge on write",
+                () -> createTable("CREATE TABLE test.test_seq_map \n"
+                        + "(`a` bigint(20) NULL,\n"
+                        + "`b` int(11) NULL,\n"
+                        + "`c` int(11) NULL,\n"
+                        + "`d` int(11) NULL,\n"
+                        + "`s1` int(11) NULL\n"
+                        + ") ENGINE=OLAP\n"
+                        + "UNIQUE KEY(`a`, `b`)\n"
+                        + "COMMENT \"OLAP\"\n"
+                        + "DISTRIBUTED BY HASH(`a`, `b`) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"enable_unique_key_merge_on_write\" = \"true\",\n"
+                        + "\"replication_num\" = \"1\",\n"
+                        + "\"sequence_mapping.s1\" = \"c,d\"\n"
+                        + ");", true));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("CREATE TABLE test.test_seq_map \n"
+                        + "(`a` bigint(20) NULL,\n"
+                        + "`b` int(11) NULL,\n"
+                        + "`c` int(11) NULL,\n"
+                        + "`d` int(11) NULL,\n"
+                        + "`s1` int(11) NULL\n"
+                        + ") ENGINE=OLAP\n"
+                        + "UNIQUE KEY(`a`, `b`)\n"
+                        + "COMMENT \"OLAP\"\n"
+                        + "DISTRIBUTED BY HASH(`a`, `b`) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"enable_unique_key_merge_on_write\" = \"false\",\n"
+                        + "\"replication_num\" = \"1\",\n"
+                        + "\"sequence_mapping.s1\" = \"c,d\"\n"
+                        + ");", true));
+    }
 }

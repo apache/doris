@@ -3771,6 +3771,16 @@ public class Env {
             }
         }
 
+        // column group
+        Map<String, List<String>> seqMap = olapTable.getColumnSeqMapping();
+        if (seqMap != null && seqMap.size() != 0) {
+            for (Map.Entry<String, List<String>> columnGroup : seqMap.entrySet()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING).append(".")
+                    .append(columnGroup.getKey()).append("\" = \"");
+                sb.append(String.join(",", columnGroup.getValue())).append("\"");
+            }
+        }
+
         // store row column
         if (olapTable.storeRowColumn()) {
             List<String> rsColumnNames = olapTable.getTableProperty().getCopiedRowStoreColumns();
@@ -5738,6 +5748,10 @@ public class Env {
         PartitionInfo partitionInfo = table.getPartitionInfo();
         if (partitionInfo.getPartitionColumns().stream().anyMatch(c -> c.getName().equalsIgnoreCase(colName))) {
             throw new DdlException("Renaming partition columns has problems, forbidden in current Doris version");
+        }
+        // TODO support light schema change for sequence mapping
+        if (Config.isCloudMode() && table.hasColumnSeqMapping()) {
+            throw new DdlException("sequence mapping do not support rename yet");
         }
 
         Map<Long, MaterializedIndexMeta> indexIdToMeta = table.getIndexIdToMeta();
