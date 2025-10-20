@@ -43,6 +43,7 @@ import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.insert.InsertTask;
+import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
 import org.apache.doris.load.loadv2.LoadJob;
@@ -148,6 +149,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.tvfType = currentTvf.getFunctionName();
             this.originTvfProps = currentTvf.getProperties().getMap();
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
+            // validate and init offset
+            if (jobProperties.getStartOffset() != null){
+                Offset offset = validateOffset(jobProperties.getStartOffset());
+                this.offsetProvider.updateOffset(offset);
+            }
         } catch (AnalysisException ae) {
             log.warn("parse streaming insert job failed, props: {}", properties, ae);
             throw new RuntimeException(ae.getMessage());
@@ -199,6 +205,23 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     /**
+     * Check whether Offset can be serialized into the corresponding data source
+     * */
+    public Offset validateOffset(String offsetStr) throws AnalysisException {
+        Offset offset;
+        try {
+            offset = offsetProvider.deserializeOffset(offsetStr);
+        } catch (Exception ex) {
+            log.info("initialize offset failed, offset: {}", offsetStr, ex);
+            throw new AnalysisException("Failed to initialize offset, " + ex.getMessage());
+        }
+        if (offset == null || !offset.isValidOffset()) {
+            throw new AnalysisException("Invalid format for offset: " + offsetStr);
+        }
+        return offset;
+    }
+
+    /**
      * When alter updates SQL, it is necessary to
      * update the command maintained in memory synchronously
      * @param sql
@@ -207,6 +230,14 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         setExecuteSql(sql);
         initLogicalPlan(true);
         generateEncryptedSql();
+    }
+
+    /**
+     * When alter updates Properties, it is necessary to update jobProperties
+     */
+    public void updateProperties(Map<String, String> properties) {
+        this.properties.putAll(properties);
+        this.jobProperties = new StreamingJobProperties(this.properties);
     }
 
     @Override

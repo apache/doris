@@ -26,6 +26,7 @@ import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -91,7 +92,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
             }
             // update properties
             if (!properties.isEmpty()) {
-                updateJob.getProperties().putAll(properties);
+                updateJob.updateProperties(properties);
             }
             return updateJob;
         } else {
@@ -112,16 +113,27 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
             StreamingInsertJob streamingJob = (StreamingInsertJob) job;
             streamingJob.checkPrivilege(ConnectContext.get());
 
-            boolean proCheck = checkProperties(streamingJob.getProperties());
-            boolean sqlCheck = checkSql(streamingJob.getExecuteSql());
-            if (sqlCheck) {
+            boolean propModified = isPropertiesModified(streamingJob.getProperties());
+            if (propModified) {
+                validateProps(streamingJob);
+            }
+            boolean sqlModified = isSqlModified(streamingJob.getExecuteSql());
+            if (sqlModified) {
                 checkUnmodifiableProperties(streamingJob.getExecuteSql());
             }
-            if (!proCheck && !sqlCheck) {
+            if (!propModified && !sqlModified) {
                 throw new AnalysisException("No properties or sql changed in ALTER JOB");
             }
         } else {
             throw new AnalysisException("Unsupported job type for ALTER:" + job.getJobType());
+        }
+    }
+
+    private void validateProps(StreamingInsertJob streamingJob) throws AnalysisException {
+        StreamingJobProperties jobProperties = new StreamingJobProperties(properties);
+        jobProperties.validate();
+        if (jobProperties.getStartOffset() != null){
+            streamingJob.validateOffset(jobProperties.getStartOffset());
         }
     }
 
@@ -166,7 +178,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
         return Pair.of(targetTable, unboundTVFRelation);
     }
 
-    private boolean checkProperties(Map<String, String> originProps) {
+    private boolean isPropertiesModified(Map<String, String> originProps) {
         if (this.properties == null || this.properties.isEmpty()) {
             return false;
         }
@@ -176,7 +188,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
         return false;
     }
 
-    private boolean checkSql(String originSql) {
+    private boolean isSqlModified(String originSql) {
         if (originSql == null || originSql.isEmpty() || sql == null || sql.isEmpty()) {
             return false;
         }
