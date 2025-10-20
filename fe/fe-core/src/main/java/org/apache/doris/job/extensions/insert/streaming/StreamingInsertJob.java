@@ -414,9 +414,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 // todo: reset cloud currentOffset
             }
         }
-
-        this.properties = inputProperties;
-        this.jobProperties = inputStreamProps;
+        this.properties.putAll(inputProperties);
+        this.jobProperties = new StreamingJobProperties(this.properties);
     }
 
     @Override
