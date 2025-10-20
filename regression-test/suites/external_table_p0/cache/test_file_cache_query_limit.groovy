@@ -234,7 +234,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
 
     logger.info("==================== Start running file cache query limit test 1 ====================")
 
-    def fileCacheQueryLimitPercentTest1 = (fileCacheQueryLimitPercent / 2) as Long
+    def fileCacheQueryLimitPercentTest1 = (fileCacheQueryLimitPercent / 1.5) as Long
     logger.info("file_cache_query_limit_percent_test1: " + fileCacheQueryLimitPercentTest1)
 
     // Clear file cache
@@ -401,7 +401,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
 
     logger.info("==================== Start running file cache query limit test 2 ====================")
 
-    def fileCacheQueryLimitPercentTest2 = (fileCacheQueryLimitPercent / 3) as Long
+    def fileCacheQueryLimitPercentTest2 = (fileCacheQueryLimitPercent / 2) as Long
     logger.info("file_cache_query_limit_percent_test2: " + fileCacheQueryLimitPercentTest2)
 
     // Clear file cache
