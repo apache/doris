@@ -18,10 +18,14 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.properties.ChildOutputPropertyDeriver;
 import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
@@ -33,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -144,7 +149,23 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
                 }
             }
             newProjections.addAll(cseCandidates.values());
-            project = project.withProjectionsAndChild(newProjections, (Plan) project.child());
+            Set<NamedExpression> physicalPropertiesUsed = new HashSet<>();
+            for (OrderKey orderkey : project.getPhysicalProperties().getOrderSpec().getOrderKeys()) {
+                physicalPropertiesUsed.addAll(orderkey.getExpr().getInputSlots());
+            }
+            if (project.getPhysicalProperties().getDistributionSpec() instanceof DistributionSpecHash) {
+                DistributionSpecHash distr = (DistributionSpecHash) project.getPhysicalProperties()
+                        .getDistributionSpec();
+                List<ExprId> shuffleColumnIds = distr.getOrderedShuffledColumns();
+                for (NamedExpression ne : project.getProjects()) {
+                    if (shuffleColumnIds.contains(ne.getExprId())) {
+                        physicalPropertiesUsed.add(ne);
+                    }
+                }
+            }
+            newProjections.addAll(physicalPropertiesUsed);
+
+            project = project.withProjectionsAndChild(newProjections, project.child());
             aggregate = (PhysicalHashAggregate<? extends Plan>) aggregate
                     .withAggOutput(aggOutputReplaced)
                     .withChildren(project);
@@ -161,9 +182,8 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
                     () -> DataTrait.EMPTY_TRAIT
             );
             AbstractPhysicalPlan child = ((AbstractPhysicalPlan) aggregate.child());
-            PhysicalProperties projectPhysicalProperties = new PhysicalProperties(
-                    child.getPhysicalProperties().getDistributionSpec(),
-                    child.getPhysicalProperties().getOrderSpec());
+            PhysicalProperties projectPhysicalProperties = ChildOutputPropertyDeriver.computeProjectOutputProperties(
+                    projections, child.getPhysicalProperties());
             PhysicalProject<? extends Plan> project = new PhysicalProject<>(projections, Optional.empty(),
                     projectLogicalProperties,
                     projectPhysicalProperties,
