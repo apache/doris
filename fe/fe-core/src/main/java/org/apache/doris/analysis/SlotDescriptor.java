@@ -42,6 +42,9 @@ public class SlotDescriptor {
     private Type type;
     private Column column;  // underlying column, if there is one
 
+    // used in explain verbose, caption is column name or alias name
+    private String caption;
+
     // for SlotRef.toSql() in the absence of a path
     private String label;
     // for variant column's sub column lables
@@ -148,6 +151,7 @@ public class SlotDescriptor {
     public void setColumn(Column column) {
         this.column = column;
         this.type = column.getType();
+        this.caption = column.getName();
     }
 
     public void setSrcColumn(Column column) {
@@ -338,8 +342,12 @@ public class SlotDescriptor {
         return tSlotDescriptor;
     }
 
+    public void setCaption(String caption) {
+        this.caption = caption;
+    }
+
     public String debugString() {
-        String colStr = (column == null ? "null" : column.getName());
+        String colStr = (column == null ? caption : column.getName());
         String typeStr = (type == null ? "null" : type.toString());
         String parentTupleId = (parent == null) ? "null" : parent.getId().toString();
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", colStr)
@@ -358,7 +366,7 @@ public class SlotDescriptor {
         return new StringBuilder()
                 .append(prefix).append("SlotDescriptor{")
                 .append("id=").append(id)
-                .append(", col=").append(column == null ? "null" : column.getName())
+                .append(", col=").append(column == null ? caption : column.getName())
                 .append(", colUniqueId=").append(column == null ? "null" : column.getUniqueId())
                 .append(", type=").append(type == null ? "null" : type.toSql())
                 .append(", nullable=").append(isNullable)
