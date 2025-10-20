@@ -60,6 +60,7 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vmap_literal.h"
 #include "vec/exprs/vmatch_predicate.h"
+#include "vec/exprs/vsearch.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
 #include "vec/utils/util.hpp"
@@ -495,6 +496,10 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             expr = VCastExpr::create_shared(expr_node);
             break;
         }
+        case TExprNodeType::TRY_CAST_EXPR: {
+            expr = TryCastExpr::create_shared(expr_node);
+            break;
+        }
         case TExprNodeType::IN_PRED: {
             expr = VInPredicate::create_shared(expr_node);
             break;
@@ -508,6 +513,10 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         }
         case TExprNodeType::INFO_FUNC: {
             expr = VInfoFunc::create_shared(expr_node);
+            break;
+        }
+        case TExprNodeType::SEARCH_EXPR: {
+            expr = VSearchExpr::create_shared(expr_node);
             break;
         }
         default:
@@ -636,7 +645,7 @@ Status VExpr::check_expr_output_type(const VExprContextSPtrs& ctxs,
         auto&& [name, expected_type] = name_and_types[i];
         if (!check_type_can_be_converted(real_expr_type, expected_type)) {
             return Status::InternalError(
-                    "output type not match expr type  , col name {} , expected type {} , real type "
+                    "output type not match expr type, col name {} , expected type {} , real type "
                     "{}",
                     name, expected_type->get_name(), real_expr_type->get_name());
         }
@@ -899,6 +908,8 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
             auto* column_literal = assert_cast<VLiteral*>(child.get());
             arguments.emplace_back(column_literal->get_column_ptr(),
                                    column_literal->get_data_type(), column_literal->expr_name());
+        } else if (child->can_push_down_to_index()) {
+            RETURN_IF_ERROR(child->evaluate_inverted_index(context, segment_num_rows));
         } else {
             return Status::OK(); // others cases
         }

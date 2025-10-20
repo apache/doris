@@ -662,6 +662,12 @@ void FragmentMgr::remove_pipeline_context(std::pair<TUniqueId, int> key) {
     _pipeline_map.erase(key);
 }
 
+void FragmentMgr::remove_query_context(const TUniqueId& key) {
+#ifndef BE_TEST
+    _query_ctx_map.erase(key);
+#endif
+}
+
 std::shared_ptr<QueryContext> FragmentMgr::get_query_ctx(const TUniqueId& query_id) {
     auto val = _query_ctx_map.find(query_id);
     if (auto q_ctx = val.lock()) {
@@ -747,13 +753,11 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                         if (parent.__isset.runtime_filter_info) {
                             auto info = parent.runtime_filter_info;
                             if (info.__isset.runtime_filter_params) {
-                                if (!info.runtime_filter_params.rid_to_runtime_filter.empty()) {
-                                    auto handler =
-                                            std::make_shared<RuntimeFilterMergeControllerEntity>();
-                                    RETURN_IF_ERROR(
-                                            handler->init(query_ctx, info.runtime_filter_params));
-                                    query_ctx->set_merge_controller_handler(handler);
-                                }
+                                auto handler =
+                                        std::make_shared<RuntimeFilterMergeControllerEntity>();
+                                RETURN_IF_ERROR(
+                                        handler->init(query_ctx, info.runtime_filter_params));
+                                query_ctx->set_merge_controller_handler(handler);
 
                                 query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
                                         info.runtime_filter_params);
@@ -787,16 +791,32 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
                                     std::pair<TUniqueId, int>,
                                     std::shared_ptr<pipeline::PipelineFragmentContext>>& map)
                                     -> Status {
+            std::set<TUniqueId> query_id_set;
             for (auto& it : map) {
                 auto elapsed = it.second->elapsed_time() / 1000000000;
                 if (elapsed < duration) {
                     // Only display tasks which has been running for more than {duration} seconds.
                     continue;
                 }
+                if (!query_id_set.contains(it.first.first)) {
+                    query_id_set.insert(it.first.first);
+                    fmt::format_to(
+                            debug_string_buffer, "QueryId: {}, global_runtime_filter_mgr: {}\n",
+                            print_id(it.first.first),
+                            it.second->get_query_ctx()->runtime_filter_mgr()->debug_string());
+
+                    if (it.second->get_query_ctx()->get_merge_controller_handler()) {
+                        fmt::format_to(debug_string_buffer, "{}\n",
+                                       it.second->get_query_ctx()
+                                               ->get_merge_controller_handler()
+                                               ->debug_string());
+                    }
+                }
+
                 auto timeout_second = it.second->timeout_second();
                 fmt::format_to(
                         debug_string_buffer,
-                        "No.{} (elapse_second={}s, query_timeout_second={}s, is_timeout={}) : {}\n",
+                        "No.{} (elapse_second={}s, query_timeout_second={}s, is_timeout={}): {}\n",
                         i, elapsed, timeout_second, it.second->is_timeout(now),
                         it.second->debug_string());
                 i++;
@@ -893,7 +913,7 @@ void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
         }
     }
     query_ctx->cancel(reason);
-    _query_ctx_map.erase(query_id);
+    remove_query_context(query_id);
     LOG(INFO) << "Query " << print_id(query_id)
               << " is cancelled and removed. Reason: " << reason.to_string();
 }
@@ -942,10 +962,12 @@ void FragmentMgr::cancel_worker() {
 
         std::unordered_map<std::shared_ptr<PBackendService_Stub>, BrpcItem> brpc_stub_with_queries;
         {
+            std::vector<std::shared_ptr<QueryContext>> contexts;
             _query_ctx_map.apply([&](phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>>&
                                              map) -> Status {
                 for (auto it = map.begin(); it != map.end();) {
                     if (auto q_ctx = it->second.lock()) {
+                        contexts.push_back(q_ctx);
                         if (q_ctx->is_timeout(now)) {
                             LOG_WARNING("Query {} is timeout", print_id(it->first));
                             queries_timeout.push_back(it->first);
@@ -967,6 +989,7 @@ void FragmentMgr::cancel_worker() {
                 }
                 return Status::OK();
             });
+            std::vector<std::shared_ptr<QueryContext>> {}.swap(contexts);
 
             // We use a very conservative cancel strategy.
             // 0. If there are no running frontends, do not cancel any queries.
@@ -979,11 +1002,13 @@ void FragmentMgr::cancel_worker() {
                            "starting? "
                         << "We will not cancel any outdated queries in this situation.";
             } else {
+                std::vector<std::shared_ptr<QueryContext>> q_contexts;
                 _query_ctx_map.apply([&](phmap::flat_hash_map<TUniqueId,
                                                               std::weak_ptr<QueryContext>>& map)
                                              -> Status {
                     for (const auto& it : map) {
                         if (auto q_ctx = it.second.lock()) {
+                            q_contexts.push_back(q_ctx);
                             const int64_t fe_process_uuid = q_ctx->get_fe_process_uuid();
 
                             if (fe_process_uuid == 0) {
@@ -1337,11 +1362,13 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
 
 void FragmentMgr::get_runtime_query_info(
         std::vector<std::weak_ptr<ResourceContext>>* _resource_ctx_list) {
+    std::vector<std::shared_ptr<QueryContext>> contexts;
     _query_ctx_map.apply(
             [&](phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>>& map) -> Status {
                 for (auto iter = map.begin(); iter != map.end();) {
                     if (auto q_ctx = iter->second.lock()) {
                         _resource_ctx_list->push_back(q_ctx->resource_ctx());
+                        contexts.push_back(q_ctx);
                         iter++;
                     } else {
                         iter = map.erase(iter);

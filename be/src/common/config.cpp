@@ -423,7 +423,7 @@ DEFINE_mInt32(data_page_cache_stale_sweep_time_sec, "300");
 DEFINE_mInt32(index_page_cache_stale_sweep_time_sec, "600");
 DEFINE_mInt32(pk_index_page_cache_stale_sweep_time_sec, "600");
 
-DEFINE_Bool(enable_low_cardinality_optimize, "true");
+DEFINE_mBool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
 
 // be policy
@@ -687,6 +687,7 @@ DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 
 // max write buffer size before flush, default 200MB
 DEFINE_mInt64(write_buffer_size, "209715200");
+DEFINE_mBool(enable_adaptive_write_buffer_size, "true");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "104857600");
 DEFINE_mInt64(min_write_buffer_size_for_partial_update, "1048576");
@@ -1494,6 +1495,9 @@ DEFINE_mBool(skip_loading_stale_rowset_meta, "false");
 
 DEFINE_Bool(enable_file_logger, "true");
 
+// Enable partition column fallback when partition columns are missing from file
+DEFINE_Bool(enable_iceberg_partition_column_fallback, "true");
+
 // The minimum row group size when exporting Parquet files. default 128MB
 DEFINE_Int64(min_row_group_size, "134217728");
 
@@ -1597,6 +1601,11 @@ DEFINE_mBool(enable_wal_tde, "false");
 DEFINE_mBool(print_stack_when_cache_miss, "false");
 
 DEFINE_mBool(read_cluster_cache_opt_verbose_log, "false");
+
+DEFINE_String(aws_credentials_provider_version, "v2");
+DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config) -> bool {
+    return config == "v1" || config == "v2";
+});
 
 // clang-format off
 #ifdef BE_TEST

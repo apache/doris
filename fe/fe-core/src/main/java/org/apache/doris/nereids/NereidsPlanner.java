@@ -227,6 +227,21 @@ public class NereidsPlanner extends Planner {
                         logicalSqlCache.getCacheValues(), logicalSqlCache.getBackendAddress(),
                         logicalSqlCache.getPlanBody()
                 );
+                if (explainLevel != ExplainLevel.NONE) {
+                    this.cascadesContext = CascadesContext.initContext(
+                            statementContext, parsedPlan, PhysicalProperties.ANY);
+                    switch (explainLevel) {
+                        case OPTIMIZED_PLAN:
+                        case ALL_PLAN:
+                            cascadesContext.addPlanProcess(
+                                    new PlanProcess("ImplementSqlCache",
+                                            parsedPlan.treeString(), physicalPlan.treeString())
+                            );
+                            break;
+                        default: {
+                        }
+                    }
+                }
                 return physicalPlan;
             }
             if (explainLevel == ExplainLevel.PARSED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -900,7 +915,12 @@ public class NereidsPlanner extends Planner {
                     }
                 }
         }
-
+        if (ConnectContext.get() != null && cascadesContext != null
+                && cascadesContext.getGroupExpressionCount()
+                        > ConnectContext.get().getSessionVariable().memoMaxGroupExpressionSize) {
+            plan += "\n\n\n group expression count exceeds memo_max_group_expression_size("
+                    + ConnectContext.get().getSessionVariable().memoMaxGroupExpressionSize + ")\n";
+        }
         if (statementContext != null) {
             if (!statementContext.getHints().isEmpty()) {
                 String hint = getHintExplainString(statementContext.getHints());

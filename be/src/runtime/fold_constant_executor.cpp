@@ -60,6 +60,7 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -250,27 +251,19 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size,
     case TYPE_DATE:
     case TYPE_DATETIME: {
         auto* date_value = reinterpret_cast<VecDateTimeValue*>(src);
-        char str[MAX_DTVALUE_STR_LEN];
-        date_value->to_string(str);
-        result = std::string(str);
+        result = vectorized::CastToString::from_date_or_datetime(*date_value);
         break;
     }
     case TYPE_DATEV2: {
         DateV2Value<DateV2ValueType> value =
                 binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(int32_t*)src);
-
-        char buf[64];
-        char* pos = value.to_string(buf);
-        result = std::string(buf, pos - buf - 1);
+        result = vectorized::CastToString::from_datev2(value);
         break;
     }
     case TYPE_DATETIMEV2: {
         DateV2Value<DateTimeV2ValueType> value =
                 binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(int64_t*)src);
-
-        char buf[64];
-        char* pos = value.to_string(buf, type->get_scale());
-        result = std::string(buf, pos - buf - 1);
+        result = vectorized::CastToString::from_datetimev2(value, type->get_scale());
         break;
     }
     case TYPE_DECIMALV2: {
@@ -280,22 +273,13 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size,
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:
-    case TYPE_DECIMAL256: {
-        result = column_type->to_string(*column_ptr, 0);
-        break;
-    }
+    case TYPE_DECIMAL256:
     case TYPE_ARRAY:
     case TYPE_JSONB:
     case TYPE_MAP:
-    case TYPE_STRUCT: {
-        result = column_type->to_string(*column_ptr, 0);
-        break;
-    }
+    case TYPE_STRUCT:
     case TYPE_VARIANT:
-    case TYPE_QUANTILE_STATE: {
-        result = column_type->to_string(*column_ptr, 0);
-        break;
-    }
+    case TYPE_QUANTILE_STATE:
     case TYPE_IPV4:
     case TYPE_IPV6: {
         result = column_type->to_string(*column_ptr, 0);

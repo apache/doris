@@ -38,9 +38,9 @@ class IColumn;
 class Arena;
 #include "common/compile_check_begin.h"
 
-inline void escape_string(const char* src, size_t* len, char escape_char) {
+inline void escape_string(char* src, size_t* len, char escape_char) {
     const char* start = src;
-    char* dest_ptr = const_cast<char*>(src);
+    char* dest_ptr = src;
     const char* end = src + *len;
     bool escape_next_char = false;
 
@@ -66,9 +66,9 @@ inline void escape_string(const char* src, size_t* len, char escape_char) {
 }
 
 // specially escape quote with double quote
-inline void escape_string_for_csv(const char* src, size_t* len, char escape_char, char quote_char) {
+inline void escape_string_for_csv(char* src, size_t* len, char escape_char, char quote_char) {
     const char* start = src;
-    char* dest_ptr = const_cast<char*>(src);
+    char* dest_ptr = src;
     const char* end = src + *len;
     bool escape_next_char = false;
 

@@ -277,11 +277,10 @@ Status OlapScanner::open(RuntimeState* state) {
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
-        std::stringstream ss;
-        ss << "failed to initialize storage reader. tablet="
-           << _tablet_reader_params.tablet->tablet_id() << ", res=" << res
-           << ", backend=" << BackendOptions::get_localhost();
-        return Status::InternalError(ss.str());
+        res.append("failed to initialize storage reader. tablet=" +
+                   std::to_string(_tablet_reader_params.tablet->tablet_id()) +
+                   ", backend=" + BackendOptions::get_localhost());
+        return res;
     }
 
     // Do not hold rs_splits any more to release memory.
@@ -603,6 +602,7 @@ void OlapScanner::update_realtime_counters() {
             static_cast<pipeline::OlapScanLocalState*>(_local_state);
     const OlapReaderStatistics& stats = _tablet_reader->stats();
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
+    COUNTER_UPDATE(local_state->_read_uncompressed_counter, stats.uncompressed_bytes_read);
     COUNTER_UPDATE(local_state->_scan_bytes, stats.uncompressed_bytes_read);
     COUNTER_UPDATE(local_state->_scan_rows, stats.raw_rows_read);
 
@@ -625,25 +625,25 @@ void OlapScanner::update_realtime_counters() {
                 stats.compressed_bytes_read);
     } else {
         _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
-                stats.file_cache_stats.bytes_read_from_local);
+                stats.file_cache_stats.bytes_read_from_local - _bytes_read_from_local);
         _state->get_query_ctx()
                 ->resource_ctx()
                 ->io_context()
                 ->update_scan_bytes_from_remote_storage(
-                        stats.file_cache_stats.bytes_read_from_remote);
-        io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
-        cache_profile.update(&stats.file_cache_stats);
+                        stats.file_cache_stats.bytes_read_from_remote - _bytes_read_from_remote);
+
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
-                stats.file_cache_stats.bytes_read_from_local);
+                stats.file_cache_stats.bytes_read_from_local - _bytes_read_from_local);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
-                stats.file_cache_stats.bytes_read_from_remote);
+                stats.file_cache_stats.bytes_read_from_remote - _bytes_read_from_remote);
     }
 
     _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
     _tablet_reader->mutable_stats()->uncompressed_bytes_read = 0;
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
-    _tablet_reader->mutable_stats()->file_cache_stats.bytes_read_from_local = 0;
-    _tablet_reader->mutable_stats()->file_cache_stats.bytes_read_from_remote = 0;
+
+    _bytes_read_from_local = _tablet_reader->stats().file_cache_stats.bytes_read_from_local;
+    _bytes_read_from_remote = _tablet_reader->stats().file_cache_stats.bytes_read_from_remote;
 }
 
 void OlapScanner::_collect_profile_before_close() {
@@ -766,9 +766,13 @@ void OlapScanner::_collect_profile_before_close() {
     inverted_index_profile.update(local_state->_index_filter_profile.get(),
                                   &stats.inverted_index_stats);
 
-    if (config::enable_file_cache) {
+    // only cloud deploy mode will use file cache. and keep the same with FileScanner
+    if (config::is_cloud_mode() && config::enable_file_cache &&
+        _state->query_options().enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
         cache_profile.update(&stats.file_cache_stats);
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
+                stats.file_cache_stats.bytes_write_into_cache);
     }
     COUNTER_UPDATE(local_state->_output_index_result_column_timer,
                    stats.output_index_result_column_timer);

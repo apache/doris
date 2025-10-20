@@ -250,34 +250,33 @@ struct TimeDiffImpl {
     static constexpr PrimitiveType ArgPType = DateType;
     using NativeType = typename PrimitiveTypeTraits<DateType>::CppType;
     using ArgType = typename PrimitiveTypeTraits<DateType>::DataType::FieldType;
+    //TODO: remove V1 since FE already removed it.
     static constexpr bool UsingTimev2 = is_date_v2_or_datetime_v2(DateType);
-
-    static constexpr PrimitiveType ReturnType =
-            TYPE_TIMEV2; // TimeV1Type also use double as native type. same as v2.
+    static constexpr PrimitiveType ReturnType = TYPE_TIMEV2;
 
     static constexpr auto name = "timediff";
-    static constexpr int64_t limit_value = 3020399000000; // 838:59:59 convert to microsecond
     static inline DataTypeTimeV2::FieldType execute(const ArgType& t0, const ArgType& t1) {
         const auto& ts0 = reinterpret_cast<const NativeType&>(t0);
         const auto& ts1 = reinterpret_cast<const NativeType&>(t1);
         if constexpr (UsingTimev2) {
-            // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
-            // the time type value between '-838:59:59' and '838:59:59', so the return value should limited
             int64_t diff_m = ts0.datetime_diff_in_microseconds(ts1);
-            if (diff_m > limit_value) {
-                return (double)limit_value;
-            } else if (diff_m < -1 * limit_value) {
-                return (double)(-1 * limit_value);
-            } else {
-                return (double)diff_m;
-            }
+            return TimeValue::limit_with_bound(diff_m);
         } else {
             return TimeValue::from_seconds_with_limit(ts0.datetime_diff_in_seconds(ts1));
         }
     }
+
+    /// both non-virtual function. for compile-time function resolution for base template FunctionTimeDiff.
     static DataTypes get_variadic_argument_types() {
-        return {std ::make_shared<typename PrimitiveTypeTraits<DateType>::DataType>(),
-                std ::make_shared<typename PrimitiveTypeTraits<DateType>::DataType>()};
+        return {std::make_shared<typename PrimitiveTypeTraits<DateType>::DataType>(),
+                std::make_shared<typename PrimitiveTypeTraits<DateType>::DataType>()};
+    }
+
+    static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
+        if (arguments[0].type->is_nullable() || arguments[1].type->is_nullable()) {
+            return make_nullable(std::make_shared<DataTypeTimeV2>(arguments[0].type->get_scale()));
+        }
+        return std::make_shared<DataTypeTimeV2>(arguments[0].type->get_scale());
     }
 };
 #define TIME_DIFF_FUNCTION_IMPL(CLASS, NAME, UNIT) \
@@ -424,6 +423,9 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        if constexpr (requires { Transform::get_return_type_impl(arguments); }) {
+            return Transform::get_return_type_impl(arguments);
+        }
         RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(Transform::ReturnType);
     }
 
@@ -836,10 +838,31 @@ struct CurrentTimeImpl {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
         auto col_to = ColumnTimeV2::create();
-        VecDateTimeValue dtv;
+        DateV2Value<DateTimeV2ValueType> dtv;
         dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                           context->state()->timezone_obj());
-        auto time = TimeValue::make_time(dtv.hour(), dtv.minute(), dtv.second());
+        double time;
+        if (arguments.size() == 1) {
+            // the precision must be const, which is checked in fe.
+            const auto* col = assert_cast<const ColumnInt8*>(
+                    block.get_by_position(arguments[0]).column.get());
+            uint8_t precision = col->get_element(0);
+            if (precision <= 6) {
+                dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
+                                  context->state()->nano_seconds(),
+                                  context->state()->timezone_obj(), precision);
+                time = TimeValue::make_time(dtv.hour(), dtv.minute(), dtv.second(),
+                                            dtv.microsecond());
+            } else {
+                return Status::InvalidArgument(
+                        "The precision in function CURTIME should be between 0 and 6, but got {}",
+                        precision);
+            }
+        } else {
+            dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
+                              context->state()->timezone_obj());
+            time = TimeValue::make_time(dtv.hour(), dtv.minute(), dtv.second());
+        }
         col_to->insert_value(time);
         block.get_by_position(result).column =
                 ColumnConst::create(std::move(col_to), input_rows_count);
@@ -1224,7 +1247,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeTimeV2>();
+        return std::make_shared<DataTypeTimeV2>(arguments[0]->get_scale());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -1244,5 +1267,116 @@ public:
         return Status::OK();
     }
 };
+
+class FunctionGetFormat : public IFunction {
+public:
+    static constexpr auto name = "get_format";
+    static FunctionPtr create() { return std::make_shared<FunctionGetFormat>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        const auto& [left_col_ptr, left_is_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_col_ptr, right_is_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        const auto* left_col = assert_cast<const ColumnString*>(left_col_ptr.get());
+        const auto* right_col = assert_cast<const ColumnString*>(right_col_ptr.get());
+
+        auto type_ref = left_col->get_data_at(0);
+        std::string type_str(type_ref.data, type_ref.size);
+
+        auto res_col = ColumnString::create();
+        auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& res_data = res_col->get_chars();
+        auto& res_offsets = res_col->get_offsets();
+
+        if (type_str == DATE_NAME) {
+            execute_format_type<DateFormatImpl>(res_data, res_offsets, res_null_map->get_data(),
+                                                input_rows_count, right_col);
+        } else if (type_str == DATETIME_NAME) {
+            execute_format_type<DateTimeFormatImpl>(res_data, res_offsets, res_null_map->get_data(),
+                                                    input_rows_count, right_col);
+        } else if (type_str == TIME_NAME) {
+            execute_format_type<TimeFormatImpl>(res_data, res_offsets, res_null_map->get_data(),
+                                                input_rows_count, right_col);
+        } else {
+            return Status::InvalidArgument(
+                    "Function GET_FORMAT only support DATE, DATETIME or TIME");
+        }
+
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(res_col), std::move(res_null_map)));
+        return Status::OK();
+    }
+
+private:
+    template <typename Impl>
+    static void execute_format_type(ColumnString::Chars& res_data,
+                                    ColumnString::Offsets& res_offsets,
+                                    PaddedPODArray<UInt8>& res_null_map, size_t input_rows_count,
+                                    const ColumnString* right_col) {
+        res_data.reserve(input_rows_count * Impl::ESTIMATE_SIZE);
+        res_offsets.reserve(input_rows_count);
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            StringRef format_ref = right_col->get_data_at(i);
+            std::string format_str(format_ref.data, format_ref.size);
+            std::transform(format_str.begin(), format_str.end(), format_str.begin(), ::toupper);
+
+            std::string_view format_res;
+            if (format_str == "USA") {
+                format_res = Impl::USA;
+            } else if (format_str == "JIS" || format_str == "ISO") {
+                format_res = Impl::JIS_ISO;
+            } else if (format_str == "EUR") {
+                format_res = Impl::EUR;
+            } else if (format_str == "INTERNAL") {
+                format_res = Impl::INTERNAL;
+            } else {
+                res_null_map[i] = 1;
+                res_offsets.push_back(res_data.size());
+                continue;
+            }
+
+            res_data.insert(format_res.data(), format_res.data() + format_res.size());
+            res_offsets.push_back(res_data.size());
+        }
+    }
+
+    struct DateFormatImpl {
+        static constexpr auto USA = "%m.%d.%Y";
+        static constexpr auto JIS_ISO = "%Y-%m-%d";
+        static constexpr auto EUR = "%d.%m.%Y";
+        static constexpr auto INTERNAL = "%Y%m%d";
+        static constexpr size_t ESTIMATE_SIZE = 8;
+    };
+
+    struct DateTimeFormatImpl {
+        static constexpr auto USA = "%Y-%m-%d %H.%i.%s";
+        static constexpr auto JIS_ISO = "%Y-%m-%d %H:%i:%s";
+        static constexpr auto EUR = "%Y-%m-%d %H.%i.%s";
+        static constexpr auto INTERNAL = "%Y%m%d%H%i%s";
+        static constexpr size_t ESTIMATE_SIZE = 17;
+    };
+
+    struct TimeFormatImpl {
+        static constexpr auto USA = "%h:%i:%s %p";
+        static constexpr auto JIS_ISO = "%H:%i:%s";
+        static constexpr auto EUR = "%H.%i.%s";
+        static constexpr auto INTERNAL = "%H%i%s";
+        static constexpr size_t ESTIMATE_SIZE = 11;
+    };
+
+    static constexpr auto DATE_NAME = "DATE";
+    static constexpr auto DATETIME_NAME = "DATETIME";
+    static constexpr auto TIME_NAME = "TIME";
+};
+
 #include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

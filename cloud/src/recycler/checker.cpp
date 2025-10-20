@@ -51,7 +51,7 @@
 #include "meta-store/blob_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
-#include "meta-store/txn_kv_error.h"
+#include "snapshot/snapshot_manager.h"
 #ifdef ENABLE_HDFS_STORAGE_VAULT
 #include "recycler/hdfs_accessor.h"
 #endif
@@ -242,6 +242,18 @@ int Checker::start() {
                 }
             }
 
+            if (config::enable_snapshot_check) {
+                if (int ret = checker->do_snapshots_check(); ret != 0) {
+                    success = false;
+                }
+            }
+
+            if (config::enable_mvcc_meta_key_check) {
+                if (int ret = checker->do_mvcc_meta_key_check(); ret != 0) {
+                    success = false;
+                }
+            }
+
             // If instance checker has been aborted, don't finish this job
             if (!checker->stopped()) {
                 finish_instance_recycle_job(txn_kv_.get(), check_job_key, instance.instance_id(),
@@ -416,7 +428,9 @@ int key_exist(TxnKv* txn_kv, std::string_view key) {
 }
 
 InstanceChecker::InstanceChecker(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id)
-        : txn_kv_(std::move(txn_kv)), instance_id_(instance_id) {}
+        : txn_kv_(txn_kv), instance_id_(instance_id) {
+    snapshot_manager_ = std::make_shared<SnapshotManager>(std::move(txn_kv));
+}
 
 int InstanceChecker::init(const InstanceInfoPB& instance) {
     int ret = init_obj_store_accessors(instance);
@@ -2048,10 +2062,21 @@ int InstanceChecker::scan_and_handle_kv(
         return -1;
     }
     std::unique_ptr<RangeGetIterator> it;
+    int limit = 10000;
+    TEST_SYNC_POINT_CALLBACK("InstanceChecker:scan_and_handle_kv:limit", &limit);
     do {
-        err = txn->get(start_key, end_key, &it);
+        err = txn->get(start_key, end_key, &it, false, limit);
+        TEST_SYNC_POINT_CALLBACK("InstanceChecker:scan_and_handle_kv:get_err", &err);
+        if (err == TxnErrorCode::TXN_TOO_OLD) {
+            LOG(WARNING) << "failed to get range kv, err=txn too old, "
+                         << " now fallback to non snapshot scan";
+            err = txn_kv_->create_txn(&txn);
+            if (err == TxnErrorCode::TXN_OK) {
+                err = txn->get(start_key, end_key, &it);
+            }
+        }
         if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to get tablet idx, ret=" << err;
+            LOG(WARNING) << "internal error, failed to get range kv, err=" << err;
             return -1;
         }
 
@@ -2631,4 +2656,17 @@ int InstanceChecker::do_meta_rowset_key_check() {
     return ret;
 }
 
+StorageVaultAccessor* InstanceChecker::get_accessor(const std::string& id) {
+    auto it = accessor_map_.find(id);
+    if (it == accessor_map_.end()) {
+        return nullptr;
+    }
+    return it->second.get();
+}
+
+void InstanceChecker::get_all_accessor(std::vector<StorageVaultAccessor*>* accessors) {
+    for (const auto& [_, accessor] : accessor_map_) {
+        accessors->push_back(accessor.get());
+    }
+}
 } // namespace doris::cloud

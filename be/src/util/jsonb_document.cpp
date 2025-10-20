@@ -66,9 +66,9 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
                         continue;
                     }
 
-                    pval = pval->unpack<ObjectVal>()->find(path.get_leg_from_leg_vector(i)->leg_ptr,
-                                                           path.get_leg_from_leg_vector(i)->leg_len,
-                                                           nullptr);
+                    pval = pval->unpack<ObjectVal>()->find(
+                            path.get_leg_from_leg_vector(i)->leg_ptr,
+                            path.get_leg_from_leg_vector(i)->leg_len);
 
                     if (pval) {
                         results.emplace_back(pval);
@@ -159,4 +159,24 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
 
     return result;
 }
+
+std::vector<std::pair<StringRef, const JsonbValue*>> ObjectVal::get_ordered_key_value_pairs()
+        const {
+    std::vector<std::pair<StringRef, const JsonbValue*>> kvs;
+    const auto* obj_val = this;
+    for (auto it = obj_val->begin(); it != obj_val->end(); ++it) {
+        kvs.emplace_back(StringRef(it->getKeyStr(), it->klen()), it->value());
+    }
+    // sort by key
+    std::sort(kvs.begin(), kvs.end(),
+              [](const auto& left, const auto& right) { return left.first < right.first; });
+    // unique by key
+    kvs.erase(std::unique(kvs.begin(), kvs.end(),
+                          [](const auto& left, const auto& right) {
+                              return left.first == right.first;
+                          }),
+              kvs.end());
+    return kvs;
+}
+
 } // namespace doris

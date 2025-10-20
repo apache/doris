@@ -97,15 +97,16 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @SerializedName(value = "sql")
     String executeSql;
 
+    String encryptedSql;
 
     @SerializedName(value = "stc")
-    private AtomicLong succeedTaskCount = new AtomicLong(0);
+    protected AtomicLong succeedTaskCount = new AtomicLong(0);
 
     @SerializedName(value = "ftc")
-    private AtomicLong failedTaskCount = new AtomicLong(0);
+    protected AtomicLong failedTaskCount = new AtomicLong(0);
 
     @SerializedName(value = "ctc")
-    private AtomicLong canceledTaskCount = new AtomicLong(0);
+    protected AtomicLong canceledTaskCount = new AtomicLong(0);
 
     public AbstractJob() {
     }
@@ -179,6 +180,11 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     }
 
     @Override
+    public boolean isJobRunning() {
+        return JobStatus.RUNNING.equals(getJobStatus());
+    }
+
+    @Override
     public void cancelTaskById(long taskId) throws JobException {
         if (CollectionUtils.isEmpty(runningTasks)) {
             throw new JobException("no running task");
@@ -217,6 +223,10 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     }
 
     public List<T> commonCreateTasks(TaskType taskType, C taskContext) {
+        if (JobExecuteType.STREAMING.equals(getJobConfig().getExecuteType())) {
+            taskType = TaskType.STREAMING;
+        }
+
         if (!canCreateTask(taskType)) {
             log.info("job is not ready for scheduling, job id is {},job status is {}, taskType is {}", jobId,
                     jobStatus, taskType);
@@ -249,6 +259,8 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
                 return currentJobStatus.equals(JobStatus.RUNNING);
             case MANUAL:
                 return currentJobStatus.equals(JobStatus.RUNNING) || currentJobStatus.equals(JobStatus.PAUSED);
+            case STREAMING:
+                return !jobStatus.equals(JobStatus.STOPPED) && !jobStatus.equals(JobStatus.FINISHED);
             default:
                 throw new IllegalArgumentException("Unsupported TaskType: " + taskType);
         }
@@ -285,6 +297,10 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         checkJobParamsInternal();
     }
 
+    /**
+     * STOPPED status should not change to any status,
+     * any status can change to STOPPED.
+     */
     public void updateJobStatus(JobStatus newJobStatus) throws JobException {
         if (null == newJobStatus) {
             throw new IllegalArgumentException("jobStatus cannot be null");
@@ -294,10 +310,14 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         }
         String errorMsg = String.format("Can't update job %s status to the %s status",
                 jobStatus.name(), newJobStatus.name());
-        if (newJobStatus.equals(JobStatus.RUNNING) && !jobStatus.equals(JobStatus.PAUSED)) {
+        if (newJobStatus.equals(JobStatus.PENDING) && jobStatus.equals(JobStatus.STOPPED)) {
             throw new IllegalArgumentException(errorMsg);
         }
-        if (newJobStatus.equals(JobStatus.STOPPED) && !jobStatus.equals(JobStatus.RUNNING)) {
+        if (newJobStatus.equals(JobStatus.RUNNING)
+                && (!jobStatus.equals(JobStatus.PAUSED) && !jobStatus.equals(JobStatus.PENDING))) {
+            throw new IllegalArgumentException(errorMsg);
+        }
+        if (newJobStatus.equals(JobStatus.PAUSED) && jobStatus.equals(JobStatus.STOPPED)) {
             throw new IllegalArgumentException(errorMsg);
         }
         if (newJobStatus.equals(JobStatus.FINISHED)) {

@@ -129,8 +129,8 @@ suite('test_ingestion_load_alter_column', 'p0,external') {
 
     if (enableHdfs()) {
 
-        tableName1 = 'tbl_test_spark_load_alter_column_1'
-        tableName2 = 'tbl_test_spark_load_alter_column_2'
+        def tableName1 = 'tbl_test_spark_load_alter_column_1'
+        def tableName2 = 'tbl_test_spark_load_alter_column_2'
 
         try {
 
@@ -194,15 +194,16 @@ suite('test_ingestion_load_alter_column', 'p0,external') {
                 )
                 """
 
-            label = "test_ingestion_load_alter_column_2"
+            def label = "test_ingestion_load_alter_column_2"
 
             testIngestLoadJob.call(tableName2, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet', {
                 sql "alter table ${tableName2} add column c_string string null"
             })
 
         } finally {
-
+            //sql "DROP TABLE ${tableName1}"
+            //sql "DROP TABLE ${tableName2}"
         }
     }
-
 }
+

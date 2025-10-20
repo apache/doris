@@ -162,7 +162,9 @@ public class LoadManager implements Writable {
 
     private long unprotectedGetUnfinishedJobNum() {
         return idToLoadJob.values().stream()
-                .filter(j -> (j.getState() != JobState.FINISHED && j.getState() != JobState.CANCELLED)).count();
+                .filter(j -> (j.getJobType() != EtlJobType.INSERT
+                                && j.getState() != JobState.FINISHED
+                                && j.getState() != JobState.CANCELLED)).count();
     }
 
     public MysqlLoadManager getMysqlLoadManager() {
@@ -189,17 +191,20 @@ public class LoadManager implements Writable {
         }
     }
 
-    private void addLoadJob(LoadJob loadJob) {
-        idToLoadJob.put(loadJob.getId(), loadJob);
-        long dbId = loadJob.getDbId();
-        if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
-            dbIdToLabelToLoadJobs.put(loadJob.getDbId(), new ConcurrentHashMap<>());
+    public void addLoadJob(LoadJob loadJob) {
+        // Insert label may be null in txn mode, we add txn insert job after success.
+        if (loadJob.getLabel() != null) {
+            idToLoadJob.put(loadJob.getId(), loadJob);
+            long dbId = loadJob.getDbId();
+            if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
+                dbIdToLabelToLoadJobs.put(loadJob.getDbId(), new ConcurrentHashMap<>());
+            }
+            Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
+            if (!labelToLoadJobs.containsKey(loadJob.getLabel())) {
+                labelToLoadJobs.put(loadJob.getLabel(), new ArrayList<>());
+            }
+            labelToLoadJobs.get(loadJob.getLabel()).add(loadJob);
         }
-        Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
-        if (!labelToLoadJobs.containsKey(loadJob.getLabel())) {
-            labelToLoadJobs.put(loadJob.getLabel(), new ArrayList<>());
-        }
-        labelToLoadJobs.get(loadJob.getLabel()).add(loadJob);
     }
 
     /**
@@ -213,17 +218,21 @@ public class LoadManager implements Writable {
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
 
         LoadJob loadJob;
-        switch (jobType) {
-            case INSERT:
-                loadJob = new InsertLoadJob(label, transactionId, db.getId(), tableId, createTimestamp, failMsg,
-                        trackingUrl, firstErrorMsg, userInfo);
-                break;
-            case INSERT_JOB:
-                loadJob = new InsertLoadJob(label, transactionId, db.getId(), tableId, createTimestamp, failMsg,
-                        trackingUrl, firstErrorMsg, userInfo, jobId);
-                break;
-            default:
-                return;
+        if (idToLoadJob.containsKey(jobId)) {
+            loadJob = idToLoadJob.get(jobId);
+            if (loadJob instanceof InsertLoadJob) {
+                ((InsertLoadJob) loadJob).setJobProperties(transactionId, tableId, createTimestamp,
+                        failMsg, trackingUrl, firstErrorMsg, userInfo);
+            }
+        } else {
+            switch (jobType) {
+                case INSERT:
+                    loadJob = new InsertLoadJob(label, transactionId, db.getId(), tableId, createTimestamp, failMsg,
+                            trackingUrl, firstErrorMsg, userInfo);
+                    break;
+                default:
+                    return;
+            }
         }
         addLoadJob(loadJob);
         // persistent

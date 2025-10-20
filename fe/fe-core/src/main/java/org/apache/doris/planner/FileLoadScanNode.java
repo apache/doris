@@ -64,18 +64,13 @@ public class FileLoadScanNode extends FileScanNode {
     }
 
     public void finalizeForNereids(TUniqueId loadId, List<NereidsFileGroupInfo> fileGroupInfos,
-            List<NereidsParamCreateContext> contexts, NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo)
+            List<NereidsParamCreateContext> contexts, List<NereidsLoadPlanInfoCollector.LoadPlanInfo> loadPlanInfos)
             throws UserException {
         Preconditions.checkState(contexts.size() == fileGroupInfos.size(),
                 contexts.size() + " vs. " + fileGroupInfos.size());
-        List<Expr> preFilterList = loadPlanInfo.getPreFilterExprList();
-        if (preFilterList != null) {
-            addPreFilterConjuncts(preFilterList);
-        }
-        List<Expr> postFilterList = loadPlanInfo.getPostFilterExprList();
-        if (postFilterList != null) {
-            addConjuncts(postFilterList);
-        }
+        Preconditions.checkState(loadPlanInfos.size() == fileGroupInfos.size(),
+                loadPlanInfos.size() + " vs. " + fileGroupInfos.size());
+
         // ATTN: for load scan node, do not use backend policy in ExternalScanNode.
         // Because backend policy in ExternalScanNode may only contain compute backend.
         // But for load job, we should select backends from all backends, both compute and mix.
@@ -88,6 +83,16 @@ public class FileLoadScanNode extends FileScanNode {
         for (int i = 0; i < contexts.size(); ++i) {
             NereidsParamCreateContext context = contexts.get(i);
             NereidsFileGroupInfo fileGroupInfo = fileGroupInfos.get(i);
+            NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = loadPlanInfos.get(i);
+            // Add filters for each file group's load plan info
+            List<Expr> preFilterList = loadPlanInfo.getPreFilterExprList();
+            if (preFilterList != null) {
+                addPreFilterConjuncts(preFilterList);
+            }
+            List<Expr> postFilterList = loadPlanInfo.getPostFilterExprList();
+            if (postFilterList != null) {
+                addConjuncts(postFilterList);
+            }
             context.params = loadPlanInfo.toFileScanRangeParams(loadId, fileGroupInfo);
             createScanRangeLocations(context, fileGroupInfo, localBackendPolicy);
             this.selectedSplitNum += fileGroupInfo.getFileStatuses().size();

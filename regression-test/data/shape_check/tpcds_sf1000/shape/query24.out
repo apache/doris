@@ -20,11 +20,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------filter((store.s_market_id = 5))
 --------------------------------PhysicalOlapScan[store] apply RFs: RF2
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=(( not (c_birth_country = upper(ca_country)))) build RFs:RF0 c_current_addr_sk->[ca_address_sk]
+--------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=(( not (c_birth_country = upper(ca_country)))) build RFs:RF0 ca_address_sk->[c_current_addr_sk]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[customer_address] apply RFs: RF0
+------------------------------PhysicalOlapScan[customer] apply RFs: RF0
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[customer]
+------------------------------PhysicalOlapScan[customer_address]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[item] apply RFs: RF6
 ----------------PhysicalProject

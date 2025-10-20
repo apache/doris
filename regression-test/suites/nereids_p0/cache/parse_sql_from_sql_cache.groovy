@@ -17,6 +17,7 @@
 
 
 import com.google.common.util.concurrent.Uninterruptibles
+import org.apache.doris.regression.util.JdbcUtils
 
 import java.util.concurrent.TimeUnit
 import java.util.stream.Collectors
@@ -80,6 +81,8 @@ suite("parse_sql_from_sql_cache") {
 
         def dbName = (sql "select database()")[0][0].toString()
         sql "ADMIN SET ALL FRONTENDS CONFIG ('cache_last_version_interval_second' = '0')"
+        sql "ADMIN SET ALL FRONTENDS CONFIG ('sql_cache_manage_num' = '10000')"
+        sql "ADMIN SET ALL FRONTENDS CONFIG ('expire_sql_cache_in_fe_second' = '300')"
 
         // make sure if the table has been dropped, the cache should invalidate,
         // so we should retry multiple times to check
@@ -128,6 +131,37 @@ suite("parse_sql_from_sql_cache") {
                         // insert data can not use cache
                         sql "insert into test_use_plan_cache2 values(6, 1)"
                         assertNoCache "select * from test_use_plan_cache2"
+                    }
+                }),
+                extraThread("testAddPartitionAndInsertOverwrite", {
+                    retryTestSqlCache(3, 1000) {
+                        def tb_name = "test_insert_overwrite_use_plan_cache2"
+                        createTestTable tb_name
+
+                        // after partition changed 10s, the sql cache can be used
+                        sleep(10000)
+
+                        sql "set enable_nereids_planner=true"
+                        sql "set enable_fallback_to_original_planner=false"
+                        sql "set enable_sql_cache=true"
+
+                        assertNoCache "select * from ${tb_name}"
+                        sql "select * from ${tb_name}"
+                        assertHasCache "select * from ${tb_name}"
+
+                        // insert overwrite data can not use cache
+                        sql "INSERT OVERWRITE table ${tb_name} PARTITION(p5) VALUES (5, 6);"
+                        sleep(10 * 1000)
+                        assertNoCache "select * from ${tb_name}"
+                        sql "select * from ${tb_name}"
+                        assertHasCache "select * from ${tb_name}"
+
+                        sql "alter table ${tb_name} add partition p6 values[('6'),('7'))"
+                        assertNoCache "select * from ${tb_name}"
+
+                        // insert overwrite data can not use cache
+                        sql "INSERT OVERWRITE table ${tb_name} PARTITION(p6) VALUES (6, 6);"
+                        assertNoCache "select * from ${tb_name}"
                     }
                 }),
                 extraThread("testDropPartition", {
@@ -1147,6 +1181,26 @@ suite("parse_sql_from_sql_cache") {
 
                         sql "insert into test_use_plan_cache32 values (1, 1)"
                         assertNoCache "select * from test_use_plan_cache32_view"
+                    }
+                }),
+                extraThread("explain plan process", {
+                    retryTestSqlCache(3, 1000) {
+                        createTestTable "test_use_plan_cache33"
+
+                        // after partition changed 10s, the sql cache can be used
+                        sleep(10000)
+
+                        retryUntilHasSqlCache("select * from test_use_plan_cache33")
+                        test {
+                            sql "explain logical plan process select * from test_use_plan_cache33"
+                            rowNum(0)
+                        }
+                        test {
+                            sql "explain plan process select * from test_use_plan_cache33"
+                            check { rs, t, s, e ->
+                                assertTrue(rs[0][1].toString().contains("LogicalSqlCache") && rs[0][2].toString().contains("PhysicalSqlCache"))
+                            }
+                        }
                     }
                 })
             ).get()

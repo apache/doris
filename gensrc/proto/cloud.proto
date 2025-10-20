@@ -68,6 +68,32 @@ enum SnapshotSwitchStatus {
     SNAPSHOT_SWITCH_ON = 2;
 }
 
+enum KeySetType {
+    UNKNOWN_KEY_SET = 0;
+
+    // Single version keys
+    SINGLE_VERSION_PARTITION_VERSION = 1;
+    SINGLE_VERSION_TABLE_VERSION = 2;
+    SINGLE_VERSION_META_ROWSET = 3;
+    SINGLE_VERSION_META_TABLET = 4;
+    SINGLE_VERSION_META_SCHEMA = 5;
+    SINGLE_VERSION_TABLET_STATS = 6;
+    SINGLE_VERSION_TABLET_INDEX = 7;
+
+    // Multi version keys
+    MULTI_VERSION_PARTITION_VERSION = 10;
+    MULTI_VERSION_TABLE_VERSION = 12;
+    MULTI_VERSION_INDEX_PARTITION = 13;
+    MULTI_VERSION_INDEX_INDEX = 14;
+    MULTI_VERSION_INDEX_TABLET = 15;
+    MULTI_VERSION_TABLET_STATS = 16;
+    MULTI_VERSION_META_PARTITION = 17;
+    MULTI_VERSION_META_INDEX = 18;
+    MULTI_VERSION_META_TABLET = 19;
+    MULTI_VERSION_META_SCHEMA = 20;
+    MULTI_VERSION_META_ROWSET = 21;
+}
+
 message InstanceInfoPB {
     enum Status {
         NORMAL = 0;
@@ -108,6 +134,9 @@ message InstanceInfoPB {
     // Snapshot properties.
     optional int64 max_reserved_snapshot = 117;
     optional int64 snapshot_interval_seconds = 118;
+
+    repeated KeySetType migrated_key_sets = 119;    // convert single version keys to multi version keys
+    repeated KeySetType compacted_key_sets = 120;   // compact snapshot chain ...
 }
 
 message StagePB {
@@ -322,6 +351,7 @@ enum LoadJobSourceTypePB {
     LOAD_JOB_SRC_TYPE_INSERT_STREAMING  = 3; // insert stmt (streaming type), update stmt use this type
     LOAD_JOB_SRC_TYPE_ROUTINE_LOAD_TASK = 4; // routine load task use this type
     LOAD_JOB_SRC_TYPE_BATCH_LOAD_JOB    = 5; // load job v2 for broker load
+    LOAD_JOB_SRC_TYPE_STREAMING_JOB     = 6; // streaming job use this type
 }
 
 enum TxnStatusPB {
@@ -365,10 +395,20 @@ message RoutineLoadJobStatisticPB {
     optional int64 task_execution_time_ms = 5;
 }
 
+message StreamingTaskCommitAttachmentPB {
+    optional int64 job_id = 1;
+    optional string offset = 2;
+    optional int64 scanned_rows = 3;
+    optional int64 load_bytes = 4;
+    optional int64 num_files = 5;
+    optional int64 file_bytes = 6;
+}
+
 message TxnCommitAttachmentPB {
     enum Type {
         LODD_JOB_FINAL_OPERATION = 0;
         RT_TASK_TXN_COMMIT_ATTACHMENT = 1;
+        STREAMING_TASK_TXN_COMMIT_ATTACHMENT = 2;
     }
     message LoadJobFinalOperationPB {
         message EtlStatusPB {
@@ -425,6 +465,7 @@ message TxnCommitAttachmentPB {
     optional Type type = 1;
     optional LoadJobFinalOperationPB load_job_final_operation = 2;
     optional RLTaskTxnCommitAttachmentPB rl_task_txn_commit_attachment = 3;
+    optional StreamingTaskCommitAttachmentPB streaming_task_txn_commit_attachment = 4;
 }
 
 // For storing label -> txn_ids
@@ -802,6 +843,10 @@ message SnapshotPB {
 
     // The resource id of the object store where snapshot image stored.
     optional string resource_id = 14;
+
+    // record the multipart upload file_name and upload_id, used for aborting multipart upload
+    optional string upload_file = 15;
+    optional string upload_id = 16;
 
     // TODO: add the referenced resources
 }
@@ -1362,11 +1407,19 @@ message AlterInstanceRequest {
         SET_NORMAL                  = 7;
         SET_SNAPSHOT_PROPERTY       = 8;
     }
+
+    enum SnapshotProperty {
+        UNKNOWN_PROPERTY                = 0;
+        ENABLE_SNAPSHOT                 = 1;    // true or false
+        MAX_RESERVED_SNAPSHOTS          = 2;    // in [0, max_reserved_snapshots]
+        SNAPSHOT_INTERVAL_SECONDS       = 3;    // in [min_interval_seconds, +inf)
+    }
+
     optional string instance_id = 1;
     optional Operation op = 2;
     optional string name = 3;
     optional string request_ip = 4;
-    map<string, string> properties = 5;
+    map<string, string> properties = 5; // key is the Name of SnapshotProperty value.
 }
 
 message AlterInstanceResponse {
@@ -1704,6 +1757,7 @@ enum MetaServiceCode {
     ROUTINE_LOAD_DATA_INCONSISTENT = 5003;
     ROUTINE_LOAD_PROGRESS_NOT_FOUND = 5004;
     JOB_CHECK_ALTER_VERSION = 5005;
+    STREAMING_JOB_PROGRESS_NOT_FOUND = 5006;
 
     // Rate limit
     MAX_QPS_LIMIT = 6001;
@@ -1887,6 +1941,29 @@ message ResetRLProgressResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
+message GetStreamingTaskCommitAttachRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional int64 job_id = 3;
+    optional string request_ip = 4;
+}
+
+message GetStreamingTaskCommitAttachResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional StreamingTaskCommitAttachmentPB commit_attach = 2;
+}
+
+message DeleteStreamingJobRequest {
+    optional string cloud_unique_id = 1;
+    optional int64 db_id = 2;
+    optional int64 job_id = 3;
+    optional string request_ip = 4;
+}
+
+message DeleteStreamingJobResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 message CheckKeyInfos {
     repeated int64 db_ids = 1;
     repeated int64 table_ids = 2;
@@ -1924,6 +2001,19 @@ message BeginSnapshotResponse {
     optional string snapshot_id = 2;
     optional string image_url = 3;
     optional ObjectStoreInfoPB obj_info = 4;
+}
+
+message UpdateSnapshotRequest {
+    optional string cloud_unique_id = 1;
+    optional string snapshot_id = 2;
+    // record the multipart upload file_name and upload_id, used for aborting multipart upload
+    optional string upload_file = 3;
+    optional string upload_id = 4;
+    optional string request_ip = 5;
+}
+
+message UpdateSnapshotResponse {
+    optional MetaServiceResponseStatus status = 1;
 }
 
 message CommitSnapshotRequest {
@@ -1973,6 +2063,7 @@ message ListSnapshotRequest {
     optional string required_snapshot_id = 2;   // Return all snapshots if not set.
     optional bool include_aborted = 3;
     optional string request_ip = 4;
+    optional string instance_id = 5;
 }
 
 message ListSnapshotResponse {
@@ -2013,6 +2104,8 @@ message CloneInstanceResponse {
     optional MetaServiceResponseStatus status = 1;
     // The info of the object store where snapshot images stored
     optional ObjectStoreInfoPB obj_info = 2;
+    // The URL of the snapshot image
+    optional string image_url = 3;
 }
 
 service MetaService {
@@ -2093,11 +2186,16 @@ service MetaService {
     rpc get_rl_task_commit_attach(GetRLTaskCommitAttachRequest) returns (GetRLTaskCommitAttachResponse);
     rpc reset_rl_progress(ResetRLProgressRequest) returns (ResetRLProgressResponse);
 
+    // streaming job meta
+    rpc get_streaming_task_commit_attach(GetStreamingTaskCommitAttachRequest) returns (GetStreamingTaskCommitAttachResponse);
+    rpc delete_streaming_job(DeleteStreamingJobRequest) returns (DeleteStreamingJobResponse);
+
     // check KV
     rpc check_kv(CheckKVRequest) returns (CheckKVResponse);
 
     // cluster snapshot related methods
     rpc begin_snapshot(BeginSnapshotRequest) returns (BeginSnapshotResponse);
+    rpc update_snapshot(UpdateSnapshotRequest) returns (UpdateSnapshotResponse);
     rpc commit_snapshot(CommitSnapshotRequest) returns (CommitSnapshotResponse);
     rpc abort_snapshot(AbortSnapshotRequest) returns (AbortSnapshotResponse);
     rpc drop_snapshot(DropSnapshotRequest) returns (DropSnapshotResponse);

@@ -77,9 +77,8 @@ public:
 
         TAIResource config;
         std::shared_ptr<AIAdapter> adapter;
-        if (Status status =
-                    const_cast<Derived*>(assert_cast<const Derived*>(this))
-                            ->_init_from_resource(context, block, arguments, config, adapter);
+        if (Status status = assert_cast<const Derived*>(this)->_init_from_resource(
+                    context, block, arguments, config, adapter);
             !status.ok()) {
             return status;
         }
@@ -151,7 +150,7 @@ private:
     // The ai resource must be literal
     Status _init_from_resource(FunctionContext* context, const Block& block,
                                const ColumnNumbers& arguments, TAIResource& config,
-                               std::shared_ptr<AIAdapter>& adapter) {
+                               std::shared_ptr<AIAdapter>& adapter) const {
         // 1. Initialize config
         const ColumnWithTypeAndName& resource_column = block.get_by_position(arguments[0]);
         StringRef resource_name_ref = resource_column.column->get_data_at(0);
@@ -161,14 +160,14 @@ private:
                 context->state()->get_query_ctx()->get_ai_resources();
         auto it = ai_resources.find(resource_name);
         if (it == ai_resources.end()) {
-            return Status::InternalError("AI resource not found: " + resource_name);
+            return Status::InvalidArgument("AI resource not found: " + resource_name);
         }
         config = it->second;
 
         // 2. Create an adapter based on provider_type
         adapter = AIAdapterFactory::create_adapter(config.provider_type);
         if (!adapter) {
-            return Status::InternalError("Unsupported AI provider type: " + config.provider_type);
+            return Status::InvalidArgument("Unsupported AI provider type: " + config.provider_type);
         }
         adapter->init(config);
 
@@ -184,7 +183,7 @@ private:
         QueryContext* query_ctx = context->state()->get_query_ctx();
         int64_t remaining_query_time = query_ctx->get_remaining_query_time_seconds();
         if (remaining_query_time <= 0) {
-            return Status::InternalError("Query timeout exceeded before AI request");
+            return Status::TimedOut("Query timeout exceeded before AI request");
         }
 
         client->set_timeout_ms(remaining_query_time * 1000);

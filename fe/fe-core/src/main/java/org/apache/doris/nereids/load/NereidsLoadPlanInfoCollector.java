@@ -20,7 +20,6 @@ package org.apache.doris.nereids.load;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.StringLiteral;
@@ -42,6 +41,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -96,12 +96,12 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
      * store OlapTableSink and required information for FileLoadScanNode
      */
     public static class LoadPlanInfo {
-        private DescriptorTable descriptorTable;
         // the file source tuple's id, the tuple represents original columns reading from file
         private TupleId srcTupleId;
         // the file source tuple's slots
         private List<SlotId> srcSlotIds;
         // FileLoadScanNode's output tuple, represents remapped columns
+        // For multiple file groups in Broker load, this destTuple is shared across all file groups
         private TupleDescriptor destTuple;
         // the map of slots in destTuple and its mapping expression
         private Map<SlotId, Expr> destSlotIdToExprMap;
@@ -118,10 +118,6 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
         private List<Expr> postFilterExprList;
         // OlapTableSink for dest table
         private OlapTableSink olapTableSink;
-
-        public DescriptorTable getDescriptorTable() {
-            return descriptorTable;
-        }
 
         public TupleDescriptor getDestTuple() {
             return destTuple;
@@ -264,13 +260,14 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
     /**
      * visit logical plan tree and create a LoadPlanInfo
      */
-    public LoadPlanInfo collectLoadPlanInfo(LogicalPlan logicalPlan) {
+    public LoadPlanInfo collectLoadPlanInfo(LogicalPlan logicalPlan, DescriptorTable descTable,
+            TupleDescriptor scanDescriptor) {
         this.logicalPlan = logicalPlan;
         CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(),
                 logicalPlan, PhysicalProperties.ANY);
-        PlanTranslatorContext context = new PlanTranslatorContext(cascadesContext);
+        PlanTranslatorContext context = new PlanTranslatorContext(cascadesContext, descTable);
+        loadPlanInfo.destTuple = scanDescriptor;
         logicalPlan.accept(this, context);
-        loadPlanInfo.descriptorTable = context.getDescTable();
         return loadPlanInfo;
     }
 
@@ -344,29 +341,40 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
 
         List<Expr> projectList = outputs.stream().map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
-        List<Slot> slotList = outputs.stream().map(NamedExpression::toSlot).collect(Collectors.toList());
 
-        // ignore projectList's nullability and set the expr's nullable info same as dest table column
-        // why do this? looks like be works in this way...
-        // and we have to do some extra work in visitLogicalFilter because this ood behavior
-        int size = slotList.size();
-        List<Slot> newSlotList = new ArrayList<>(size);
-        for (int i = 0; i < size; ++i) {
-            SlotReference slot = (SlotReference) slotList.get(i);
-            Column col = destTable.getColumn(slot.getName());
-            if (col != null) {
-                slot = slot.withColumn(col);
-                if (col.isAutoInc()) {
-                    newSlotList.add(slot.withNullable(true));
+        // For Broker load with multiple file groups, all file groups share the same destTuple.
+        // Create slots for destTuple only when processing the first file group (when slots are empty).
+        // Subsequent file groups will reuse the slots created by the first file group.
+        if (loadPlanInfo.destTuple.getSlots().isEmpty()) {
+            List<Slot> slotList = outputs.stream().map(NamedExpression::toSlot).collect(Collectors.toList());
+
+            // ignore projectList's nullability and set the expr's nullable info same as
+            // dest table column
+            // why do this? looks like be works in this way...
+            // and we have to do some extra work in visitLogicalFilter because this ood
+            // behavior
+            int size = slotList.size();
+            List<Slot> newSlotList = new ArrayList<>(size);
+            for (int i = 0; i < size; ++i) {
+                SlotReference slot = (SlotReference) slotList.get(i);
+                Column col = destTable.getColumn(slot.getName());
+                if (col != null) {
+                    slot = slot.withColumn(col);
+                    if (col.isAutoInc()) {
+                        newSlotList.add(slot.withNullable(true));
+                    } else {
+                        newSlotList.add(slot.withNullable(col.isAllowNull()));
+                    }
                 } else {
-                    newSlotList.add(slot.withNullable(col.isAllowNull()));
+                    newSlotList.add(slot);
                 }
-            } else {
-                newSlotList.add(slot);
+            }
+
+            for (Slot slot : newSlotList) {
+                context.createSlotDesc(loadPlanInfo.destTuple, (SlotReference) slot, destTable);
             }
         }
 
-        loadPlanInfo.destTuple = generateTupleDesc(newSlotList, destTable, context);
         loadPlanInfo.destSlotIdToExprMap = Maps.newHashMap();
         List<SlotDescriptor> slotDescriptorList = loadPlanInfo.destTuple.getSlots();
         for (int i = 0; i < slotDescriptorList.size(); ++i) {
@@ -510,11 +518,11 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
     // get all specified partition ids.
     // if no partition specified, return null
     private List<Long> getAllPartitionIds() throws DdlException, AnalysisException {
-        PartitionNames partitionNames = taskInfo.getPartitions();
-        if (partitionNames != null) {
-            List<Long> partitionIds = new ArrayList<>(partitionNames.getPartitionNames().size());
-            for (String partName : partitionNames.getPartitionNames()) {
-                Partition part = destTable.getPartition(partName, partitionNames.isTemp());
+        PartitionNamesInfo partitionNamesInfo = taskInfo.getPartitionNamesInfo();
+        if (partitionNamesInfo != null) {
+            List<Long> partitionIds = new ArrayList<>(partitionNamesInfo.getPartitionNames().size());
+            for (String partName : partitionNamesInfo.getPartitionNames()) {
+                Partition part = destTable.getPartition(partName, partitionNamesInfo.isTemp());
                 if (part == null) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_PARTITION, partName, destTable.getName());
                 }

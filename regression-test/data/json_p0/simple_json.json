@@ -1,0 +1,8 @@
+[
+    {"id": 1, "city": "Beijing", "code": 100},
+    {"id": 2, "city": "Shanghai", "code": 200},
+    {"id": 3, "city": "Guangzhou", "code": 300},
+    {"id": 4, "city": "Shenzhen", "code": 400},
+    {"id": 5, "city": "Hangzhou", "code": 500}
+]
+

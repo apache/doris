@@ -104,6 +104,90 @@ DataTypePtr get_data_type_with_default_argument(DataTypePtr type);
 
 DataTypePtr create_decimal(UInt64 precision, UInt64 scale, bool use_v2);
 
+template <PrimitiveType T>
+class DecimalScaleInfoBase {
+public:
+    static void check_type_precision(const UInt32 precision) {
+        if (precision > max_decimal_precision<T>() || precision < 1) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "meet invalid precision: real_precision={}, max_decimal_precision={}, "
+                            "min_decimal_precision=1",
+                            precision, max_decimal_precision<T>());
+        }
+    }
+
+    static void check_type_scale(const UInt32 scale) {
+        if (scale > max_decimal_precision<T>()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "meet invalid scale: real_scale={}, max_decimal_precision={}", scale,
+                            max_decimal_precision<T>());
+        }
+    }
+
+    DecimalScaleInfoBase(UInt32 precision, UInt32 scale) : precision(precision), scale(scale) {
+        check_type_precision(precision);
+        check_type_scale(scale);
+        if (scale > precision) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "scale({}) is greater than precision({})",
+                            scale, precision);
+        }
+    }
+
+    const UInt32 precision;
+    const UInt32 scale;
+};
+
+template <PrimitiveType T>
+class DecimalScaleInfo : public DecimalScaleInfoBase<T> {
+protected:
+    DecimalScaleInfo(UInt32 arg_precision, UInt32 arg_scale, UInt32, UInt32)
+            : DecimalScaleInfoBase<T>(arg_precision, arg_scale) {}
+    DecimalScaleInfo(DecimalScaleInfo const& rhs)
+            : DecimalScaleInfoBase<T>(rhs.precision, rhs.scale) {}
+};
+
+template <>
+class DecimalScaleInfo<TYPE_DECIMALV2> : public DecimalScaleInfoBase<TYPE_DECIMALV2> {
+protected:
+    DecimalScaleInfo(UInt32 arg_precision, UInt32 arg_scale, UInt32 arg_original_precision,
+                     UInt32 arg_original_scale)
+            : DecimalScaleInfoBase<TYPE_DECIMALV2>(arg_precision, arg_scale),
+              original_precision(arg_original_precision),
+              original_scale(arg_original_scale) {
+        if (UINT32_MAX != original_precision) {
+            check_type_precision(original_precision);
+        }
+        if (UINT32_MAX != original_scale) {
+            check_type_scale(original_scale);
+        }
+        if (original_scale > original_precision) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "original_scale({}) is greater than original_precision({})",
+                            original_scale, original_precision);
+        }
+    }
+
+    DecimalScaleInfo(DecimalScaleInfo const& rhs)
+            : DecimalScaleInfoBase<TYPE_DECIMALV2>(rhs.precision, rhs.scale),
+              original_precision(rhs.original_precision),
+              original_scale(rhs.original_scale) {}
+    // For decimalv2 only, record the original(schema) precision and scale.
+    // UINT32_MAX means original precision and scale are unknown.
+    // Decimalv2 will be converted to Decimal(27, 9) in memory when doing any calculations,
+    // but when casting decimalv2 to string, it's better to keep the presion and
+    // scale of it's original value in schema.
+    const UInt32 original_precision = UINT32_MAX;
+    const UInt32 original_scale = UINT32_MAX;
+
+public:
+    [[nodiscard]] UInt32 get_original_precision() const {
+        return UINT32_MAX == original_precision ? precision : original_precision;
+    }
+    [[nodiscard]] UInt32 get_original_scale() const { return get_format_scale(); }
+    [[nodiscard]] UInt32 get_format_scale() const {
+        return UINT32_MAX == original_scale ? scale : original_scale;
+    }
+};
 /// Implements Decimal(P, S), where P is precision, S is scale.
 /// Maximum precisions for underlying types are:
 /// Int32    9
@@ -113,52 +197,28 @@ DataTypePtr create_decimal(UInt64 precision, UInt64 scale, bool use_v2);
 ///     P is one of (9, 18, 38); equals to the maximum precision for the biggest underlying type of operands.
 ///     S is maximum scale of operands. The allowed values are [0, precision]
 template <PrimitiveType T>
-class DataTypeDecimal final : public IDataType {
+class DataTypeDecimal final : public IDataType, public DecimalScaleInfo<T> {
     static_assert(is_decimal(T));
 
 public:
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
     using FieldType = typename PrimitiveTypeTraits<T>::ColumnItemType;
     static constexpr PrimitiveType PType = T;
+    using DecimalScaleInfo<T>::scale;
+    using DecimalScaleInfo<T>::precision;
 
     static constexpr bool is_parametric = true;
 
     static constexpr size_t max_precision() { return max_decimal_precision<T>(); }
 
-    DataTypeDecimal(UInt32 precision = max_decimal_precision<T>(),
-                    UInt32 scale = default_decimal_scale<T>(),
+    DataTypeDecimal(UInt32 arg_precision = max_decimal_precision<T>(),
+                    UInt32 arg_scale = default_decimal_scale<T>(),
                     UInt32 arg_original_precision = UINT32_MAX,
                     UInt32 arg_original_scale = UINT32_MAX)
-            : precision(precision),
-              scale(scale),
-              original_precision(arg_original_precision),
-              original_scale(arg_original_scale) {
-        check_type_precision(precision);
-        check_type_scale(scale);
-        if (scale > precision) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "scale({}) is greater than precision({})",
-                            scale, precision);
-        }
-        if constexpr (T == TYPE_DECIMALV2) {
-            if (UINT32_MAX != original_precision) {
-                check_type_precision(original_precision);
-            }
-            if (UINT32_MAX != original_scale) {
-                check_type_scale(scale);
-            }
-            if (original_scale > original_precision) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "original_scale({}) is greater than original_precision({})",
-                                original_scale, original_precision);
-            }
-        }
-    }
+            : DecimalScaleInfo<T>(arg_precision, arg_scale, arg_original_precision,
+                                  arg_original_scale) {}
 
-    DataTypeDecimal(const DataTypeDecimal& rhs)
-            : precision(rhs.precision),
-              scale(rhs.scale),
-              original_precision(rhs.original_precision),
-              original_scale(rhs.original_scale) {}
+    DataTypeDecimal(const DataTypeDecimal& rhs) : DecimalScaleInfo<T>(rhs) {}
 
     const std::string get_family_name() const override { return type_to_string(T); }
     std::string do_get_name() const override;
@@ -223,11 +283,8 @@ public:
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override { return sizeof(FieldType); }
 
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    void to_string_batch(const IColumn& column, ColumnString& column_to) const override;
-    template <bool is_const>
-    void to_string_batch_impl(const ColumnPtr& column_ptr, ColumnString& column_to) const;
+    /// TODO: remove this in the future
+    using IDataType::to_string;
     std::string to_string(const FieldType& value) const;
     using SerDeType = DataTypeDecimalSerDe<T>;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
@@ -242,12 +299,12 @@ public:
 
     [[nodiscard]] UInt32 get_precision() const override { return precision; }
     [[nodiscard]] UInt32 get_scale() const override { return scale; }
-    [[nodiscard]] UInt32 get_original_precision() const {
-        return UINT32_MAX == original_precision ? precision : original_precision;
-    }
-    [[nodiscard]] UInt32 get_original_scale() const { return get_format_scale(); }
     [[nodiscard]] UInt32 get_format_scale() const {
-        return UINT32_MAX == original_scale ? scale : original_scale;
+        if constexpr (T == TYPE_DECIMALV2) {
+            return DecimalScaleInfo<T>::get_format_scale();
+        } else {
+            return scale;
+        }
     }
     FieldType::NativeType get_scale_multiplier() const { return get_scale_multiplier(scale); }
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
@@ -275,35 +332,6 @@ public:
 
     FieldWithDataType get_field_with_data_type(const IColumn& column,
                                                size_t row_num) const override;
-
-    static void check_type_precision(const UInt32 precision) {
-        if (precision > max_decimal_precision<T>() || precision < 1) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "meet invalid precision: real_precision={}, max_decimal_precision={}, "
-                            "min_decimal_precision=1",
-                            precision, max_decimal_precision<T>());
-        }
-    }
-
-    static void check_type_scale(const UInt32 scale) {
-        if (scale > max_decimal_precision<T>()) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "meet invalid scale: real_scale={}, max_decimal_precision={}", scale,
-                            max_decimal_precision<T>());
-        }
-    }
-
-private:
-    const UInt32 precision;
-    const UInt32 scale;
-
-    // For decimalv2 only, record the original(schema) precision and scale.
-    // UINT32_MAX means original precision and scale are unknown.
-    // Decimalv2 will be converted to Decimal(27, 9) in memory when doing any calculations,
-    // but when casting decimalv2 to string, it's better to keep the presion and
-    // scale of it's original value in schema.
-    UInt32 original_precision = UINT32_MAX;
-    UInt32 original_scale = UINT32_MAX;
 };
 
 using DataTypeDecimal32 = DataTypeDecimal<TYPE_DECIMAL32>;
@@ -314,32 +342,32 @@ using DataTypeDecimal256 = DataTypeDecimal<TYPE_DECIMAL256>;
 
 template <>
 constexpr Decimal32::NativeType DataTypeDecimal<TYPE_DECIMAL32>::get_scale_multiplier(
-        UInt32 scale) {
-    return common::exp10_i32(scale);
+        UInt32 arg_scale) {
+    return common::exp10_i32(arg_scale);
 }
 
 template <>
 constexpr Decimal64::NativeType DataTypeDecimal<TYPE_DECIMAL64>::get_scale_multiplier(
-        UInt32 scale) {
-    return common::exp10_i64(scale);
+        UInt32 arg_scale) {
+    return common::exp10_i64(arg_scale);
 }
 
 template <>
 constexpr Decimal128V2::NativeType DataTypeDecimal<TYPE_DECIMALV2>::get_scale_multiplier(
-        UInt32 scale) {
-    return common::exp10_i128(scale);
+        UInt32 arg_scale) {
+    return common::exp10_i128(arg_scale);
 }
 
 template <>
 constexpr Decimal128V3::NativeType DataTypeDecimal<TYPE_DECIMAL128I>::get_scale_multiplier(
-        UInt32 scale) {
-    return common::exp10_i128(scale);
+        UInt32 arg_scale) {
+    return common::exp10_i128(arg_scale);
 }
 
 template <>
 constexpr Decimal256::NativeType DataTypeDecimal<TYPE_DECIMAL256>::get_scale_multiplier(
-        UInt32 scale) {
-    return common::exp10_i256(scale);
+        UInt32 arg_scale) {
+    return common::exp10_i256(arg_scale);
 }
 
 template <>
@@ -484,5 +512,17 @@ typename PrimitiveTypeTraits<T>::CppNativeType min_decimal_value(UInt32 precisio
            DataTypeDecimal<T>::get_scale_multiplier(
                    (UInt32)(max_decimal_precision<T>() - precision));
 }
+
+template <typename T>
+concept has_original_precision_and_scale = requires(T t) {
+    { t.get_original_precision() };
+    { t.get_original_scale() };
+};
+static_assert(has_original_precision_and_scale<DataTypeDecimalV2>);
+static_assert(!has_original_precision_and_scale<DataTypeDecimal32>);
+static_assert(!has_original_precision_and_scale<DataTypeDecimal64>);
+static_assert(!has_original_precision_and_scale<DataTypeDecimal128>);
+static_assert(!has_original_precision_and_scale<DataTypeDecimal256>);
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -727,7 +727,7 @@ public:
                 VectorizedUtils::update_null_map(*result_null_map, *path_null_map, path_const);
             }
 
-            if (0 == simd::count_zero_num(reinterpret_cast<const int8_t*>(data_null_map->data()),
+            if (0 == simd::count_zero_num(reinterpret_cast<const int8_t*>(result_null_map->data()),
                                           input_rows_count)) {
                 return create_all_null_result();
             }
@@ -2396,11 +2396,10 @@ private:
             const auto* object = element->unpack<ObjectVal>();
             bool find = false;
             for (const auto& item : *object) {
-                const std::string_view key(item.getKeyStr(), item.klen());
+                Slice key(item.getKeyStr(), item.klen());
                 const auto* child_element = item.value();
                 // construct an object member path leg.
-                auto leg = std::make_unique<leg_info>(const_cast<char*>(key.data()), key.size(), 0,
-                                                      MEMBER_CODE);
+                auto leg = std::make_unique<leg_info>(key.data, key.size, 0, MEMBER_CODE);
                 cur_path->add_leg_to_leg_vector(std::move(leg));
                 find |= find_matches(child_element, one_match, state, cur_path, matches);
                 cur_path->pop_leg_from_leg_vector();

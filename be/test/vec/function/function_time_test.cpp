@@ -395,7 +395,7 @@ TEST(VTimestampFunctionsTest, makedate_test) {
             {{2021, 400}, std::string("2022-02-04")},
     };
 
-    static_cast<void>(check_function<DataTypeDate, true>(func_name, input_types, data_set));
+    static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
 }
 
 TEST(VTimestampFunctionsTest, weekday_test) {
@@ -1256,49 +1256,6 @@ TEST(VTimestampFunctionsTest, dayname_test) {
 TEST(VTimestampFunctionsTest, datetrunc_test) {
     std::string func_name = "date_trunc";
     {
-        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIME,
-                                    Consted {PrimitiveType::TYPE_VARCHAR}};
-        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("second")},
-                             std::string("2022-10-08 11:44:23")}};
-        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
-    }
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIME,
-                                    Consted {PrimitiveType::TYPE_VARCHAR}};
-        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("minute")},
-                             std::string("2022-10-08 11:44:00")}};
-        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
-    }
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIME,
-                                    Consted {PrimitiveType::TYPE_VARCHAR}};
-        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("hour")},
-                             std::string("2022-10-08 11:00:00")}};
-        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
-    }
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIME,
-                                    Consted {PrimitiveType::TYPE_VARCHAR}};
-        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("day")},
-                             std::string("2022-10-08 00:00:00")}};
-        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
-    }
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIME,
-                                    Consted {PrimitiveType::TYPE_VARCHAR}};
-        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("month")},
-                             std::string("2022-10-01 00:00:00")}};
-        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
-    }
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIME,
-                                    Consted {PrimitiveType::TYPE_VARCHAR}};
-        DataSet data_set = {{{std::string("2022-10-08 11:44:23"), std::string("year")},
-                             std::string("2022-01-01 00:00:00")}};
-        static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
-    }
-
-    {
         InputTypeSet input_types = {PrimitiveType::TYPE_DATETIMEV2,
                                     Consted {PrimitiveType::TYPE_VARCHAR}};
         DataSet data_set = {{{std::string("2022-10-08 11:44:23.123"), std::string("second")},
@@ -1599,6 +1556,89 @@ TEST(VTimestampFunctionsTest, time) {
     };
 
     static_cast<void>(check_function<DataTypeTimeV2, true>(func_name, input_types, data_set));
+}
+
+TEST(VTimestampFunctionsTest, curtime_test) {
+    std::string func_name = "curtime";
+
+    // Test curtime without precision
+    {
+        InputTypeSet input_types = {};
+        Block block;
+        ColumnsWithTypeAndName arguments;
+
+        auto return_type = std::make_shared<DataTypeTimeV2>(0);
+        FunctionBasePtr func =
+                SimpleFunctionFactory::instance().get_function(func_name, arguments, return_type);
+        EXPECT_TRUE(func != nullptr);
+
+        auto fn_ctx_return = std::make_shared<DataTypeTimeV2>(0);
+        std::vector<DataTypePtr> arg_types = {};
+        FunctionUtils fn_utils(fn_ctx_return, arg_types, false);
+        auto* fn_ctx = fn_utils.get_fn_ctx();
+
+        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
+        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+
+        block.insert({nullptr, return_type, "result"});
+        ColumnNumbers args;
+        auto st = func->execute(fn_ctx, block, args, 0, 1);
+        EXPECT_TRUE(st.ok());
+
+        auto result_col = block.get_by_position(0).column;
+        EXPECT_TRUE(result_col);
+        if (const auto* const_col = check_and_get_column<ColumnConst>(result_col.get())) {
+            auto time_value = const_col->get_field().get<double>();
+            EXPECT_GE(time_value, 0.0);
+            EXPECT_LE(time_value, 24.0 * 3600 * 1000000);
+        }
+
+        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
+    }
+
+    // Test curtime with precision
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_TINYINT};
+        Block block;
+
+        auto precision_col = ColumnInt8::create();
+        precision_col->insert_value(3);
+        auto precision_type = std::make_shared<DataTypeInt8>();
+        block.insert({std::move(precision_col), precision_type, "precision"});
+
+        ColumnsWithTypeAndName arguments;
+        arguments.push_back(block.get_by_position(0));
+
+        auto return_type = std::make_shared<DataTypeTimeV2>(3);
+        FunctionBasePtr func =
+                SimpleFunctionFactory::instance().get_function(func_name, arguments, return_type);
+        EXPECT_TRUE(func != nullptr);
+
+        auto fn_ctx_return = std::make_shared<DataTypeTimeV2>(3);
+        std::vector<DataTypePtr> arg_types = {precision_type};
+        FunctionUtils fn_utils(fn_ctx_return, arg_types, false);
+        auto* fn_ctx = fn_utils.get_fn_ctx();
+
+        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
+        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+
+        block.insert({nullptr, return_type, "result"});
+        ColumnNumbers args = {0};
+        auto st = func->execute(fn_ctx, block, args, 1, 1);
+        EXPECT_TRUE(st.ok());
+
+        auto result_col = block.get_by_position(1).column;
+        EXPECT_TRUE(result_col);
+        if (const auto* const_col = check_and_get_column<ColumnConst>(result_col.get())) {
+            auto time_value = const_col->get_field().get<double>();
+            EXPECT_GE(time_value, 0.0);
+            EXPECT_LE(time_value, 24.0 * 3600 * 1000000);
+        }
+
+        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
+    }
 }
 
 } // namespace doris::vectorized

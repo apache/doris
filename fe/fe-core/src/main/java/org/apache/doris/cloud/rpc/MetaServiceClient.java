@@ -493,6 +493,17 @@ public class MetaServiceClient {
                 .createInstance(request);
     }
 
+    public Cloud.GetStreamingTaskCommitAttachResponse
+            getStreamingTaskCommitAttach(Cloud.GetStreamingTaskCommitAttachRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .getStreamingTaskCommitAttach(request);
+    }
+
+    public Cloud.DeleteStreamingJobResponse deleteStreamingJob(Cloud.DeleteStreamingJobRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .deleteStreamingJob(request);
+    }
+
     public Cloud.AlterInstanceResponse alterInstance(Cloud.AlterInstanceRequest request) {
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
                 .alterInstance(request);
@@ -501,6 +512,11 @@ public class MetaServiceClient {
     public Cloud.BeginSnapshotResponse beginSnapshot(Cloud.BeginSnapshotRequest request) {
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
             .beginSnapshot(request);
+    }
+
+    public Cloud.UpdateSnapshotResponse updateSnapshot(Cloud.UpdateSnapshotRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .updateSnapshot(request);
     }
 
     public Cloud.CommitSnapshotResponse commitSnapshot(Cloud.CommitSnapshotRequest request) {

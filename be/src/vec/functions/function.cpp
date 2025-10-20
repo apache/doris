@@ -25,6 +25,8 @@
 #include <numeric>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -298,10 +300,42 @@ bool FunctionBuilderImpl::is_date_or_datetime_or_decimal(
            (is_date_or_datetime(return_type->get_primitive_type()) &&
             is_date_v2_or_datetime_v2(func_return_type->get_primitive_type())) ||
            (is_decimal(return_type->get_primitive_type()) &&
-            is_decimal(func_return_type->get_primitive_type()));
+            is_decimal(func_return_type->get_primitive_type())) ||
+           (is_time_type(return_type->get_primitive_type()) &&
+            is_time_type(func_return_type->get_primitive_type()));
 }
 
-bool FunctionBuilderImpl::is_array_nested_type_date_or_datetime_or_decimal(
+bool contains_date_or_datetime_or_decimal(const DataTypePtr& type) {
+    auto type_ptr = type->is_nullable() ? ((DataTypeNullable*)type.get())->get_nested_type() : type;
+
+    switch (type_ptr->get_primitive_type()) {
+    case TYPE_ARRAY: {
+        const auto* array_type = assert_cast<const DataTypeArray*>(type_ptr.get());
+        return contains_date_or_datetime_or_decimal(array_type->get_nested_type());
+    }
+    case TYPE_MAP: {
+        const auto* map_type = assert_cast<const DataTypeMap*>(type_ptr.get());
+        return contains_date_or_datetime_or_decimal(map_type->get_key_type()) ||
+               contains_date_or_datetime_or_decimal(map_type->get_value_type());
+    }
+    case TYPE_STRUCT: {
+        const auto* struct_type = assert_cast<const DataTypeStruct*>(type_ptr.get());
+        const auto& elements = struct_type->get_elements();
+        return std::ranges::any_of(elements, [](const DataTypePtr& element) {
+            return contains_date_or_datetime_or_decimal(element);
+        });
+    }
+    default:
+        // For scalar types, check if it's date/datetime/decimal
+        return is_date_or_datetime(type_ptr->get_primitive_type()) ||
+               is_date_v2_or_datetime_v2(type_ptr->get_primitive_type()) ||
+               is_decimal(type_ptr->get_primitive_type()) ||
+               is_time_type(type_ptr->get_primitive_type());
+    }
+}
+
+// make sure array/map/struct and nested  array/map/struct can be check
+bool FunctionBuilderImpl::is_nested_type_date_or_datetime_or_decimal(
         const DataTypePtr& return_type, const DataTypePtr& func_return_type) const {
     auto return_type_ptr = return_type->is_nullable()
                                    ? ((DataTypeNullable*)return_type.get())->get_nested_type()
@@ -310,24 +344,63 @@ bool FunctionBuilderImpl::is_array_nested_type_date_or_datetime_or_decimal(
             func_return_type->is_nullable()
                     ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
                     : func_return_type;
-    if (!(return_type_ptr->get_primitive_type() == TYPE_ARRAY &&
-          func_return_type_ptr->get_primitive_type() == TYPE_ARRAY)) {
+    // make sure that map/struct/array also need to check
+    if (return_type_ptr->get_primitive_type() != func_return_type_ptr->get_primitive_type()) {
         return false;
     }
-    auto nested_nullable_return_type_ptr =
-            (assert_cast<const DataTypeArray*>(return_type_ptr.get()))->get_nested_type();
-    auto nested_nullable_func_return_type =
-            (assert_cast<const DataTypeArray*>(func_return_type_ptr.get()))->get_nested_type();
-    // There must be nullable inside array type.
-    if (nested_nullable_return_type_ptr->is_nullable() &&
-        nested_nullable_func_return_type->is_nullable()) {
-        auto nested_return_type_ptr =
-                ((DataTypeNullable*)(nested_nullable_return_type_ptr.get()))->get_nested_type();
-        auto nested_func_return_type_ptr =
-                ((DataTypeNullable*)(nested_nullable_func_return_type.get()))->get_nested_type();
-        return is_date_or_datetime_or_decimal(nested_return_type_ptr, nested_func_return_type_ptr);
+
+    // Check if this type contains date/datetime/decimal types
+    if (!contains_date_or_datetime_or_decimal(return_type_ptr)) {
+        // If no date/datetime/decimal types, just pass through
+        return true;
     }
-    return false;
+
+    // If contains date/datetime/decimal types, recursively check each element
+    switch (return_type_ptr->get_primitive_type()) {
+    case TYPE_ARRAY: {
+        auto nested_return_type = remove_nullable(
+                (assert_cast<const DataTypeArray*>(return_type_ptr.get()))->get_nested_type());
+        auto nested_func_type = remove_nullable(
+                (assert_cast<const DataTypeArray*>(func_return_type_ptr.get()))->get_nested_type());
+        return is_nested_type_date_or_datetime_or_decimal(nested_return_type, nested_func_type);
+    }
+    case TYPE_MAP: {
+        const auto* return_map = assert_cast<const DataTypeMap*>(return_type_ptr.get());
+        const auto* func_map = assert_cast<const DataTypeMap*>(func_return_type_ptr.get());
+
+        auto key_return = remove_nullable(return_map->get_key_type());
+        auto key_func = remove_nullable(func_map->get_key_type());
+        auto value_return = remove_nullable(return_map->get_value_type());
+        auto value_func = remove_nullable(func_map->get_value_type());
+
+        return is_nested_type_date_or_datetime_or_decimal(key_return, key_func) &&
+               is_nested_type_date_or_datetime_or_decimal(value_return, value_func);
+    }
+    case TYPE_STRUCT: {
+        const auto* return_struct = assert_cast<const DataTypeStruct*>(return_type_ptr.get());
+        const auto* func_struct = assert_cast<const DataTypeStruct*>(func_return_type_ptr.get());
+
+        auto return_elements = return_struct->get_elements();
+        auto func_elements = func_struct->get_elements();
+
+        if (return_elements.size() != func_elements.size()) {
+            return false;
+        }
+
+        for (size_t i = 0; i < return_elements.size(); i++) {
+            auto elem_return = remove_nullable(return_elements[i]);
+            auto elem_func = remove_nullable(func_elements[i]);
+
+            if (!is_nested_type_date_or_datetime_or_decimal(elem_return, elem_func)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    default:
+        return is_date_or_datetime_or_decimal(return_type_ptr, func_return_type_ptr);
+    }
 }
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

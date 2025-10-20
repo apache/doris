@@ -17,12 +17,13 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.rules.SupportJavaDateFormatter;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMicrosecond;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMillisecond;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -40,12 +41,13 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.DateUtils;
+
+import org.apache.commons.lang3.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -69,7 +71,8 @@ import java.util.Locale;
 
 /**
  * executable function:
- * year, quarter, month, week, dayOfYear, dayOfweek, dayOfMonth, hour, minute, second, microsecond
+ * year, quarter, month, week, dayOfYear, dayOfweek, dayOfMonth, hour, minute,
+ * second, microsecond
  */
 public class DateTimeExtractAndTransform {
 
@@ -328,30 +331,60 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateLiteral date, StringLikeLiteral format) {
+        if (StringUtils.trim(format.getValue()).length() > 128) {
+            throw new AnalysisException("The length of format string in date_format() function should not be greater"
+                    + " than 128.");
+        }
+        DateTimeV2Literal datetime = new DateTimeV2Literal(date.getYear(), date.getMonth(), date.getDay(), 0, 0, 0, 0);
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.dateTimeFormatter(format.getValue()).format(
+        return new VarcharLiteral(DateUtils.dateTimeFormatterChecklength(format.getValue(), datetime).format(
                 java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
     }
 
+    /**
+     * datetime arithmetic function date-format
+     */
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateTimeLiteral date, StringLikeLiteral format) {
+        if (StringUtils.trim(format.getValue()).length() > 128) {
+            throw new AnalysisException("The length of format string in date_format() function should not be greater"
+                    + " than 128.");
+        }
+        DateTimeV2Literal datetime = new DateTimeV2Literal(date.getYear(), date.getMonth(), date.getDay(),
+                date.getHour(), date.getMinute(), date.getSecond(), date.getMicroSecond());
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.dateTimeFormatter(format.getValue()).format(
+        return new VarcharLiteral(DateUtils.dateTimeFormatterChecklength(format.getValue(), datetime).format(
                 java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
-                        ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()))));
+                        ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()),
+                        ((int) date.getMicroSecond() * 1000))));
     }
 
+    /**
+     * datetime arithmetic function date-format
+     */
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateV2Literal date, StringLikeLiteral format) {
+        if (StringUtils.trim(format.getValue()).length() > 128) {
+            throw new AnalysisException("The length of format string in date_format() function should not be greater"
+                    + " than 128.");
+        }
+        DateTimeV2Literal datetime = new DateTimeV2Literal(date.getYear(), date.getMonth(), date.getDay(), 0, 0, 0, 0);
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.dateTimeFormatter(format.getValue()).format(
+        return new VarcharLiteral(DateUtils.dateTimeFormatterChecklength(format.getValue(), datetime).format(
                 java.time.LocalDate.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()))));
     }
 
+    /**
+     * datetime arithmetic function date-format
+     */
     @ExecFunction(name = "date_format")
     public static Expression dateFormat(DateTimeV2Literal date, StringLikeLiteral format) {
+        if (StringUtils.trim(format.getValue()).length() > 128) {
+            throw new AnalysisException("The length of format string in date_format() function should not be greater"
+                    + " than 128.");
+        }
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        return new VarcharLiteral(DateUtils.dateTimeFormatter(format.getValue()).format(
+        return new VarcharLiteral(DateUtils.dateTimeFormatterChecklength(format.getValue(), date).format(
                 java.time.LocalDateTime.of(((int) date.getYear()), ((int) date.getMonth()), ((int) date.getDay()),
                         ((int) date.getHour()), ((int) date.getMinute()), ((int) date.getSecond()),
                         ((int) date.getMicroSecond() * 1000))));
@@ -374,18 +407,9 @@ public class DateTimeExtractAndTransform {
      * datetime arithmetic function date-trunc
      */
     @ExecFunction(name = "date_trunc")
-    public static Expression dateTrunc(DateTimeLiteral date, StringLikeLiteral trunc) {
-        return DateTimeLiteral.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
-    }
-
-    @ExecFunction(name = "date_trunc")
     public static Expression dateTrunc(DateTimeV2Literal date, StringLikeLiteral trunc) {
-        return DateTimeV2Literal.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
-    }
-
-    @ExecFunction(name = "date_trunc")
-    public static Expression dateTrunc(DateLiteral date, StringLikeLiteral trunc) {
-        return DateLiteral.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
+        return DateTimeV2Literal.fromJavaDateType(
+                dateTruncHelper(date.toJavaDateType(), trunc.getValue()), date.getScale());
     }
 
     @ExecFunction(name = "date_trunc")
@@ -394,18 +418,9 @@ public class DateTimeExtractAndTransform {
     }
 
     @ExecFunction(name = "date_trunc")
-    public static Expression dateTrunc(StringLikeLiteral trunc, DateTimeLiteral date) {
-        return DateTimeLiteral.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
-    }
-
-    @ExecFunction(name = "date_trunc")
     public static Expression dateTrunc(StringLikeLiteral trunc, DateTimeV2Literal date) {
-        return DateTimeV2Literal.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
-    }
-
-    @ExecFunction(name = "date_trunc")
-    public static Expression dateTrunc(StringLikeLiteral trunc, DateLiteral date) {
-        return DateLiteral.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
+        return DateTimeV2Literal.fromJavaDateType(
+                dateTruncHelper(date.toJavaDateType(), trunc.getValue()), date.getScale());
     }
 
     @ExecFunction(name = "date_trunc")
@@ -464,20 +479,6 @@ public class DateTimeExtractAndTransform {
             res = res.plusDays(-1);
         }
         return DateV2Literal.fromJavaDateType(res);
-    }
-
-    @ExecFunction(name = "last_day")
-    public static Expression lastDay(DateLiteral date) {
-        LocalDateTime nextMonthFirstDay = LocalDateTime.of((int) date.getYear(), (int) date.getMonth(), 1,
-                0, 0, 0).plusMonths(1);
-        return DateLiteral.fromJavaDateType(nextMonthFirstDay.minusDays(1));
-    }
-
-    @ExecFunction(name = "last_day")
-    public static Expression lastDay(DateTimeLiteral date) {
-        LocalDateTime nextMonthFirstDay = LocalDateTime.of((int) date.getYear(), (int) date.getMonth(), 1,
-                0, 0, 0).plusMonths(1);
-        return DateLiteral.fromJavaDateType(nextMonthFirstDay.minusDays(1));
     }
 
     @ExecFunction(name = "last_day")
@@ -705,8 +706,8 @@ public class DateTimeExtractAndTransform {
             throw new AnalysisException("Operation makedate of " + yearValue + ", " + dayValue + " out of range");
         }
         return dayValue > 0
-                ? DateLiteral.fromJavaDateType(LocalDateTime.of(yearValue, 1, 1, 0, 0, 0).plusDays(dayValue - 1))
-                : new NullLiteral(DateType.INSTANCE);
+                ? DateV2Literal.fromJavaDateType(LocalDateTime.of(yearValue, 1, 1, 0, 0, 0).plusDays(dayValue - 1))
+                : new NullLiteral(DateV2Type.INSTANCE);
     }
 
     /**
@@ -716,25 +717,13 @@ public class DateTimeExtractAndTransform {
     public static Expression strToDate(StringLikeLiteral str, StringLikeLiteral format) {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
         if (org.apache.doris.analysis.DateLiteral.hasTimePart(format.getStringValue())) {
-            DataType returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATETIME));
-            if (returnType instanceof DateTimeV2Type) {
-                boolean hasMicroPart = org.apache.doris.analysis.DateLiteral
-                        .hasMicroSecondPart(format.getStringValue());
-                return DateTimeV2Literal.fromJavaDateType(DateUtils.getTime(DateUtils
-                        .dateTimeFormatter(format.getValue()), str.getValue()), hasMicroPart ? 6 : 0);
-            } else {
-                return DateTimeLiteral.fromJavaDateType(DateUtils.getTime(DateUtils
-                        .dateTimeFormatter(format.getValue()), str.getValue()));
-            }
+            boolean hasMicroPart = org.apache.doris.analysis.DateLiteral.hasMicroSecondPart(format.getStringValue());
+            return DateTimeV2Literal.fromJavaDateType(
+                    DateUtils.getTime(DateUtils.dateTimeFormatter(format.getValue()), str.getValue()),
+                    hasMicroPart ? 6 : 0);
         } else {
-            DataType returnType = DataType.fromCatalogType(ScalarType.getDefaultDateType(Type.DATE));
-            if (returnType instanceof DateV2Type) {
-                return DateV2Literal.fromJavaDateType(DateUtils.getTime(DateUtils.dateTimeFormatter(format.getValue()),
-                        str.getValue()));
-            } else {
-                return DateLiteral.fromJavaDateType(DateUtils.getTime(DateUtils.dateTimeFormatter(format.getValue()),
-                        str.getValue()));
-            }
+            return DateV2Literal.fromJavaDateType(
+                    DateUtils.getTime(DateUtils.dateTimeFormatter(format.getValue()), str.getValue()));
         }
     }
 
@@ -749,10 +738,14 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
-     * convert_tz
+     * date transformation function: convert_tz
      */
     @ExecFunction(name = "convert_tz")
     public static Expression convertTz(DateTimeV2Literal datetime, StringLikeLiteral fromTz, StringLikeLiteral toTz) {
+        // Validate timezone offset ranges before parsing
+        validateTimezoneOffset(fromTz.getStringValue());
+        validateTimezoneOffset(toTz.getStringValue());
+
         DateTimeFormatter zoneFormatter = new DateTimeFormatterBuilder()
                 .parseCaseInsensitive()
                 .appendZoneOrOffsetId()
@@ -764,6 +757,28 @@ public class DateTimeExtractAndTransform {
         LocalDateTime localDateTime = datetime.toJavaDateType();
         ZonedDateTime resultDateTime = localDateTime.atZone(fromZone).withZoneSameInstant(toZone);
         return DateTimeV2Literal.fromJavaDateType(resultDateTime.toLocalDateTime(), datetime.getDataType().getScale());
+    }
+
+    private static void validateTimezoneOffset(String timezone) {
+        // Pattern to match offset format like +HH:MM or -HH:MM
+        if (timezone.matches("^[+-]\\d{2}:\\d{2}$")) {
+            boolean positive = timezone.charAt(0) == '+';
+            int hour = Integer.parseInt(timezone.substring(1, 3));
+            int minute = Integer.parseInt(timezone.substring(4, 6));
+
+            if (!positive && hour > 12) {
+                throw new AnalysisException("Invalid timezone offset: " + timezone
+                        + ". Timezone offsets must be between -12:00 and +14:00");
+            } else if (positive && hour > 14) {
+                throw new AnalysisException("Invalid timezone offset: " + timezone
+                        + ". Timezone offsets must be between -12:00 and +14:00");
+            }
+
+            if (minute != 0 && minute != 15 && minute != 30 && minute != 45) {
+                throw new AnalysisException("Invalid timezone offset: " + timezone
+                        + ". Minute part should be 00, 15, 30, or 45");
+            }
+        }
     }
 
     @ExecFunction(name = "weekday")
@@ -1048,27 +1063,27 @@ public class DateTimeExtractAndTransform {
 
     @ExecFunction(name = "from_second")
     public static Expression fromSecond(BigIntLiteral second) {
-        return fromMicroSecond(second.getValue() * 1000 * 1000);
+        return fromMicroSecond(second.getValue() * 1000 * 1000, FromSecond.RESULT_SCALE);
     }
 
     @ExecFunction(name = "from_millisecond")
     public static Expression fromMilliSecond(BigIntLiteral milliSecond) {
-        return fromMicroSecond(milliSecond.getValue() * 1000);
+        return fromMicroSecond(milliSecond.getValue() * 1000, FromMillisecond.RESULT_SCALE);
     }
 
     @ExecFunction(name = "from_microsecond")
     public static Expression fromMicroSecond(BigIntLiteral microSecond) {
-        return fromMicroSecond(microSecond.getValue());
+        return fromMicroSecond(microSecond.getValue(), FromMicrosecond.RESULT_SCALE);
     }
 
-    private static Expression fromMicroSecond(long microSecond) {
+    private static Expression fromMicroSecond(long microSecond, int scale) {
         if (microSecond < 0 || microSecond > 253402271999999999L) {
             throw new AnalysisException("Operation from_microsecond of " + microSecond + " out of range");
         }
         LocalDateTime dateTime = LocalDateTime.ofInstant(
                 Instant.ofEpochMilli(microSecond / 1000).plusNanos(microSecond % 1000 * 1000),
                 DateUtils.getTimeZone());
-        return new DateTimeV2Literal(DateTimeV2Type.MAX, dateTime.getYear(),
+        return new DateTimeV2Literal(DateTimeV2Type.of(scale), dateTime.getYear(),
                 dateTime.getMonthValue(), dateTime.getDayOfMonth(), dateTime.getHour(),
                 dateTime.getMinute(), dateTime.getSecond(), dateTime.getNano() / 1000);
     }
@@ -1327,5 +1342,84 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "sec_to_time")
     public static Expression secToTime(DoubleLiteral sec) {
         return new TimeV2Literal(sec.getValue() * 1000000);
+    }
+
+    /**
+     * get_format function for constant folding
+     */
+    @ExecFunction(name = "get_format")
+    public static Expression getFormat(StringLikeLiteral type, StringLikeLiteral format) {
+        String typeStr = type.getValue();
+        String formatStr = format.getValue().toUpperCase();
+
+        String result = null;
+
+        switch (typeStr) {
+            case "DATE":
+                switch (formatStr) {
+                    case "USA":
+                        result = "%m.%d.%Y";
+                        break;
+                    case "JIS":
+                    case "ISO":
+                        result = "%Y-%m-%d";
+                        break;
+                    case "EUR":
+                        result = "%d.%m.%Y";
+                        break;
+                    case "INTERNAL":
+                        result = "%Y%m%d";
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            case "DATETIME":
+                switch (formatStr) {
+                    case "USA":
+                        result = "%Y-%m-%d %H.%i.%s";
+                        break;
+                    case "JIS":
+                    case "ISO":
+                        result = "%Y-%m-%d %H:%i:%s";
+                        break;
+                    case "EUR":
+                        result = "%Y-%m-%d %H.%i.%s";
+                        break;
+                    case "INTERNAL":
+                        result = "%Y%m%d%H%i%s";
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            case "TIME":
+                switch (formatStr) {
+                    case "USA":
+                        result = "%h:%i:%s %p";
+                        break;
+                    case "JIS":
+                    case "ISO":
+                        result = "%H:%i:%s";
+                        break;
+                    case "EUR":
+                        result = "%H.%i.%s";
+                        break;
+                    case "INTERNAL":
+                        result = "%H%i%s";
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            default:
+                break;
+        }
+
+        if (result == null) {
+            return new NullLiteral(StringType.INSTANCE);
+        }
+
+        return new VarcharLiteral(result);
     }
 }

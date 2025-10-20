@@ -76,6 +76,12 @@ DECLARE_mInt32(sync_rowsets_slow_threshold_ms);
 // Cloud compaction config
 DECLARE_mInt64(min_compaction_failure_interval_ms);
 DECLARE_mBool(enable_new_tablet_do_compaction);
+// Enable empty rowset compaction strategy
+DECLARE_mBool(enable_empty_rowset_compaction);
+// Minimum number of consecutive empty rowsets to trigger compaction
+DECLARE_mInt32(empty_rowset_compaction_min_count);
+// Minimum percentage of empty rowsets to trigger compaction
+DECLARE_mDouble(empty_rowset_compaction_min_ratio);
 // For cloud read/write separate mode
 DECLARE_mInt64(base_compaction_freeze_interval_s);
 DECLARE_mInt64(compaction_load_max_freeze_interval_s);
@@ -149,6 +155,8 @@ DECLARE_mInt64(cloud_index_change_task_timeout_second);
 DECLARE_mInt64(warmup_tablet_replica_info_cache_ttl_sec);
 
 DECLARE_mInt64(warm_up_rowset_slow_log_ms);
+
+DECLARE_mInt32(warm_up_manager_thread_pool_size);
 
 // When event driven warm-up is enabled by the user, turning on this option can help
 // avoid file cache misses in the read cluster caused by compaction.
