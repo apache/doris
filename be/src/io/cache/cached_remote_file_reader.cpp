@@ -106,6 +106,9 @@ void CachedRemoteFileReader::_insert_file_reader(FileBlockSPtr file_block) {
 }
 
 CachedRemoteFileReader::~CachedRemoteFileReader() {
+    _is_destructing = true;
+    std::unique_lock _destructing_lock(_destructing_mutex);
+    _cv.wait(_destructing_lock, [this] { return _async_fill_task_num == 0;});
     for (auto& it : _cache_file_readers) {
         it.second->_owned_by_cached_reader = false;
     }
@@ -440,6 +443,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
          * Capturing variable holder is necessary to ensure its destructor is called after the async
          * file_cache_fill thread completes
          */
+        _async_fill_task_num.fetch_add(1);
         auto task = [this, empty_start, buffer_size, _empty_blocks = std::move(empty_blocks),
                      _buffer = std::move(buffer_moved), _holder = std::move(holder)]() {
             // variable _holder must be visited
@@ -462,6 +466,10 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 } else {
                     _insert_file_reader(block);
                 }
+            }
+            _async_fill_task_num.fetch_sub(1);
+            if (_is_destructing && _async_fill_task_num == 0) {
+                _cv.notify_all();
             }
         };
         auto taskSPtr = std::make_shared<decltype(task)>(std::move(task));
