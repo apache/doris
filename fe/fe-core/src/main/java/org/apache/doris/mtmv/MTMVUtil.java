@@ -85,6 +85,14 @@ public class MTMVUtil {
         return (MTMVRelatedTableIf) relatedTable;
     }
 
+    public static MTMV getMTMV(BaseTableInfo baseTableInfo) throws AnalysisException {
+        TableIf table = getTable(baseTableInfo);
+        if (!(table instanceof MTMV)) {
+            throw new AnalysisException(String.format("table is not MTMV, table: %s", baseTableInfo));
+        }
+        return (MTMV) table;
+    }
+
     public static MTMV getMTMV(long dbId, long mtmvId) throws DdlException, MetaNotFoundException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
         return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
@@ -97,7 +105,7 @@ public class MTMVUtil {
      * @return
      */
     public static boolean mtmvContainsExternalTable(MTMV mtmv) {
-        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevel();
+        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevelAndFromView();
         for (BaseTableInfo baseTableInfo : baseTables) {
             if (!baseTableInfo.isInternalTable()) {
                 return true;
