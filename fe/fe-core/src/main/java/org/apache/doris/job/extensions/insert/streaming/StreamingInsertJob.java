@@ -150,7 +150,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.originTvfProps = currentTvf.getProperties().getMap();
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
             // validate and init offset
-            if (jobProperties.getStartOffset() != null){
+            if (jobProperties.getStartOffset() != null) {
                 Offset offset = validateOffset(jobProperties.getStartOffset());
                 this.offsetProvider.updateOffset(offset);
             }

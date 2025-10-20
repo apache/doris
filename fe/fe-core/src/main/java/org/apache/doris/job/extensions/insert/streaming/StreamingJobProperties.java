@@ -21,10 +21,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.job.base.JobProperties;
 import org.apache.doris.job.exception.JobException;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SessionVariable;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Data;
 import org.json.simple.JSONObject;
 
@@ -43,8 +41,8 @@ public class StreamingJobProperties implements JobProperties {
     public static final String S3_MAX_BATCH_BYTES_PROPERTY = "s3.max_batch_bytes";
     public static final String SESSION_VAR_PREFIX = "session.";
     public static final String START_OFFSET_PROPERTY = "start_offset";
-    public static final List<String> SUPPORT_STREAM_JOB_PROPS =
-            Arrays.asList(MAX_INTERVAL_SECOND_PROPERTY, S3_MAX_BATCH_FILES_PROPERTY, S3_MAX_BATCH_BYTES_PROPERTY, START_OFFSET_PROPERTY);
+    public static final List<String> SUPPORT_STREAM_JOB_PROPS = Arrays.asList(MAX_INTERVAL_SECOND_PROPERTY,
+            S3_MAX_BATCH_FILES_PROPERTY, S3_MAX_BATCH_BYTES_PROPERTY, START_OFFSET_PROPERTY);
 
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
     public static final long DEFAULT_MAX_S3_BATCH_FILES = 256;
@@ -144,7 +142,7 @@ public class StreamingJobProperties implements JobProperties {
         return sessionVarMap;
     }
 
-    public String getStartOffset(){
+    public String getStartOffset() {
         return properties.get(START_OFFSET_PROPERTY);
     }
 }
