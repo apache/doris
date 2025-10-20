@@ -17,6 +17,9 @@
 
 #include "vec/common/sort/heap_sorter.h"
 
+#include <glog/logging.h>
+
+#include "util/runtime_profile.h"
 #include "vec/core/sort_block.h"
 
 namespace doris::vectorized {
@@ -41,8 +44,13 @@ Status HeapSorter::append_block(Block* block) {
             tmp_block->swap(*block);
         }
         auto tmp_cursor_impl = MergeSortCursorImpl::create_shared(tmp_block, _sort_description);
-        _do_filter(*tmp_cursor_impl, tmp_block->rows());
-
+        size_t num_rows = tmp_block->rows();
+        _do_filter(*tmp_cursor_impl, num_rows);
+        size_t remain_rows = tmp_block->rows();
+        COUNTER_UPDATE(_topn_filter_rows_counter, (num_rows - remain_rows));
+        if (remain_rows == 0) {
+            return Status::OK();
+        }
         // After filtering, sort the remaining rows with reversed description and push that block.
         auto sorted_block = std::make_shared<Block>(tmp_block->clone_empty());
         SortDescription rev_desc = _sort_description;
@@ -112,6 +120,7 @@ size_t HeapSorter::data_size() const {
 }
 
 void HeapSorter::_do_filter(MergeSortCursorImpl& block_cursor, size_t num_rows) {
+    SCOPED_TIMER(_topn_filter_timer);
     auto [top_cursor, current_rows] = _queue.current();
     const auto cursor_rid = top_cursor->impl->pos;
     IColumn::Filter filter(num_rows, 0);

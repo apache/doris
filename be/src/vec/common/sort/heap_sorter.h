@@ -42,6 +42,12 @@ public:
 
     Field get_top_value() override;
 
+    void init_profile(RuntimeProfile* runtime_profile) override {
+        Sorter::init_profile(runtime_profile);
+        _topn_filter_timer = ADD_TIMER(runtime_profile, "TopNFilterTime");
+        _topn_filter_rows_counter = ADD_COUNTER(runtime_profile, "TopNFilterRows", TUnit::UNIT);
+    }
+
 private:
     Status _prepare_sort_descs(Block* block);
     void _do_filter(MergeSortCursorImpl& block, size_t num_rows);
@@ -52,6 +58,8 @@ private:
     std::unique_ptr<MergeSorterState> _state;
     IColumn::Permutation _reverse_buffer;
     bool _have_runtime_predicate = true;
+    RuntimeProfile::Counter* _topn_filter_timer = nullptr;
+    RuntimeProfile::Counter* _topn_filter_rows_counter = nullptr;
 };
 
 #include "common/compile_check_end.h"
