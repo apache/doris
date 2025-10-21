@@ -78,9 +78,9 @@ public class S3UtilTest {
 
     @Test
     public void testExtendGlobNumberRange_negativeNumbersFiltered() {
-        // Test negative numbers are filtered out {-1..2}
+        // If start or end is negative, the entire range is skipped
         String input = "file_{-1..2}.csv";
-        String expected = "file_{0,1,2}.csv";
+        String expected = "file_{-1..2}.csv";
         String result = S3Util.extendGlobNumberRange(input);
         Assert.assertEquals(expected, result);
     }
@@ -96,9 +96,9 @@ public class S3UtilTest {
 
     @Test
     public void testExtendGlobNumberRange_mixedWithNegative() {
-        // Test mixed with negative {-1..2,1..3}
+        // The range -1..2 is skipped, only 1..3 is expanded
         String input = "file_{-1..2,1..3}.csv";
-        String expected = "file_{0,1,2,3}.csv";
+        String expected = "file_{1,2,3}.csv";
         String result = S3Util.extendGlobNumberRange(input);
         Assert.assertEquals(expected, result);
     }
@@ -114,9 +114,9 @@ public class S3UtilTest {
 
     @Test
     public void testExtendGlobNumberRange_mixedInvalidAndValid() {
-        // Test mixed invalid and valid {3..1,2,1..2}
+        // Range 3..1 is normalized to 1..3, resulting in {1,2,3}
         String input = "file_{3..1,2,1..2}.csv";
-        String expected = "file_{1,2}.csv";
+        String expected = "file_{1,2,3}.csv";
         String result = S3Util.extendGlobNumberRange(input);
         Assert.assertEquals(expected, result);
     }
