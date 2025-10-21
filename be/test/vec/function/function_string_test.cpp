@@ -2515,6 +2515,12 @@ TEST(function_string_test, function_hex_test) {
             {{std::string("23 12 --!__!_!__!")}, std::string("3233203132202D2D215F5F215F215F5F21")},
             {{std::string("112+ + +")}, std::string("3131322B202B202B")},
             {{std::string("     +       23 ")}, std::string("20202020202B20202020202020323320")},
+            {{std::string("😀🍕")}, std::string("F09F9880F09F8D95")},
+            {{std::string("测试")}, std::string("E6B58BE8AF95")},
+            {{std::string("こんにちは")}, std::string("E38193E38293E381ABE381A1E381AF")},
+            {{std::string("안녕하세요")}, std::string("EC9588EB8595ED9598EC84B8EC9A94")},
+            {{std::string("테스트")}, std::string("ED8580EC8A94ED8A80ED8A94")},
+            {{std::string("🎉🍔")}, std::string("F09F8E89F09F8D94")},
     };
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
@@ -2525,16 +2531,19 @@ TEST(function_string_test, function_unhex_test) {
     DataSet data_set = {
             {{std::string("41624364456667")}, std::string("AbCdEfg")},
             {{std::string("E4BDA0E5A5BD48454C4C4F")}, std::string("你好HELLO")},
+            {{std::string("F09F9880F09F8D95")}, std::string("😀🍕")},
+            {{std::string("E6B58BE8AF95")}, std::string("测试")},
             {{std::string("")}, std::string("")},
             {{Null()}, Null()},
             {{std::string("21402324402A2028212623")}, std::string("!@#$@* (!&#")},
             {{std::string("4A534B41422851405F5F21")}, std::string("JSKAB(Q@__!")},
-            // {{std::string("M4D59207465737420537472E4BDA0E5A5BD2020")}, Null()},
             {{std::string("2020202020202020202020202020202020")}, std::string("                 ")},
             {{std::string("3233203132202D2D215F5F215F215F5F21")}, std::string("23 12 --!__!_!__!")},
             {{std::string("3131322B202B202B")}, std::string("112+ + +")},
             {{std::string("20202020202B20202020202020323320")}, std::string("     +       23 ")},
-            // {{std::string("!")}, Null()},
+            {{std::string("E38193E38293E381ABE381A1E381AF")}, std::string("こんにちは")},
+            {{std::string("EC9588EB8595ED9598EC84B8EC9A94")}, std::string("안녕하세요")},
+            {{std::string("ED8580EC8A94ED8A80ED8A94")}, std::string("테스트")},
     };
     check_function_all_arg_comb<DataTypeString, true>(unhex_func_name, input_types, data_set);
 
@@ -2542,6 +2551,8 @@ TEST(function_string_test, function_unhex_test) {
     data_set = {
             {{std::string("41624364456667")}, std::string("AbCdEfg")},
             {{std::string("E4BDA0E5A5BD48454C4C4F")}, std::string("你好HELLO")},
+            {{std::string("F09F9880F09F8D95")}, std::string("😀🍕")},
+            {{std::string("E6B58BE8AF95")}, std::string("测试")},
             {{std::string("")}, Null()},
             {{Null()}, Null()},
             {{std::string("21402324402A2028212623")}, std::string("!@#$@* (!&#")},
@@ -2553,6 +2564,10 @@ TEST(function_string_test, function_unhex_test) {
             {{std::string("20202020202B20202020202020323320")}, std::string("     +       23 ")},
             {{std::string("41G42")}, Null()},
             {{std::string("!")}, Null()},
+            {{std::string("F09F8E89F09F8D94")}, std::string("🎉🍔")},
+            {{std::string("E38193E38293E381ABE381A1E381AF")}, std::string("こんにちは")},
+            {{std::string("EC9588EB8595ED9598EC84B8EC9A94")}, std::string("안녕하세요")},
+            {{std::string("ED8580EC8A94ED8A80ED8A94")}, std::string("테스트")},
     };
     check_function_all_arg_comb<DataTypeString, true>(unhex_null_func_name, input_types, data_set);
 }
