@@ -149,21 +149,6 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
                 }
             }
             newProjections.addAll(cseCandidates.values());
-            Set<NamedExpression> physicalPropertiesUsed = new HashSet<>();
-            for (OrderKey orderkey : project.getPhysicalProperties().getOrderSpec().getOrderKeys()) {
-                physicalPropertiesUsed.addAll(orderkey.getExpr().getInputSlots());
-            }
-            if (project.getPhysicalProperties().getDistributionSpec() instanceof DistributionSpecHash) {
-                DistributionSpecHash distr = (DistributionSpecHash) project.getPhysicalProperties()
-                        .getDistributionSpec();
-                List<ExprId> shuffleColumnIds = distr.getOrderedShuffledColumns();
-                for (NamedExpression ne : project.getProjects()) {
-                    if (shuffleColumnIds.contains(ne.getExprId())) {
-                        physicalPropertiesUsed.add(ne);
-                    }
-                }
-            }
-            // newProjections.addAll(physicalPropertiesUsed);
 
             project = project.withProjectionsAndChild(newProjections, project.child());
             PhysicalProperties projectPhysicalProperties = ChildOutputPropertyDeriver.computeProjectOutputProperties(
