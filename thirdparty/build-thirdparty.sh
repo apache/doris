@@ -1716,6 +1716,24 @@ build_hadoop_libs() {
     find ./hadoop-dist/target/hadoop-3.3.6/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
 }
 
+# hadoop_libs_3_4
+build_hadoop_libs_3_4() {
+    check_if_source_exist "${HADOOP_LIBS_3_4_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${HADOOP_LIBS_3_4_SOURCE}"
+    echo "THIRDPARTY_INSTALLED=${TP_INSTALL_DIR}" >env.sh
+    ./build.sh
+
+    rm -rf "${TP_INSTALL_DIR}/include/hadoop_hdfs_3_4/"
+    rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/"
+    mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs_3_4/"
+    mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/"
+    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.4.2/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/"
+    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.4.2/include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs_3_4/"
+    rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/native/*.a"
+    find ./hadoop-dist/target/hadoop-3.4.2/lib/native/ -type f ! -name '*.a' -exec cp {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/native/" \;
+    find ./hadoop-dist/target/hadoop-3.4.2/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs_3_4/native/" \;
+}
+
 # AvxToNeon
 build_avx2neon() {
     check_if_source_exist "${AVX2NEON_SOURCE}"
@@ -1973,6 +1991,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
     elif [[ "$(uname -s)" == 'Linux' ]]; then
         read -r -a packages <<<"${packages[*]} hadoop_libs"
+        read -r -a packages <<<"${packages[*]} hadoop_libs_3_4"
     fi
 fi
 

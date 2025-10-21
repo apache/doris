@@ -92,10 +92,10 @@ GLOG_SOURCE=glog-0.6.0
 GLOG_MD5SUM="c98a6068bc9b8ad9cebaca625ca73aa2"
 
 # gtest
-GTEST_DOWNLOAD="https://github.com/google/googletest/archive/release-1.11.0.tar.gz"
-GTEST_NAME=googletest-release-1.11.0.tar.gz
-GTEST_SOURCE=googletest-release-1.11.0
-GTEST_MD5SUM="e8a8df240b6938bb6384155d4c37d937"
+GTEST_DOWNLOAD="https://github.com/google/googletest/archive/refs/tags/release-1.12.1.tar.gz"
+GTEST_NAME=googletest-release-1.12.1.tar.gz
+GTEST_SOURCE=googletest-release-1.12.1
+GTEST_MD5SUM="e82199374acdfda3f425331028eb4e2a"
 
 # snappy
 SNAPPY_DOWNLOAD="https://github.com/google/snappy/archive/1.1.8.tar.gz"
@@ -468,6 +468,12 @@ HADOOP_LIBS_NAME="hadoop-3.3.6.6-for-doris.tar.gz"
 HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.6-for-doris"
 HADOOP_LIBS_MD5SUM="13b66d5f2abffd1740e692b65df5962e"
 
+# libhdfs 3.4
+HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.1-for-doris.tar.gz"
+HADOOP_LIBS_3_4_NAME="hadoop-3.4.2.1-for-doris.tar.gz"
+HADOOP_LIBS_3_4_SOURCE="doris-thirdparty-hadoop-3.4.2.1-for-doris"
+HADOOP_LIBS_3_4_MD5SUM="4ca35773ecfae856962885413f6bbeac"
+
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
 AVX2NEON_NAME=v1.0.0.tar.gz
@@ -608,6 +614,7 @@ export TP_ARCHIVES=(
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
     'HADOOP_LIBS'
+    'HADOOP_LIBS_3_4'
     'AVX2NEON'
     'LIBDEFLATE'
     'STREAMVBYTE'
