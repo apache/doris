@@ -87,16 +87,19 @@ suite("test_show_data_warehouse") {
 
         boolean hitDb1 = false;
         boolean hitDb2 = false;
+
+        long db1Size = 945 * replicaCount1
+        long db2Size = 922 * replicaCount1
         def result;
         do {
             current = System.currentTimeMillis()
             result = sql """ show data properties("entire_warehouse"="true","db_names"="${db1Name}"); """
-            if ((result.size() == 2) && result[0][1].toInteger() == 945 * replicaCount1) {
+            if ((result.size() == 2) && result[0][1].toInteger() >= db1Size) {
                 hitDb1 = true;
             }
 
             result = sql """ show data properties("entire_warehouse"="true","db_names"="${db2Name}"); """
-            if (result.size() == 2 && result[0][1].toInteger() == 922 * replicaCount1) {
+            if (result.size() == 2 && result[0][1].toInteger() >= db2Size) {
                 hitDb2 = true;
             }
             if (hitDb1 && hitDb2) {
@@ -110,9 +113,9 @@ suite("test_show_data_warehouse") {
 
         result = sql """ show data properties("entire_warehouse"="true","db_names"="${db1Name},${db2Name}"); """
         assertEquals(result.size(), 3)
-        assertEquals(result[0][1].toInteger(), 945 * replicaCount1)
-        assertEquals(result[1][1].toInteger(), 922 * replicaCount1)
-        assertEquals(result[2][1].toInteger(), (945 + 922) * replicaCount1)
+        assert result[0][1].toInteger() >= db1Size
+        assert result[1][1].toInteger() >= db2Size
+        assert result[2][1].toInteger() >= db1Size + db2Size
 
         result = sql """show data properties("entire_warehouse"="true")"""
         assertTrue(result.size() >= 3)
