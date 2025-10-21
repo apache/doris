@@ -46,7 +46,7 @@ final String NORMAL_QUEUE_CURR_SIZE_NOT_GREATER_THAN_ZERO_MSG = FILE_CACHE_FEATU
 final String NORMAL_QUEUE_CURR_ELEMENTS_NOT_GREATER_THAN_ZERO_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "normal_queue_curr_elements is not greater than 0 after cache operation"
 final String NORMAL_QUEUE_CURR_SIZE_GREATER_THAN_FILE_CACHE_QUERY_LIMIT_BYTES_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "normal_queue_curr_size is greater than file_cache_query_limit_bytes"
 
-suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,p0,external,nonConcurrent") {
+suite("test_file_cache_query_limit", "docker,external_docker,hive,external_docker_hive,p0,external,nonConcurrent") {
 
     def options = new ClusterOptions()
     options.setFeNum(1)
