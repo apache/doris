@@ -27,6 +27,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.resource.computegroup.ComputeGroup;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 
@@ -102,8 +103,8 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
         List<Backend> beList = cg.getBackendList();
         if (beList.isEmpty()) {
             LOG.warn("no available backends, compute group is {}", cg.toString());
-            throw new UserException("no available backends, the cluster maybe not be set or been dropped clusterName = "
-                    + cg.getName());
+            String computeGroupHints = ComputeGroupMgr.computeGroupNotFoundPromptMsg(cg.getName(), cg.getName());
+            throw new UserException(computeGroupHints);
         }
 
         Map<Long, Backend> idToBeMap = Maps.newHashMap();
