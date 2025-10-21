@@ -321,16 +321,24 @@ public:
     /// Returns pointer to the position after the read data.
     virtual const char* deserialize_and_insert_from_arena(const char* pos) = 0;
 
-    virtual void serialize_vec(StringRef* keys, size_t num_rows) const {
+    // todo: Consider replacing stringref with slice.
+    virtual void serialize(StringRef* keys, size_t num_rows) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method serialize_vec is not supported for " + get_name());
+                               "Method serialize is not supported for " + get_name());
     }
 
+    virtual void serialize_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
+                                         const uint8_t* __restrict null_map) const;
+
     // This function deserializes group-by keys into column in the vectorized way.
-    virtual void deserialize_vec(StringRef* keys, const size_t num_rows) {
+    virtual void deserialize(StringRef* keys, const size_t num_rows) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method deserialize_vec is not supported for " + get_name());
+                               "Method deserialize is not supported for " + get_name());
     }
+
+    virtual void deserialize_with_nullable(StringRef* keys, const size_t num_rows,
+                                           PaddedPODArray<UInt8>& null_map);
+
     /// The exact size to serialize the `row`-th row data in this column.
     virtual size_t serialize_size_at(size_t row) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -595,7 +603,7 @@ public:
       *
       * To avoid confusion between these cases, we don't have isContiguous method.
       */
-
+    // todo: We should support a non-const version of get_raw_data that returns a Slice.
     virtual StringRef get_raw_data() const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Column {} is not a contiguous block of memory", get_name());
@@ -708,8 +716,18 @@ const Type* check_and_get_column(const IColumn& column) {
 }
 
 template <typename Type>
+Type* check_and_get_column(IColumn& column) {
+    return typeid_cast<Type*>(&column);
+}
+
+template <typename Type>
 const Type* check_and_get_column(const IColumn* column) {
     return typeid_cast<const Type*>(column);
+}
+
+template <typename Type>
+Type* check_and_get_column(IColumn* column) {
+    return typeid_cast<Type*>(column);
 }
 
 template <typename Type>
@@ -730,7 +748,7 @@ ColumnType::Ptr check_and_get_column_ptr(const ColumnPtr& column) {
     if (raw_type_ptr == nullptr) {
         return nullptr;
     }
-    return typename ColumnType::Ptr(const_cast<ColumnType*>(raw_type_ptr));
+    return typename ColumnType::Ptr(raw_type_ptr);
 }
 
 /// True if column's an ColumnConst instance. It's just a syntax sugar for type check.

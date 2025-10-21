@@ -1151,6 +1151,8 @@ public class Env {
         pluginMgr.init();
         auditEventProcessor.start();
 
+        cloneClusterSnapshot();
+
         // 2. get cluster id and role (Observer or Follower)
         if (!Config.enable_check_compatibility_mode) {
             checkDeployMode();
@@ -1161,8 +1163,6 @@ public class Env {
             nodeName = genFeNodeName(selfNode.getHost(),
                     selfNode.getPort(), false /* new style */);
         }
-
-        cloneClusterSnapshot();
 
         // 3. Load image first and replay edits
         this.editLog = new EditLog(nodeName);
@@ -3375,7 +3375,7 @@ public class Env {
         if (StringUtils.isEmpty(command.getCtlName())) {
             catalogIf = getCurrentCatalog();
         } else {
-            catalogIf = catalogMgr.getCatalog(command.getCtlName());
+            catalogIf = catalogMgr.getCatalogOrDdlException(command.getCtlName());
         }
         catalogIf.createDb(command.getDbName(), command.isIfNotExists(), command.getProperties());
     }

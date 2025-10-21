@@ -71,6 +71,7 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
@@ -143,6 +144,10 @@ public abstract class ExpressionVisitor<R, C>
     @Override
     public R visitScalarFunction(ScalarFunction scalarFunction, C context) {
         return visitBoundFunction(scalarFunction, context);
+    }
+
+    public R visitSearchExpression(SearchExpression searchExpression, C context) {
+        return visit(searchExpression, context);
     }
 
     @Override

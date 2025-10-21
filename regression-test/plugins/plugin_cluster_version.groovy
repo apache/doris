@@ -18,37 +18,39 @@
 import org.apache.doris.regression.suite.Suite
 
 Suite.metaClass.is_cluster_newer_than = { int mainVersion, int midVersion, int thirdVersion ->
-    def version = get_cluster_version()
-    def versionParts = version.split(/\./)[0..2].collect { it.toInteger() }
-    if ( versionParts[0] == 0 ) {
-        // trunk
-        return true
-    } 
-    
-    if (mainVersion > versionParts[0]) {
-        return true
-    } else if (mainVersion < versionParts[0]) {
-        return false
-    }
-
-    if (midVersion > versionParts[1]) {
-        return true
-    } else if (midVersion < versionParts[1]) {
-        return false
-    }
-
-    return thirdVersion >= versionParts[2]
-}
-
-Suite.metaClass.get_cluster_version = {
     def result = sql_return_maparray "show frontends"
-    def version = result["Version"]
+    def version = result[0]["Version"]
     // doris-0.0.0-354efae
     def pattern = /-(\d+\.\d+\.\d+(?:\.\d+)?)-/
     def matcher = (version =~ pattern) 
-    if (matcher.find()) {
-        return matcher.group(1)
-    } else {
+    if (matcher.find() == false) {
         throw new IllegalArgumentException("invalid version string: ${version}")
     }
+
+    def versionParts = matcher.group(1).split("\\.")*.toInteger()
+    if (versionParts.size() < 3) {
+        throw new IllegalArgumentException("invalid version string: ${version}")
+    }
+    if (version.toLowerCase().contains("cloud") && versionParts[0] > 0) {
+        versionParts[0] -= 1
+    } 
+
+    if ( versionParts[0] == 0 ) {
+        // trunk
+        return true
+    }
+
+    if (versionParts[0] > mainVersion) {
+        return true
+    } else if (versionParts[0] < mainVersion) {
+        return false
+    }
+
+    if (versionParts[1] > midVersion) {
+        return true
+    } else if (versionParts[1] < midVersion) {
+        return false
+    }
+
+    return versionParts[2] >= thirdVersion
 }
