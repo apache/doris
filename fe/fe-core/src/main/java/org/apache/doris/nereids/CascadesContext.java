@@ -267,6 +267,10 @@ public class CascadesContext implements ScheduleContext {
         return recursiveCteOutputs;
     }
 
+    public boolean isAnalyzingRecursiveCteAnchorChild() {
+        return currentRecursiveCteName.isPresent() && recursiveCteOutputs.isEmpty();
+    }
+
     /**
      * Init memo with plan
      */

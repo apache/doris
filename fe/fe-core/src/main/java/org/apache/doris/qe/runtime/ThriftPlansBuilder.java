@@ -43,8 +43,10 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
+import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RecursiveCteNode;
 import org.apache.doris.planner.RecursiveCteScanNode;
+import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.qe.ConnectContext;
@@ -100,7 +102,8 @@ public class ThriftPlansBuilder {
             CoordinatorContext coordinatorContext) {
 
         List<PipelineDistributedPlan> distributedPlans = coordinatorContext.distributedPlans;
-        Set<Integer> fragmentToNotifyClose = setParamsForRecursiveCteNode(distributedPlans);
+        Set<Integer> fragmentToNotifyClose = setParamsForRecursiveCteNode(distributedPlans,
+                coordinatorContext.runtimeFilters);
 
         // we should set runtime predicate first, then we can use heap sort and to thrift
         setRuntimePredicateIfNeed(coordinatorContext.scanNodes);
@@ -592,7 +595,12 @@ public class ThriftPlansBuilder {
         }
     }
 
-    private static Set<Integer> setParamsForRecursiveCteNode(List<PipelineDistributedPlan> distributedPlans) {
+    private static Set<Integer> setParamsForRecursiveCteNode(List<PipelineDistributedPlan> distributedPlans,
+            List<RuntimeFilter> runtimeFilters) {
+        Set<RecursiveCteNode> recursiveCteNodesInRecursiveSide = new HashSet<>();
+        PlanNode rootPlan = distributedPlans.get(distributedPlans.size() - 1)
+                        .getFragmentJob().getFragment().getPlanRoot();
+        collectAllRecursiveCteNodesInRecursiveSide(rootPlan, false, recursiveCteNodesInRecursiveSide);
         Set<Integer> fragmentToNotifyClose = new HashSet<>();
         Map<PlanFragmentId, TRecCTETarget> fragmentIdToRecCteTargetMap = new TreeMap<>();
         Map<PlanFragmentId, Set<TNetworkAddress>> fragmentIdToNetworkAddressMap = new TreeMap<>();
@@ -669,15 +677,40 @@ public class ThriftPlansBuilder {
                 for (List<Expr> exprList : materializedResultExprLists) {
                     texprLists.add(Expr.treesToThrift(exprList));
                 }
+                List<Integer> runtimeFiltersToReset = new ArrayList<>(runtimeFilters.size());
+                for (RuntimeFilter rf : runtimeFilters) {
+                    if (rf.hasRemoteTargets()
+                            && recursiveCteNode.getChild(1).contains(node -> node == rf.getBuilderNode())) {
+                        runtimeFiltersToReset.add(rf.getFilterId().asInt());
+                    }
+                }
+                boolean isUsedByOtherRecCte = recursiveCteNodesInRecursiveSide.contains(recursiveCteNode);
                 TRecCTENode tRecCTENode = new TRecCTENode();
                 tRecCTENode.setIsUnionAll(recursiveCteNode.isUnionAll());
                 tRecCTENode.setTargets(targets);
                 tRecCTENode.setFragmentsToReset(fragmentsToReset);
                 tRecCTENode.setResultExprLists(texprLists);
+                tRecCTENode.setRecSideRuntimeFilterIds(runtimeFiltersToReset);
+                tRecCTENode.setIsUsedByOtherRecCte(isUsedByOtherRecCte);
                 recursiveCteNode.settRecCTENode(tRecCTENode);
             }
         }
         return fragmentToNotifyClose;
+    }
+
+    private static void collectAllRecursiveCteNodesInRecursiveSide(PlanNode planNode, boolean needCollect,
+            Set<RecursiveCteNode> recursiveCteNodes) {
+        if (planNode instanceof RecursiveCteNode) {
+            if (needCollect) {
+                recursiveCteNodes.add((RecursiveCteNode) planNode);
+            }
+            collectAllRecursiveCteNodesInRecursiveSide(planNode.getChild(0), needCollect, recursiveCteNodes);
+            collectAllRecursiveCteNodesInRecursiveSide(planNode.getChild(1), true, recursiveCteNodes);
+        } else {
+            for (PlanNode child : planNode.getChildren()) {
+                collectAllRecursiveCteNodesInRecursiveSide(child, needCollect, recursiveCteNodes);
+            }
+        }
     }
 
     private static class PerNodeScanParams {

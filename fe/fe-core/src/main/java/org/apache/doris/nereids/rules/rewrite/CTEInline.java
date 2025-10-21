@@ -21,6 +21,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -52,10 +53,12 @@ import java.util.Set;
  * and put all of them to the top of plan depends on dependency tree of them.
  */
 public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implements CustomRewriter {
-    Set<LogicalCTEConsumer> mustInlineCteConsumers = new HashSet<>();
+    private Set<LogicalCTEConsumer> mustInlineCteConsumers = new HashSet<>();
+    private Set<CTEId> recursiveCteIds;
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        recursiveCteIds = jobContext.getCascadesContext().getStatementContext().getRecursiveCteIds();
         List<LogicalRecursiveCte> recursiveCteList = plan.collectToList(LogicalRecursiveCte.class::isInstance);
         for (LogicalRecursiveCte recursiveCte : recursiveCteList) {
             mustInlineCteConsumers.addAll(recursiveCte.collect(LogicalCTEConsumer.class::isInstance));
@@ -88,7 +91,8 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
                 }
                 return false;
             });
-            if (!Sets.intersection(mustInlineCteConsumers, Sets.newHashSet(consumers)).isEmpty()) {
+            if (recursiveCteIds.contains(cteAnchor.getCteId())
+                    || !Sets.intersection(mustInlineCteConsumers, Sets.newHashSet(consumers)).isEmpty()) {
                 // should inline
                 Plan root = cteAnchor.right().accept(this, (LogicalCTEProducer<?>) cteAnchor.left());
                 // process child

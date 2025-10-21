@@ -174,6 +174,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(
                 cascadesContext.getConnectContext(), unboundRelation.getNameParts());
         if (tableName.equalsIgnoreCase(cascadesContext.getCurrentRecursiveCteName().orElse(""))) {
+            if (cascadesContext.isAnalyzingRecursiveCteAnchorChild()) {
+                throw new AnalysisException(
+                        String.format("recursive reference to query %s must not appear within its non-recursive term",
+                                cascadesContext.getCurrentRecursiveCteName().get()));
+            }
             ImmutableList.Builder<Column> schema = new ImmutableList.Builder<>();
             for (Slot slot : cascadesContext.getRecursiveCteOutputs()) {
                 schema.add(new Column(slot.getName(), slot.getDataType().toCatalogDataType(), slot.nullable()));
