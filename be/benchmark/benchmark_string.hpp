@@ -234,13 +234,13 @@ static void BM_ToBase64Impl_New(benchmark::State& state) {
 
 // 10, 100000 is a big data test case for testing memory allocation on the heap
 BENCHMARK(BM_ToBase64Impl_Old)
-        ->Args({1000, 64})
         ->Args({1000, 256})
+        ->Args({100, 65536})
         ->Args({10, 100000})
         ->Unit(benchmark::kNanosecond);
 BENCHMARK(BM_ToBase64Impl_New)
-        ->Args({1000, 64})
         ->Args({1000, 256})
+        ->Args({100, 65536})
         ->Args({10, 100000})
         ->Unit(benchmark::kNanosecond);
 
@@ -284,13 +284,13 @@ static void BM_FromBase64Impl_New(benchmark::State& state) {
 
 // 10, 100000 is a big data test case for testing memory allocation on the heap
 BENCHMARK(BM_FromBase64Impl_Old)
-        ->Args({1000, 64})
         ->Args({1000, 256})
+        ->Args({100, 65536})
         ->Args({10, 100000})
         ->Unit(benchmark::kNanosecond);
 BENCHMARK(BM_FromBase64Impl_New)
-        ->Args({1000, 64})
         ->Args({1000, 256})
+        ->Args({100, 65536})
         ->Args({10, 100000})
         ->Unit(benchmark::kNanosecond);
 
@@ -331,13 +331,13 @@ static void BM_UnhexImpl_New(benchmark::State& state) {
 
 // 100, 100000 is a big data test case for testing memory allocation on the heap
 BENCHMARK(BM_UnhexImpl_Old)
-        ->Args({1000, 64})
         ->Args({1000, 256})
+        ->Args({100, 65536})
         ->Args({100, 100000})
         ->Unit(benchmark::kNanosecond);
 BENCHMARK(BM_UnhexImpl_New)
-        ->Args({1000, 64})
         ->Args({1000, 256})
+        ->Args({100, 65536})
         ->Args({100, 100000})
         ->Unit(benchmark::kNanosecond);
 
@@ -381,13 +381,13 @@ static void BM_UnhexNullImpl_New(benchmark::State& state) {
 
 // 100, 100000 is a big data test case for testing memory allocation on the heap
 BENCHMARK(BM_UnhexNullImpl_Old)
-        ->Args({1000, 64})
         ->Args({1000, 256})
+        ->Args({100, 65536})
         ->Args({100, 100000})
         ->Unit(benchmark::kNanosecond);
 BENCHMARK(BM_UnhexNullImpl_New)
-        ->Args({1000, 64})
         ->Args({1000, 256})
+        ->Args({100, 65536})
         ->Args({100, 100000})
         ->Unit(benchmark::kNanosecond);
 
