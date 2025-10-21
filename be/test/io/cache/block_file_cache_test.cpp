@@ -2522,8 +2522,8 @@ TEST_F(BlockFileCacheTest, ttl_change_expiration_time) {
         if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
             storage != nullptr) {
             std::string dir = storage->get_path_in_local_cache_v2(key2, change_time);
-            EXPECT_TRUE(
-                    fs::exists(storage->get_path_in_local_cache_v2(dir, 50, io::FileCacheType::TTL)));
+            EXPECT_TRUE(fs::exists(
+                    storage->get_path_in_local_cache_v2(dir, 50, io::FileCacheType::TTL)));
         }
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
@@ -3453,9 +3453,9 @@ TEST_F(BlockFileCacheTest, append_many_time) {
         if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
             storage != nullptr) {
             auto dir = storage->get_path_in_local_cache_v2(blocks[0]->get_hash_value(),
-                                                        blocks[0]->expiration_time());
+                                                           blocks[0]->expiration_time());
             EXPECT_TRUE(fs::exists(storage->get_path_in_local_cache_v2(dir, blocks[0]->offset(),
-                                                                    blocks[0]->cache_type())));
+                                                                       blocks[0]->cache_type())));
         }
         ASSERT_TRUE(
                 blocks[0]->change_cache_type_between_normal_and_index(FileCacheType::INDEX).ok());
