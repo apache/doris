@@ -67,7 +67,11 @@ public class CollectRelation implements AnalysisRuleFactory {
 
     private static final Logger LOG = LogManager.getLogger(CollectRelation.class);
 
-    public CollectRelation() {}
+    private boolean firstLevel;
+
+    public CollectRelation(boolean firstLevel) {
+        this.firstLevel = firstLevel;
+    }
 
     @Override
     public List<Rule> buildRules() {
@@ -104,7 +108,7 @@ public class CollectRelation implements AnalysisRuleFactory {
             LogicalPlan parsedCtePlan = (LogicalPlan) aliasQuery.child();
             CascadesContext innerCascadesCtx = CascadesContext.newContextWithCteContext(
                     cascadesContext, parsedCtePlan, outerCteCtx);
-            innerCascadesCtx.newTableCollector().collect();
+            innerCascadesCtx.newTableCollector(true).collect();
             LogicalPlan analyzedCtePlan = (LogicalPlan) innerCascadesCtx.getRewritePlan();
             // cteId is not used in CollectTable stage
             CTEId cteId = new CTEId(0);
@@ -124,7 +128,7 @@ public class CollectRelation implements AnalysisRuleFactory {
                     CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
                             ctx.cascadesContext, subqueryExpr.getQueryPlan(), ctx.cteContext);
                     subqueryContext.keepOrShowPlanProcess(ctx.cascadesContext.showPlanProcess(),
-                            () -> subqueryContext.newTableCollector().collect());
+                            () -> subqueryContext.newTableCollector(true).collect());
                     ctx.cascadesContext.addPlanProcesses(subqueryContext.getPlanProcesses());
                 }
             });
@@ -189,8 +193,11 @@ public class CollectRelation implements AnalysisRuleFactory {
         if (cascadesContext.getRewritePlan() instanceof UnboundDictionarySink) {
             table = ((UnboundDictionarySink) cascadesContext.getRewritePlan()).getDictionary();
         } else {
-            table = cascadesContext.getConnectContext().getStatementContext()
-                .getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
+            StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
+            table = statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
+            if (firstLevel) {
+                statementContext.getOneLevelTables().put(tableQualifier, table);
+            }
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("collect table {} from {}", nameParts, tableFrom);
@@ -281,7 +288,7 @@ public class CollectRelation implements AnalysisRuleFactory {
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
         viewContext.keepOrShowPlanProcess(parentContext.showPlanProcess(),
-                () -> viewContext.newTableCollector().collect());
+                () -> viewContext.newTableCollector(false).collect());
         parentContext.addPlanProcesses(viewContext.getPlanProcesses());
     }
 }

@@ -382,8 +382,8 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
             break;
         }
         case PrimitiveType::TYPE_VARBINARY: {
-            auto str = any_cast<ut_type::STRING>(cell);
-            column->insert_data(str.c_str(), str.size());
+            auto binary = any_cast<ut_type::VARBINARY>(cell);
+            column->insert_data(binary.data(), binary.size());
             break;
         }
         case PrimitiveType::TYPE_JSONB: {

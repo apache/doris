@@ -101,5 +101,12 @@ void VBloomPredicate::set_filter(std::shared_ptr<BloomFilterFuncBase> filter) {
     _filter = filter;
 }
 
+uint64_t VBloomPredicate::get_digest(uint64_t seed) const {
+    char* data;
+    int len;
+    _filter->get_data(&data, &len);
+    return HashUtil::hash64(data, len, seed);
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
