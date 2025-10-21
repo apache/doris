@@ -244,33 +244,17 @@ size_t ColumnNullable::serialize_impl(char* pos, const size_t row) const {
            get_nested_column().serialize_impl(pos + sizeof(NullMap::value_type), row);
 }
 
-void ColumnNullable::serialize_vec(StringRef* keys, size_t num_rows) const {
+void ColumnNullable::serialize(StringRef* keys, size_t num_rows) const {
     const bool has_null = simd::contain_byte(get_null_map_data().data(), num_rows, 1);
-    if (has_null) {
-        for (size_t i = 0; i < num_rows; ++i) {
-            keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
-        }
-    } else {
-        const auto& arr = get_null_map_data();
-        for (size_t i = 0; i < num_rows; ++i) {
-            memcpy_fixed<NullMap::value_type>(const_cast<char*>(keys[i].data + keys[i].size),
-                                              (char*)&arr[i]);
-            keys[i].size += sizeof(NullMap::value_type);
-        }
-        _nested_column->serialize_vec(keys, num_rows);
-    }
+    const auto* __restrict null_map =
+            assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
+    _nested_column->serialize_with_nullable(keys, num_rows, has_null, null_map);
 }
 
-void ColumnNullable::deserialize_vec(StringRef* keys, const size_t num_rows) {
-    auto& arr = get_null_map_data();
-    const size_t old_size = arr.size();
-    arr.reserve(old_size + num_rows);
-
-    for (size_t i = 0; i != num_rows; ++i) {
-        auto sz = deserialize_impl(keys[i].data);
-        keys[i].data += sz;
-        keys[i].size -= sz;
-    }
+void ColumnNullable::deserialize(StringRef* keys, const size_t num_rows) {
+    auto& null_maps = get_null_map_data();
+    null_maps.reserve(null_maps.size() + num_rows);
+    _nested_column->deserialize_with_nullable(keys, num_rows, null_maps);
 }
 
 void ColumnNullable::insert_range_from_ignore_overflow(const doris::vectorized::IColumn& src,
@@ -357,13 +341,12 @@ size_t ColumnNullable::filter(const Filter& filter) {
 
 Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
     auto* nullable_col_ptr = assert_cast<ColumnNullable*>(col_ptr);
-    ColumnPtr nest_col_ptr = nullable_col_ptr->_nested_column;
+    WrappedPtr nest_col_ptr = nullable_col_ptr->_nested_column;
 
     /// `get_null_map_data` will set `_need_update_has_null` to true
     auto& res_nullmap = nullable_col_ptr->get_null_map_data();
 
-    RETURN_IF_ERROR(get_nested_column().filter_by_selector(
-            sel, sel_size, const_cast<doris::vectorized::IColumn*>(nest_col_ptr.get())));
+    RETURN_IF_ERROR(get_nested_column().filter_by_selector(sel, sel_size, nest_col_ptr.get()));
     DCHECK(res_nullmap.empty());
     res_nullmap.resize(sel_size);
     auto& cur_nullmap = get_null_map_column().get_data();

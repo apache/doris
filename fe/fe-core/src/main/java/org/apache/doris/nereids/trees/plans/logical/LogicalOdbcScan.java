@@ -39,12 +39,18 @@ public class LogicalOdbcScan extends LogicalCatalogRelation {
 
     public LogicalOdbcScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, String tableAlias) {
+        super(id, PlanType.LOGICAL_ODBC_SCAN, table, qualifier, groupExpression, logicalProperties, tableAlias);
+    }
+
+    public LogicalOdbcScan(RelationId id, TableIf table, List<String> qualifier,
+            Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
-        super(id, PlanType.LOGICAL_ODBC_SCAN, table, qualifier, groupExpression, logicalProperties);
+        this(id, table, qualifier, groupExpression, logicalProperties, "");
     }
 
     public LogicalOdbcScan(RelationId id, TableIf table, List<String> qualifier) {
-        this(id, table, qualifier, Optional.empty(), Optional.empty());
+        this(id, table, qualifier, Optional.empty(), Optional.empty(), "");
     }
 
     @Override
@@ -58,25 +64,30 @@ public class LogicalOdbcScan extends LogicalCatalogRelation {
     public String toString() {
         return Utils.toSqlString("LogicalOdbcScan",
                 "qualified", qualifiedName(),
-                "output", getOutput()
-        );
+                "alias", tableAlias,
+                "output", getOutput());
     }
 
     @Override
     public LogicalOdbcScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalOdbcScan(relationId, table, qualifier, groupExpression,
-                Optional.of(getLogicalProperties()));
+                Optional.of(getLogicalProperties()), tableAlias);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalOdbcScan(relationId, table, qualifier, groupExpression, logicalProperties);
+        return new LogicalOdbcScan(relationId, table, qualifier, groupExpression, logicalProperties, tableAlias);
     }
 
     @Override
     public LogicalOdbcScan withRelationId(RelationId relationId) {
-        return new LogicalOdbcScan(relationId, table, qualifier, Optional.empty(), Optional.empty());
+        return new LogicalOdbcScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), tableAlias);
+    }
+
+    public LogicalOdbcScan withTableAlias(String tableAlias) {
+        return new LogicalOdbcScan(relationId, table, qualifier, Optional.empty(),
+                Optional.of(getLogicalProperties()), tableAlias);
     }
 
     @Override

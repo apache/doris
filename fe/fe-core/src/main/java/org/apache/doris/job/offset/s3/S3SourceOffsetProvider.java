@@ -139,8 +139,10 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             }
             return plan;
         });
-        return new InsertIntoTableCommand((LogicalPlan) rewritePlan, Optional.empty(), Optional.empty(),
-                Optional.empty(), true, Optional.empty());
+        InsertIntoTableCommand insertIntoTableCommand = new InsertIntoTableCommand((LogicalPlan) rewritePlan,
+                Optional.empty(), Optional.empty(), Optional.empty(), true, Optional.empty());
+        insertIntoTableCommand.setJobId(originCommand.getJobId());
+        return insertIntoTableCommand;
     }
 
     @Override
@@ -172,10 +174,11 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public boolean hasMoreDataToConsume() {
-        if (currentOffset == null) {
+        if (currentOffset == null || currentOffset.endFile == null) {
             return true;
         }
-        if (currentOffset.endFile.compareTo(maxEndFile) < 0) {
+
+        if (maxEndFile != null && currentOffset.endFile.compareTo(maxEndFile) < 0) {
             return true;
         }
         return false;

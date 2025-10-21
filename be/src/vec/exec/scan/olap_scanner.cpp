@@ -96,7 +96,8 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
                                  .vir_col_idx_to_type {},
                                  .score_runtime {},
                                  .collection_statistics {},
-                                 .ann_topn_runtime {}}) {
+                                 .ann_topn_runtime {},
+                                 .condition_cache_digest = parent->get_condition_cache_digest()}) {
     _tablet_reader_params.set_read_source(std::move(params.read_source));
     _has_prepared = false;
     _vector_search_params = params.state->get_vector_search_params();
@@ -602,6 +603,7 @@ void OlapScanner::update_realtime_counters() {
             static_cast<pipeline::OlapScanLocalState*>(_local_state);
     const OlapReaderStatistics& stats = _tablet_reader->stats();
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
+    COUNTER_UPDATE(local_state->_read_uncompressed_counter, stats.uncompressed_bytes_read);
     COUNTER_UPDATE(local_state->_scan_bytes, stats.uncompressed_bytes_read);
     COUNTER_UPDATE(local_state->_scan_rows, stats.raw_rows_read);
 
@@ -624,25 +626,25 @@ void OlapScanner::update_realtime_counters() {
                 stats.compressed_bytes_read);
     } else {
         _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
-                stats.file_cache_stats.bytes_read_from_local);
+                stats.file_cache_stats.bytes_read_from_local - _bytes_read_from_local);
         _state->get_query_ctx()
                 ->resource_ctx()
                 ->io_context()
                 ->update_scan_bytes_from_remote_storage(
-                        stats.file_cache_stats.bytes_read_from_remote);
-        io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
-        cache_profile.update(&stats.file_cache_stats);
+                        stats.file_cache_stats.bytes_read_from_remote - _bytes_read_from_remote);
+
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
-                stats.file_cache_stats.bytes_read_from_local);
+                stats.file_cache_stats.bytes_read_from_local - _bytes_read_from_local);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
-                stats.file_cache_stats.bytes_read_from_remote);
+                stats.file_cache_stats.bytes_read_from_remote - _bytes_read_from_remote);
     }
 
     _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
     _tablet_reader->mutable_stats()->uncompressed_bytes_read = 0;
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
-    _tablet_reader->mutable_stats()->file_cache_stats.bytes_read_from_local = 0;
-    _tablet_reader->mutable_stats()->file_cache_stats.bytes_read_from_remote = 0;
+
+    _bytes_read_from_local = _tablet_reader->stats().file_cache_stats.bytes_read_from_local;
+    _bytes_read_from_remote = _tablet_reader->stats().file_cache_stats.bytes_read_from_remote;
 }
 
 void OlapScanner::_collect_profile_before_close() {
@@ -765,14 +767,22 @@ void OlapScanner::_collect_profile_before_close() {
     inverted_index_profile.update(local_state->_index_filter_profile.get(),
                                   &stats.inverted_index_stats);
 
-    if (config::enable_file_cache) {
+    // only cloud deploy mode will use file cache. and keep the same with FileScanner
+    if (config::is_cloud_mode() && config::enable_file_cache &&
+        _state->query_options().enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
         cache_profile.update(&stats.file_cache_stats);
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
+                stats.file_cache_stats.bytes_write_into_cache);
     }
     COUNTER_UPDATE(local_state->_output_index_result_column_timer,
                    stats.output_index_result_column_timer);
     COUNTER_UPDATE(local_state->_filtered_segment_counter, stats.filtered_segment_number);
     COUNTER_UPDATE(local_state->_total_segment_counter, stats.total_segment_number);
+    COUNTER_UPDATE(local_state->_condition_cache_hit_segment_counter,
+                   stats.condition_cache_hit_seg_nums);
+    COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter,
+                   stats.condition_cache_filtered_rows);
 
     COUNTER_UPDATE(local_state->_tablet_reader_init_timer, stats.tablet_reader_init_timer_ns);
     COUNTER_UPDATE(local_state->_tablet_reader_capture_rs_readers_timer,

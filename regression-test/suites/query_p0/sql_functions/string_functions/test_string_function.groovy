@@ -288,6 +288,41 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select substr('abcdef',3,-1);"
     qt_sql "select substr('abcdef',-3,-1);"
 
+    qt_mid_1 "select mid('a',0,1);"
+    qt_mid_2 "select mid('a',-1,1);"
+    qt_mid_3 "select mid('a',1,1);"
+    qt_mid_4 "select mid('a',-2,1);"
+    qt_mid_5 "select mid('a',2,1);"
+    qt_mid_6 "select mid('a',-3,1);"
+    qt_mid_7 "select mid('a',3,1);"
+    qt_mid_8 "select mid('abcdef',-3,-1);"
+    qt_mid_9 "select mid('abcdef',3,-1);"
+    qt_mid_10 "select mid('',3,-1);"
+    qt_mid_11 "select mid('abcdef',3,10);"
+    qt_mid_12 "select mid('abcdef',-3);"
+    qt_mid_13 "select mid('abcdef',3);"
+    qt_mid_14 "select mid('',3);"
+    qt_mid_15 "select mid('a' FROM 0 FOR 1);"
+    qt_mid_16 "select mid('a' FROM -1 FOR 1);"
+    qt_mid_17 "select mid('a' FROM 1 FOR 1);"
+    qt_mid_18 "select mid('a' FROM -2 FOR 1);"
+    qt_mid_19 "select mid('a' FROM 2 FOR 1);"
+    qt_mid_20 "select mid('a' FROM -3 FOR 1);"
+    qt_mid_21 "select mid('a' FROM 3 FOR 1);"
+    qt_mid_22 "select mid('abcdef' FROM -3 FOR -1);"
+    qt_mid_23 "select mid('abcdef' FROM 3 FOR -1);"
+    qt_mid_24 "select mid('' FROM 3 FOR -1);"
+    qt_mid_25 "select mid('abcdef' FROM 3 FOR 10);"
+    qt_mid_26 "select mid('abcdef' FROM -3);"
+    qt_mid_27 "select mid('abcdef' FROM 3);"
+    qt_mid_28 "select mid('' FROM 3);"
+    qt_mid_29 "select mid(NULL, 2);"
+    qt_mid_30 "select mid(NULL, 2, 3)"
+    qt_mid_31 "select mid(NULL FROM 2);"
+    qt_mid_32 "select mid(NULL FROM 2 FOR 3);"
+    qt_mid_33 "select mid('hello', NULL);"
+    qt_mid_34 "select mid('hello', 2, NULL);"
+
     qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
     qt_sql "select sub_replace(\"doris\",\"***\",1,2);"
 
@@ -480,4 +515,103 @@ suite("test_string_function", "arrow_flight_sql") {
 
     sql """DROP TABLE IF EXISTS test_make_set;"""
 
+    // EXPORT_SET
+    sql """DROP TABLE IF EXISTS test_export_set;"""
+    sql """CREATE TABLE `test_export_set` (
+            `id` INT,
+            `bits` BIGINT,
+            `on` VARCHAR(255),
+            `off` VARCHAR(255),
+            `sep` VARCHAR(255),
+            `num_of_b` INT
+        )DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ( 'replication_num' = '1' );"""
+    sql """INSERT INTO `test_export_set` VALUES
+            (1, -1, '1', '0', ',', 50),
+            (2, -2, '1', '0', '', 64),
+            (3, 5, 'Y', 'N', ',', 5),
+            (4, 5, '1', '0', '', 64),
+            (5, 5, '', '0', '', 65),
+            (6, 6, '1', '', '', 63),
+            (7, 19284249819, '1', '0', ',', 64),
+            (8, 9, 'apache', 'doris', '|123|', 64),
+            (9, NULL, '1', '0', ',', 5),
+            (10, 5, NULL, '0', '', 5),
+            (11, 5, '1', NULL, ',', 10),
+            (12, 5, '1', '0', NULL, 10),
+            (13, 5, '1', '0', ',', NULL);"""
+
+    qt_export_set_1 """SELECT id, EXPORT_SET(`bits`, `on`, `off`, `sep`, `num_of_b`) FROM `test_export_set` ORDER BY `id`;"""
+    qt_export_set_2 """SELECT EXPORT_SET(7, '1', '0');"""
+    qt_export_set_3 """SELECT EXPORT_SET(7, '你好', '0', '?');"""
+    qt_export_set_4 """SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 64), '1', '0');"""
+    qt_export_set_5 """SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 63) - 1, '1', '0');"""
+    qt_export_set_6 """SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 63), '1', '0');"""
+    qt_export_set_7 """SELECT EXPORT_SET(-BIT_SHIFT_LEFT(1, 63), '1', '0');"""
+    qt_export_set_8 """SELECT EXPORT_SET(-1, '1', '0');"""
+    qt_export_set_9 """SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 64) - 1, '1', '0');"""
+    qt_export_set_10 """SELECT EXPORT_SET(99999999999999999999, '1', '0');"""
+    qt_export_set_11 """SELECT EXPORT_SET((BIT_SHIFT_LEFT(1, 63) - 1) + 1, '1', '0');"""
+    qt_export_set_12 """SELECT EXPORT_SET(0, '1', '0');"""
+    qt_export_set_13 """SELECT EXPORT_SET(1, '1', '0');"""
+    qt_export_set_14 """SELECT EXPORT_SET(-0, '1', '0');"""
+    qt_export_set_15 """SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 62), '1', '0');"""
+    qt_export_set_16 """SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 62) + BIT_SHIFT_LEFT(1, 63), '1', '0');"""
+    qt_export_set_17 """SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 60), '1', '0');"""
+    qt_export_set_18 """SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 63) - 1, '1', '0', ',', 32);"""
+    qt_export_set_19 """SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 63), '1', '0', ',', 128);"""
+    qt_export_set_20 """SELECT EXPORT_SET(-1, '1', '0', ',', -5);"""
+    qt_export_set_21 """SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 60), '1', '0', ',', 0);"""
+    qt_export_set_22 """SELECT EXPORT_SET(255, '1', '0', ',', 8);"""
+    qt_export_set_23 """SELECT EXPORT_SET(1023, '1', '0', ',', 10);"""
+    qt_export_set_24 """SELECT EXPORT_SET((BIT_SHIFT_LEFT(1, 63) - 2) + 1, '1', '0');"""
+    qt_export_set_25 """SELECT EXPORT_SET((BIT_SHIFT_LEFT(1, 63) - 1) * 2, '1', '0');"""
+    qt_export_set_26 """SELECT EXPORT_SET(18446744073709551616, '1', '0');""" // 2^64
+    qt_export_set_27 """SELECT EXPORT_SET(18446744073709551615, '1', '0');""" // 2^64 -1
+    qt_export_set_28 """SELECT EXPORT_SET(9223372036854775808, '1', '0');""" // 2^63
+    qt_export_set_29 """SELECT EXPORT_SET(1180591620717411303424, '1' ,'0');""" // 2^70
+    qt_export_set_30 """SELECT EXPORT_SET(18446744073708551616, '1', '0');"""
+    qt_export_set_31 """SELECT EXPORT_SET(-9223372036854775808, '1', '0');"""
+    qt_export_set_32 """SELECT EXPORT_SET(-9223372036854775809, '1', '0');"""
+    qt_export_set_33 """SELECT EXPORT_SET(-9223372036854775807, '1', '0');"""
+    qt_export_set_34 """SELECT id, EXPORT_SET(`bits`, `on`, `off`, ' ! ', `num_of_b`) FROM `test_export_set` ORDER BY `id`;"""
+    qt_export_set_35 """SELECT id, EXPORT_SET(`bits`, `on`, `off`, '|分隔符|', '17') FROM `test_export_set` ORDER BY `id`;"""
+    qt_export_set_36 """SELECT id, EXPORT_SET(5, `on`, '0', '#', 5) FROM `test_export_set` ORDER BY `id`;"""
+    qt_export_set_36 """SELECT id, EXPORT_SET(`bits`, `on`, `off`) FROM `test_export_set` ORDER BY `id`;"""
+    qt_export_set_37 """SELECT id, EXPORT_SET(-7, `on`, `off`) FROM `test_export_set` ORDER BY `id`;"""
+    qt_export_set_38 """SELECT id, EXPORT_SET(114514, '1', '0', `sep`) FROM `test_export_set` ORDER BY `id`;"""
+    qt_export_set_39 """SELECT id, EXPORT_SET(`bits`, `on`, '0', '世界!?你好')FROM `test_export_set` ORDER BY `id`;"""
+    testFoldConst("SELECT EXPORT_SET(7, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(7, '你好', '0', '?');")
+    testFoldConst("SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 64), '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 63) - 1, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 63), '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(-BIT_SHIFT_LEFT(1, 63), '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(-1, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 64) - 1, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(99999999999999999999, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET((BIT_SHIFT_LEFT(1, 63) - 1) + 1, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(0, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(1, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(-0, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 62), '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 62) + BIT_SHIFT_LEFT(1, 63), '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 60), '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 63) - 1, '1', '0', ',', 32);")
+    testFoldConst("SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 63), '1', '0', ',', 128);")
+    testFoldConst("SELECT EXPORT_SET(-1, '1', '0', ',', -5);")
+    testFoldConst("SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 60), '1', '0', ',', 0);")
+    testFoldConst("SELECT EXPORT_SET(255, '1', '0', ',', 8);")
+    testFoldConst("SELECT EXPORT_SET(1023, '1', '0', ',', 10);")
+    testFoldConst("SELECT EXPORT_SET((BIT_SHIFT_LEFT(1, 63) - 2) + 1, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET((BIT_SHIFT_LEFT(1, 63) - 1) * 2, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(18446744073709551616, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(18446744073709551615, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(9223372036854775808, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(1180591620717411303424, '1' ,'0');")
+    testFoldConst("SELECT EXPORT_SET(18446744073708551616, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(-9223372036854775808, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(-9223372036854775809, '1', '0');")
+    testFoldConst("SELECT EXPORT_SET(-9223372036854775807, '1', '0');")
 }

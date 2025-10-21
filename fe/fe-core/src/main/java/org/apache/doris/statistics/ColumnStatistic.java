@@ -208,7 +208,7 @@ public class ColumnStatistic {
         } else {
             if (ndv > 0) {
                 columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(row.get(14), col.getType(),
-                        1 / ndv));
+                        1.0 / ndv));
             }
         }
         return columnStatisticBuilder.build();

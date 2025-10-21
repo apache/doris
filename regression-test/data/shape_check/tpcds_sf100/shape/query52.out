@@ -19,5 +19,5 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[item]
 --------------------PhysicalProject
 ----------------------filter((dt.d_moy = 12) and (dt.d_year = 2002))
-------------------------PhysicalOlapScan[date_dim]
+------------------------PhysicalOlapScan[date_dim(dt)]
 

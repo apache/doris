@@ -39,7 +39,7 @@ struct IndexSearchParameters;
 struct IndexSearchResult;
 /**
  * @brief Build parameters for constructing FAISS-based vector indexes.
- * 
+ *
  * This structure encapsulates all configuration parameters needed to build
  * various types of FAISS indexes. It supports different index types and
  * distance metrics commonly used in vector similarity search.
@@ -64,6 +64,7 @@ struct FaissBuildParameter {
         FLAT, ///< Flat (exact) quantizer
         SQ4,  ///< Scalar quantization with 4 bits
         SQ8,  ///< Scalar quantization with 8 bits
+        PQ,   ///< Product quantization
     };
 
     /**
@@ -105,6 +106,8 @@ struct FaissBuildParameter {
             return Quantizer::SQ4;
         } else if (type == "sq8") {
             return Quantizer::SQ8;
+        } else if (type == "pq") {
+            return Quantizer::PQ;
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Unsupported quantizer type: {}", type);
@@ -118,22 +121,25 @@ struct FaissBuildParameter {
     MetricType metric_type = MetricType::L2; ///< Distance metric to use
     int ef_construction = 40; ///< Size of dynamic list for nearest neighbors during construction
     Quantizer quantizer = Quantizer::FLAT; ///< Quantizer type
+    /// PQ specific parameters
+    int pq_m = 0;     ///< Number of sub-quantizers for PQ
+    int pq_nbits = 8; ///< Number of bits per sub-quantizer for PQ
 };
 
 /**
  * @brief FAISS-based implementation of vector index for approximate nearest neighbor search.
- * 
+ *
  * This class provides a concrete implementation of the VectorIndex interface using
  * the FAISS library. It supports various index types (currently HNSW) and distance
  * metrics (L2, Inner Product) for efficient vector similarity search.
- * 
+ *
  * Key features:
  * - High-performance approximate nearest neighbor search
  * - Support for both exact and range search queries
  * - Integration with Doris storage and query execution
  * - Persistence to/from Lucene directory storage
  * - Bitmap-based result filtering
- * 
+ *
  * Thread safety: This class is NOT thread-safe. Concurrent access should be
  * synchronized externally.
  */
@@ -141,11 +147,11 @@ class FaissVectorIndex : public VectorIndex {
 public:
     /**
      * @brief Converts a Roaring bitmap to a FAISS IDSelector for filtered search.
-     * 
+     *
      * This utility method creates a FAISS IDSelector that can be used to filter
      * search results to only include vectors whose IDs are present in the bitmap.
      * This is essential for supporting WHERE clause filtering in vector queries.
-     * 
+     *
      * @param bitmap Roaring bitmap containing valid vector IDs
      * @return Unique pointer to a FAISS IDSelector for the given bitmap
      */
@@ -154,10 +160,10 @@ public:
 
     /**
      * @brief Updates a Roaring bitmap with the given labels/IDs.
-     * 
+     *
      * This method is used to update result bitmaps with the vector IDs
      * returned from FAISS search operations.
-     * 
+     *
      * @param labels Array of vector IDs returned from search
      * @param n Number of labels in the array
      * @param roaring Reference to the Roaring bitmap to update
@@ -170,14 +176,16 @@ public:
      */
     FaissVectorIndex();
 
-    void train(vectorized::Int64 n, const float* x) override;
+    ~FaissVectorIndex();
+
+    doris::Status train(vectorized::Int64 n, const float* x) override;
 
     /**
      * @brief Adds vectors to the index for future searches.
-     * 
+     *
      * This method is used during index building to add vectors to the FAISS index.
      * The vectors must have the same dimensionality as specified in build parameters.
-     * 
+     *
      * @param n Number of vectors to add
      * @param vec Pointer to vector data (n * dim float values)
      * @return Status indicating success or failure
@@ -186,21 +194,21 @@ public:
 
     /**
      * @brief Sets the build parameters for the index.
-     * 
+     *
      * This method must be called before adding vectors or performing searches.
      * It configures the underlying FAISS index with the specified parameters.
-     * 
+     *
      * @param params Build parameters including index type, metric, and dimensions
      */
     void build(const FaissBuildParameter& params);
 
     /**
      * @brief Performs approximate k-nearest neighbor search.
-     * 
+     *
      * Finds the k most similar vectors to the query vector using the configured
      * distance metric. Results are ordered by similarity (closest first for L2,
      * highest score first for inner product).
-     * 
+     *
      * @param query_vec Query vector (must be same dimensionality as index)
      * @param k Number of nearest neighbors to find
      * @param params Search parameters including any filtering criteria
@@ -213,11 +221,11 @@ public:
 
     /**
      * @brief Performs range search to find all vectors within a distance threshold.
-     * 
+     *
      * Finds all vectors within the specified radius from the query vector.
      * This is useful for similarity queries where you want all "similar enough"
      * vectors rather than a fixed number of nearest neighbors.
-     * 
+     *
      * @param query_vec Query vector (must be same dimensionality as index)
      * @param radius Maximum distance threshold for results
      * @param params Search parameters including any filtering criteria
@@ -230,10 +238,10 @@ public:
 
     /**
      * @brief Saves the index to persistent storage.
-     * 
+     *
      * Serializes the complete FAISS index to the provided Lucene directory
      * for later loading. This enables index persistence across restarts.
-     * 
+     *
      * @param directory Lucene directory for writing index data
      * @return Status indicating success or failure
      */
@@ -241,10 +249,10 @@ public:
 
     /**
      * @brief Loads the index from persistent storage.
-     * 
+     *
      * Deserializes a previously saved FAISS index from the provided Lucene
      * directory. The loaded index is ready for search operations.
-     * 
+     *
      * @param directory Lucene directory containing saved index data
      * @return Status indicating success or failure
      */
@@ -252,6 +260,7 @@ public:
 
 private:
     std::unique_ptr<faiss::Index> _index = nullptr; ///< Underlying FAISS index instance
+    FaissBuildParameter _params;                    ///< Build parameters for the index
 };
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2
