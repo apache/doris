@@ -150,9 +150,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.tvfType = currentTvf.getFunctionName();
             this.originTvfProps = currentTvf.getProperties().getMap();
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
-            // validate and init offset
-            if (jobProperties.getInitOffset() != null) {
-                Offset offset = validateOffset(jobProperties.getInitOffset());
+            // validate offset props
+            if (jobProperties.getOffsetProperty() != null) {
+                Offset offset = validateOffset(jobProperties.getOffsetProperty());
                 this.offsetProvider.updateOffset(offset);
             }
         } catch (AnalysisException ae) {
@@ -211,7 +211,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public Offset validateOffset(String offsetStr) throws AnalysisException {
         Offset offset;
         try {
-            offset = offsetProvider.deserializeInitOffset(offsetStr);
+            offset = offsetProvider.deserializeOffsetProperty(offsetStr);
         } catch (Exception ex) {
             log.info("initialize offset failed, offset: {}", offsetStr, ex);
             throw new AnalysisException("Failed to initialize offset, " + ex.getMessage());
@@ -402,12 +402,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     /**
-     * When updating initOffset, you need to reset the offset
+     * When updating offset, you need to reset the currentOffset
      */
     private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException {
         StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
-        if (StringUtils.isNotEmpty(inputStreamProps.getInitOffset())) {
-            Offset offset = validateOffset(inputStreamProps.getInitOffset());
+        if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
+            Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
 
             if (Config.isCloudMode()) {

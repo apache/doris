@@ -195,24 +195,24 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
      * {"fileName": 1.csv} => S3Offset(endFile=1.csv)
      */
     @Override
-    public Offset deserializeInitOffset(String offset) {
+    public Offset deserializeOffsetProperty(String offset) {
         if (StringUtils.isBlank(offset)) {
             return null;
         }
-        Map<String, String> initOffsetMap =
+        Map<String, String> OffsetMap =
                 GsonUtils.GSON.fromJson(offset, new TypeToken<HashMap<String, String>>() {}.getType());
 
-        if (initOffsetMap == null || initOffsetMap.isEmpty()) {
+        if (OffsetMap == null || OffsetMap.isEmpty()) {
             return null;
         }
 
-        String fileName = initOffsetMap.get("fileName");
+        String fileName = OffsetMap.get("fileName");
         if (StringUtils.isBlank(fileName)) {
             return null;
         }
 
-        S3Offset initOffset = new S3Offset();
-        initOffset.setEndFile(fileName);
-        return initOffset;
+        S3Offset s3Offset = new S3Offset();
+        s3Offset.setEndFile(fileName);
+        return s3Offset;
     }
 }
