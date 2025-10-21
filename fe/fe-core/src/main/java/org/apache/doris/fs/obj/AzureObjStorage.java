@@ -20,7 +20,6 @@ package org.apache.doris.fs.obj;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Base64Utils;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.storage.AzureProperties;
@@ -56,6 +55,8 @@ import org.jetbrains.annotations.Nullable;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
@@ -66,6 +67,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     private static final Logger LOG = LogManager.getLogger(AzureObjStorage.class);
@@ -265,14 +267,18 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     public void completeMultipartUpload(String bucket, String key, Map<Integer, String> parts) {
-        List<String> blockIds = new ArrayList<>();
         BlockBlobClient blockBlobClient;
         try {
             blockBlobClient = getClient().getBlobContainerClient(bucket).getBlobClient(key).getBlockBlobClient();
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
-        parts.forEach((k, v) -> blockIds.add(Base64Utils.encodeToBase64(k)));
+        List<String> blockIds = parts.keySet().stream()
+                .map(k -> Base64.getEncoder()
+                        .encodeToString(ByteBuffer.allocate(4)
+                                .order(ByteOrder.LITTLE_ENDIAN)
+                                .putInt(k)
+                                .array())).collect(Collectors.toList());
         blockBlobClient.commitBlockList(blockIds);
     }
 
