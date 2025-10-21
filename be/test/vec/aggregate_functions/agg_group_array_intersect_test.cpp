@@ -36,7 +36,7 @@
 const int agg_test_batch_size = 2;
 
 namespace doris::vectorized {
-void register_aggregate_function_group_array_intersect(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_group_array_set_op(AggregateFunctionSimpleFactory& factory);
 
 template <PrimitiveType T>
 void sort_numeric_array(Array& array) {
@@ -78,7 +78,7 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
 
     // Prepare test function and parameters.
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_group_array_intersect(factory);
+    register_aggregate_function_group_array_set_op(factory);
     const auto nested =
             T == TYPE_DATEV2
                     ? std::dynamic_pointer_cast<const IDataType>(std::make_shared<DataTypeDateV2>())
@@ -153,7 +153,7 @@ void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
 
     // Prepare test function and parameters.
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_group_array_intersect(factory);
+    register_aggregate_function_group_array_set_op(factory);
 
     const auto nested =
             T == TYPE_DATEV2
@@ -256,7 +256,7 @@ TEST(AggGroupArrayIntersectTest, string_test) {
 
     // Prepare test function and parameters.
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_group_array_intersect(factory);
+    register_aggregate_function_group_array_set_op(factory);
     DataTypePtr data_type_array_string(
             std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>()));
     DataTypes data_types = {data_type_array_string};
@@ -321,7 +321,7 @@ TEST(AggGroupArrayIntersectTest, string_nullable_test) {
 
     // Prepare test function and parameters.
     AggregateFunctionSimpleFactory factory;
-    register_aggregate_function_group_array_intersect(factory);
+    register_aggregate_function_group_array_set_op(factory);
     DataTypePtr data_type_array_string(
             std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>()));
     DataTypes data_types = {data_type_array_string};
