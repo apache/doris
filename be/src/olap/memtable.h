@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <rocksdb/listener.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -48,6 +49,16 @@ enum KeysType : int;
 // Write_finished: the memtable finished write blocks and in the queue waiting for flush
 // FLUSH: the memtable is under flushing, write segment to disk.
 enum MemType { ACTIVE = 0, WRITE_FINISHED = 1, FLUSH = 2 };
+
+
+// MemTable flush reason
+enum class FlushReason {
+    MEMTABLE_FULL = 0,
+    LOAD_MEMORY_EXCEED = 1,
+    SYS_MEMORY_INSUFFICIENT = 2,
+    ROWS_OVERFLOW = 3,
+    MANUAL = 4,
+};
 
 // row pos in _input_mutable_block
 struct RowInBlock {

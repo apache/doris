@@ -135,6 +135,7 @@ Status MemTableWriter::write(const vectorized::Block* block,
         _mem_table->shrink_memtable_by_agg();
     }
     if (UNLIKELY(_mem_table->need_flush())) {
+        // (Refrain) flush reason: mem tablet写满了
         RETURN_IF_ERROR(_flush_memtable());
     }
 

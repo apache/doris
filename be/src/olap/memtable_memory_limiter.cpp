@@ -224,6 +224,7 @@ int64_t MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
             // if the memtable writer just got flushed, don't flush it again
             continue;
         }
+        // (Refrain) flush reason : 看起来是内存超限
         Status st = w->flush_async();
         if (!st.ok()) {
             auto err_msg = fmt::format(
