@@ -3694,7 +3694,7 @@ public class Env {
             sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc));
         }
 
-        // partition preserved num
+        // partition retention count
         if (olapTable.getPartitionRetentionCount() > 0) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT).append("\" = \"");
             sb.append(olapTable.getPartitionRetentionCount()).append("\"");

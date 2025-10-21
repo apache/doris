@@ -41,6 +41,7 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -55,6 +56,7 @@ import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -69,6 +71,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -600,6 +603,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         ArrayList<DropPartitionClause> dropPartitionClauses = new ArrayList<>();
 
         // when create/modify table, we already checked retentionCount validity.
+        // only restrict history partitions with this value. not drop any future partition.
         int retentionCount = olapTable.getTableProperty().getPartitionRetentionCount();
 
         RangePartitionInfo info = (RangePartitionInfo) (olapTable.getPartitionInfo());
@@ -607,12 +611,41 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         // Sort partitions by upper endpoint to keep the latest N partitions
         idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
 
-        int total = idToItems.size();
+        // Get current time as PartitionKey for comparison
+        ZonedDateTime now = ZonedDateTime.now(DateUtils.getTimeZone());
+        Column partitionColumn = info.getPartitionColumns().get(0);
+        String partitionFormat = DynamicPartitionUtil.getPartitionFormat(partitionColumn);
+        String currentTimeStr = DateTimeFormatter.ofPattern(partitionFormat).format(now);
+
+        PartitionValue currentTimeValue = new PartitionValue(currentTimeStr);
+        PartitionKey currentTimeKey;
+        try {
+            currentTimeKey = PartitionKey.createPartitionKey(
+                    Collections.singletonList(currentTimeValue),
+                    Collections.singletonList(partitionColumn));
+        } catch (AnalysisException e) { // theoretically will not happen
+            throw new DdlException("Error in create current time partition key. table: "
+                    + olapTable.getName() + ", error: " + e.getMessage());
+        }
+
+        // Filter out current and future partitions (upper bound >= current time)
+        List<Map.Entry<Long, PartitionItem>> historyPartitions = new ArrayList<>();
+        for (Map.Entry<Long, PartitionItem> entry : idToItems) {
+            RangePartitionItem partitionItem = (RangePartitionItem) entry.getValue();
+            PartitionKey upperBound = partitionItem.getItems().upperEndpoint();
+
+            // Only keep history partitions (upper bound < current time)
+            if (upperBound.compareTo(currentTimeKey) < 0) {
+                historyPartitions.add(entry);
+            }
+        }
+
+        int total = historyPartitions.size();
         int keep = Math.min(retentionCount, total);
 
         // Drop partitions except the latest 'keep' partitions
         for (int i = 0; i < Math.max(0, total - keep); i++) {
-            Long dropPartitionId = idToItems.get(i).getKey();
+            Long dropPartitionId = historyPartitions.get(i).getKey();
             String dropPartitionName = olapTable.getPartition(dropPartitionId).getName();
             // Do not drop the partition "by force", or the partition will be dropped directly instead of being in
             // catalog recycle bin. This is for safe reason.

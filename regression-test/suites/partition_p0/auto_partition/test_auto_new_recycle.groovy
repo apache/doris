@@ -128,6 +128,7 @@ suite("test_auto_new_recycle", "nonConcurrent") {
     res = sql "show partitions from auto_recycle"
     assertEquals(res.size(), 3)
 
+    // before everytime insert data, we should avoid recycle because if they conflict, insert will fail
     sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
     sleep(8000)
     sql """
@@ -155,6 +156,30 @@ suite("test_auto_new_recycle", "nonConcurrent") {
     res = sql "show partitions from auto_recycle"
     assertEquals(res.size(), 10)
     qt_sql1 "select * from auto_recycle order by k0"
+
+    // verify not consider future partition when do recycle
+    sql "drop table auto_recycle force"
+    sql """
+        CREATE TABLE auto_recycle (
+            k0 DATETIME NOT NULL
+        )
+        partition by range (date_trunc(k0, 'day')) ()
+        PROPERTIES (
+            "replication_num" = "1",
+            "partition.retention_count" = "3"
+        );
+    """
+    sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
+    sleep(8000)
+    sql """
+        insert into auto_recycle select date_add(now(), interval number-5 day) from numbers("number" = "8");
+    """
+    sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '1') """
+    sleep(8000)
+    res = sql "show partitions from auto_recycle"
+    assertEquals(res.size(), 6) // [-5, -1] -> [-3, -1], [0, 2] -> [0, 2]
+    res = sql "select * from auto_recycle order by k0"
+    assertEquals(res.size(), 6)
 
     sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
 }
