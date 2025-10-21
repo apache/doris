@@ -797,7 +797,7 @@ public:
 template <typename FunctionName, bool WithPrecision>
 struct CurrentDateTimeImpl {
     static constexpr auto name = FunctionName::name;
-    static constexpr PrimitiveType ReturnType = WithPrecision ? TYPE_DATETIMEV2 : TYPE_DATETIME;
+    static constexpr PrimitiveType ReturnType = TYPE_DATETIMEV2;
 
     static DataTypes get_variadic_argument_types() {
         if constexpr (WithPrecision) {
@@ -823,12 +823,9 @@ struct CurrentDateTimeImpl {
             if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2) {
                 return executeImpl<TYPE_DATETIMEV2>(context, block, arguments, result,
                                                     input_rows_count);
-            } else if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATEV2) {
+            } else {
                 return executeImpl<TYPE_DATEV2>(context, block, arguments, result,
                                                 input_rows_count);
-            } else {
-                return executeImpl<TYPE_DATETIME>(context, block, arguments, result,
-                                                  input_rows_count);
             }
         }
     }
@@ -1091,6 +1088,7 @@ struct TimestampToDateTime : IFunction {
     }
 };
 
+<<<<<<< HEAD
 template <PrimitiveType UTCType>
 struct UtcImpl {
     static constexpr PrimitiveType ReturnType = UTCType;
@@ -1107,6 +1105,11 @@ struct UtcImpl {
 
     static constexpr auto name = get_function_name();
 
+=======
+struct UtcTimestampImpl {
+    static constexpr PrimitiveType ReturnType = TYPE_DATETIMEV2;
+    static constexpr auto name = "utc_timestamp";
+>>>>>>> 951fb4de47 (stash)
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
         int scale = 0;
@@ -1171,13 +1174,9 @@ protected:
             auto function = FunctionCurrentDateOrDateTime<
                     CurrentDateImpl<FunctionName, TYPE_DATEV2>>::create();
             return std::make_shared<DefaultFunction>(function, data_types, return_type);
-        } else if (return_type->get_primitive_type() == TYPE_DATETIMEV2) {
-            auto function = FunctionCurrentDateOrDateTime<
-                    CurrentDateImpl<FunctionName, TYPE_DATETIMEV2>>::create();
-            return std::make_shared<DefaultFunction>(function, data_types, return_type);
         } else {
             auto function = FunctionCurrentDateOrDateTime<
-                    CurrentDateImpl<FunctionName, TYPE_DATE>>::create();
+                    CurrentDateImpl<FunctionName, TYPE_DATETIMEV2>>::create();
             return std::make_shared<DefaultFunction>(function, data_types, return_type);
         }
     }

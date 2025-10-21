@@ -913,10 +913,7 @@ private:
     TIME_ROUND_WITH_DELTA_TYPE(IMPL, NAME, UNIT, TYPE, Int32)                                 \
     using FunctionDateV2TwoArg##IMPL = FunctionDateTimeFloorCeil<IMPL, TYPE_DATEV2, 2, true>; \
     using FunctionDateTimeV2TwoArg##IMPL =                                                    \
-            FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIMEV2, 2, true>;                        \
-    using FunctionDateTimeTwoArg##IMPL =                                                      \
-            FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIME, 2,                                 \
-                                      true>; /*DateTime and Date is same here*/
+            FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIMEV2, 2, true>;
 
 TIME_ROUND_DECLARE(YearFloor, year_floor, YEAR, FLOOR);
 TIME_ROUND_DECLARE(QuarterFloor, quarter_floor, QUARTER, FLOOR);

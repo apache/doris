@@ -60,8 +60,6 @@ using FunctionDateTimeV2Second =
         FunctionDateOrDateTimeToSomething<DataTypeInt8, ToSecondImpl<TYPE_DATETIMEV2>>;
 using FunctionDateTimeV2MicroSecond =
         FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMicroSecondImpl<TYPE_DATETIMEV2>>;
-using FunctionDateTimeV2ToDays =
-        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<TYPE_DATETIMEV2>>;
 using FunctionDateTimeV2ToDate =
         FunctionDateOrDateTimeToSomething<DataTypeDateV2, ToDateImpl<TYPE_DATETIMEV2>>;
 using FunctionDateTimeV2Date =
@@ -92,7 +90,6 @@ void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTimeV2Month>();
     factory.register_function<FunctionDateTimeV2Year>();
     factory.register_function<FunctionDateTimeV2Quarter>();
-    factory.register_function<FunctionDateTimeV2ToDays>();
     factory.register_function<FunctionDateTimeV2ToDate>();
     factory.register_function<FunctionDateTimeV2Date>();
     factory.register_alias("date", "datev2");

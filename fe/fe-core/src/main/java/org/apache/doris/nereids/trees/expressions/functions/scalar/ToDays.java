@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 
@@ -39,7 +38,6 @@ public class ToDays extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateOrTimeLikeV2Args {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE)
     );
 

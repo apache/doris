@@ -364,12 +364,6 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         toDays = new ToDays(DateV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 1, 1, 1)));
         rewritten = executor.rewrite(toDays, context);
         Assertions.assertEquals(new IntegerLiteral(3652424), rewritten);
-        toDays = new ToDays(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1), 0));
-        rewritten = executor.rewrite(toDays, context);
-        Assertions.assertEquals(new IntegerLiteral(366), rewritten);
-        toDays = new ToDays(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(9999, 12, 31, 1, 1, 1), 0));
-        rewritten = executor.rewrite(toDays, context);
-        Assertions.assertEquals(new IntegerLiteral(3652424), rewritten);
 
         MonthsBetween monthsBetween = new MonthsBetween(
                         DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
