@@ -82,7 +82,7 @@ suite("test_jdbc_call", "p0,external,doris,external_docker,external_docker_doris
 
     test {
         sql """call execute_stmt("${catalog_name}", "select 1")"""
-        exception "Can not issue SELECT via executeUpdate() or executeLargeUpdate()"
+        exception "Statement.executeUpdate() or Statement.executeLargeUpdate() cannot issue statements that produce result sets."
     }
 
     // execute insert
