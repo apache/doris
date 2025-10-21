@@ -74,27 +74,6 @@ static void BM_BBF_BucketFind_Miss(benchmark::State& state) {
     state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(batch));
 }
 
-static void BM_BBF_OrEqualArray(benchmark::State& state) {
-    const auto n = static_cast<size_t>(state.range(0));
-    std::vector<uint8_t> in(n), out(n), out_orig(n);
-
-    for (size_t i = 0; i < n; ++i) {
-        in[i] = static_cast<uint8_t>((i * 1315423911U) & 0xFF);
-        out[i] = static_cast<uint8_t>(((i * 2654435761U) >> 8) & 0xFF);
-    }
-    out_orig = out;
-
-    for (auto _ : state) {
-        state.PauseTiming();
-        std::memcpy(out.data(), out_orig.data(), n);
-        state.ResumeTiming();
-
-        [[maybe_unused]] auto st = doris::BlockBloomFilter::or_equal_array(n, in.data(), out.data());
-        benchmark::DoNotOptimize(out.data());
-    }
-    state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(n));
-}
-
 BENCHMARK(BM_BBF_BucketInsert)
     ->Unit(benchmark::kNanosecond)
     ->Arg(1 << 12)
@@ -114,14 +93,5 @@ BENCHMARK(BM_BBF_BucketFind_Miss)
     ->Arg(1 << 12)
     ->Arg(1 << 15)
     ->Arg(1 << 18)
-    ->Repetitions(5)
-    ->DisplayAggregatesOnly();
-BENCHMARK(BM_BBF_OrEqualArray)
-    ->Unit(benchmark::kNanosecond)
-    ->Arg(1 << 8)
-    ->Arg(1 << 15)
-    ->Arg(1 << 18)
-    ->Arg(1 << 20)
-    ->Arg(1 << 23)
     ->Repetitions(5)
     ->DisplayAggregatesOnly();
