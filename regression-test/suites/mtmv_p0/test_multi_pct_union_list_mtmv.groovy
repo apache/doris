@@ -81,8 +81,6 @@ suite("test_multi_pct_union_list_mtmv","mtmv") {
         ${mvSql}
         """
 
-    order_qt_MvPartitionInfo "select MvPartitionInfo from mv_infos('database'='${dbName}') where Name='${mvName}'"
-
     def showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertTrue(showPartitionsResult.toString().contains("p_1"))
@@ -117,6 +115,4 @@ suite("test_multi_pct_union_list_mtmv","mtmv") {
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_mode_t2 "select RefreshMode from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1"
     order_qt_3 "SELECT * FROM ${mvName}"
-
-    // mv_rewrite_success_without_check_chosen(mvSql, mvName)
 }

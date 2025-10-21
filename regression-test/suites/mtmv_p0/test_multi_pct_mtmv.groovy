@@ -102,8 +102,6 @@ suite("test_multi_pct_mtmv","mtmv") {
         ${mvSql}
         """
 
-    order_qt_MvPartitionInfo "select MvPartitionInfo from mv_infos('database'='${dbName}') where Name='${mvName}'"
-
     def showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertTrue(showPartitionsResult.toString().contains("p_20170101_20170201"))
