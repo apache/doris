@@ -22,7 +22,6 @@
 #include <string>
 #include <vector>
 
-#include "common/compile_check_begin.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -32,6 +31,8 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 class RuntimeState;
 namespace vectorized {
 class Block;
@@ -169,5 +170,6 @@ Status SchemaBackendsScanner::_get_backends_from_fe() {
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris
