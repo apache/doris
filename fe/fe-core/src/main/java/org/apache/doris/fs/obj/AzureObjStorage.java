@@ -20,6 +20,7 @@ package org.apache.doris.fs.obj;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Base64Utils;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.storage.AzureProperties;
@@ -271,7 +272,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
-        parts.forEach((k, v) -> blockIds.add(v));
+        parts.forEach((k, v) -> blockIds.add(Base64Utils.encodeToBase64(k)));
         blockBlobClient.commitBlockList(blockIds);
     }
 
