@@ -97,7 +97,7 @@ suite("test_multi_pct_union_list_mtmv","mtmv") {
     order_qt_1 "SELECT * FROM ${mvName}"
 
     sql """
-        insert into ${tableName1} values("2017-01-01",5);
+        insert into ${tableName1} values(1,5);
         """
 
     sql """
@@ -108,7 +108,7 @@ suite("test_multi_pct_union_list_mtmv","mtmv") {
     order_qt_2 "SELECT * FROM ${mvName}"
 
     sql """
-        insert into ${tableName2} values("2017-02-01",6);
+        insert into ${tableName2} values(2,6);
         """
 
     sql """
