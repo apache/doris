@@ -276,6 +276,6 @@ suite("test_multi_pct_bad_mtmv","mtmv") {
             union all
             select * from  ${tableName2}
             """
-        exception "intersected"
+        exception "repeat"
     }
 }
