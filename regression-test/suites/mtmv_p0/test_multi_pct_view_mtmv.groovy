@@ -93,7 +93,7 @@ suite("test_multi_pct_view_mtmv","mtmv") {
         """
 
     sql"""
-        create view ${viewName} as SELECT t1.k1,t1.k2,t2.k2 as k3,t3.k4 from ${tableName1} t1 inner join ${tableName2} t2 on t1.k1=t2.k1;
+        create view ${viewName} as SELECT t1.k1,t1.k2,t2.k2 as k3 from ${tableName1} t1 inner join ${tableName2} t2 on t1.k1=t2.k1;
         """
 
     String mvSql = "select v1.k1,v1.k2,v1.k3,t3.k4 from ${viewName} v1 left join ${tableName3} t3 on v1.k2=t3.k3;";
