@@ -261,6 +261,7 @@ Mail List is the most recognized form of communication in Apache community. See 
 ### 🙋 Report Issues or Submit Pull Request
 
 If you meet any questions, feel free to file a 🔗[GitHub Issue](https://github.com/apache/doris/issues) or post it in 🔗[GitHub Discussion](https://github.com/apache/doris/discussions) and fix it by submitting a 🔗[Pull Request](https://github.com/apache/doris/pulls) 
+If your issues and PRs are not handled in a timely manner, you can also contact us on Slack for near-real-time feedback ([Join the Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w))
 
 ### 🍻 How to Contribute
 
