@@ -140,7 +140,7 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
     /**
      * Normalizes user-provided S3 config keys to Hadoop S3A keys
      */
-    protected   Map<String, String> normalizeS3Config() {
+    protected Map<String, String> normalizeS3Config() {
         Map<String, String> result = new HashMap<>();
         origProps.forEach((key, value) -> {
             for (String prefix : userStoragePrefixes) {
