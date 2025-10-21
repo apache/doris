@@ -983,7 +983,7 @@ build_cares() {
 
     mkdir -p build
     cd build
-    "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \ 
+    cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \ 
         -DCMAKE_BUILD_TYPE=Release \
         -DCARES_STATIC=ON \
         -DCARES_SHARED=OFF \
