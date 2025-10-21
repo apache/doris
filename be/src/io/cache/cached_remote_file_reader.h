@@ -38,7 +38,7 @@ namespace doris::io {
 struct IOContext;
 struct FileCacheStatistics;
 
-class CachedRemoteFileReader final : public FileReader {
+class CachedRemoteFileReader final : public FileReader, public std::enable_shared_from_this<CachedRemoteFileReader> {
 public:
     CachedRemoteFileReader(FileReaderSPtr remote_file_reader, const FileReaderOptions& opts);
 
@@ -70,10 +70,6 @@ private:
     BlockFileCache* _cache;
     std::shared_mutex _mtx;
     std::map<size_t, FileBlockSPtr> _cache_file_readers;
-    bool _is_destructing{false};
-    std::atomic<int> _async_fill_task_num{0};
-    std::mutex _destructing_mutex;
-    std::condition_variable _cv;
 
     void _update_stats(const ReadStatistics& stats, FileCacheStatistics* state,
                        bool is_inverted_index) const;
