@@ -151,7 +151,7 @@ public class SlotDescriptor {
     public void setColumn(Column column) {
         this.column = column;
         this.type = column.getType();
-        this.caption = normalizeCaption(column.getName());
+        this.caption = column.getName();
     }
 
     public void setSrcColumn(Column column) {
