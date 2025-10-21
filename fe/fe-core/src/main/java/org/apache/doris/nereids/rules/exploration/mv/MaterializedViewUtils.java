@@ -31,6 +31,7 @@ import org.apache.doris.nereids.rules.exploration.mv.PartitionIncrementMaintaine
 import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.RelatedTableColumnInfo;
 import org.apache.doris.nereids.rules.rewrite.QueryPartitionCollector;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -42,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -105,8 +107,9 @@ public class MaterializedViewUtils {
             materializedViewPlan = new LogicalProject<>(ImmutableList.of(columnExpr), materializedViewPlan);
         }
         // Check sql pattern
+        Map<CTEId, Plan> producerCteIdToPlanMap = collectProducerCtePlans(materializedViewPlan);
         PartitionIncrementCheckContext checkContext = new PartitionIncrementCheckContext(
-                columnExpr, dateTrunc, cascadesContext);
+                columnExpr, dateTrunc, producerCteIdToPlanMap, cascadesContext);
         checkContext.getPartitionAndRefExpressionMap().put(columnExpr,
                 RelatedTableColumnInfo.of(columnExpr, null, true, false));
         materializedViewPlan.accept(PartitionIncrementChecker.INSTANCE, checkContext);
@@ -152,8 +155,9 @@ public class MaterializedViewUtils {
             materializedViewPlan = new LogicalProject<>(ImmutableList.of(columnExpr), materializedViewPlan);
         }
         // Check sql pattern
+        Map<CTEId, Plan> producerCteIdToPlanMap = collectProducerCtePlans(materializedViewPlan);
         PartitionIncrementCheckContext checkContext = new PartitionIncrementCheckContext(
-                columnExpr, dateTrunc, cascadesContext);
+                columnExpr, dateTrunc, producerCteIdToPlanMap, cascadesContext);
         checkContext.getPartitionAndRefExpressionMap().put(columnExpr,
                 RelatedTableColumnInfo.of(columnExpr, null, true, false));
         materializedViewPlan.accept(PartitionIncrementChecker.INSTANCE, checkContext);
@@ -164,7 +168,7 @@ public class MaterializedViewUtils {
         }
         List<RelatedTableColumnInfo> checkedTableColumnInfos =
                 PartitionIncrementMaintainer.getRelatedTableColumnInfosWithCheck(checkContext,
-                        RelatedTableColumnInfo::isReachRelationCheck);
+                        RelatedTableColumnInfo::isFromTablePartitionColumn);
         if (checkedTableColumnInfos == null) {
             return RelatedTableInfo.failWith("multi partition column data types are different");
         }
@@ -173,6 +177,19 @@ public class MaterializedViewUtils {
         }
         return RelatedTableInfo.failWith(String.format("can't not find valid partition track column, because %s",
                 String.join(",", checkContext.getFailReasons())));
+    }
+
+    private static Map<CTEId, Plan> collectProducerCtePlans(Plan plan) {
+        Map<CTEId, Plan> collectProducerCtePlans = new HashMap<>();
+        plan.accept(new DefaultPlanVisitor<Void, Map<CTEId, Plan>>() {
+            @Override
+            public Void visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer,
+                    Map<CTEId, Plan> context) {
+                context.put(cteProducer.getCteId(), cteProducer);
+                return super.visitLogicalCTEProducer(cteProducer, context);
+            }
+        }, collectProducerCtePlans);
+        return collectProducerCtePlans;
     }
 
     /**

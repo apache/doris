@@ -28,6 +28,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.RelatedTableInfo.RelatedTableColumnInfo;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -40,6 +41,9 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -131,12 +135,13 @@ public class PartitionIncrementMaintainer {
                         context.getPartitionAndRefExpressionMap().get(unionSlotToCheck)
                                 .getPartitionExpression());
                 PartitionIncrementCheckContext childContext = new PartitionIncrementCheckContext(childMvPartitionSlot,
-                        childPartitionExpression.orElse(null), context.getCascadesContext());
+                        childPartitionExpression.orElse(null), context.getProducerCteIdToPlanMap(),
+                        context.getCascadesContext());
                 children.get(i).accept(this, childContext);
                 childrenContextList.add(childContext);
             }
             boolean allReachRelationCheck = true;
-            boolean anyIsFromTablePartitionColumn = false;
+            boolean allIsFromTablePartitionColumn = true;
             for (PartitionIncrementCheckContext childContext : childrenContextList) {
                 boolean childAnyIsFromTablePartitionColumn = false;
                 boolean childAnyReachRelationCheck = false;
@@ -154,16 +159,69 @@ public class PartitionIncrementMaintainer {
                     allReachRelationCheck = false;
                     break;
                 }
-                anyIsFromTablePartitionColumn = anyIsFromTablePartitionColumn || childAnyIsFromTablePartitionColumn;
+                allIsFromTablePartitionColumn = allIsFromTablePartitionColumn && childAnyIsFromTablePartitionColumn;
             }
-            if (allReachRelationCheck && anyIsFromTablePartitionColumn) {
+            if (allReachRelationCheck && allIsFromTablePartitionColumn) {
                 childrenContextList.forEach(
                         childContext -> context.getPartitionAndRefExpressionMap().putAll(
                                 childContext.getPartitionAndRefExpressionMap()));
             } else {
                 context.collectFailedTableSet(union);
+                context.addFailReason("not union all output pass partition increment check");
             }
             return super.visit(union, context);
+        }
+
+        @Override
+        public Void visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, PartitionIncrementCheckContext context) {
+            Plan producerPlan = context.getProducerCteIdToPlanMap().get(cteConsumer.getCteId());
+            if (producerPlan == null) {
+                context.addFailReason(String.format("can't find cte producer producerPlan by cte id %s",
+                        cteConsumer.getCteId()));
+                return null;
+            }
+            Map<Slot, Slot> consumerToProducerOutputMap = cteConsumer.getConsumerToProducerOutputMap();
+            Map<NamedExpression, RelatedTableColumnInfo> needAddMap = new HashMap<>();
+            for (Map.Entry<NamedExpression, RelatedTableColumnInfo> entry
+                    : context.getPartitionAndRefExpressionMap().entrySet()) {
+                NamedExpression consumerSlot = entry.getKey();
+                Slot producerSlot = consumerToProducerOutputMap.get(consumerSlot);
+                if (producerSlot == null) {
+                    continue;
+                }
+                needAddMap.put(producerSlot, RelatedTableColumnInfo.of(producerSlot,
+                        replace(producerSlot, consumerSlot, entry.getValue().getPartitionExpression()).orElse(null),
+                        entry.getValue().isOriginalPartition(),
+                        entry.getValue().isFromTablePartitionColumn()));
+                // clac the equal set in context
+                Set<Set<Slot>> shuttledEqualSlotSet = context.getShuttledEqualSlotSet();
+                for (Set<Slot> equalSlotSet : shuttledEqualSlotSet) {
+                    if (equalSlotSet.contains(consumerSlot)) {
+                        Expression shuttledSlot = ExpressionUtils.shuttleExpressionWithLineage(
+                                producerSlot, producerPlan, new BitSet());
+                        if (shuttledSlot instanceof Slot) {
+                            equalSlotSet.add((Slot) shuttledSlot);
+                        }
+                    }
+                }
+            }
+            if (!needAddMap.isEmpty()) {
+                context.getPartitionAndRefExpressionMap().putAll(needAddMap);
+            }
+            return super.visit(producerPlan, context);
+        }
+
+        @Override
+        public Void visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer,
+                PartitionIncrementCheckContext context) {
+            // should visit by logical cte consumer
+            return null;
+        }
+
+        @Override
+        public Void visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
+                PartitionIncrementCheckContext context) {
+            return super.visitLogicalCTEAnchor(cteAnchor, context);
         }
 
         @Override
@@ -173,13 +231,9 @@ public class PartitionIncrementMaintainer {
                 context.addFailReason("partition track doesn't support mark join");
                 return null;
             }
-            Plan left = join.child(0);
-            Set<Column> leftColumnSet = left.getOutputSet().stream()
-                    .filter(slot -> slot instanceof SlotReference
-                            && ((SlotReference) slot).getOriginalColumn().isPresent())
-                    .map(slot -> ((SlotReference) slot).getOriginalColumn().get())
-                    .collect(Collectors.toSet());
-            for (NamedExpression partitionSlotToCheck : context.partitionAndRefExpressionMap.keySet()) {
+            // calculate equal slot set from join condition
+            Map<NamedExpression, RelatedTableColumnInfo> toAdd = new HashMap<>();
+            for (NamedExpression partitionSlotToCheck : context.getPartitionAndRefExpressionMap().keySet()) {
                 if (!(partitionSlotToCheck instanceof SlotReference)) {
                     continue;
                 }
@@ -189,29 +243,39 @@ public class PartitionIncrementMaintainer {
                     context.getShuttledEqualSlotSet().add(partitionEqualSlotPair.value());
                 }
                 for (Slot partitionEqualSlot : partitionEqualSlotPair.key()) {
-                    // If found equal set, add the slot and ref expression to checker context
+                    // If equal slot set founded, add the slot and ref expression to checker context
                     Optional<Expression> replacedPartitionExpression = replace(partitionEqualSlot, partitionSlotToCheck,
                             context.getPartitionAndRefExpressionMap().get(partitionSlotToCheck)
                                     .getPartitionExpression());
-                    context.getPartitionAndRefExpressionMap().put(partitionEqualSlot,
+                    toAdd.put(partitionEqualSlot,
                             RelatedTableColumnInfo.of(partitionEqualSlot, replacedPartitionExpression.orElse(null),
                                     false, false));
                 }
-                boolean useLeft = leftColumnSet.contains(
-                        ((SlotReference) partitionSlotToCheck).getOriginalColumn().orElse(null));
+            }
+            if (!toAdd.isEmpty()) {
+                context.getPartitionAndRefExpressionMap().putAll(toAdd);
+            }
+            // check join type and partition column side
+            Set<Slot> leftColumnSet = join.child(0).getOutputSet();
+            Set<NamedExpression> namedExpressions = new HashSet<>(context.getPartitionAndRefExpressionMap().keySet());
+            for (NamedExpression partitionSlotToCheck : namedExpressions) {
+                if (!(partitionSlotToCheck instanceof SlotReference)) {
+                    continue;
+                }
+                boolean useLeft = leftColumnSet.contains(partitionSlotToCheck);
                 JoinType joinType = join.getJoinType();
                 if (joinType.isInnerJoin() || joinType.isCrossJoin()) {
-                    return visit(join, context);
+                    visit(join, context);
                 } else if ((joinType.isLeftJoin()
                         || joinType.isLeftSemiJoin()
                         || joinType.isLeftAntiJoin()) && useLeft) {
                     context.collectInvalidTableSet(join.right());
-                    return visit(join, context);
+                    visit(join, context);
                 } else if ((joinType.isRightJoin()
                         || joinType.isRightAntiJoin()
                         || joinType.isRightSemiJoin()) && !useLeft) {
                     context.collectInvalidTableSet(join.left());
-                    return visit(join, context);
+                    visit(join, context);
                 } else {
                     context.addFailReason(String.format("partition column is in un supported join null generate side, "
                             + "current join type is %s, partitionSlot is %s", joinType, partitionSlotToCheck));
@@ -284,6 +348,7 @@ public class PartitionIncrementMaintainer {
                             && Objects.equals(((SlotReference) catalogSlot).getOriginalColumn().orElse(null),
                             mvReferenceColumnToCheck)) {
                         currentPartitionSlot = (SlotReference) catalogSlot;
+                        break;
                     }
                 }
                 // If self join such as inner join
@@ -378,7 +443,10 @@ public class PartitionIncrementMaintainer {
                     || plan instanceof LogicalResultSink
                     || plan instanceof LogicalWindow
                     || (plan instanceof LogicalUnion
-                    && ((LogicalUnion) plan).getQualifier() == SetOperation.Qualifier.ALL)) {
+                    && ((LogicalUnion) plan).getQualifier() == SetOperation.Qualifier.ALL)
+                    || plan instanceof LogicalCTEAnchor
+                    || plan instanceof LogicalCTEConsumer
+                    || plan instanceof LogicalCTEProducer) {
                 return super.visit(plan, context);
             }
             context.addFailReason(String.format("Unsupported plan operate in track partition, "
@@ -535,6 +603,8 @@ public class PartitionIncrementMaintainer {
         Set<DataType> dataTypeSet = new HashSet<>();
         List<RelatedTableColumnInfo> checkedTableColumnInfos = new ArrayList<>();
         boolean anyIsFromTablePartitionColumn = false;
+        // if predicate use isReachRelationCheck, this also need to check isFromTablePartitionColumn
+        Set<BaseTableInfo> checkedTableSet = new HashSet<>();
         for (Map.Entry<NamedExpression, RelatedTableColumnInfo> entry
                 : checkContext.getPartitionAndRefExpressionMap().entrySet()) {
             NamedExpression partitionColumn = entry.getKey();
@@ -546,8 +616,13 @@ public class PartitionIncrementMaintainer {
             if (dataTypeSet.size() > 1) {
                 return null;
             }
+            if (checkedTableSet.contains(tableColumnInfo.getTableInfo())) {
+                // remove duplicate table info
+                continue;
+            }
             if (predicate.test(tableColumnInfo)) {
                 checkedTableColumnInfos.add(tableColumnInfo);
+                checkedTableSet.add(tableColumnInfo.getTableInfo());
             }
             anyIsFromTablePartitionColumn
                     = anyIsFromTablePartitionColumn || tableColumnInfo.isFromTablePartitionColumn();
@@ -589,13 +664,15 @@ public class PartitionIncrementMaintainer {
         // This is used to record the equal slot set shuttled from children which are equals to partition column
         // to check, this expends the partition slot to check
         private final Set<Set<Slot>> shuttledEqualSlotSet = new HashSet<>();
+        private final Map<CTEId, Plan> producerCteIdToPlanMap;
 
         public PartitionIncrementCheckContext(NamedExpression mvPartitionColumn,
-                Expression mvPartitionExpression,
+                Expression mvPartitionExpression, Map<CTEId, Plan> producerCteIdToPlanMap,
                 CascadesContext cascadesContext) {
             this.partitionAndRefExpressionMap.put(mvPartitionColumn, RelatedTableColumnInfo.of(
                     mvPartitionColumn, mvPartitionExpression, true, false));
             this.cascadesContext = cascadesContext;
+            this.producerCteIdToPlanMap = producerCteIdToPlanMap;
         }
 
         public Set<String> getFailReasons() {
@@ -624,6 +701,10 @@ public class PartitionIncrementMaintainer {
 
         public Map<NamedExpression, RelatedTableColumnInfo> getPartitionAndRefExpressionMap() {
             return partitionAndRefExpressionMap;
+        }
+
+        public Map<CTEId, Plan> getProducerCteIdToPlanMap() {
+            return producerCteIdToPlanMap;
         }
 
         /**
