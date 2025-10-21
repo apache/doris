@@ -228,7 +228,4 @@ String suiteName = "test_multi_pct_bad_mtmv"
     order_qt_range_p_00000101_20201111 "SELECT * FROM ${mvName} partitions(p_00000101_20201111) order by user_id,create_date"
     order_qt_range_p_20201111_20211111 "SELECT * FROM ${mvName} partitions(p_20201111_20211111) order by user_id,create_date"
 
-    sql """drop table if exists `${tableName}`"""
-    sql """drop materialized view if exists ${mvName};"""
-
 }
