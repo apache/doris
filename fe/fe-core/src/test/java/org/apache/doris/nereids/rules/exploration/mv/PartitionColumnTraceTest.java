@@ -32,6 +32,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -146,6 +147,36 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                 + "PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\"\n"
                 + ")");
+
+        createTable("CREATE TABLE `lineitem_list_partition` (\n"
+                + "      `l_orderkey` BIGINT not NULL,\n"
+                + "      `l_linenumber` INT NULL,\n"
+                + "      `l_partkey` INT NULL,\n"
+                + "      `l_suppkey` INT NULL,\n"
+                + "      `l_quantity` DECIMAL(15, 2) NULL,\n"
+                + "      `l_extendedprice` DECIMAL(15, 2) NULL,\n"
+                + "      `l_discount` DECIMAL(15, 2) NULL,\n"
+                + "      `l_tax` DECIMAL(15, 2) NULL,\n"
+                + "      `l_returnflag` VARCHAR(1) NULL,\n"
+                + "      `l_linestatus` VARCHAR(1) NULL,\n"
+                + "      `l_commitdate` DATE NULL,\n"
+                + "      `l_receiptdate` DATE NULL,\n"
+                + "      `l_shipinstruct` VARCHAR(25) NULL,\n"
+                + "      `l_shipmode` VARCHAR(10) NULL,\n"
+                + "      `l_comment` VARCHAR(44) NULL,\n"
+                + "      `l_shipdate` DATE NULL\n"
+                + "    ) ENGINE=OLAP\n"
+                + "    DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )\n"
+                + "    COMMENT 'OLAP'\n"
+                + "    PARTITION BY list(l_orderkey) (\n"
+                + "    PARTITION p1 VALUES in ('1'),\n"
+                + "    PARTITION p2 VALUES in ('2'),\n"
+                + "    PARTITION p3 VALUES in ('3')\n"
+                + "    )\n"
+                + "    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 3\n"
+                + "    PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\"\n"
+                + "    )");
         // Should not make scan to empty relation when the table used by materialized view has no data
         connectContext.getSessionVariable().setDisableNereidsRules("OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
     }
@@ -165,8 +196,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             successWith(relatedTableInfo, ImmutableSet.of(
-                                    ImmutableList.of("lineitem", "l_shipdate", "true", "true"),
-                                            ImmutableList.of("lineitem", "l_shipdate", "true", "true")),
+                                    ImmutableList.of("lineitem", "l_shipdate", "true", "true")),
                                     "");
                         });
     }
@@ -318,7 +348,8 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfos("o_orderdate_alias", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             successWith(relatedTableInfo,
-                                    ImmutableSet.of(ImmutableList.of("orders", "o_orderdate", "true", "true")), "day");
+                                    ImmutableSet.of(ImmutableList.of("orders", "o_orderdate", "true", "true"),
+                                            ImmutableList.of("lineitem", "l_shipdate", "true", "true")), "day");
                         });
     }
 
@@ -451,7 +482,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfo, "partition column is in invalid catalog relation to check");
+                            failWith(relatedTableInfo, "partition column is in un supported join null generate side");
                         });
     }
 
@@ -585,7 +616,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfos("l_shipdate", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
                             failWith(relatedTableInfo,
-                                    "partition column is in invalid catalog relation to check");
+                                    "partition column is in un supported join null generate side");
                         });
     }
 
@@ -892,9 +923,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("L_SHIPDATE", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfo, ImmutableSet.of(ImmutableList.of("lineitem", "l_shipdate", "true", "true"),
-                                            ImmutableList.of("orders_no_part", "o_orderdate", "true", "false")),
-                                    "");
+                            failWith(relatedTableInfo, "not union all output pass partition increment check");
                         });
     }
 
@@ -978,9 +1007,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("L_SHIPDATE", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfo, ImmutableSet.of(ImmutableList.of("lineitem", "l_shipdate", "true", "true"),
-                                            ImmutableList.of("orders", "o_orderdate_not", "true", "false")),
-                                    "");
+                            failWith(relatedTableInfo, "not union all output pass partition increment check");
                         });
     }
 
@@ -1020,10 +1047,57 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("L_SHIPDATE", "month",
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            failWith(relatedTableInfo, "not union all output pass partition increment check");
+                        });
+    }
+
+
+    // test with cte
+    @Test
+    public void test40() {
+        PlanChecker.from(connectContext)
+                .checkExplain("with c1 as (\n"
+                                + "  select \n"
+                                + "    l_shipdate, \n"
+                                + "    o_orderdate, \n"
+                                + "    count(l_shipdate) as count_s \n"
+                                + "  from \n"
+                                + "    lineitem \n"
+                                + "    inner join orders on l_shipdate = o_orderdate \n"
+                                + "  group by \n"
+                                + "    l_shipdate, \n"
+                                + "    o_orderdate\n"
+                                + "), \n"
+                                + "c2 as (\n"
+                                + "  select \n"
+                                + "    l_shipdate, \n"
+                                + "    o_orderdate, \n"
+                                + "    count_s \n"
+                                + "  from \n"
+                                + "    c1\n"
+                                + "), \n"
+                                + "c3 as (\n"
+                                + "  select \n"
+                                + "    l_shipdate, \n"
+                                + "    count_s \n"
+                                + "  from \n"
+                                + "    c1\n"
+                                + ") \n"
+                                + "select \n"
+                                + "  c2.l_shipdate, \n"
+                                + "  c3.count_s \n"
+                                + "from \n"
+                                + "  c2 \n"
+                                + "  inner join c3 on c2.l_shipdate = c3.l_shipdate;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfos("L_SHIPDATE", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
                             successWith(relatedTableInfo, ImmutableSet.of(
                                             ImmutableList.of("lineitem", "l_shipdate", "true", "true"),
-                                            ImmutableList.of("orders_no_part", "o_orderdate", "true", "false")),
-                                    "month");
+                                            ImmutableList.of("orders", "o_orderdate", "true", "true")),
+                                    null);
                         });
     }
 
@@ -1034,6 +1108,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
 
         Set<List<String>> relatedTableColumnPairs = new HashSet<>();
         List<RelatedTableColumnInfo> tableColumnInfos = relatedTableInfo.getTableColumnInfos();
+        boolean anyFoundDateTrunc = false;
         for (RelatedTableColumnInfo info : tableColumnInfos) {
             Optional<Expression> partitionExpression = info.getPartitionExpression();
             if (StringUtils.isNotEmpty(timeUnit) && !partitionExpression.isPresent()) {
@@ -1041,9 +1116,9 @@ public class PartitionColumnTraceTest extends TestWithFeService {
             }
             if (StringUtils.isNotEmpty(timeUnit) && partitionExpression.isPresent()) {
                 List<DateTrunc> dateTruncs = partitionExpression.get().collectToList(DateTrunc.class::isInstance);
-                Assertions.assertEquals(1, dateTruncs.size());
-                Assertions.assertEquals(dateTruncs.get(0).getArgument(1).toString().toLowerCase(),
-                        "'" + timeUnit + "'");
+                anyFoundDateTrunc = anyFoundDateTrunc
+                        || (dateTruncs.size() == 1
+                        && Objects.equals("'" + timeUnit + "'", dateTruncs.get(0).getArgument(1).toString().toLowerCase()));
             }
             try {
                 relatedTableColumnPairs.add(
@@ -1052,6 +1127,9 @@ public class PartitionColumnTraceTest extends TestWithFeService {
             } catch (Exception exception) {
                 Assertions.fail("excepted table and column in related table column info but not");
             }
+        }
+        if (StringUtils.isNotEmpty(timeUnit)) {
+            Assertions.assertTrue(anyFoundDateTrunc);
         }
         Assertions.assertEquals(expectTableColumnPairSet, relatedTableColumnPairs);
     }

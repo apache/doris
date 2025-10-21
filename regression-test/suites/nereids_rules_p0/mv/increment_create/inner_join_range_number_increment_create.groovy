@@ -148,6 +148,7 @@ suite("inner_join_range_number_increment_create") {
         def refresh_info = sql """select 
             JobName, Status, RefreshMode, NeedRefreshPartitions, CompletedPartitions, Progress 
             from tasks("type"="mv") where JobName="${cur_job_name}" order by CreateTime desc limit 1;"""
+        logger.info("refresh_info: " + refresh_info)
         assert (refresh_info[0][0] == cur_job_name)
         assert (refresh_info[0][1] == "SUCCESS")
         assert (refresh_info[0][2] == "PARTIAL")
@@ -164,6 +165,7 @@ suite("inner_join_range_number_increment_create") {
         def refresh_info = sql """select 
             JobName, Status, RefreshMode, NeedRefreshPartitions, CompletedPartitions, Progress 
             from tasks("type"="mv") where JobName="${cur_job_name}" order by CreateTime desc limit 1;"""
+        logger.info("refresh_info: " + refresh_info)
         assert (refresh_info[0][0] == cur_job_name)
         assert (refresh_info[0][1] == "SUCCESS")
         assert (refresh_info[0][2] == "COMPLETE")
@@ -179,6 +181,7 @@ suite("inner_join_range_number_increment_create") {
         def refresh_info = sql """select 
             JobName, Status, RefreshMode, NeedRefreshPartitions, CompletedPartitions, Progress 
             from tasks("type"="mv") where JobName="${cur_job_name}" order by CreateTime desc limit 1;"""
+        logger.info("refresh_info: " + refresh_info)
         assert (refresh_info[0][0] == cur_job_name)
         assert (refresh_info[0][1] == "SUCCESS")
         assert (refresh_info[0][2] == "COMPLETE")
