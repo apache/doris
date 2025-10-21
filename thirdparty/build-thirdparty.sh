@@ -503,7 +503,7 @@ build_glog() {
             -DBUILD_SHARED_LIBS=OFF \
             -DWITH_TLS=OFF
 
-        cmake --build build --target install
+        "${CMAKE_CMD}" --build build --target install
     fi
 
     strip_lib libglog.a
@@ -983,7 +983,8 @@ build_cares() {
 
     mkdir -p build
     cd build
-    cmake -DCMAKE_BUILD_TYPE=Release \
+    "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \ 
+        -DCMAKE_BUILD_TYPE=Release \
         -DCARES_STATIC=ON \
         -DCARES_SHARED=OFF \
         -DCARES_STATIC_PIC=ON \
@@ -1000,7 +1001,8 @@ build_grpc() {
     mkdir -p cmake/build
     cd cmake/build
 
-    cmake -DgRPC_INSTALL=ON \
+    "${CMAKE_CMD}" -DgRPC_INSTALL=ON \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DgRPC_BUILD_TESTS=OFF \
         -Dgrpc_csharp_plugin=OFF \
         -Dgrpc_node_plugin=OFF \
@@ -1129,8 +1131,8 @@ build_abseil() {
         -DABSL_PROPAGATE_CXX_STD=ON \
         -DBUILD_SHARED_LIBS=OFF
 
-    cmake --build "${BUILD_DIR}" -j "${PARALLEL}"
-    cmake --install "${BUILD_DIR}" --prefix "${TP_INSTALL_DIR}"
+    "${CMAKE_CMD}"--build "${BUILD_DIR}" -j "${PARALLEL}"
+    "${CMAKE_CMD}" --install "${BUILD_DIR}" --prefix "${TP_INSTALL_DIR}"
 }
 
 # s2
@@ -1527,7 +1529,8 @@ build_hdfs3() {
     else
         SSE_OPTION='-DENABLE_SSE=OFF'
     fi
-    cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+    "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DBUILD_TEST=OFF "${SSE_OPTION}" \
         -DProtobuf_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" \
         -DProtobuf_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
@@ -1608,7 +1611,7 @@ build_benchmark() {
 
     cd "${TP_SOURCE_DIR}/${BENCHMARK_SOURCE}"
 
-    cmake -E make_directory "build"
+    "${CMAKE_CMD}" -E make_directory "build"
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cxxflags='-lresolv -pthread -lrt'
