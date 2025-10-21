@@ -494,6 +494,7 @@ build_glog() {
     elif [[ "${GLOG_SOURCE}" == "glog-0.6.0" ]]; then
         LDFLAGS="-L${TP_LIB_DIR}" \
             "${CMAKE_CMD}" -S . -B build -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
             -DWITH_UNWIND=OFF \
