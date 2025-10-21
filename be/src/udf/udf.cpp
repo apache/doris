@@ -150,9 +150,9 @@ void* FunctionContext::get_function_state(FunctionStateScope scope) const {
     }
 }
 
-Slice FunctionContext::create_temp_string_val(int64_t len) {
+StringRef FunctionContext::create_temp_string_val(int64_t len) {
     _string_result.resize(len);
-    return Slice(_string_result);
+    return StringRef((uint8_t*)_string_result.c_str(), len);
 }
 
 #include "common/compile_check_end.h"

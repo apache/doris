@@ -98,7 +98,7 @@ double MathFunctions::my_double_round(double value, int64_t dec, bool dec_unsign
     return tmp2;
 }
 
-Slice MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, int8_t dest_base) {
+StringRef MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, int8_t dest_base) {
     // Max number of digits of any base (base 2 gives max digits), plus sign.
     const size_t max_digits = sizeof(uint64_t) * 8 + 1;
     char buf[max_digits];
