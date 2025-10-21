@@ -17,6 +17,7 @@
 
 #include "http/http_client.h"
 
+#include <fmt/format.h>
 #include <glog/logging.h>
 #include <unistd.h>
 
@@ -367,21 +368,18 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
                 return Status::InternalError("fail to set CURLOPT_CAINFO");
             }
         } else if (config::tls_verify_mode == "verify_none") {
-            code = curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 0L);
-            if (code != CURLE_OK) {
-                LOG(WARNING) << "fail to set CURLOPT_SSL_VERIFYPEER, msg=" << _to_errmsg(code);
-                return Status::InternalError("fail to set CURLOPT_CAINFO");
-            }
             code = curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 0L);
             if (code != CURLE_OK) {
                 LOG(WARNING) << "fail to set CURLOPT_SSL_VERIFYHOST, msg=" << _to_errmsg(code);
                 return Status::InternalError("fail to set CURLOPT_CAINFO");
             }
         } else {
-            return Status::RuntimeError(
+            std::string msg = fmt::format(
                     "unknown verify_mode: {}, only support: verify_fail_if_no_peer_cert, "
                     "verify_peer, verify_none",
                     config::tls_verify_mode);
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
         }
         code = curl_easy_setopt(_curl, CURLOPT_CAINFO, config::tls_ca_certificate_path.c_str());
         if (code != CURLE_OK) {
@@ -397,6 +395,11 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
         if (code != CURLE_OK) {
             LOG(WARNING) << "fail to set CURLOPT_SSLKEY, msg=" << _to_errmsg(code);
             return Status::InternalError("fail to set CURLOPT_SSLKEY");
+        }
+        code = curl_easy_setopt(_curl, CURLOPT_KEYPASSWD, config::tls_private_key_password.c_str());
+        if (code != CURLE_OK) {
+            LOG(WARNING) << "fail to set CURLOPT_KEYPASSWD, msg=" << _to_errmsg(code);
+            return Status::InternalError("fail to set CURLOPT_KEYPASSWD");
         }
     }
 
