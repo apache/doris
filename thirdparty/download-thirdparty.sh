@@ -267,17 +267,6 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
     echo "Finished patching ${GLOG_SOURCE}"
 fi
 
-# gtest patch
-if [[ " ${TP_ARCHIVES[*]} " =~ " GTEST " ]]; then
-    cd "${TP_SOURCE_DIR}/${GTEST_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/googletest-release-1.11.0.patch"
-        touch "${PATCHED_MARK}"
-    fi
-    cd -
-    echo "Finished patching ${GTEST_SOURCE}"
-fi
-
 # mysql patch
 if [[ " ${TP_ARCHIVES[*]} " =~ " MYSQL " ]]; then
     cd "${TP_SOURCE_DIR}/${MYSQL_SOURCE}"
