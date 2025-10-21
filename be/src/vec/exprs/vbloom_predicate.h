@@ -53,6 +53,8 @@ public:
 
     std::shared_ptr<BloomFilterFuncBase> get_bloom_filter_func() const override { return _filter; }
 
+    uint64_t get_digest(uint64_t seed) const override;
+
 private:
     std::shared_ptr<BloomFilterFuncBase> _filter;
     inline static const std::string EXPR_NAME = "bloom_predicate";
