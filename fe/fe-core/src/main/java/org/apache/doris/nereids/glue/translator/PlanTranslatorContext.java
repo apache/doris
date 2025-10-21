@@ -301,7 +301,7 @@ public class PlanTranslatorContext {
         if (column.isPresent()) {
             slotDescriptor.setColumn(column.get());
         } else {
-            slotDescriptor.setCaption(slotReference.toString());
+            slotDescriptor.setCaptionAndNormalize(slotReference.toString());
         }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
