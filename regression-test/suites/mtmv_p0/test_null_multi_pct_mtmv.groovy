@@ -73,7 +73,7 @@ String suiteName = "test_multi_pct_bad_mtmv"
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT * FROM ${tableName1};
+            SELECT * FROM ${tableName1}
             union all
             SELECT * FROM ${tableName2};
     """
@@ -144,7 +144,7 @@ String suiteName = "test_multi_pct_bad_mtmv"
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT * FROM ${tableName1};
+            SELECT * FROM ${tableName1}
             union all
             SELECT * FROM ${tableName2};
     """
@@ -213,7 +213,7 @@ String suiteName = "test_multi_pct_bad_mtmv"
             AS
             SELECT * FROM ${tableName1}
             union all
-            SELECT * FROM ${tableName2}
+            SELECT * FROM ${tableName2};
     """
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
