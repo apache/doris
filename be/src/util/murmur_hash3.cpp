@@ -315,12 +315,10 @@ void murmur_hash3_x86_128(const void* key, const int len, uint32_t seed, void* o
 
 //-----------------------------------------------------------------------------
 
-void murmur_hash3_x64_128(const void* key, const int len, const uint32_t seed, void* out) {
+// Helper function that implements the core MurmurHash3 128-bit hashing algorithm
+void murmur_hash3_x64_process(const void* key, const int len, uint64_t& h1, uint64_t& h2) {
     const uint8_t* data = (const uint8_t*)key;
     const int nblocks = len / 16;
-
-    uint64_t h1 = seed;
-    uint64_t h2 = seed;
 
     const uint64_t c1 = BIG_CONSTANT(0x87c37b91114253d5);
     const uint64_t c2 = BIG_CONSTANT(0x4cf5ad432745937f);
@@ -430,11 +428,34 @@ void murmur_hash3_x64_128(const void* key, const int len, const uint32_t seed, v
 
     h1 += h2;
     h2 += h1;
+}
 
+//-----------------------------------------------------------------------------
+
+void murmur_hash3_x64_128(const void* key, const int len, const uint32_t seed, void* out) {
+    uint64_t h1 = seed;
+    uint64_t h2 = seed;
+    murmur_hash3_x64_process(key, len, h1, h2);
     ((uint64_t*)out)[0] = h1;
     ((uint64_t*)out)[1] = h2;
 }
 
+//-----------------------------------------------------------------------------
+
+// MurmurHash3 x64 64-bit variant using shared 128-bit processing function
+// This implementation reuses the murmur_hash3_x64_process function and only outputs the first hash value
+void murmur_hash3_x64_64_shared(const void* key, const int64_t len, const uint64_t seed,
+                                void* out) {
+    uint64_t h1 = seed;
+    uint64_t h2 = seed;
+    murmur_hash3_x64_process(key, static_cast<int>(len), h1, h2);
+    ((uint64_t*)out)[0] = h1;
+}
+
+//-----------------------------------------------------------------------------
+
+// MurmurHash3 x64 64-bit variant with optimized standalone implementation
+// This implementation is specifically optimized for 64-bit output
 void murmur_hash3_x64_64(const void* key, const int64_t len, const uint64_t seed, void* out) {
     const uint8_t* data = (const uint8_t*)key;
     const int nblocks = (int)len / 8;

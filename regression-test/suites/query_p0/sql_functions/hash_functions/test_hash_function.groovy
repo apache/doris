@@ -26,6 +26,11 @@ suite("test_hash_function", "arrow_flight_sql") {
     qt_sql "SELECT murmur_hash3_64(\"hello\");"
     qt_sql "SELECT murmur_hash3_64(\"hello\", \"world\");"
 
+    qt_mmh3_64_v2_1 "SELECT MURMUR_HASH3_64_V2(NULL);"
+    qt_mmh3_64_v2_2 "SELECT MURMUR_HASH3_64_V2('1000209601_1756808272');"
+    qt_mmh3_64_v2_3 "SELECT MURMUR_HASH3_64_V2('hello world');"
+    qt_mmh3_64_v2_4 "SELECT MURMUR_HASH3_64_V2('apache doris');"
+
     qt_sql "SELECT xxhash_32(null);"
     qt_sql "SELECT xxhash_32(\"hello\");"
     qt_sql "SELECT xxhash_32(\"hello\", \"world\");"
@@ -33,4 +38,16 @@ suite("test_hash_function", "arrow_flight_sql") {
     qt_sql "SELECT xxhash_64(null);"
     qt_sql "SELECT xxhash_64(\"hello\");"
     qt_sql "SELECT xxhash_64(\"hello\", \"world\");"
+
+    def xxhash_res = sql "SELECT xxhash_64(null);"
+    def xxhash3_res = sql "SELECT xxhash3_64(null);"
+    assertEquals(xxhash_res, xxhash3_res);
+
+    xxhash_res = sql "SELECT xxhash_64(\"hello\");"
+    xxhash3_res = sql "SELECT xxhash3_64(\"hello\");"
+    assertEquals(xxhash_res, xxhash3_res);
+
+    xxhash_res = sql "SELECT xxhash_64(\"hello\", \"world\");"
+    xxhash3_res = sql "SELECT xxhash3_64(\"hello\", \"world\");"
+    assertEquals(xxhash_res, xxhash3_res);
 }
