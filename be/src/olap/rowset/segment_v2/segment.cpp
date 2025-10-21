@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/segment.h"
 
+#include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
@@ -765,6 +766,16 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                                sparse_column_cache_ptr));
     } else {
         RETURN_IF_ERROR(reader->new_iterator(iter, &tablet_column, opt));
+        if (opt->all_access_paths.contains(unique_id) ||
+            opt->predicate_access_paths.contains(unique_id)) {
+            const auto& all_access_paths = opt->all_access_paths.contains(unique_id)
+                                                   ? opt->all_access_paths.at(unique_id)
+                                                   : TColumnAccessPaths {};
+            const auto& predicate_access_paths = opt->predicate_access_paths.contains(unique_id)
+                                                         ? opt->predicate_access_paths.at(unique_id)
+                                                         : TColumnAccessPaths {};
+            RETURN_IF_ERROR((*iter)->set_access_paths(all_access_paths, predicate_access_paths));
+        }
     }
 
     if (config::enable_column_type_check && !tablet_column.has_path_info() &&
