@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -93,17 +94,24 @@ public class RewriteDataFileExecutor {
 
         LOG.info("Starting concurrent rewrite with {} groups", groups.size());
 
+        // Begin transaction
+        long transactionId = dorisTable.getCatalog().getTransactionManager().begin();
+        IcebergTransaction transaction = (IcebergTransaction) dorisTable.getCatalog().getTransactionManager()
+                .getTransaction(transactionId);
+        transaction.beginRewrite(dorisTable);
+
         // Create result collector
         RewriteResultCollector resultCollector = new RewriteResultCollector(groups.size());
 
         // Create and submit tasks
         List<TransientTaskExecutor> tasks = Lists.newArrayList();
         for (RewriteDataGroup group : groups) {
-            RewriteGroupTask task = new RewriteGroupTask(group, logicalPlan, parsedStmt, connectContext,
+            transaction.updateRewriteFiles(Lists.newArrayList(group.getDataFiles()));
+            RewriteGroupTask task = new RewriteGroupTask(group, transactionId, logicalPlan, parsedStmt, connectContext,
                     new RewriteGroupTask.RewriteResultCallback() {
                         @Override
-                        public void onTaskCompleted(Long taskId, RewriteResult result) {
-                            resultCollector.onTaskCompleted(taskId, result);
+                        public void onTaskCompleted(Long taskId) {
+                            resultCollector.onTaskCompleted(taskId);
                         }
 
                         @Override
@@ -124,7 +132,11 @@ public class RewriteDataFileExecutor {
         }
 
         // Wait for all tasks to complete
-        return waitForTasksCompletion(resultCollector, groups.size());
+        waitForTasksCompletion(resultCollector, groups.size());
+
+        // Commit transaction
+        transaction.finishRewrite();
+        return new RewriteResult(groups.size(), groups.size(), 0, 0);
     }
 
     /**
@@ -176,7 +188,7 @@ public class RewriteDataFileExecutor {
     /**
      * Wait for all tasks to complete
      */
-    private RewriteResult waitForTasksCompletion(RewriteResultCollector collector, int totalTasks)
+    private void waitForTasksCompletion(RewriteResultCollector collector, int totalTasks)
             throws UserException {
         LOG.info("Waiting for {} rewrite tasks to complete", totalTasks);
 
@@ -204,16 +216,13 @@ public class RewriteDataFileExecutor {
             throw new UserException("Some rewrite tasks failed: " + collector.getFirstError().getMessage());
         }
 
-        RewriteResult result = collector.getTotalResult();
-        LOG.info("All rewrite tasks completed, total result: {}", result);
-        return result;
+        LOG.info("All rewrite tasks completed");
     }
 
     /**
      * Result collector for concurrent rewrite tasks
      */
     private static class RewriteResultCollector {
-        private final RewriteResult totalResult = new RewriteResult();
         private final int expectedTasks;
         private final AtomicInteger completedTasks = new AtomicInteger(0);
         private final AtomicInteger failedTasks = new AtomicInteger(0);
@@ -223,12 +232,9 @@ public class RewriteDataFileExecutor {
             this.expectedTasks = expectedTasks;
         }
 
-        public synchronized void onTaskCompleted(Long taskId, RewriteResult result) {
-            totalResult.merge(result);
+        public synchronized void onTaskCompleted(Long taskId) {
             int completed = completedTasks.incrementAndGet();
-            LOG.info("Task {} completed ({}/{}), result: {} files rewritten, {} bytes processed",
-                    taskId, completed, expectedTasks,
-                    result.getRewrittenDataFilesCount(), result.getRewrittenBytesCount());
+            LOG.info("Task {} completed ({}/{})", taskId, completed, expectedTasks);
         }
 
         public synchronized void onTaskFailed(Long taskId, Exception error) {
@@ -241,10 +247,6 @@ public class RewriteDataFileExecutor {
 
         public boolean isAllCompleted() {
             return completedTasks.get() + failedTasks.get() >= expectedTasks;
-        }
-
-        public RewriteResult getTotalResult() {
-            return totalResult;
         }
 
         public Exception getFirstError() {

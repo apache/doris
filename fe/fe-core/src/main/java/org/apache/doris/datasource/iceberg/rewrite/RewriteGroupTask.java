@@ -20,7 +20,6 @@ package org.apache.doris.datasource.iceberg.rewrite;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergRewriteExecutor;
@@ -38,14 +37,11 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.iceberg.DataFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
 
 /**
  * Independent task executor for processing a single rewrite group.
@@ -55,6 +51,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
     private static final Logger LOG = LogManager.getLogger(RewriteGroupTask.class);
 
     private final RewriteDataGroup group;
+    private final long transactionId;
     private final InsertIntoTableCommand preparedPlan;
     private final StatementBase parsedStmt;
     private final ConnectContext connectContext;
@@ -64,11 +61,13 @@ public class RewriteGroupTask implements TransientTaskExecutor {
     private final AtomicBoolean isFinished;
 
     public RewriteGroupTask(RewriteDataGroup group,
+            long transactionId,
             InsertIntoTableCommand preparedPlan,
             StatementBase parsedStmt,
             ConnectContext connectContext,
             RewriteResultCallback resultCallback) {
         this.group = group;
+        this.transactionId = transactionId;
         this.preparedPlan = preparedPlan;
         this.parsedStmt = parsedStmt;
         this.connectContext = connectContext;
@@ -102,11 +101,11 @@ public class RewriteGroupTask implements TransientTaskExecutor {
             // Create a new ConnectContext for this task
             ConnectContext taskConnectContext = buildConnectContext();
 
-            RewriteResult result = executeGroup(taskConnectContext);
+            executeGroup(taskConnectContext);
 
             // Notify result callback
             if (resultCallback != null) {
-                resultCallback.onTaskCompleted(taskId, result);
+                resultCallback.onTaskCompleted(taskId);
             }
 
             LOG.debug("[Rewrite Task] taskId: {} execution completed successfully", taskId);
@@ -139,12 +138,12 @@ public class RewriteGroupTask implements TransientTaskExecutor {
     /**
      * Execute rewrite group and return RewriteResult
      */
-    private RewriteResult executeGroup(ConnectContext taskConnectContext) throws Exception {
+    private void executeGroup(ConnectContext taskConnectContext) throws Exception {
         // Step 1: Create stmt executor
         StmtExecutor executor = new StmtExecutor(taskConnectContext, parsedStmt);
 
-        // Step 2: Create insert executor
-        AbstractInsertExecutor insertExecutor = this.preparedPlan.initPlan(taskConnectContext, executor);
+        // Step 2: Create insert executor, not to begin a transaction
+        AbstractInsertExecutor insertExecutor = this.preparedPlan.initPlan(taskConnectContext, executor, false);
         Preconditions.checkState(insertExecutor instanceof IcebergRewriteExecutor,
                 "Expected IcebergRewriteExecutor, got: " + insertExecutor.getClass());
         IcebergRewriteExecutor rewriteExecutor = (IcebergRewriteExecutor) insertExecutor;
@@ -152,16 +151,11 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         // Step 3: Customize insert executor for rewrite
         customizeInsertExecutorForRewrite(rewriteExecutor, group);
 
-        // Step 4: Update transaction with files to delete
-        IcebergTransaction transaction = rewriteExecutor.getTransaction();
-        List<DataFile> filesToDelete = group.getDataFiles().stream().collect(Collectors.toList());
-        transaction.updateRewriteFiles(filesToDelete);
+        // Step 4: Set transaction id for updating CommitData
+        insertExecutor.getCoordinator().setTxnId(transactionId);
 
         // Step 5: Execute insert operation
         insertExecutor.executeSingleInsert(executor, System.currentTimeMillis());
-
-        // Step 6: Collect execution statistics and rewrite information
-        return collectRewriteResult(rewriteExecutor, group);
     }
 
     /**
@@ -216,28 +210,10 @@ public class RewriteGroupTask implements TransientTaskExecutor {
     }
 
     /**
-     * Collect rewrite result from insert executor
-     */
-    private RewriteResult collectRewriteResult(IcebergRewriteExecutor insertExecutor, RewriteDataGroup group)
-            throws UserException {
-        // Get detailed file information from IcebergTransaction
-        RewriteFileInfo fileInfo = insertExecutor.getRewriteFileInfo();
-
-        // Create rewrite result with collected information
-        int rewrittenDataFilesCount = group.getDataFiles().size();
-        int addedDataFilesCount = fileInfo.getFilesToAddCount();
-        long rewrittenBytesCount = group.getTotalSize();
-        int removedDeleteFilesCount = fileInfo.getFilesToDeleteCount();
-
-        return new RewriteResult(rewrittenDataFilesCount, addedDataFilesCount,
-                rewrittenBytesCount, removedDeleteFilesCount);
-    }
-
-    /**
      * Callback interface for task completion
      */
     public interface RewriteResultCallback {
-        void onTaskCompleted(Long taskId, RewriteResult result);
+        void onTaskCompleted(Long taskId);
 
         void onTaskFailed(Long taskId, Exception error);
     }
