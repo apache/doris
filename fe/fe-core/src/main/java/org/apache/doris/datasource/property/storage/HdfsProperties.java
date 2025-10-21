@@ -129,7 +129,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         }
         userOverriddenHdfsConfig = new HashMap<>();
         origProps.forEach((key, value) -> {
-            if (key.startsWith("hadoop.") || key.startsWith("dfs.")) {
+            if (key.startsWith("hadoop.") || key.startsWith("dfs.") || key.startsWith("fs.")) {
                 userOverriddenHdfsConfig.put(key, value);
             }
         });
@@ -198,4 +198,5 @@ public class HdfsProperties extends HdfsCompatibleProperties {
     public String getStorageName() {
         return "HDFS";
     }
+
 }
