@@ -567,30 +567,64 @@ TEST_F(CacheBlockMetaStoreTest, GetAllAfterClear) {
         meta_store_->put(key, meta);
     }
 
-    // Wait for async operations
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // Wait for async operations with more reliable mechanism
+    // Check that all records are actually written by querying each one
+    int max_retries = 10;
+    int successful_checks = 0;
+    for (int retry = 0; retry < max_retries; ++retry) {
+        successful_checks = 0;
+        for (int i = 0; i < 5; ++i) {
+            uint128_t hash = (static_cast<uint128_t>(100 + i) << 64) | (200 + i);
+            BlockMetaKey key(1, UInt128Wrapper(hash), i * 1024);
+            auto result = meta_store_->get(key);
+            if (result.has_value()) {
+                successful_checks++;
+            }
+        }
+        if (successful_checks == 5) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
 
-    // Verify records are present
+    // Verify all records are present using get_all()
     auto iterator1 = meta_store_->get_all();
     int count_before = 0;
     while (iterator1->valid()) {
         count_before++;
         iterator1->next();
     }
-    EXPECT_EQ(count_before, 5);
+    EXPECT_EQ(count_before, 5) << "Expected 5 records but found " << count_before;
 
     // Clear all records
     meta_store_->clear();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    // Verify no records after clear
+    // Wait for clear operation to complete with verification
+    max_retries = 10;
+    for (int retry = 0; retry < max_retries; ++retry) {
+        successful_checks = 0;
+        for (int i = 0; i < 5; ++i) {
+            uint128_t hash = (static_cast<uint128_t>(100 + i) << 64) | (200 + i);
+            BlockMetaKey key(1, UInt128Wrapper(hash), i * 1024);
+            auto result = meta_store_->get(key);
+            if (!result.has_value()) {
+                successful_checks++;
+            }
+        }
+        if (successful_checks == 5) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    // Verify no records after clear using get_all()
     auto iterator2 = meta_store_->get_all();
     int count_after = 0;
     while (iterator2->valid()) {
         count_after++;
         iterator2->next();
     }
-    EXPECT_EQ(count_after, 0);
+    EXPECT_EQ(count_after, 0) << "Expected 0 records after clear but found " << count_after;
 }
 
 TEST_F(CacheBlockMetaStoreTest, GetAllIteratorValidity) {
