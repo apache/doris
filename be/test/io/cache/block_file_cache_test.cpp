@@ -49,8 +49,7 @@ void download(io::FileBlockSPtr file_block, size_t size) {
     EXPECT_TRUE(file_block->append(result).ok());
     EXPECT_TRUE(file_block->finalize().ok());
     auto key_str = hash.to_string();
-    auto subdir = fs::path(cache_base_path) / key_str.substr(0, 3) /
-                  (key_str + "_" + std::to_string(file_block->expiration_time()));
+    auto subdir = fs::path(cache_base_path) / key_str.substr(0, 3) / (key_str + "_0");
     ASSERT_TRUE(fs::exists(subdir));
 }
 

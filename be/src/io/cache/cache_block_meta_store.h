@@ -102,6 +102,9 @@ public:
     // Clear all records from rocksdb and the async queue
     void clear();
 
+    // Force close the rocksdb connection and release locks
+    void force_close();
+
 private:
     void async_write_worker();
     std::string serialize_key(const BlockMetaKey& key) const;

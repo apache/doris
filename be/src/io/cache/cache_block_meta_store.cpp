@@ -36,7 +36,10 @@
 namespace doris::io {
 
 CacheBlockMetaStore::CacheBlockMetaStore(const std::string& db_path, size_t queue_size)
-        : _db_path(db_path), _write_queue(queue_size) {}
+        : _db_path(db_path), _write_queue(queue_size) {
+    auto status = init();
+    DCHECK(status.ok()) << "Failed to initialize CacheBlockMetaStore: " << status.to_string();
+}
 
 CacheBlockMetaStore::~CacheBlockMetaStore() {
     _stop_worker.store(true, std::memory_order_release);
@@ -74,6 +77,18 @@ Status CacheBlockMetaStore::init() {
     _write_thread = std::thread(&CacheBlockMetaStore::async_write_worker, this);
 
     return Status::OK();
+}
+
+void CacheBlockMetaStore::force_close() {
+    _stop_worker.store(true, std::memory_order_release);
+    if (_write_thread.joinable()) {
+        _write_thread.join();
+    }
+
+    if (_db) {
+        _db->Close();
+        _db.reset();
+    }
 }
 
 void CacheBlockMetaStore::put(const BlockMetaKey& key, const BlockMeta& meta) {
@@ -415,6 +430,10 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet
 }
 
 std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
+    if (!_db) {
+        LOG(WARNING) << "Database not initialized in get_all()";
+        return nullptr;
+    }
     // Collect all pending operations from the write queue with proper locking
     std::unordered_map<std::string, WriteOperation> all_ops;
     std::vector<WriteOperation> ops_to_requeue;
@@ -474,19 +493,34 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
             prepare_next();
         }
 
-        BlockMetaKey key() const override { return deserialize_current_key(); }
+        BlockMetaKey key() const override {
+            auto key = deserialize_current_key();
+            VLOG_DEBUG << "Iterating key: " << _current_key
+                       << ", deserialized as: tablet_id=" << key.tablet_id
+                       << ", hash=" << key.hash.low() << "-" << key.hash.high()
+                       << ", offset=" << key.offset;
+            return key;
+        }
 
         BlockMeta value() const override {
             if (_current_from_pending) {
                 auto it = _pending_ops.find(_current_key);
                 if (it != _pending_ops.end() && it->second.type == OperationType::PUT) {
-                    return deserialize_value(it->second.value);
+                    auto meta = deserialize_value(it->second.value);
+                    VLOG_DEBUG << "Pending op value: " << it->second.value
+                               << ", deserialized as: type=" << meta.type << ", size=" << meta.size
+                               << ", ttl=" << meta.ttl;
+                    return meta;
                 }
-                // Should not happen for valid entries
+                LOG(WARNING) << "Invalid pending operation for key: " << _current_key;
                 return BlockMeta();
             } else {
                 std::string value_str = _rocksdb_iter->value().ToString();
-                return deserialize_value(value_str);
+                auto meta = deserialize_value(value_str);
+                VLOG_DEBUG << "RocksDB value: " << value_str
+                           << ", deserialized as: type=" << meta.type << ", size=" << meta.size
+                           << ", ttl=" << meta.ttl;
+                return meta;
             }
         }
 
@@ -657,7 +691,12 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
         return nullptr;
     }
     rocksdb::Iterator* iter = _db->NewIterator(rocksdb::ReadOptions());
-    return std::make_unique<MergedFullIterator>(iter, std::move(all_ops));
+    if (!iter) {
+        LOG(WARNING) << "Failed to create rocksdb iterator in get_all()";
+        return nullptr;
+    }
+    auto result = std::make_unique<MergedFullIterator>(iter, std::move(all_ops));
+    return result;
 }
 
 void CacheBlockMetaStore::delete_key(const BlockMetaKey& key) {

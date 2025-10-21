@@ -116,6 +116,8 @@ public:
 
     int64_t tablet_id() const { return _key.meta.tablet_id; }
 
+    void set_tablet_id(int64_t id) { _key.meta.tablet_id = id; }
+
     static uint64_t get_caller_id();
 
     std::string get_info_for_log() const;

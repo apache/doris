@@ -746,6 +746,10 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* _mg
             // skip version file
             continue;
         }
+        if (key_prefix_it->path().filename().native() == "meta") {
+            // skip rocksdb dir
+            continue;
+        }
         if (key_prefix_it->path().filename().native().size() != KEY_PREFIX_LENGTH) {
             LOG(WARNING) << "Unknown directory " << key_prefix_it->path().native()
                          << ", try to remove it";
@@ -781,7 +785,18 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mg
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
             if (_mgr->_files.contains(args.hash) && _mgr->_files[args.hash].contains(args.offset)) {
-                // TODO(zhengyu): update type&expiration if need
+                auto block = _mgr->_files[args.hash][args.offset].file_block;
+                if (block->tablet_id() == 0) {
+                    block->set_tablet_id(args.ctx.tablet_id);
+                }
+                if (block->cache_type() == io::FileCacheType::TTL &&
+                    block->expiration_time() != args.ctx.expiration_time) {
+                    auto s = block->update_expiration_time(args.ctx.expiration_time);
+                    if (!s.ok()) {
+                        LOG(WARNING) << "update expiration time for " << args.hash.to_string()
+                                     << " offset=" << args.offset;
+                    }
+                }
                 return;
             }
             _mgr->add_cell(args.hash, args.ctx, args.offset, args.size,
@@ -802,6 +817,11 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mg
         BlockMetaKey meta_key = iterator->key();
         BlockMeta meta_value = iterator->value();
 
+        VLOG_DEBUG << "Processing cache block: tablet_id=" << meta_key.tablet_id
+                   << ", hash=" << meta_key.hash.low() << "-" << meta_key.hash.high()
+                   << ", offset=" << meta_key.offset << ", type=" << meta_value.type
+                   << ", size=" << meta_value.size << ", ttl=" << meta_value.ttl;
+
         BatchLoadArgs args;
         args.hash = meta_key.hash;
         args.offset = meta_key.offset;
@@ -811,6 +831,7 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mg
         CacheContext ctx;
         ctx.cache_type = static_cast<FileCacheType>(meta_value.type);
         ctx.expiration_time = meta_value.ttl;
+        ctx.tablet_id = meta_key.tablet_id; //TODO(zhengyu): zero if loaded from v2
         args.ctx = ctx;
 
         args.key_path = "";
@@ -827,7 +848,8 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mg
     }
 
     LOG(INFO) << "Finished loading cache info from meta store using RocksDB iterator";
-
+    std::this_thread::sleep_for(
+            std::chrono::microseconds(1000)); //TODO(zhengyu): remove debug sleep
     if (!batch_load_buffer.empty()) {
         add_cell_batch_func();
     }
@@ -864,9 +886,9 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
 
     // If the difference is more than 30%, load from filesystem as well
     if (estimated_file_count > 0) {
-        double difference_ratio = std::abs(static_cast<double>(db_block_count) -
-                                           static_cast<double>(estimated_file_count)) /
-                                  static_cast<double>(estimated_file_count);
+        double difference_ratio =
+                static_cast<double>(estimated_file_count) -
+                static_cast<double>(db_block_count) / static_cast<double>(estimated_file_count);
 
         if (difference_ratio > 0.3) {
             LOG(WARNING) << "Significant difference between DB blocks (" << db_block_count
