@@ -83,10 +83,14 @@ public:
     // Month_array: {"January", "February", ..., "December"}, size = 12
     static constexpr size_t DAY_NUM_IN_ICU = 8;
     static constexpr size_t MONTH_NUM_IN_ICU = 12;
+    // day_names: {"Monday", ..., "Sunday"}
+    // month_names: {"", "January", ..., "December"}
     struct LocaleDayMonthNameState {
         std::string locale_name;
-        std::vector<std::string> day_names {DAY_NUM_IN_ICU};
-        std::vector<std::string> month_names {MONTH_NUM_IN_ICU};
+        std::vector<std::string> day_name_storage{7};
+        std::vector<std::string> month_name_storage{13};
+        const char* day_names[7];
+        const char* month_names[13];
     };
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
@@ -116,10 +120,20 @@ public:
                     state->locale_name, month_count, day_count - 1);
         }
         for (int i = 0; i < MONTH_NUM_IN_ICU; ++i) {
-            months[i].toUTF8String(state->month_names[i]);
+            months[i].toUTF8String(state->month_name_storage[i + 1]);
+            state->month_names[i + 1] = state->month_name_storage[i + 1].c_str();
         }
-        for (int i = 0; i < DAY_NUM_IN_ICU; ++i) {
-            days[i].toUTF8String(state->day_names[i]);
+
+        // In ICU, the first array is always like {"", "Sunday", "Monday", ..., "Saturday"}
+        // so here skip the first empty string and adjust the order of day names into {"Monday", ..., "Sunday"}
+        for (int i = 1; i < DAY_NUM_IN_ICU; ++i) {
+            if (i == 1) {
+                days[i].toUTF8String(state->day_name_storage[6]);
+                state->day_names[6] = state->day_name_storage[6].c_str();
+            } else {
+                days[i].toUTF8String(state->day_name_storage[i - 2]);
+                state->day_names[i - 2] = state->day_name_storage[i - 2].c_str();
+            }
         }
 
         context->set_function_state(scope, state);
@@ -155,20 +169,18 @@ private:
         size_t offset = 0;
         auto* state = reinterpret_cast<LocaleDayMonthNameState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-        const std::vector<std::string>* names_ptr = nullptr;
-        static const std::vector<std::string> empty_names;
+        const char* const* names_ptr = nullptr;
         if constexpr (std::is_same_v<Transform, DayNameImpl<Transform::OpArgType>>) {
-            names_ptr = &state->day_names;
+            names_ptr = state->day_names;
         } else if constexpr (std::is_same_v<Transform, MonthNameImpl<Transform::OpArgType>>) {
-            names_ptr = &state->month_names;
-        } else {
-            names_ptr = &empty_names;
+            names_ptr = state->month_names;
         }
+
         for (int i = 0; i < len; ++i) {
             const auto& t = ts[i];
             const auto date_time_value = binary_cast<NativeType, DateType>(t);
             res_offsets[i] = cast_set<UInt32>(
-                    Transform::execute(date_time_value, res_data, offset, *names_ptr));
+                    Transform::execute(date_time_value, res_data, offset, names_ptr));
             DCHECK(date_time_value.is_valid_date());
         }
         res_data.resize(res_offsets[res_offsets.size() - 1]);

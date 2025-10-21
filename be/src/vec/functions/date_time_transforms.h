@@ -164,7 +164,8 @@ struct DayNameImpl {
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
                         ColumnString::Chars& res_data, size_t& offset,
-                        const std::vector<std::string>& day_names) {
+                        const char* const* day_names) {
+        DCHECK(day_names != nullptr);
         const auto* day_name = dt.day_name_with_locale(day_names);
         if (day_name != nullptr) {
             auto len = strlen(day_name);
@@ -188,7 +189,7 @@ struct ToIso8601Impl {
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
                         ColumnString::Chars& res_data, size_t& offset,
-                        const std::vector<std::string>& /*names_ptr*/) {
+                        const char* const* /*names_ptr*/) {
         auto length = dt.to_buffer((char*)res_data.data() + offset,
                                    std::is_same_v<ArgType, UInt32> ? -1 : 6);
         if (std::is_same_v<ArgType, UInt64>) {
@@ -213,7 +214,8 @@ struct MonthNameImpl {
 
     static auto execute(const typename PrimitiveTypeTraits<PType>::CppType& dt,
                         ColumnString::Chars& res_data, size_t& offset,
-                        const std::vector<std::string>& month_names) {
+                        const char* const* month_names) {
+        DCHECK(month_names != nullptr);
         const auto* month_name = dt.month_name_with_locale(month_names);
         if (month_name != nullptr) {
             auto len = strlen(month_name);
