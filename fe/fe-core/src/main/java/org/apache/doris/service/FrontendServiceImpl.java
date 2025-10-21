@@ -3691,7 +3691,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (info == null) {
                     // this means this partition already created, for this partition
                 } else {
-                    // 将新创建的tablet---beID 信息写入到txn中的autoPartitionInfo中
+                    // Write the mapping information between the newly created tablets and backend IDs
+                    // into the autoPartitionInfo of the transaction.
                     Partition partition = info.getPartition();
                     for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
                         for (Tablet tablet : index.getTablets()) {
