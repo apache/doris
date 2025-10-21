@@ -449,23 +449,7 @@ Status IcebergParquetReader::init_reader(
 
     _all_required_col_names = file_col_names;
 
-    // 新逻辑：从 TupleDescriptor 的 SlotDescriptor 获取 column_access_paths 构造 column_handles
-    // std::vector<IcebergColumnHandle> column_handles;
-    // if (tuple_descriptor) {
-    //     for (const auto* slot : tuple_descriptor->slots()) {
-    //         // 假设 slot->column_access_paths() 返回 vector<vector<int>>，每个 path 代表一个 iceberg id 路径
-    //         const auto& access_paths = slot->column_access_paths();
-    //         for (const auto& path : access_paths) {
-    //             // 假设 slot->iceberg_id() 获取 iceberg id，slot->col_name() 获取列名
-    //             IcebergColumnHandle handle;
-    //             handle.id = slot->iceberg_id(); // 或者 path.back() 取最后一级id
-    //             handle.name = slot->col_name();
-    //             handle.column_paths.push_back(path);
-    //             column_handles.push_back(std::move(handle));
-    //         }
-    //     }
-    // }
-    auto column_id_result = _create_column_ids2(field_desc, tuple_descriptor);
+    auto column_id_result = _create_column_ids(field_desc, tuple_descriptor);
     // const auto& file_col_names = column_id_result.column_names;
     const auto& column_ids = column_id_result.column_ids;
     const auto& filter_column_ids = column_id_result.filter_column_ids;
@@ -478,95 +462,8 @@ Status IcebergParquetReader::init_reader(
             slot_id_to_filter_conjuncts, table_info_node_ptr, true, column_ids, filter_column_ids);
 }
 
-// ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* field_desc,
-//                                                         const TupleDescriptor* tuple_descriptor) {
-//     std::set<uint64_t> column_ids;
-//     std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
-
-//     if (!field_desc) {
-//         return ColumnIdResult();
-//     }
-
-//     return ColumnIdResult();
-
-//     // // First, assign column IDs to the field descriptor
-//     // auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
-//     // mutable_field_desc->assign_ids();
-
-//     // // Create a mapping from iceberg field_id to FieldSchema for quick lookup - similar to create_iceberg_projected_layout
-//     // // std::map<int, const FieldSchema*> iceberg_id_to_field_schema;
-//     // // IcebergParquetNestedColumnUtils::_build_iceberg_id_mapping(field_desc, iceberg_id_to_field_schema);
-
-//     // // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
-//     // std::unordered_map<int, std::vector<std::vector<int>>> paths_by_field_id;
-//     // std::unordered_map<int, std::string> field_id_to_table_name;
-//     // std::unordered_map<int, bool> field_id_is_predicate;
-
-//     // for (const auto* slot : tuple_descriptor->slots()) {
-//     //     // 假设 slot->column_access_paths() 返回 vector<vector<int>>，每个 path 代表一个 iceberg id 路径
-//     //     const auto& column_access_paths = slot->column_access_paths();
-
-//     //     field_id_to_table_name[slot->col_unique_id()] = slot->col_name();
-
-//     //     // Track if any path for this field_id is a predicate
-//     //     bool is_predicate = false;
-
-//     //     // If column_paths is empty or has empty paths, we need the entire column
-//     //     if ((!column_access_paths.__isset.name_access_paths) ||
-//     //         column_access_paths.name_access_paths.empty() ||
-//     //         std::any_of(column_access_paths.name_access_paths.begin(),
-//     //                     column_access_paths.name_access_paths.end(),
-//     //                     [](const TColumnNameAccessPath& access_path) {
-//     //                         return access_path.path.empty();
-//     //                     })) {
-//     //         paths_by_field_id[slot->col_unique_id()].push_back(std::vector<int>());
-
-//     //         // Check if any of the empty paths is a predicate
-//     //         if (column_access_paths.__isset.name_access_paths) {
-//     //             for (const auto& name_access_path : column_access_paths.name_access_paths) {
-//     //                 if (name_access_path.path.empty() && name_access_path.is_predicate) {
-//     //                     is_predicate = true;
-//     //                     break;
-//     //                 }
-//     //             }
-//     //         }
-//     //     } else {
-//     //         // Add all paths for this field ID
-//     //         for (const auto& name_access_path : column_access_paths.name_access_paths) {
-//     //             // Convert string path to int path
-//     //             std::vector<int> int_path;
-//     //             // Simple conversion: convert string to int directly
-//     //             for (const auto& path_element : name_access_path.path) {
-//     //                 try {
-//     //                     // Convert string to int directly
-//     //                     int_path.push_back(std::stoi(path_element));
-//     //                 } catch (const std::exception& /* e */) {
-//     //                     // If conversion fails, use 0 as default
-//     //                     int_path.push_back(0);
-//     //                 }
-//     //             }
-//     //             paths_by_field_id[slot->col_unique_id()].push_back(int_path);
-
-//     //             // Track if this path is a predicate
-//     //             if (name_access_path.is_predicate) {
-//     //                 is_predicate = true;
-//     //             }
-//     //         }
-//     //     }
-
-//     //     // Store predicate information for this field_id
-//     //     field_id_is_predicate[slot->col_unique_id()] = is_predicate;
-//     // }
-
-//     // // Use the new merged efficient method
-//     // auto result = IcebergParquetNestedColumnUtils::_extract_schema_and_columns_efficiently(
-//     //         field_desc, paths_by_field_id, field_id_to_table_name, field_id_is_predicate);
-
-//     // return ColumnIdResult(std::move(result.column_ids), std::move(result.filter_column_ids));
-// }
-
-ColumnIdResult IcebergParquetReader::_create_column_ids2(const FieldDescriptor* field_desc,
-                                                         const TupleDescriptor* tuple_descriptor) {
+ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* field_desc,
+                                                        const TupleDescriptor* tuple_descriptor) {
     std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
 
     if (!field_desc) {
@@ -577,11 +474,8 @@ ColumnIdResult IcebergParquetReader::_create_column_ids2(const FieldDescriptor* 
     auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
     mutable_field_desc->assign_ids();
 
-
-    // Create a mapping from iceberg field_id to FieldSchema for quick lookup - similar to create_iceberg_projected_layout
+    // Create a mapping from iceberg field_id to FieldSchema for quick lookup
     std::unordered_map<int, const FieldSchema*> iceberg_id_to_field_schema_map;
-    // IcebergParquetNestedColumnUtils::_build_iceberg_id_mapping(field_desc, iceberg_id_to_field_schema_map);
-
 
     for (int i = 0; i < field_desc->size(); ++i) {
         auto field_schema = field_desc->get_column(i);
@@ -608,7 +502,7 @@ ColumnIdResult IcebergParquetReader::_create_column_ids2(const FieldDescriptor* 
             TColumnNameAccessPath remaining_path;
             if (name_access_path.path.size() > 1) {
                 remaining_path.path.assign(name_access_path.path.begin() + 1,
-                                            name_access_path.path.end());
+                                           name_access_path.path.end());
             } else {
                 // only top-level column name => means whole field
                 remaining_path.path = std::vector<std::string>();
@@ -626,7 +520,8 @@ ColumnIdResult IcebergParquetReader::_create_column_ids2(const FieldDescriptor* 
                 out_ids.insert(id);
             }
         } else if (!paths.empty()) {
-            IcebergParquetNestedColumnUtils::extract_nested_column_ids_efficiently(*parquet_field, paths, out_ids);
+            IcebergParquetNestedColumnUtils::extract_nested_column_ids(*parquet_field, paths,
+                                                                       out_ids);
         }
     };
 
@@ -746,7 +641,7 @@ Status IcebergOrcReader::init_reader(
         }
     }
 
-    auto column_id_result = _create_column_ids2(orc_type_ptr, tuple_descriptor);
+    auto column_id_result = _create_column_ids(orc_type_ptr, tuple_descriptor);
     // const auto& file_col_names = column_id_result.column_names;
     const auto& column_ids = column_id_result.column_ids;
     const auto& filter_column_ids = column_id_result.filter_column_ids;
@@ -759,95 +654,8 @@ Status IcebergOrcReader::init_reader(
                                    table_info_node_ptr, column_ids, filter_column_ids);
 }
 
-// ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
-//                                                     const TupleDescriptor* tuple_descriptor) {
-//     std::set<uint64_t> column_ids;
-//     std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
-
-//     if (!orc_type) {
-//         return ColumnIdResult();
-//     }
-
-//     return ColumnIdResult();
-
-//     // // First, assign column IDs to the field descriptor
-//     // // auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
-//     // // mutable_field_desc->assign_ids();
-
-//     // // Create a mapping from iceberg field_id to orc type for quick lookup - similar to create_iceberg_projected_layout
-//     // // std::map<int, const orc::Type*> iceberg_id_to_orc_type;
-//     // // IcebergOrcNestedColumnUtils::_build_iceberg_id_mapping(orc_type, iceberg_id_to_orc_type);
-
-//     // // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
-//     // std::unordered_map<int, std::vector<std::vector<int>>> paths_by_field_id;
-//     // std::unordered_map<int, std::string> field_id_to_table_name;
-//     // std::unordered_map<int, bool> field_id_is_predicate;
-
-//     // for (const auto* slot : tuple_descriptor->slots()) {
-//     //     // 假设 slot->column_access_paths() 返回 vector<vector<int>>，每个 path 代表一个 iceberg id 路径
-//     //     const auto& full_column_access_paths = slot->full_column_access_paths();
-
-//     //     field_id_to_table_name[slot->col_unique_id()] = slot->col_name();
-
-//     //     // Track if any path for this field_id is a predicate
-//     //     bool is_predicate = false;
-
-//     //     // If column_paths is empty or has empty paths, we need the entire column
-//     //     if ((!column_access_paths.__isset.name_access_paths) ||
-//     //         column_access_paths.name_access_paths.empty() ||
-//     //         std::any_of(column_access_paths.name_access_paths.begin(),
-//     //                     column_access_paths.name_access_paths.end(),
-//     //                     [](const TColumnNameAccessPath& access_path) {
-//     //                         return access_path.path.empty();
-//     //                     })) {
-//     //         paths_by_field_id[slot->col_unique_id()].push_back(std::vector<int>());
-
-//     //         // Check if any of the empty paths is a predicate
-//     //         if (column_access_paths.__isset.name_access_paths) {
-//     //             for (const auto& name_access_path : column_access_paths.name_access_paths) {
-//     //                 if (name_access_path.path.empty() && name_access_path.is_predicate) {
-//     //                     is_predicate = true;
-//     //                     break;
-//     //                 }
-//     //             }
-//     //         }
-//     //     } else {
-//     //         // Add all paths for this field ID
-//     //         for (const auto& name_access_path : column_access_paths.name_access_paths) {
-//     //             // Convert string path to int path
-//     //             std::vector<int> int_path;
-//     //             // Simple conversion: convert string to int directly
-//     //             for (const auto& path_element : name_access_path.path) {
-//     //                 try {
-//     //                     // Convert string to int directly
-//     //                     int_path.push_back(std::stoi(path_element));
-//     //                 } catch (const std::exception& /* e */) {
-//     //                     // If conversion fails, use 0 as default
-//     //                     int_path.push_back(0);
-//     //                 }
-//     //             }
-//     //             paths_by_field_id[slot->col_unique_id()].push_back(int_path);
-
-//     //             // Track if this path is a predicate
-//     //             if (name_access_path.is_predicate) {
-//     //                 is_predicate = true;
-//     //             }
-//     //         }
-//     //     }
-
-//     //     // Store predicate information for this field_id
-//     //     field_id_is_predicate[slot->col_unique_id()] = is_predicate;
-//     // }
-
-//     // // Use the new merged efficient method
-//     // auto result = IcebergOrcNestedColumnUtils::_extract_schema_and_columns_efficiently(
-//     //         orc_type, paths_by_field_id, field_id_to_table_name, field_id_is_predicate);
-
-//     // return ColumnIdResult(std::move(result.column_ids), std::move(result.filter_column_ids));
-// }
-
-ColumnIdResult IcebergOrcReader::_create_column_ids2(const orc::Type* orc_type,
-                                                     const TupleDescriptor* tuple_descriptor) {
+ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
+                                                    const TupleDescriptor* tuple_descriptor) {
     std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
 
     if (!orc_type) {
@@ -884,7 +692,7 @@ ColumnIdResult IcebergOrcReader::_create_column_ids2(const orc::Type* orc_type,
             TColumnNameAccessPath remaining_path;
             if (name_access_path.path.size() > 1) {
                 remaining_path.path.assign(name_access_path.path.begin() + 1,
-                                            name_access_path.path.end());
+                                           name_access_path.path.end());
             } else {
                 // only top-level column name => means whole field
                 remaining_path.path = std::vector<std::string>();
@@ -902,7 +710,7 @@ ColumnIdResult IcebergOrcReader::_create_column_ids2(const orc::Type* orc_type,
                 out_ids.insert(id);
             }
         } else if (!paths.empty()) {
-            IcebergOrcNestedColumnUtils::extract_nested_column_ids_efficiently(*orc_field, paths, out_ids);
+            IcebergOrcNestedColumnUtils::extract_nested_column_ids(*orc_field, paths, out_ids);
         }
     };
 
@@ -910,7 +718,8 @@ ColumnIdResult IcebergOrcReader::_create_column_ids2(const orc::Type* orc_type,
         const auto& all_column_access_paths = slot->all_column_access_paths();
 
         // primitive (non-nested) types: direct mapping by name
-        if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY && slot->col_type() != TYPE_MAP)) {
+        if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
+             slot->col_type() != TYPE_MAP)) {
             auto it = iceberg_id_to_orc_type_map.find(slot->col_unique_id());
             if (it != iceberg_id_to_orc_type_map.end()) {
                 column_ids.insert(it->second->getColumnId());

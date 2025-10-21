@@ -173,16 +173,11 @@ protected:
     int getIcebergFieldId(const std::string& column_name) {
         // Mapping based on the Iceberg schema definition in comments
         static const std::unordered_map<std::string, int> column_to_field_id = {
-            {"id", 1},
-            {"name", 2},
-            {"profile", 3},
-            {"tags", 4},
-            {"friends", 5},
-            {"recent_activity", 6},
-            {"attributes", 7},
-            {"complex_attributes", 8}
-        };
-        
+                {"id", 1},         {"name", 2},
+                {"profile", 3},    {"tags", 4},
+                {"friends", 5},    {"recent_activity", 6},
+                {"attributes", 7}, {"complex_attributes", 8}};
+
         auto it = column_to_field_id.find(column_name);
         if (it != column_to_field_id.end()) {
             return it->second;
@@ -672,45 +667,6 @@ protected:
     // 辅助函数：创建和设置ParquetReader
     std::tuple<std::unique_ptr<IcebergParquetReader>, const FieldDescriptor*> createParquetReader(
             const std::string& test_file) {
-        // auto local_fs = io::global_local_filesystem();
-        // io::FileReaderSPtr file_reader;
-        // auto st = local_fs->open_file(test_file, &file_reader);
-        // if (!st.ok()) {
-        //     return {nullptr, nullptr};
-        // }
-
-        // RuntimeState runtime_state((TQueryGlobals()));
-        // TFileScanRangeParams scan_params;
-        // scan_params.format_type = TFileFormatType::FORMAT_PARQUET;
-        // TFileRangeDesc scan_range;
-        // scan_range.start_offset = 0;
-        // scan_range.size = file_reader->size();
-        // scan_range.path = test_file;
-        // RuntimeProfile profile("test_profile");
-
-        // cctz::time_zone ctz;
-        // TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-        // auto generic_reader =
-        //         ParquetReader::create_unique(&profile, scan_params, scan_range, 1024, &ctz, nullptr,
-        //                                      &runtime_state, cache.get());
-        // if (!generic_reader) {
-        //     return {nullptr, nullptr};
-        // }
-
-        // auto parquet_reader = static_cast<ParquetReader*>(generic_reader.get());
-        // parquet_reader->set_file_reader(file_reader);
-
-        // const FieldDescriptor* field_desc = nullptr;
-        // st = parquet_reader->get_file_metadata_schema(&field_desc);
-        // if (!st.ok() || !field_desc) {
-        //     return {nullptr, nullptr};
-        // }
-
-        // auto iceberg_reader = std::make_unique<HiveParquetReader>(
-        //         std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range,
-        //         nullptr, nullptr, cache.get());
-
-
         // Open the Iceberg Parquet test file
         auto local_fs = io::global_local_filesystem();
         io::FileReaderSPtr file_reader;
@@ -738,8 +694,9 @@ protected:
         cctz::time_zone ctz;
         TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
 
-        auto generic_reader = ParquetReader::create_unique(&profile, scan_params, scan_range, 1024,
-                                                        &ctz, nullptr, &runtime_state, cache.get());
+        auto generic_reader =
+                ParquetReader::create_unique(&profile, scan_params, scan_range, 1024, &ctz, nullptr,
+                                             &runtime_state, cache.get());
         if (!generic_reader) {
             return {nullptr, nullptr};
         }
@@ -748,7 +705,7 @@ protected:
         auto parquet_reader = static_cast<ParquetReader*>(generic_reader.get());
         parquet_reader->set_file_reader(file_reader);
 
-            const FieldDescriptor* field_desc = nullptr;
+        const FieldDescriptor* field_desc = nullptr;
         st = parquet_reader->get_file_metadata_schema(&field_desc);
         if (!st.ok() || !field_desc) {
             return {nullptr, nullptr};
@@ -756,9 +713,8 @@ protected:
 
         // Create IcebergParquetReader
         auto iceberg_reader = std::make_unique<IcebergParquetReader>(
-                std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range, nullptr,
-                nullptr, cache.get());
-
+                std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range,
+                nullptr, nullptr, cache.get());
 
         return {std::move(iceberg_reader), field_desc};
     }
@@ -766,8 +722,7 @@ protected:
     // 辅助函数：创建和设置OrcReader
     std::tuple<std::unique_ptr<IcebergOrcReader>, const orc::Type*> createOrcReader(
             const std::string& test_file) {
-    
-                // Open the Iceberg Orc test file
+        // Open the Iceberg Orc test file
         auto local_fs = io::global_local_filesystem();
         io::FileReaderSPtr file_reader;
         auto st = local_fs->open_file(test_file, &file_reader);
@@ -794,8 +749,9 @@ protected:
         cctz::time_zone ctz;
         TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
 
-        auto generic_reader = OrcReader::create_unique(&profile, &runtime_state, scan_params,
-                                                    scan_range, 1024, "CST", nullptr, cache.get());
+        auto generic_reader =
+                OrcReader::create_unique(&profile, &runtime_state, scan_params, scan_range, 1024,
+                                         "CST", nullptr, cache.get());
         if (!generic_reader) {
             return {nullptr, nullptr};
         }
@@ -810,56 +766,8 @@ protected:
 
         // Create IcebergOrcReader
         auto iceberg_reader = std::make_unique<IcebergOrcReader>(
-                std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range, nullptr,
-                nullptr, cache.get());
-
-
-        // Open the Hive Orc test file
-        // auto local_fs = io::global_local_filesystem();
-        // io::FileReaderSPtr file_reader;
-        // auto st = local_fs->open_file(test_file, &file_reader);
-        // if (!st.ok()) {
-        //     return {nullptr, nullptr};
-        // }
-
-        // // Setup runtime state
-        // RuntimeState runtime_state((TQueryGlobals()));
-
-        // // Setup scan parameters
-        // TFileScanRangeParams scan_params;
-        // scan_params.format_type = TFileFormatType::FORMAT_ORC;
-
-        // TFileRangeDesc scan_range;
-        // scan_range.start_offset = 0;
-        // scan_range.size = file_reader->size(); // Read entire file
-        // scan_range.path = test_file;
-
-        // // Create mock profile
-        // RuntimeProfile profile("test_profile");
-
-        // // Create OrcReader as the underlying file format reader
-        // cctz::time_zone ctz;
-        // TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-
-        // auto generic_reader =
-        //         OrcReader::create_unique(&profile, &runtime_state, scan_params, scan_range, 1024,
-        //                                  "CST", nullptr, cache.get());
-        // if (!generic_reader) {
-        //     return {nullptr, nullptr};
-        // }
-
-        // auto orc_reader = static_cast<OrcReader*>(generic_reader.get());
-        // // Get FieldDescriptor from Orc file
-        // const orc::Type* orc_type_ptr = nullptr;
-        // st = orc_reader->get_file_type(&orc_type_ptr);
-        // if (!st.ok() || !orc_type_ptr) {
-        //     return {nullptr, nullptr};
-        // }
-
-        // // Create HiveOrcReader
-        // auto iceberg_reader = std::make_unique<HiveOrcReader>(std::move(generic_reader), &profile,
-        //                                                    &runtime_state, scan_params, scan_range,
-        //                                                    nullptr, nullptr, cache.get());
+                std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range,
+                nullptr, nullptr, cache.get());
 
         return {std::move(iceberg_reader), orc_type_ptr};
     }
@@ -912,7 +820,7 @@ protected:
             // actual_result = IcebergParquetReader::_create_column_ids_by_top_level_col_index(
             //         field_desc, tuple_descriptor);
         } else {
-            actual_result = IcebergParquetReader::_create_column_ids2(field_desc, tuple_descriptor);
+            actual_result = IcebergParquetReader::_create_column_ids(field_desc, tuple_descriptor);
         }
 
         if (!should_skip_assertion) {
@@ -920,52 +828,6 @@ protected:
             EXPECT_EQ(actual_result.filter_column_ids, expected_filter_column_ids);
         }
     }
-
-    // 辅助函数：执行Orc测试的通用流程
-    // void runOrcTest(const std::vector<ColumnAccessPathConfig>& access_configs,
-    //                 const std::set<uint64_t>& expected_column_ids,
-    //                 const std::set<uint64_t>& expected_filter_column_ids,
-    //                 bool should_skip_assertion = false) {
-    //     std::string test_file =
-    //             "./be/test/exec/test_data/nested_user_profiles_iceberg_orc/"
-    //             "00000-8-5a144c37-16a4-47c6-96db-0007175b5c90-0-00001.orc";
-
-    //     auto [iceberg_reader, orc_type] = createOrcReader(test_file);
-    //     if (!iceberg_reader || !orc_type) {
-    //         GTEST_SKIP() << "Test file not found or failed to create reader: " << test_file;
-    //         return;
-    //     }
-
-    //     // Create complex struct types
-    //     // DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
-    //     // DataTypePtr contact_struct_type, hobby_element_struct_type, hobbies_array_type;
-    //     // DataTypePtr profile_struct_type, name_type;
-    //     // createComplexStructTypes(coordinates_struct_type, address_struct_type, phone_struct_type,
-    //     //                          contact_struct_type, hobby_element_struct_type, hobbies_array_type,
-    //     //                          profile_struct_type, name_type);
-
-    //     // Create tuple descriptor
-    //     DescriptorTbl* desc_tbl;
-    //     ObjectPool obj_pool;
-    //     TDescriptorTable t_desc_table;
-    //     TTableDescriptor t_table_desc;
-    //     std::vector<std::string> table_column_names = {"name", "profile"};
-    //     std::vector<int> table_column_positions = {1, 2};
-    //     std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
-    //                                                             TPrimitiveType::STRUCT};
-
-    //     const TupleDescriptor* tuple_descriptor = createTupleDescriptor(
-    //             &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
-    //             table_column_positions, table_column_types, access_configs);
-
-    //     // Execute test
-    //     auto actual_result = IcebergOrcReader::_create_column_ids(orc_type, tuple_descriptor);
-
-    //     if (!should_skip_assertion) {
-    //         EXPECT_EQ(actual_result.column_ids, expected_column_ids);
-    //         EXPECT_EQ(actual_result.filter_column_ids, expected_filter_column_ids);
-    //     }
-    // }
 
     // 辅助函数：执行Orc测试的通用流程，支持不同的column ID提取方法
     void runOrcTestWithMethod(const std::vector<ColumnAccessPathConfig>& access_configs,
@@ -1015,7 +877,7 @@ protected:
             // actual_result = IcebergOrcReader::_create_column_ids_by_top_level_col_index(
             //         orc_type, tuple_descriptor);
         } else {
-            actual_result = IcebergOrcReader::_create_column_ids2(orc_type, tuple_descriptor);
+            actual_result = IcebergOrcReader::_create_column_ids(orc_type, tuple_descriptor);
         }
 
         if (!should_skip_assertion) {
@@ -1037,8 +899,7 @@ TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_1) {
                                       {"3", "9", "14", "16"},
                                       {"3", "10", "17"},
                                       {"3", "11", "*", "23"}};
-    access_config.predicate_paths = {{"3", "9", "14", "15"},
-                                     {"3", "10", "17"}};
+    access_config.predicate_paths = {{"3", "9", "14", "15"}, {"3", "10", "17"}};
 
     // column_ids should contain all necessary column IDs (set automatically deduplicates)
     // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
@@ -1080,8 +941,7 @@ TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_2) {
     access_config.use_name_paths = true;
 
     access_config.all_column_paths = {{"3"}};
-    access_config.predicate_paths = {{"3", "9", "14", "15"},
-                                     {"3", "10", "17"}};
+    access_config.predicate_paths = {{"3", "9", "14", "15"}, {"3", "10", "17"}};
 
     // column_ids should contain all necessary column IDs (set automatically deduplicates)
     // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
@@ -1124,8 +984,7 @@ TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_3) {
     access_config.use_name_paths = true;
 
     access_config.all_column_paths = {{"3", "10"}, {"3", "9"}};
-    access_config.predicate_paths = {{"3", "9", "14"},
-                                     {"3", "10", "17"}};
+    access_config.predicate_paths = {{"3", "9", "14"}, {"3", "10", "17"}};
 
     // access_config.all_column_paths = {{"profile", "contact"}, {"profile", "address"}};
     // access_config.predicate_paths = {{"profile", "address", "coordinates"},
@@ -1184,8 +1043,7 @@ TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_5) {
         access_config.column_name = "friends";
         access_config.use_name_paths = true;
 
-        access_config.all_column_paths = {{"5", "*", "27"},
-                                          {"5", "*", "28"}};
+        access_config.all_column_paths = {{"5", "*", "27"}, {"5", "*", "28"}};
         access_config.predicate_paths = {
                 {"5", "*", "27"},
         };
@@ -1198,8 +1056,7 @@ TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_5) {
         access_config.column_name = "recent_activity";
         access_config.use_name_paths = true;
 
-        access_config.all_column_paths = {{"6", "*", "30"},
-                                          {"6", "*", "31", "*", "34"}};
+        access_config.all_column_paths = {{"6", "*", "30"}, {"6", "*", "31", "*", "34"}};
         access_config.predicate_paths = {
                 {"6", "*", "30"},
         };
@@ -1285,345 +1142,24 @@ TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_6) {
         access_config.column_name = "complex_attributes";
         access_config.use_name_paths = true;
 
-        access_config.all_column_paths = {
-                {"8", "*", "39", "43"},
-                {"8", "*", "40", "*", "50", "*",
-                 "55"},
-                {"8", "*", "41", "VALUES"},
-                {"8", "*", "42", "79", "*", "83", "KEYS"}
-        };
+        access_config.all_column_paths = {{"8", "*", "39", "43"},
+                                          {"8", "*", "40", "*", "50", "*", "55"},
+                                          {"8", "*", "41", "VALUES"},
+                                          {"8", "*", "42", "79", "*", "83", "KEYS"}};
         access_config.predicate_paths = {{"8", "*", "39", "43"}};
         access_configs.push_back(access_config);
     }
 
     // column_ids should contain all necessary column IDs (set automatically deduplicates)
     // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
-    std::set<uint64_t> expected_column_ids = {2,  36, 37, 38, 39, 40, 44, 45, 48, 49,
-                                              52, 53, 54, 61, 63, 64, 65, 66, 67,
-                                              68, 69, 70, 71, 72, 73, 74, 75, 76,
-                                              77, 79, 80, 82, 83};
+    std::set<uint64_t> expected_column_ids = {2,  36, 37, 38, 39, 40, 44, 45, 48, 49, 52,
+                                              53, 54, 61, 63, 64, 65, 66, 67, 68, 69, 70,
+                                              71, 72, 73, 74, 75, 76, 77, 79, 80, 82, 83};
     // Expected IDs based on the schema: profile(3), address(4), coordinates(7), lat(8), contact(10), email(11)
     std::set<uint64_t> expected_filter_column_ids = {36, 37, 38, 39, 40};
 
     runParquetTestWithMethod(access_configs, expected_column_ids, expected_filter_column_ids);
     runOrcTestWithMethod(access_configs, expected_column_ids, expected_filter_column_ids);
 }
-
-// TEST_F(IcebergReaderCreateColumnIdsTest, test_orc_create_column_ids_1) {
-//     // Properties:
-//     //     iceberg.schema: {"type":"struct","schema-id":0,"fields":[{"id":1,"name":"id","required":true,"type":"long"},{"id":2,"name":"name","required":true,"type":"string"},{"id":3,"name":"profile","required":true,"type":{"type":"struct","fields":[{"id":4,"name":"address","required":false,"type":{"type":"struct","fields":[{"id":7,"name":"street","required":false,"type":"string"},{"id":8,"name":"city","required":false,"type":"string"},{"id":9,"name":"coordinates","required":false,"type":{"type":"struct","fields":[{"id":10,"name":"lat","required":false,"type":"double"},{"id":11,"name":"lng","required":false,"type":"double"}]}}]}},{"id":5,"name":"contact","required":false,"type":{"type":"struct","fields":[{"id":12,"name":"email","required":false,"type":"string"},{"id":13,"name":"phone","required":false,"type":{"type":"struct","fields":[{"id":14,"name":"country_code","required":false,"type":"string"},{"id":15,"name":"number","required":false,"type":"string"}]}}]}},{"id":6,"name":"hobbies","required":false,"type":{"type":"list","element-id":16,"element":{"type":"struct","fields":[{"id":17,"name":"name","required":false,"type":"string"},{"id":18,"name":"level","required":false,"type":"int"}]},"element-required":false}}]}}]}
-//     // ORC 列ID分配为树型递增，根节点为0，子节点依次递增。
-//     // 0: struct (table/root)
-//     //   1: id (int64)
-//     //   2: name (string)
-//     //   3: profile (struct)
-//     //     4: address (struct)
-//     //       5: street (string)
-//     //       6: city (string)
-//     //       7: coordinates (struct)
-//     //         8: lat (double)
-//     //         9: lng (double)
-//     //     10: contact (struct)
-//     //       11: email (string)
-//     //       12: phone (struct)
-//     //         13: country_code (string)
-//     //         14: number (string)
-//     //     15: hobbies (list/array)
-//     //         16: element (struct)
-//     //           17: name (string)
-//     //           18: level (int32)
-
-//     // 配置profile列的访问路径
-//     ColumnAccessPathConfig access_config;
-//     access_config.column_name = "profile";
-//     access_config.use_name_paths = true;
-
-//     access_config.all_column_paths = {{"3", "9", "14", "15"},
-//                                       {"3", "9", "14", "16"},
-//                                       {"3", "10", "17"},
-//                                       {"3", "11", "*", "23"}};
-//     access_config.predicate_paths = {{"3", "9", "14", "15"},
-//                                      {"3", "10", "17"}};
-
-//     // column_ids should contain all necessary column IDs (set automatically deduplicates)
-//     // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
-//     std::set<uint64_t> expected_column_ids = {2, 8, 9, 11, 18};
-//     // Expected IDs based on the schema: profile(3), address(4), coordinates(7), lat(8), contact(10), email(11)
-//     std::set<uint64_t> expected_filter_column_ids = {8, 11};
-
-//     runOrcTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids);
-// }
-
-// TEST_F(IcebergReaderCreateColumnIdsTest, test_orc_create_column_ids_2) {
-//     // Properties:
-//     //     iceberg.schema: {"type":"struct","schema-id":0,"fields":[{"id":1,"name":"id","required":true,"type":"long"},{"id":2,"name":"name","required":true,"type":"string"},{"id":3,"name":"profile","required":true,"type":{"type":"struct","fields":[{"id":4,"name":"address","required":false,"type":{"type":"struct","fields":[{"id":7,"name":"street","required":false,"type":"string"},{"id":8,"name":"city","required":false,"type":"string"},{"id":9,"name":"coordinates","required":false,"type":{"type":"struct","fields":[{"id":10,"name":"lat","required":false,"type":"double"},{"id":11,"name":"lng","required":false,"type":"double"}]}}]}},{"id":5,"name":"contact","required":false,"type":{"type":"struct","fields":[{"id":12,"name":"email","required":false,"type":"string"},{"id":13,"name":"phone","required":false,"type":{"type":"struct","fields":[{"id":14,"name":"country_code","required":false,"type":"string"},{"id":15,"name":"number","required":false,"type":"string"}]}}]}},{"id":6,"name":"hobbies","required":false,"type":{"type":"list","element-id":16,"element":{"type":"struct","fields":[{"id":17,"name":"name","required":false,"type":"string"},{"id":18,"name":"level","required":false,"type":"int"}]},"element-required":false}}]}}]}
-//     // ORC 列ID分配为树型递增，根节点为0，子节点依次递增。
-//     // 0: struct (table/root)
-//     //   1: id (int64)
-//     //   2: name (string)
-//     //   3: profile (struct)
-//     //     4: address (struct)
-//     //       5: street (string)
-//     //       6: city (string)
-//     //       7: coordinates (struct)
-//     //         8: lat (double)
-//     //         9: lng (double)
-//     //     10: contact (struct)
-//     //       11: email (string)
-//     //       12: phone (struct)
-//     //         13: country_code (string)
-//     //         14: number (string)
-//     //     15: hobbies (list/array)
-//     //         16: element (struct)
-//     //           17: name (string)
-//     //           18: level (int32)
-
-//     // 配置profile列的访问路径
-//     ColumnAccessPathConfig access_config;
-//     access_config.column_name = "profile";
-//     access_config.use_name_paths = true;
-
-//     access_config.all_column_paths = {{"3"}};
-//     access_config.predicate_paths = {{"3", "9", "14", "15"},
-//                                      {"3", "10", "17"}};
-
-//     // column_ids should contain all necessary column IDs (set automatically deduplicates)
-//     // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
-//     std::set<uint64_t> expected_column_ids = {2,  3,  4,  5,  6,  7,  8,  9, 10,
-//                                               11, 12, 13, 14, 15, 16, 17, 18};
-//     // Expected IDs based on the schema: profile(3), address(4), coordinates(7), lat(8), contact(10), email(11)
-//     std::set<uint64_t> expected_filter_column_ids = {8, 11};
-
-//     runOrcTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids);
-// }
-
-// TEST_F(IcebergReaderCreateColumnIdsTest, test_orc_create_column_ids_3) {
-//     // Properties:
-//     //     iceberg.schema: {"type":"struct","schema-id":0,"fields":[{"id":1,"name":"id","required":true,"type":"long"},{"id":2,"name":"name","required":true,"type":"string"},{"id":3,"name":"profile","required":true,"type":{"type":"struct","fields":[{"id":4,"name":"address","required":false,"type":{"type":"struct","fields":[{"id":7,"name":"street","required":false,"type":"string"},{"id":8,"name":"city","required":false,"type":"string"},{"id":9,"name":"coordinates","required":false,"type":{"type":"struct","fields":[{"id":10,"name":"lat","required":false,"type":"double"},{"id":11,"name":"lng","required":false,"type":"double"}]}}]}},{"id":5,"name":"contact","required":false,"type":{"type":"struct","fields":[{"id":12,"name":"email","required":false,"type":"string"},{"id":13,"name":"phone","required":false,"type":{"type":"struct","fields":[{"id":14,"name":"country_code","required":false,"type":"string"},{"id":15,"name":"number","required":false,"type":"string"}]}}]}},{"id":6,"name":"hobbies","required":false,"type":{"type":"list","element-id":16,"element":{"type":"struct","fields":[{"id":17,"name":"name","required":false,"type":"string"},{"id":18,"name":"level","required":false,"type":"int"}]},"element-required":false}}]}}]}
-//     // ORC 列ID分配为树型递增，根节点为0，子节点依次递增。
-//     // 0: struct (table/root)
-//     //   1: id (int64)
-//     //   2: name (string)
-//     //   3: profile (struct)
-//     //     4: address (struct)
-//     //       5: street (string)
-//     //       6: city (string)
-//     //       7: coordinates (struct)
-//     //         8: lat (double)
-//     //         9: lng (double)
-//     //     10: contact (struct)
-//     //       11: email (string)
-//     //       12: phone (struct)
-//     //         13: country_code (string)
-//     //         14: number (string)
-//     //     15: hobbies (list/array)
-//     //         16: element (struct)
-//     //           17: name (string)
-//     //           18: level (int32)
-
-//     // 配置profile列的访问路径
-//     ColumnAccessPathConfig access_config;
-//     access_config.column_name = "profile";
-//     access_config.use_name_paths = true;
-
-//     access_config.all_column_paths = {{"3", "10"}, {"3", "9"}};
-//     access_config.predicate_paths = {{"3", "9", "14"},
-//                                      {"3", "10", "17"}};
-
-//     // column_ids should contain all necessary column IDs (set automatically deduplicates)
-//     // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
-//     std::set<uint64_t> expected_column_ids = {2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
-//     // Expected IDs based on the schema: profile(3), address(4), coordinates(7), lat(8), contact(10), email(11)
-//     std::set<uint64_t> expected_filter_column_ids = {7, 8, 9, 11};
-
-//     runOrcTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids);
-// }
-
-// TEST_F(IcebergReaderCreateColumnIdsTest, test_orc_create_column_ids_4) {
-//     // Properties:
-//     //     iceberg.schema: {"type":"struct","schema-id":0,"fields":[{"id":1,"name":"id","required":true,"type":"long"},{"id":2,"name":"name","required":true,"type":"string"},{"id":3,"name":"profile","required":true,"type":{"type":"struct","fields":[{"id":4,"name":"address","required":false,"type":{"type":"struct","fields":[{"id":7,"name":"street","required":false,"type":"string"},{"id":8,"name":"city","required":false,"type":"string"},{"id":9,"name":"coordinates","required":false,"type":{"type":"struct","fields":[{"id":10,"name":"lat","required":false,"type":"double"},{"id":11,"name":"lng","required":false,"type":"double"}]}}]}},{"id":5,"name":"contact","required":false,"type":{"type":"struct","fields":[{"id":12,"name":"email","required":false,"type":"string"},{"id":13,"name":"phone","required":false,"type":{"type":"struct","fields":[{"id":14,"name":"country_code","required":false,"type":"string"},{"id":15,"name":"number","required":false,"type":"string"}]}}]}},{"id":6,"name":"hobbies","required":false,"type":{"type":"list","element-id":16,"element":{"type":"struct","fields":[{"id":17,"name":"name","required":false,"type":"string"},{"id":18,"name":"level","required":false,"type":"int"}]},"element-required":false}}]}}]}
-//     // ORC 列ID分配为树型递增，根节点为0，子节点依次递增。
-//     // 0: struct (table/root)
-//     //   1: id (int64)
-//     //   2: name (string)
-//     //   3: profile (struct)
-//     //     4: address (struct)
-//     //       5: street (string)
-//     //       6: city (string)
-//     //       7: coordinates (struct)
-//     //         8: lat (double)
-//     //         9: lng (double)
-//     //     10: contact (struct)
-//     //       11: email (string)
-//     //       12: phone (struct)
-//     //         13: country_code (string)
-//     //         14: number (string)
-//     //     15: hobbies (list/array)
-//     //         16: element (struct)
-//     //           17: name (string)
-//     //           18: level (int32)
-
-//     // 配置profile列的访问路径
-//     ColumnAccessPathConfig access_config;
-//     access_config.column_name = "profile";
-//     access_config.use_name_paths = true;
-
-//     access_config.all_column_paths = {};
-//     access_config.predicate_paths = {};
-
-//     // column_ids should contain all necessary column IDs (set automatically deduplicates)
-//     // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
-//     std::set<uint64_t> expected_column_ids = {2};
-//     // Expected IDs based on the schema: profile(3), address(4), coordinates(7), lat(8), contact(10), email(11)
-//     std::set<uint64_t> expected_filter_column_ids = {};
-
-//     runOrcTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids);
-// }
-
-// TEST_F(IcebergReaderCreateColumnIdsTest, test_orc_create_column_ids_5) {
-//     //   19: tags (array)
-//     //     20: element (string)
-//     //   21: friends (array)
-//     //     22: element (struct)
-//     //       23: user_id (bigint)
-//     //       24: nickname (string)
-//     //       25: friendship_level (int)
-//     //   26: recent_activity (array)
-//     //     27: element (struct)
-//     //       28: action (string)
-//     //       29: details (array)
-//     //         30: element (struct)
-//     //           31: key (string)
-//     //           32: value (string)
-
-//     std::vector<ColumnAccessPathConfig> access_configs;
-
-//         {
-//         // 配置friends列的访问路径
-//         ColumnAccessPathConfig access_config;
-//         access_config.column_name = "friends";
-//         access_config.use_name_paths = true;
-
-//         access_config.all_column_paths = {{"5", "*", "27"},
-//                                           {"5", "*", "28"}};
-//         access_config.predicate_paths = {
-//                 {"5", "*", "27"},
-//         };
-//         access_configs.push_back(access_config);
-//     }
-
-//     {
-//         // 配置recent_activity列的访问路径
-//         ColumnAccessPathConfig access_config;
-//         access_config.column_name = "recent_activity";
-//         access_config.use_name_paths = true;
-
-//         access_config.all_column_paths = {{"6", "*", "30"},
-//                                           {"6", "*", "31", "*", "34"}};
-//         access_config.predicate_paths = {
-//                 {"6", "*", "30"},
-//         };
-//         access_configs.push_back(access_config);
-//     }
-
-//     // column_ids should contain all necessary column IDs (set automatically deduplicates)
-//     // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
-//     std::set<uint64_t> expected_column_ids = {2, 24, 25, 28, 32};
-//     // Expected IDs based on the schema: profile(3), address(4), coordinates(7), lat(8), contact(10), email(11)
-//     std::set<uint64_t> expected_filter_column_ids = {24, 28};
-
-//     runOrcTestWithMethod(access_configs, expected_column_ids, expected_filter_column_ids);
-// }
-
-// TEST_F(IcebergReaderCreateColumnIdsTest, test_orc_create_column_ids_6) {
-//     //   33: attributes (map)
-//     //     34: key (string)
-//     //     35: value (string)
-//     //   36: complex_attributes (map)
-//     //     37: key (string)
-//     //     38: value (struct)
-//     //       39: metadata (struct)
-//     //         40: version (string)
-//     //         41: created_time (timestamp)
-//     //         42: last_updated (timestamp)
-//     //         43: quality_score (double)
-//     //       44: historical_scores (array)
-//     //         45: element (struct)
-//     //           46: period (string)
-//     //           47: score (double)
-//     //           48: components (array)
-//     //             49: element (struct)
-//     //               50: component_name (string)
-//     //               51: weight (float)
-//     //               52: sub_scores (map)
-//     //                 53: key (string)
-//     //                 54: value (double)
-//     //           55: trends (struct)
-//     //             56: direction (string)
-//     //             57: magnitude (double)
-//     //             58: confidence_interval (struct)
-//     //               59: lower (double)
-//     //               60: upper (double)
-//     //       61: hierarchical_data (map)
-//     //         62: key (string)
-//     //         63: value (struct)
-//     //           64: category (string)
-//     //           65: sub_items (array)
-//     //             66: element (struct)
-//     //               67: item_id (bigint)
-//     //               68: properties (map)
-//     //                 69: key (string)
-//     //                 70: value (string)
-//     //               71: metrics (struct)
-//     //                 72: value (double)
-//     //                 73: unit (string)
-//     //           74: summary (struct)
-//     //             75: total_count (int)
-//     //             76: average_value (double)
-//     //       77: validation_rules (struct)
-//     //         78: required (boolean)
-//     //         79: constraints (array)
-//     //           80: element (struct)
-//     //             81: rule_type (string)
-//     //             82: parameters (map)
-//     //               83: key (string)
-//     //               84: value (string)
-//     //             85: error_message (string)
-//     //         86: complex_constraint (struct)
-//     //           87: logic_operator (string)
-//     //           88: operands (array)
-//     //             89: element (struct)
-//     //               90: field_path (string)
-//     //               91: operator (string)
-//     //               92: comparison_value (string)
-//     std::vector<ColumnAccessPathConfig> access_configs;
-
-//     {
-//         // 配置complex_attributes列的访问路径
-//         ColumnAccessPathConfig access_config;
-//         access_config.column_name = "complex_attributes";
-//         access_config.use_name_paths = true;
-
-//         access_config.all_column_paths = {
-//                 {"8", "*", "39", "43"},
-//                 {"8", "*", "40", "*", "50", "*",
-//                  "55"},
-//                 {"8", "*", "41", "VALUES"},
-//         };
-//         access_config.predicate_paths = {{"8", "*", "39", "43"}
-
-//         };
-//         access_configs.push_back(access_config);
-//     }
-
-//     // column_ids should contain all necessary column IDs (set automatically deduplicates)
-//     // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
-//     std::set<uint64_t> expected_column_ids = {2,  37, 40, 52, 53, 54, 63, 64, 65, 66, 67,
-//                                               68, 69, 70, 71, 72, 73, 74, 75, 76};
-//     // Expected IDs based on the schema: profile(3), address(4), coordinates(7), lat(8), contact(10), email(11)
-//     std::set<uint64_t> expected_filter_column_ids = {37, 40};
-
-//     runOrcTestWithMethod(access_configs, expected_column_ids, expected_filter_column_ids);
-// }
 
 } // namespace doris::vectorized::table

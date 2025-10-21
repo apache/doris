@@ -348,17 +348,14 @@ private:
     void _init_system_properties();
     void _init_file_description();
 
-    template <bool is_filter = false, bool is_filter_phase = false>
+    template <bool is_filter = false>
     Status _fill_doris_data_column(const std::string& col_name, MutableColumnPtr& data_column,
                                    const DataTypePtr& data_type,
                                    std::shared_ptr<TableSchemaChangeHelper::Node> root_node,
                                    const orc::Type* orc_column_type,
                                    const orc::ColumnVectorBatch* cvb, size_t num_values);
 
-    // Template parameters:
-    // - is_filter: whether this is called during filter evaluation (used for dict filter)
-    // - is_filter_phase: true for filter/predicate read phase, false for lazy materialization phase
-    template <bool is_filter = false, bool is_filter_phase = false>
+    template <bool is_filter = false>
     Status _orc_column_to_doris_column(const std::string& col_name, ColumnPtr& doris_column,
                                        const DataTypePtr& data_type,
                                        std::shared_ptr<TableSchemaChangeHelper::Node> root_node,

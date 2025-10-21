@@ -34,39 +34,9 @@ namespace vectorized {
 
 class IcebergOrcNestedColumnUtils {
 public:
-    struct SchemaAndColumnResult {
-        std::shared_ptr<TableSchemaChangeHelper::Node> schema_node;
-        std::set<uint64_t> column_ids;
-
-        SchemaAndColumnResult(std::shared_ptr<TableSchemaChangeHelper::Node> node,
-                              std::set<uint64_t> ids)
-                : schema_node(std::move(node)), column_ids(std::move(ids)) {}
-    };
-
-    static SchemaAndColumnResult _extract_schema_and_columns_efficiently(
-            const orc::Type* orc_type,
-            const std::unordered_map<int, std::vector<std::vector<int>>>& paths_by_field_id,
-            const std::unordered_map<int, std::string>& field_id_to_table_name);
-
-    static void _build_iceberg_id_mapping(const orc::Type* orc_type,
-                                          std::map<int, const orc::Type*>& iceberg_id_to_orc_type);
-
-    static void _build_iceberg_id_mapping_recursive(
-            const orc::Type* orc_type, std::map<int, const orc::Type*>& iceberg_id_to_orc_type);
-
-//     static std::shared_ptr<TableSchemaChangeHelper::Node> _build_table_schema_node_from_type(
-//             const orc::Type& type, const std::vector<std::vector<int>>& field_paths);
-
-//     static std::shared_ptr<TableSchemaChangeHelper::Node> _build_full_table_schema_node(
-//             const orc::Type& type);
-
-    static void _extract_nested_column_ids_efficiently(const orc::Type& type,
-                                                       const std::vector<std::vector<int>>& paths,
-                                                       std::set<uint64_t>& column_ids);
-
-    static void extract_nested_column_ids_efficiently(const orc::Type& type,
-                                        const std::vector<TColumnNameAccessPath>& paths,
-                                        std::set<uint64_t>& column_ids);
+    static void extract_nested_column_ids(const orc::Type& type,
+                                          const std::vector<TColumnNameAccessPath>& paths,
+                                          std::set<uint64_t>& column_ids);
 
 private:
     static constexpr const char* ICEBERG_ORC_ATTRIBUTE = "iceberg.id";

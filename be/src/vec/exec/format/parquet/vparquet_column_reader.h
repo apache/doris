@@ -123,7 +123,7 @@ public:
     virtual Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                                     const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
                                     FilterMap& filter_map, size_t batch_size, size_t* read_rows,
-                                    bool* eof, bool is_dict_filter, bool is_filter_phase) = 0;
+                                    bool* eof, bool is_dict_filter) = 0;
 
     virtual Status read_dict_values_to_column(MutableColumnPtr& doris_column, bool* has_dict) {
         return Status::NotSupported("read_dict_values_to_column is not supported");
@@ -184,13 +184,11 @@ public:
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                             const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
-                            bool is_dict_filter, bool is_filter_phase) override;
+                            bool is_dict_filter) override;
     Status read_dict_values_to_column(MutableColumnPtr& doris_column, bool* has_dict) override;
     MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override;
     const std::vector<level_t>& get_rep_level() const override { return _rep_levels; }
     const std::vector<level_t>& get_def_level() const override { return _def_levels; }
-    const std::vector<level_t>& get_unfiltered_rep_level() const { return _unfiltered_rep_levels; }
-    const std::vector<level_t>& get_unfiltered_def_level() const { return _unfiltered_def_levels; }
     Statistics statistics() override {
         return Statistics(_stream_reader->statistics(), _chunk_reader->statistics(),
                           _decode_null_map_time);
@@ -209,9 +207,6 @@ private:
     std::unique_ptr<ColumnChunkReader> _chunk_reader;
     std::vector<level_t> _rep_levels;
     std::vector<level_t> _def_levels;
-    // Store unfiltered levels for struct/array/map null map filling
-    std::vector<level_t> _unfiltered_rep_levels;
-    std::vector<level_t> _unfiltered_def_levels;
     std::unique_ptr<parquet::PhysicalToLogicalConverter> _converter = nullptr;
     std::unique_ptr<std::vector<uint8_t>> _nested_filter_map_data = nullptr;
     size_t _orig_filter_map_index = 0;
@@ -236,7 +231,7 @@ public:
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                             const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
-                            bool is_dict_filter, bool is_filter_phase) override;
+                            bool is_dict_filter) override;
     const std::vector<level_t>& get_rep_level() const override {
         return _element_reader->get_rep_level();
     }
@@ -265,7 +260,7 @@ public:
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                             const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
-                            bool is_dict_filter, bool is_filter_phase) override;
+                            bool is_dict_filter) override;
 
     const std::vector<level_t>& get_rep_level() const override {
         return _key_reader->get_rep_level();
@@ -307,7 +302,7 @@ public:
     Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
                             const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
-                            bool is_dict_filter, bool is_filter_phase) override;
+                            bool is_dict_filter) override;
 
     const std::vector<level_t>& get_rep_level() const override {
         if (!_read_column_names.empty()) {

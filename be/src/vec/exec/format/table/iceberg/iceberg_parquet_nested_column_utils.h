@@ -33,40 +33,9 @@ struct FieldSchema;
 
 class IcebergParquetNestedColumnUtils {
 public:
-    struct SchemaAndColumnResult {
-        std::shared_ptr<TableSchemaChangeHelper::Node> schema_node;
-        std::set<uint64_t> column_ids;
-
-        SchemaAndColumnResult(std::shared_ptr<TableSchemaChangeHelper::Node> node,
-                              std::set<uint64_t> ids)
-                : schema_node(std::move(node)), column_ids(std::move(ids)) {}
-    };
-
-    static SchemaAndColumnResult _extract_schema_and_columns_efficiently(
-            const FieldDescriptor* field_desc,
-            const std::unordered_map<int, std::vector<std::vector<int>>>& paths_by_field_id,
-            const std::unordered_map<int, std::string>& field_id_to_table_name);
-
-    static void _build_iceberg_id_mapping(
-            const FieldDescriptor* field_desc,
-            std::map<int, const FieldSchema*>& iceberg_id_to_field_schema);
-
-    static void _build_iceberg_id_mapping_recursive(
-            const FieldSchema* field_schema,
-            std::map<int, const FieldSchema*>& iceberg_id_to_field_schema);
-
-    static std::shared_ptr<TableSchemaChangeHelper::Node>
-    _build_table_schema_node_from_field_schema(const FieldSchema& field_schema,
-                                               const std::vector<std::vector<int>>& field_paths);
-
-    static std::shared_ptr<TableSchemaChangeHelper::Node> _build_full_table_schema_node(
-            const FieldSchema& field_schema);
-
-    static void _extract_nested_column_ids_efficiently(const FieldSchema& field_schema,
-                                                       const std::vector<std::vector<int>>& paths,
-                                                       std::set<uint64_t>& column_ids);
-    static void extract_nested_column_ids_efficiently(const FieldSchema& field_schema, const std::vector<TColumnNameAccessPath>& paths,
-        std::set<uint64_t>& column_ids);
+    static void extract_nested_column_ids(const FieldSchema& field_schema,
+                                          const std::vector<TColumnNameAccessPath>& paths,
+                                          std::set<uint64_t>& column_ids);
 };
 
 } // namespace vectorized

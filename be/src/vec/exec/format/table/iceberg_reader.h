@@ -191,8 +191,8 @@ private:
     // static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
     //                                   const TupleDescriptor* tuple_descriptor);
 
-    static ColumnIdResult _create_column_ids2(const FieldDescriptor* field_desc,
-                                      const TupleDescriptor* tuple_descriptor);
+    static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
+                                             const TupleDescriptor* tuple_descriptor);
 
     Status _read_position_delete_file(const TFileRangeDesc* delete_range,
                                       DeleteFile* position_delete) final;
@@ -225,8 +225,6 @@ public:
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
 
-
-
 protected:
     std::unique_ptr<GenericReader> _create_equality_reader(
             const TFileRangeDesc& delete_desc) override {
@@ -239,8 +237,8 @@ private:
     // static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
     //                                   const TupleDescriptor* tuple_descriptor);
 
-    static ColumnIdResult _create_column_ids2(const orc::Type* orc_type,
-const TupleDescriptor* tuple_descriptor);
+    static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
+                                             const TupleDescriptor* tuple_descriptor);
 
 private:
     static const std::string ICEBERG_ORC_ATTRIBUTE;

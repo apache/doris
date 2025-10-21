@@ -1087,47 +1087,11 @@ Status OrcReader::set_fill_columns(
                 TransactionalHive::READ_ROW_COLUMN_NAMES.end());
     }
 
-    // Lambda function to check if a nested column has partial predicates
-    // Partial predicates means: some sub-columns are used in predicates (is_predicate=true)
-    // while others are not (is_predicate=false). In this case, we need to:
-    // 1. First read only the predicate sub-columns for filtering
-    // 2. Then read the non-predicate sub-columns for lazy materialization
-    auto check_partial_predicates = [](const SlotDescriptor* slot_desc) -> bool {
-        if (!slot_desc || !slot_desc->predicate_column_access_paths().__isset.name_access_paths) {
-            return false;
-        }
-
-        const auto& name_paths = slot_desc->predicate_column_access_paths().name_access_paths;
-        if (name_paths.empty()) {
-            return false;
-        }
-
-        // bool has_predicate_path = false;
-        // bool has_non_predicate_path = false;
-
-        // for (const auto& path : name_paths) {
-        //     if (path.is_predicate) {
-        //         has_predicate_path = true;
-        //     } else {
-        //         has_non_predicate_path = true;
-        //     }
-
-        //     // Early exit: found both types
-        //     if (has_predicate_path && has_non_predicate_path) {
-        //         return true;
-        //     }
-        // }
-
-        // return false;
-        return true;
-    };
-
     for (auto& read_table_col : _read_table_cols) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_table_col);
         if (!predicate_table_columns.empty()) {
             auto iter = predicate_table_columns.find(read_table_col);
             if (iter == predicate_table_columns.end()) {
-                // Column is not in predicate, add to lazy_read_columns
                 if (!_is_acid ||
                     std::find(TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
                               TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end(),
@@ -1136,20 +1100,6 @@ Status OrcReader::set_fill_columns(
                     _lazy_read_ctx.lazy_read_columns.emplace_back(read_table_col);
                 }
             } else {
-                // Column is in predicate
-                const auto* slot_desc = _tuple_descriptor->slots()[iter->second.first];
-
-                // Check if this nested column has partial predicates
-                if (check_partial_predicates(slot_desc)) {
-                    // Add to partial_predicate_columns for special handling in lazy materialization
-                    // In first pass: read predicate sub-columns
-                    // In second pass: read non-predicate sub-columns
-                    _lazy_read_ctx.partial_predicate_columns.emplace_back(iter->first);
-
-                    LOG(INFO) << "Column '" << read_table_col
-                              << "' has partial predicates, will use two-phase reading";
-                }
-
                 _lazy_read_ctx.predicate_columns.first.emplace_back(iter->first);
                 _lazy_read_ctx.predicate_columns.second.emplace_back(iter->second.second);
 
@@ -1187,14 +1137,8 @@ Status OrcReader::set_fill_columns(
         }
     }
 
-    // Enable lazy materialization if:
-    // 1. Lazy materialization is enabled AND
-    // 2. There are predicate columns AND
-    // 3. There are lazy read columns OR partial predicate columns
-    // Partial predicate columns need two-phase reading even without lazy_read_columns
     if (_enable_lazy_mat && !_lazy_read_ctx.predicate_columns.first.empty() &&
-        (!_lazy_read_ctx.lazy_read_columns.empty() ||
-         !_lazy_read_ctx.partial_predicate_columns.empty())) {
+        !_lazy_read_ctx.lazy_read_columns.empty()) {
         _lazy_read_ctx.can_lazy_read = true;
     }
 
@@ -1282,14 +1226,7 @@ Status OrcReader::set_fill_columns(
         _fill_all_columns = true;
         // create orc row reader
         if (_lazy_read_ctx.can_lazy_read) {
-            if (!_filter_column_ids.empty()) {
-                // Convert std::set to std::list for includeTypes
-                std::list<uint64_t> filter_column_ids_list(_filter_column_ids.begin(),
-                                                           _filter_column_ids.end());
-                _row_reader_options.filterTypes(filter_column_ids_list);
-            } else {
-                _row_reader_options.filter(_lazy_read_ctx.predicate_orc_columns);
-            }
+            _row_reader_options.filter(_lazy_read_ctx.predicate_orc_columns);
             _orc_filter = std::make_unique<ORCFilterImpl>(this);
         }
         if (!_lazy_read_ctx.conjuncts.empty()) {
@@ -1319,23 +1256,51 @@ Status OrcReader::set_fill_columns(
             }
         }
 
+        // Helper function to recursively print ORC type structure
+        std::function<void(const orc::Type*, int, const std::string&)> print_orc_type_tree =
+                [&](const orc::Type* type, int indent, const std::string& name) {
+                    std::string indent_str(indent * 2, ' ');
+                    std::cout << indent_str << "- " << name << " (type_id=" << type->getColumnId()
+                              << ", kind=" << static_cast<int>(type->getKind()) << ")" << std::endl;
+
+                    if (type->getKind() == orc::TypeKind::STRUCT) {
+                        for (uint64_t i = 0; i < type->getSubtypeCount(); ++i) {
+                            std::string field_name = type->getFieldName(i);
+                            print_orc_type_tree(type->getSubtype(i), indent + 1, field_name);
+                        }
+                    } else if (type->getKind() == orc::TypeKind::LIST) {
+                        print_orc_type_tree(type->getSubtype(0), indent + 1, "element");
+                    } else if (type->getKind() == orc::TypeKind::MAP) {
+                        print_orc_type_tree(type->getSubtype(0), indent + 1, "key");
+                        print_orc_type_tree(type->getSubtype(1), indent + 1, "value");
+                    } else {
+                        // Primitive type, no children
+                    }
+                };
+
+        // std::cout << "\n[OrcReader] ========== ORC Type Structure ==========" << std::endl;
+        // print_orc_type_tree(&selected_type, 0, "root");
+        // std::cout << "[OrcReader] ==========================================\n" << std::endl;
+
         _type_map.clear();
         if (_is_acid) {
             for (uint64_t i = 0; i < selected_type.getSubtypeCount(); ++i) {
                 if (selected_type.getSubtype(i)->getKind() == orc::TypeKind::STRUCT) {
                     auto row_orc_type = selected_type.getSubtype(i);
                     for (uint64_t j = 0; j < row_orc_type->getSubtypeCount(); j++) {
-                        _type_map.emplace(
-                                TransactionalHive::ROW + "." + row_orc_type->getFieldName(j),
-                                row_orc_type->getSubtype(j));
+                        std::string field_name =
+                                TransactionalHive::ROW + "." + row_orc_type->getFieldName(j);
+                        _type_map.emplace(field_name, row_orc_type->getSubtype(j));
                     }
                 } else {
-                    _type_map.emplace(selected_type.getFieldName(i), selected_type.getSubtype(i));
+                    std::string field_name = selected_type.getFieldName(i);
+                    _type_map.emplace(field_name, selected_type.getSubtype(i));
                 }
             }
         } else {
             for (int i = 0; i < selected_type.getSubtypeCount(); ++i) {
-                _type_map.emplace(selected_type.getFieldName(i), selected_type.getSubtype(i));
+                std::string field_name = selected_type.getFieldName(i);
+                _type_map.emplace(field_name, selected_type.getSubtype(i));
             }
         }
 
@@ -1763,7 +1728,7 @@ Status OrcReader::_fill_doris_array_offsets(const std::string& col_name,
     return Status::OK();
 }
 
-template <bool is_filter, bool is_filter_phase>
+template <bool is_filter>
 Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                                           MutableColumnPtr& data_column,
                                           const DataTypePtr& data_type,
@@ -1825,14 +1790,10 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                         ->get_nested_type());
         const orc::Type* nested_orc_type = orc_column_type->getSubtype(0);
         std::string element_name = col_name + ".element";
-        // // Use parentheses to avoid macro parsing issues with template parameters
-        // using OrcColumnFunc = Status (OrcReader::*)(const std::string&, ColumnPtr&, const DataTypePtr&,
-        //                                              std::shared_ptr<TableSchemaChangeHelper::Node>,
-        //                                              const orc::Type*, const orc::ColumnVectorBatch*, size_t);
-        return (_orc_column_to_doris_column<false, is_filter_phase>(
+        return _orc_column_to_doris_column<false>(
                 element_name, static_cast<ColumnArray&>(*data_column).get_data_ptr(), nested_type,
                 root_node->get_element_node(), nested_orc_type, orc_list->elements.get(),
-                element_size));
+                element_size);
     }
     case PrimitiveType::TYPE_MAP: {
         if (orc_column_type->getKind() != orc::TypeKind::MAP) {
@@ -1856,16 +1817,15 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         ColumnPtr& doris_value_column = doris_map.get_values_ptr();
         std::string key_col_name = col_name + ".key";
         std::string value_col_name = col_name + ".value";
-        // Use parentheses to avoid macro parsing issues with template parameters
-        auto status = (_orc_column_to_doris_column<false, is_filter_phase>(
+        auto status = _orc_column_to_doris_column<false>(
                 key_col_name, doris_key_column, doris_key_type, root_node->get_key_node(),
-                orc_key_type, orc_map->keys.get(), element_size));
+                orc_key_type, orc_map->keys.get(), element_size);
         if (!status.ok()) {
             return status;
         }
-        return (_orc_column_to_doris_column<false, is_filter_phase>(
+        return _orc_column_to_doris_column<false>(
                 value_col_name, doris_value_column, doris_value_type, root_node->get_value_node(),
-                orc_value_type, orc_map->elements.get(), element_size));
+                orc_value_type, orc_map->elements.get(), element_size);
     }
     case PrimitiveType::TYPE_STRUCT: {
         if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {
@@ -1904,66 +1864,11 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                 read_fields[i] = it->second;
             } else {
                 missing_fields.insert(i);
-                // ColumnPtr& doris_field = doris_struct.get_column_ptr(i);
-                // const DataTypePtr& field_type = doris_struct_type->get_element(i);
-                // auto nested_type = remove_nullable(field_type);
-
-                // // Only check row count for primitive types (non-nested types)
-                // // For nested types (STRUCT/ARRAY/MAP), we should always process them
-                // // because partial subfields might need filling
-                // auto primitive_type = nested_type->get_primitive_type();
-                // if (primitive_type != PrimitiveType::TYPE_STRUCT &&
-                //     primitive_type != PrimitiveType::TYPE_ARRAY &&
-                //     primitive_type != PrimitiveType::TYPE_MAP) {
-                //     // This is a primitive type, check if already filled
-                //     if (doris_field->size() == num_values) {
-                //         LOG(INFO) << "Subcolumn '" << file_column_name_lower
-                //               << "' already has " << num_values << " rows, skipping fill";
-                //         continue;
-                //     }
-
-                //     LOG(INFO) << "Subcolumn '" << file_column_name_lower
-                //               << "' fill " << num_values << " rows by const column";
-                //     reinterpret_cast<ColumnNullable*>(doris_field->assume_mutable().get())
-                //     ->insert_many_defaults(num_values);
-                // }
-
-                // Use ColumnConst for better performance instead of inserting many defaults
-                // Create a nullable column with one default (not null) value
-
-                // auto nested_column = nested_type->create_column();
-                // nested_column->insert_default();
-
-                // auto null_map = ColumnUInt8::create();
-                // null_map->insert_value(0); // not null
-
-                // // Wrap nested column and null_map in ColumnConst
-                // auto const_nested = ColumnConst::create(std::move(nested_column), num_values);
-                // auto const_null_map = ColumnConst::create(std::move(null_map), num_values);
-
-                // // Create ColumnNullable with ColumnConst inside
-                // doris_field = ColumnNullable::create(std::move(const_nested), std::move(const_null_map));
-
-                // doris_field = ColumnConst::create(std::move(nested_column), num_values);
             }
         }
 
         for (int missing_field : missing_fields) {
             ColumnPtr& doris_field = doris_struct.get_column_ptr(missing_field);
-
-            // Check if this field was already filled in filter phase
-            // In lazy read mode with filter_phase_rows recorded, check against that value
-            if (_lazy_read_ctx.can_lazy_read && _lazy_read_ctx.filter_phase_rows > 0 &&
-                doris_field->size() == _lazy_read_ctx.filter_phase_rows) {
-                LOG(INFO) << "Missing field at position " << missing_field
-                          << " already filled in filter phase with "
-                          << _lazy_read_ctx.filter_phase_rows << " rows, skipping fill";
-                continue;
-            }
-
-            LOG(INFO) << "Missing field at position " << missing_field << " fill " << num_values
-                      << " rows";
-
             if (!doris_field->is_nullable()) {
                 return Status::InternalError(
                         "Child field of '{}' is not nullable, but is missing in orc file",
@@ -1976,50 +1881,16 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         for (auto read_field : read_fields) {
             orc::ColumnVectorBatch* orc_field = orc_struct->fields[read_field.second];
 
-            // Check if orc_field has the expected number of elements
-            if (orc_field->numElements != num_values) {
-                LOG(INFO) << "ORC field at position " << read_field.second << " has "
-                          << orc_field->numElements << " elements, expected " << num_values
-                          << ", skipping";
-                continue;
-            }
-
             const orc::Type* orc_type = orc_column_type->getSubtype(read_field.second);
             std::string field_name =
                     col_name + "." + orc_column_type->getFieldName(read_field.second);
             ColumnPtr& doris_field = doris_struct.get_column_ptr(read_field.first);
             const DataTypePtr& doris_type = doris_struct_type->get_element(read_field.first);
-
-            // Use ORC ReaderCategory to determine column's filter status
-            // FILTER_CHILD: Primitive filter column
-            // FILTER_PARENT: Compound type with predicate subfields
-            // FILTER_COMPOUND_ELEMENT: Compound element in filter
-            // NON_FILTER: Non-filter column
-
-            auto reader_category = orc_type->getReaderCategory();
-            // Determine if we should skip this field based on phase and column category
-            bool should_process = false;
-            if constexpr (is_filter_phase) {
-                should_process = (reader_category == orc::ReaderCategory::FILTER_PARENT ||
-                                  reader_category == orc::ReaderCategory::FILTER_CHILD ||
-                                  reader_category == orc::ReaderCategory::FILTER_COMPOUND_ELEMENT);
-            } else {
-                should_process = (reader_category == orc::ReaderCategory::FILTER_PARENT ||
-                                  reader_category == orc::ReaderCategory::NON_FILTER);
-            }
-
-            if (should_process) {
-                RETURN_IF_ERROR((_orc_column_to_doris_column<is_filter, is_filter_phase>(
-                        field_name, doris_field, doris_type,
-                        root_node->get_children_node(
-                                doris_struct_type->get_name_by_position(read_field.first)),
-                        orc_type, orc_field, num_values)));
-            } else {
-                LOG(INFO) << "Subcolumn '" << field_name
-                          << "' (ReaderCategory=" << static_cast<int>(reader_category)
-                          << ", is_filter_phase=" << is_filter_phase
-                          << ") skipping fill, already has " << doris_field->size() << " rows";
-            }
+            RETURN_IF_ERROR(_orc_column_to_doris_column<is_filter>(
+                    field_name, doris_field, doris_type,
+                    root_node->get_children_node(
+                            doris_struct_type->get_name_by_position(read_field.first)),
+                    orc_type, orc_field, num_values));
         }
         return Status::OK();
     }
@@ -2029,12 +1900,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
     return Status::InternalError("Unsupported type for column '{}'", col_name);
 }
 
-// Template parameters:
-// - is_filter: whether this is called during filter evaluation (used for dict filter)
-// - is_filter_phase: true for filter/predicate read phase, false for lazy materialization phase
-//   In filter phase, we read all filter-related columns (FILTER_CHILD, FILTER_PARENT, FILTER_COMPOUND_ELEMENT)
-//   In lazy phase, we read non-filter columns (NON_FILTER) and complete partial predicate columns
-template <bool is_filter, bool is_filter_phase>
+template <bool is_filter>
 Status OrcReader::_orc_column_to_doris_column(
         const std::string& col_name, ColumnPtr& doris_column, const DataTypePtr& data_type,
         std::shared_ptr<TableSchemaChangeHelper::Node> root_node, const orc::Type* orc_column_type,
@@ -2078,45 +1944,14 @@ Status OrcReader::_orc_column_to_doris_column(
 
         NullMap& map_data_column = nullable_column->get_null_map_data();
         auto origin_size = map_data_column.size();
-        auto data_column_size = data_column->size();
-
-        // Use ORC ReaderCategory to determine column's filter status
-        // FILTER_CHILD: Primitive filter column
-        // FILTER_PARENT: Compound type with predicate subfields
-        // FILTER_COMPOUND_ELEMENT: Compound element in filter
-        // NON_FILTER: Non-filter column
-
-        auto reader_category = orc_column_type->getReaderCategory();
-        // In filter phase, nullmap only copied for FILTER_PARENT and FILTER_CHILD and FILTER_COMPOUND_ELEMENT columns;
-        // In lazy phase, nullmap only copied for NON_FILTER columns;
-        bool should_process = false;
-        if constexpr (is_filter_phase) {
-            should_process = (reader_category == orc::ReaderCategory::FILTER_PARENT ||
-                              reader_category == orc::ReaderCategory::FILTER_CHILD ||
-                              reader_category == orc::ReaderCategory::FILTER_COMPOUND_ELEMENT);
-        } else {
-            should_process = (reader_category == orc::ReaderCategory::NON_FILTER);
-        }
-
-        if (should_process) {
-            // Need to fill null map for the new rows
-            auto expected_size = origin_size + num_values;
-            map_data_column.resize(expected_size);
-            if (cvb->hasNulls) {
-                const auto* cvb_nulls = cvb->notNull.data();
-                for (int i = 0; i < num_values; ++i) {
-                    map_data_column[origin_size + i] = !cvb_nulls[i];
-                }
-            } else {
-                memset(map_data_column.data() + origin_size, 0, num_values);
+        map_data_column.resize(origin_size + num_values);
+        if (cvb->hasNulls) {
+            const auto* cvb_nulls = cvb->notNull.data();
+            for (int i = 0; i < num_values; ++i) {
+                map_data_column[origin_size + i] = !cvb_nulls[i];
             }
-            LOG(INFO) << "column " << col_name << " fill nullmap " << num_values << " rows, total "
-                      << expected_size << " rows";
         } else {
-            LOG(INFO) << "column " << col_name
-                      << " (ReaderCategory=" << static_cast<int>(reader_category)
-                      << ", is_filter_phase=" << is_filter_phase
-                      << ") skipping nullmap fill, already has " << data_column_size << " rows";
+            memset(map_data_column.data() + origin_size, 0, num_values);
         }
     } else {
         if (cvb->hasNulls) {
@@ -2126,9 +1961,9 @@ Status OrcReader::_orc_column_to_doris_column(
         data_column = resolved_column->assume_mutable();
     }
 
-    RETURN_IF_ERROR((_fill_doris_data_column<is_filter, is_filter_phase>(
-            col_name, data_column, remove_nullable(resolved_type), root_node, orc_column_type, cvb,
-            num_values)));
+    RETURN_IF_ERROR((_fill_doris_data_column<is_filter>(col_name, data_column,
+                                                        remove_nullable(resolved_type), root_node,
+                                                        orc_column_type, cvb, num_values)));
     // resolve schema change
     auto converted_column = doris_column->assume_mutable();
     return converter->convert(resolved_column, converted_column);
@@ -2223,16 +2058,6 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
         std::vector<orc::ColumnVectorBatch*> batch_vec;
         _fill_batch_vec(batch_vec, _batch.get(), 0);
 
-        // Record filter phase rows by checking the first predicate column's size
-        // This will be used to determine if columns were already filled in filter phase
-        if (_lazy_read_ctx.filter_phase_rows == 0 &&
-            !_lazy_read_ctx.predicate_columns.first.empty()) {
-            const auto& first_pred_col = *_lazy_read_ctx.predicate_columns.first.begin();
-            auto& column_with_type_and_name = block->get_by_name(first_pred_col);
-            _lazy_read_ctx.filter_phase_rows = column_with_type_and_name.column->size();
-            LOG(INFO) << "Record filter phase rows: " << _lazy_read_ctx.filter_phase_rows;
-        }
-
         for (auto& col_name : _lazy_read_ctx.lazy_read_columns) {
             auto& column_with_type_and_name = block->get_by_name(col_name);
             auto& column_ptr = column_with_type_and_name.column;
@@ -2242,37 +2067,10 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
             if (orc_col_idx == _colname_to_idx.end()) {
                 return Status::InternalError("Wrong read column '{}' in orc file", col_name);
             }
-            // Lazy phase (is_filter_phase=false): read NON_FILTER columns
-            RETURN_IF_ERROR((_orc_column_to_doris_column<true, false>(
+            RETURN_IF_ERROR((_orc_column_to_doris_column<true>(
                     col_name, column_ptr, column_type,
                     _table_info_node_ptr->get_children_node(col_name), _type_map[file_column_name],
                     batch_vec[orc_col_idx->second], _batch->numElements)));
-        }
-
-        // Read partial predicate columns (nested columns with mixed predicate/non-predicate sub-columns)
-        // For these columns, predicate sub-columns were already read in the first pass (filter phase),
-        // now we need to read the complete column. The _orc_column_to_doris_column function will
-        // skip sub-columns that already have data based on row count check
-        for (auto& col_name : _lazy_read_ctx.partial_predicate_columns) {
-            auto& column_with_type_and_name = block->get_by_name(col_name);
-            auto& column_ptr = column_with_type_and_name.column;
-            auto& column_type = column_with_type_and_name.type;
-            auto file_column_name = _table_info_node_ptr->children_file_column_name(col_name);
-            auto orc_col_idx = _colname_to_idx.find(file_column_name);
-            if (orc_col_idx == _colname_to_idx.end()) {
-                return Status::InternalError("Wrong read column '{}' in orc file", col_name);
-            }
-
-            // Read the full column structure. For STRUCT types, subcolumns that already have
-            // the correct number of rows will be skipped automatically in _fill_doris_data_column
-            // Lazy phase (is_filter_phase=false): complete reading of partial predicate columns
-            RETURN_IF_ERROR((_orc_column_to_doris_column<true, false>(
-                    col_name, column_ptr, column_type,
-                    _table_info_node_ptr->get_children_node(col_name), _type_map[file_column_name],
-                    batch_vec[orc_col_idx->second], _batch->numElements)));
-
-            LOG(INFO) << "Completed partial predicate column '" << col_name
-                      << "' reading in lazy materialization phase";
         }
 
         RETURN_IF_ERROR(_fill_partition_columns(block, _batch->numElements,
@@ -2360,8 +2158,7 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
             if (orc_col_idx == _colname_to_idx.end()) {
                 return Status::InternalError("Wrong read column '{}' in orc file", col_name);
             }
-            // Non-lazy read mode: read all columns at once (no filter phase, is_filter_phase=false)
-            RETURN_IF_ERROR((_orc_column_to_doris_column<false, false>(
+            RETURN_IF_ERROR((_orc_column_to_doris_column<false>(
                     col_name, column_ptr, column_type,
                     _table_info_node_ptr->get_children_node(col_name), _type_map[file_column_name],
                     batch_vec[orc_col_idx->second], _batch->numElements)));
@@ -2527,8 +2324,7 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
         if (orc_col_idx == _colname_to_idx.end()) {
             return Status::InternalError("Wrong read column '{}' in orc file", table_col_name);
         }
-        // Filter phase (is_filter_phase=true): read filter-related columns (predicate columns)
-        RETURN_IF_ERROR((_orc_column_to_doris_column<false, true>(
+        RETURN_IF_ERROR((_orc_column_to_doris_column<false>(
                 table_col_name, column_ptr, column_type,
                 _table_info_node_ptr->get_children_node(table_col_name),
                 _type_map[file_column_name], batch_vec[orc_col_idx->second], data.numElements)));
@@ -3163,5 +2959,6 @@ void OrcReader::_execute_filter_position_delete_rowids(IColumn::Filter& filter) 
         filter[*l - start] = 0;
     }
 }
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

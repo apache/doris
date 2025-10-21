@@ -69,20 +69,11 @@ public:
                 break;
             }
             case ColumnSelectVector::FILTERED_CONTENT: {
-                // In lazy materialization, keep filtered rows (fill with data to maintain row count)
-                std::vector<StringRef> string_values;
-                string_values.reserve(run_length);
-                for (size_t i = 0; i < run_length; ++i) {
-                    size_t length = decoded_vals[value_idx].size;
-                    string_values.emplace_back(decoded_vals[value_idx].data, length);
-                    value_idx++;
-                }
-                doris_column->insert_many_strings(&string_values[0], run_length);
+                value_idx += run_length;
                 break;
             }
             case ColumnSelectVector::FILTERED_NULL: {
-                // In lazy materialization, keep filtered null rows (fill with defaults to maintain row count)
-                doris_column->insert_many_defaults(run_length);
+                // do nothing
                 break;
             }
             }
@@ -96,8 +87,8 @@ public:
                                    ColumnSelectVector& select_vector) {
         auto& column_data = reinterpret_cast<ColumnInt8&>(*doris_column).get_data();
         size_t data_index = column_data.size();
-        // Reserve space for ALL values (including filtered ones) in lazy materialization
-        column_data.resize(data_index + _type_length * select_vector.num_values());
+        column_data.resize(data_index + _type_length * (select_vector.num_values() -
+                                                        select_vector.num_filtered()));
         auto* data = column_data.data();
         ColumnSelectVector::DataReadType read_type;
         int value_idx = 0;
@@ -116,17 +107,11 @@ public:
                 break;
             }
             case ColumnSelectVector::FILTERED_CONTENT: {
-                // In lazy materialization, keep filtered rows (fill with data to maintain row count)
-                for (size_t i = 0; i < run_length; ++i) {
-                    memcpy(data + data_index, decoded_vals[value_idx].data, _type_length);
-                    data_index += _type_length;
-                    value_idx++;
-                }
+                value_idx += run_length;
                 break;
             }
             case ColumnSelectVector::FILTERED_NULL: {
-                // In lazy materialization, keep filtered null rows (fill with zeros/nulls to maintain row count)
-                data_index += run_length * _type_length;
+                // do nothing
                 break;
             }
             }

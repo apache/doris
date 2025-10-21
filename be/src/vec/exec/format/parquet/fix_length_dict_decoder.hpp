@@ -70,8 +70,8 @@ protected:
                                 ColumnSelectVector& select_vector) {
         size_t primitive_length = remove_nullable(data_type)->get_size_of_value_in_memory();
         size_t data_index = doris_column->size() * primitive_length;
-        // Reserve space for ALL values (including filtered ones) in lazy materialization
-        size_t scale_size = select_vector.num_values() * (_type_length / primitive_length);
+        size_t scale_size = (select_vector.num_values() - select_vector.num_filtered()) *
+                            (_type_length / primitive_length);
         doris_column->resize(doris_column->size() + scale_size);
         char* raw_data = const_cast<char*>(doris_column->get_raw_data().data);
         size_t dict_index = 0;
@@ -91,17 +91,11 @@ protected:
                 break;
             }
             case ColumnSelectVector::FILTERED_CONTENT: {
-                // In lazy materialization, keep filtered rows (fill with dict data to maintain row count)
-                for (size_t i = 0; i < run_length; ++i) {
-                    memcpy(raw_data + data_index, _dict_items[_indexes[dict_index++]],
-                           _type_length);
-                    data_index += _type_length;
-                }
+                dict_index += run_length;
                 break;
             }
             case ColumnSelectVector::FILTERED_NULL: {
-                // In lazy materialization, keep filtered null rows (fill with zeros/nulls to maintain row count)
-                data_index += run_length * _type_length;
+                // do nothing
                 break;
             }
             }

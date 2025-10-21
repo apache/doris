@@ -785,10 +785,10 @@ protected:
         // Execute test based on method choice
         ColumnIdResult actual_result;
         if (use_top_level_method) {
-            actual_result = HiveParquetReader::_create_column_ids2_by_top_level_col_index(
+            actual_result = HiveParquetReader::_create_column_ids_by_top_level_col_index(
                     field_desc, tuple_descriptor);
         } else {
-            actual_result = HiveParquetReader::_create_column_ids2(field_desc, tuple_descriptor);
+            actual_result = HiveParquetReader::_create_column_ids(field_desc, tuple_descriptor);
         }
 
         if (!should_skip_assertion) {
@@ -842,10 +842,10 @@ protected:
         // Execute test based on method choice
         ColumnIdResult actual_result;
         if (use_top_level_method) {
-            actual_result = HiveOrcReader::_create_column_ids2_by_top_level_col_index(
+            actual_result = HiveOrcReader::_create_column_ids_by_top_level_col_index(
                     orc_type, tuple_descriptor);
         } else {
-            actual_result = HiveOrcReader::_create_column_ids2(orc_type, tuple_descriptor);
+            actual_result = HiveOrcReader::_create_column_ids(orc_type, tuple_descriptor);
         }
 
         if (!should_skip_assertion) {
@@ -877,7 +877,8 @@ TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_1) {
     std::set<uint64_t> expected_filter_column_ids = {3, 4, 7, 8, 10, 11};
 
     runParquetTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids);
-    runParquetTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids, true);
+    runParquetTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids,
+                             true);
 
     runOrcTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids);
     runOrcTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids, true);
@@ -924,8 +925,8 @@ TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_2) {
     std::set<uint64_t> expected_filter_column_ids = {3, 4, 7, 8, 10, 11};
 
     runParquetTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids);
-    runParquetTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids, true);
-
+    runParquetTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids,
+                             true);
 
     runOrcTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids);
     runOrcTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids, true);
@@ -971,8 +972,8 @@ TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_3) {
     std::set<uint64_t> expected_filter_column_ids = {3, 4, 7, 8, 9, 10, 11};
 
     runParquetTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids);
-    runParquetTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids, true);
-
+    runParquetTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids,
+                             true);
 
     runOrcTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids);
     runOrcTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids, true);
@@ -994,8 +995,8 @@ TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_4) {
     std::set<uint64_t> expected_filter_column_ids = {};
 
     runParquetTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids);
-    runParquetTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids, true);
-
+    runParquetTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids,
+                             true);
 
     runOrcTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids);
     runOrcTestWithMethod({access_config}, expected_column_ids, expected_filter_column_ids, true);
@@ -1134,9 +1135,8 @@ TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_6) {
                 {"complex_attributes", "*", "historical_scores", "*", "components", "*",
                  "sub_scores"},
                 {"complex_attributes", "*", "hierarchical_data", "VALUES"},
-                {"complex_attributes", "*", "validation_rules", "constraints", "*",
-                 "parameters", "KEYS"}
-        };
+                {"complex_attributes", "*", "validation_rules", "constraints", "*", "parameters",
+                 "KEYS"}};
         access_config.predicate_paths = {{"complex_attributes", "*", "metadata", "version"}
 
         };
@@ -1145,10 +1145,9 @@ TEST_F(HiveReaderCreateColumnIdsTest, test_create_column_ids_6) {
 
     // column_ids should contain all necessary column IDs (set automatically deduplicates)
     // Expected IDs based on the schema: name(2), profile(3), address(4), coordinates(7), lat(8), lng(9), contact(10), email(11), hobbies(15), element(16), level(18)
-    std::set<uint64_t> expected_column_ids = {2,  36, 37, 38, 39, 40, 44, 45, 48, 49,
-                                              52, 53, 54, 61, 63, 64, 65, 66, 67,
-                                              68, 69, 70, 71, 72, 73, 74, 75, 76,
-                                              77, 79, 80, 82, 83};
+    std::set<uint64_t> expected_column_ids = {2,  36, 37, 38, 39, 40, 44, 45, 48, 49, 52,
+                                              53, 54, 61, 63, 64, 65, 66, 67, 68, 69, 70,
+                                              71, 72, 73, 74, 75, 76, 77, 79, 80, 82, 83};
     // Expected IDs based on the schema: profile(3), address(4), coordinates(7), lat(8), contact(10), email(11)
     std::set<uint64_t> expected_filter_column_ids = {36, 37, 38, 39, 40};
 
