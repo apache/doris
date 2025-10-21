@@ -227,6 +227,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.all_access_paths = read_params.all_access_paths;
     _reader_context.predicate_access_paths = read_params.predicate_access_paths;
 
+    _reader_context.condition_cache_digest = read_params.condition_cache_digest;
     return Status::OK();
 }
 

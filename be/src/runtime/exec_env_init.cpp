@@ -55,6 +55,7 @@
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/page_cache.h"
+#include "olap/rowset/segment_v2/condition_cache.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/schema_cache.h"
@@ -111,7 +112,6 @@
 #include "util/dns_cache.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
-#include "util/metrics.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
@@ -661,6 +661,13 @@ Status ExecEnv::init_mem_env() {
     // Initialize encoding info resolver
     _encoding_info_resolver = new segment_v2::EncodingInfoResolver();
 
+    // use memory limit
+    int64_t condition_cache_limit = config::condition_cache_limit * 1024L * 1024L;
+    _condition_cache = ConditionCache::create_global_cache(condition_cache_limit);
+    LOG(INFO) << "Condition cache memory limit: "
+              << PrettyPrinter::print(condition_cache_limit, TUnit::BYTES)
+              << ", origin config value: " << config::condition_cache_limit;
+
     // init orc memory pool
     _orc_memory_pool = new doris::vectorized::ORCMemoryPool();
     _arrow_memory_pool = new doris::vectorized::ArrowMemoryPool();
@@ -844,6 +851,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_inverted_index_query_cache);
     SAFE_DELETE(_inverted_index_searcher_cache);
     SAFE_DELETE(_encoding_info_resolver);
+    SAFE_DELETE(_condition_cache);
     SAFE_DELETE(_lookup_connection_cache);
     SAFE_DELETE(_schema_cache);
     SAFE_DELETE(_segment_loader);

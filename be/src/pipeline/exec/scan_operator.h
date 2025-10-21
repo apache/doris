@@ -90,6 +90,8 @@ public:
 
     Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& scanner_conjuncts);
 
+    uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
+
 protected:
     friend class vectorized::ScannerContext;
     friend class vectorized::Scanner;
@@ -125,6 +127,8 @@ protected:
 
     std::mutex _conjuncts_lock;
     RuntimeFilterConsumerHelper _helper;
+    // magic number as seed to generate hash value for condition cache
+    uint64_t _condition_cache_digest = 0;
 };
 
 template <typename LocalStateType>
@@ -171,7 +175,7 @@ class ScanLocalState : public ScanLocalStateBase {
 
     std::vector<int> get_topn_filter_source_node_ids(RuntimeState* state, bool push_down) {
         std::vector<int> result;
-        for (int id : _parent->cast<typename Derived::Parent>().topn_filter_source_node_ids) {
+        for (int id : _parent->cast<typename Derived::Parent>()._topn_filter_source_node_ids) {
             if (!state->get_query_ctx()->has_runtime_predicate(id)) {
                 // compatible with older versions fe
                 continue;
@@ -195,10 +199,7 @@ protected:
     friend class vectorized::Scanner;
 
     Status _init_profile() override;
-    virtual Status _process_conjuncts(RuntimeState* state) {
-        RETURN_IF_ERROR(_normalize_conjuncts(state));
-        return Status::OK();
-    }
+    virtual Status _process_conjuncts(RuntimeState* state) { return _normalize_conjuncts(state); }
     virtual bool _should_push_down_common_expr() { return false; }
 
     virtual bool _storage_no_merge() { return false; }
@@ -430,7 +431,10 @@ protected:
     // Record the value of the aggregate function 'count' from doris's be
     int64_t _push_down_count = -1;
     const int _parallel_tasks = 0;
-    std::vector<int> topn_filter_source_node_ids;
+
+    int _query_parallel_instance_num = 0;
+
+    std::vector<int> _topn_filter_source_node_ids;
 };
 
 #include "common/compile_check_end.h"

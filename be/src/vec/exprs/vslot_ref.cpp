@@ -56,6 +56,7 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
                 state->desc_tbl().debug_string());
     }
     _column_name = &slot_desc->col_name();
+    _column_uniq_id = slot_desc->col_unique_id();
     _column_id = desc.get_column_id(_slot_id);
     if (_column_id < 0) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -134,6 +135,14 @@ bool VSlotRef::equals(const VExpr& other) {
         return false;
     }
     return true;
+}
+
+uint64_t VSlotRef::get_digest(uint64_t seed) const {
+    if (_data_type->get_primitive_type() == TYPE_VARIANT) {
+        return 0;
+    }
+    seed = HashUtil::hash64(&_column_uniq_id, sizeof(int), seed);
+    return HashUtil::hash64(_column_name->c_str(), _column_name->size(), seed);
 }
 
 } // namespace doris::vectorized

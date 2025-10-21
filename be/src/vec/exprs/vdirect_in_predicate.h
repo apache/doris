@@ -107,6 +107,8 @@ public:
         return true;
     }
 
+    uint64_t get_digest(uint64_t seed) const override { return 0; }
+
 private:
     Status _do_execute(VExprContext* context, const Block* block, const uint8_t* __restrict filter,
                        Selector* selector, size_t count, ColumnPtr& result_column,
