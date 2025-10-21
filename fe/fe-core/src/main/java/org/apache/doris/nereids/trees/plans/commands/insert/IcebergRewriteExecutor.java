@@ -18,10 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergTransaction;
-import org.apache.doris.datasource.iceberg.rewrite.RewriteFileInfo;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.TransactionType;
@@ -48,34 +45,16 @@ public class IcebergRewriteExecutor extends BaseExternalTableInsertExecutor {
 
     @Override
     protected void beforeExec() throws UserException {
-        IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        transaction.beginRewrite((ExternalTable) table);
+        // do nothing, the transaction is not managed by IcebergRewriteExecutor
     }
 
     @Override
     protected void doBeforeCommit() throws UserException {
-        IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        this.loadedRows = transaction.getUpdateCnt();
-        transaction.finishRewrite();
+        // do nothing, the transaction is not managed by IcebergRewriteExecutor
     }
 
     @Override
     protected TransactionType transactionType() {
         return TransactionType.ICEBERG;
-    }
-
-    /**
-     * Get rewrite file information from the associated IcebergTransaction
-     *
-     * @return RewriteFileInfo containing file statistics
-     * @throws UserException if transaction is not available
-     */
-    public RewriteFileInfo getRewriteFileInfo() throws UserException {
-        IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        return transaction.getRewriteFileInfo();
-    }
-
-    public IcebergTransaction getTransaction() throws UserException {
-        return (IcebergTransaction) transactionManager.getTransaction(txnId);
     }
 }
