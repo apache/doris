@@ -1131,7 +1131,7 @@ build_abseil() {
         -DABSL_PROPAGATE_CXX_STD=ON \
         -DBUILD_SHARED_LIBS=OFF
 
-    "${CMAKE_CMD}"--build "${BUILD_DIR}" -j "${PARALLEL}"
+    "${CMAKE_CMD}" --build "${BUILD_DIR}" -j "${PARALLEL}"
     "${CMAKE_CMD}" --install "${BUILD_DIR}" --prefix "${TP_INSTALL_DIR}"
 }
 
