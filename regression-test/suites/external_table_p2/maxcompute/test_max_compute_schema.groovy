@@ -106,7 +106,7 @@ suite("test_max_compute_schema", "p2,external,maxcompute,external_remote,externa
                 "mc.access_key" = "${ak}",
                 "mc.secret_key" = "${sk}",
                 "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api",
-                "mc.project.schema.table" = "true"
+                "mc.enable.namespace.schema" = "true"
             );
         """
 
@@ -128,7 +128,7 @@ suite("test_max_compute_schema", "p2,external,maxcompute,external_remote,externa
         order_qt_show_par2 """  show partitions from analytics.web_log; """
         qt_desc  """ desc  iot.employee_salary; """
 
-        sql """ alter catalog ${mc_catalog_name} set  PROPERTIES("mc.project.schema.table" = "false"); """
+        sql """ alter catalog ${mc_catalog_name} set  PROPERTIES("mc.enable.namespace.schema" = "false"); """
         qt_show_db_2 """ show databases;"""
         sql """ use ${mc_project}; """
         order_qt_show_tb_4 """ show tables; """
@@ -136,7 +136,7 @@ suite("test_max_compute_schema", "p2,external,maxcompute,external_remote,externa
         qt_mc_old_q1 """ SELECT * FROM user_info ORDER BY id;"""
         qt_mc_old_q2 """ SELECT * FROM order_detail ORDER BY id;"""
 
-        sql """ alter catalog ${mc_catalog_name} set  PROPERTIES("mc.project.schema.table" = "true"); """
+        sql """ alter catalog ${mc_catalog_name} set  PROPERTIES("mc.enable.namespace.schema" = "true"); """
        
 
 

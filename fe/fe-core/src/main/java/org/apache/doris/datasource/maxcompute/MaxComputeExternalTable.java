@@ -175,13 +175,8 @@ public class MaxComputeExternalTable extends ExternalTable {
         makeSureInitialized();
         MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) catalog;
 
-        Table odpsTable = mcCatalog.isProjectSchemaTable()
-                ? mcCatalog.getClient().tables().get(mcCatalog.getDefaultProject(), dbName, name)
-                : mcCatalog.getClient().tables().get(dbName, name);
-
-        TableIdentifier tableIdentifier = mcCatalog.isProjectSchemaTable()
-                ? TableIdentifier.of(mcCatalog.getDefaultProject(), getDbName(), getName())
-                : TableIdentifier.of(getDbName(), getName());
+        Table odpsTable = mcCatalog.getOdpsTable(dbName, name);
+        TableIdentifier tableIdentifier = mcCatalog.getOdpsTableIdentifier(dbName, name);
 
         List<com.aliyun.odps.Column> columns = odpsTable.getSchema().getColumns();
 
