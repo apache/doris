@@ -102,7 +102,7 @@ std::optional<BlockMeta> CacheBlockMetaStore::get(const BlockMetaKey& key) {
     // This prevents race conditions where multiple threads might dequeue and requeue operations
     {
         std::lock_guard<std::mutex> lock(_queue_mutex);
-        
+
         // Iterate through the queue to find operations for this key
         while (_write_queue.try_dequeue(op)) {
             if (op.key == key_str) {
@@ -144,6 +144,10 @@ std::optional<BlockMeta> CacheBlockMetaStore::get(const BlockMetaKey& key) {
     rocksdb::Status status;
     {
         std::lock_guard<std::mutex> lock(_db_mutex);
+        if (!_db) {
+            LOG(WARNING) << "Database not initialized, cannot get key";
+            return std::nullopt;
+        }
         status = _db->Get(rocksdb::ReadOptions(), key_str, &value_str);
     }
 
@@ -269,7 +273,8 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet
                     if (rocksdb_key < pending_key) {
                         // Check if rocksdb_key has a pending DELETE operation
                         auto pending_it = _pending_ops.find(rocksdb_key);
-                        if (pending_it != _pending_ops.end() && pending_it->second.type == OperationType::DELETE) {
+                        if (pending_it != _pending_ops.end() &&
+                            pending_it->second.type == OperationType::DELETE) {
                             // Skip rocksdb_key because it's marked for deletion
                             _rocksdb_iter->Next();
                             continue;
@@ -293,7 +298,8 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet
                 } else if (!rocksdb_key.empty()) {
                     // Check if rocksdb_key has a pending DELETE operation
                     auto pending_it = _pending_ops.find(rocksdb_key);
-                    if (pending_it != _pending_ops.end() && pending_it->second.type == OperationType::DELETE) {
+                    if (pending_it != _pending_ops.end() &&
+                        pending_it->second.type == OperationType::DELETE) {
                         // Skip rocksdb_key because it's marked for deletion
                         _rocksdb_iter->Next();
                         continue;
@@ -327,7 +333,7 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet
             if (pos1 == std::string::npos) {
                 return BlockMetaKey();
             }
-            
+
             size_t pos2 = key_str.find('_', pos1 + 1);
             if (pos2 == std::string::npos) {
                 return BlockMetaKey();
@@ -354,16 +360,18 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet
                 LOG(WARNING) << "Failed to deserialize empty value string";
                 return BlockMeta();
             }
-            
+
             size_t pos1 = value_str.find(':');
             if (pos1 == std::string::npos || pos1 == 0) {
-                LOG(WARNING) << "Failed to deserialize value: " << value_str << " - missing first colon";
+                LOG(WARNING) << "Failed to deserialize value: " << value_str
+                             << " - missing first colon";
                 return BlockMeta();
             }
-            
+
             size_t pos2 = value_str.find(':', pos1 + 1);
             if (pos2 == std::string::npos || pos2 == pos1 + 1) {
-                LOG(WARNING) << "Failed to deserialize value: " << value_str << " - missing second colon";
+                LOG(WARNING) << "Failed to deserialize value: " << value_str
+                             << " - missing second colon";
                 return BlockMeta();
             }
 
@@ -371,18 +379,20 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet
                 std::string type_str = value_str.substr(0, pos1);
                 std::string size_str = value_str.substr(pos1 + 1, pos2 - pos1 - 1);
                 std::string ttl_str = value_str.substr(pos2 + 1);
-                
+
                 if (type_str.empty() || size_str.empty() || ttl_str.empty()) {
-                    LOG(WARNING) << "Failed to deserialize value: " << value_str << " - empty field(s)";
+                    LOG(WARNING) << "Failed to deserialize value: " << value_str
+                                 << " - empty field(s)";
                     return BlockMeta();
                 }
-                
+
                 int type = std::stoi(type_str);
                 size_t size = std::stoull(size_str);
                 uint64_t ttl = std::stoull(ttl_str);
                 return BlockMeta(type, size, ttl);
             } catch (const std::exception& e) {
-                LOG(WARNING) << "Failed to deserialize value: " << value_str << ", error: " << e.what();
+                LOG(WARNING) << "Failed to deserialize value: " << value_str
+                             << ", error: " << e.what();
                 return BlockMeta();
             }
         }
@@ -396,6 +406,10 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::range_get(int64_t tablet
         typename std::unordered_map<std::string, WriteOperation>::iterator _pending_iter;
     };
 
+    if (!_db) {
+        LOG(WARNING) << "Database not initialized, cannot create iterator";
+        return nullptr;
+    }
     rocksdb::Iterator* iter = _db->NewIterator(rocksdb::ReadOptions());
     return std::make_unique<MergedIterator>(iter, std::move(tablet_ops), prefix);
 }
@@ -506,7 +520,8 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
                     if (rocksdb_key < pending_key) {
                         // Check if rocksdb_key has a pending DELETE operation
                         auto pending_it = _pending_ops.find(rocksdb_key);
-                        if (pending_it != _pending_ops.end() && pending_it->second.type == OperationType::DELETE) {
+                        if (pending_it != _pending_ops.end() &&
+                            pending_it->second.type == OperationType::DELETE) {
                             // Skip rocksdb_key because it's marked for deletion
                             _rocksdb_iter->Next();
                             continue;
@@ -530,7 +545,8 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
                 } else if (!rocksdb_key.empty()) {
                     // Check if rocksdb_key has a pending DELETE operation
                     auto pending_it = _pending_ops.find(rocksdb_key);
-                    if (pending_it != _pending_ops.end() && pending_it->second.type == OperationType::DELETE) {
+                    if (pending_it != _pending_ops.end() &&
+                        pending_it->second.type == OperationType::DELETE) {
                         // Skip rocksdb_key because it's marked for deletion
                         _rocksdb_iter->Next();
                         continue;
@@ -564,7 +580,7 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
             if (pos1 == std::string::npos) {
                 return BlockMetaKey();
             }
-            
+
             size_t pos2 = key_str.find('_', pos1 + 1);
             if (pos2 == std::string::npos) {
                 return BlockMetaKey();
@@ -591,16 +607,18 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
                 LOG(WARNING) << "Failed to deserialize empty value string";
                 return BlockMeta();
             }
-            
+
             size_t pos1 = value_str.find(':');
             if (pos1 == std::string::npos || pos1 == 0) {
-                LOG(WARNING) << "Failed to deserialize value: " << value_str << " - missing first colon";
+                LOG(WARNING) << "Failed to deserialize value: " << value_str
+                             << " - missing first colon";
                 return BlockMeta();
             }
-            
+
             size_t pos2 = value_str.find(':', pos1 + 1);
             if (pos2 == std::string::npos || pos2 == pos1 + 1) {
-                LOG(WARNING) << "Failed to deserialize value: " << value_str << " - missing second colon";
+                LOG(WARNING) << "Failed to deserialize value: " << value_str
+                             << " - missing second colon";
                 return BlockMeta();
             }
 
@@ -608,18 +626,20 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
                 std::string type_str = value_str.substr(0, pos1);
                 std::string size_str = value_str.substr(pos1 + 1, pos2 - pos1 - 1);
                 std::string ttl_str = value_str.substr(pos2 + 1);
-                
+
                 if (type_str.empty() || size_str.empty() || ttl_str.empty()) {
-                    LOG(WARNING) << "Failed to deserialize value: " << value_str << " - empty field(s)";
+                    LOG(WARNING) << "Failed to deserialize value: " << value_str
+                                 << " - empty field(s)";
                     return BlockMeta();
                 }
-                
+
                 int type = std::stoi(type_str);
                 size_t size = std::stoull(size_str);
                 uint64_t ttl = std::stoull(ttl_str);
                 return BlockMeta(type, size, ttl);
             } catch (const std::exception& e) {
-                LOG(WARNING) << "Failed to deserialize value: " << value_str << ", error: " << e.what();
+                LOG(WARNING) << "Failed to deserialize value: " << value_str
+                             << ", error: " << e.what();
                 return BlockMeta();
             }
         }
@@ -632,6 +652,10 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
         typename std::unordered_map<std::string, WriteOperation>::iterator _pending_iter;
     };
 
+    if (!_db) {
+        LOG(WARNING) << "Database not initialized, cannot create iterator";
+        return nullptr;
+    }
     rocksdb::Iterator* iter = _db->NewIterator(rocksdb::ReadOptions());
     return std::make_unique<MergedFullIterator>(iter, std::move(all_ops));
 }
@@ -687,6 +711,11 @@ void CacheBlockMetaStore::async_write_worker() {
             std::lock_guard<std::mutex> lock(_db_mutex);
             rocksdb::Status status;
 
+            if (!_db) {
+                LOG(WARNING) << "Database not initialized, skipping operation";
+                continue;
+            }
+
             if (op.type == OperationType::PUT) {
                 status = _db->Put(rocksdb::WriteOptions(), op.key, op.value);
             } else if (op.type == OperationType::DELETE) {
@@ -708,6 +737,11 @@ void CacheBlockMetaStore::async_write_worker() {
     while (_write_queue.try_dequeue(op)) {
         std::lock_guard<std::mutex> lock(_db_mutex);
         rocksdb::Status status;
+
+        if (!_db) {
+            LOG(WARNING) << "Database not initialized, skipping operation";
+            continue;
+        }
 
         if (op.type == OperationType::PUT) {
             status = _db->Put(rocksdb::WriteOptions(), op.key, op.value);
@@ -754,13 +788,13 @@ BlockMeta CacheBlockMetaStore::deserialize_value(const std::string& value_str) c
         LOG(WARNING) << "Failed to deserialize empty value string";
         return BlockMeta();
     }
-    
+
     size_t pos1 = value_str.find(':');
     if (pos1 == std::string::npos || pos1 == 0) {
         LOG(WARNING) << "Failed to deserialize value: " << value_str << " - missing first colon";
         return BlockMeta();
     }
-    
+
     size_t pos2 = value_str.find(':', pos1 + 1);
     if (pos2 == std::string::npos || pos2 == pos1 + 1) {
         LOG(WARNING) << "Failed to deserialize value: " << value_str << " - missing second colon";
@@ -771,12 +805,12 @@ BlockMeta CacheBlockMetaStore::deserialize_value(const std::string& value_str) c
         std::string type_str = value_str.substr(0, pos1);
         std::string size_str = value_str.substr(pos1 + 1, pos2 - pos1 - 1);
         std::string ttl_str = value_str.substr(pos2 + 1);
-        
+
         if (type_str.empty() || size_str.empty() || ttl_str.empty()) {
             LOG(WARNING) << "Failed to deserialize value: " << value_str << " - empty field(s)";
             return BlockMeta();
         }
-        
+
         int type = std::stoi(type_str);
         size_t size = std::stoull(size_str);
         uint64_t ttl = std::stoull(ttl_str);
