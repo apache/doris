@@ -26,6 +26,7 @@ using FunctionAddWeeksV2 = FunctionDateOrDateTimeComputation<AddWeeksImpl<TYPE_D
 using FunctionAddMonthsV2 = FunctionDateOrDateTimeComputation<AddMonthsImpl<TYPE_DATEV2>>;
 using FunctionAddQuartersV2 = FunctionDateOrDateTimeComputation<AddQuartersImpl<TYPE_DATEV2>>;
 using FunctionAddYearsV2 = FunctionDateOrDateTimeComputation<AddYearsImpl<TYPE_DATEV2>>;
+using FunctionAddDaySecondV2 = FunctionDateOrDateTimeComputation<AddDaySecondImpl<TYPE_DATEV2>>;
 
 using FunctionSubDaysV2 = FunctionDateOrDateTimeComputation<SubtractDaysImpl<TYPE_DATEV2>>;
 using FunctionSubWeeksV2 = FunctionDateOrDateTimeComputation<SubtractWeeksImpl<TYPE_DATEV2>>;
@@ -53,6 +54,8 @@ using FunctionDatetimeV2AddMonths =
 using FunctionDatetimeV2AddQuarters =
         FunctionDateOrDateTimeComputation<AddQuartersImpl<TYPE_DATETIMEV2>>;
 using FunctionDatetimeV2AddYears = FunctionDateOrDateTimeComputation<AddYearsImpl<TYPE_DATETIMEV2>>;
+using FunctionDatetimeV2AddDaySecond =
+        FunctionDateOrDateTimeComputation<AddDaySecondImpl<TYPE_DATETIMEV2>>;
 
 using FunctionDatetimeV2SubMicroseconds =
         FunctionDateOrDateTimeComputation<SubtractMicrosecondsImpl<TYPE_DATETIMEV2>>;
@@ -105,6 +108,7 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionAddMonthsV2>();
     factory.register_function<FunctionAddYearsV2>();
     factory.register_function<FunctionAddQuartersV2>();
+    factory.register_function<FunctionAddDaySecondV2>();
 
     factory.register_function<FunctionDatetimeV2AddMicroseconds>();
     factory.register_function<FunctionDatetimeV2AddMilliseconds>();
@@ -116,6 +120,7 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionDatetimeV2AddMonths>();
     factory.register_function<FunctionDatetimeV2AddYears>();
     factory.register_function<FunctionDatetimeV2AddQuarters>();
+    factory.register_function<FunctionDatetimeV2AddDaySecond>();
 
     factory.register_function<FunctionSubDaysV2>();
     factory.register_function<FunctionSubMonthsV2>();

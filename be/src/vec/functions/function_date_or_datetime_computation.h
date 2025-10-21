@@ -79,6 +79,7 @@ auto date_time_add(const typename PrimitiveTypeTraits<ArgType>::DataType::FieldT
     if (!(ts_value.template date_add_interval<unit>(interval))) [[unlikely]] {
         throw_out_of_bound_date_int<ValueType, NativeType>(get_time_unit_name(unit), t, delta);
     }
+
     // here DateValueType = ResultDateValueType
     return binary_cast<ValueType, NativeType>(ts_value);
 }
@@ -96,6 +97,7 @@ auto date_time_add(const typename PrimitiveTypeTraits<ArgType>::DataType::FieldT
                  TimeUnit::UNIT == TimeUnit::DAY || TimeUnit::UNIT == TimeUnit::HOUR)           \
                         ? PrimitiveType::TYPE_INT                                               \
                         : PrimitiveType::TYPE_BIGINT;                                           \
+        static constexpr PrimitiveType IntervalPRealType = PType;                               \
         using InputNativeType = typename PrimitiveTypeTraits<PType>::DataType::FieldType;       \
         using ReturnNativeType = InputNativeType;                                               \
         using IntervalDataType = typename PrimitiveTypeTraits<IntervalPType>::DataType;         \
@@ -125,10 +127,33 @@ ADD_TIME_FUNCTION_IMPL(AddMonthsImpl, months_add, MONTH);
 ADD_TIME_FUNCTION_IMPL(AddYearsImpl, years_add, YEAR);
 
 template <PrimitiveType PType>
+struct AddDaySecondImpl {
+    static constexpr PrimitiveType ArgPType = PType;
+    static constexpr PrimitiveType ReturnType = PType;
+    static constexpr PrimitiveType IntervalPType = PrimitiveType ::TYPE_INT;
+    static constexpr PrimitiveType IntervalPRealType = TYPE_STRING;
+    using InputNativeType = typename PrimitiveTypeTraits<PType>::DataType ::FieldType;
+    using ReturnNativeType = InputNativeType;
+    using IntervalDataType = typename PrimitiveTypeTraits<IntervalPType>::DataType;
+    using IntervalNativeType = DataTypeInt32::FieldType;
+
+    static constexpr auto name = "day_second_add";
+    static constexpr auto is_nullable = false;
+    static inline ReturnNativeType execute(const InputNativeType& t, IntervalNativeType delta) {
+        return date_time_add<TimeUnit ::SECOND, PType, IntervalNativeType>(t, delta);
+    }
+    static DataTypes get_variadic_argument_types() {
+        return {std ::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
+                std ::make_shared<typename PrimitiveTypeTraits<IntervalPRealType>::DataType>()};
+    }
+};
+
+template <PrimitiveType PType>
 struct AddQuartersImpl {
     static constexpr PrimitiveType ArgPType = PType;
     static constexpr PrimitiveType ReturnType = PType;
     static constexpr PrimitiveType IntervalPType = PrimitiveType::TYPE_INT;
+    static constexpr PrimitiveType IntervalPRealType = TYPE_INT;
     using InputNativeType = typename PrimitiveTypeTraits<PType>::DataType::FieldType;
     using ReturnNativeType = InputNativeType;
 
@@ -163,60 +188,70 @@ struct SubtractIntervalImpl {
 template <PrimitiveType DateType>
 struct SubtractMicrosecondsImpl : SubtractIntervalImpl<AddMicrosecondsImpl<DateType>> {
     static constexpr PrimitiveType IntervalPType = AddMicrosecondsImpl<DateType>::IntervalPType;
+    static constexpr PrimitiveType IntervalPRealType = AddMicrosecondsImpl<DateType>::IntervalPType;
     static constexpr auto name = "microseconds_sub";
 };
 
 template <PrimitiveType DateType>
 struct SubtractMillisecondsImpl : SubtractIntervalImpl<AddMillisecondsImpl<DateType>> {
     static constexpr PrimitiveType IntervalPType = AddMillisecondsImpl<DateType>::IntervalPType;
+    static constexpr PrimitiveType IntervalPRealType = AddMicrosecondsImpl<DateType>::IntervalPType;
     static constexpr auto name = "milliseconds_sub";
 };
 
 template <PrimitiveType DateType>
 struct SubtractSecondsImpl : SubtractIntervalImpl<AddSecondsImpl<DateType>> {
     static constexpr PrimitiveType IntervalPType = AddSecondsImpl<DateType>::IntervalPType;
+    static constexpr PrimitiveType IntervalPRealType = AddMicrosecondsImpl<DateType>::IntervalPType;
     static constexpr auto name = "seconds_sub";
 };
 
 template <PrimitiveType DateType>
 struct SubtractMinutesImpl : SubtractIntervalImpl<AddMinutesImpl<DateType>> {
     static constexpr PrimitiveType IntervalPType = AddMinutesImpl<DateType>::IntervalPType;
+    static constexpr PrimitiveType IntervalPRealType = AddMicrosecondsImpl<DateType>::IntervalPType;
     static constexpr auto name = "minutes_sub";
 };
 
 template <PrimitiveType DateType>
 struct SubtractHoursImpl : SubtractIntervalImpl<AddHoursImpl<DateType>> {
     static constexpr PrimitiveType IntervalPType = AddHoursImpl<DateType>::IntervalPType;
+    static constexpr PrimitiveType IntervalPRealType = AddMicrosecondsImpl<DateType>::IntervalPType;
     static constexpr auto name = "hours_sub";
 };
 
 template <PrimitiveType DateType>
 struct SubtractDaysImpl : SubtractIntervalImpl<AddDaysImpl<DateType>> {
     static constexpr PrimitiveType IntervalPType = AddDaysImpl<DateType>::IntervalPType;
+    static constexpr PrimitiveType IntervalPRealType = AddMicrosecondsImpl<DateType>::IntervalPType;
     static constexpr auto name = "days_sub";
 };
 
 template <PrimitiveType DateType>
 struct SubtractWeeksImpl : SubtractIntervalImpl<AddWeeksImpl<DateType>> {
     static constexpr PrimitiveType IntervalPType = AddWeeksImpl<DateType>::IntervalPType;
+    static constexpr PrimitiveType IntervalPRealType = AddMicrosecondsImpl<DateType>::IntervalPType;
     static constexpr auto name = "weeks_sub";
 };
 
 template <PrimitiveType DateType>
 struct SubtractMonthsImpl : SubtractIntervalImpl<AddMonthsImpl<DateType>> {
     static constexpr PrimitiveType IntervalPType = AddMonthsImpl<DateType>::IntervalPType;
+    static constexpr PrimitiveType IntervalPRealType = AddMicrosecondsImpl<DateType>::IntervalPType;
     static constexpr auto name = "months_sub";
 };
 
 template <PrimitiveType DateType>
 struct SubtractQuartersImpl : SubtractIntervalImpl<AddQuartersImpl<DateType>> {
     static constexpr PrimitiveType IntervalPType = AddQuartersImpl<DateType>::IntervalPType;
+    static constexpr PrimitiveType IntervalPRealType = AddMicrosecondsImpl<DateType>::IntervalPType;
     static constexpr auto name = "quarters_sub";
 };
 
 template <PrimitiveType DateType>
 struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType>> {
     static constexpr PrimitiveType IntervalPType = AddYearsImpl<DateType>::IntervalPType;
+    static constexpr PrimitiveType IntervalPRealType = AddMicrosecondsImpl<DateType>::IntervalPType;
     static constexpr auto name = "years_sub";
 };
 
@@ -299,6 +334,7 @@ TIME_DIFF_FUNCTION_IMPL(MicroSecondsDiffImpl, microseconds_diff, MICROSECOND);
     struct CLASS {                                                                              \
         static constexpr PrimitiveType ArgPType = DateType;                                     \
         static constexpr PrimitiveType IntervalPType = PrimitiveType::TYPE_INT;                 \
+        static constexpr PrimitiveType IntervalPRealType = PrimitiveType::TYPE_INT;             \
         using ArgType = typename PrimitiveTypeTraits<DateType>::DataType::FieldType;            \
         using IntervalNativeType =                                                              \
                 typename PrimitiveTypeTraits<IntervalPType>::DataType::FieldType;               \
@@ -580,10 +616,43 @@ public:
             // vector-const
             if (const auto* nest_col1_const = check_and_get_column<ColumnConst>(*nest_col1)) {
                 rconst = true;
-                const auto col1_inside_const =
-                        assert_cast<const IntervalColumnType&>(nest_col1_const->get_data_column());
-                Op::vector_constant(sources->get_data(), res_col->get_data(),
-                                    col1_inside_const.get_data()[0], nullmap0, nullmap1);
+                if constexpr (Transform::IntervalPRealType == TYPE_STRING) {
+                    StringRef time_str = nest_col1_const->get_data_at(0).trim();
+                    // string format: "d h:m:s"
+                    try {
+                        // find space
+                        size_t spacePos = time_str.find_first_of(' ');
+
+                        // day
+                        int days = std::stoi(time_str.substring(0, spacePos).to_string());
+
+                        // hour:minute:second
+                        StringRef time_hour_str = time_str.substring(spacePos + 1);
+                        size_t colon1 = time_hour_str.find_first_of(':');
+
+                        StringRef time_minute_str = time_hour_str.substring(colon1 + 1);
+                        size_t colon2 = time_minute_str.find_first_of(':');
+
+                        int hours = std::stoi(time_hour_str.substring(0, colon1).to_string());
+                        int minutes =
+                                std::stoi(time_hour_str.substring(colon1 + 1, colon2 - colon1 - 1)
+                                                  .to_string());
+                        int seconds = std::stoi(time_minute_str.substring(colon2 + 1).to_string());
+
+                        int delta = days * 24 * 3600 + hours * 3600 + minutes * 60 + seconds;
+
+                        Op::vector_constant(sources->get_data(), res_col->get_data(), delta,
+                                            nullmap0, nullmap1);
+                    } catch (const std::exception& e) {
+                        return Status::InvalidArgument("failed to parse argument: {} error: {}",
+                                                       time_str.to_string(), e.what());
+                    }
+                } else {
+                    const auto col1_inside_const = assert_cast<const IntervalColumnType&>(
+                            nest_col1_const->get_data_column());
+                    Op::vector_constant(sources->get_data(), res_col->get_data(),
+                                        col1_inside_const.get_data()[0], nullmap0, nullmap1);
+                }
             } else { // vector-vector
                 const auto concrete_col1 = assert_cast<const IntervalColumnType&>(*nest_col1);
                 Op::vector_vector(sources->get_data(), concrete_col1.get_data(),
@@ -855,7 +924,8 @@ struct CurrentTimeImpl {
                                             dtv.microsecond());
             } else {
                 return Status::InvalidArgument(
-                        "The precision in function CURTIME should be between 0 and 6, but got {}",
+                        "The precision in function CURTIME should be between 0 and 6, but got "
+                        "{}",
                         precision);
             }
         } else {
