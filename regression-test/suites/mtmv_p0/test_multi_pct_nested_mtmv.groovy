@@ -25,7 +25,7 @@ suite("test_multi_pct_nested_mtmv","mtmv") {
     String tableName3 = "${suiteName}_table3"
     String mvName1 = "${suiteName}_mv1"
     String mvName2 = "${suiteName}_mv2"
-    String mvName4 = "${suiteName}_mv3"
+    String mvName3 = "${suiteName}_mv3"
     sql """drop table if exists `${tableName1}`"""
     sql """drop table if exists `${tableName2}`"""
     sql """drop table if exists `${tableName3}`"""
