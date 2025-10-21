@@ -34,15 +34,15 @@ namespace vectorized {
 
 class HiveOrcNestedColumnUtils {
 public:
-    static std::set<uint64_t> extract_schema_and_columns_efficiently(
-            const orc::Type* orc_type,
-            const std::unordered_map<std::string, std::vector<TColumnNameAccessPath>>&
-                    paths_by_table_col_name);
+//     static std::set<uint64_t> extract_schema_and_columns_efficiently(
+//             const orc::Type* orc_type,
+//             const std::unordered_map<std::string, std::vector<TColumnNameAccessPath>>&
+//                     paths_by_table_col_name);
 
-    static std::set<uint64_t> extract_schema_and_columns_efficiently_by_top_level_col_index(
-            const orc::Type* orc_type,
-            const std::unordered_map<uint64_t, std::vector<TColumnNameAccessPath>>&
-                    paths_by_table_col_index);
+//     static std::set<uint64_t> extract_schema_and_columns_efficiently_by_top_level_col_index(
+//             const orc::Type* orc_type,
+//             const std::unordered_map<uint64_t, std::vector<TColumnNameAccessPath>>&
+//                     paths_by_table_col_index);
 
     static void extract_nested_column_ids_efficiently(
             const orc::Type& type, const std::vector<TColumnNameAccessPath>& paths,
@@ -59,9 +59,9 @@ public:
     //             const std::unordered_map<int, std::vector<std::vector<int>>>& paths_by_table_index);
 
 private:
-    static void _extract_nested_column_ids_efficiently(
-            const orc::Type& type, const std::vector<TColumnNameAccessPath>& paths,
-            std::set<uint64_t>& column_ids);
+//     static void _extract_nested_column_ids_efficiently(
+//             const orc::Type& type, const std::vector<TColumnNameAccessPath>& paths,
+//             std::set<uint64_t>& column_ids);
 
     //     static std::shared_ptr<TableSchemaChangeHelper::Node> _build_table_schema_node_from_type(
     //             const orc::Type& type,

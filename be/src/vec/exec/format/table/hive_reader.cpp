@@ -97,252 +97,252 @@ Status HiveOrcReader::init_reader(
                                    table_info_node_ptr, column_ids, filter_column_ids);
 }
 
-ColumnIdResult HiveOrcReader::_create_column_ids(const orc::Type* orc_type,
-                                                 const TupleDescriptor* tuple_descriptor) {
-    std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
+// ColumnIdResult HiveOrcReader::_create_column_ids(const orc::Type* orc_type,
+//                                                  const TupleDescriptor* tuple_descriptor) {
+//     std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
 
-    if (!orc_type) {
-        return ColumnIdResult();
-    }
+//     if (!orc_type) {
+//         return ColumnIdResult();
+//     }
 
-    // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
-    std::unordered_map<std::string, std::vector<TColumnNameAccessPath>> paths_by_table_col_name;
-    std::unordered_map<std::string, std::vector<TColumnNameAccessPath>>
-            predicate_paths_by_table_col_name;
+//     // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
+//     std::unordered_map<std::string, std::vector<TColumnNameAccessPath>> paths_by_table_col_name;
+//     std::unordered_map<std::string, std::vector<TColumnNameAccessPath>>
+//             predicate_paths_by_table_col_name;
 
-    for (const auto* slot : tuple_descriptor->slots()) {
-        const auto& all_column_access_paths = slot->all_column_access_paths();
-        // 普通字段应该没有 all_column_access_paths
-        if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
-             slot->col_type() != TYPE_MAP)) {
-            DCHECK(!all_column_access_paths.__isset.name_access_paths ||
-                   all_column_access_paths.name_access_paths.empty());
-            TColumnNameAccessPath empty_path;
-            empty_path.path = std::vector<std::string>();
-            paths_by_table_col_name[slot->col_name()].push_back(empty_path);
-            continue;
-        }
+//     for (const auto* slot : tuple_descriptor->slots()) {
+//         const auto& all_column_access_paths = slot->all_column_access_paths();
+//         // 普通字段应该没有 all_column_access_paths
+//         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
+//              slot->col_type() != TYPE_MAP)) {
+//             DCHECK(!all_column_access_paths.__isset.name_access_paths ||
+//                    all_column_access_paths.name_access_paths.empty());
+//             TColumnNameAccessPath empty_path;
+//             empty_path.path = std::vector<std::string>();
+//             paths_by_table_col_name[slot->col_name()].push_back(empty_path);
+//             continue;
+//         }
 
-        // 嵌套字段里面如果有 all_column_access_path，说明里面没有 struct。
-        if (all_column_access_paths.__isset.name_access_paths &&
-            !all_column_access_paths.name_access_paths.empty()) {
-            // 处理 all_column_access_paths，用于生成 column_ids
-            for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
-                DCHECK(name_access_path.path.size() >= 1 &&
-                       name_access_path.path[0] == slot->col_name());
-                if (!name_access_path.path.empty()) {
-                    TColumnNameAccessPath remaining;
-                    if (name_access_path.path.size() > 1) {
-                        remaining.path.assign(name_access_path.path.begin() + 1,
-                                              name_access_path.path.end());
-                    }
-                    paths_by_table_col_name[slot->col_name()].push_back(std::move(remaining));
-                }
-            }
-        } else { // 嵌套字段里面没有 all_column_access_path，说明里面没有 struct，直接读取整个字段
-            // TColumnNameAccessPath empty_path;
-            // empty_path.path = std::vector<std::string>();
-            // paths_by_table_col_name[slot->col_name()].push_back(empty_path);
-        }
+//         // 嵌套字段里面如果有 all_column_access_path，说明里面没有 struct。
+//         if (all_column_access_paths.__isset.name_access_paths &&
+//             !all_column_access_paths.name_access_paths.empty()) {
+//             // 处理 all_column_access_paths，用于生成 column_ids
+//             for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
+//                 DCHECK(name_access_path.path.size() >= 1 &&
+//                        name_access_path.path[0] == slot->col_name());
+//                 if (!name_access_path.path.empty()) {
+//                     TColumnNameAccessPath remaining;
+//                     if (name_access_path.path.size() > 1) {
+//                         remaining.path.assign(name_access_path.path.begin() + 1,
+//                                               name_access_path.path.end());
+//                     }
+//                     paths_by_table_col_name[slot->col_name()].push_back(std::move(remaining));
+//                 }
+//             }
+//         } else { // 嵌套字段里面没有 all_column_access_path，说明里面没有 struct，直接读取整个字段
+//             // TColumnNameAccessPath empty_path;
+//             // empty_path.path = std::vector<std::string>();
+//             // paths_by_table_col_name[slot->col_name()].push_back(empty_path);
+//         }
 
-        if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
-             slot->col_type() != TYPE_MAP)) {
-            if (slot->is_predicate()) {
-                TColumnNameAccessPath empty_path;
-                empty_path.path = std::vector<std::string>();
-                predicate_paths_by_table_col_name[slot->col_name()].push_back(empty_path);
-                continue;
-            } else {
-                // Skip non-predicate primitive type slots
-                continue;
-            }
-        }
+//         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
+//              slot->col_type() != TYPE_MAP)) {
+//             if (slot->is_predicate()) {
+//                 TColumnNameAccessPath empty_path;
+//                 empty_path.path = std::vector<std::string>();
+//                 predicate_paths_by_table_col_name[slot->col_name()].push_back(empty_path);
+//                 continue;
+//             } else {
+//                 // Skip non-predicate primitive type slots
+//                 continue;
+//             }
+//         }
 
-        const auto& predicate_column_access_paths = slot->predicate_column_access_paths();
+//         const auto& predicate_column_access_paths = slot->predicate_column_access_paths();
 
-        if ((!predicate_column_access_paths.__isset.name_access_paths) ||
-            predicate_column_access_paths.name_access_paths.empty()) {
-            continue;
-        }
+//         if ((!predicate_column_access_paths.__isset.name_access_paths) ||
+//             predicate_column_access_paths.name_access_paths.empty()) {
+//             continue;
+//         }
 
-        for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
-            DCHECK(name_access_path.path.size() >= 1 &&
-                   name_access_path.path[0] == slot->col_name());
-            if (!name_access_path.path.empty()) {
-                // std::string first_table_col_name = name_access_path.path[0];
-                TColumnNameAccessPath remaining;
-                if (name_access_path.path.size() > 1) {
-                    remaining.path.assign(name_access_path.path.begin() + 1,
-                                          name_access_path.path.end());
-                }
-                predicate_paths_by_table_col_name[slot->col_name()].push_back(std::move(remaining));
-            }
-        }
-    }
+//         for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
+//             DCHECK(name_access_path.path.size() >= 1 &&
+//                    name_access_path.path[0] == slot->col_name());
+//             if (!name_access_path.path.empty()) {
+//                 // std::string first_table_col_name = name_access_path.path[0];
+//                 TColumnNameAccessPath remaining;
+//                 if (name_access_path.path.size() > 1) {
+//                     remaining.path.assign(name_access_path.path.begin() + 1,
+//                                           name_access_path.path.end());
+//                 }
+//                 predicate_paths_by_table_col_name[slot->col_name()].push_back(std::move(remaining));
+//             }
+//         }
+//     }
 
-    auto column_ids = HiveOrcNestedColumnUtils::extract_schema_and_columns_efficiently(
-            orc_type, paths_by_table_col_name);
+//     auto column_ids = HiveOrcNestedColumnUtils::extract_schema_and_columns_efficiently(
+//             orc_type, paths_by_table_col_name);
 
-    // Use the new merged efficient method
-    auto filter_column_ids = HiveOrcNestedColumnUtils::extract_schema_and_columns_efficiently(
-            orc_type, predicate_paths_by_table_col_name);
+//     // Use the new merged efficient method
+//     auto filter_column_ids = HiveOrcNestedColumnUtils::extract_schema_and_columns_efficiently(
+//             orc_type, predicate_paths_by_table_col_name);
 
-    return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
-}
+//     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
+// }
 
-ColumnIdResult HiveOrcReader::_create_column_ids_by_top_level_col_index(
-        const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor) {
-    std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
+// ColumnIdResult HiveOrcReader::_create_column_ids_by_top_level_col_index(
+//         const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor) {
+//     std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
 
-    if (!orc_type) {
-        return ColumnIdResult();
-    }
+//     if (!orc_type) {
+//         return ColumnIdResult();
+//     }
 
-    // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
-    std::unordered_map<uint64_t, std::vector<TColumnNameAccessPath>> paths_by_table_col_index;
-    std::unordered_map<uint64_t, std::vector<TColumnNameAccessPath>> predicate_paths_by_table_col_index;
+//     // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
+//     std::unordered_map<uint64_t, std::vector<TColumnNameAccessPath>> paths_by_table_col_index;
+//     std::unordered_map<uint64_t, std::vector<TColumnNameAccessPath>> predicate_paths_by_table_col_index;
 
-    for (const auto* slot : tuple_descriptor->slots()) {
-        const auto& all_column_access_paths = slot->all_column_access_paths();
-        if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
-             slot->col_type() != TYPE_MAP)) {
-            TColumnNameAccessPath empty_path;
-            empty_path.path = std::vector<std::string>();
-            paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
-            continue;
-        }
+//     for (const auto* slot : tuple_descriptor->slots()) {
+//         const auto& all_column_access_paths = slot->all_column_access_paths();
+//         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
+//              slot->col_type() != TYPE_MAP)) {
+//             TColumnNameAccessPath empty_path;
+//             empty_path.path = std::vector<std::string>();
+//             paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
+//             continue;
+//         }
 
-        // 处理 all_column_access_paths，用于生成 column_ids
-        // 新规则：all_column_access_paths 包含顶层字段名字时表示访问顶层字段（读取所有子字段）
-        if ((!all_column_access_paths.__isset.name_access_paths) ||
-            all_column_access_paths.name_access_paths.empty()) {
-            // 如果路径为空，创建一个空路径表示读取整个字段
-            // TColumnNameAccessPath empty_path;
-            // empty_path.path = std::vector<std::string>();
-            // paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
-        } else {
-            // 检查是否只包含顶层字段名（表示读取所有子字段）
-            // bool is_top_level_access = false;
-            // for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
-            //     if (name_access_path.path.size() == 1 &&
-            //         name_access_path.path[0] == slot->col_name()) {
-            //         // 顶层字段访问：创建空路径表示读取所有子字段
-            //         TColumnNameAccessPath empty_path;
-            //         empty_path.path = std::vector<std::string>();
-            //         paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
-            //         is_top_level_access = true;
-            //         break;
-            //     }
-            // }
+//         // 处理 all_column_access_paths，用于生成 column_ids
+//         // 新规则：all_column_access_paths 包含顶层字段名字时表示访问顶层字段（读取所有子字段）
+//         if ((!all_column_access_paths.__isset.name_access_paths) ||
+//             all_column_access_paths.name_access_paths.empty()) {
+//             // 如果路径为空，创建一个空路径表示读取整个字段
+//             // TColumnNameAccessPath empty_path;
+//             // empty_path.path = std::vector<std::string>();
+//             // paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
+//         } else {
+//             // 检查是否只包含顶层字段名（表示读取所有子字段）
+//             // bool is_top_level_access = false;
+//             // for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
+//             //     if (name_access_path.path.size() == 1 &&
+//             //         name_access_path.path[0] == slot->col_name()) {
+//             //         // 顶层字段访问：创建空路径表示读取所有子字段
+//             //         TColumnNameAccessPath empty_path;
+//             //         empty_path.path = std::vector<std::string>();
+//             //         paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
+//             //         is_top_level_access = true;
+//             //         break;
+//             //     }
+//             // }
 
-            // if (!is_top_level_access) {
-            //     // 非顶层访问，添加所有指定的路径
-            //     for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
-            //         if (!name_access_path.path.empty()) {
-            //             // std::string first_table_col_name = name_access_path.path[0];
-            //             TColumnNameAccessPath remaining;
-            //             if (name_access_path.path.size() > 1) {
-            //                 remaining.path.assign(name_access_path.path.begin() + 1, name_access_path.path.end());
-            //             }
-            //             paths_by_table_col_index[slot->col_pos()].push_back(std::move(remaining));
-            //         }
-            //     }
-            // }
+//             // if (!is_top_level_access) {
+//             //     // 非顶层访问，添加所有指定的路径
+//             //     for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
+//             //         if (!name_access_path.path.empty()) {
+//             //             // std::string first_table_col_name = name_access_path.path[0];
+//             //             TColumnNameAccessPath remaining;
+//             //             if (name_access_path.path.size() > 1) {
+//             //                 remaining.path.assign(name_access_path.path.begin() + 1, name_access_path.path.end());
+//             //             }
+//             //             paths_by_table_col_index[slot->col_pos()].push_back(std::move(remaining));
+//             //         }
+//             //     }
+//             // }
 
-            for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
-                DCHECK(name_access_path.path.size() >= 1 &&
-                       name_access_path.path[0] == slot->col_name());
-                if (!name_access_path.path.empty()) {
-                    // std::string first_table_col_name = name_access_path.path[0];
-                    TColumnNameAccessPath remaining;
-                    if (name_access_path.path.size() > 1) {
-                        remaining.path.assign(name_access_path.path.begin() + 1,
-                                              name_access_path.path.end());
-                    }
-                    paths_by_table_col_index[slot->col_pos()].push_back(std::move(remaining));
-                }
-            }
-        }
+//             for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
+//                 DCHECK(name_access_path.path.size() >= 1 &&
+//                        name_access_path.path[0] == slot->col_name());
+//                 if (!name_access_path.path.empty()) {
+//                     // std::string first_table_col_name = name_access_path.path[0];
+//                     TColumnNameAccessPath remaining;
+//                     if (name_access_path.path.size() > 1) {
+//                         remaining.path.assign(name_access_path.path.begin() + 1,
+//                                               name_access_path.path.end());
+//                     }
+//                     paths_by_table_col_index[slot->col_pos()].push_back(std::move(remaining));
+//                 }
+//             }
+//         }
 
-        if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
-             slot->col_type() != TYPE_MAP)) {
-            if (slot->is_predicate()) {
-                TColumnNameAccessPath empty_path;
-                empty_path.path = std::vector<std::string>();
-                predicate_paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
-                continue;
-            } else {
-                // Skip non-predicate primitive type slots
-                continue;
-            }
-        }
+//         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
+//              slot->col_type() != TYPE_MAP)) {
+//             if (slot->is_predicate()) {
+//                 TColumnNameAccessPath empty_path;
+//                 empty_path.path = std::vector<std::string>();
+//                 predicate_paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
+//                 continue;
+//             } else {
+//                 // Skip non-predicate primitive type slots
+//                 continue;
+//             }
+//         }
 
-        const auto& predicate_column_access_paths = slot->predicate_column_access_paths();
-        // 处理 all_column_access_paths，用于生成 column_ids
-        // 新规则：all_column_access_paths 包含顶层字段名字时表示访问顶层字段（读取所有子字段）
-        if ((!predicate_column_access_paths.__isset.name_access_paths) ||
-            predicate_column_access_paths.name_access_paths.empty()) {
-            // 如果路径为空，创建一个空路径表示读取整个字段
-            // TColumnNameAccessPath empty_path;
-            // empty_path.path = std::vector<std::string>();
-            // predicate_paths_by_table_col_index[slot->col_name()].push_back(empty_path);
-        } else {
-            // 检查是否只包含顶层字段名（表示读取所有子字段）
-            // bool is_top_level_access = false;
-            // for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
-            //     if (name_access_path.path.size() == 1 &&
-            //         name_access_path.path[0] == slot->col_name()) {
-            //         // 顶层字段访问：创建空路径表示读取所有子字段
-            //         TColumnNameAccessPath empty_path;
-            //         empty_path.path = std::vector<std::string>();
-            //         predicate_paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
-            //         is_top_level_access = true;
-            //         break;
-            //     }
-            // }
+//         const auto& predicate_column_access_paths = slot->predicate_column_access_paths();
+//         // 处理 all_column_access_paths，用于生成 column_ids
+//         // 新规则：all_column_access_paths 包含顶层字段名字时表示访问顶层字段（读取所有子字段）
+//         if ((!predicate_column_access_paths.__isset.name_access_paths) ||
+//             predicate_column_access_paths.name_access_paths.empty()) {
+//             // 如果路径为空，创建一个空路径表示读取整个字段
+//             // TColumnNameAccessPath empty_path;
+//             // empty_path.path = std::vector<std::string>();
+//             // predicate_paths_by_table_col_index[slot->col_name()].push_back(empty_path);
+//         } else {
+//             // 检查是否只包含顶层字段名（表示读取所有子字段）
+//             // bool is_top_level_access = false;
+//             // for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
+//             //     if (name_access_path.path.size() == 1 &&
+//             //         name_access_path.path[0] == slot->col_name()) {
+//             //         // 顶层字段访问：创建空路径表示读取所有子字段
+//             //         TColumnNameAccessPath empty_path;
+//             //         empty_path.path = std::vector<std::string>();
+//             //         predicate_paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
+//             //         is_top_level_access = true;
+//             //         break;
+//             //     }
+//             // }
 
-            // if (!is_top_level_access) {
-            //     // 非顶层访问，添加所有指定的路径
-            //     for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
-            //         if (!name_access_path.path.empty()) {
-            //             // std::string first_table_col_name = name_access_path.path[0];
-            //             TColumnNameAccessPath remaining;
-            //             if (name_access_path.path.size() > 1) {
-            //                 remaining.path.assign(name_access_path.path.begin() + 1, name_access_path.path.end());
-            //             }
-            //             predicate_paths_by_table_col_index[slot->col_pos()].push_back(std::move(remaining));
-            //         }
-            //     }
-            // }
+//             // if (!is_top_level_access) {
+//             //     // 非顶层访问，添加所有指定的路径
+//             //     for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
+//             //         if (!name_access_path.path.empty()) {
+//             //             // std::string first_table_col_name = name_access_path.path[0];
+//             //             TColumnNameAccessPath remaining;
+//             //             if (name_access_path.path.size() > 1) {
+//             //                 remaining.path.assign(name_access_path.path.begin() + 1, name_access_path.path.end());
+//             //             }
+//             //             predicate_paths_by_table_col_index[slot->col_pos()].push_back(std::move(remaining));
+//             //         }
+//             //     }
+//             // }
 
-            for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
-                DCHECK(name_access_path.path.size() >= 1 &&
-                       name_access_path.path[0] == slot->col_name());
-                if (!name_access_path.path.empty()) {
-                    // std::string first_table_col_name = name_access_path.path[0];
-                    TColumnNameAccessPath remaining;
-                    if (name_access_path.path.size() > 1) {
-                        remaining.path.assign(name_access_path.path.begin() + 1,
-                                              name_access_path.path.end());
-                    }
-                    predicate_paths_by_table_col_index[slot->col_pos()].push_back(
-                            std::move(remaining));
-                }
-            }
-        }
-    }
+//             for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
+//                 DCHECK(name_access_path.path.size() >= 1 &&
+//                        name_access_path.path[0] == slot->col_name());
+//                 if (!name_access_path.path.empty()) {
+//                     // std::string first_table_col_name = name_access_path.path[0];
+//                     TColumnNameAccessPath remaining;
+//                     if (name_access_path.path.size() > 1) {
+//                         remaining.path.assign(name_access_path.path.begin() + 1,
+//                                               name_access_path.path.end());
+//                     }
+//                     predicate_paths_by_table_col_index[slot->col_pos()].push_back(
+//                             std::move(remaining));
+//                 }
+//             }
+//         }
+//     }
 
-    auto column_ids =
-            HiveOrcNestedColumnUtils::extract_schema_and_columns_efficiently_by_top_level_col_index(
-                    orc_type, paths_by_table_col_index);
+//     auto column_ids =
+//             HiveOrcNestedColumnUtils::extract_schema_and_columns_efficiently_by_top_level_col_index(
+//                     orc_type, paths_by_table_col_index);
 
-    // Use the new merged efficient method
-    auto filter_column_ids =
-            HiveOrcNestedColumnUtils::extract_schema_and_columns_efficiently_by_top_level_col_index(
-                    orc_type, predicate_paths_by_table_col_index);
+//     // Use the new merged efficient method
+//     auto filter_column_ids =
+//             HiveOrcNestedColumnUtils::extract_schema_and_columns_efficiently_by_top_level_col_index(
+//                     orc_type, predicate_paths_by_table_col_index);
 
-    return ColumnIdResult {std::move(column_ids), std::move(filter_column_ids)};
-}
+//     return ColumnIdResult {std::move(column_ids), std::move(filter_column_ids)};
+// }
 
 ColumnIdResult HiveOrcReader::_create_column_ids2(const orc::Type* orc_type,
                                                   const TupleDescriptor* tuple_descriptor) {
@@ -626,160 +626,160 @@ Status HiveParquetReader::init_reader(
             slot_id_to_filter_conjuncts, table_info_node_ptr, true, column_ids, filter_column_ids);
 }
 
-ColumnIdResult HiveParquetReader::_create_column_ids(const FieldDescriptor* field_desc,
-                                                     const TupleDescriptor* tuple_descriptor) {
-    std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
+// ColumnIdResult HiveParquetReader::_create_column_ids(const FieldDescriptor* field_desc,
+//                                                      const TupleDescriptor* tuple_descriptor) {
+//     std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
 
-    if (!field_desc) {
-        return ColumnIdResult();
-    }
+//     if (!field_desc) {
+//         return ColumnIdResult();
+//     }
 
-    // First, assign column IDs to the field descriptor
-    auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
-    mutable_field_desc->assign_ids();
+//     // First, assign column IDs to the field descriptor
+//     auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
+//     mutable_field_desc->assign_ids();
 
-    // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
-    std::unordered_map<std::string, std::vector<TColumnNameAccessPath>> paths_by_table_col_name;
-    std::unordered_map<std::string, std::vector<TColumnNameAccessPath>>
-            predicate_paths_by_table_col_name;
+//     // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
+//     std::unordered_map<std::string, std::vector<TColumnNameAccessPath>> paths_by_table_col_name;
+//     std::unordered_map<std::string, std::vector<TColumnNameAccessPath>>
+//             predicate_paths_by_table_col_name;
 
-    for (const auto* slot : tuple_descriptor->slots()) {
-        const auto& all_column_access_paths = slot->all_column_access_paths();
-        if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
-             slot->col_type() != TYPE_MAP)) {
-            TColumnNameAccessPath empty_path;
-            empty_path.path = std::vector<std::string>();
-            paths_by_table_col_name[slot->col_name()].push_back(empty_path);
-            continue;
-        }
+//     for (const auto* slot : tuple_descriptor->slots()) {
+//         const auto& all_column_access_paths = slot->all_column_access_paths();
+//         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
+//              slot->col_type() != TYPE_MAP)) {
+//             TColumnNameAccessPath empty_path;
+//             empty_path.path = std::vector<std::string>();
+//             paths_by_table_col_name[slot->col_name()].push_back(empty_path);
+//             continue;
+//         }
 
-        // 处理 all_column_access_paths，用于生成 column_ids
-        // 新规则：all_column_access_paths 包含顶层字段名字时表示访问顶层字段（读取所有子字段）
-        if ((!all_column_access_paths.__isset.name_access_paths) ||
-            all_column_access_paths.name_access_paths.empty()) {
-            // 如果路径为空，创建一个空路径表示读取整个字段
-            // TColumnNameAccessPath empty_path;
-            // empty_path.path = std::vector<std::string>();
-            // paths_by_table_col_name[slot->col_name()].push_back(empty_path);
-        } else {
-            // 检查是否只包含顶层字段名（表示读取所有子字段）
-            // bool is_top_level_access = false;
-            // for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
-            //     if (name_access_path.path.size() == 1 &&
-            //         name_access_path.path[0] == slot->col_name()) {
-            //         // 顶层字段访问：创建空路径表示读取所有子字段
-            //         TColumnNameAccessPath empty_path;
-            //         empty_path.path = std::vector<std::string>();
-            //         paths_by_table_col_name[slot->col_name()].push_back(empty_path);
-            //         is_top_level_access = true;
-            //         break;
-            //     }
-            // }
+//         // 处理 all_column_access_paths，用于生成 column_ids
+//         // 新规则：all_column_access_paths 包含顶层字段名字时表示访问顶层字段（读取所有子字段）
+//         if ((!all_column_access_paths.__isset.name_access_paths) ||
+//             all_column_access_paths.name_access_paths.empty()) {
+//             // 如果路径为空，创建一个空路径表示读取整个字段
+//             // TColumnNameAccessPath empty_path;
+//             // empty_path.path = std::vector<std::string>();
+//             // paths_by_table_col_name[slot->col_name()].push_back(empty_path);
+//         } else {
+//             // 检查是否只包含顶层字段名（表示读取所有子字段）
+//             // bool is_top_level_access = false;
+//             // for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
+//             //     if (name_access_path.path.size() == 1 &&
+//             //         name_access_path.path[0] == slot->col_name()) {
+//             //         // 顶层字段访问：创建空路径表示读取所有子字段
+//             //         TColumnNameAccessPath empty_path;
+//             //         empty_path.path = std::vector<std::string>();
+//             //         paths_by_table_col_name[slot->col_name()].push_back(empty_path);
+//             //         is_top_level_access = true;
+//             //         break;
+//             //     }
+//             // }
 
-            // if (!is_top_level_access) {
-            //     // 非顶层访问，添加所有指定的路径
-            //     for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
-            //         if (!name_access_path.path.empty()) {
-            //             // std::string first_table_col_name = name_access_path.path[0];
-            //             TColumnNameAccessPath remaining;
-            //             if (name_access_path.path.size() > 1) {
-            //                 remaining.path.assign(name_access_path.path.begin() + 1, name_access_path.path.end());
-            //             }
-            //             paths_by_table_col_name[slot->col_name()].push_back(std::move(remaining));
-            //         }
-            //     }
-            // }
+//             // if (!is_top_level_access) {
+//             //     // 非顶层访问，添加所有指定的路径
+//             //     for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
+//             //         if (!name_access_path.path.empty()) {
+//             //             // std::string first_table_col_name = name_access_path.path[0];
+//             //             TColumnNameAccessPath remaining;
+//             //             if (name_access_path.path.size() > 1) {
+//             //                 remaining.path.assign(name_access_path.path.begin() + 1, name_access_path.path.end());
+//             //             }
+//             //             paths_by_table_col_name[slot->col_name()].push_back(std::move(remaining));
+//             //         }
+//             //     }
+//             // }
 
-            for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
-                DCHECK(name_access_path.path[0] == slot->col_name());
-                if (!name_access_path.path.empty()) {
-                    // std::string first_table_col_name = name_access_path.path[0];
-                    TColumnNameAccessPath remaining;
-                    if (name_access_path.path.size() > 1) {
-                        remaining.path.assign(name_access_path.path.begin() + 1,
-                                              name_access_path.path.end());
-                    }
-                    paths_by_table_col_name[slot->col_name()].push_back(std::move(remaining));
-                }
-            }
-        }
+//             for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
+//                 DCHECK(name_access_path.path[0] == slot->col_name());
+//                 if (!name_access_path.path.empty()) {
+//                     // std::string first_table_col_name = name_access_path.path[0];
+//                     TColumnNameAccessPath remaining;
+//                     if (name_access_path.path.size() > 1) {
+//                         remaining.path.assign(name_access_path.path.begin() + 1,
+//                                               name_access_path.path.end());
+//                     }
+//                     paths_by_table_col_name[slot->col_name()].push_back(std::move(remaining));
+//                 }
+//             }
+//         }
 
-        if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
-             slot->col_type() != TYPE_MAP)) {
-            if (slot->is_predicate()) {
-                TColumnNameAccessPath empty_path;
-                empty_path.path = std::vector<std::string>();
-                predicate_paths_by_table_col_name[slot->col_name()].push_back(empty_path);
-                continue;
-            } else {
-                continue;
-            }
-        }
+//         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
+//              slot->col_type() != TYPE_MAP)) {
+//             if (slot->is_predicate()) {
+//                 TColumnNameAccessPath empty_path;
+//                 empty_path.path = std::vector<std::string>();
+//                 predicate_paths_by_table_col_name[slot->col_name()].push_back(empty_path);
+//                 continue;
+//             } else {
+//                 continue;
+//             }
+//         }
 
-        const auto& predicate_column_access_paths = slot->predicate_column_access_paths();
-        // 处理 all_column_access_paths，用于生成 column_ids
-        // 新规则：all_column_access_paths 包含顶层字段名字时表示访问顶层字段（读取所有子字段）
-        if ((!predicate_column_access_paths.__isset.name_access_paths) ||
-            predicate_column_access_paths.name_access_paths.empty()) {
-            // 如果路径为空，创建一个空路径表示读取整个字段
-            // TColumnNameAccessPath empty_path;
-            // empty_path.path = std::vector<std::string>();
-            // predicate_paths_by_table_col_name[slot->col_name()].push_back(empty_path);
-        } else {
-            // // 检查是否只包含顶层字段名（表示读取所有子字段）
-            // bool is_top_level_access = false;
-            // for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
-            //     if (name_access_path.path.size() == 1 &&
-            //         name_access_path.path[0] == slot->col_name()) {
-            //         // 顶层字段访问：创建空路径表示读取所有子字段
-            //         TColumnNameAccessPath empty_path;
-            //         empty_path.path = std::vector<std::string>();
-            //         predicate_paths_by_table_col_name[slot->col_name()].push_back(empty_path);
-            //         is_top_level_access = true;
-            //         break;
-            //     }
-            // }
+//         const auto& predicate_column_access_paths = slot->predicate_column_access_paths();
+//         // 处理 all_column_access_paths，用于生成 column_ids
+//         // 新规则：all_column_access_paths 包含顶层字段名字时表示访问顶层字段（读取所有子字段）
+//         if ((!predicate_column_access_paths.__isset.name_access_paths) ||
+//             predicate_column_access_paths.name_access_paths.empty()) {
+//             // 如果路径为空，创建一个空路径表示读取整个字段
+//             // TColumnNameAccessPath empty_path;
+//             // empty_path.path = std::vector<std::string>();
+//             // predicate_paths_by_table_col_name[slot->col_name()].push_back(empty_path);
+//         } else {
+//             // // 检查是否只包含顶层字段名（表示读取所有子字段）
+//             // bool is_top_level_access = false;
+//             // for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
+//             //     if (name_access_path.path.size() == 1 &&
+//             //         name_access_path.path[0] == slot->col_name()) {
+//             //         // 顶层字段访问：创建空路径表示读取所有子字段
+//             //         TColumnNameAccessPath empty_path;
+//             //         empty_path.path = std::vector<std::string>();
+//             //         predicate_paths_by_table_col_name[slot->col_name()].push_back(empty_path);
+//             //         is_top_level_access = true;
+//             //         break;
+//             //     }
+//             // }
 
-            // if (!is_top_level_access) {
-            //     // 非顶层访问，添加所有指定的路径
-            //     for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
-            //         if (!name_access_path.path.empty()) {
-            //             // std::string first_table_col_name = name_access_path.path[0];
-            //             TColumnNameAccessPath remaining;
-            //             if (name_access_path.path.size() > 1) {
-            //                 remaining.path.assign(name_access_path.path.begin() + 1, name_access_path.path.end());
-            //             }
-            //             predicate_paths_by_table_col_name[slot->col_name()].push_back(std::move(remaining));
-            //         }
-            //     }
-            // }
+//             // if (!is_top_level_access) {
+//             //     // 非顶层访问，添加所有指定的路径
+//             //     for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
+//             //         if (!name_access_path.path.empty()) {
+//             //             // std::string first_table_col_name = name_access_path.path[0];
+//             //             TColumnNameAccessPath remaining;
+//             //             if (name_access_path.path.size() > 1) {
+//             //                 remaining.path.assign(name_access_path.path.begin() + 1, name_access_path.path.end());
+//             //             }
+//             //             predicate_paths_by_table_col_name[slot->col_name()].push_back(std::move(remaining));
+//             //         }
+//             //     }
+//             // }
 
-            for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
-                DCHECK(name_access_path.path.size() >= 1 &&
-                       name_access_path.path[0] == slot->col_name());
-                if (!name_access_path.path.empty()) {
-                    // std::string first_table_col_name = name_access_path.path[0];
-                    TColumnNameAccessPath remaining;
-                    if (name_access_path.path.size() > 1) {
-                        remaining.path.assign(name_access_path.path.begin() + 1,
-                                              name_access_path.path.end());
-                    }
-                    predicate_paths_by_table_col_name[slot->col_name()].push_back(
-                            std::move(remaining));
-                }
-            }
-        }
-    }
+//             for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
+//                 DCHECK(name_access_path.path.size() >= 1 &&
+//                        name_access_path.path[0] == slot->col_name());
+//                 if (!name_access_path.path.empty()) {
+//                     // std::string first_table_col_name = name_access_path.path[0];
+//                     TColumnNameAccessPath remaining;
+//                     if (name_access_path.path.size() > 1) {
+//                         remaining.path.assign(name_access_path.path.begin() + 1,
+//                                               name_access_path.path.end());
+//                     }
+//                     predicate_paths_by_table_col_name[slot->col_name()].push_back(
+//                             std::move(remaining));
+//                 }
+//             }
+//         }
+//     }
 
-    auto column_ids = HiveParquetNestedColumnUtils::extract_schema_and_columns_efficiently(
-            field_desc, paths_by_table_col_name);
+//     auto column_ids = HiveParquetNestedColumnUtils::extract_schema_and_columns_efficiently(
+//             field_desc, paths_by_table_col_name);
 
-    // Use the new merged efficient method
-    auto filter_column_ids = HiveParquetNestedColumnUtils::extract_schema_and_columns_efficiently(
-            field_desc, predicate_paths_by_table_col_name);
+//     // Use the new merged efficient method
+//     auto filter_column_ids = HiveParquetNestedColumnUtils::extract_schema_and_columns_efficiently(
+//             field_desc, predicate_paths_by_table_col_name);
 
-    return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
-}
+//     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
+// }
 
 ColumnIdResult HiveParquetReader::_create_column_ids2(const FieldDescriptor* field_desc,
                                                       const TupleDescriptor* tuple_descriptor) {
@@ -987,163 +987,163 @@ ColumnIdResult HiveParquetReader::_create_column_ids2_by_top_level_col_index(con
 
 
 
-ColumnIdResult HiveParquetReader::_create_column_ids_by_top_level_col_index(
-        const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor) {
-    std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
+// ColumnIdResult HiveParquetReader::_create_column_ids_by_top_level_col_index(
+//         const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor) {
+//     std::shared_ptr<TableSchemaChangeHelper::Node> schema_node = nullptr;
 
-    if (!field_desc) {
-        return ColumnIdResult();
-    }
+//     if (!field_desc) {
+//         return ColumnIdResult();
+//     }
 
-    // First, assign column IDs to the field descriptor
-    auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
-    mutable_field_desc->assign_ids();
+//     // First, assign column IDs to the field descriptor
+//     auto* mutable_field_desc = const_cast<FieldDescriptor*>(field_desc);
+//     mutable_field_desc->assign_ids();
 
-    // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
-    std::unordered_map<uint64_t, std::vector<TColumnNameAccessPath>> paths_by_table_col_index;
-    std::unordered_map<uint64_t, std::vector<TColumnNameAccessPath>> predicate_paths_by_table_col_index;
+//     // Group column paths by field ID - inspired by create_iceberg_projected_layout's sequence processing
+//     std::unordered_map<uint64_t, std::vector<TColumnNameAccessPath>> paths_by_table_col_index;
+//     std::unordered_map<uint64_t, std::vector<TColumnNameAccessPath>> predicate_paths_by_table_col_index;
 
-    for (const auto* slot : tuple_descriptor->slots()) {
-        const auto& all_column_access_paths = slot->all_column_access_paths();
-        if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
-             slot->col_type() != TYPE_MAP)) {
-            TColumnNameAccessPath empty_path;
-            empty_path.path = std::vector<std::string>();
-            paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
-            continue;
-        }
+//     for (const auto* slot : tuple_descriptor->slots()) {
+//         const auto& all_column_access_paths = slot->all_column_access_paths();
+//         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
+//              slot->col_type() != TYPE_MAP)) {
+//             TColumnNameAccessPath empty_path;
+//             empty_path.path = std::vector<std::string>();
+//             paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
+//             continue;
+//         }
 
-        // 处理 all_column_access_paths，用于生成 column_ids
-        // 新规则：all_column_access_paths 包含顶层字段名字时表示访问顶层字段（读取所有子字段）
-        if ((!all_column_access_paths.__isset.name_access_paths) ||
-            all_column_access_paths.name_access_paths.empty()) {
-            // 如果路径为空，创建一个空路径表示读取整个字段
-            // TColumnNameAccessPath empty_path;
-            // empty_path.path = std::vector<std::string>();
-            // paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
-        } else {
-            // 检查是否只包含顶层字段名（表示读取所有子字段）
-            // bool is_top_level_access = false;
-            // for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
-            //     if (name_access_path.path.size() == 1 &&
-            //         name_access_path.path[0] == slot->col_name()) {
-            //         // 顶层字段访问：创建空路径表示读取所有子字段
-            //         TColumnNameAccessPath empty_path;
-            //         empty_path.path = std::vector<std::string>();
-            //         paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
-            //         is_top_level_access = true;
-            //         break;
-            //     }
-            // }
+//         // 处理 all_column_access_paths，用于生成 column_ids
+//         // 新规则：all_column_access_paths 包含顶层字段名字时表示访问顶层字段（读取所有子字段）
+//         if ((!all_column_access_paths.__isset.name_access_paths) ||
+//             all_column_access_paths.name_access_paths.empty()) {
+//             // 如果路径为空，创建一个空路径表示读取整个字段
+//             // TColumnNameAccessPath empty_path;
+//             // empty_path.path = std::vector<std::string>();
+//             // paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
+//         } else {
+//             // 检查是否只包含顶层字段名（表示读取所有子字段）
+//             // bool is_top_level_access = false;
+//             // for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
+//             //     if (name_access_path.path.size() == 1 &&
+//             //         name_access_path.path[0] == slot->col_name()) {
+//             //         // 顶层字段访问：创建空路径表示读取所有子字段
+//             //         TColumnNameAccessPath empty_path;
+//             //         empty_path.path = std::vector<std::string>();
+//             //         paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
+//             //         is_top_level_access = true;
+//             //         break;
+//             //     }
+//             // }
 
-            // if (!is_top_level_access) {
-            //     // 非顶层访问，添加所有指定的路径
-            //     for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
-            //         if (!name_access_path.path.empty()) {
-            //             // std::string first_table_col_name = name_access_path.path[0];
-            //             TColumnNameAccessPath remaining;
-            //             if (name_access_path.path.size() > 1) {
-            //                 remaining.path.assign(name_access_path.path.begin() + 1, name_access_path.path.end());
-            //             }
-            //             paths_by_table_col_index[slot->col_pos()].push_back(std::move(remaining));
-            //         }
-            //     }
-            // }
+//             // if (!is_top_level_access) {
+//             //     // 非顶层访问，添加所有指定的路径
+//             //     for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
+//             //         if (!name_access_path.path.empty()) {
+//             //             // std::string first_table_col_name = name_access_path.path[0];
+//             //             TColumnNameAccessPath remaining;
+//             //             if (name_access_path.path.size() > 1) {
+//             //                 remaining.path.assign(name_access_path.path.begin() + 1, name_access_path.path.end());
+//             //             }
+//             //             paths_by_table_col_index[slot->col_pos()].push_back(std::move(remaining));
+//             //         }
+//             //     }
+//             // }
 
-            for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
-                DCHECK(name_access_path.path.size() >= 1 &&
-                       name_access_path.path[0] == slot->col_name());
-                if (!name_access_path.path.empty()) {
-                    // std::string first_table_col_name = name_access_path.path[0];
-                    TColumnNameAccessPath remaining;
-                    if (name_access_path.path.size() > 1) {
-                        remaining.path.assign(name_access_path.path.begin() + 1,
-                                              name_access_path.path.end());
-                    }
-                    paths_by_table_col_index[slot->col_pos()].push_back(std::move(remaining));
-                }
-            }
-        }
+//             for (const auto& name_access_path : all_column_access_paths.name_access_paths) {
+//                 DCHECK(name_access_path.path.size() >= 1 &&
+//                        name_access_path.path[0] == slot->col_name());
+//                 if (!name_access_path.path.empty()) {
+//                     // std::string first_table_col_name = name_access_path.path[0];
+//                     TColumnNameAccessPath remaining;
+//                     if (name_access_path.path.size() > 1) {
+//                         remaining.path.assign(name_access_path.path.begin() + 1,
+//                                               name_access_path.path.end());
+//                     }
+//                     paths_by_table_col_index[slot->col_pos()].push_back(std::move(remaining));
+//                 }
+//             }
+//         }
 
-        if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
-             slot->col_type() != TYPE_MAP)) {
-            if (slot->is_predicate()) {
-                TColumnNameAccessPath empty_path;
-                empty_path.path = std::vector<std::string>();
-                predicate_paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
-                continue;
-            } else {
-                // Skip non-predicate primitive type slots
-                continue;
-            }
-        }
+//         if ((slot->col_type() != TYPE_STRUCT && slot->col_type() != TYPE_ARRAY &&
+//              slot->col_type() != TYPE_MAP)) {
+//             if (slot->is_predicate()) {
+//                 TColumnNameAccessPath empty_path;
+//                 empty_path.path = std::vector<std::string>();
+//                 predicate_paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
+//                 continue;
+//             } else {
+//                 // Skip non-predicate primitive type slots
+//                 continue;
+//             }
+//         }
 
-        const auto& predicate_column_access_paths = slot->predicate_column_access_paths();
-        // 处理 all_column_access_paths，用于生成 column_ids
-        // 新规则：all_column_access_paths 包含顶层字段名字时表示访问顶层字段（读取所有子字段）
-        if ((!predicate_column_access_paths.__isset.name_access_paths) ||
-            predicate_column_access_paths.name_access_paths.empty()) {
-            // 如果路径为空，创建一个空路径表示读取整个字段
-            // TColumnNameAccessPath empty_path;
-            // empty_path.path = std::vector<std::string>();
-            // predicate_paths_by_table_col_index[slot->col_name()].push_back(empty_path);
-        } else {
-            // 检查是否只包含顶层字段名（表示读取所有子字段）
-            // bool is_top_level_access = false;
-            // for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
-            //     if (name_access_path.path.size() == 1 &&
-            //         name_access_path.path[0] == slot->col_name()) {
-            //         // 顶层字段访问：创建空路径表示读取所有子字段
-            //         TColumnNameAccessPath empty_path;
-            //         empty_path.path = std::vector<std::string>();
-            //         predicate_paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
-            //         is_top_level_access = true;
-            //         break;
-            //     }
-            // }
+//         const auto& predicate_column_access_paths = slot->predicate_column_access_paths();
+//         // 处理 all_column_access_paths，用于生成 column_ids
+//         // 新规则：all_column_access_paths 包含顶层字段名字时表示访问顶层字段（读取所有子字段）
+//         if ((!predicate_column_access_paths.__isset.name_access_paths) ||
+//             predicate_column_access_paths.name_access_paths.empty()) {
+//             // 如果路径为空，创建一个空路径表示读取整个字段
+//             // TColumnNameAccessPath empty_path;
+//             // empty_path.path = std::vector<std::string>();
+//             // predicate_paths_by_table_col_index[slot->col_name()].push_back(empty_path);
+//         } else {
+//             // 检查是否只包含顶层字段名（表示读取所有子字段）
+//             // bool is_top_level_access = false;
+//             // for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
+//             //     if (name_access_path.path.size() == 1 &&
+//             //         name_access_path.path[0] == slot->col_name()) {
+//             //         // 顶层字段访问：创建空路径表示读取所有子字段
+//             //         TColumnNameAccessPath empty_path;
+//             //         empty_path.path = std::vector<std::string>();
+//             //         predicate_paths_by_table_col_index[slot->col_pos()].push_back(empty_path);
+//             //         is_top_level_access = true;
+//             //         break;
+//             //     }
+//             // }
 
-            // if (!is_top_level_access) {
-            //     // 非顶层访问，添加所有指定的路径
-            //     for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
-            //         if (!name_access_path.path.empty()) {
-            //             // std::string first_table_col_name = name_access_path.path[0];
-            //             TColumnNameAccessPath remaining;
-            //             if (name_access_path.path.size() > 1) {
-            //                 remaining.path.assign(name_access_path.path.begin() + 1, name_access_path.path.end());
-            //             }
-            //             predicate_paths_by_table_col_index[slot->col_pos()].push_back(std::move(remaining));
-            //         }
-            //     }
-            // }
+//             // if (!is_top_level_access) {
+//             //     // 非顶层访问，添加所有指定的路径
+//             //     for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
+//             //         if (!name_access_path.path.empty()) {
+//             //             // std::string first_table_col_name = name_access_path.path[0];
+//             //             TColumnNameAccessPath remaining;
+//             //             if (name_access_path.path.size() > 1) {
+//             //                 remaining.path.assign(name_access_path.path.begin() + 1, name_access_path.path.end());
+//             //             }
+//             //             predicate_paths_by_table_col_index[slot->col_pos()].push_back(std::move(remaining));
+//             //         }
+//             //     }
+//             // }
 
-            for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
-                DCHECK(name_access_path.path.size() >= 1 &&
-                       name_access_path.path[0] == slot->col_name());
-                if (!name_access_path.path.empty()) {
-                    // std::string first_table_col_name = name_access_path.path[0];
-                    TColumnNameAccessPath remaining;
-                    if (name_access_path.path.size() > 1) {
-                        remaining.path.assign(name_access_path.path.begin() + 1,
-                                              name_access_path.path.end());
-                    }
-                    predicate_paths_by_table_col_index[slot->col_pos()].push_back(
-                            std::move(remaining));
-                }
-            }
-        }
-    }
+//             for (const auto& name_access_path : predicate_column_access_paths.name_access_paths) {
+//                 DCHECK(name_access_path.path.size() >= 1 &&
+//                        name_access_path.path[0] == slot->col_name());
+//                 if (!name_access_path.path.empty()) {
+//                     // std::string first_table_col_name = name_access_path.path[0];
+//                     TColumnNameAccessPath remaining;
+//                     if (name_access_path.path.size() > 1) {
+//                         remaining.path.assign(name_access_path.path.begin() + 1,
+//                                               name_access_path.path.end());
+//                     }
+//                     predicate_paths_by_table_col_index[slot->col_pos()].push_back(
+//                             std::move(remaining));
+//                 }
+//             }
+//         }
+//     }
 
-    auto column_ids = HiveParquetNestedColumnUtils::
-            extract_schema_and_columns_efficiently_by_top_level_col_index(field_desc,
-                                                                          paths_by_table_col_index);
+//     auto column_ids = HiveParquetNestedColumnUtils::
+//             extract_schema_and_columns_efficiently_by_top_level_col_index(field_desc,
+//                                                                           paths_by_table_col_index);
 
-    // Use the new merged efficient method
-    auto filter_column_ids = HiveParquetNestedColumnUtils::
-            extract_schema_and_columns_efficiently_by_top_level_col_index(
-                    field_desc, predicate_paths_by_table_col_index);
+//     // Use the new merged efficient method
+//     auto filter_column_ids = HiveParquetNestedColumnUtils::
+//             extract_schema_and_columns_efficiently_by_top_level_col_index(
+//                     field_desc, predicate_paths_by_table_col_index);
 
-    return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
-}
+//     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
+// }
 
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

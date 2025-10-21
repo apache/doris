@@ -33,15 +33,15 @@ struct FieldSchema;
 
 class HiveParquetNestedColumnUtils {
 public:
-    static std::set<uint64_t> extract_schema_and_columns_efficiently(
-            const FieldDescriptor* field_desc,
-            const std::unordered_map<std::string, std::vector<TColumnNameAccessPath>>&
-                    paths_by_table_name);
+//     static std::set<uint64_t> extract_schema_and_columns_efficiently(
+//             const FieldDescriptor* field_desc,
+//             const std::unordered_map<std::string, std::vector<TColumnNameAccessPath>>&
+//                     paths_by_table_name);
 
-    static std::set<uint64_t> extract_schema_and_columns_efficiently_by_top_level_col_index(
-            const FieldDescriptor* field_desc,
-            const std::unordered_map<uint64_t, std::vector<TColumnNameAccessPath>>&
-                    paths_by_table_index);
+//     static std::set<uint64_t> extract_schema_and_columns_efficiently_by_top_level_col_index(
+//             const FieldDescriptor* field_desc,
+//             const std::unordered_map<uint64_t, std::vector<TColumnNameAccessPath>>&
+//                     paths_by_table_index);
 
     //     static std::shared_ptr<TableSchemaChangeHelper::Node> _build_table_schema_node_from_field_schema(
     //             const FieldSchema& field_schema,
@@ -55,9 +55,9 @@ public:
             std::set<uint64_t>& column_ids);
 
 private:
-    static void _extract_nested_column_ids_efficiently(
-            const FieldSchema& field_schema, const std::vector<TColumnNameAccessPath>& paths,
-            std::set<uint64_t>& column_ids);
+//     static void _extract_nested_column_ids_efficiently(
+//             const FieldSchema& field_schema, const std::vector<TColumnNameAccessPath>& paths,
+//             std::set<uint64_t>& column_ids);
 
     //     static ColumnIdResult _extract_schema_and_columns_efficiently_by_index(
     //             const FieldDescriptor* field_desc,

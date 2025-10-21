@@ -740,52 +740,6 @@ protected:
         return {std::move(hive_reader), orc_type_ptr};
     }
 
-    // 辅助函数：执行Parquet测试的通用流程
-    void runParquetTest(const std::vector<ColumnAccessPathConfig>& access_configs,
-                        const std::set<uint64_t>& expected_column_ids,
-                        const std::set<uint64_t>& expected_filter_column_ids,
-                        bool should_skip_assertion = false) {
-        std::string test_file =
-                "./be/test/exec/test_data/nested_user_profiles_parquet/"
-                "part-00000-64a7a390-1a03-4efc-ab51-557e9369a1f9-c000.snappy.parquet";
-
-        auto [hive_reader, field_desc] = createParquetReader(test_file);
-        if (!hive_reader || !field_desc) {
-            GTEST_SKIP() << "Test file not found or failed to create reader: " << test_file;
-            return;
-        }
-
-        // Create complex struct types
-        // DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
-        // DataTypePtr contact_struct_type, hobby_element_struct_type, hobbies_array_type;
-        // DataTypePtr profile_struct_type, name_type;
-        // createComplexStructTypes(coordinates_struct_type, address_struct_type, phone_struct_type,
-        //                          contact_struct_type, hobby_element_struct_type, hobbies_array_type,
-        //                          profile_struct_type, name_type);
-
-        // Create tuple descriptor
-        DescriptorTbl* desc_tbl;
-        ObjectPool obj_pool;
-        TDescriptorTable t_desc_table;
-        TTableDescriptor t_table_desc;
-        std::vector<std::string> table_column_names = {"name", "profile"};
-        std::vector<int> table_column_positions = {1, 2};
-        std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
-                                                                TPrimitiveType::STRUCT};
-
-        const TupleDescriptor* tuple_descriptor = createTupleDescriptor(
-                &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
-                table_column_positions, table_column_types, access_configs);
-
-        // Execute test
-        auto actual_result = HiveParquetReader::_create_column_ids(field_desc, tuple_descriptor);
-
-        if (!should_skip_assertion) {
-            EXPECT_EQ(actual_result.column_ids, expected_column_ids);
-            EXPECT_EQ(actual_result.filter_column_ids, expected_filter_column_ids);
-        }
-    }
-
     // 辅助函数：执行Parquet测试的通用流程，支持不同的column ID提取方法
     void runParquetTestWithMethod(const std::vector<ColumnAccessPathConfig>& access_configs,
                                   const std::set<uint64_t>& expected_column_ids,
@@ -836,52 +790,6 @@ protected:
         } else {
             actual_result = HiveParquetReader::_create_column_ids2(field_desc, tuple_descriptor);
         }
-
-        if (!should_skip_assertion) {
-            EXPECT_EQ(actual_result.column_ids, expected_column_ids);
-            EXPECT_EQ(actual_result.filter_column_ids, expected_filter_column_ids);
-        }
-    }
-
-    // 辅助函数：执行Orc测试的通用流程
-    void runOrcTest(const std::vector<ColumnAccessPathConfig>& access_configs,
-                    const std::set<uint64_t>& expected_column_ids,
-                    const std::set<uint64_t>& expected_filter_column_ids,
-                    bool should_skip_assertion = false) {
-        std::string test_file =
-                "./be/test/exec/test_data/nested_user_profiles_orc/"
-                "part-00000-62614f23-05d1-4043-a533-b155ef52b720-c000.snappy.orc";
-
-        auto [hive_reader, orc_type] = createOrcReader(test_file);
-        if (!hive_reader || !orc_type) {
-            GTEST_SKIP() << "Test file not found or failed to create reader: " << test_file;
-            return;
-        }
-
-        // Create complex struct types
-        // DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
-        // DataTypePtr contact_struct_type, hobby_element_struct_type, hobbies_array_type;
-        // DataTypePtr profile_struct_type, name_type;
-        // createComplexStructTypes(coordinates_struct_type, address_struct_type, phone_struct_type,
-        //                          contact_struct_type, hobby_element_struct_type, hobbies_array_type,
-        //                          profile_struct_type, name_type);
-
-        // Create tuple descriptor
-        DescriptorTbl* desc_tbl;
-        ObjectPool obj_pool;
-        TDescriptorTable t_desc_table;
-        TTableDescriptor t_table_desc;
-        std::vector<std::string> table_column_names = {"name", "profile"};
-        std::vector<int> table_column_positions = {1, 2};
-        std::vector<TPrimitiveType::type> table_column_types = {TPrimitiveType::STRING,
-                                                                TPrimitiveType::STRUCT};
-
-        const TupleDescriptor* tuple_descriptor = createTupleDescriptor(
-                &desc_tbl, obj_pool, t_desc_table, t_table_desc, table_column_names,
-                table_column_positions, table_column_types, access_configs);
-
-        // Execute test
-        auto actual_result = HiveOrcReader::_create_column_ids(orc_type, tuple_descriptor);
 
         if (!should_skip_assertion) {
             EXPECT_EQ(actual_result.column_ids, expected_column_ids);

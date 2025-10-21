@@ -188,8 +188,8 @@ protected:
     }
 
 private:
-    static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
-                                      const TupleDescriptor* tuple_descriptor);
+    // static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
+    //                                   const TupleDescriptor* tuple_descriptor);
 
     static ColumnIdResult _create_column_ids2(const FieldDescriptor* field_desc,
                                       const TupleDescriptor* tuple_descriptor);
@@ -236,8 +236,8 @@ protected:
     }
 
 private:
-    static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
-                                      const TupleDescriptor* tuple_descriptor);
+    // static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
+    //                                   const TupleDescriptor* tuple_descriptor);
 
     static ColumnIdResult _create_column_ids2(const orc::Type* orc_type,
 const TupleDescriptor* tuple_descriptor);
