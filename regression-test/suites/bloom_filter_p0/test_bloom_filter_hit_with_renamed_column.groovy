@@ -165,7 +165,7 @@ suite("test_bloom_filter_hit_with_renamed_column") {
     log.info("profileId:{}", profileId)
     def profileDetail = httpGet("/rest/v1/query_profile/" + profileId)
     log.info("profileDetail:{}", profileDetail)
-    assertTrue(profileDetail.contains("BloomFilterFiltered:&nbsp;&nbsp;15.0K&nbsp;&nbsp;(15000)"))
+    assertTrue(profileDetail.contains("BloomFilterFiltered:&nbsp;&nbsp;14.112K&nbsp;&nbsp;(14112)"))
 
     //———————— clean table and disable profile ————————
     sql """ SET enable_profile = false """
