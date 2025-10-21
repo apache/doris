@@ -972,6 +972,7 @@ struct UnHexImpl {
     static constexpr auto name = Name::name;
     using ReturnType = DataTypeString;
     using ColumnType = ColumnString;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
@@ -1081,6 +1082,7 @@ struct ToBase64Impl {
     static constexpr auto name = "to_base64";
     using ReturnType = DataTypeString;
     using ColumnType = ColumnString;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {

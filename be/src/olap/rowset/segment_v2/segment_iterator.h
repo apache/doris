@@ -230,7 +230,8 @@ private:
     [[nodiscard]] Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                  std::vector<rowid_t>& rowid_vector,
                                                  uint16_t* sel_rowid_idx, size_t select_size,
-                                                 vectorized::MutableColumns* mutable_columns);
+                                                 vectorized::MutableColumns* mutable_columns,
+                                                 bool init_condition_cache = false);
 
     Status copy_column_data_by_selector(vectorized::IColumn* input_col_ptr,
                                         vectorized::MutableColumnPtr& output_col,
@@ -381,6 +382,8 @@ private:
     Status _materialization_of_virtual_column(vectorized::Block* block);
     void _prepare_score_column_materialization();
 
+    void _init_row_bitmap_by_condition_cache();
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -506,6 +509,10 @@ private:
 
     // key is column uid, value is the sparse column cache
     std::unordered_map<int32_t, PathToSparseColumnCacheUPtr> _variant_sparse_column_cache;
+
+    bool _find_condition_cache = false;
+    std::shared_ptr<std::vector<bool>> _condition_cache;
+    static constexpr int CONDITION_CACHE_OFFSET = 2048;
 };
 
 } // namespace segment_v2

@@ -96,7 +96,8 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
                                  .vir_col_idx_to_type {},
                                  .score_runtime {},
                                  .collection_statistics {},
-                                 .ann_topn_runtime {}}) {
+                                 .ann_topn_runtime {},
+                                 .condition_cache_digest = parent->get_condition_cache_digest()}) {
     _tablet_reader_params.set_read_source(std::move(params.read_source));
     _has_prepared = false;
     _vector_search_params = params.state->get_vector_search_params();
@@ -778,6 +779,10 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.output_index_result_column_timer);
     COUNTER_UPDATE(local_state->_filtered_segment_counter, stats.filtered_segment_number);
     COUNTER_UPDATE(local_state->_total_segment_counter, stats.total_segment_number);
+    COUNTER_UPDATE(local_state->_condition_cache_hit_segment_counter,
+                   stats.condition_cache_hit_seg_nums);
+    COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter,
+                   stats.condition_cache_filtered_rows);
 
     COUNTER_UPDATE(local_state->_tablet_reader_init_timer, stats.tablet_reader_init_timer_ns);
     COUNTER_UPDATE(local_state->_tablet_reader_capture_rs_readers_timer,

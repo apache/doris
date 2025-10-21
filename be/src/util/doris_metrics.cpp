@@ -121,6 +121,13 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(
         "(segment_v2) total number of rows in queried segments (before index pruning)",
         segment_read, Labels({{"type", "segment_row_total"}}));
 
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(condition_cache_search_count, MetricUnit::OPERATIONS,
+                                     "number of condition cache lookups when digest != 0",
+                                     condition_cache, Labels({{"type", "condition_cache_search"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(condition_cache_hit_count, MetricUnit::OPERATIONS,
+                                     "number of condition cache hits", condition_cache,
+                                     Labels({{"type", "condition_cache_hit"}}));
+
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_txn_begin_request_total, MetricUnit::OPERATIONS,
                                      "", stream_load_txn_request, Labels({{"type", "begin"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_txn_commit_request_total, MetricUnit::OPERATIONS,
@@ -325,6 +332,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_task_pending_total);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_read_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, condition_cache_search_count);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, condition_cache_hit_count);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_row_total);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, stream_load_txn_begin_request_total);
