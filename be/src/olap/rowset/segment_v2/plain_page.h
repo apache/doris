@@ -58,7 +58,6 @@ public:
         RETURN_IF_CATCH_EXCEPTION(_buffer.resize(old_size + *count * SIZE_OF_TYPE));
         memcpy(&_buffer[old_size], vals, *count * SIZE_OF_TYPE);
         _count += *count;
-        _raw_data_size += *count * SIZE_OF_TYPE;
         return Status::OK();
     }
 
@@ -80,7 +79,6 @@ public:
         RETURN_IF_CATCH_EXCEPTION({
             _buffer.reserve(_options.data_page_size + 1024);
             _count = 0;
-            _raw_data_size = 0;
             _buffer.clear();
             _buffer.resize(PLAIN_PAGE_HEADER_SIZE);
         });
@@ -90,8 +88,6 @@ public:
     size_t count() const override { return _count; }
 
     uint64_t size() const override { return _buffer.size(); }
-
-    uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
     Status get_first_value(void* value) const override {
         if (_count == 0) {
@@ -115,7 +111,6 @@ private:
     faststring _buffer;
     PageBuilderOptions _options;
     size_t _count;
-    uint64_t _raw_data_size = 0;
     typedef typename TypeTraits<Type>::CppType CppType;
     enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
     faststring _first_value;

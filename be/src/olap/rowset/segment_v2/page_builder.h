@@ -83,10 +83,6 @@ public:
     // Return the total bytes of pageBuilder that have been added to the page.
     virtual uint64_t size() const = 0;
 
-    // Return the uncompressed data size in bytes (raw data added via add() method).
-    // This is used to track the original data size before compression.
-    virtual uint64_t get_raw_data_size() const = 0;
-
     // Return the first value in this page.
     // This method could only be called between finish() and reset().
     // Status::Error<ENTRY_NOT_FOUND> if no values have been added.

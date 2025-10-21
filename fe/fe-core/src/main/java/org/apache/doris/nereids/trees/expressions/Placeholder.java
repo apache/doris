@@ -66,10 +66,6 @@ public class Placeholder extends Expression implements LeafExpression {
         return "$" + placeholderId.asInt();
     }
 
-    public String toDigest() {
-        return "?";
-    }
-
     @Override
     public String computeToSql() {
         return "?";

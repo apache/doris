@@ -23,7 +23,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.thrift.TQueryStatistics;
-import org.apache.doris.thrift.TQueryStatisticsResult;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
 
 import com.google.common.collect.Lists;
@@ -60,7 +59,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             this.beLastReportTime = beLastReportTime;
         }
 
-        Map<String, Pair<Long, TQueryStatisticsResult>> queryStatsMap = Maps.newConcurrentMap();
+        Map<String, Pair<Long, TQueryStatistics>> queryStatsMap = Maps.newConcurrentMap();
     }
 
     public WorkloadRuntimeStatusMgr() {
@@ -165,7 +164,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             LOG.warn("be report workload runtime status but without beid");
             return;
         }
-        if (!params.isSetQueryStatisticsResultMap()) {
+        if (!params.isSetQueryStatisticsMap()) {
             LOG.warn("be report workload runtime status but without query stats map");
             return;
         }
@@ -181,8 +180,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         } else {
             beReportInfo.beLastReportTime = currentTime;
         }
-        for (Map.Entry<String, TQueryStatisticsResult> entry : params.query_statistics_result_map.entrySet()) {
-            beReportInfo.queryStatsMap.put(entry.getKey(), Pair.of(currentTime, entry.getValue()));
+        for (Map.Entry<String, TQueryStatistics> entry : params.query_statistics_map.entrySet()) {
+            beReportInfo.queryStatsMap.put(entry.getKey(), Pair.of(currentTime, (TQueryStatistics) entry.getValue()));
         }
     }
 
@@ -198,7 +197,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             }
             Set<String> queryIdSet = beReportInfo.queryStatsMap.keySet();
             for (String queryId : queryIdSet) {
-                Pair<Long, TQueryStatisticsResult> pair = beReportInfo.queryStatsMap.get(queryId);
+                Pair<Long, TQueryStatistics> pair = beReportInfo.queryStatsMap.get(queryId);
                 long queryLastReportTime = pair.first;
                 if (currentTime - queryLastReportTime > Config.be_report_query_statistics_timeout_ms) {
                     beReportInfo.queryStatsMap.remove(queryId);
@@ -217,7 +216,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             BeReportInfo beReportInfo = beToQueryStatsMap.get(beId);
             Set<String> queryIdSet = beReportInfo.queryStatsMap.keySet();
             for (String queryId : queryIdSet) {
-                TQueryStatisticsResult curQueryStats = beReportInfo.queryStatsMap.get(queryId).second;
+                TQueryStatistics curQueryStats = beReportInfo.queryStatsMap.get(queryId).second;
 
                 TQueryStatistics retQuery = resultQueryMap.get(queryId);
                 if (retQuery == null) {
@@ -231,35 +230,19 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         return resultQueryMap;
     }
 
-    public Map<Long, TQueryStatisticsResult> getQueryStatistics(String queryId) {
-        Map<Long, TQueryStatisticsResult> result = Maps.newHashMap();
-        for (Map.Entry<Long, BeReportInfo> entry : beToQueryStatsMap.entrySet()) {
-            Pair<Long, TQueryStatisticsResult> pair = entry.getValue().queryStatsMap.get(queryId);
-            if (pair != null) {
-                result.put(entry.getKey(), pair.second);
-            }
+    private void mergeQueryStatistics(TQueryStatistics dst, TQueryStatistics src) {
+        dst.scan_rows += src.scan_rows;
+        dst.scan_bytes += src.scan_bytes;
+        dst.scan_bytes_from_local_storage += src.scan_bytes_from_local_storage;
+        dst.scan_bytes_from_remote_storage += src.scan_bytes_from_remote_storage;
+        dst.cpu_ms += src.cpu_ms;
+        dst.shuffle_send_bytes += src.shuffle_send_bytes;
+        dst.shuffle_send_rows += src.shuffle_send_rows;
+        if (dst.max_peak_memory_bytes < src.max_peak_memory_bytes) {
+            dst.max_peak_memory_bytes = src.max_peak_memory_bytes;
         }
-        return result;
-    }
-
-
-    private void mergeQueryStatistics(TQueryStatistics dst, TQueryStatisticsResult src) {
-        TQueryStatistics srcStats = src.getStatistics();
-        if (srcStats == null) {
-            return;
-        }
-        dst.scan_rows += srcStats.scan_rows;
-        dst.scan_bytes += srcStats.scan_bytes;
-        dst.scan_bytes_from_local_storage += srcStats.scan_bytes_from_local_storage;
-        dst.scan_bytes_from_remote_storage += srcStats.scan_bytes_from_remote_storage;
-        dst.cpu_ms += srcStats.cpu_ms;
-        dst.shuffle_send_bytes += srcStats.shuffle_send_bytes;
-        dst.shuffle_send_rows += srcStats.shuffle_send_rows;
-        if (dst.max_peak_memory_bytes < srcStats.max_peak_memory_bytes) {
-            dst.max_peak_memory_bytes = srcStats.max_peak_memory_bytes;
-        }
-        dst.spill_write_bytes_to_local_storage += srcStats.spill_write_bytes_to_local_storage;
-        dst.spill_read_bytes_from_local_storage += srcStats.spill_read_bytes_from_local_storage;
+        dst.spill_write_bytes_to_local_storage += src.spill_write_bytes_to_local_storage;
+        dst.spill_read_bytes_from_local_storage += src.spill_read_bytes_from_local_storage;
     }
 
     private void queryAuditEventLogWriteLock() {
@@ -269,5 +252,4 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     private void queryAuditEventLogWriteUnlock() {
         queryAuditEventLock.unlock();
     }
-
 }

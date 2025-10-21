@@ -17,6 +17,7 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -28,7 +29,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMetaScanRange;
@@ -90,7 +90,7 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         if (names.length != 3) {
             throw new AnalysisException("The iceberg table name contains the catalogName, databaseName, and tableName");
         }
-        TableNameInfo icebergTableName = new TableNameInfo(names[0], names[1], names[2]);
+        TableName icebergTableName = new TableName(names[0], names[1], names[2]);
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), icebergTableName, PrivPredicate.SELECT)) {
@@ -101,7 +101,7 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         return new IcebergTableValuedFunction(icebergTableName, queryType);
     }
 
-    public IcebergTableValuedFunction(TableNameInfo icebergTableName, String queryType)
+    public IcebergTableValuedFunction(TableName icebergTableName, String queryType)
             throws AnalysisException {
         this.queryType = queryType;
         CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(icebergTableName.getCtl());

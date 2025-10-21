@@ -20,19 +20,19 @@ package org.apache.doris.datasource.iceberg.action;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.commands.execute.BaseExecuteAction;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
+import org.apache.doris.nereids.trees.plans.commands.optimize.BaseOptimizeAction;
 
 import java.util.Map;
 import java.util.Optional;
 
 /**
- * Abstract base class for Iceberg-specific EXECUTE TABLE actions.
- * This class extends BaseExecuteAction and provides Iceberg-specific
- * functionality while inheriting common execution action behavior.
+ * Abstract base class for Iceberg-specific OPTIMIZE TABLE actions.
+ * This class extends BaseOptimizeAction and provides Iceberg-specific
+ * functionality while inheriting common optimization action behavior.
  */
-public abstract class BaseIcebergAction extends BaseExecuteAction {
+public abstract class BaseIcebergAction extends BaseOptimizeAction {
 
     protected final IcebergExternalTable icebergTable;
 

@@ -44,8 +44,8 @@ public class DictionaryInsertExecutor extends AbstractInsertExecutor {
      * constructor
      */
     public DictionaryInsertExecutor(ConnectContext ctx, Dictionary dictionary, String labelName, NereidsPlanner planner,
-            Optional<InsertCommandContext> insertCtx, boolean emptyInsert, long jobId) {
-        super(ctx, dictionary, labelName, planner, insertCtx, emptyInsert, jobId);
+            Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
+        super(ctx, dictionary, labelName, planner, insertCtx, emptyInsert);
     }
 
     @Override

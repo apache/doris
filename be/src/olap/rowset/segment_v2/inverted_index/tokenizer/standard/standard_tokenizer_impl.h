@@ -24,7 +24,8 @@
 #include <string_view>
 #include <vector>
 
-#include "olap/rowset/segment_v2/inverted_index/util/reader.h"
+#include "CLucene.h"
+#include "CLucene/analysis/AnalysisHeader.h"
 
 namespace doris::segment_v2::inverted_index {
 #include "common/compile_check_begin.h"
@@ -167,7 +168,7 @@ public:
         return {_zz_buffer.data() + _zz_start_read, (size_t)(_zz_marked_pos - _zz_start_read)};
     }
 
-    inline void yyreset(const ReaderPtr& reader) {
+    inline void yyreset(CL_NS(util)::Reader* reader) {
         _zz_reader = reader;
         _zz_at_eof = false;
         _zz_current_pos = 0;
@@ -282,7 +283,7 @@ private:
 
     static const int32_t ZZ_BUFFERSIZE = 255;
 
-    ReaderPtr _zz_reader;
+    CL_NS(util)::Reader* _zz_reader = nullptr;
     std::string _zz_buffer;
 
     int32_t _zz_state = 0;

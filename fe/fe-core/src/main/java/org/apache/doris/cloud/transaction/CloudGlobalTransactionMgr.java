@@ -623,18 +623,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             } else if (txnCommitAttachment instanceof StreamingTaskTxnCommitAttachment) {
                 StreamingTaskTxnCommitAttachment streamingTaskTxnCommitAttachment =
                             (StreamingTaskTxnCommitAttachment) txnCommitAttachment;
-                TxnStateChangeCallback cb = callbackFactory.getCallback(streamingTaskTxnCommitAttachment.getJobId());
-                TxnCommitAttachment commitAttachment = null;
+                TxnStateChangeCallback cb = callbackFactory.getCallback(streamingTaskTxnCommitAttachment.getTaskId());
                 if (cb != null) {
                     // use a temporary transaction state to do before commit check,
                     // what actually works is the transactionId
                     TransactionState tmpTxnState = new TransactionState();
                     tmpTxnState.setTransactionId(transactionId);
                     cb.beforeCommitted(tmpTxnState);
-                    commitAttachment = tmpTxnState.getTxnCommitAttachment();
                 }
                 builder.setCommitAttachment(TxnUtil
-                        .streamingTaskTxnCommitAttachmentToPb((StreamingTaskTxnCommitAttachment) commitAttachment));
+                        .streamingTaskTxnCommitAttachmentToPb(streamingTaskTxnCommitAttachment));
             } else {
                 throw new UserException("invalid txnCommitAttachment");
             }
@@ -678,11 +676,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (txnCommitAttachment != null && txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
                 RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
                 callbackId = rlTaskTxnCommitAttachment.getJobId();
-            } else if (txnCommitAttachment != null
-                        && txnCommitAttachment instanceof StreamingTaskTxnCommitAttachment) {
-                StreamingTaskTxnCommitAttachment streamingTaskTxnCommitAttachment =
-                        (StreamingTaskTxnCommitAttachment) txnCommitAttachment;
-                callbackId = streamingTaskTxnCommitAttachment.getJobId();
             } else if (txnState != null) {
                 callbackId = txnState.getCallbackId();
             }

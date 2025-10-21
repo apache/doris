@@ -111,19 +111,21 @@ TEST_F(SettingsTest, GetStringReturnsCorrectValues) {
 TEST_F(SettingsTest, GetEntryListReturnsCorrectValues) {
     Settings settings(testMap);
 
-    // auto emptyList = settings.get_entry_list("list_empty");
-    // EXPECT_TRUE(emptyList.empty());
+    auto emptyList = settings.get_entry_list("list_empty");
+    EXPECT_TRUE(emptyList.empty());
 
-    // auto singleList = settings.get_entry_list("list_single");
-    // ASSERT_EQ(singleList.size(), 1);
-    // EXPECT_EQ(singleList[0], "item1");
+    auto singleList = settings.get_entry_list("list_single");
+    ASSERT_EQ(singleList.size(), 1);
+    EXPECT_EQ(singleList[0], "item1");
 
     auto multiList = settings.get_entry_list("list_multiple");
-    ASSERT_EQ(multiList.size(), 1);
-    EXPECT_EQ(multiList[0], "item1][item2][item3");
+    ASSERT_EQ(multiList.size(), 3);
+    EXPECT_EQ(multiList[0], "item1");
+    EXPECT_EQ(multiList[1], "item2");
+    EXPECT_EQ(multiList[2], "item3");
 
-    // auto nonExistent = settings.get_entry_list("non_existent");
-    // EXPECT_TRUE(nonExistent.empty());
+    auto nonExistent = settings.get_entry_list("non_existent");
+    EXPECT_TRUE(nonExistent.empty());
 }
 
 TEST_F(SettingsTest, GetWordSetReturnsCorrectValues) {
@@ -177,81 +179,6 @@ TEST_F(SettingsTest, MoveConstructorWorks) {
 
     EXPECT_EQ(settings2.get_string("string_normal"), "hello world");
     EXPECT_TRUE(settings1.empty());
-}
-
-TEST_F(SettingsTest, GetEntryListWithBracketsInside) {
-    Settings settings;
-
-    settings.set("list_with_brackets_inside", "[item[with]brackets]");
-    auto singleWithBrackets = settings.get_entry_list("list_with_brackets_inside");
-    ASSERT_EQ(singleWithBrackets.size(), 1);
-    EXPECT_EQ(singleWithBrackets[0], "item[with]brackets");
-
-    settings.set("list_multiple_with_brackets",
-                 "[item1[with]brackets][item2[also]has[brackets]][item3]");
-    auto multiWithBrackets = settings.get_entry_list("list_multiple_with_brackets");
-    ASSERT_EQ(multiWithBrackets.size(), 1);
-    EXPECT_EQ(multiWithBrackets[0], "item1[with]brackets][item2[also]has[brackets]][item3");
-
-    settings.set("list_nested_brackets", "[[[nested]]][[double]][single]");
-    auto nestedBrackets = settings.get_entry_list("list_nested_brackets");
-    ASSERT_EQ(nestedBrackets.size(), 1);
-    EXPECT_EQ(nestedBrackets[0], "[[nested]]][[double]][single");
-
-    settings.set("list_empty_brackets_inside", "[item[]with][empty][]brackets");
-    EXPECT_THROW(settings.get_entry_list("list_empty_brackets_inside"), Exception);
-}
-
-TEST_F(SettingsTest, GetEntryListWithCommaSeparators) {
-    Settings settings;
-
-    settings.set("list_comma_separated", "[item1],[item2],[item3]");
-    auto commaList = settings.get_entry_list("list_comma_separated");
-    ASSERT_EQ(commaList.size(), 3);
-    EXPECT_EQ(commaList[0], "item1");
-    EXPECT_EQ(commaList[1], "item2");
-    EXPECT_EQ(commaList[2], "item3");
-
-    settings.set("list_with_empty_items", "[item1],[],[item3]");
-    auto listWithEmpty = settings.get_entry_list("list_with_empty_items");
-    ASSERT_EQ(listWithEmpty.size(), 2);
-    EXPECT_EQ(listWithEmpty[0], "item1");
-    EXPECT_EQ(listWithEmpty[1], "item3");
-
-    settings.set("list_comma_separated1", "[item1], [item2], [item3]");
-    auto commaList1 = settings.get_entry_list("list_comma_separated1");
-    ASSERT_EQ(commaList1.size(), 3);
-    EXPECT_EQ(commaList1[0], "item1");
-    EXPECT_EQ(commaList1[1], "item2");
-    EXPECT_EQ(commaList1[2], "item3");
-
-    settings.set("list_with_empty_items1", "");
-    auto listWithEmpty1 = settings.get_entry_list("list_with_empty_items1");
-    ASSERT_EQ(listWithEmpty1.size(), 0);
-}
-
-TEST_F(SettingsTest, GetEntryListSpecExamples) {
-    Settings settings;
-
-    settings.set("ex_empty", "[]");
-    auto v0 = settings.get_entry_list("ex_empty");
-    EXPECT_TRUE(v0.empty());
-
-    settings.set("ex_nested_balanced", "[[123]]");
-    auto v1 = settings.get_entry_list("ex_nested_balanced");
-    ASSERT_EQ(v1.size(), 1);
-    EXPECT_EQ(v1[0], "[123]");
-
-    settings.set("ex_nested_unbalanced_inside", "[[123[]");
-    auto v2 = settings.get_entry_list("ex_nested_unbalanced_inside");
-    ASSERT_EQ(v2.size(), 1);
-    EXPECT_EQ(v2[0], "[123[");
-
-    settings.set("ex_no_comma_multiple", "[123][123");
-    EXPECT_THROW(settings.get_entry_list("ex_no_comma_multiple"), Exception);
-
-    settings.set("ex_comma_missing_closing", "[123],[123");
-    EXPECT_THROW(settings.get_entry_list("ex_comma_missing_closing"), Exception);
 }
 
 } // namespace doris::segment_v2::inverted_index

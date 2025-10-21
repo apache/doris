@@ -26,7 +26,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;

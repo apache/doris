@@ -25,9 +25,9 @@ PhysicalResultSink
 ----------------------------------------filter((date_dim.d_qoy < 4) and (date_dim.d_year = 2001))
 ------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer(c)] apply RFs: RF4 RF5
+------------------------------------PhysicalOlapScan[customer] apply RFs: RF4 RF5
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[customer_address(ca)]
+----------------------------------PhysicalOlapScan[customer_address]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------PhysicalProject

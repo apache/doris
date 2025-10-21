@@ -24,7 +24,6 @@
 #include "pipeline/exec/analytic_sink_operator.h"
 #include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
-#include "pipeline/exec/blackhole_sink_operator.h"
 #include "pipeline/exec/cache_sink_operator.h"
 #include "pipeline/exec/cache_source_operator.h"
 #include "pipeline/exec/datagen_operator.h"
@@ -135,14 +134,14 @@ Status PipelineXSinkLocalState<SharedStateArg>::terminate(RuntimeState* state) {
     return Status::OK();
 }
 
-DataDistribution OperatorBase::required_data_distribution(RuntimeState* /*state*/) const {
+DataDistribution OperatorBase::required_data_distribution() const {
     return _child && _child->is_serial_operator() && !is_source()
                    ? DataDistribution(ExchangeType::PASSTHROUGH)
                    : DataDistribution(ExchangeType::NOOP);
 }
 
-bool OperatorBase::require_shuffled_data_distribution(RuntimeState* state) const {
-    return Pipeline::is_hash_exchange(required_data_distribution(state).distribution_type);
+bool OperatorBase::require_shuffled_data_distribution() const {
+    return Pipeline::is_hash_exchange(required_data_distribution().distribution_type);
 }
 
 const RowDescriptor& OperatorBase::row_desc() const {
@@ -784,7 +783,6 @@ DECLARE_OPERATOR(OlapTableSinkV2LocalState)
 DECLARE_OPERATOR(HiveTableSinkLocalState)
 DECLARE_OPERATOR(IcebergTableSinkLocalState)
 DECLARE_OPERATOR(AnalyticSinkLocalState)
-DECLARE_OPERATOR(BlackholeSinkLocalState)
 DECLARE_OPERATOR(SortSinkLocalState)
 DECLARE_OPERATOR(SpillSortSinkLocalState)
 DECLARE_OPERATOR(LocalExchangeSinkLocalState)

@@ -79,8 +79,6 @@ public final class GlobalVariable {
 
     public static final String ENABLE_FETCH_ICEBERG_STATS = "enable_fetch_iceberg_stats";
 
-    public static final String ENABLE_NESTED_NAMESPACE = "enable_nested_namespace";
-
     public static final String ENABLE_ANSI_QUERY_ORGANIZATION_BEHAVIOR
             = "enable_ansi_query_organization_behavior";
     public static final String ENABLE_NEW_TYPE_COERCION_BEHAVIOR
@@ -240,16 +238,6 @@ public final class GlobalVariable {
                             + "the DATETIME type with 6-digit precision is preferred. When converting to"
                             + " a numeric type and precision cannot be determined, the DECIMAL type is preferred."})
     public static boolean enableNewTypeCoercionBehavior = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_NESTED_NAMESPACE, flag = VariableMgr.GLOBAL,
-            description = {
-                    "是否允许访问 `ns1.ns2` 这种类型的 database。当前仅适用于 External Catalog 中映射 Database 并访问。"
-                            + "不支持创建。",
-                    "Whether to allow accessing databases of the form `ns1.ns2`. "
-                            + "Currently, this only applies to mapping databases in "
-                            + "External Catalogs and accessing them. "
-                            + "Creation is not supported."})
-    public static boolean enableNestedNamespace = false;
 
     // Don't allow creating instance.
     private GlobalVariable() {

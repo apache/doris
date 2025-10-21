@@ -66,10 +66,6 @@ public:
                 .count();
     }
 
-    int64_t elapsed_ms() const { return elapsed_us() / 1000; }
-
-    int64_t elapsed_seconds() const { return elapsed_ms() / 1000; }
-
 private:
     std::chrono::steady_clock::time_point start_;
     std::chrono::steady_clock::duration elapsed_ {0};

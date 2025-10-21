@@ -20,7 +20,6 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
@@ -36,7 +35,6 @@ import org.apache.commons.lang3.StringUtils;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
-import software.amazon.awssdk.auth.credentials.ContainerCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
@@ -215,11 +213,6 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         convertGlueToS3EndpointIfNeeded();
     }
 
-    @Override
-    boolean isEndpointCheckRequired() {
-        return false;
-    }
-
     /**
      * Guess if the storage properties is for this storage type.
      * Subclass should override this method to provide the correct implementation.
@@ -287,7 +280,8 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         }
     }
 
-    private AwsCredentialsProvider getAwsCredentialsProviderV1() {
+    @Override
+    public AwsCredentialsProvider getAwsCredentialsProvider() {
         AwsCredentialsProvider credentialsProvider = super.getAwsCredentialsProvider();
         if (credentialsProvider != null) {
             return credentialsProvider;
@@ -317,49 +311,6 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 WebIdentityTokenFileCredentialsProvider.create(),
                 ProfileCredentialsProvider.create(),
                 InstanceProfileCredentialsProvider.create());
-    }
-
-    private AwsCredentialsProvider getAwsCredentialsProviderV2() {
-        AwsCredentialsProvider credentialsProvider = super.getAwsCredentialsProvider();
-        if (credentialsProvider != null) {
-            return credentialsProvider;
-        }
-        if (StringUtils.isNotBlank(s3IAMRole)) {
-            StsClient stsClient = StsClient.builder()
-                    .region(Region.of(region))
-                    .credentialsProvider(AwsCredentialsProviderChain.of(
-                            WebIdentityTokenFileCredentialsProvider.create(),
-                            ContainerCredentialsProvider.create(),
-                            InstanceProfileCredentialsProvider.create(),
-                            SystemPropertyCredentialsProvider.create(),
-                            EnvironmentVariableCredentialsProvider.create(),
-                            ProfileCredentialsProvider.create()))
-                    .build();
-
-            return StsAssumeRoleCredentialsProvider.builder()
-                    .stsClient(stsClient)
-                    .refreshRequest(builder -> {
-                        builder.roleArn(s3IAMRole).roleSessionName("aws-sdk-java-v2-fe");
-                        if (StringUtils.isNotBlank(s3ExternalId)) {
-                            builder.externalId(s3ExternalId);
-                        }
-                    }).build();
-        }
-        return AwsCredentialsProviderChain.of(
-                WebIdentityTokenFileCredentialsProvider.create(),
-                ContainerCredentialsProvider.create(),
-                InstanceProfileCredentialsProvider.create(),
-                SystemPropertyCredentialsProvider.create(),
-                EnvironmentVariableCredentialsProvider.create(),
-                ProfileCredentialsProvider.create());
-    }
-
-    @Override
-    public AwsCredentialsProvider getAwsCredentialsProvider() {
-        if (Config.aws_credentials_provider_version.equalsIgnoreCase("v2")) {
-            return getAwsCredentialsProviderV2();
-        }
-        return getAwsCredentialsProviderV1();
     }
 
     @Override

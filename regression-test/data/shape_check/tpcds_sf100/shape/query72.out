@@ -35,16 +35,16 @@ PhysicalResultSink
 ----------------------------------------------------------PhysicalOlapScan[household_demographics]
 --------------------------------------------------PhysicalProject
 ----------------------------------------------------filter((d1.d_year = 2002))
-------------------------------------------------------PhysicalOlapScan[date_dim(d1)] apply RFs: RF5
+------------------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF5
 ----------------------------------------------PhysicalProject
 ------------------------------------------------filter((customer_demographics.cd_marital_status = 'W'))
 --------------------------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[date_dim(d3)]
+--------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[item]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[date_dim(d2)]
+------------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[warehouse]
 ----------------------PhysicalProject

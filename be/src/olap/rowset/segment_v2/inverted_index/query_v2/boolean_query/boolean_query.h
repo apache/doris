@@ -29,11 +29,8 @@ using BooleanQueryPtr = std::shared_ptr<BooleanQuery>;
 
 class BooleanQuery : public Query {
 public:
-    BooleanQuery(OperatorType type, std::vector<QueryPtr> clauses,
-                 std::vector<std::string> binding_keys)
-            : _type(type),
-              _sub_queries(std::move(clauses)),
-              _binding_keys(std::move(binding_keys)) {}
+    BooleanQuery(OperatorType type, std::vector<QueryPtr> clauses)
+            : _type(type), _sub_queries(std::move(clauses)) {}
     ~BooleanQuery() override = default;
 
     WeightPtr weight(bool enable_scoring) override {
@@ -42,12 +39,11 @@ public:
             sub_weights.emplace_back(query->weight(enable_scoring));
         }
         if (enable_scoring) {
-            return std::make_shared<BooleanWeight<SumCombinerPtr>>(
-                    _type, std::move(sub_weights), _binding_keys, std::make_shared<SumCombiner>());
+            return std::make_shared<BooleanWeight<SumCombinerPtr>>(_type, std::move(sub_weights),
+                                                                   std::make_shared<SumCombiner>());
         } else {
             return std::make_shared<BooleanWeight<DoNothingCombinerPtr>>(
-                    _type, std::move(sub_weights), _binding_keys,
-                    std::make_shared<DoNothingCombiner>());
+                    _type, std::move(sub_weights), std::make_shared<DoNothingCombiner>());
         }
     }
 
@@ -56,26 +52,20 @@ public:
         Builder(OperatorType type) : _type(type) {}
         ~Builder() = default;
 
-        void add(const QueryPtr& query, std::string binding_key = {}) {
-            _sub_queries.emplace_back(query);
-            _binding_keys.emplace_back(std::move(binding_key));
-        }
+        void add(const QueryPtr& query) { _sub_queries.emplace_back(query); }
 
         BooleanQueryPtr build() {
-            return std::make_shared<BooleanQuery>(_type, std::move(_sub_queries),
-                                                  std::move(_binding_keys));
+            return std::make_shared<BooleanQuery>(_type, std::move(_sub_queries));
         }
 
     private:
         OperatorType _type;
         std::vector<QueryPtr> _sub_queries;
-        std::vector<std::string> _binding_keys;
     };
 
 private:
     OperatorType _type;
     std::vector<QueryPtr> _sub_queries;
-    std::vector<std::string> _binding_keys;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

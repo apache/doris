@@ -529,10 +529,10 @@ public class MysqlLoadManager {
         }
 
         // partitions
-        if (desc.getPartitionNamesInfo() != null && !desc.getPartitionNamesInfo().getPartitionNames().isEmpty()) {
-            List<String> ps = desc.getPartitionNamesInfo().getPartitionNames();
+        if (desc.getPartitionNames() != null && !desc.getPartitionNames().getPartitionNames().isEmpty()) {
+            List<String> ps = desc.getPartitionNames().getPartitionNames();
             String pNames = Joiner.on(",").join(ps);
-            if (desc.getPartitionNamesInfo().isTemp()) {
+            if (desc.getPartitionNames().isTemp()) {
                 httpPut.addHeader(LoadCommand.KEY_IN_PARAM_TEMP_PARTITIONS, pNames);
             } else {
                 httpPut.addHeader(LoadCommand.KEY_IN_PARAM_PARTITIONS, pNames);

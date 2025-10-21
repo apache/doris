@@ -17,7 +17,6 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.collect.Lists;
@@ -237,150 +236,6 @@ public class FeNameFormatTest {
     }
 
     @Test
-    void testDbName() {
-        boolean defaultUnicode = VariableMgr.getDefaultSessionVariable().enableUnicodeNameSupport;
-        boolean defaultNestedNamespace = GlobalVariable.enableNestedNamespace;
-        List<Boolean> enableUnicode = Lists.newArrayList(false, true);
-        List<Boolean> enableNestedNamespace = Lists.newArrayList(false, true);
-
-        // Names that are always valid regardless of nested namespace setting
-        List<String> alwaysValid = Arrays.asList(
-                "abc123",        // ASCII letters + numbers
-                "A-1_b",         // with allowed symbols (-_)
-                "Z",             // single ASCII letter
-                "a1b2c3",        // alphanumeric
-                "x_y-z",         // underscore and hyphen
-                "test",          // letters only
-                "a-b-c",         // multiple hyphens
-                "a_b",           // underscore
-                "a-1",           // hyphen + number
-                "B2"             // uppercase + number
-        );
-
-        // Names that are always invalid regardless of settings
-        List<String> alwaysInvalid = Arrays.asList(
-                "1abc",          // starts with number
-                "@test",         // contains invalid symbol @
-                "",              // empty string
-                "a b",           // contains space
-                "abc!",          // contains invalid symbol !
-                "a\nb",          // contains newline
-                "abc$",          // contains invalid symbol $
-                "-abc",          // starts with hyphen
-                "_abc",          // starts with underscore
-                "a*b",           // contains asterisk
-                "a#b"            // contains hash symbol
-        );
-
-        // Names with dots - only valid when nested namespace is enabled
-        List<String> dotNames = Arrays.asList(
-                "db1.db2",       // database name with dot in middle
-                "db1.db2.db3",   // multiple dots in middle
-                "a.b.c.d",       // multiple segments with dots
-                "test.prod",     // simple dot notation
-                "system.user.profile"  // nested database name
-        );
-
-        // Names with dots that are always invalid (start/end with dot, consecutive dots)
-        List<String> invalidDotNames = Arrays.asList(
-                ".abc",          // starts with dot
-                "abc.",          // ends with dot
-                ".abc.def",      // starts with dot
-                "abc.def.",      // ends with dot
-                "a..b",          // consecutive dots
-                "a.b.",          // ends with dot after valid segment
-                ".a.b"           // starts with dot before valid segment
-        );
-
-        // Unicode names that are always valid
-        List<String> unicodeValid = Lists.newArrayList(
-                "éclair",        // French letters
-                "über",          // German umlaut
-                "北京",          // Chinese characters
-                "東京123",       // Japanese + numbers
-                "München",       // German umlaut
-                "Beyoncé",       // French accent
-                "αβγ",           // Greek letters
-                "русский",       // Cyrillic letters
-                "øre",           // Nordic letter
-                "ção",           // Portuguese letter
-                "naïve",         // French diacritic
-                "Ḥello",         // special diacritic
-                "ẞig"            // German sharp S
-        );
-
-        // Unicode names with dots - only valid when both unicode and nested namespace are enabled
-        List<String> unicodeDotNames = Lists.newArrayList(
-                "北京.東京",     // Chinese and Japanese with dot
-                "café.système",  // French words with dot
-                "über.München",  // German words with dot
-                "αβγ.русский"    // Greek and Cyrillic with dot
-        );
-
-        try {
-            for (Boolean unicode : enableUnicode) {
-                for (Boolean nestedNamespace : enableNestedNamespace) {
-                    VariableMgr.getDefaultSessionVariable().setEnableUnicodeNameSupport(unicode);
-                    GlobalVariable.enableNestedNamespace = nestedNamespace;
-
-                    // Test always valid names
-                    for (String s : alwaysValid) {
-                        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkDbName(s));
-                    }
-
-                    // Test always invalid names
-                    for (String s : alwaysInvalid) {
-                        Assertions.assertThrowsExactly(AnalysisException.class, () -> FeNameFormat.checkDbName(s),
-                                "name should be invalid: " + s
-                                        + " (unicode=" + unicode + ", nested=" + nestedNamespace + ")");
-                    }
-
-                    // Test names with invalid dot patterns (always invalid)
-                    for (String s : invalidDotNames) {
-                        Assertions.assertThrowsExactly(AnalysisException.class, () -> FeNameFormat.checkDbName(s),
-                                "name should be invalid: " + s
-                                        + " (unicode=" + unicode + ", nested=" + nestedNamespace + ")");
-                    }
-
-                    // Test names with dots (valid only when nested namespace is enabled)
-                    for (String s : dotNames) {
-                        if (nestedNamespace) {
-                            ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkDbName(s));
-                        } else {
-                            Assertions.assertThrowsExactly(AnalysisException.class, () -> FeNameFormat.checkDbName(s),
-                                    "name should be invalid when nested namespace is disabled: " + s);
-                        }
-                    }
-
-                    // Test unicode names
-                    for (String s : unicodeValid) {
-                        if (unicode) {
-                            ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkDbName(s));
-                        } else {
-                            Assertions.assertThrowsExactly(AnalysisException.class, () -> FeNameFormat.checkDbName(s),
-                                    "unicode name should be invalid when unicode issh bi     disabled: " + s);
-                        }
-                    }
-
-                    // Test unicode names with dots (valid only when both unicode and nested namespace are enabled)
-                    for (String s : unicodeDotNames) {
-                        if (unicode && nestedNamespace) {
-                            ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkDbName(s));
-                        } else {
-                            Assertions.assertThrowsExactly(AnalysisException.class, () -> FeNameFormat.checkDbName(s),
-                                    "unicode dot name should be invalid: " + s
-                                            + " (unicode=" + unicode + ", nested=" + nestedNamespace + ")");
-                        }
-                    }
-                }
-            }
-        } finally {
-            VariableMgr.getDefaultSessionVariable().setEnableUnicodeNameSupport(defaultUnicode);
-            GlobalVariable.enableNestedNamespace = defaultNestedNamespace;
-        }
-    }
-
-    @Test
     void testCommonName() {
         List<String> alwaysValid = Arrays.asList(
                 "abc123",    // ASCII letters + numbers
@@ -406,7 +261,7 @@ public class FeNameFormatTest {
                 "_abc",      // starts with underscore
                 StringUtils.repeat("a", 65), // exceeds length limit (64)
                 "a*b",       // contains asterisk
-                "a.b",       // contains dot (not allowed)
+                "a.b",       // contains dot (if not allowed)
                 "a#b"        // contains hash symbol
         );
         List<String> unicodeValid = Lists.newArrayList(

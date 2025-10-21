@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.profile;
 
-import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
@@ -165,7 +164,7 @@ public class RuntimeProfileMergeTest {
         RuntimeProfile mergedProfile = new RuntimeProfile("mergedProfile");
         RuntimeProfile.mergeProfiles(Lists.newArrayList(profile1, profile2, profile3), mergedProfile, null);
 
-        SafeStringBuilder builder = new SafeStringBuilder();
+        StringBuilder builder = new StringBuilder();
         mergedProfile.prettyPrint(builder, "\t");
         LOG.info("Merged profile:\n{}", builder.toString());
 
@@ -276,7 +275,7 @@ public class RuntimeProfileMergeTest {
         RuntimeProfile mergedProfile = new RuntimeProfile("mergedProfile");
         RuntimeProfile.mergeProfiles(Lists.newArrayList(profile1, profile2), mergedProfile, null);
 
-        SafeStringBuilder builder = new SafeStringBuilder();
+        StringBuilder builder = new StringBuilder();
         mergedProfile.prettyPrint(builder, "\t");
         LOG.info("Merged profile:\n{}", builder.toString());
 

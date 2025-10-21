@@ -17,52 +17,42 @@
 
 #include "custom_analyzer.h"
 
-#include "common/status.h"
 #include "olap/rowset/segment_v2/inverted_index/analysis_factory_mgr.h"
-#include "olap/rowset/segment_v2/inverted_index/token_stream.h"
 #include "runtime/exec_env.h"
 
 namespace doris::segment_v2::inverted_index {
 
 CustomAnalyzer::CustomAnalyzer(Builder* builder) {
     _tokenizer = builder->_tokenizer;
-    _char_filters = builder->_char_filters;
     _token_filters = builder->_token_filters;
 }
 
 TokenStream* CustomAnalyzer::tokenStream(const TCHAR* fieldName, lucene::util::Reader* reader) {
-    throw Exception(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED,
-                    "CustomAnalyzer::tokenStream not supported");
-}
+    class TokenStreamWrapper : public TokenStream {
+    public:
+        explicit TokenStreamWrapper(std::shared_ptr<TokenStream> ts) : _impl(std::move(ts)) {}
+        ~TokenStreamWrapper() override = default;
 
-TokenStream* CustomAnalyzer::reusableTokenStream(const TCHAR* fieldName,
-                                                 lucene::util::Reader* reader) {
-    throw Exception(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED,
-                    "CustomAnalyzer::reusableTokenStream not supported");
-}
+        Token* next(Token* token) override { return _impl->next(token); }
+        void close() override { _impl->close(); }
+        void reset() override { _impl->reset(); }
 
-TokenStream* CustomAnalyzer::tokenStream(const TCHAR* fieldName, const ReaderPtr& reader) {
-    auto r = init_reader(reader);
+    private:
+        std::shared_ptr<TokenStream> _impl;
+    };
     auto token_stream = create_components();
-    token_stream->set_reader(r);
+    token_stream->set_reader(reader);
     token_stream->get_token_stream()->reset();
     return new TokenStreamWrapper(token_stream->get_token_stream());
 }
 
-TokenStream* CustomAnalyzer::reusableTokenStream(const TCHAR* fieldName, const ReaderPtr& reader) {
-    auto r = init_reader(reader);
+TokenStream* CustomAnalyzer::reusableTokenStream(const TCHAR* fieldName,
+                                                 lucene::util::Reader* reader) {
     if (_reuse_token_stream == nullptr) {
         _reuse_token_stream = create_components();
     }
-    _reuse_token_stream->set_reader(r);
+    _reuse_token_stream->set_reader(reader);
     return _reuse_token_stream->get_token_stream().get();
-}
-
-ReaderPtr CustomAnalyzer::init_reader(ReaderPtr reader) {
-    for (const auto& filter : _char_filters) {
-        reader = filter->create(reader);
-    }
-    return reader;
 }
 
 TokenStreamComponentsPtr CustomAnalyzer::create_components() {
@@ -79,9 +69,6 @@ CustomAnalyzerPtr CustomAnalyzer::build_custom_analyzer(const CustomAnalyzerConf
         throw Exception(ErrorCode::ILLEGAL_STATE, "Null configuration detected.");
     }
     CustomAnalyzer::Builder builder;
-    for (const auto& filter_config : config->get_char_filter_configs()) {
-        builder.add_char_filter(filter_config->get_name(), filter_config->get_params());
-    }
     builder.with_tokenizer(config->get_tokenizer_config()->get_name(),
                            config->get_tokenizer_config()->get_params());
     for (const auto& filter_config : config->get_token_filter_configs()) {
@@ -92,10 +79,6 @@ CustomAnalyzerPtr CustomAnalyzer::build_custom_analyzer(const CustomAnalyzerConf
 
 void CustomAnalyzer::Builder::with_tokenizer(const std::string& name, const Settings& params) {
     _tokenizer = AnalysisFactoryMgr::instance().create<TokenizerFactory>(name, params);
-}
-
-void CustomAnalyzer::Builder::add_char_filter(const std::string& name, const Settings& params) {
-    _char_filters.push_back(AnalysisFactoryMgr::instance().create<CharFilterFactory>(name, params));
 }
 
 void CustomAnalyzer::Builder::add_token_filter(const std::string& name, const Settings& params) {
@@ -110,7 +93,7 @@ CustomAnalyzerPtr CustomAnalyzer::Builder::build() {
     return std::make_shared<CustomAnalyzer>(this);
 }
 
-void TokenStreamComponents::set_reader(const ReaderPtr& reader) {
+void TokenStreamComponents::set_reader(CL_NS(util)::Reader* reader) {
     _source->set_reader(reader);
 }
 

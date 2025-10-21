@@ -397,12 +397,11 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
 
         tbl.readLock();
+        Map<Object, Object> objectPool = new ConcurrentHashMap<Object, Object>();
         String vaultId = tbl.getStorageVaultId();
         try {
             long expiration = (createTimeMs + timeoutMs) / 1000;
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
-            // Create object pool per MaterializedIndex
-            Map<Long, Map<Object, Object>> indexObjectPoolMap = Maps.newHashMap();
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                 long partitionId = entry.getKey();
                 Partition partition = tbl.getPartition(partitionId);
@@ -414,14 +413,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                 Map<String, Expr> defineExprs = Maps.newHashMap();
                 MaterializedIndex rollupIndex = entry.getValue();
                 Map<Long, Long> tabletIdMap = this.partitionIdToBaseRollupTabletIdMap.get(partitionId);
-
-                // Get or create object pool for this MaterializedIndex
-                Map<Object, Object> objectPool = indexObjectPoolMap.get(rollupIndex.getId());
-                if (objectPool == null) {
-                    objectPool = new ConcurrentHashMap<Object, Object>();
-                    indexObjectPoolMap.put(rollupIndex.getId(), objectPool);
-                }
-
                 for (Tablet rollupTablet : rollupIndex.getTablets()) {
                     long rollupTabletId = rollupTablet.getId();
                     long baseTabletId = tabletIdMap.get(rollupTabletId);

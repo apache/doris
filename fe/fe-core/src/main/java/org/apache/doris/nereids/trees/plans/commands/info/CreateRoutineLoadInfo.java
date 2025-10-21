@@ -23,6 +23,7 @@ import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportDeleteOnStmt;
 import org.apache.doris.analysis.ImportSequenceStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -38,7 +39,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
@@ -313,7 +313,7 @@ public class CreateRoutineLoadInfo {
             // 64 is the length of regular expression matching
             // (FeNameFormat.COMMON_NAME_REGEX/UNDERSCORE_COMMON_NAME_REGEX)
             throw new AnalysisException(e.getMessage()
-                    + " Maybe routine load job name is longer than 64 or contains illegal characters");
+                + " Maybe routine load job name is longer than 64 or contains illegal characters");
         }
         // check load properties include column separator etc.
         routineLoadDesc = checkLoadProperties(ctx, loadPropertyMap, dbName, tableName, isMultiTable, mergeType);
@@ -385,7 +385,7 @@ public class CreateRoutineLoadInfo {
         ImportWhereStmt precedingImportWhereStmt = null;
         ImportWhereStmt importWhereStmt = null;
         ImportSequenceStmt importSequenceStmt = null;
-        PartitionNamesInfo partitionNamesInfo = null;
+        PartitionNames partitionNames = null;
         ImportDeleteOnStmt importDeleteOnStmt = null;
 
         if (loadPropertyMap != null) {
@@ -427,7 +427,7 @@ public class CreateRoutineLoadInfo {
                                     ctx);
                     precedingImportWhereStmt = new ImportWhereStmt(expr, true);
                 } else if (loadProperty instanceof LoadPartitionNames) {
-                    partitionNamesInfo = new PartitionNamesInfo(((LoadPartitionNames) loadProperty).isTemp(),
+                    partitionNames = new PartitionNames(((LoadPartitionNames) loadProperty).isTemp(),
                             ((LoadPartitionNames) loadProperty).getPartitionNames());
                 } else if (loadProperty instanceof LoadDeleteOnClause) {
                     Expr expr = PlanUtils.translateToLegacyExpr(((LoadDeleteOnClause) loadProperty).getExpression(),
@@ -441,7 +441,7 @@ public class CreateRoutineLoadInfo {
         }
         return new RoutineLoadDesc(columnSeparator, lineDelimiter, importColumnsStmt,
             precedingImportWhereStmt, importWhereStmt,
-            partitionNamesInfo, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
+            partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
             importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
     }
 

@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
@@ -385,23 +386,12 @@ public class UserProperty {
             return value;
         }
         // check cluster auth
-        // get all users with same name but different host
-        AccessControllerManager am = Env.getCurrentEnv().getAccessManager();
-        List<User> users = am.getAuth()
-                .getUserManager().getUserByName(qualifiedUser);
-        boolean pass = false;
-        for (User user : users) {
-            if (!Strings.isNullOrEmpty(value) && am.checkCloudPriv(
-                    user.getUserIdentity(), value, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
-                pass = true;
-            }
-        }
-        if (!pass && !Strings.isNullOrEmpty(value)) {
+        if (!Strings.isNullOrEmpty(value) && !Env.getCurrentEnv().getAccessManager().checkCloudPriv(
+            new UserIdentity(qualifiedUser, "%"), value, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
             throw new ComputeGroupException(String.format("set default compute group failed, "
-                    + "user %s has no permission to use compute group '%s', please grant use privilege first ",
+                + "user %s has no permission to use compute group '%s', please grant use privilege first ",
                 qualifiedUser, value),
                 ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_COMPUTE_GROUP);
-
         }
         // set property "DEFAULT_CLOUD_CLUSTER" = "cluster1"
         if (keyArr.length != 1) {

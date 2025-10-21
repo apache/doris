@@ -36,7 +36,6 @@ std::string IColumn::dump_structure() const {
         res << ", " << subcolumn->dump_structure();
     };
 
-    // simply read using for_each_subcolumn without modification; const_cast can be used.
     const_cast<IColumn*>(this)->for_each_subcolumn(callback);
 
     res << ")";
@@ -70,47 +69,6 @@ void IColumn::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_di
             }
         }
         begin = simd::find_zero(cmp_res, end + 1);
-    }
-}
-
-void IColumn::serialize_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
-                                      const uint8_t* __restrict null_map) const {
-    if (has_null) {
-        for (size_t i = 0; i < num_rows; ++i) {
-            char* dest = const_cast<char*>(keys[i].data + keys[i].size);
-            if (null_map[i]) {
-                // is null
-                *dest = true;
-                keys[i].size += sizeof(UInt8);
-                continue;
-            }
-            // not null
-            *dest = false;
-            keys[i].size += sizeof(UInt8) + serialize_impl(dest + sizeof(UInt8), i);
-        }
-    } else {
-        for (size_t i = 0; i < num_rows; ++i) {
-            char* dest = const_cast<char*>(keys[i].data + keys[i].size);
-            *dest = false;
-            keys[i].size += sizeof(UInt8) + serialize_impl(dest + sizeof(UInt8), i);
-        }
-    }
-}
-
-void IColumn::deserialize_with_nullable(StringRef* keys, const size_t num_rows,
-                                        PaddedPODArray<UInt8>& null_map) {
-    for (size_t i = 0; i != num_rows; ++i) {
-        UInt8 is_null = *reinterpret_cast<const UInt8*>(keys[i].data);
-        null_map.push_back(is_null);
-        keys[i].data += sizeof(UInt8);
-        keys[i].size -= sizeof(UInt8);
-        if (is_null) {
-            insert_default();
-            continue;
-        }
-        auto sz = deserialize_impl(keys[i].data);
-        keys[i].data += sz;
-        keys[i].size -= sz;
     }
 }
 

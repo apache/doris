@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <regex>
-
 #include "olap/rowset/segment_v2/inverted_index/setting.h"
 #include "token_filter_factory.h"
 #include "word_delimiter_filter.h"

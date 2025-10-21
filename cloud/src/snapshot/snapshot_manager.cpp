@@ -76,13 +76,6 @@ void SnapshotManager::begin_snapshot(std::string_view instance_id,
     response->mutable_status()->set_msg("Not implemented");
 }
 
-void SnapshotManager::update_snapshot(std::string_view instance_id,
-                                      const UpdateSnapshotRequest& request,
-                                      UpdateSnapshotResponse* response) {
-    response->mutable_status()->set_code(MetaServiceCode::UNDEFINED_ERR);
-    response->mutable_status()->set_msg("Not implemented");
-}
-
 void SnapshotManager::commit_snapshot(std::string_view instance_id,
                                       const CommitSnapshotRequest& request,
                                       CommitSnapshotResponse* response) {
@@ -134,30 +127,12 @@ int SnapshotManager::inverted_check_snapshots(InstanceChecker* checker) {
     return 0;
 }
 
-int SnapshotManager::check_mvcc_meta_key(InstanceChecker* checker) {
-    return 0;
-}
-
-int SnapshotManager::inverted_check_mvcc_meta_key(InstanceChecker* checker) {
-    return 0;
-}
-
 int SnapshotManager::recycle_snapshot_meta_and_data(std::string_view instance_id,
                                                     std::string_view resource_id,
                                                     StorageVaultAccessor* accessor,
                                                     Versionstamp snapshot_version,
                                                     const SnapshotPB& snapshot_pb) {
     return 0;
-}
-
-int SnapshotManager::migrate_to_versioned_keys(InstanceDataMigrator* migrator) {
-    LOG(WARNING) << "Migrate to versioned keys is not implemented";
-    return -1;
-}
-
-int SnapshotManager::compact_snapshot_chains(InstanceChainCompactor* compactor) {
-    LOG(WARNING) << "Compact snapshot chains is not implemented";
-    return -1;
 }
 
 } // namespace doris::cloud

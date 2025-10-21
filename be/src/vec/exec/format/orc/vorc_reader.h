@@ -148,7 +148,7 @@ public:
               const std::string& ctz, io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr,
               bool enable_lazy_mat = true);
 
-    ~OrcReader() override = default;
+    ~OrcReader() override;
     //If you want to read the file by index instead of column name, set hive_use_column_names to false.
     Status init_reader(
             const std::vector<std::string>* column_names,
@@ -299,12 +299,8 @@ private:
     static bool _check_acid_schema(const orc::Type& type);
 
     // functions for building search argument until _init_search_argument
-    // Get predicate type from slot reference
-    std::pair<bool, orc::PredicateDataType> _get_orc_predicate_type(const VSlotRef* slot_ref);
-
-    // Make ORC literal from Doris literal
-    std::pair<bool, orc::Literal> _make_orc_literal(const VSlotRef* slot_ref,
-                                                    const VLiteral* literal);
+    std::tuple<bool, orc::Literal, orc::PredicateDataType> _make_orc_literal(
+            const VSlotRef* slot_ref, const VLiteral* literal);
     bool _check_slot_can_push_down(const VExprSPtr& expr);
     bool _check_literal_can_push_down(const VExprSPtr& expr, size_t child_id);
     bool _check_rest_children_can_push_down(const VExprSPtr& expr);
@@ -554,13 +550,15 @@ private:
                                  size_t num_values);
 
     template <bool is_filter>
-    Status _decode_string_non_dict_encoded_column(const MutableColumnPtr& data_column,
+    Status _decode_string_non_dict_encoded_column(const std::string& col_name,
+                                                  const MutableColumnPtr& data_column,
                                                   const orc::TypeKind& type_kind,
                                                   const orc::EncodedStringVectorBatch* cvb,
                                                   size_t num_values);
 
     template <bool is_filter>
-    Status _decode_string_dict_encoded_column(const MutableColumnPtr& data_column,
+    Status _decode_string_dict_encoded_column(const std::string& col_name,
+                                              const MutableColumnPtr& data_column,
                                               const orc::TypeKind& type_kind,
                                               const orc::EncodedStringVectorBatch* cvb,
                                               size_t num_values);
@@ -690,7 +688,7 @@ private:
     bool _disable_dict_filter = false;
     // std::pair<col_name, slot_id>
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
-    std::unique_ptr<ObjectPool> _obj_pool;
+    std::shared_ptr<ObjectPool> _obj_pool;
     std::unique_ptr<StringDictFilterImpl> _string_dict_filter;
     bool _dict_cols_has_converted = false;
 
@@ -723,7 +721,7 @@ public:
     StripeStreamInputStream(const std::string& file_name, io::FileReaderSPtr inner_reader,
                             const io::IOContext* io_ctx, RuntimeProfile* profile)
             : _file_name(file_name),
-              _inner_reader(std::move(inner_reader)),
+              _inner_reader(inner_reader),
               _io_ctx(io_ctx),
               _profile(profile) {}
 
@@ -742,6 +740,11 @@ public:
     const std::string& getName() const override { return _file_name; }
 
     RuntimeProfile* profile() const { return _profile; }
+
+    void beforeReadStripe(
+            std::unique_ptr<orc::StripeInformation> current_strip_information,
+            const std::vector<bool>& selected_columns,
+            std::unordered_map<orc::StreamId, std::shared_ptr<InputStream>>& streams) override {}
 
 protected:
     void _collect_profile_at_runtime() override {};
@@ -775,7 +778,17 @@ public:
               _io_ctx(io_ctx),
               _profile(profile) {}
 
-    ~ORCFileInputStream() override { _collect_profile_before_close_file_stripe(); }
+    ~ORCFileInputStream() override {
+        if (_tracing_file_reader != nullptr) {
+            _tracing_file_reader->collect_profile_before_close();
+        }
+        for (const auto& stripe_stream : _stripe_streams) {
+            if (stripe_stream != nullptr) {
+                stripe_stream->collect_profile_before_close();
+            }
+        }
+        _stripe_streams.clear();
+    }
 
     uint64_t getLength() const override { return _tracing_file_reader->size(); }
 
@@ -800,18 +813,7 @@ public:
 
 protected:
     void _collect_profile_at_runtime() override {};
-    void _collect_profile_before_close() override { _collect_profile_before_close_file_stripe(); }
-
-    void _collect_profile_before_close_file_stripe() {
-        if (_file_reader != nullptr) {
-            _file_reader->collect_profile_before_close();
-        }
-        for (const auto& stripe_stream : _stripe_streams) {
-            if (stripe_stream != nullptr) {
-                stripe_stream->collect_profile_before_close();
-            }
-        }
-    }
+    void _collect_profile_before_close() override;
 
 private:
     void _build_input_stripe_streams(

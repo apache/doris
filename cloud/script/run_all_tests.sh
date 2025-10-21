@@ -130,7 +130,6 @@ function report_coverage() {
 
 export LSAN_OPTIONS=suppressions=./lsan_suppr.conf
 unittest_files=()
-ret=0
 for i in *_test; do
     [[ -e "${i}" ]] || break
     if [[ "${test}" != "" ]]; then
@@ -145,16 +144,13 @@ for i in *_test; do
             patchelf --set-rpath "$(pwd)" "${i}"
         fi
 
+        set -euo pipefail
         if [[ "${filter}" == "" ]]; then
             LLVM_PROFILE_FILE="./report/${i}.profraw" "./${i}" --gtest_print_time=true --gtest_output="xml:${i}.xml"
         else
             LLVM_PROFILE_FILE="./report/${i}.profraw" "./${i}" --gtest_print_time=true --gtest_output="xml:${i}.xml" --gtest_filter="${filter}"
         fi
-        last_ret=$?
-        echo "${i} ret=${last_ret}"
-        if [[ ${ret} -eq 0 ]]; then
-            ret=${last_ret}
-        fi
+        set +euo pipefail
         unittest_files[${#unittest_files[*]}]="${i}"
         echo "--------------------------"
     fi
@@ -164,5 +160,4 @@ if [[ "_${ENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
     report_coverage "${unittest_files[*]}"
 fi
 
-exit ${ret}
 # vim: et ts=4 sw=4:

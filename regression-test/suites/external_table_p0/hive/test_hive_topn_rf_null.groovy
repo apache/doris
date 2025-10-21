@@ -23,24 +23,25 @@ suite("test_hive_topn_rf_null", "p0,external,hive,external_docker,external_docke
     }
     def runTopnRfNullTest =  {
         for (String table_name in ["test_topn_rf_null_orc", "test_topn_rf_null_parquet"])  {
-            order_qt_sql_test_1  """SELECT id, value, name FROM ${table_name} ORDER BY id ASC LIMIT 5;"""
-            order_qt_sql_test_2  """SELECT id, value FROM ${table_name} ORDER BY id DESC LIMIT 3;"""
-            order_qt_sql_test_3  """SELECT value, name FROM ${table_name} ORDER BY value ASC LIMIT 5;"""
-            order_qt_sql_test_4  """SELECT id FROM ${table_name} ORDER BY value DESC LIMIT 5;"""
-            order_qt_sql_test_5  """SELECT name FROM ${table_name} ORDER BY name ASC LIMIT 5;"""
-            order_qt_sql_test_6  """SELECT id, name FROM ${table_name} ORDER BY name DESC LIMIT 5;"""
-            order_qt_sql_test_7  """SELECT value FROM ${table_name} ORDER BY value DESC LIMIT 3;"""
-            order_qt_sql_test_8  """SELECT id, name FROM ${table_name} ORDER BY id ASC LIMIT 7;"""
-            order_qt_sql_test_9  """SELECT * FROM ${table_name} ORDER BY value ASC LIMIT 10;"""
-            order_qt_sql_test_10 """SELECT name FROM ${table_name} ORDER BY name ASC LIMIT 2;"""
-            order_qt_sql_test_11 """SELECT id, value, name FROM ${table_name} ORDER BY value ASC NULLS FIRST LIMIT 5;"""
-            order_qt_sql_test_12 """SELECT id, value FROM ${table_name} ORDER BY value ASC NULLS LAST LIMIT 5;"""
-            order_qt_sql_test_13 """SELECT value, name FROM ${table_name} ORDER BY value DESC NULLS FIRST LIMIT 5;"""
-            order_qt_sql_test_14 """SELECT id FROM ${table_name} ORDER BY value DESC NULLS LAST LIMIT 5;"""
-            order_qt_sql_test_15 """SELECT name FROM ${table_name} ORDER BY name ASC NULLS FIRST LIMIT 5;"""
-            order_qt_sql_test_16 """SELECT id, name FROM ${table_name} ORDER BY name ASC NULLS LAST LIMIT 5;"""
-            order_qt_sql_test_17 """SELECT value FROM ${table_name} ORDER BY name DESC NULLS FIRST LIMIT 3;"""
-            order_qt_sql_test_18 """SELECT * FROM ${table_name} ORDER BY name DESC NULLS LAST LIMIT 3;"""
+            
+            qt_sql_test_1  """SELECT id, value, name FROM ${table_name} ORDER BY id ASC LIMIT 5;"""
+            qt_sql_test_2  """SELECT id, value FROM ${table_name} ORDER BY id DESC LIMIT 3;"""
+            qt_sql_test_3  """SELECT value, name FROM ${table_name} ORDER BY value ASC LIMIT 5;"""
+            qt_sql_test_4  """SELECT id FROM ${table_name} ORDER BY value DESC LIMIT 5;"""
+            qt_sql_test_5  """SELECT name FROM ${table_name} ORDER BY name ASC LIMIT 5;"""
+            qt_sql_test_6  """SELECT id, name FROM ${table_name} ORDER BY name DESC LIMIT 5;"""
+            qt_sql_test_7  """SELECT value FROM ${table_name} ORDER BY value DESC LIMIT 3;"""
+            qt_sql_test_8  """SELECT id, name FROM ${table_name} ORDER BY id ASC LIMIT 7;"""
+            qt_sql_test_9  """SELECT * FROM ${table_name} ORDER BY value ASC LIMIT 10;"""
+            qt_sql_test_10 """SELECT name FROM ${table_name} ORDER BY name ASC LIMIT 2;"""
+            qt_sql_test_11 """SELECT id, value, name FROM ${table_name} ORDER BY value ASC NULLS FIRST LIMIT 5;"""
+            qt_sql_test_12 """SELECT id, value FROM ${table_name} ORDER BY value ASC NULLS LAST LIMIT 5;"""
+            qt_sql_test_13 """SELECT value, name FROM ${table_name} ORDER BY value DESC NULLS FIRST LIMIT 5;"""
+            qt_sql_test_14 """SELECT id FROM ${table_name} ORDER BY value DESC NULLS LAST LIMIT 5;"""
+            qt_sql_test_15 """SELECT name FROM ${table_name} ORDER BY name ASC NULLS FIRST LIMIT 5;"""
+            qt_sql_test_16 """SELECT id, name FROM ${table_name} ORDER BY name ASC NULLS LAST LIMIT 5;"""
+            qt_sql_test_17 """SELECT value FROM ${table_name} ORDER BY name DESC NULLS FIRST LIMIT 3;"""
+            qt_sql_test_18 """SELECT * FROM ${table_name} ORDER BY name DESC NULLS LAST LIMIT 3;"""
         }
     }
 

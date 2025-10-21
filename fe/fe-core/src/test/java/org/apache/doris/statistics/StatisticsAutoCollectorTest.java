@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -34,7 +35,6 @@ import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 
 import com.google.common.collect.Maps;
@@ -56,11 +56,11 @@ public class StatisticsAutoCollectorTest {
     @Test
     public void testFetchJob() {
         AnalysisManager manager = new AnalysisManager();
-        TableNameInfo high1 = new TableNameInfo("catalog", "db", "high1");
-        TableNameInfo high2 = new TableNameInfo("catalog", "db", "high2");
-        TableNameInfo mid1 = new TableNameInfo("catalog", "db", "mid1");
-        TableNameInfo mid2 = new TableNameInfo("catalog", "db", "mid2");
-        TableNameInfo low1 = new TableNameInfo("catalog", "db", "low1");
+        TableName high1 = new TableName("catalog", "db", "high1");
+        TableName high2 = new TableName("catalog", "db", "high2");
+        TableName mid1 = new TableName("catalog", "db", "mid1");
+        TableName mid2 = new TableName("catalog", "db", "mid2");
+        TableName low1 = new TableName("catalog", "db", "low1");
 
         manager.highPriorityJobs.put(high1, new HashSet<>());
         manager.highPriorityJobs.get(high1).add(Pair.of("index1", "col1"));
@@ -83,7 +83,7 @@ public class StatisticsAutoCollectorTest {
             }
         };
         StatisticsAutoCollector collector = new StatisticsAutoCollector();
-        Pair<Entry<TableNameInfo, Set<Pair<String, String>>>, JobPriority> job = collector.getJob();
+        Pair<Entry<TableName, Set<Pair<String, String>>>, JobPriority> job = collector.getJob();
         Assertions.assertEquals(high1, job.first.getKey());
         Assertions.assertEquals(2, job.first.getValue().size());
         Assertions.assertTrue(job.first.getValue().contains(Pair.of("index1", "col1")));

@@ -371,6 +371,8 @@ public:
 
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
+    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
+
     size_t get_max_row_byte_size() const override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
@@ -520,14 +522,9 @@ public:
 
     void erase(size_t start, size_t length) override;
 
-    void deserialize(StringRef* keys, const size_t num_rows) override;
-    void serialize(StringRef* keys, const size_t num_rows) const override;
+    void serialize_vec(StringRef* keys, const size_t num_rows) const override;
     size_t serialize_impl(char* pos, size_t row) const override;
     size_t deserialize_impl(const char* pos) override;
-    void serialize_with_nullable(StringRef* keys, size_t num_rows, const bool has_null,
-                                 const uint8_t* __restrict null_map) const override;
-    void deserialize_with_nullable(StringRef* keys, const size_t num_rows,
-                                   PaddedPODArray<UInt8>& null_map) override;
 };
 
 using ColumnString = ColumnStr<UInt32>;

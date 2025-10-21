@@ -53,7 +53,6 @@ under the License.
             <artifactId>lakesoul-io-java</artifactId>
             <version>${lakesoul.version}</version>
             <classifier>shaded</classifier>
-            <scope>provided</scope>
             <exclusions>
                 <exclusion>
                     <groupId>*</groupId>

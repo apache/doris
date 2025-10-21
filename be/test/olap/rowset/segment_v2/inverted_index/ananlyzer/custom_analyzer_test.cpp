@@ -94,12 +94,12 @@ protected:
 };
 
 int32_t tokenize(const CustomAnalyzerPtr& custom_analyzer, const std::vector<std::string>& lines) {
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    lucene::util::SStringReader<char> reader;
     size_t total_count = 0;
     Token t;
     for (size_t i = 0; i < lines.size(); ++i) {
-        reader->init(lines[i].data(), lines[i].size(), false);
-        auto* token_stream = custom_analyzer->reusableTokenStream(L"", reader);
+        reader.init(lines[i].data(), lines[i].size(), false);
+        auto* token_stream = custom_analyzer->reusableTokenStream(L"", &reader);
         token_stream->reset();
         while (token_stream->next(&t)) {
             total_count++;
@@ -120,9 +120,9 @@ struct ExpectedToken {
 std::vector<ExpectedToken> tokenize1(const CustomAnalyzerPtr& custom_analyzer,
                                      const std::string line) {
     std::vector<ExpectedToken> results;
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(line.data(), line.size(), false);
-    auto* token_stream = custom_analyzer->reusableTokenStream(L"", reader);
+    lucene::util::SStringReader<char> reader;
+    reader.init(line.data(), line.size(), false);
+    auto* token_stream = custom_analyzer->reusableTokenStream(L"", &reader);
     token_stream->reset();
     Token t;
     while (token_stream->next(&t)) {
@@ -196,69 +196,9 @@ TEST_F(CustomAnalyzerTest, CustomNgramAnalyzer) {
     }
 }
 
-TEST_F(CustomAnalyzerTest, TokenStreamNotSupported) {
-    CustomAnalyzerConfig::Builder builder;
-    builder.with_tokenizer_config("standard", {});
-    auto custom_analyzer_config = builder.build();
-    auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
-
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init("test content", 12, false);
-
-    EXPECT_THROW({ custom_analyzer->tokenStream(L"field", reader.get()); }, Exception);
-
-    EXPECT_THROW({ custom_analyzer->reusableTokenStream(L"field", reader.get()); }, Exception);
-}
-
-TEST_F(CustomAnalyzerTest, ReusableTokenStreamNotSupported) {
-    CustomAnalyzerConfig::Builder builder;
-    builder.with_tokenizer_config("standard", {});
-    auto custom_analyzer_config = builder.build();
-    auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
-
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init("test content", 12, false);
-
-    EXPECT_THROW({ custom_analyzer->reusableTokenStream(L"field", reader.get()); }, Exception);
-
-    try {
-        custom_analyzer->reusableTokenStream(L"field", reader.get());
-        FAIL() << "Expected Exception to be thrown";
-    } catch (const Exception& e) {
-        EXPECT_EQ(e.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
-        EXPECT_STREQ(e.what(), "[E-6001] CustomAnalyzer::reusableTokenStream not supported");
-    }
-}
-
-TEST_F(CustomAnalyzerTest, TokenStreamWithReaderPtr) {
-    CustomAnalyzerConfig::Builder builder;
-    builder.with_tokenizer_config("standard", {});
-    builder.add_token_filter_config("lowercase", {});
-    auto custom_analyzer_config = builder.build();
-    auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
-
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init("Hello World Test", 16, false);
-
-    auto* token_stream = custom_analyzer->tokenStream(L"field", reader);
-    EXPECT_NE(token_stream, nullptr);
-
-    Token t;
-    std::vector<std::string> tokens;
-    token_stream->reset();
-    while (token_stream->next(&t)) {
-        tokens.emplace_back(std::string(t.termBuffer<char>(), t.termLength<char>()));
-    }
-
-    std::vector<std::string> expected = {"hello", "world", "test"};
-    EXPECT_EQ(tokens, expected);
-
-    delete token_stream;
-}
-
 // TEST_F(CustomAnalyzerTest, test) {
 //     std::string name = "name";
-//     std::string path = "/mnt/disk3/yangsiyu/clucene";
+//     std::string path = "/mnt/disk2/yangsiyu/clucene/index";
 
 //     std::vector<std::string> lines;
 
@@ -273,157 +213,145 @@ TEST_F(CustomAnalyzerTest, TokenStreamWithReaderPtr) {
 
 //     std::cout << "lines size: " << lines.size() << std::endl;
 
-//     Settings char_replace_params;
-//     char_replace_params.set("char_filter_pattern", "_");
-//     char_replace_params.set("char_filter_replacement", " ");
-
 //     Settings word_delimiter_params;
 //     word_delimiter_params.set("preserve_original", "true");
 
 //     CustomAnalyzerConfig::Builder builder;
 //     builder.with_tokenizer_config("standard", {});
-//     builder.add_char_filter_config("char_replace", char_replace_params);
-//     // builder.add_token_filter_config("word_delimiter", word_delimiter_params);
+//     builder.add_token_filter_config("word_delimiter", word_delimiter_params);
 //     // builder.add_token_filter_config("asciifolding", {});
-//     builder.add_token_filter_config("lowercase", {});
+//     // builder.add_token_filter_config("lowercase", {});
 //     auto custom_analyzer_config = builder.build();
 
 //     auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
 
-//     auto result = tokenize1(custom_analyzer, lines[0]);
-//     for (const auto& token : result) {
-//         std::cout << token.term << " " << token.pos << std::endl;
+//     {
+//         TimeGuard t("load time");
+
+//         lucene::index::IndexWriter indexwriter(path.c_str(), custom_analyzer.get(), true);
+//         indexwriter.setRAMBufferSizeMB(512);
+//         indexwriter.setMaxFieldLength(0x7FFFFFFFL);
+//         indexwriter.setMergeFactor(1000000000);
+//         indexwriter.setUseCompoundFile(false);
+
+//         lucene::util::SStringReader<char> reader;
+
+//         lucene::document::Document doc;
+//         int32_t field_config = lucene::document::Field::STORE_NO;
+//         field_config |= lucene::document::Field::INDEX_NONORMS;
+//         field_config |= lucene::document::Field::INDEX_TOKENIZED;
+//         auto field_name = std::wstring(name.begin(), name.end());
+//         auto* field = _CLNEW lucene::document::Field(field_name.c_str(), field_config);
+//         field->setOmitTermFreqAndPositions(false);
+//         doc.add(*field);
+
+//         for (int32_t j = 0; j < 1; j++) {
+//             for (size_t k = 0; k < lines.size(); k++) {
+//                 reader.init(lines[k].data(), lines[k].size(), false);
+//                 auto* stream = custom_analyzer->reusableTokenStream(field->name(), &reader);
+//                 field->setValue(stream);
+
+//                 indexwriter.addDocument(&doc);
+//             }
+//         }
+
+//         std::cout << "---------------------" << std::endl;
+
+//         indexwriter.close();
 //     }
 
-//     // {
-//     //     TimeGuard t("load time");
+//     std::cout << "-----------" << std::endl;
 
-//     //     lucene::index::IndexWriter indexwriter(path.c_str(), custom_analyzer.get(), true);
-//     //     indexwriter.setRAMBufferSizeMB(512);
-//     //     indexwriter.setMaxFieldLength(0x7FFFFFFFL);
-//     //     indexwriter.setMergeFactor(1000000000);
-//     //     indexwriter.setUseCompoundFile(false);
+//     try {
+//         {
+//             auto* dir = FSDirectory::getDirectory(path.c_str());
+//             auto* reader = IndexReader::open(dir, 1024 * 1024, true);
+//             auto searcher = std::make_shared<IndexSearcher>(reader);
 
-//     //     auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+//             // std::cout << "macDoc: " << reader->maxDoc() << std::endl;
 
-//     //     lucene::document::Document doc;
-//     //     int32_t field_config = lucene::document::Field::STORE_NO;
-//     //     field_config |= lucene::document::Field::INDEX_NONORMS;
-//     //     field_config |= lucene::document::Field::INDEX_TOKENIZED;
-//     //     auto field_name = std::wstring(name.begin(), name.end());
-//     //     auto* field = _CLNEW lucene::document::Field(field_name.c_str(), field_config);
-//     //     field->setOmitTermFreqAndPositions(false);
-//     //     doc.add(*field);
+//             {
+//                 TimeGuard time("query time");
 
-//     //     for (int32_t j = 0; j < 1; j++) {
-//     //         for (size_t k = 0; k < lines.size(); k++) {
-//     //             reader->init(lines[k].data(), lines[k].size(), false);
-//     //             auto* stream = custom_analyzer->reusableTokenStream(field->name(), reader);
-//     //             field->setValue(stream);
+//                 {
+//                     TQueryOptions query_options;
+//                     doris::segment_v2::PhraseQuery query(searcher, query_options, nullptr);
 
-//     //             indexwriter.addDocument(&doc);
-//     //         }
-//     //     }
+//                     InvertedIndexQueryInfo query_info;
+//                     query_info.field_name = L"name";
+//                     {
+//                         doris::segment_v2::TermInfo t;
+//                         t.term = "Super_Duper";
+//                         t.position = 1;
+//                         query_info.term_infos.emplace_back(std::move(t));
+//                     }
+//                     {
+//                         doris::segment_v2::TermInfo t;
+//                         t.term = "Super";
+//                         t.position = 1;
+//                         query_info.term_infos.emplace_back(std::move(t));
+//                     }
+//                     {
+//                         doris::segment_v2::TermInfo t;
+//                         t.term = "Duper";
+//                         t.position = 2;
+//                         query_info.term_infos.emplace_back(std::move(t));
+//                     }
+//                     {
+//                         doris::segment_v2::TermInfo t;
+//                         t.term = "c";
+//                         t.position = 3;
+//                         query_info.term_infos.emplace_back(std::move(t));
+//                     }
+//                     query_info.slop = 1;
+//                     query_info.ordered = true;
+//                     query.add(query_info);
 
-//     //     std::cout << "---------------------" << std::endl;
+//                     roaring::Roaring result;
+//                     query.search(result);
 
-//     //     indexwriter.close();
-//     // }
+//                     std::cout << "phrase_query count: " << result.cardinality() << std::endl;
+//                 }
+//                 // {
+//                 //     TQueryOptions query_options;
+//                 //     doris::segment_v2::PhrasePrefixQuery query(searcher, query_options, nullptr);
 
-//     // std::cout << "-----------" << std::endl;
+//                 //     InvertedIndexQueryInfo query_info;
+//                 //     query_info.field_name = L"name";
+//                 //     {
+//                 //         doris::segment_v2::TermInfo t;
+//                 //         t.term = "Super_Duper";
+//                 //         t.position = 1;
+//                 //         query_info.term_infos.emplace_back(std::move(t));
+//                 //     }
+//                 //     {
+//                 //         doris::segment_v2::TermInfo t;
+//                 //         t.term = "Super";
+//                 //         t.position = 1;
+//                 //         query_info.term_infos.emplace_back(std::move(t));
+//                 //     }
+//                 //     {
+//                 //         doris::segment_v2::TermInfo t;
+//                 //         t.term = "Dup";
+//                 //         t.position = 2;
+//                 //         query_info.term_infos.emplace_back(std::move(t));
+//                 //     }
+//                 //     query.add(query_info);
 
-//     // try {
-//     //     {
-//     //         auto* dir = FSDirectory::getDirectory(path.c_str());
-//     //         auto* reader = IndexReader::open(dir, 1024 * 1024, true);
-//     //         auto searcher = std::make_shared<IndexSearcher>(reader);
+//                 //     roaring::Roaring result;
+//                 //     query.search(result);
 
-//     //         // std::cout << "macDoc: " << reader->maxDoc() << std::endl;
+//                 //     std::cout << "phrase_prefix_query count: " << result.cardinality() << std::endl;
+//                 // }
+//             }
 
-//     //         {
-//     //             TimeGuard time("query time");
-
-//     //             {
-//     //                 IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
-
-//     //                 TQueryOptions query_options;
-//     //                 doris::segment_v2::PhraseQuery query(searcher, context);
-
-//     //                 InvertedIndexQueryInfo query_info;
-//     //                 query_info.field_name = L"name";
-//     //                 {
-//     //                     doris::segment_v2::TermInfo t;
-//     //                     t.term = "Super_Duper";
-//     //                     t.position = 1;
-//     //                     query_info.term_infos.emplace_back(std::move(t));
-//     //                 }
-//     //                 {
-//     //                     doris::segment_v2::TermInfo t;
-//     //                     t.term = "Super";
-//     //                     t.position = 1;
-//     //                     query_info.term_infos.emplace_back(std::move(t));
-//     //                 }
-//     //                 {
-//     //                     doris::segment_v2::TermInfo t;
-//     //                     t.term = "Duper";
-//     //                     t.position = 2;
-//     //                     query_info.term_infos.emplace_back(std::move(t));
-//     //                 }
-//     //                 {
-//     //                     doris::segment_v2::TermInfo t;
-//     //                     t.term = "c";
-//     //                     t.position = 3;
-//     //                     query_info.term_infos.emplace_back(std::move(t));
-//     //                 }
-//     //                 query_info.slop = 1;
-//     //                 query_info.ordered = true;
-//     //                 query.add(query_info);
-
-//     //                 roaring::Roaring result;
-//     //                 query.search(result);
-
-//     //                 std::cout << "phrase_query count: " << result.cardinality() << std::endl;
-//     //             }
-//     //             // {
-//     //             //     TQueryOptions query_options;
-//     //             //     doris::segment_v2::PhrasePrefixQuery query(searcher, query_options, nullptr);
-
-//     //             //     InvertedIndexQueryInfo query_info;
-//     //             //     query_info.field_name = L"name";
-//     //             //     {
-//     //             //         doris::segment_v2::TermInfo t;
-//     //             //         t.term = "Super_Duper";
-//     //             //         t.position = 1;
-//     //             //         query_info.term_infos.emplace_back(std::move(t));
-//     //             //     }
-//     //             //     {
-//     //             //         doris::segment_v2::TermInfo t;
-//     //             //         t.term = "Super";
-//     //             //         t.position = 1;
-//     //             //         query_info.term_infos.emplace_back(std::move(t));
-//     //             //     }
-//     //             //     {
-//     //             //         doris::segment_v2::TermInfo t;
-//     //             //         t.term = "Dup";
-//     //             //         t.position = 2;
-//     //             //         query_info.term_infos.emplace_back(std::move(t));
-//     //             //     }
-//     //             //     query.add(query_info);
-
-//     //             //     roaring::Roaring result;
-//     //             //     query.search(result);
-
-//     //             //     std::cout << "phrase_prefix_query count: " << result.cardinality() << std::endl;
-//     //             // }
-//     //         }
-
-//     //         reader->close();
-//     //         _CLLDELETE(reader);
-//     //         _CLDECDELETE(dir);
-//     //     }
-//     // } catch (const CLuceneError& e) {
-//     //     std::cout << e.number() << ": " << e.what() << std::endl;
-//     // }
+//             reader->close();
+//             _CLLDELETE(reader);
+//             _CLDECDELETE(dir);
+//         }
+//     } catch (const CLuceneError& e) {
+//         std::cout << e.number() << ": " << e.what() << std::endl;
+//     }
 // }
 
 } // namespace doris::segment_v2::inverted_index

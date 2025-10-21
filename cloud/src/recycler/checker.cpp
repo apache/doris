@@ -248,12 +248,6 @@ int Checker::start() {
                 }
             }
 
-            if (config::enable_mvcc_meta_key_check) {
-                if (int ret = checker->do_mvcc_meta_key_check(); ret != 0) {
-                    success = false;
-                }
-            }
-
             // If instance checker has been aborted, don't finish this job
             if (!checker->stopped()) {
                 finish_instance_recycle_job(txn_kv_.get(), check_job_key, instance.instance_id(),

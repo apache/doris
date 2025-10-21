@@ -108,8 +108,6 @@ struct AggregateFunctionDistinctSingleNumericData {
 
         if constexpr (stable) {
             argument_columns[0]->resize(data.size());
-            // argument_columns[0] is a mutable column created using create_column.
-            // since get_raw_data returns a StringRef, const_cast is required here.
             auto ptr = (typename PrimitiveTypeTraits<T>::CppType*)const_cast<char*>(
                     argument_columns[0]->get_raw_data().data);
             for (auto it : data) {
@@ -312,7 +310,6 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr targetplace, IColumn& to) const override {
-        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         auto* place = const_cast<AggregateDataPtr>(targetplace);
         auto arguments = this->data(place).get_arguments(this->argument_types);
         ColumnRawPtrs arguments_raw(arguments.size());

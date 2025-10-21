@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;

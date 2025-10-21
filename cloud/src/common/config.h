@@ -128,7 +128,6 @@ CONF_mBool(enable_meta_key_check, "false");
 CONF_mBool(enable_version_key_check, "false");
 CONF_mBool(enable_meta_rowset_key_check, "false");
 CONF_mBool(enable_snapshot_check, "false");
-CONF_mBool(enable_mvcc_meta_key_check, "false");
 
 CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
 
@@ -370,19 +369,5 @@ CONF_Int64(prune_aborted_snapshot_seconds, "3600"); // 1h
 // Snapshot configuration limits
 CONF_Int32(snapshot_min_interval_seconds, "3600"); // 1h min interval limit
 CONF_Int32(snapshot_max_reserved_num, "35");       // max reserved snapshots limit
-// New instance enable multi version status by default.
-// The new instance multi version status will be set to MULTI_VERSION_READ_WRITE.
-CONF_Bool(enable_multi_version_status, "false");
-// New instance enable cluster snapshot, it only works when enable_multi_version_status is true.
-// The new instance snapshot switch status will be set to SNAPSHOT_SWITCH_ON, and the auto snapshot will be open.
-CONF_Bool(enable_cluster_snapshot, "false");
-CONF_Bool(enable_snapshot_data_migrator, "false");
-CONF_Bool(enable_snapshot_chain_compactor, "false");
-CONF_Int32(snapshot_data_migrator_concurrent, "2");
-CONF_Int32(snapshot_chain_compactor_concurrent, "2");
-
-CONF_mString(aws_credentials_provider_version, "v2");
-CONF_Validator(aws_credentials_provider_version,
-               [](const std::string& config) -> bool { return config == "v1" || config == "v2"; });
 
 } // namespace doris::cloud::config

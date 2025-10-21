@@ -24,7 +24,6 @@ import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -91,7 +90,8 @@ public class CreateIndexOp extends AlterTableOp {
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
-        return new CreateIndexClause(tableName, indexDef.translateToLegacyIndexDef(), index, alter);
+        return new CreateIndexClause(tableName != null ? tableName.transferToTableName() : null,
+                indexDef.translateToLegacyIndexDef(), index, alter);
     }
 
     @Override

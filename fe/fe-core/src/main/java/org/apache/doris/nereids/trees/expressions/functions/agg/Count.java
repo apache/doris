@@ -149,14 +149,6 @@ public class Count extends NotNullableAggregateFunction
     }
 
     @Override
-    public String toDigest() {
-        if (isStar) {
-            return "count(*)";
-        }
-        return super.toDigest();
-    }
-
-    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitCount(this, context);
     }

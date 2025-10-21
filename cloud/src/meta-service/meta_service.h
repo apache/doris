@@ -335,11 +335,6 @@ public:
                                           GetStreamingTaskCommitAttachResponse* response,
                                           ::google::protobuf::Closure* done) override;
 
-    void delete_streaming_job(::google::protobuf::RpcController* controller,
-                              const DeleteStreamingJobRequest* request,
-                              DeleteStreamingJobResponse* response,
-                              ::google::protobuf::Closure* done) override;
-
     void reset_rl_progress(::google::protobuf::RpcController* controller,
                            const ResetRLProgressRequest* request, ResetRLProgressResponse* response,
                            ::google::protobuf::Closure* done) override;
@@ -365,10 +360,6 @@ public:
     void begin_snapshot(::google::protobuf::RpcController* controller,
                         const BeginSnapshotRequest* request, BeginSnapshotResponse* response,
                         ::google::protobuf::Closure* done) override;
-
-    void update_snapshot(::google::protobuf::RpcController* controller,
-                         const UpdateSnapshotRequest* request, UpdateSnapshotResponse* response,
-                         ::google::protobuf::Closure* done) override;
 
     void commit_snapshot(::google::protobuf::RpcController* controller,
                          const CommitSnapshotRequest* request, CommitSnapshotResponse* response,
@@ -858,13 +849,6 @@ public:
                   response, done);
     }
 
-    void delete_streaming_job(::google::protobuf::RpcController* controller,
-                              const DeleteStreamingJobRequest* request,
-                              DeleteStreamingJobResponse* response,
-                              ::google::protobuf::Closure* done) override {
-        call_impl(&cloud::MetaService::delete_streaming_job, controller, request, response, done);
-    }
-
     void reset_rl_progress(::google::protobuf::RpcController* controller,
                            const ResetRLProgressRequest* request, ResetRLProgressResponse* response,
                            ::google::protobuf::Closure* done) override {
@@ -890,12 +874,6 @@ public:
                         const BeginSnapshotRequest* request, BeginSnapshotResponse* response,
                         ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::begin_snapshot, controller, request, response, done);
-    }
-
-    void update_snapshot(::google::protobuf::RpcController* controller,
-                         const UpdateSnapshotRequest* request, UpdateSnapshotResponse* response,
-                         ::google::protobuf::Closure* done) override {
-        call_impl(&cloud::MetaService::update_snapshot, controller, request, response, done);
     }
 
     void commit_snapshot(::google::protobuf::RpcController* controller,

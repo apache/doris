@@ -92,11 +92,6 @@ public class UnboundResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
     }
 
     @Override
-    public String toDigest() {
-        return child().toDigest();
-    }
-
-    @Override
     public StmtType stmtType() {
         return StmtType.SELECT;
     }

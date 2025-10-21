@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.visitor;
 
-import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
@@ -25,7 +24,6 @@ import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
@@ -36,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
@@ -89,10 +86,6 @@ public interface SinkVisitor<R, C> {
         return visitLogicalSink(unboundDictionarySink, context);
     }
 
-    default R visitUnboundBlackholeSink(UnboundBlackholeSink<? extends Plan> unboundBlackholeSink, C context) {
-        return visitLogicalSink(unboundBlackholeSink, context);
-    }
-
     // *******************************
     // logical
     // *******************************
@@ -134,19 +127,9 @@ public interface SinkVisitor<R, C> {
         return visitLogicalSink(logicalDeferMaterializeResultSink, context);
     }
 
-    default R visitLogicalBlackholeSink(
-            LogicalBlackholeSink<? extends Plan> logicalBlackholeSink, C context) {
-        return visitLogicalSink(logicalBlackholeSink, context);
-    }
-
     // *******************************
     // physical
     // *******************************
-
-    default R visitPhysicalBlackholeSink(
-            PhysicalBlackholeSink<? extends Plan> sink, C context) {
-        return visitPhysicalSink(sink, context);
-    }
 
     default R visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, C context) {
         return visitPhysicalSink(fileSink, context);

@@ -432,11 +432,6 @@ public class DorisFE {
         LOG.info("Build hash: {}", Version.DORIS_BUILD_HASH);
         LOG.info("Java compile version: {}", Version.DORIS_JAVA_COMPILE_VERSION);
 
-        if (!Version.DORIS_FEATURE_LIST.isEmpty()) {
-            LogUtils.stdout("Features: " + Version.DORIS_FEATURE_LIST);
-            LOG.info("Features: {}", Version.DORIS_FEATURE_LIST);
-        }
-
         if (Config.isCloudMode()) {
             LogUtils.stdout("Run FE in the cloud mode, cloud_unique_id: " + Config.cloud_unique_id
                     + ", meta_service_endpoint: " + Config.meta_service_endpoint);

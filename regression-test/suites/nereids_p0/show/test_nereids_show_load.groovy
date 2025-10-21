@@ -31,8 +31,8 @@ suite("test_nereids_show_load") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
 
-    sql """ insert into test_nereids_show_load  with label `test_nereids_show_load_label_xyz` select 1,1; """
-    sql """ insert into test_nereids_show_load  with label `new_test_nereids_show_load_label_xyz` select 2,2; """
+    sql """ insert into test_nereids_show_load  with label `test_nereids_show_load_label_xyz` values (1,1); """
+    sql """ insert into test_nereids_show_load  with label `new_test_nereids_show_load_label_xyz` values (2,2); """
 
     checkNereidsExecute("SHOW LOAD")
     checkNereidsExecute("SHOW LOAD FROM test_nereids_show_load_db")

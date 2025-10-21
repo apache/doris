@@ -301,18 +301,6 @@ public class TimeV2Literal extends Literal {
         return new TimeV2Literal(dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), 0, 0, false);
     }
 
-    /**
-     *  construct with precision
-     */
-    public static Expression fromJavaDateType(LocalDateTime dateTime, int precision) {
-        if (isDateOutOfRange(dateTime)) {
-            throw new AnalysisException("datetime out of range" + dateTime.toString());
-        }
-        int value = (int) Math.pow(10, TimeV2Type.MAX_SCALE - precision);
-        return new TimeV2Literal(dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
-                (dateTime.getNano() / 1000) / value * value, precision, false);
-    }
-
     public LocalDateTime toJavaDateType() {
         return LocalDateTime.of(0, 1, 1, ((int) getHour()), ((int) getMinute()), ((int) getSecond()),
                 (int) getMicroSecond() * 1000);

@@ -319,7 +319,7 @@ suite("test_auto_list_partition") {
                 LAST_UPLOAD_TIME DATETIME COMMENT 'LAST_UPLOAD_TIME'
             )
             AUTO PARTITION BY LIST (sum(DATE_ID))()
-            DISTRIBUTED BY HASH(DATE_ID) buckets 10
+            DISTRIBUTED BY HASH(DATE_ID) BUCKETS AUTO
             PROPERTIES (
                 "replication_num" = "1"
             );

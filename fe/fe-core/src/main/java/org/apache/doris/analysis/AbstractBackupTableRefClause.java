@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Joiner;
@@ -34,9 +33,9 @@ public class AbstractBackupTableRefClause implements ParseNode {
     private static final Logger LOG = LogManager.getLogger(AbstractBackupTableRefClause.class);
 
     private boolean isExclude;
-    private List<TableRefInfo> tableRefList;
+    private List<TableRef> tableRefList;
 
-    public AbstractBackupTableRefClause(boolean isExclude, List<TableRefInfo> tableRefList) {
+    public AbstractBackupTableRefClause(boolean isExclude, List<TableRef> tableRefList) {
         this.isExclude = isExclude;
         this.tableRefList = tableRefList;
     }
@@ -45,15 +44,15 @@ public class AbstractBackupTableRefClause implements ParseNode {
     public void analyze() throws UserException {
         // normalize
         // table name => table ref
-        Map<String, TableRefInfo> tblPartsMap;
+        Map<String, TableRef> tblPartsMap;
         if (GlobalVariable.lowerCaseTableNames == 0) {
             // comparisons case sensitive
             tblPartsMap = Maps.newTreeMap();
         } else {
             tblPartsMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         }
-        for (TableRefInfo tblRef : tableRefList) {
-            String tblName = tblRef.getTableNameInfo().getTbl();
+        for (TableRef tblRef : tableRefList) {
+            String tblName = tblRef.getName().getTbl();
             if (!tblPartsMap.containsKey(tblName)) {
                 tblPartsMap.put(tblName, tblRef);
             } else {
@@ -63,7 +62,7 @@ public class AbstractBackupTableRefClause implements ParseNode {
 
         // update table ref
         tableRefList.clear();
-        for (TableRefInfo tableRef : tblPartsMap.values()) {
+        for (TableRef tableRef : tblPartsMap.values()) {
             tableRefList.add(tableRef);
         }
 
@@ -76,7 +75,7 @@ public class AbstractBackupTableRefClause implements ParseNode {
         return isExclude;
     }
 
-    public List<TableRefInfo> getTableRefList() {
+    public List<TableRef> getTableRefList() {
         return tableRefList;
     }
 

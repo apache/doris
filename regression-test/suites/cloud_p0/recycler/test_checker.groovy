@@ -189,8 +189,6 @@ suite("test_checker") {
     }
 
     do {
-        triggerRecycle(token, instanceId)
-        Thread.sleep(10000) // 10s
         triggerChecker()
         Thread.sleep(10000) // 10s
         getCheckJobInfo()

@@ -32,9 +32,9 @@ std::vector<std::string> tokenize(KeywordTokenizerFactory& factory, const std::s
     std::vector<std::string> tokens;
     auto tokenizer = factory.create();
     {
-        ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-        reader->init(text.data(), text.size(), false);
-        tokenizer->set_reader(reader);
+        lucene::util::SStringReader<char> reader;
+        reader.init(text.data(), text.size(), false);
+        tokenizer->set_reader(&reader);
         tokenizer->reset();
 
         Token t;

@@ -29,8 +29,7 @@ under the License.
         <module>paimon-scanner</module>
         <module>max-compute-scanner</module>
         <module>avro-scanner</module>
-        <!-- lakesoul-scanner module has been deprecated -->
-        <!-- <module>lakesoul-scanner</module> -->
+        <module>lakesoul-scanner</module>
         <module>preload-extensions</module>
         <module>trino-connector-scanner</module>
     </modules>

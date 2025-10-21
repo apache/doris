@@ -82,8 +82,6 @@ public:
 
     Status get_last_value(void* value) const override;
 
-    uint64_t get_raw_data_size() const override;
-
 private:
     BinaryDictPageBuilder(const PageBuilderOptions& options);
 
@@ -105,7 +103,6 @@ private:
     vectorized::Arena _arena;
     faststring _buffer;
     faststring _first_value;
-    uint64_t _raw_data_size = 0;
 
     bool _has_empty = false;
     uint32_t _empty_code = 0;

@@ -22,7 +22,6 @@
 
 #include <cstdio>
 #include <fstream>
-#include <unordered_set>
 
 #include "common/status.h"
 #include "cpp/sync_point.h"
@@ -42,6 +41,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
@@ -1822,8 +1822,6 @@ void BlockFileCache::check_disk_resource_limit() {
     if (_storage->get_type() != FileCacheStorageType::DISK) {
         return;
     }
-
-    bool previous_mode = _disk_resource_limit_mode;
     if (_capacity > _cur_cache_size) {
         _disk_resource_limit_mode = false;
         _disk_limit_mode_metrics->set_value(0);
@@ -1852,9 +1850,7 @@ void BlockFileCache::check_disk_resource_limit() {
         config::file_cache_enter_disk_resource_limit_mode_percent = 88;
         config::file_cache_exit_disk_resource_limit_mode_percent = 80;
     }
-    bool is_space_insufficient = is_insufficient(space_percentage);
-    bool is_inode_insufficient = is_insufficient(inode_percentage);
-    if (is_space_insufficient || is_inode_insufficient) {
+    if (is_insufficient(space_percentage) || is_insufficient(inode_percentage)) {
         _disk_resource_limit_mode = true;
         _disk_limit_mode_metrics->set_value(1);
     } else if (_disk_resource_limit_mode &&
@@ -1863,30 +1859,12 @@ void BlockFileCache::check_disk_resource_limit() {
         _disk_resource_limit_mode = false;
         _disk_limit_mode_metrics->set_value(0);
     }
-    if (previous_mode != _disk_resource_limit_mode) {
-        // add log for disk resource limit mode switching
-        if (_disk_resource_limit_mode) {
-            LOG(WARNING) << "Entering disk resource limit mode: file_cache=" << get_base_path()
-                         << " space_percent=" << space_percentage
-                         << " inode_percent=" << inode_percentage
-                         << " is_space_insufficient=" << is_space_insufficient
-                         << " is_inode_insufficient=" << is_inode_insufficient
-                         << " enter threshold="
-                         << config::file_cache_enter_disk_resource_limit_mode_percent;
-        } else {
-            LOG(INFO) << "Exiting disk resource limit mode: file_cache=" << get_base_path()
-                      << " space_percent=" << space_percentage
-                      << " inode_percent=" << inode_percentage << " exit threshold="
-                      << config::file_cache_exit_disk_resource_limit_mode_percent;
-        }
-    } else if (_disk_resource_limit_mode) {
-        // print log for disk resource limit mode running, but less frequently
-        LOG_EVERY_N(WARNING, 10) << "file_cache=" << get_base_path()
-                                 << " space_percent=" << space_percentage
-                                 << " inode_percent=" << inode_percentage
-                                 << " is_space_insufficient=" << is_space_insufficient
-                                 << " is_inode_insufficient=" << is_inode_insufficient
-                                 << " mode run in resource limit";
+    if (_disk_resource_limit_mode) {
+        LOG(WARNING) << "file_cache=" << get_base_path() << " space_percent=" << space_percentage
+                     << " inode_percent=" << inode_percentage
+                     << " is_space_insufficient=" << is_insufficient(space_percentage)
+                     << " is_inode_insufficient=" << is_insufficient(inode_percentage)
+                     << " mode run in resource limit";
     }
 }
 
@@ -1920,11 +1898,8 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
         config::file_cache_enter_need_evict_cache_in_advance_percent = 78;
         config::file_cache_exit_need_evict_cache_in_advance_percent = 75;
     }
-    bool previous_mode = _need_evict_cache_in_advance;
-    bool is_space_insufficient = is_insufficient(space_percentage);
-    bool is_inode_insufficient = is_insufficient(inode_percentage);
-    bool is_size_insufficient = is_insufficient(size_percentage);
-    if (is_space_insufficient || is_inode_insufficient || is_size_insufficient) {
+    if (is_insufficient(space_percentage) || is_insufficient(inode_percentage) ||
+        is_insufficient(size_percentage)) {
         _need_evict_cache_in_advance = true;
         _need_evict_cache_in_advance_metrics->set_value(1);
     } else if (_need_evict_cache_in_advance &&
@@ -1934,35 +1909,13 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
         _need_evict_cache_in_advance = false;
         _need_evict_cache_in_advance_metrics->set_value(0);
     }
-    if (previous_mode != _need_evict_cache_in_advance) {
-        // add log for evict cache in advance mode switching
-        if (_need_evict_cache_in_advance) {
-            LOG(WARNING) << "Entering evict cache in advance mode: "
-                         << "file_cache=" << get_base_path()
-                         << " space_percent=" << space_percentage
-                         << " inode_percent=" << inode_percentage
-                         << " size_percent=" << size_percentage
-                         << " is_space_insufficient=" << is_space_insufficient
-                         << " is_inode_insufficient=" << is_inode_insufficient
-                         << " is_size_insufficient=" << is_size_insufficient << " enter threshold="
-                         << config::file_cache_enter_need_evict_cache_in_advance_percent;
-        } else {
-            LOG(INFO) << "Exiting evict cache in advance mode: "
-                      << "file_cache=" << get_base_path() << " space_percent=" << space_percentage
-                      << " inode_percent=" << inode_percentage
-                      << " size_percent=" << size_percentage << " exit threshold="
-                      << config::file_cache_exit_need_evict_cache_in_advance_percent;
-        }
-    } else if (_need_evict_cache_in_advance) {
-        // print log for evict cache in advance mode running, but less frequently
-        LOG_EVERY_N(WARNING, 10) << "file_cache=" << get_base_path()
-                                 << " space_percent=" << space_percentage
-                                 << " inode_percent=" << inode_percentage
-                                 << " size_percent=" << size_percentage
-                                 << " is_space_insufficient=" << is_space_insufficient
-                                 << " is_inode_insufficient=" << is_inode_insufficient
-                                 << " is_size_insufficient=" << is_size_insufficient
-                                 << " need evict cache in advance";
+    if (_need_evict_cache_in_advance) {
+        LOG(WARNING) << "file_cache=" << get_base_path() << " space_percent=" << space_percentage
+                     << " inode_percent=" << inode_percentage << " size_percent=" << size_percentage
+                     << " is_space_insufficient=" << is_insufficient(space_percentage)
+                     << " is_inode_insufficient=" << is_insufficient(inode_percentage)
+                     << " is_size_insufficient=" << is_insufficient(size_percentage)
+                     << " need evict cache in advance";
     }
 }
 
@@ -2532,84 +2485,5 @@ template void BlockFileCache::remove(FileBlockSPtr file_block,
                                      std::lock_guard<std::mutex>& block_lock, bool sync);
 
 #include "common/compile_check_end.h"
-
-Status BlockFileCache::report_file_cache_inconsistency(std::vector<std::string>& results) {
-    InconsistencyContext inconsistency_context;
-    RETURN_IF_ERROR(check_file_cache_consistency(inconsistency_context));
-    auto n = inconsistency_context.types.size();
-    results.reserve(n);
-    for (size_t i = 0; i < n; i++) {
-        std::string result;
-        result += "File cache info in manager:\n";
-        result += inconsistency_context.infos_in_manager[i].to_string();
-        result += "File cache info in storage:\n";
-        result += inconsistency_context.infos_in_storage[i].to_string();
-        result += inconsistency_context.types[i].to_string();
-        result += "\n";
-        results.push_back(std::move(result));
-    }
-    return Status::OK();
-}
-
-Status BlockFileCache::check_file_cache_consistency(InconsistencyContext& inconsistency_context) {
-    std::lock_guard<std::mutex> cache_lock(_mutex);
-    std::vector<FileCacheInfo> infos_in_storage;
-    RETURN_IF_ERROR(_storage->get_file_cache_infos(infos_in_storage, cache_lock));
-    std::unordered_set<AccessKeyAndOffset, KeyAndOffsetHash> confirmed_blocks;
-    for (const auto& info_in_storage : infos_in_storage) {
-        confirmed_blocks.insert({info_in_storage.hash, info_in_storage.offset});
-        auto* cell = get_cell(info_in_storage.hash, info_in_storage.offset, cache_lock);
-        if (cell == nullptr || cell->file_block == nullptr) {
-            inconsistency_context.infos_in_manager.emplace_back();
-            inconsistency_context.infos_in_storage.push_back(info_in_storage);
-            inconsistency_context.types.emplace_back(InconsistencyType::NOT_LOADED);
-            continue;
-        }
-        FileCacheInfo info_in_manager {
-                .hash = info_in_storage.hash,
-                .expiration_time = cell->file_block->expiration_time(),
-                .size = cell->size(),
-                .offset = info_in_storage.offset,
-                .is_tmp = cell->file_block->state() == FileBlock::State::DOWNLOADING,
-                .cache_type = cell->file_block->cache_type()};
-        InconsistencyType inconsistent_type;
-        if (info_in_storage.is_tmp != info_in_manager.is_tmp) {
-            inconsistent_type |= InconsistencyType::TMP_FILE_EXPECT_DOWNLOADING_STATE;
-        }
-        size_t expected_size =
-                info_in_manager.is_tmp ? cell->dowloading_size() : info_in_manager.size;
-        if (info_in_storage.size != expected_size) {
-            inconsistent_type |= InconsistencyType::SIZE_INCONSISTENT;
-        }
-        // Only if it is not a tmp file need we check the cache type.
-        if ((inconsistent_type & InconsistencyType::TMP_FILE_EXPECT_DOWNLOADING_STATE) == 0 &&
-            info_in_storage.cache_type != info_in_manager.cache_type) {
-            inconsistent_type |= InconsistencyType::CACHE_TYPE_INCONSISTENT;
-        }
-        if (info_in_storage.expiration_time != info_in_manager.expiration_time) {
-            inconsistent_type |= InconsistencyType::EXPIRATION_TIME_INCONSISTENT;
-        }
-        if (inconsistent_type != InconsistencyType::NONE) {
-            inconsistency_context.infos_in_manager.push_back(info_in_manager);
-            inconsistency_context.infos_in_storage.push_back(info_in_storage);
-            inconsistency_context.types.push_back(inconsistent_type);
-        }
-    }
-
-    for (const auto& [hash, offset_to_cell] : _files) {
-        for (const auto& [offset, cell] : offset_to_cell) {
-            if (confirmed_blocks.contains({hash, offset})) {
-                continue;
-            }
-            const auto& block = cell.file_block;
-            inconsistency_context.infos_in_manager.emplace_back(
-                    hash, block->expiration_time(), cell.size(), offset,
-                    cell.file_block->state() == FileBlock::State::DOWNLOADING, block->cache_type());
-            inconsistency_context.infos_in_storage.emplace_back();
-            inconsistency_context.types.emplace_back(InconsistencyType::MISSING_IN_STORAGE);
-        }
-    }
-    return Status::OK();
-}
 
 } // namespace doris::io

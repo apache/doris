@@ -35,9 +35,9 @@ public class And extends CompoundPredicate {
      * @param right right child of comparison predicate
      */
     public And(Expression left, Expression right) {
-        this(ExpressionUtils.mergeList(
+        super(ExpressionUtils.mergeList(
                 ExpressionUtils.extractConjunction(left),
-                ExpressionUtils.extractConjunction(right)));
+                ExpressionUtils.extractConjunction(right)), "AND");
     }
 
     public And(List<Expression> children) {

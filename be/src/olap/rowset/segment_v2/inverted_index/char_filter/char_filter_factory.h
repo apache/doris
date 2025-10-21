@@ -17,18 +17,22 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/inverted_index/abstract_analysis_factory.h"
-#include "olap/rowset/segment_v2/inverted_index/util/reader.h"
+#include "olap/rowset/segment_v2/inverted_index/char_filter/char_replace_char_filter.h"
 
-namespace doris::segment_v2::inverted_index {
+namespace doris {
 
-class CharFilterFactory : public AbstractAnalysisFactory {
+static const std::string INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE = "char_replace";
+
+class CharFilterFactory {
 public:
-    CharFilterFactory() = default;
-    ~CharFilterFactory() override = default;
-
-    virtual ReaderPtr create(const ReaderPtr& in) = 0;
+    template <typename... Args>
+    static lucene::analysis::CharFilter* create(const std::string& name, Args&&... args) {
+        DBUG_EXECUTE_IF("CharFilterFactory::create_return_nullptr", { return nullptr; })
+        if (name == INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE) {
+            return new CharReplaceCharFilter(std::forward<Args>(args)...);
+        }
+        return nullptr;
+    }
 };
-using CharFilterFactoryPtr = std::shared_ptr<CharFilterFactory>;
 
-} // namespace doris::segment_v2::inverted_index
+} // namespace doris

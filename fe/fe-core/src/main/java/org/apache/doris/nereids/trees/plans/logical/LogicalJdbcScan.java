@@ -44,19 +44,13 @@ public class LogicalJdbcScan extends LogicalCatalogRelation {
      * Constructor for LogicalJdbcScan.
      */
     public LogicalJdbcScan(RelationId id, TableIf table, List<String> qualifier, List<NamedExpression> virtualColumns,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            String tableAlias) {
-        super(id, PlanType.LOGICAL_JDBC_SCAN, table, qualifier, ImmutableList.of(), virtualColumns,
-                groupExpression, logicalProperties, tableAlias);
-    }
-
-    public LogicalJdbcScan(RelationId id, TableIf table, List<String> qualifier, List<NamedExpression> virtualColumns,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
-        this(id, table, qualifier, virtualColumns, groupExpression, logicalProperties, "");
+        super(id, PlanType.LOGICAL_JDBC_SCAN, table, qualifier, ImmutableList.of(), virtualColumns,
+                groupExpression, logicalProperties);
     }
 
     public LogicalJdbcScan(RelationId id, TableIf table, List<String> qualifier) {
-        this(id, table, qualifier, ImmutableList.of(), Optional.empty(), Optional.empty(), "");
+        this(id, table, qualifier, ImmutableList.of(), Optional.empty(), Optional.empty());
     }
 
     @Override
@@ -69,33 +63,28 @@ public class LogicalJdbcScan extends LogicalCatalogRelation {
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalJdbcScan",
-                "qualified", qualifiedName(),
-                "alias", tableAlias,
-                "output", getOutput());
+            "qualified", qualifiedName(),
+            "output", getOutput()
+        );
     }
 
     @Override
     public LogicalJdbcScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalJdbcScan(relationId, table, qualifier, virtualColumns,
-                groupExpression, Optional.of(getLogicalProperties()), tableAlias);
+                groupExpression, Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalJdbcScan(relationId, table, qualifier, virtualColumns,
-                groupExpression, logicalProperties, tableAlias);
+                groupExpression, logicalProperties);
     }
 
     @Override
     public LogicalJdbcScan withRelationId(RelationId relationId) {
         return new LogicalJdbcScan(relationId, table, qualifier, virtualColumns,
-                Optional.empty(), Optional.empty(), tableAlias);
-    }
-
-    public LogicalJdbcScan withTableAlias(String tableAlias) {
-        return new LogicalJdbcScan(relationId, table, qualifier, virtualColumns, Optional.empty(),
-                Optional.of(getLogicalProperties()), tableAlias);
+                Optional.empty(), Optional.empty());
     }
 
     @Override

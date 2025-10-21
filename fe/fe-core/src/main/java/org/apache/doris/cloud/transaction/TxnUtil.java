@@ -373,12 +373,6 @@ public class TxnUtil {
                 commitAttachment =
                     TxnUtil.rtTaskTxnCommitAttachmentFromPb(txnInfo.getCommitAttachment());
             }
-
-            if (txnInfo.getCommitAttachment().getType()
-                    == TxnCommitAttachmentPB.Type.STREAMING_TASK_TXN_COMMIT_ATTACHMENT) {
-                commitAttachment =
-                    TxnUtil.streamingTaskTxnCommitAttachmentFromPb(txnInfo.getCommitAttachment());
-            }
         }
 
         long prepareTime = txnInfo.hasPrepareTime() ? txnInfo.getPrepareTime() : -1;

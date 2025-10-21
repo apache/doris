@@ -104,26 +104,19 @@ void TaskScheduler::_do_work(int index) {
         // The task is already running, maybe block in now dependency wake up by other thread
         // but the block thread still hold the task, so put it back to the queue, until the hold
         // thread set task->set_running(false)
-        // set_running return the old value
-        if (task->set_running(true)) {
+        if (task->is_running()) {
             static_cast<void>(_task_queue.push_back(task, index));
             continue;
         }
-
         if (task->is_finalized()) {
-            task->set_running(false);
             continue;
         }
-
         auto fragment_context = task->fragment_context().lock();
         if (!fragment_context) {
             // Fragment already finished
-            task->set_running(false);
             continue;
         }
-
-        task->set_thread_id(index);
-
+        task->set_running(true).set_thread_id(index);
         bool done = false;
         auto status = Status::OK();
         int64_t exec_ns = 0;

@@ -47,7 +47,7 @@ import org.apache.doris.qe.StmtExecutor;
  * quantity { DAY | HOUR | MINUTE |
  * WEEK | SECOND }
  */
-public class CreateJobCommand extends Command implements ForwardWithSync, NeedAuditEncryption {
+public class CreateJobCommand extends Command implements ForwardWithSync {
 
     private CreateJobInfo createJobInfo;
 
@@ -82,8 +82,4 @@ public class CreateJobCommand extends Command implements ForwardWithSync, NeedAu
         return StmtType.CREATE;
     }
 
-    @Override
-    public boolean needAuditEncryption() {
-        return true;
-    }
 }

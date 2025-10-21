@@ -748,7 +748,6 @@ public class SchemaChangeHandler extends AlterHandler {
                     modColIndex = i;
                     otherCol = new Column(modColumn);
                     otherCol.setName(col.getName());
-                    otherCol.setUniqueId(col.getUniqueId());
                     otherCol.setDefineExpr(col.getDefineExpr());
                     Preconditions.checkState(modColIndex != -1);
                     Preconditions.checkState(otherCol != null);

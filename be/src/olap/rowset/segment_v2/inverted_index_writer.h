@@ -28,7 +28,6 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/index_writer.h"
-#include "olap/rowset/segment_v2/inverted_index/util/reader.h"
 
 namespace doris {
 
@@ -38,8 +37,6 @@ template <FieldType field_type>
 struct CppTypeTraits;
 
 namespace segment_v2 {
-
-using namespace doris::segment_v2::inverted_index;
 
 template <FieldType field_type>
 class InvertedIndexColumnWriter : public IndexColumnWriter {
@@ -53,7 +50,8 @@ public:
     Status init() override;
     void close_on_error() override;
     Status init_bkd_index();
-    Result<ReaderPtr> create_char_string_reader(CharFilterMap& char_filter_map);
+    Result<std::unique_ptr<lucene::util::Reader>> create_char_string_reader(
+            CharFilterMap& char_filter_map);
     Status open_index_directory();
     std::unique_ptr<lucene::index::IndexWriter> create_index_writer();
     Status create_field(lucene::document::Field** field);
@@ -95,7 +93,7 @@ private:
     std::unique_ptr<lucene::index::IndexWriter> _index_writer = nullptr;
     std::shared_ptr<lucene::analysis::Analyzer> _analyzer = nullptr;
     std::unique_ptr<lucene::search::Similarity> _similarity = nullptr;
-    ReaderPtr _char_string_reader = nullptr;
+    std::unique_ptr<lucene::util::Reader> _char_string_reader = nullptr;
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer = nullptr;
     InvertedIndexCtxSPtr _inverted_index_ctx = nullptr;
     const KeyCoder* _value_key_coder;

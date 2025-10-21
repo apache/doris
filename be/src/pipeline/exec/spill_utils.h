@@ -201,8 +201,8 @@ protected:
     }
 
     void _on_task_started() override {
-        VLOG_DEBUG << "SpillRecoverRunnable, Query: " << print_id(_state->query_id())
-                   << " spill task started, pipeline task id: " << _state->task_id();
+        LOG(INFO) << "SpillRecoverRunnable, Query: " << print_id(_state->query_id())
+                  << " spill task started, pipeline task id: " << _state->task_id();
         COUNTER_UPDATE(_read_wait_in_queue_task_count, -1);
         COUNTER_UPDATE(_reading_task_count, 1);
     }

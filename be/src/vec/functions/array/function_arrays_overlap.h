@@ -277,26 +277,112 @@ public:
         auto array_type = remove_nullable(block.get_by_position(arguments[0]).type);
         auto left_element_type =
                 remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
+        switch (left_element_type->get_primitive_type()) {
+        case TYPE_STRING:
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+            ret = _execute_internal<ColumnString>(left_exec_data, right_exec_data,
+                                                  dst_null_map_data,
+                                                  dst_nested_col->get_data().data());
+            break;
+        case TYPE_DATE:
+            ret = _execute_internal<ColumnDate>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                dst_nested_col->get_data().data());
+            break;
+        case TYPE_DATETIME:
+            ret = _execute_internal<ColumnDateTime>(left_exec_data, right_exec_data,
+                                                    dst_null_map_data,
+                                                    dst_nested_col->get_data().data());
+            break;
+        case TYPE_DATEV2:
+            ret = _execute_internal<ColumnDateV2>(left_exec_data, right_exec_data,
+                                                  dst_null_map_data,
+                                                  dst_nested_col->get_data().data());
+            break;
+        case TYPE_DATETIMEV2:
+            ret = _execute_internal<ColumnDateTimeV2>(left_exec_data, right_exec_data,
+                                                      dst_null_map_data,
+                                                      dst_nested_col->get_data().data());
+            break;
+        case TYPE_BOOLEAN:
+            ret = _execute_internal<ColumnUInt8>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                 dst_nested_col->get_data().data());
+            break;
+        case TYPE_TINYINT:
+            ret = _execute_internal<ColumnInt8>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                dst_nested_col->get_data().data());
+            break;
+        case TYPE_SMALLINT:
+            ret = _execute_internal<ColumnInt16>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                 dst_nested_col->get_data().data());
+            break;
+        case TYPE_INT:
+            ret = _execute_internal<ColumnInt32>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                 dst_nested_col->get_data().data());
+            break;
+        case TYPE_BIGINT:
+            ret = _execute_internal<ColumnInt64>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                 dst_nested_col->get_data().data());
+            break;
+        case TYPE_LARGEINT:
+            ret = _execute_internal<ColumnInt128>(left_exec_data, right_exec_data,
+                                                  dst_null_map_data,
+                                                  dst_nested_col->get_data().data());
+            break;
+        case TYPE_FLOAT:
+            ret = _execute_internal<ColumnFloat32>(left_exec_data, right_exec_data,
+                                                   dst_null_map_data,
+                                                   dst_nested_col->get_data().data());
+            break;
+        case TYPE_DOUBLE:
+            ret = _execute_internal<ColumnFloat64>(left_exec_data, right_exec_data,
+                                                   dst_null_map_data,
+                                                   dst_nested_col->get_data().data());
+            break;
+        case TYPE_DECIMAL32:
+            ret = _execute_internal<ColumnDecimal32>(left_exec_data, right_exec_data,
+                                                     dst_null_map_data,
+                                                     dst_nested_col->get_data().data());
+            break;
+        case TYPE_DECIMAL64:
+            ret = _execute_internal<ColumnDecimal64>(left_exec_data, right_exec_data,
+                                                     dst_null_map_data,
+                                                     dst_nested_col->get_data().data());
+            break;
+        case TYPE_DECIMAL128I:
+            ret = _execute_internal<ColumnDecimal128V3>(left_exec_data, right_exec_data,
+                                                        dst_null_map_data,
+                                                        dst_nested_col->get_data().data());
+            break;
+        case TYPE_DECIMALV2:
+            ret = _execute_internal<ColumnDecimal128V2>(left_exec_data, right_exec_data,
+                                                        dst_null_map_data,
+                                                        dst_nested_col->get_data().data());
+            break;
+        case TYPE_DECIMAL256:
+            ret = _execute_internal<ColumnDecimal256>(left_exec_data, right_exec_data,
+                                                      dst_null_map_data,
+                                                      dst_nested_col->get_data().data());
+            break;
 
-        auto call = [&](const auto& type) -> bool {
-            using DispatchType = std::decay_t<decltype(type)>;
-            ret = _execute_internal<typename DispatchType::ColumnType>(
-                    left_exec_data, right_exec_data, dst_null_map_data,
-                    dst_nested_col->get_data().data());
-            return true;
-        };
-
-        if (!dispatch_switch_all(left_element_type->get_primitive_type(), call)) {
-            ret = Status::InvalidArgument("execute failed, not support type {} in function {}",
-                                          left_element_type->get_name(), get_name());
+        case TYPE_IPV4:
+            ret = _execute_internal<ColumnIPv4>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                dst_nested_col->get_data().data());
+            break;
+        case TYPE_IPV6:
+            ret = _execute_internal<ColumnIPv6>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                dst_nested_col->get_data().data());
+            break;
+        default:
+            break;
         }
 
-        RETURN_IF_ERROR(ret);
+        if (ret.ok()) {
+            block.replace_by_position(result, ColumnNullable::create(std::move(dst_nested_col),
+                                                                     std::move(dst_null_map)));
+        }
 
-        block.replace_by_position(
-                result, ColumnNullable::create(std::move(dst_nested_col), std::move(dst_null_map)));
-
-        return Status::OK();
+        return ret;
     }
 
 private:

@@ -58,32 +58,32 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------------------------------------------------------------------PhysicalProject
 --------------------------------------------------------------------------PhysicalOlapScan[customer] apply RFs: RF6 RF7 RF11 RF14 RF16
 --------------------------------------------------------------------PhysicalProject
-----------------------------------------------------------------------PhysicalOlapScan[date_dim(d2)]
+----------------------------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------------------------------------PhysicalProject
-------------------------------------------------------------------PhysicalOlapScan[date_dim(d3)]
+------------------------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------------------------------PhysicalProject
 --------------------------------------------------------------filter(d_year IN (2001, 2002))
-----------------------------------------------------------------PhysicalOlapScan[date_dim(d1)]
+----------------------------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------------------------PhysicalProject
 ----------------------------------------------------------PhysicalOlapScan[store]
 ----------------------------------------------------PhysicalProject
-------------------------------------------------------PhysicalOlapScan[customer_demographics(cd1)]
+------------------------------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------------------------------PhysicalProject
---------------------------------------------------PhysicalOlapScan[customer_demographics(cd2)]
+--------------------------------------------------PhysicalOlapScan[customer_demographics]
 --------------------------------------------PhysicalProject
 ----------------------------------------------PhysicalOlapScan[promotion]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[household_demographics(hd1)] apply RFs: RF17
+------------------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF17
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[household_demographics(hd2)] apply RFs: RF18
+--------------------------------------PhysicalOlapScan[household_demographics] apply RFs: RF18
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[customer_address(ad1)]
+----------------------------------PhysicalOlapScan[customer_address]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[customer_address(ad2)]
+------------------------------PhysicalOlapScan[customer_address]
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[income_band(ib1)]
+--------------------------PhysicalOlapScan[income_band]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[income_band(ib2)]
+----------------------PhysicalOlapScan[income_band]
 ----------------PhysicalProject
 ------------------filter((item.i_current_price <= 33.00) and (item.i_current_price >= 24.00) and i_color IN ('blanched', 'brown', 'burlywood', 'chocolate', 'drab', 'medium'))
 --------------------PhysicalOlapScan[item]

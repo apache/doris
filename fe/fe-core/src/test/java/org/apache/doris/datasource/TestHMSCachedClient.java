@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HiveDatabaseMetadata;
 import org.apache.doris.datasource.hive.HivePartitionStatistics;
@@ -24,7 +25,6 @@ import org.apache.doris.datasource.hive.HivePartitionWithStatistics;
 import org.apache.doris.datasource.hive.HiveTableMetadata;
 import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
-import org.apache.doris.info.TableNameInfo;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
@@ -205,7 +205,7 @@ public class TestHMSCachedClient implements HMSCachedClient {
     }
 
     @Override
-    public void acquireSharedLock(String queryId, long txnId, String user, TableNameInfo tblName, List<String> partitionNames, long timeoutMs) {
+    public void acquireSharedLock(String queryId, long txnId, String user, TableName tblName, List<String> partitionNames, long timeoutMs) {
 
     }
 

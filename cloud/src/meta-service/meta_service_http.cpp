@@ -41,6 +41,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <variant>
 #include <vector>
 
 #include "common/config.h"
@@ -48,6 +49,7 @@
 #include "common/logging.h"
 #include "common/string_util.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta_service.h"
@@ -690,18 +692,6 @@ static HttpResponse process_set_snapshot_property(MetaServiceImpl* service,
         (*properties)[property_name] = is_enable;
         properties->erase("status");
     }
-    if (properties->contains("max_reserved_snapshots")) {
-        const std::string& property_name = AlterInstanceRequest::SnapshotProperty_Name(
-                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS);
-        (*properties)[property_name] = properties->at("max_reserved_snapshots");
-        properties->erase("max_reserved_snapshots");
-    }
-    if (properties->contains("snapshot_interval_seconds")) {
-        const std::string& property_name = AlterInstanceRequest::SnapshotProperty_Name(
-                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS);
-        (*properties)[property_name] = properties->at("snapshot_interval_seconds");
-        properties->erase("snapshot_interval_seconds");
-    }
     req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
     AlterInstanceResponse resp;
     service->alter_instance(ctrl, &req, &resp, nullptr);
@@ -773,9 +763,13 @@ static HttpResponse process_get_snapshot_property(MetaServiceImpl* service,
     // Build snapshot properties response
     rapidjson::Document doc;
     doc.SetObject();
+    auto& allocator = doc.GetAllocator();
+
+    // Add snapshot properties
+    rapidjson::Value properties(rapidjson::kObjectType);
 
     // Snapshot switch status
-    std::string_view switch_status;
+    std::string switch_status;
     switch (instance.snapshot_switch_status()) {
     case SNAPSHOT_SWITCH_DISABLED:
         switch_status = "UNSUPPORTED";
@@ -790,20 +784,22 @@ static HttpResponse process_get_snapshot_property(MetaServiceImpl* service,
         switch_status = "UNKNOWN";
         break;
     }
-    doc.AddMember("status", rapidjson::StringRef(switch_status.data(), switch_status.size()),
-                  doc.GetAllocator());
+    properties.AddMember("status", rapidjson::Value(switch_status.c_str(), allocator), allocator);
 
     // Max reserved snapshots
     if (instance.has_max_reserved_snapshot()) {
-        doc.AddMember("max_reserved_snapshots", instance.max_reserved_snapshot(),
-                      doc.GetAllocator());
+        properties.AddMember("max_reserved_snapshots", instance.max_reserved_snapshot(), allocator);
     }
 
     // Snapshot interval seconds
     if (instance.has_snapshot_interval_seconds()) {
-        doc.AddMember("snapshot_interval_seconds", instance.snapshot_interval_seconds(),
-                      doc.GetAllocator());
+        properties.AddMember("snapshot_interval_seconds", instance.snapshot_interval_seconds(),
+                             allocator);
     }
+
+    doc.AddMember("code", "OK", allocator);
+    doc.AddMember("msg", "", allocator);
+    doc.AddMember("result", properties, allocator);
 
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);

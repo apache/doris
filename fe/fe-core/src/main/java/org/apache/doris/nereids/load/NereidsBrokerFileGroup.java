@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.load;
 
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -31,7 +32,6 @@ import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -149,11 +149,11 @@ public class NereidsBrokerFileGroup {
         olapTable.readLock();
         try {
             // partitionId
-            PartitionNamesInfo partitionNamesInfo = dataDescription.getPartitionNamesInfo();
-            if (partitionNamesInfo != null) {
+            PartitionNames partitionNames = dataDescription.getPartitionNames();
+            if (partitionNames != null) {
                 partitionIds = Lists.newArrayList();
-                for (String pName : partitionNamesInfo.getPartitionNames()) {
-                    Partition partition = olapTable.getPartition(pName, partitionNamesInfo.isTemp());
+                for (String pName : partitionNames.getPartitionNames()) {
+                    Partition partition = olapTable.getPartition(pName, partitionNames.isTemp());
                     if (partition == null) {
                         throw new DdlException("Unknown partition '" + pName
                                 + "' in table '" + olapTable.getName() + "'");

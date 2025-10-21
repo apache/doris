@@ -102,13 +102,6 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
     }
 
     @Override
-    public String toDigest() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("NOT ").append(child().toDigest());
-        return sb.toString();
-    }
-
-    @Override
     public String computeToSql() {
         return "( not " + child().toSql() + ")";
     }

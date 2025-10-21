@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
@@ -24,7 +25,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -45,7 +45,7 @@ public class CreateViewInfo extends BaseViewInfo {
 
     /** constructor*/
     public CreateViewInfo(boolean ifNotExists, boolean orReplace, TableNameInfo viewName, String comment,
-                          String querySql, List<SimpleColumnDefinition> simpleColumnDefinitions) {
+            String querySql, List<SimpleColumnDefinition> simpleColumnDefinitions) {
         super(viewName, querySql, simpleColumnDefinitions);
         this.ifNotExists = ifNotExists;
         this.orReplace = orReplace;
@@ -59,8 +59,8 @@ public class CreateViewInfo extends BaseViewInfo {
         // disallow external catalog
         Util.prohibitExternalCatalog(viewName.getCtl(), "CreateViewCommand");
         // check privilege
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx,
-                new TableNameInfo(viewName.getCtl(), viewName.getDb(), viewName.getTbl()), PrivPredicate.CREATE)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, new TableName(viewName.getCtl(), viewName.getDb(),
+                viewName.getTbl()), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
                     PrivPredicate.CREATE.getPrivs().toString(), viewName.getTbl());
         }

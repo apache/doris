@@ -283,8 +283,10 @@ public:
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnBitmap&>(to);
-        column.get_data().emplace_back(!result.empty() ? result
-                                                       : this->bitmap_expr_cal.bitmap_calculate());
+        column.get_data().emplace_back(!result.empty()
+                                               ? result
+                                               : const_cast<AggOrthBitMapExprCal*>(this)
+                                                         ->bitmap_expr_cal.bitmap_calculate());
     }
 
     void reset() {
@@ -324,7 +326,8 @@ public:
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnInt64&>(to);
         column.get_data().emplace_back(result ? result
-                                              : this->bitmap_expr_cal.bitmap_calculate_count());
+                                              : const_cast<AggOrthBitMapExprCalCount*>(this)
+                                                        ->bitmap_expr_cal.bitmap_calculate_count());
     }
 
     void reset() {
@@ -402,8 +405,6 @@ public:
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
-        // todo: rethink the write method to determine whether const_cast is necessary.
         this->data(const_cast<AggregateDataPtr>(place)).write(buf);
     }
 

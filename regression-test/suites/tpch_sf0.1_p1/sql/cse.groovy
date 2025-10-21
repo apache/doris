@@ -56,6 +56,6 @@ suite('cse') {
             from region order by x, y;"""
 
     // do not apply cse upon multiDataSink. it is hard to check plan detail on multiDataSink, so just check result.
-    order_qt_multiDataSink "select * FROM     nation left outer join region on n_nationkey-5 = r_regionkey or n_nationkey-10=r_regionkey + 10;"
+    qt_order_multiDataSink "select * FROM     nation left outer join region on n_nationkey-5 = r_regionkey or n_nationkey-10=r_regionkey + 10;"
        
 }

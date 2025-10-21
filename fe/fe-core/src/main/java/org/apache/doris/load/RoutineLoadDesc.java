@@ -20,10 +20,10 @@ package org.apache.doris.load;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 
 import com.google.common.base.Strings;
@@ -37,19 +37,19 @@ public class RoutineLoadDesc {
     private final Expr deleteCondition;
     private LoadTask.MergeType mergeType;
     // nullable
-    private final PartitionNamesInfo partitionNamesInfo;
+    private final PartitionNames partitionNames;
     private final String sequenceColName;
 
     public RoutineLoadDesc(Separator columnSeparator, Separator lineDelimiter, ImportColumnsStmt columnsInfo,
                            ImportWhereStmt precedingFilter, ImportWhereStmt wherePredicate,
-                           PartitionNamesInfo partitionNamesInfo, Expr deleteCondition, LoadTask.MergeType mergeType,
+                           PartitionNames partitionNames, Expr deleteCondition, LoadTask.MergeType mergeType,
                            String sequenceColName) {
         this.columnSeparator = columnSeparator;
         this.lineDelimiter = lineDelimiter;
         this.columnsInfo = columnsInfo;
         this.precedingFilter = precedingFilter;
         this.wherePredicate = wherePredicate;
-        this.partitionNamesInfo = partitionNamesInfo;
+        this.partitionNames = partitionNames;
         this.deleteCondition = deleteCondition;
         this.mergeType = mergeType;
         this.sequenceColName = sequenceColName;
@@ -80,8 +80,8 @@ public class RoutineLoadDesc {
     }
 
     // nullable
-    public PartitionNamesInfo getPartitionNamesInfo() {
-        return partitionNamesInfo;
+    public PartitionNames getPartitionNames() {
+        return partitionNames;
     }
 
     public Expr getDeleteCondition() {

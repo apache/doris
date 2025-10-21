@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -217,7 +218,7 @@ public class ExpressionUtils {
             }
         }
 
-        List<Expression> exprList = ImmutableList.copyOf(distinctExpressions);
+        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
         if (exprList.isEmpty()) {
             return BooleanLiteral.TRUE;
         } else if (exprList.size() == 1) {
@@ -265,7 +266,7 @@ public class ExpressionUtils {
             }
         }
 
-        List<Expression> exprList = ImmutableList.copyOf(distinctExpressions);
+        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
         if (exprList.isEmpty()) {
             return BooleanLiteral.FALSE;
         } else if (exprList.size() == 1) {
@@ -277,7 +278,7 @@ public class ExpressionUtils {
 
     public static Expression falseOrNull(Expression expression) {
         if (expression.nullable()) {
-            return new And(new IsNull(expression), NullLiteral.BOOLEAN_INSTANCE);
+            return new And(new IsNull(expression), new NullLiteral(BooleanType.INSTANCE));
         } else {
             return BooleanLiteral.FALSE;
         }
@@ -285,7 +286,7 @@ public class ExpressionUtils {
 
     public static Expression trueOrNull(Expression expression) {
         if (expression.nullable()) {
-            return new Or(new Not(new IsNull(expression)), NullLiteral.BOOLEAN_INSTANCE);
+            return new Or(new Not(new IsNull(expression)), new NullLiteral(BooleanType.INSTANCE));
         } else {
             return BooleanLiteral.TRUE;
         }
@@ -667,7 +668,7 @@ public class ExpressionUtils {
          * and in semi join, we can safely change the mark conjunct to hash conjunct
          */
         ImmutableList<Literal> literals =
-                ImmutableList.of(NullLiteral.BOOLEAN_INSTANCE, BooleanLiteral.FALSE);
+                ImmutableList.of(new NullLiteral(BooleanType.INSTANCE), BooleanLiteral.FALSE);
         List<MarkJoinSlotReference> markJoinSlotReferenceList =
                 new ArrayList<>((predicate.collect(MarkJoinSlotReference.class::isInstance)));
         int markSlotSize = markJoinSlotReferenceList.size();

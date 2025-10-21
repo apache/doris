@@ -48,30 +48,6 @@ void MetaServiceImpl::begin_snapshot(::google::protobuf::RpcController* controll
     msg = response->status().msg();
 }
 
-void MetaServiceImpl::update_snapshot(::google::protobuf::RpcController* controller,
-                                      const UpdateSnapshotRequest* request,
-                                      UpdateSnapshotResponse* response,
-                                      ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(update_snapshot, get, put, del);
-    if (!request->has_cloud_unique_id() || request->cloud_unique_id().empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "cloud_unique_id not set";
-        return;
-    }
-
-    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
-    if (instance_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "empty instance_id";
-        return;
-    }
-    RPC_RATE_LIMIT(update_snapshot);
-
-    snapshot_manager_->update_snapshot(instance_id, *request, response);
-    code = response->status().code();
-    msg = response->status().msg();
-}
-
 void MetaServiceImpl::commit_snapshot(::google::protobuf::RpcController* controller,
                                       const CommitSnapshotRequest* request,
                                       CommitSnapshotResponse* response,

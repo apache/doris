@@ -39,7 +39,6 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/core/block.h"
-#include "vec/core/call_on_type_index.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
@@ -375,17 +374,74 @@ private:
                                   right_nested_null_map, array_null_map);
         } else if (is_number(right_type->get_primitive_type()) &&
                    is_number(left_element_type->get_primitive_type())) {
-            auto call = [&](const auto& type) -> bool {
-                using DispatchType = std::decay_t<decltype(type)>;
-                res = _execute_number_expanded<typename DispatchType::ColumnType>(
+            switch (left_element_type->get_primitive_type()) {
+            case TYPE_BOOLEAN:
+                res = _execute_number_expanded<ColumnUInt8>(offsets, *nested_column, *right_column,
+                                                            nested_null_map, right_nested_null_map,
+                                                            array_null_map);
+                break;
+            case TYPE_TINYINT:
+                res = _execute_number_expanded<ColumnInt8>(offsets, *nested_column, *right_column,
+                                                           nested_null_map, right_nested_null_map,
+                                                           array_null_map);
+                break;
+            case TYPE_SMALLINT:
+                res = _execute_number_expanded<ColumnInt16>(offsets, *nested_column, *right_column,
+                                                            nested_null_map, right_nested_null_map,
+                                                            array_null_map);
+                break;
+            case TYPE_INT:
+                res = _execute_number_expanded<ColumnInt32>(offsets, *nested_column, *right_column,
+                                                            nested_null_map, right_nested_null_map,
+                                                            array_null_map);
+                break;
+            case TYPE_BIGINT:
+                res = _execute_number_expanded<ColumnInt64>(offsets, *nested_column, *right_column,
+                                                            nested_null_map, right_nested_null_map,
+                                                            array_null_map);
+                break;
+            case TYPE_LARGEINT:
+                res = _execute_number_expanded<ColumnInt128>(offsets, *nested_column, *right_column,
+                                                             nested_null_map, right_nested_null_map,
+                                                             array_null_map);
+                break;
+            case TYPE_FLOAT:
+                res = _execute_number_expanded<ColumnFloat32>(
                         offsets, *nested_column, *right_column, nested_null_map,
                         right_nested_null_map, array_null_map);
-                return true;
-            };
-
-            if (!dispatch_switch_number(left_element_type->get_primitive_type(), call)) {
-                throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                       "not support left type " + left_element_type->get_name());
+                break;
+            case TYPE_DOUBLE:
+                res = _execute_number_expanded<ColumnFloat64>(
+                        offsets, *nested_column, *right_column, nested_null_map,
+                        right_nested_null_map, array_null_map);
+                break;
+            case TYPE_DECIMAL32:
+                res = _execute_number_expanded<ColumnDecimal32>(
+                        offsets, *nested_column, *right_column, nested_null_map,
+                        right_nested_null_map, array_null_map);
+                break;
+            case TYPE_DECIMAL64:
+                res = _execute_number_expanded<ColumnDecimal64>(
+                        offsets, *nested_column, *right_column, nested_null_map,
+                        right_nested_null_map, array_null_map);
+                break;
+            case TYPE_DECIMAL128I:
+                res = _execute_number_expanded<ColumnDecimal128V3>(
+                        offsets, *nested_column, *right_column, nested_null_map,
+                        right_nested_null_map, array_null_map);
+                break;
+            case TYPE_DECIMALV2:
+                res = _execute_number_expanded<ColumnDecimal128V2>(
+                        offsets, *nested_column, *right_column, nested_null_map,
+                        right_nested_null_map, array_null_map);
+                break;
+            case TYPE_DECIMAL256:
+                res = _execute_number_expanded<ColumnDecimal256>(
+                        offsets, *nested_column, *right_column, nested_null_map,
+                        right_nested_null_map, array_null_map);
+                break;
+            default:
+                break;
             }
         } else if (is_date_or_datetime(right_type->get_primitive_type()) &&
                    is_date_or_datetime(left_element_type->get_primitive_type())) {

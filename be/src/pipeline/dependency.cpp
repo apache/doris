@@ -85,7 +85,7 @@ void Dependency::set_ready() {
     for (auto task : local_block_task) {
         if (auto t = task.lock()) {
             std::unique_lock<std::mutex> lc(_task_lock);
-            THROW_IF_ERROR(t->wake_up(this, lc));
+            THROW_IF_ERROR(t->wake_up(this));
         }
     }
 }
@@ -96,7 +96,7 @@ Dependency* Dependency::is_blocked_by(std::shared_ptr<PipelineTask> task) {
     if (!ready && task) {
         _add_block_task(task);
         start_watcher();
-        THROW_IF_ERROR(task->blocked(this, lc));
+        THROW_IF_ERROR(task->blocked(this));
     }
     return ready ? nullptr : this;
 }

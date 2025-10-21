@@ -256,66 +256,6 @@ public class EncryptSQLTest extends ParserTestBase {
         sql = "SET PASSWORD FOR 'admin' = PASSWORD('123456')";
         res = "SET PASSWORD FOR 'admin' = PASSWORD('*XXX')";
         parseAndCheck(sql, res);
-
-        // create job
-        sql = "CREATE JOB my_job"
-                + " ON STREAMING"
-                + " DO"
-                + " INSERT INTO test.`student`"
-                + " SELECT * FROM S3"
-                + " ("
-                + " \"uri\" = \"s3://bucketname/demo/*.csv\","
-                + " \"format\" = \"csv\","
-                + " \"column_separator\" = \",\","
-                + " \"s3.endpoint\" = \"s3.ap-southeast-1.amazonaws.com\","
-                + " \"s3.region\" = \"ap-southeast-1\","
-                + " \"s3.access_key\" = \"ak\","
-                + " \"s3.secret_key\" = \"abcdefg\""
-                + " );";
-
-        res = "CREATE JOB my_job"
-                + " ON STREAMING"
-                + " DO"
-                + " INSERT INTO test.`student`"
-                + " SELECT * FROM S3"
-                + " ("
-                + " \"uri\" = \"s3://bucketname/demo/*.csv\","
-                + " \"format\" = \"csv\","
-                + " \"column_separator\" = \",\","
-                + " \"s3.endpoint\" = \"s3.ap-southeast-1.amazonaws.com\","
-                + " \"s3.region\" = \"ap-southeast-1\","
-                + " \"s3.access_key\" = \"ak\","
-                + " \"s3.secret_key\" = \"*XXX\""
-                + " );";
-        parseAndCheck(sql, res);
-
-        // alter job
-        sql = "ALTER JOB my_job"
-                + " INSERT INTO test.`student`"
-                + " SELECT * FROM S3"
-                + " ("
-                + " \"uri\" = \"s3://bucketname/demo/*.csv\","
-                + " \"format\" = \"csv\","
-                + " \"column_separator\" = \",\","
-                + " \"s3.endpoint\" = \"s3.ap-southeast-1.amazonaws.com\","
-                + " \"s3.region\" = \"ap-southeast-1\","
-                + " \"s3.access_key\" = \"ak\","
-                + " \"s3.secret_key\" = \"abcdefg\""
-                + " );";
-
-        res = "ALTER JOB my_job"
-                + " INSERT INTO test.`student`"
-                + " SELECT * FROM S3"
-                + " ("
-                + " \"uri\" = \"s3://bucketname/demo/*.csv\","
-                + " \"format\" = \"csv\","
-                + " \"column_separator\" = \",\","
-                + " \"s3.endpoint\" = \"s3.ap-southeast-1.amazonaws.com\","
-                + " \"s3.region\" = \"ap-southeast-1\","
-                + " \"s3.access_key\" = \"ak\","
-                + " \"s3.secret_key\" = \"*XXX\""
-                + " );";
-        parseAndCheck(sql, res);
     }
 
     private void parseAndCheck(String sql, String expected) {

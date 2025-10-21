@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.catalog.Column;
@@ -187,10 +186,5 @@ public class ShowBackupCommand extends ShowCommand {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowBackupCommand(this, context);
-    }
-
-    @Override
-    public RedirectStatus toRedirectStatus() {
-        return RedirectStatus.FORWARD_NO_SYNC;
     }
 }

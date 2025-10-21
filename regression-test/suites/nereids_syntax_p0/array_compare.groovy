@@ -17,7 +17,7 @@
 
 
 suite("array_compare") {
-    def tableName = "test_array_compare"
+    def tableName = "test_array"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """

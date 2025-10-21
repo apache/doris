@@ -90,7 +90,6 @@ BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap_update_lock("ms", "rem
 BvarLatencyRecorderWithTag g_bvar_ms_get_instance("ms", "get_instance");
 BvarLatencyRecorderWithTag g_bvar_ms_get_rl_task_commit_attach("ms", "get_rl_task_commit_attach");
 BvarLatencyRecorderWithTag g_bvar_ms_get_streaming_task_commit_attach("ms", "get_streaming_task_commit_attach");
-BvarLatencyRecorderWithTag g_bvar_ms_delete_streaming_job("ms", "delete_streaming_job");
 BvarLatencyRecorderWithTag g_bvar_ms_reset_rl_progress("ms", "reset_rl_progress");
 BvarLatencyRecorderWithTag g_bvar_ms_get_txn_id("ms", "get_txn_id");
 BvarLatencyRecorderWithTag g_bvar_ms_start_tablet_job("ms", "start_tablet_job");
@@ -100,7 +99,6 @@ BvarLatencyRecorderWithTag g_bvar_ms_set_cluster_status("ms", "set_cluster_statu
 BvarLatencyRecorderWithTag g_bvar_ms_check_kv("ms", "check_kv");
 BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict("ms", "get_schema_dict");
 BvarLatencyRecorderWithTag g_bvar_ms_begin_snapshot("ms", "begin_snapshot");
-BvarLatencyRecorderWithTag g_bvar_ms_update_snapshot("ms", "update_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_commit_snapshot("ms", "commit_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_abort_snapshot("ms", "abort_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_drop_snapshot("ms", "drop_snapshot");
@@ -385,8 +383,6 @@ mBvarInt64Adder g_bvar_rpc_kv_precommit_txn_put_counter("rpc_kv_precommit_txn_pu
 mBvarInt64Adder g_bvar_rpc_kv_get_rl_task_commit_attach_get_counter("rpc_kv_get_rl_task_commit_attach_get_counter",{"instance_id"});
 // get_streaming_task_commit_attach
 mBvarInt64Adder g_bvar_rpc_kv_get_streaming_task_commit_attach_get_counter("rpc_kv_get_streaming_task_commit_attach_get_counter",{"instance_id"});
-// delete_streaming_job
-mBvarInt64Adder g_bvar_rpc_kv_delete_streaming_job_del_counter("rpc_kv_delete_streaming_job_del_counter",{"instance_id"});
 // reset_rl_progress
 mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_get_counter("rpc_kv_reset_rl_progress_get_counter",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_put_counter("rpc_kv_reset_rl_progress_put_counter",{"instance_id"});
@@ -424,10 +420,6 @@ mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_counter("rpc_kv_get_txn_id_get_coun
 mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_get_counter("rpc_kv_begin_snapshot_get_counter",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_put_counter("rpc_kv_begin_snapshot_put_counter",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_del_counter("rpc_kv_begin_snapshot_del_counter",{"instance_id"});
-// update snapshot
-mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_get_counter("rpc_kv_update_snapshot_get_counter",{"instance_id"});
-mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_put_counter("rpc_kv_update_snapshot_put_counter",{"instance_id"});
-mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_del_counter("rpc_kv_update_snapshot_del_counter",{"instance_id"});
 // commit_snapshot
 mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_get_counter("rpc_kv_commit_snapshot_get_counter",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_put_counter("rpc_kv_commit_snapshot_put_counter",{"instance_id"});
@@ -581,8 +573,6 @@ mBvarInt64Adder g_bvar_rpc_kv_precommit_txn_put_bytes("rpc_kv_precommit_txn_put_
 mBvarInt64Adder g_bvar_rpc_kv_get_rl_task_commit_attach_get_bytes("rpc_kv_get_rl_task_commit_attach_get_bytes",{"instance_id"});
 // get_streaming_task_commit_attach
 mBvarInt64Adder g_bvar_rpc_kv_get_streaming_task_commit_attach_get_bytes("rpc_kv_get_streaming_task_commit_attach_get_bytes",{"instance_id"});
-// delete_streaming_job
-mBvarInt64Adder g_bvar_rpc_kv_delete_streaming_job_del_bytes("rpc_kv_delete_streaming_job_del_bytes",{"instance_id"});
 // reset_rl_progress
 mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_get_bytes("rpc_kv_reset_rl_progress_get_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_reset_rl_progress_put_bytes("rpc_kv_reset_rl_progress_put_bytes",{"instance_id"});
@@ -623,10 +613,6 @@ mBvarStatus<int64_t> g_bvar_fdb_kv_ranges_count("fdb_kv_ranges_count", {"categor
 mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_get_bytes("rpc_kv_begin_snapshot_get_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_put_bytes("rpc_kv_begin_snapshot_put_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_del_bytes("rpc_kv_begin_snapshot_del_bytes",{"instance_id"});
-// update snapshot
-mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_get_bytes("rpc_kv_update_snapshot_get_bytes",{"instance_id"});
-mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_put_bytes("rpc_kv_update_snapshot_put_bytes",{"instance_id"});
-mBvarInt64Adder g_bvar_rpc_kv_update_snapshot_del_bytes("rpc_kv_update_snapshot_del_bytes",{"instance_id"});
 // commit_snapshot
 mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_get_bytes("rpc_kv_commit_snapshot_get_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_put_bytes("rpc_kv_commit_snapshot_put_bytes",{"instance_id"});

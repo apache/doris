@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -34,7 +35,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccUtil;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.rpc.RpcException;
 
@@ -88,14 +88,14 @@ public class MTMVPartitionUtil {
      */
     public static boolean isMTMVPartitionSync(MTMVRefreshContext refreshContext, String partitionName,
             Set<BaseTableInfo> tables,
-            Set<TableNameInfo> excludedTriggerTables) throws AnalysisException {
+            Set<TableName> excludedTriggerTables) throws AnalysisException {
         MTMV mtmv = refreshContext.getMtmv();
         Set<String> relatedPartitionNames = refreshContext.getPartitionMappings().get(partitionName);
         boolean isSyncWithPartition = true;
         if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
             // if follow base table, not need compare with related table, only should compare with related partition
-            excludedTriggerTables.add(new TableNameInfo(relatedTable));
+            excludedTriggerTables.add(new TableName(relatedTable));
             if (CollectionUtils.isEmpty(relatedPartitionNames)) {
                 LOG.warn("can not found related partition, partitionId: {}, mtmvName: {}, relatedTableName: {}",
                         partitionName, mtmv.getName(), relatedTable.getName());
@@ -216,7 +216,7 @@ public class MTMVPartitionUtil {
      * @throws AnalysisException
      */
     public static boolean isMTMVSync(MTMVRefreshContext context, Set<BaseTableInfo> tables,
-            Set<TableNameInfo> excludeTables)
+            Set<TableName> excludeTables)
             throws AnalysisException {
         MTMV mtmv = context.getMtmv();
         Set<String> partitionNames = mtmv.getPartitionNames();
@@ -413,7 +413,7 @@ public class MTMVPartitionUtil {
      */
     private static boolean isSyncWithAllBaseTables(MTMVRefreshContext context, String mtmvPartitionName,
             Set<BaseTableInfo> tables,
-            Set<TableNameInfo> excludedTriggerTables) throws AnalysisException {
+            Set<TableName> excludedTriggerTables) throws AnalysisException {
         for (BaseTableInfo baseTableInfo : tables) {
             TableIf table = null;
             try {
@@ -422,7 +422,7 @@ public class MTMVPartitionUtil {
                 LOG.warn("get table failed, {}", baseTableInfo, e);
                 return false;
             }
-            if (isTableExcluded(excludedTriggerTables, new TableNameInfo(table))) {
+            if (isTableExcluded(excludedTriggerTables, new TableName(table))) {
                 continue;
             }
             boolean syncWithBaseTable = isSyncWithBaseTable(context, mtmvPartitionName, baseTableInfo);
@@ -433,8 +433,8 @@ public class MTMVPartitionUtil {
         return true;
     }
 
-    public static boolean isTableExcluded(Set<TableNameInfo> excludedTriggerTables, TableNameInfo tableNameToCheck) {
-        for (TableNameInfo tableName : excludedTriggerTables) {
+    public static boolean isTableExcluded(Set<TableName> excludedTriggerTables, TableName tableNameToCheck) {
+        for (TableName tableName : excludedTriggerTables) {
             if (isTableNamelike(tableName, tableNameToCheck)) {
                 return true;
             }
@@ -450,7 +450,7 @@ public class MTMVPartitionUtil {
      * @param tableNameToCheck The table used to create an MTMV, must have non-empty tableName, dbName, and ctlName.
      * @return
      */
-    public static boolean isTableNamelike(TableNameInfo excludedTriggerTable, TableNameInfo tableNameToCheck) {
+    public static boolean isTableNamelike(TableName excludedTriggerTable, TableName tableNameToCheck) {
         Objects.requireNonNull(excludedTriggerTable, "excludedTriggerTable can not be null");
         Objects.requireNonNull(tableNameToCheck, "tableNameToCheck can not be null");
 

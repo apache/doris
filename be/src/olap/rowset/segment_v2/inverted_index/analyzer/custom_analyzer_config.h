@@ -39,13 +39,11 @@ public:
         ~Builder() = default;
 
         void with_tokenizer_config(const std::string& name, const Settings& params);
-        void add_char_filter_config(const std::string& name, const Settings& params);
         void add_token_filter_config(const std::string& name, const Settings& params);
         CustomAnalyzerConfigPtr build();
 
     private:
         ComponentConfigPtr _tokenizer_config;
-        std::vector<ComponentConfigPtr> _char_filters;
         std::vector<ComponentConfigPtr> _token_filters;
 
         friend class CustomAnalyzerConfig;
@@ -55,12 +53,10 @@ public:
     ~CustomAnalyzerConfig() = default;
 
     ComponentConfigPtr get_tokenizer_config();
-    std::vector<ComponentConfigPtr> get_char_filter_configs();
     std::vector<ComponentConfigPtr> get_token_filter_configs();
 
 private:
     ComponentConfigPtr _tokenizer_config;
-    std::vector<ComponentConfigPtr> _char_filters;
     std::vector<ComponentConfigPtr> _token_filters;
 };
 

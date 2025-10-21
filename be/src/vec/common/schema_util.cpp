@@ -573,7 +573,7 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
             // In this case, we should finlize the root and cast to JSON type
             auto expected_root_type =
                     make_nullable(std::make_shared<ColumnVariant::MostCommonType>());
-            var.ensure_root_node_type(expected_root_type);
+            const_cast<ColumnVariant&>(var).ensure_root_node_type(expected_root_type);
             variant_column = var.assume_mutable();
         }
 

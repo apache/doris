@@ -164,7 +164,6 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr targetplace, IColumn& to) const override {
-        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
         auto* place = const_cast<AggregateDataPtr>(targetplace);
         Arena arena;
         if (!this->data(place).block.is_empty_column()) {

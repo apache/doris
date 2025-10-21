@@ -29,7 +29,6 @@ import org.apache.doris.nereids.rules.analysis.BindSkewExpr;
 import org.apache.doris.nereids.rules.analysis.CheckAfterBind;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
-import org.apache.doris.nereids.rules.analysis.CheckSearchUsage;
 import org.apache.doris.nereids.rules.analysis.CollectJoinConstraint;
 import org.apache.doris.nereids.rules.analysis.CollectSubQueryAlias;
 import org.apache.doris.nereids.rules.analysis.CompressedMaterialize;
@@ -178,8 +177,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
             // @t_zone must be replaced as 'GMT' before EliminateGroupByConstant and NormalizeAggregate rule.
             // So need run VariableToLiteral rule before the two rules.
             topDown(new VariableToLiteral()),
-            // run CheckSearchUsage before CheckAnalysis to detect search() in GROUP BY before it gets optimized
-            bottomUp(new CheckSearchUsage()),
             // run CheckAnalysis before EliminateGroupByConstant in order to report error message correctly like bellow
             // select SUM(lo_tax) FROM lineorder group by 1;
             // errCode = 2, detailMessage = GROUP BY expression must not contain aggregate functions: sum(lo_tax)

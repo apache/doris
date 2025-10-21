@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
@@ -29,7 +30,6 @@ import org.apache.doris.event.Event;
 import org.apache.doris.event.EventException;
 import org.apache.doris.event.EventListener;
 import org.apache.doris.event.TableEvent;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
@@ -196,10 +196,10 @@ public class MTMVService implements EventListener {
     }
 
     private boolean shouldRefreshOnBaseTableDataChange(MTMV mtmv, TableIf table) {
-        TableNameInfo tableName = null;
+        TableName tableName = null;
         try {
-            tableName = new TableNameInfo(table);
-        } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
+            tableName = new TableName(table);
+        } catch (AnalysisException e) {
             LOG.warn("skip refresh mtmv: {}, because get TableName failed: {}",
                     mtmv.getName(), table.getName());
             return false;

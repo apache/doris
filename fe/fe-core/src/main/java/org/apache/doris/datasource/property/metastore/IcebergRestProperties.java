@@ -110,8 +110,9 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @ConnectorProperty(names = {"iceberg.rest.nested-namespace-enabled"},
             required = false,
+            supported = false,
             description = "Enable nested namespace for the iceberg rest catalog service.")
-    private String icebergRestNestedNamespaceEnabled = "false";
+    private String icebergRestNestedNamespaceEnabled = "true";
 
     @ConnectorProperty(names = {"iceberg.rest.case-insensitive-name-matching"},
             required = false,
@@ -200,7 +201,11 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         ParamRules rules = new ParamRules()
                 // OAuth2 requires either credential or token, but not both
                 .mutuallyExclusive(icebergRestOauth2Credential, icebergRestOauth2Token,
-                        "OAuth2 cannot have both credential and token configured");
+                        "OAuth2 cannot have both credential and token configured")
+                // If using credential flow, server URI is required
+                .requireAllIfPresent(icebergRestOauth2Credential,
+                        new String[] {icebergRestOauth2ServerUri},
+                        "OAuth2 credential flow requires server-uri");
 
         // Custom validation: OAuth2 scope should not be used with token
         if (Strings.isNotBlank(icebergRestOauth2Token) && Strings.isNotBlank(icebergRestOauth2Scope)) {
@@ -270,9 +275,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         if (Strings.isNotBlank(icebergRestOauth2Credential)) {
             // Client Credentials Flow
             icebergRestCatalogProperties.put(OAuth2Properties.CREDENTIAL, icebergRestOauth2Credential);
-            if (Strings.isNotBlank(icebergRestOauth2ServerUri)) {
-                icebergRestCatalogProperties.put(OAuth2Properties.OAUTH2_SERVER_URI, icebergRestOauth2ServerUri);
-            }
+            icebergRestCatalogProperties.put(OAuth2Properties.OAUTH2_SERVER_URI, icebergRestOauth2ServerUri);
             if (Strings.isNotBlank(icebergRestOauth2Scope)) {
                 icebergRestCatalogProperties.put(OAuth2Properties.SCOPE, icebergRestOauth2Scope);
             }
@@ -285,8 +288,8 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     }
 
     private void addGlueRestCatalogProperties() {
-        if (Strings.isNotBlank(icebergRestSigningName)) {
-            icebergRestCatalogProperties.put("rest.signing-name", icebergRestSigningName.toLowerCase());
+        if (Strings.isNotBlank(icebergRestSigningName) && icebergRestSigningName.equalsIgnoreCase("glue")) {
+            icebergRestCatalogProperties.put("rest.signing-name", "glue");
             icebergRestCatalogProperties.put("rest.sigv4-enabled", icebergRestSigV4Enabled);
             icebergRestCatalogProperties.put("rest.access-key-id", icebergRestAccessKeyId);
             icebergRestCatalogProperties.put("rest.secret-access-key", icebergRestSecretAccessKey);
@@ -301,10 +304,6 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     public boolean isIcebergRestVendedCredentialsEnabled() {
         return Boolean.parseBoolean(icebergRestVendedCredentialsEnabled);
-    }
-
-    public boolean isIcebergRestNestedNamespaceEnabled() {
-        return Boolean.parseBoolean(icebergRestNestedNamespaceEnabled);
     }
 
     /**

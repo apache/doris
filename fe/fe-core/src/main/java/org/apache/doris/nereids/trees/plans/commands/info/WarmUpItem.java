@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.info.TableNameInfo;
-
 /**
  * WarmUpItem
  */

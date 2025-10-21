@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;

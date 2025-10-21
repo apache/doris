@@ -1741,15 +1741,6 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         new_ram_user.mutable_encryption_info()->CopyFrom(encryption_info);
         instance.mutable_ram_user()->CopyFrom(new_ram_user);
     }
-    if (config::enable_multi_version_status) {
-        instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_READ_WRITE);
-        instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
-        if (config::enable_cluster_snapshot) {
-            instance.set_snapshot_switch_status(SNAPSHOT_SWITCH_ON);
-            instance.set_snapshot_interval_seconds(config::snapshot_min_interval_seconds);
-            instance.set_max_reserved_snapshot(1);
-        }
-    }
 
     if (instance.instance_id().empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;

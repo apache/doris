@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -41,11 +42,10 @@ import org.apache.doris.common.proc.TableProcDir;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.systable.SysTable;
-import org.apache.doris.info.PartitionNamesInfo;
-import org.apache.doris.info.TableNameInfo;
-import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
@@ -88,7 +88,7 @@ public class DescribeCommand extends ShowCommand {
 
     private PartitionNamesInfo partitionNames;
 
-    private TableValuedFunctionRefInfo tableValuedFunctionRefInfo;
+    private TableValuedFunctionRef tableValuedFunctionRef;
     private boolean isTableValuedFunction;
 
     private List<List<String>> rows = new LinkedList<List<String>>();
@@ -100,9 +100,9 @@ public class DescribeCommand extends ShowCommand {
         this.partitionNames = partitionNames;
     }
 
-    public DescribeCommand(TableValuedFunctionRefInfo tableValuedFunctionRefInfo) {
+    public DescribeCommand(TableValuedFunctionRef tableValuedFunctionRef) {
         super(PlanType.DESCRIBE);
-        this.tableValuedFunctionRefInfo = tableValuedFunctionRefInfo;
+        this.tableValuedFunctionRef = tableValuedFunctionRef;
         this.isTableValuedFunction = true;
         this.isAllTables = false;
     }
@@ -201,18 +201,18 @@ public class DescribeCommand extends ShowCommand {
             if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second)) {
                 TableIf table = db.getTableOrDdlException(tableNameWithSysTableName.first);
                 isTableValuedFunction = true;
-                Optional<TableValuedFunctionRefInfo> optTvfRef = table.getSysTableFunctionRef(
+                Optional<TableValuedFunctionRef> optTvfRef = table.getSysTableFunctionRef(
                         dbTableName.getCtl(), dbTableName.getDb(), dbTableName.getTbl());
                 if (!optTvfRef.isPresent()) {
                     throw new AnalysisException("sys table not found: " + tableNameWithSysTableName.second);
                 }
-                tableValuedFunctionRefInfo = optTvfRef.get();
+                tableValuedFunctionRef = optTvfRef.get();
             }
         }
 
         if (!isAllTables && isTableValuedFunction) {
-            validateTableValuedFunction(ctx, tableValuedFunctionRefInfo.getTableFunction().getTableName());
-            List<Column> columns = tableValuedFunctionRefInfo.getTableFunction().getTableColumns();
+            validateTableValuedFunction(ctx, tableValuedFunctionRef.getTableFunction().getTableName());
+            List<Column> columns = tableValuedFunctionRef.getTableFunction().getTableColumns();
             for (Column column : columns) {
                 List<String> row = Arrays.asList(
                         column.getName(),

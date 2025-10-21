@@ -272,10 +272,9 @@ public:
         return f;
     }
     template <PrimitiveType T>
-    static Field create_field(typename PrimitiveTypeTraits<T>::NearestFieldType&& data) {
+    static Field create_field(const typename PrimitiveTypeTraits<T>::NearestFieldType&& data) {
         auto f = Field(PrimitiveTypeTraits<T>::NearestPrimitiveType);
-        f.template create_concrete<PrimitiveTypeTraits<T>::NearestPrimitiveType>(
-                std::forward<typename PrimitiveTypeTraits<T>::NearestFieldType>(data));
+        f.template create_concrete<PrimitiveTypeTraits<T>::NearestPrimitiveType>(data);
         return f;
     }
 
@@ -507,10 +506,8 @@ private:
     void assign_concrete(const typename PrimitiveTypeTraits<Type>::NearestFieldType& x);
 
     void create(const Field& field);
-    void create(Field&& field);
 
     void assign(const Field& x);
-    void assign(Field&& x);
 
     void destroy();
 

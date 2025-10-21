@@ -39,7 +39,6 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
-#include "vec/core/call_on_type_index.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -417,17 +416,74 @@ private:
                                             right_nested_null_map, array_null_map);
         } else if (is_number(right_type->get_primitive_type()) &&
                    is_number(left_element_type->get_primitive_type())) {
-            auto call = [&](const auto& type) -> bool {
-                using DispatchType = std::decay_t<decltype(type)>;
-                return_column = _execute_number<typename DispatchType::ColumnType,
-                                                typename DispatchType::ColumnType>(
+            switch (left_element_type->get_primitive_type()) {
+            case TYPE_BOOLEAN:
+                return_column = _execute_number_expanded<ColumnUInt8>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
-                return true;
-            };
-            if (!dispatch_switch_number(right_type->get_primitive_type(), call)) {
-                return Status::InternalError(get_name() + " not support right type " +
-                                             right_type->get_name());
+                break;
+            case TYPE_TINYINT:
+                return_column = _execute_number_expanded<ColumnInt8>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+                break;
+            case TYPE_SMALLINT:
+                return_column = _execute_number_expanded<ColumnInt16>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+                break;
+            case TYPE_INT:
+                return_column = _execute_number_expanded<ColumnInt32>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+                break;
+            case TYPE_BIGINT:
+                return_column = _execute_number_expanded<ColumnInt64>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+                break;
+            case TYPE_LARGEINT:
+                return_column = _execute_number_expanded<ColumnInt128>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+                break;
+            case TYPE_FLOAT:
+                return_column = _execute_number_expanded<ColumnFloat32>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+                break;
+            case TYPE_DOUBLE:
+                return_column = _execute_number_expanded<ColumnFloat64>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+                break;
+            case TYPE_DECIMAL32:
+                return_column = _execute_number_expanded<ColumnDecimal32>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+                break;
+            case TYPE_DECIMAL64:
+                return_column = _execute_number_expanded<ColumnDecimal64>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+                break;
+            case TYPE_DECIMAL128I:
+                return_column = _execute_number_expanded<ColumnDecimal128V3>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+                break;
+            case TYPE_DECIMALV2:
+                return_column = _execute_number_expanded<ColumnDecimal128V2>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+                break;
+            case TYPE_DECIMAL256:
+                return_column = _execute_number_expanded<ColumnDecimal256>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+                break;
+            default:
+                break;
             }
         } else if ((is_date_or_datetime(right_type->get_primitive_type()) ||
                     is_date_v2_or_datetime_v2(right_type->get_primitive_type()) ||

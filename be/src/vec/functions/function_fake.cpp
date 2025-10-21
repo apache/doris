@@ -90,11 +90,7 @@ struct FunctionExplodeV2 {
             }
         }
 
-        if (fieldTypes.size() > 1) {
-            return make_nullable(std::make_shared<vectorized::DataTypeStruct>(fieldTypes));
-        } else {
-            return make_nullable(fieldTypes[0]);
-        }
+        return make_nullable(std::make_shared<vectorized::DataTypeStruct>(fieldTypes));
     }
     static DataTypes get_variadic_argument_types() { return {}; }
     static std::string get_error_msg() { return "Fake function do not support execute"; }

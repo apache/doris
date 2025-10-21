@@ -47,16 +47,15 @@ public:
 
     IndexReaderPtr get_reader(IndexReaderType reader_type) const override;
 
-    Result<InvertedIndexReaderPtr> select_best_reader(const vectorized::DataTypePtr& column_type,
-                                                      InvertedIndexQueryType query_type);
-    Result<InvertedIndexReaderPtr> select_best_reader();
-
 private:
     ENABLE_FACTORY_CREATOR(InvertedIndexIterator);
 
     Status try_read_from_inverted_index(const InvertedIndexReaderPtr& reader,
                                         const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, size_t* count);
+    Result<InvertedIndexReaderPtr> _select_best_reader(const vectorized::DataTypePtr& column_type,
+                                                       InvertedIndexQueryType query_type);
+    Result<InvertedIndexReaderPtr> _select_best_reader();
 
     std::unordered_map<IndexReaderType, InvertedIndexReaderPtr> _readers;
 };

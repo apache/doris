@@ -19,24 +19,16 @@
 
 #include <boost/algorithm/string/replace.hpp>
 
-namespace doris::segment_v2::inverted_index {
+namespace doris {
 #include "common/compile_check_begin.h"
-
-CharReplaceCharFilter::CharReplaceCharFilter(ReaderPtr reader, const std::string& pattern,
-                                             std::string replacement)
-        : DorisCharFilter(std::move(reader)), _replacement(std::move(replacement)) {
-    std::ranges::for_each(pattern, [this](uint8_t c) { _patterns.set(c); });
-}
-
-void CharReplaceCharFilter::initialize() {
-    if (_transformed_input.size() != 0) {
-        return;
-    }
-    fill();
+CharReplaceCharFilter::CharReplaceCharFilter(lucene::util::Reader* in, const std::string& pattern,
+                                             const std::string& replacement)
+        : CharFilter(in), _replacement(replacement) {
+    std::for_each(pattern.begin(), pattern.end(), [this](uint8_t c) { _patterns.set(c); });
 }
 
 void CharReplaceCharFilter::init(const void* _value, int32_t _length, bool copyData) {
-    _reader->init(_value, _length, copyData);
+    input_->init(_value, _length, copyData);
     fill();
 }
 
@@ -49,8 +41,8 @@ int32_t CharReplaceCharFilter::readCopy(void* start, int32_t off, int32_t len) {
 }
 
 void CharReplaceCharFilter::fill() {
-    _buf.resize(_reader->size());
-    _reader->readCopy(_buf.data(), 0, static_cast<int32_t>(_buf.size()));
+    _buf.resize(input_->size());
+    input_->readCopy(_buf.data(), 0, static_cast<int32_t>(_buf.size()));
     process_pattern(_buf);
     _transformed_input.init(_buf.data(), static_cast<int32_t>(_buf.size()), false);
 }
@@ -64,5 +56,5 @@ void CharReplaceCharFilter::process_pattern(std::string& buf) {
     }
 }
 
+} // namespace doris
 #include "common/compile_check_end.h"
-} // namespace doris::segment_v2::inverted_index

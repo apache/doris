@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.LockTable;
-import org.apache.doris.info.TableNameInfo;
 
 /**
  * LockTableInfo is a wrapper class for LockTable to support TableNameInfo

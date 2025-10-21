@@ -18,6 +18,8 @@
 import java.sql.SQLException
 
 suite("test_custom_analyzer1", "p0") {
+    def indexTbName1 = "test_custom_analyzer1"
+
     sql """
         CREATE INVERTED INDEX TOKEN_FILTER IF NOT EXISTS word_splitter_all
         PROPERTIES
@@ -32,50 +34,22 @@ suite("test_custom_analyzer1", "p0") {
     """
 
     sql """
-        CREATE INVERTED INDEX ANALYZER IF NOT EXISTS custom_standard_analyzer1
+        CREATE INVERTED INDEX ANALYZER IF NOT EXISTS custom_standard_analyzer
         PROPERTIES
         (
-            "tokenizer" = "standard",
-            "token_filter" = "asciifolding, word_splitter_all, lowercase"
-        );
-    """
-
-    sql """
-        CREATE INVERTED INDEX CHAR_FILTER IF NOT EXISTS char_replace_char_filter1
-        PROPERTIES
-        (
-            "type" = "char_replace",
-            "pattern" = "_"
-        );
-    """
-
-    sql """
-        CREATE INVERTED INDEX CHAR_FILTER IF NOT EXISTS char_replace_char_filter2
-        PROPERTIES
-        (
-            "type" = "char_replace",
-            "pattern" = "."
-        );
-    """
-
-    sql """
-        CREATE INVERTED INDEX ANALYZER IF NOT EXISTS custom_standard_analyzer2
-        PROPERTIES
-        (
-            "tokenizer" = "standard",
-            "char_filter" = "char_replace_char_filter1, char_replace_char_filter2",
-            "token_filter" = "lowercase"
+        "tokenizer" = "standard",
+        "token_filter" = "asciifolding, word_splitter_all, lowercase"
         );
     """
 
     sql """ select sleep(10) """
      
-    sql "DROP TABLE IF EXISTS test_custom_analyzer1"
+    sql "DROP TABLE IF EXISTS ${indexTbName1}"
     sql """
-        CREATE TABLE test_custom_analyzer1 (
+        CREATE TABLE ${indexTbName1} (
             `a` bigint NOT NULL AUTO_INCREMENT(1),
             `ch` text NULL,
-            INDEX idx_ch (`ch`) USING INVERTED PROPERTIES("support_phrase" = "true", "analyzer" = "custom_standard_analyzer1")
+            INDEX idx_ch (`ch`) USING INVERTED PROPERTIES("support_phrase" = "true", "analyzer" = "custom_standard_analyzer")
         ) ENGINE=OLAP
         DUPLICATE KEY(`a`)
         DISTRIBUTED BY RANDOM BUCKETS 1
@@ -84,34 +58,15 @@ suite("test_custom_analyzer1", "p0") {
         );
     """
 
-    sql "DROP TABLE IF EXISTS test_custom_analyzer2"
-    sql """
-        CREATE TABLE test_custom_analyzer2 (
-            `a` bigint NOT NULL AUTO_INCREMENT(1),
-            `ch` text NULL,
-            INDEX idx_ch (`ch`) USING INVERTED PROPERTIES("support_phrase" = "true", "analyzer" = "custom_standard_analyzer2")
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`a`)
-        DISTRIBUTED BY RANDOM BUCKETS 1
-        PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
-        );
-    """
-
-    sql """ insert into test_custom_analyzer1 values(1, "A two-hour programme which included many forms of [[jazz]] from classic to Latin as well as a mix of jazz from the younger players of the day."); """
-    sql """ insert into test_custom_analyzer1 values(2, " with off-peak shows introducing more commercial breaks into their output, before the concept was dropped altogether in mid-2006."); """
-
-    sql """ insert into test_custom_analyzer2 values(1, "GET /images/hm_bg.jpg HTTP/1.0"); """
+    sql """ insert into ${indexTbName1} values(1, "A two-hour programme which included many forms of [[jazz]] from classic to Latin as well as a mix of jazz from the younger players of the day."); """
+    sql """ insert into ${indexTbName1} values(2, " with off-peak shows introducing more commercial breaks into their output, before the concept was dropped altogether in mid-2006."); """
 
     try {
         sql "sync"
         sql """ set enable_common_expr_pushdown = true; """
 
-        qt_sql """ select * from test_custom_analyzer1 where ch match 'with'; """
-        qt_sql """ select * from test_custom_analyzer1 where ch match 'the'; """
-
-        qt_sql """ select * from test_custom_analyzer2 where ch match 'hm'; """
-        qt_sql """ select * from test_custom_analyzer2 where ch match 'bg'; """
+        qt_sql """ select * from ${indexTbName1} where ch match 'with'; """
+        qt_sql """ select * from ${indexTbName1} where ch match 'the'; """
     } finally {
     }
 }

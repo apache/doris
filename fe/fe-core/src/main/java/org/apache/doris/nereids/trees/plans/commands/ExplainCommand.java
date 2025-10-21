@@ -133,12 +133,4 @@ public class ExplainCommand extends Command implements NoForward {
     public StmtType stmtType() {
         return StmtType.EXPLAIN;
     }
-
-    @Override
-    public String toDigest() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("EXPLAIN ");
-        sb.append(logicalPlan.toDigest());
-        return sb.toString();
-    }
 }

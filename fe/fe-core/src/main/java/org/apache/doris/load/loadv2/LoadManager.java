@@ -163,6 +163,7 @@ public class LoadManager implements Writable {
     private long unprotectedGetUnfinishedJobNum() {
         return idToLoadJob.values().stream()
                 .filter(j -> (j.getJobType() != EtlJobType.INSERT
+                                && j.getJobType() != EtlJobType.INSERT_JOB
                                 && j.getState() != JobState.FINISHED
                                 && j.getState() != JobState.CANCELLED)).count();
     }
@@ -229,6 +230,10 @@ public class LoadManager implements Writable {
                 case INSERT:
                     loadJob = new InsertLoadJob(label, transactionId, db.getId(), tableId, createTimestamp, failMsg,
                             trackingUrl, firstErrorMsg, userInfo);
+                    break;
+                case INSERT_JOB:
+                    loadJob = new InsertLoadJob(label, transactionId, db.getId(), tableId, createTimestamp, failMsg,
+                            trackingUrl, firstErrorMsg, userInfo, jobId);
                     break;
                 default:
                     return;

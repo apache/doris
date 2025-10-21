@@ -46,7 +46,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToN
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -264,11 +263,6 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         // Score function depends on query context and should not be folded to constant.
         // It needs runtime evaluation with proper search context for relevance scoring.
         if (expr instanceof Score) {
-            return true;
-        }
-
-        // Search function should always not be folded to constant.
-        if (expr instanceof Search) {
             return true;
         }
 

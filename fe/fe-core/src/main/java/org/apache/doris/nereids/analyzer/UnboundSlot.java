@@ -71,11 +71,6 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
     }
 
     @Override
-    public String toDigest() {
-        return computeToSql();
-    }
-
-    @Override
     public List<String> getQualifier() {
         return nameParts.subList(0, nameParts.size() - 1);
     }

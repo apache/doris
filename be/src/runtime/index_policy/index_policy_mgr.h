@@ -40,15 +40,8 @@ public:
 
 private:
     constexpr static auto PROP_TOKENIZER = "tokenizer";
-    constexpr static auto PROP_CHAR_FILTER = "char_filter";
     constexpr static auto PROP_TOKEN_FILTER = "token_filter";
     constexpr static auto PROP_TYPE = "type";
-
-    void process_filter_configs(
-            const TIndexPolicy& index_policy_analyzer, const std::string& prop_name,
-            const std::string& error_prefix,
-            std::function<void(const std::string&, const segment_v2::inverted_index::Settings&)>
-                    add_config_func);
 
     std::shared_mutex _mutex;
 

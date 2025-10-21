@@ -67,7 +67,6 @@ import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.common.JobType;
-import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -1170,21 +1169,10 @@ public class MetadataGenerator {
 
         List<org.apache.doris.job.base.AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(jobType);
 
-        boolean hasAdmin = Env.getCurrentEnv().getAccessManager().checkGlobalPriv(userIdentity, PrivPredicate.ADMIN);
         for (org.apache.doris.job.base.AbstractJob job : jobList) {
             if (job instanceof MTMVJob) {
                 MTMVJob mtmvJob = (MTMVJob) job;
                 if (!mtmvJob.hasPriv(userIdentity, PrivPredicate.SHOW)) {
-                    continue;
-                }
-            } else if (job instanceof StreamingInsertJob) {
-                StreamingInsertJob streamingJob = (StreamingInsertJob) job;
-                if (!streamingJob.hasPrivilege(userIdentity)) {
-                    continue;
-                }
-            } else {
-                // common insert job
-                if (!hasAdmin) {
                     continue;
                 }
             }
@@ -1208,23 +1196,12 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
-        boolean hasAdmin = Env.getCurrentEnv().getAccessManager().checkGlobalPriv(userIdentity, PrivPredicate.ADMIN);
         List<org.apache.doris.job.base.AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(jobType);
 
         for (org.apache.doris.job.base.AbstractJob job : jobList) {
             if (job instanceof MTMVJob) {
                 MTMVJob mtmvJob = (MTMVJob) job;
                 if (!mtmvJob.hasPriv(userIdentity, PrivPredicate.SHOW)) {
-                    continue;
-                }
-            } else if (job instanceof StreamingInsertJob) {
-                StreamingInsertJob streamingJob = (StreamingInsertJob) job;
-                if (!streamingJob.hasPrivilege(userIdentity)) {
-                    continue;
-                }
-            } else {
-                // common insert job
-                if (!hasAdmin) {
                     continue;
                 }
             }

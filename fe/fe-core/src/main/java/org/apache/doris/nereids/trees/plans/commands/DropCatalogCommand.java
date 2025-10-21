@@ -50,7 +50,7 @@ public class DropCatalogCommand extends DropCommand {
         Util.checkCatalogAllRules(catalogName);
 
         if (catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            throw new AnalysisException("Internal catalog can't be dropped.");
+            throw new AnalysisException("Internal catalog can't be drop.");
         }
 
         if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(

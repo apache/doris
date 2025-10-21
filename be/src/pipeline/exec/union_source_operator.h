@@ -102,7 +102,7 @@ public:
         return Status::OK();
     }
     [[nodiscard]] int get_child_count() const { return _child_size; }
-    bool require_shuffled_data_distribution(RuntimeState* /*state*/) const override {
+    bool require_shuffled_data_distribution() const override {
         return _followed_by_shuffled_operator;
     }
 

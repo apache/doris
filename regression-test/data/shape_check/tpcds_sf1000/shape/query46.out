@@ -34,5 +34,5 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[customer_address]
 ------------PhysicalProject
---------------PhysicalOlapScan[customer_address(current_addr)]
+--------------PhysicalOlapScan[customer_address]
 

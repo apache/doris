@@ -179,31 +179,6 @@ public class InPredicate extends Expression {
             .collect(Collectors.joining(", ", "(", ")"));
     }
 
-    private boolean isLiteralOptions() {
-        for (Expression option : options) {
-            if (!(option instanceof Literal)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    @Override
-    public String toDigest() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(compareExpr.toDigest());
-        sb.append(" IN ");
-        if (isLiteralOptions()) {
-            sb.append("(?)");
-        } else {
-            sb.append(
-                    options.stream().map(Expression::toDigest)
-                            .collect(Collectors.joining(", ", "(", ")"))
-            );
-        }
-        return sb.toString();
-    }
-
     @Override
     public String getFingerprint() {
         return compareExpr + " IN " + options.stream()

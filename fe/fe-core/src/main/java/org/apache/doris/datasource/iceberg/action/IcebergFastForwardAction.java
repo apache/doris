@@ -17,19 +17,13 @@
 
 package org.apache.doris.datasource.iceberg.action;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ArgumentParsers;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-
-import com.google.common.collect.Lists;
-import org.apache.iceberg.Table;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
 import java.util.List;
 import java.util.Map;
@@ -55,11 +49,11 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
     protected void registerIcebergArguments() {
         // Register required arguments for branch and to
         namedArguments.registerRequiredArgument(BRANCH,
-                "Name of the  branch to fast-forward to",
+                "Name of the target branch to fast-forward to",
                 ArgumentParsers.nonEmptyString(BRANCH));
         namedArguments.registerRequiredArgument(TO,
-                "Target branch  to fast-forward to",
-                ArgumentParsers.nonEmptyString(TO));
+                "Target snapshot ID to fast-forward to",
+                ArgumentParsers.positiveLong(TO));
     }
 
     @Override
@@ -71,41 +65,7 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
 
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
-        Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
-
-        String sourceBranch = namedArguments.getString(BRANCH);
-        String desBranch = namedArguments.getString(TO);
-
-        try {
-            Long snapshotBefore =
-                    icebergTable.snapshot(sourceBranch) != null ? icebergTable.snapshot(sourceBranch).snapshotId()
-                            : null;
-            icebergTable.manageSnapshots().fastForwardBranch(sourceBranch, desBranch).commit();
-            long snapshotAfter = icebergTable.snapshot(sourceBranch).snapshotId();
-            // invalid iceberg catalog table cache.
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
-            return Lists.newArrayList(
-                    sourceBranch.trim(),
-                    String.valueOf(snapshotBefore),
-                    String.valueOf(snapshotAfter)
-            );
-
-        } catch (Exception e) {
-            throw new UserException(
-                    "Failed to fast-forward branch " + sourceBranch + " to snapshot " + desBranch + ": "
-                            + e.getMessage(), e);
-        }
-    }
-
-    @Override
-    protected List<Column> getResultSchema() {
-        return Lists.newArrayList(
-                new Column("branch_updated", Type.STRING, false,
-                        "Name of the branch that was fast-forwarded to match the target branch"),
-                new Column("previous_ref", Type.BIGINT, true,
-                        "Snapshot ID that the branch was pointing to before the fast-forward operation"),
-                new Column("updated_ref", Type.BIGINT, false,
-                        "Snapshot ID that the branch is pointing to after the fast-forward operation"));
+        throw new DdlException("Iceberg fast_forward procedure is not implemented yet");
     }
 
     @Override

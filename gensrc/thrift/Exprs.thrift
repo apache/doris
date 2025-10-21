@@ -86,8 +86,6 @@ enum TExprNodeType {
   VIRTUAL_SLOT_REF = 39,
   VARBINARY_LITERAL = 40,
   TRY_CAST_EXPR = 41
-  // for search DSL function
-  SEARCH_EXPR = 42,
 }
 
 //enum TAggregationOp {
@@ -237,28 +235,6 @@ struct TSchemaChangeExpr {
   1: optional i64 table_id 
 }
 
-// Search DSL parameter structure
-struct TSearchClause {
-  1: required string clause_type  // TERM, QUOTED, PREFIX, WILDCARD, REGEXP, RANGE, LIST, ANY_ALL, AND, OR, NOT
-  2: optional string field_name   // Field name for leaf clauses
-  3: optional string value        // Search value for leaf clauses
-  4: optional list<TSearchClause> children  // Child clauses for compound clauses (AND, OR, NOT)
-}
-
-struct TSearchFieldBinding {
-  1: required string field_name   // Field name from DSL (may include path like "field.subcolumn")
-  2: required i32 slot_index      // Index in the slot reference arguments
-  3: optional string parent_field_name    // Parent field name for variant subcolumns
-  4: optional string subcolumn_path       // Subcolumn path for variant fields (e.g., "subcolumn" or "sub1.sub2")
-  5: optional bool is_variant_subcolumn   // True if this is a variant subcolumn access
-}
-
-struct TSearchParam {
-  1: required string original_dsl         // Original DSL string for debugging
-  2: required TSearchClause root     // Parsed AST root
-  3: required list<TSearchFieldBinding> field_bindings  // Field to slot mappings
-}
-
 // This is essentially a union over the subclasses of Expr.
 struct TExprNode {
   1: required TExprNodeType node_type
@@ -309,7 +285,6 @@ struct TExprNode {
   37: optional TTimeV2Literal timev2_literal
   38: optional TVarBinaryLiteral varbinary_literal
   39: optional bool is_cast_nullable
-  40: optional TSearchParam search_param
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

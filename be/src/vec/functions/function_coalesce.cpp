@@ -35,7 +35,6 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
-#include "vec/core/call_on_type_index.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
@@ -124,15 +123,10 @@ public:
             result_column = remove_nullable(result_type)->create_column();
         }
 
-        // because now follow below types does not support random position writing,
-        // so insert into result data have two methods, one is for these types, one is for others type remaining
-        bool cannot_random_write =
-                result_column->is_column_string() ||
-                result_type->get_primitive_type() == PrimitiveType::TYPE_MAP ||
-                result_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
-                result_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY ||
-                result_type->get_primitive_type() == PrimitiveType::TYPE_JSONB;
-        if (cannot_random_write) {
+        // because now the string types does not support random position writing,
+        // so insert into result data have two methods, one is for string types, one is for others type remaining
+        bool is_string_result = result_column->is_column_string();
+        if (is_string_result) {
             result_column->reserve(input_rows_count);
         }
 
@@ -199,7 +193,7 @@ public:
                 }
             }
 
-            if (!cannot_random_write) {
+            if (!is_string_result) {
                 //if not string type, could check one column firstly,
                 //and then fill the not null value in result column,
                 //this method may result in higher CPU cache
@@ -209,7 +203,7 @@ public:
             }
         }
 
-        if (cannot_random_write) {
+        if (is_string_result) {
             //if string type,  should according to the record results, fill in result one by one,
             for (size_t row = 0; row < input_rows_count; ++row) {
                 if (null_map_data[row]) { //should be null
@@ -231,9 +225,9 @@ public:
     }
 
     template <typename ColumnType>
-    void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_column,
-                            const UInt8* __restrict null_map_data, UInt8* __restrict filled_flag,
-                            const size_t input_rows_count) const {
+    Status insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_column,
+                              const UInt8* __restrict null_map_data, UInt8* __restrict filled_flag,
+                              const size_t input_rows_count) const {
         if (result_column->size() == 0 && input_rows_count) {
             result_column->resize(input_rows_count);
             auto* __restrict result_raw_data =
@@ -256,6 +250,7 @@ public:
                     typename ColumnType::value_type(!(null_map_data[row] | filled_flag[row]));
             filled_flag[row] += (!(null_map_data[row] | filled_flag[row]));
         }
+        return Status::OK();
     }
 
     Status insert_result_data_bitmap(MutableColumnPtr& result_column, ColumnPtr& argument_column,
@@ -289,23 +284,64 @@ public:
                                               UInt8* __restrict null_map_data,
                                               UInt8* __restrict filled_flag,
                                               const size_t input_rows_count) const {
-        if (data_type->get_primitive_type() == TYPE_BITMAP) {
+        switch (data_type->get_primitive_type()) {
+        case PrimitiveType::TYPE_BOOLEAN:
+            return insert_result_data<ColumnUInt8>(result_column, argument_column, null_map_data,
+                                                   filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_TINYINT:
+            return insert_result_data<ColumnInt8>(result_column, argument_column, null_map_data,
+                                                  filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_SMALLINT:
+            return insert_result_data<ColumnInt16>(result_column, argument_column, null_map_data,
+                                                   filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_INT:
+            return insert_result_data<ColumnInt32>(result_column, argument_column, null_map_data,
+                                                   filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_BIGINT:
+            return insert_result_data<ColumnInt64>(result_column, argument_column, null_map_data,
+                                                   filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_LARGEINT:
+            return insert_result_data<ColumnInt128>(result_column, argument_column, null_map_data,
+                                                    filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_FLOAT:
+            return insert_result_data<ColumnFloat32>(result_column, argument_column, null_map_data,
+                                                     filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DOUBLE:
+            return insert_result_data<ColumnFloat64>(result_column, argument_column, null_map_data,
+                                                     filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DECIMAL32:
+            return insert_result_data<ColumnDecimal32>(
+                    result_column, argument_column, null_map_data, filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DECIMAL64:
+            return insert_result_data<ColumnDecimal64>(
+                    result_column, argument_column, null_map_data, filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DECIMAL256:
+            return insert_result_data<ColumnDecimal256>(
+                    result_column, argument_column, null_map_data, filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DECIMALV2:
+            return insert_result_data<ColumnDecimal128V2>(
+                    result_column, argument_column, null_map_data, filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DECIMAL128I:
+            return insert_result_data<ColumnDecimal128V3>(
+                    result_column, argument_column, null_map_data, filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DATETIME:
+            return insert_result_data<ColumnDateTime>(result_column, argument_column, null_map_data,
+                                                      filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DATE:
+            return insert_result_data<ColumnDate>(result_column, argument_column, null_map_data,
+                                                  filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DATEV2:
+            return insert_result_data<ColumnDateV2>(result_column, argument_column, null_map_data,
+                                                    filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DATETIMEV2:
+            return insert_result_data<ColumnDateTimeV2>(
+                    result_column, argument_column, null_map_data, filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_BITMAP:
             return insert_result_data_bitmap(result_column, argument_column, null_map_data,
                                              filled_flag, input_rows_count);
+        default:
+            return Status::NotSupported("argument_type {} not supported", data_type->get_name());
         }
-
-        auto call = [&](const auto& type) -> bool {
-            using DispatchType = std::decay_t<decltype(type)>;
-            insert_result_data<typename DispatchType::ColumnType>(
-                    result_column, argument_column, null_map_data, filled_flag, input_rows_count);
-            return true;
-        };
-
-        if (!dispatch_switch_scalar(data_type->get_primitive_type(), call)) {
-            return Status::InternalError("not support type {} in function {}",
-                                         data_type->get_name(), get_name());
-        }
-        return Status::OK();
     }
 };
 

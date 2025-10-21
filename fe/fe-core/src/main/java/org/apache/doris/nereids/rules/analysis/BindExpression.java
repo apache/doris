@@ -294,20 +294,14 @@ public class BindExpression implements AnalysisRuleFactory {
             // 2. the expandColumnsAlias is empty, we should use origin boundSlot
             if (generate.getExpandColumnAlias() != null && i < generate.getExpandColumnAlias().size()
                     && !CollectionUtils.isEmpty(generate.getExpandColumnAlias().get(i))) {
-                if (boundSlot.getDataType() instanceof StructType
-                        && generate.getExpandColumnAlias().get(i).size() > 1) {
-                    // if the alias is not empty, we should bind it with struct_element as child expr with alias
-                    // struct_element(#expand_col#k, #k) as #k
-                    // struct_element(#expand_col#v, #v) as #v
-                    List<StructField> fields = ((StructType) boundSlot.getDataType()).getFields();
-                    for (int idx = 0; idx < fields.size(); ++idx) {
-                        expandAlias.add(new Alias(new StructElement(
-                                boundSlot, new StringLiteral(fields.get(idx).getName())),
-                                generate.getExpandColumnAlias().get(i).get(idx),
-                                slot.getQualifier()));
-                    }
-                } else {
-                    expandAlias.add(new Alias(boundSlot, generate.getExpandColumnAlias().get(i).get(0),
+                // if the alias is not empty, we should bind it with struct_element as child expr with alias
+                // struct_element(#expand_col#k, #k) as #k
+                // struct_element(#expand_col#v, #v) as #v
+                List<StructField> fields = ((StructType) boundSlot.getDataType()).getFields();
+                for (int idx = 0; idx < fields.size(); ++idx) {
+                    expandAlias.add(new Alias(new StructElement(
+                            boundSlot, new StringLiteral(fields.get(idx).getName())),
+                            generate.getExpandColumnAlias().get(i).get(idx),
                             slot.getQualifier()));
                 }
             }

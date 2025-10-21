@@ -138,8 +138,7 @@ struct TPushStoragePolicyReq {
 enum TIndexPolicyType {
     ANALYZER,
     TOKENIZER,
-    TOKEN_FILTER,
-    CHAR_FILTER
+    TOKEN_FILTER
 }
 
 struct TIndexPolicy {
@@ -475,7 +474,7 @@ struct TPublishVersionRequest {
 }
 
 struct TVisibleVersionReq {
-    1: optional map<Types.TPartitionId, Types.TVersion> partition_version
+    1: required map<Types.TPartitionId, Types.TVersion> partition_version
 }
 
 struct TCalcDeleteBitmapPartitionInfo {

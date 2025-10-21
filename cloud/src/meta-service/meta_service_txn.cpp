@@ -902,50 +902,6 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
     }
 }
 
-void MetaServiceImpl::delete_streaming_job(::google::protobuf::RpcController* controller,
-                                           const DeleteStreamingJobRequest* request,
-                                           DeleteStreamingJobResponse* response,
-                                           ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(delete_streaming_job, del);
-    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
-    if (instance_id.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
-        return;
-    }
-    RPC_RATE_LIMIT(delete_streaming_job)
-
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::CREATE>(err);
-        ss << "filed to create txn, err=" << err;
-        msg = ss.str();
-        return;
-    }
-
-    if (!request->has_db_id() || !request->has_job_id()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "missing db_id or job_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
-        return;
-    }
-    int64_t db_id = request->db_id();
-    int64_t job_id = request->job_id();
-    std::string key_to_delete = streaming_job_key({instance_id, db_id, job_id});
-
-    txn->remove(key_to_delete);
-    LOG(INFO) << "remove key=" << hex(key_to_delete);
-
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::READ>(err);
-        ss << "failed to commit delete, err=" << err;
-        msg = ss.str();
-        return;
-    }
-}
-
 void get_txn_db_id(TxnKv* txn_kv, const std::string& instance_id, int64_t txn_id,
                    MetaServiceCode& code, std::string& msg, int64_t* db_id, KVStats* stats) {
     std::stringstream ss;

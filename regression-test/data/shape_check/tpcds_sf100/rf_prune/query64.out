@@ -23,13 +23,13 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((hd2.hd_income_band_sk = ib2.ib_income_band_sk)) otherCondition=()
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[household_demographics(hd2)]
+------------------------------------------PhysicalOlapScan[household_demographics]
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[income_band(ib2)]
+------------------------------------------PhysicalOlapScan[income_band]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[customer_demographics(cd2)]
+----------------------------------PhysicalOlapScan[customer_demographics]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[customer_address(ad2)]
+------------------------------PhysicalOlapScan[customer_address]
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF11 ss_item_sk->[sr_item_sk];RF12 ss_ticket_number->[sr_ticket_number]
 ----------------------------PhysicalProject
@@ -37,11 +37,11 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_addr_sk = ad1.ca_address_sk)) otherCondition=() build RFs:RF10 ss_addr_sk->[ca_address_sk]
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[customer_address(ad1)] apply RFs: RF10
+----------------------------------PhysicalOlapScan[customer_address] apply RFs: RF10
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_cdemo_sk = cd1.cd_demo_sk)) otherCondition=() build RFs:RF9 ss_cdemo_sk->[cd_demo_sk]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[customer_demographics(cd1)] apply RFs: RF9
+--------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF9
 ------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF8 i_item_sk->[cr_item_sk,cs_item_sk,ss_item_sk]
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=()
@@ -59,7 +59,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3 RF8
 --------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------filter(d_year IN (2001, 2002))
-------------------------------------------------------------------PhysicalOlapScan[date_dim(d1)]
+------------------------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------------------------------PhysicalProject
 ------------------------------------------------------------filter((sale > (2 * refund)))
 --------------------------------------------------------------hashAgg[GLOBAL]
@@ -72,9 +72,9 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------------------------------------------------------------------PhysicalProject
 --------------------------------------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF8
 ------------------------------------------------------PhysicalProject
---------------------------------------------------------PhysicalOlapScan[household_demographics(hd1)]
+--------------------------------------------------------PhysicalOlapScan[household_demographics]
 --------------------------------------------------PhysicalProject
-----------------------------------------------------PhysicalOlapScan[income_band(ib1)]
+----------------------------------------------------PhysicalOlapScan[income_band]
 ----------------------------------------------PhysicalProject
 ------------------------------------------------PhysicalOlapScan[store]
 ------------------------------------------PhysicalProject
@@ -83,9 +83,9 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------------------------filter((item.i_current_price <= 33.00) and (item.i_current_price >= 24.00) and i_color IN ('blanched', 'brown', 'burlywood', 'chocolate', 'drab', 'medium'))
 ------------------------------------------PhysicalOlapScan[item]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[date_dim(d2)]
+----------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[date_dim(d3)]
+------------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]

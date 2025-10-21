@@ -17,6 +17,7 @@
 
 package org.apache.doris.load;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -34,7 +35,6 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
@@ -223,7 +223,7 @@ public class ExportMgr {
                         PrivPredicate.SELECT.getPrivs().toString(), dbName);
             }
         } else {
-            TableNameInfo tableName = jobs.get(0).getTableName();
+            TableName tableName = jobs.get(0).getTableName();
             if (tableName == null) {
                 return;
             }
@@ -371,7 +371,7 @@ public class ExportMgr {
     }
 
     public boolean isJobShowable(ExportJob job) {
-        TableNameInfo tableName = job.getTableName();
+        TableName tableName = job.getTableName();
         if (tableName == null || tableName.getTbl().equals("DUMMY")) {
             // forward compatibility, no table name is saved before
             Database db = Env.getCurrentInternalCatalog().getDbNullable(job.getDbId());

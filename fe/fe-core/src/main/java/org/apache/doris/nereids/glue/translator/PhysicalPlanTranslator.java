@@ -19,6 +19,7 @@ package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.AnalyticWindow;
+import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CompoundPredicate;
@@ -34,6 +35,8 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
@@ -71,9 +74,6 @@ import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
-import org.apache.doris.info.BaseTableRefInfo;
-import org.apache.doris.info.TableNameInfo;
-import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2;
 import org.apache.doris.nereids.properties.DistributionSpec;
@@ -119,7 +119,6 @@ import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
@@ -181,7 +180,6 @@ import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.AssertNumRowsNode;
 import org.apache.doris.planner.BackendPartitionedSchemaScanNode;
-import org.apache.doris.planner.BlackholeSink;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataStreamSink;
@@ -442,15 +440,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     /* ********************************************************************************************
      * sink Node, in lexicographical order
      * ******************************************************************************************** */
-
-    @Override
-    public PlanFragment visitPhysicalBlackholeSink(PhysicalBlackholeSink<? extends Plan> physicalBlackholeSink,
-            PlanTranslatorContext context) {
-        PlanFragment planFragment = physicalBlackholeSink.child().accept(this, context);
-        BlackholeSink blackholeSink = new BlackholeSink(planFragment.getPlanRoot().getId());
-        planFragment.setSink(blackholeSink);
-        return planFragment;
-    }
 
     @Override
     public PlanFragment visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink,
@@ -771,10 +760,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.getNereidsIdToPlanNodeIdMap().put(fileScan.getId(), scanNode.getId());
         scanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(fileScan.getRelationId()));
 
-        TableNameInfo tableNameInfo = new TableNameInfo(null, "", "");
-        TableRefInfo ref = new TableRefInfo(tableNameInfo, null, null);
-        BaseTableRefInfo tableRefInfo = new BaseTableRefInfo(ref, tableNameInfo, table);
-        tupleDescriptor.setRef(tableRefInfo);
+        TableName tableName = new TableName(null, "", "");
+        TableRef ref = new TableRef(tableName, null, null);
+        BaseTableRef tableRef = new BaseTableRef(ref, table, tableName);
+        tupleDescriptor.setRef(tableRef);
         if (fileScan.getStats() != null) {
             scanNode.setCardinality((long) fileScan.getStats().getRowCount());
         }
@@ -916,10 +905,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         // TODO: Do we really need tableName here?
-        TableNameInfo tableName = new TableNameInfo(null, "", "");
-        TableRefInfo ref = new TableRefInfo(tableName, null, null);
-        BaseTableRefInfo tableRefInfo = new BaseTableRefInfo(ref, tableName, olapTable);
-        tupleDescriptor.setRef(tableRefInfo);
+        TableName tableName = new TableName(null, "", "");
+        TableRef ref = new TableRef(tableName, null, null);
+        BaseTableRef tableRef = new BaseTableRef(ref, olapTable, tableName);
+        tupleDescriptor.setRef(tableRef);
         olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionIds());
         olapScanNode.setNereidsPrunedTabletIds(new LinkedHashSet<>(olapScan.getSelectedTabletIds()));
         if (olapScan.getTableSample().isPresent()) {

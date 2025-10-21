@@ -72,7 +72,6 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
 
             sql """set enable_fallback_to_original_planner=false"""
             sql """set enable_sql_cache=false;"""
-            sql """set enable_hive_sql_cache=false"""
 
             def tpch_1sf_q09 = """
             select
@@ -114,7 +113,6 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
             // test sql cache with empty result
             try {
                 sql """set enable_sql_cache=true;"""
-                sql """set enable_hive_sql_cache=true"""
                 sql """set test_query_cache_hit="none";"""
                 sql """select * from lineitem where l_suppkey="abc";""" // non exist l_suppkey;
                 sql """select * from lineitem where l_suppkey="abc";"""
@@ -126,7 +124,6 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
             // test more sql cache
             sql """use `default`"""
             sql """set enable_sql_cache=true;"""
-            sql """set enable_hive_sql_cache=true"""
             sql """set test_query_cache_hit="none";"""
             // 1. first query, because we need to init the schema of table_with_x01 to update the table's update time
             // then sleep 2 seconds to wait longer than Config.cache_last_version_interval_second,
@@ -142,7 +139,6 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
             // test not hit
             try {
                 sql """set enable_sql_cache=true;"""
-                sql """set enable_hive_sql_cache=true"""
                 sql """set test_query_cache_hit="sql";"""
                 def r = UUID.randomUUID().toString();
                 // using a random sql

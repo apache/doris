@@ -85,11 +85,11 @@ public class AddColumnClause extends AlterTableClause {
         if (columnDef == null) {
             throw new AnalysisException("No column definition in add column clause.");
         }
-        if (tableNameInfo != null) {
+        if (tableName != null) {
             TableIf table = Env.getCurrentEnv().getCatalogMgr()
-                    .getCatalogOrDdlException(tableNameInfo.getCtl())
-                    .getDbOrDdlException(tableNameInfo.getDb())
-                    .getTableOrDdlException(tableNameInfo.getTbl());
+                    .getCatalogOrDdlException(tableName.getCtl())
+                    .getDbOrDdlException(tableName.getDb())
+                    .getTableOrDdlException(tableName.getTbl());
             if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.AGG_KEYS
                     && columnDef.getAggregateType() == null) {
                 columnDef.setIsKey(true);

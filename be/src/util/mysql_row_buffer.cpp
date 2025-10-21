@@ -109,7 +109,7 @@ void MysqlRowBuffer<is_binary_format>::open_dynamic_mode() {
         // if _pos now exactly at the end of _buf memory,
         // we should reserve 1 byte for _dynamic_mode flag byte to avoid *pos = 254
         // cause _dynamic_mode flag byte be overwritten
-        reserve(1 + 8);
+        reserve(1);
         *_pos++ = NEXT_EIGHT_BYTE; // *_pos = 254 ; _pos++
         // write length when dynamic mode close
         _len_pos = (_pos - _buf);
@@ -543,6 +543,15 @@ int MysqlRowBuffer<is_binary_format>::push_null() {
     int1store(_pos, 251);
     _pos += 1;
     return 0;
+}
+
+template <bool is_binary_format>
+char* MysqlRowBuffer<is_binary_format>::reserved(int64_t size) {
+    reserve(size);
+    char* old_buf = _pos;
+    _pos += size;
+
+    return old_buf;
 }
 
 template class MysqlRowBuffer<true>;

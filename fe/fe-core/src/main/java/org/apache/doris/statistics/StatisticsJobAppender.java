@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -27,7 +28,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -95,8 +95,7 @@ public class StatisticsJobAppender extends MasterDaemon {
         }
     }
 
-    protected void appendColumnsToJobs(Queue<QueryColumn> columnQueue, Map<TableNameInfo,
-            Set<Pair<String, String>>> jobs) {
+    protected void appendColumnsToJobs(Queue<QueryColumn> columnQueue, Map<TableName, Set<Pair<String, String>>> jobs) {
         int size = columnQueue.size();
         int processed = 0;
         for (int i = 0; i < size; i++) {
@@ -126,7 +125,7 @@ public class StatisticsJobAppender extends MasterDaemon {
             if (columnIndexPairs.isEmpty()) {
                 continue;
             }
-            TableNameInfo tableName = new TableNameInfo(table.getDatabase().getCatalog().getName(),
+            TableName tableName = new TableName(table.getDatabase().getCatalog().getName(),
                     table.getDatabase().getFullName(), table.getName());
             synchronized (jobs) {
                 // If job map reach the upper limit, stop putting new jobs.
@@ -147,8 +146,8 @@ public class StatisticsJobAppender extends MasterDaemon {
         }
     }
 
-    protected int appendToLowJobs(Map<TableNameInfo, Set<Pair<String, String>>> lowPriorityJobs,
-                                   Map<TableNameInfo, Set<Pair<String, String>>> veryLowPriorityJobs) {
+    protected int appendToLowJobs(Map<TableName, Set<Pair<String, String>>> lowPriorityJobs,
+                                   Map<TableName, Set<Pair<String, String>>> veryLowPriorityJobs) {
         if (System.currentTimeMillis() - lastRoundFinishTime < lowJobIntervalMs) {
             return 0;
         }
@@ -176,7 +175,7 @@ public class StatisticsJobAppender extends MasterDaemon {
                 Set<String> columns = t.getSchemaAllIndexes(false).stream()
                         .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                         .map(Column::getName).collect(Collectors.toSet());
-                TableNameInfo tableName = new TableNameInfo(t.getDatabase().getCatalog().getName(),
+                TableName tableName = new TableName(t.getDatabase().getCatalog().getName(),
                         t.getDatabase().getFullName(), t.getName());
                 boolean appended = false;
                 long version = Config.isCloudMode() ? 0 : StatisticsUtil.getOlapTableVersion((OlapTable) t);
@@ -225,9 +224,9 @@ public class StatisticsJobAppender extends MasterDaemon {
     }
 
     @VisibleForTesting
-    public boolean doAppend(Map<TableNameInfo, Set<Pair<String, String>>> jobMap,
+    public boolean doAppend(Map<TableName, Set<Pair<String, String>>> jobMap,
                          Pair<String, String> columnIndexPair,
-                         TableNameInfo tableName) {
+                         TableName tableName) {
         synchronized (jobMap) {
             if (!jobMap.containsKey(tableName) && jobMap.size() >= JOB_MAP_SIZE) {
                 return false;

@@ -38,8 +38,6 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Lists;
-import lombok.Getter;
-import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -77,10 +75,6 @@ public abstract class RoutineLoadTaskInfo {
     protected boolean isMultiTable = false;
 
     protected boolean isEof = false;
-
-    @Getter
-    @Setter
-    protected boolean delaySchedule = false;
 
     // this status will be set when corresponding transaction's status is changed.
     // so that user or other logic can know the status of the corresponding txn.
@@ -157,10 +151,6 @@ public abstract class RoutineLoadTaskInfo {
 
     public boolean getIsEof() {
         return isEof;
-    }
-
-    public boolean needDedalySchedule() {
-        return delaySchedule || isEof;
     }
 
     public boolean isTimeout() {

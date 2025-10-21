@@ -56,7 +56,6 @@ int main(int argc, char** argv) {
     }
 
     ::testing::InitGoogleTest(&argc, argv);
-
     return RUN_ALL_TESTS();
 }
 
@@ -515,35 +514,8 @@ void clear_memkv_count_bytes(MemTxnKv* memkv) {
     memkv->get_bytes_ = memkv->put_bytes_ = memkv->del_bytes_ = 0;
 }
 
-// setup and cleanup notify_refresh_instance syncpoint
-class NotifyRefreshSyncpointGuard {
-public:
-    NotifyRefreshSyncpointGuard() {
-        auto* sp = SyncPoint::get_instance();
-        if (!sp->get_enable()) {
-            sp->enable_processing();
-        }
-        // Disable notify_refresh_instance to avoid async operations polluting the counter
-        sp->set_call_back("notify_refresh_instance_return", [](auto&& args) {
-            auto* pred = try_any_cast<bool*>(args.back());
-            *pred = true;
-        });
-    }
-
-    ~NotifyRefreshSyncpointGuard() {
-        auto* sp = SyncPoint::get_instance();
-        sp->clear_call_back("notify_refresh_instance_return");
-    }
-};
-
-// Helper function to create syncpoint guard
-inline std::unique_ptr<NotifyRefreshSyncpointGuard> setup_notify_refresh_syncpoint() {
-    return std::make_unique<NotifyRefreshSyncpointGuard>();
-}
-
 // create_tablets
 TEST(RpcKvBvarTest, CreateTablets) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     constexpr auto table_id = 10021, index_id = 10022, partition_id = 10023, tablet_id = 10024;
@@ -607,7 +579,6 @@ TEST(RpcKvBvarTest, GetTabletStats) {
 
 // update_tablet
 TEST(RpcKvBvarTest, UpdateTablet) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     constexpr auto table_id = 10001, index_id = 10002, partition_id = 10003, tablet_id = 10004;
@@ -637,7 +608,6 @@ TEST(RpcKvBvarTest, UpdateTablet) {
 
 // begin_txn
 TEST(RpcKvBvarTest, BeginTxn) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 100201;
@@ -663,7 +633,6 @@ TEST(RpcKvBvarTest, BeginTxn) {
 
 // commit_txn
 TEST(RpcKvBvarTest, CommitTxn) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 100201;
@@ -691,7 +660,6 @@ TEST(RpcKvBvarTest, CommitTxn) {
 
 // precommit_txn
 TEST(RpcKvBvarTest, PrecommitTxn) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     const int64_t db_id = 563413;
@@ -752,7 +720,6 @@ TEST(RpcKvBvarTest, PrecommitTxn) {
 
 // abort_txn
 TEST(RpcKvBvarTest, AbortTxn) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 100201;
@@ -788,7 +755,6 @@ TEST(RpcKvBvarTest, AbortTxn) {
 
 // get_txn
 TEST(RpcKvBvarTest, GetTxn) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 100201;
@@ -820,7 +786,6 @@ TEST(RpcKvBvarTest, GetTxn) {
 
 // get_txn_id
 TEST(RpcKvBvarTest, GetTxnId) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 100201;
@@ -883,7 +848,6 @@ TEST(RpcKvBvarTest, PrepareRowset) {
 
 // get_rowset
 TEST(RpcKvBvarTest, GetRowset) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -910,7 +874,6 @@ TEST(RpcKvBvarTest, GetRowset) {
 
 // update_tmp_rowset
 TEST(RpcKvBvarTest, UpdateTmpRowset) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     constexpr auto table_id = 10001, index_id = 10002, partition_id = 10003, tablet_id = 10004;
@@ -956,7 +919,6 @@ TEST(RpcKvBvarTest, UpdateTmpRowset) {
 
 // commit_rowset
 TEST(RpcKvBvarTest, CommitRowset) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -984,7 +946,6 @@ TEST(RpcKvBvarTest, CommitRowset) {
 
 // get_version
 TEST(RpcKvBvarTest, GetVersion) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1014,7 +975,6 @@ TEST(RpcKvBvarTest, GetVersion) {
 
 // get_schema_dict
 TEST(RpcKvBvarTest, GetSchemaDict) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     constexpr auto table_id = 10001, index_id = 10002, partition_id = 10003, tablet_id = 10004;
@@ -1047,7 +1007,6 @@ TEST(RpcKvBvarTest, GetSchemaDict) {
 
 // get_delete_bitmap_update_lock
 TEST(RpcKvBvarTest, GetDeleteBitmapUpdateLock) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1088,7 +1047,6 @@ TEST(RpcKvBvarTest, GetDeleteBitmapUpdateLock) {
 
 // update_delete_bitmap
 TEST(RpcKvBvarTest, UpdateDeleteBitmap) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1137,7 +1095,6 @@ TEST(RpcKvBvarTest, UpdateDeleteBitmap) {
 
 // get_delete_bitmap
 TEST(RpcKvBvarTest, GetDeleteBitmap) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 99999;
@@ -1186,7 +1143,6 @@ TEST(RpcKvBvarTest, GetDeleteBitmap) {
 
 // remove_delete_bitmap_update_lock
 TEST(RpcKvBvarTest, RemoveDeleteBitmapUpdateLock) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1239,7 +1195,6 @@ TEST(RpcKvBvarTest, RemoveDeleteBitmapUpdateLock) {
 
 // remove_delete_bitmap
 TEST(RpcKvBvarTest, RemoveDeleteBitmap) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 99999;
@@ -1288,7 +1243,6 @@ TEST(RpcKvBvarTest, RemoveDeleteBitmap) {
 
 // start_tablet_job
 TEST(RpcKvBvarTest, StartTabletJob) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     constexpr int64_t table_id = 10001;
@@ -1315,7 +1269,6 @@ TEST(RpcKvBvarTest, StartTabletJob) {
 
 // finish_tablet_job
 TEST(RpcKvBvarTest, FinishTabletJob) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     brpc::Controller cntl;
@@ -1370,7 +1323,6 @@ TEST(RpcKvBvarTest, FinishTabletJob) {
 
 // prepare_index
 TEST(RpcKvBvarTest, PrepareIndex) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     std::string instance_id = "test_cloud_instance_id";
@@ -1417,7 +1369,6 @@ TEST(RpcKvBvarTest, PrepareIndex) {
 
 // commit_index
 TEST(RpcKvBvarTest, CommitIndex) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     std::string instance_id = "test_cloud_instance_id";
@@ -1468,7 +1419,6 @@ TEST(RpcKvBvarTest, CommitIndex) {
 
 // drop_index
 TEST(RpcKvBvarTest, DropIndex) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 4524364;
@@ -1537,7 +1487,6 @@ TEST(RpcKvBvarTest, DropIndex) {
 
 // prepare_partition
 TEST(RpcKvBvarTest, PreparePartition) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     std::string instance_id = "test_cloud_instance_id";
@@ -1586,7 +1535,6 @@ TEST(RpcKvBvarTest, PreparePartition) {
 
 // commit_partition
 TEST(RpcKvBvarTest, CommitPartition) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     std::string instance_id = "test_cloud_instance_id";
@@ -1637,7 +1585,6 @@ TEST(RpcKvBvarTest, CommitPartition) {
 
 // check_kv
 TEST(RpcKvBvarTest, CheckKv) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     std::string instance_id = "test_instance";
@@ -1677,7 +1624,6 @@ TEST(RpcKvBvarTest, CheckKv) {
 
 // drop_partition
 TEST(RpcKvBvarTest, DropPartition) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     std::string instance_id = "test_instance";
@@ -1715,7 +1661,6 @@ TEST(RpcKvBvarTest, DropPartition) {
 
 // get_obj_store_info
 TEST(RpcKvBvarTest, GetObjStoreInfo) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1749,7 +1694,6 @@ TEST(RpcKvBvarTest, GetObjStoreInfo) {
 
 // alter_storage_vault
 TEST(RpcKvBvarTest, AlterStorageVault) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1796,7 +1740,6 @@ TEST(RpcKvBvarTest, AlterStorageVault) {
 
 // alter_obj_store_info
 TEST(RpcKvBvarTest, AlterObjStoreInfo) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1864,7 +1807,6 @@ TEST(RpcKvBvarTest, AlterObjStoreInfo) {
 
 // update_ak_sk
 TEST(RpcKvBvarTest, UpdateAkSk) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1933,7 +1875,6 @@ TEST(RpcKvBvarTest, UpdateAkSk) {
 
 // create_instance
 TEST(RpcKvBvarTest, CreateInstance) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1985,7 +1926,6 @@ TEST(RpcKvBvarTest, CreateInstance) {
 
 // get_instance
 TEST(RpcKvBvarTest, GetInstance) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -2067,7 +2007,6 @@ TEST(RpcKvBvarTest, GetInstance) {
 
 // get_cluster
 TEST(RpcKvBvarTest, GetCluster) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     InstanceKeyInfo key_info {mock_instance};
@@ -2115,7 +2054,6 @@ TEST(RpcKvBvarTest, GetCluster) {
 
 // create_stage
 TEST(RpcKvBvarTest, CreateStage) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -2210,7 +2148,6 @@ TEST(RpcKvBvarTest, CreateStage) {
 
 // get_stage
 TEST(RpcKvBvarTest, GetStage) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -2315,7 +2252,6 @@ TEST(RpcKvBvarTest, GetStage) {
 
 // get_iam
 TEST(RpcKvBvarTest, GetIam) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -2402,7 +2338,6 @@ TEST(RpcKvBvarTest, GetIam) {
 
 // alter_iam
 TEST(RpcKvBvarTest, AlterIam) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -2445,7 +2380,6 @@ TEST(RpcKvBvarTest, AlterIam) {
 
 // alter_ram_user
 TEST(RpcKvBvarTest, AlterRamUser) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     brpc::Controller cntl;
@@ -2527,7 +2461,6 @@ TEST(RpcKvBvarTest, AlterRamUser) {
 
 // begin_copy
 TEST(RpcKvBvarTest, BeginCopy) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     brpc::Controller cntl;
@@ -2585,7 +2518,6 @@ TEST(RpcKvBvarTest, BeginCopy) {
 
 // get_copy_job
 TEST(RpcKvBvarTest, GetCopyJob) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     brpc::Controller cntl;
@@ -2653,7 +2585,6 @@ TEST(RpcKvBvarTest, GetCopyJob) {
 
 // finish_copy
 TEST(RpcKvBvarTest, FinishCopy) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     brpc::Controller cntl;
@@ -2726,7 +2657,6 @@ TEST(RpcKvBvarTest, FinishCopy) {
 
 // get_copy_files
 TEST(RpcKvBvarTest, GetCopyFiles) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     brpc::Controller cntl;
@@ -2791,7 +2721,6 @@ TEST(RpcKvBvarTest, GetCopyFiles) {
 
 // filter_copy_files
 TEST(RpcKvBvarTest, FilterCopyFiles) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     brpc::Controller cntl;
@@ -2862,7 +2791,6 @@ TEST(RpcKvBvarTest, FilterCopyFiles) {
 
 // get_cluster_status
 TEST(RpcKvBvarTest, GetClusterStatus) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -2925,7 +2853,6 @@ TEST(RpcKvBvarTest, GetClusterStatus) {
 
 // get_current_max_txn_id
 TEST(RpcKvBvarTest, GetCurrentMaxTxnId) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     const int64_t db_id = 123;
@@ -2976,7 +2903,6 @@ TEST(RpcKvBvarTest, GetCurrentMaxTxnId) {
 
 // begin_sub_txn
 TEST(RpcKvBvarTest, BeginSubTxn) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 98131;
@@ -3044,7 +2970,6 @@ TEST(RpcKvBvarTest, BeginSubTxn) {
 
 // abort_sub_txn
 TEST(RpcKvBvarTest, AbortSubTxn) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 98131;
@@ -3124,7 +3049,6 @@ TEST(RpcKvBvarTest, AbortSubTxn) {
 
 // abort_txn_with_coordinator
 TEST(RpcKvBvarTest, AbortTxnWithCoordinator) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     const int64_t db_id = 666;
@@ -3187,7 +3111,6 @@ TEST(RpcKvBvarTest, AbortTxnWithCoordinator) {
 
 // check_txn_conflict
 TEST(RpcKvBvarTest, CheckTxnConflict) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -3240,7 +3163,6 @@ TEST(RpcKvBvarTest, CheckTxnConflict) {
 
 // clean_txn_label
 TEST(RpcKvBvarTest, CleanTxnLabel) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 1987211;

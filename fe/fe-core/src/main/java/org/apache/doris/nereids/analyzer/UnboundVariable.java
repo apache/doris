@@ -80,11 +80,6 @@ public class UnboundVariable extends Expression implements Unbound {
         }
     }
 
-    @Override
-    public String toDigest() {
-        return toString();
-    }
-
     /**
      * variable type
      */

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.CopyFromParam;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StageAndPattern;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -28,7 +29,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -104,7 +104,7 @@ public class CopyFromDesc {
     /**
      * analyze
      */
-    public void validate(String fullDbName, TableNameInfo tableNameInfo, boolean useDeleteSign, String fileType)
+    public void validate(String fullDbName, TableName tableName, boolean useDeleteSign, String fileType)
             throws AnalysisException {
         if (exprList == null && !fileFilterExpr.isPresent() && !useDeleteSign) {
             return;
@@ -113,7 +113,7 @@ public class CopyFromDesc {
         this.columnMappingList = new ArrayList<>();
 
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(fullDbName);
-        OlapTable olapTable = db.getOlapTableOrAnalysisException(tableNameInfo.getTbl());
+        OlapTable olapTable = db.getOlapTableOrAnalysisException(tableName.getTbl());
 
         if (useDeleteSign && olapTable.getKeysType() != KeysType.UNIQUE_KEYS) {
             throw new AnalysisException("copy.use_delete_sign property only support unique table");

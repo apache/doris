@@ -33,7 +33,6 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Logical Node for CTE
@@ -76,19 +75,6 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
         return Utils.toSqlString("LogicalCTE",
                 "aliasQueries", aliasQueries
         );
-    }
-
-    @Override
-    public String toDigest() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("WITH\n");
-        sb.append(
-                aliasQueries.stream().map(LogicalSubQueryAlias::toDigest)
-                        .collect(Collectors.joining(", "))
-        );
-        sb.append("\n");
-        sb.append(child().toDigest());
-        return sb.toString();
     }
 
     @Override

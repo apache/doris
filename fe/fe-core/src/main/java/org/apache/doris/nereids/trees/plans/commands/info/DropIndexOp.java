@@ -22,7 +22,6 @@ import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.lang3.StringUtils;
@@ -79,7 +78,8 @@ public class DropIndexOp extends AlterTableOp {
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
-        return new DropIndexClause(indexName, ifExists, tableName, alter);
+        return new DropIndexClause(indexName, ifExists, tableName != null ? tableName.transferToTableName() : null,
+                alter);
     }
 
     @Override

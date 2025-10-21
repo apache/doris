@@ -32,7 +32,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertTask;
-import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -60,7 +59,6 @@ import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
-import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -86,9 +84,8 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
      * constructor
      */
     public OlapInsertExecutor(ConnectContext ctx, Table table,
-            String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert,
-            long jobId) {
-        super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
+            String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert);
         this.olapTable = (OlapTable) table;
     }
 
@@ -193,7 +190,6 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     protected void onComplete() throws UserException {
-        TxnCommitAttachment txnCommitAttachment = buildTxnAttachment();
         setTxnCallbackId();
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             try {
@@ -208,7 +204,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 database, Lists.newArrayList((Table) table),
                 txnId,
                 TabletCommitInfo.fromThrift(coordinator.getCommitInfos()),
-                ctx.getSessionVariable().getInsertVisibleTimeoutMs(), txnCommitAttachment)) {
+                ctx.getSessionVariable().getInsertVisibleTimeoutMs())) {
             txnStatus = TransactionStatus.VISIBLE;
         } else {
             txnStatus = TransactionStatus.COMMITTED;
@@ -235,29 +231,11 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         if (state == null) {
             throw new AnalysisException("txn does not exist: " + txnId);
         }
-        StreamingInsertTask task = Env.getCurrentEnv()
-                                      .getJobManager()
-                                      .getStreamingTaskManager()
-                                      .getStreamingInsertTaskById(jobId);
-        if (task != null) {
-            state.setCallbackId(task.getJobId());
+        StreamingInsertTask streamingInsertTask =
+                Env.getCurrentEnv().getJobManager().getStreamingTaskManager().getStreamingInsertTaskById(jobId);
+        if (streamingInsertTask != null) {
+            state.setCallbackId(streamingInsertTask.getJobId());
         }
-    }
-
-    private TxnCommitAttachment buildTxnAttachment() {
-        if (!Config.isCloudMode()) {
-            return null;
-        }
-        StreamingInsertTask task = Env.getCurrentEnv()
-                                      .getJobManager()
-                                      .getStreamingTaskManager()
-                                      .getStreamingInsertTaskById(jobId);
-        if (task == null) {
-            return null;
-        }
-        StreamingTaskTxnCommitAttachment attachment = new StreamingTaskTxnCommitAttachment();
-        attachment.setJobId(task.getJobId());
-        return attachment;
     }
 
     @Override
@@ -309,8 +287,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 userIdentity = statement.getUserInfo();
             }
             EtlJobType etlJobType = EtlJobType.INSERT;
-            // Do not register job if job id is -1.
-            if (!Config.enable_nereids_load && jobId != -1) {
+            if (0 != jobId) {
+                etlJobType = EtlJobType.INSERT_JOB;
+            }
+            if (!Config.enable_nereids_load) {
                 // just record for loadv2 here
                 ctx.getEnv().getLoadManager()
                         .recordFinishedLoadJob(labelName, txnId, database.getFullName(),

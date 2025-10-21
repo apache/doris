@@ -157,20 +157,6 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
         return getName() + "(" + (distinct ? "DISTINCT " : "") + args + ")";
     }
 
-    @Override
-    public String toDigest() {
-        StringBuilder sb = new StringBuilder(getName()).append("(");
-        if (distinct) {
-            sb.append("DISTINCT ");
-        }
-        sb.append(
-                children.stream().map(Expression::toDigest)
-                        .collect(Collectors.joining(", "))
-        );
-        sb.append(")");
-        return sb.toString();
-    }
-
     public boolean supportAggregatePhase(AggregatePhase aggregatePhase) {
         return true;
     }

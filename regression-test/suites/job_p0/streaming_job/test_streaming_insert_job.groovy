@@ -65,8 +65,8 @@ suite("test_streaming_insert_job") {
         Awaitility.await().atMost(300, SECONDS)
                 .pollInterval(1, SECONDS).until(
                 {
+                    print("check success task count")
                     def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='STREAMING' """
-                    log.info("jobSuccendCount: " + jobSuccendCount)
                     // check job status and succeed task count larger than 2
                     jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
                 }
@@ -74,13 +74,13 @@ suite("test_streaming_insert_job") {
     } catch (Exception ex){
         def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
         def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
-        log.info("show job: " + showjob)
-        log.info("show task: " + showtask)
+        println("show job: " + showjob)
+        println("show task: " + showtask)
         throw ex;
     }
 
     def jobResult = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
-    log.info("show success job: " + jobResult)
+    println("show success job: " + jobResult)
 
     qt_select """ SELECT * FROM ${tableName} order by c1 """
 
@@ -95,21 +95,13 @@ suite("test_streaming_insert_job") {
     def pauseShowTask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
     assert pauseShowTask.size() == 0
 
-    // check encrypt sk
-    def jobExecuteSQL = sql """
-        select ExecuteSql from jobs("type"="insert") where Name='${jobName}'
-    """
-    assert jobExecuteSQL.get(0).get(0).contains("${getS3AK()}")
-    assert !jobExecuteSQL.get(0).get(0).contains("${getS3SK()}")
 
-    def jobInfo = sql """
-        select currentOffset, endoffset, loadStatistic from jobs("type"="insert") where Name='${jobName}'
+    def jobOffset = sql """
+        select currentOffset, endoffset from jobs("type"="insert") where Name='${jobName}'
     """
-    log.info("jobInfo: " + jobInfo)
-    assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-    assert jobInfo.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-    assert jobInfo.get(0).get(2) == "{\"scannedRows\":20,\"loadBytes\":425,\"fileNumber\":0,\"fileSize\":0}"
-    
+    assert jobOffset.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
+    assert jobOffset.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
+
     // alter streaming job
     sql """
        ALTER JOB ${jobName}
@@ -163,4 +155,5 @@ suite("test_streaming_insert_job") {
 
     def jobCountRsp = sql """select count(1) from jobs("type"="insert")  where Name ='${jobName}'"""
     assert jobCountRsp.get(0).get(0) == 0
+
 }

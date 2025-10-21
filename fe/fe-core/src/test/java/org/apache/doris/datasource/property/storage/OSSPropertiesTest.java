@@ -43,7 +43,7 @@ public class OSSPropertiesTest {
         origProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
         Map<String, String> finalOrigProps = origProps;
         ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Region is not set. If you are using a standard endpoint, the region will be detected automatically. Otherwise, please specify it explicitly.", () -> StorageProperties.createPrimary(finalOrigProps));
+                "Invalid endpoint: https://oss.aliyuncs.com", () -> StorageProperties.createPrimary(finalOrigProps));
         origProps.put("oss.endpoint", "oss-cn-shenzhen-finance-1-internal.aliyuncs.com");
         Map<String, String> finalOrigProps1 = origProps;
         OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(finalOrigProps1);
@@ -145,7 +145,7 @@ public class OSSPropertiesTest {
         ossNoEndpointProps.put("oss.region", "cn-hangzhou");
         origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
         // oss support without endpoint
-        ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class, "Endpoint is not set. Please specify it explicitly.", () -> StorageProperties.createPrimary(ossNoEndpointProps));
+        ExceptionChecker.expectThrowsNoException(() -> StorageProperties.createPrimary(ossNoEndpointProps));
     }
 
     @Test
@@ -181,32 +181,6 @@ public class OSSPropertiesTest {
         origProps.remove("oss.access_key");
         Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
     }
-
-    @Test
-    public void testDlfPropertiesEndpoint() {
-        Map<String, String> origProps = new HashMap<>();
-        origProps.put("type", "iceberg");
-        origProps.put("warehouse", "oss://bucket/hive-dlf-oss-warehouse/iceberg/dlf-oss/");
-        origProps.put("dlf.region", "cn-beijing");
-        origProps.put("dlf.endpoint", "datalake-vpc.cn-beijing.aliyuncs.com");
-        origProps.put("dlf.uid", "12345");
-        origProps.put("dlf.catalog.id", "p2_regression_case");
-        origProps.put("dlf.access_key", "ACCESS_KEY");
-        origProps.put("dlf.secret_key", "SECERT_KET");
-        origProps.put("dlf.access.public", "true");
-        OSSProperties ossProperties = OSSProperties.of(origProps);
-        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", ossProperties.getEndpoint());
-        origProps.remove("dlf.access.public");
-        ossProperties = OSSProperties.of(origProps);
-        Assertions.assertEquals("oss-cn-beijing-internal.aliyuncs.com", ossProperties.getEndpoint());
-        origProps.put("oss.endpoint", "dlf.cn-beijing.aliyuncs.com");
-        ossProperties = OSSProperties.of(origProps);
-        Assertions.assertEquals("oss-cn-beijing-internal.aliyuncs.com", ossProperties.getEndpoint());
-        origProps.put("oss.endpoint", "dlf-vpc.cn-beijing.aliyuncs.com");
-        ossProperties = OSSProperties.of(origProps);
-        Assertions.assertEquals("oss-cn-beijing-internal.aliyuncs.com", ossProperties.getEndpoint());
-    }
-
 
     @Test
     public void testNotEndpoint() throws UserException {

@@ -26,7 +26,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
@@ -42,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;

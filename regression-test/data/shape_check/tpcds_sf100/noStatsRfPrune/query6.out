@@ -20,17 +20,17 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((c.c_customer_sk = s.ss_customer_sk)) otherCondition=()
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store_sales(s)] apply RFs: RF2
+----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((a.ca_address_sk = c.c_current_addr_sk)) otherCondition=()
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[customer(c)]
+--------------------------------------------PhysicalOlapScan[customer]
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[customer_address(a)]
+--------------------------------------------PhysicalOlapScan[customer_address]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[date_dim(d)] apply RFs: RF4
+------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF4
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[item(i)]
+--------------------------------PhysicalOlapScan[item]
 --------------------------PhysicalAssertNumRows
 ----------------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------------hashAgg[GLOBAL]
@@ -43,5 +43,5 @@ PhysicalResultSink
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[item(j)]
+------------------------------PhysicalOlapScan[item]
 

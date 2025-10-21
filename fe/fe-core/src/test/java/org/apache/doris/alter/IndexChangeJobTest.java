@@ -22,6 +22,7 @@ import org.apache.doris.analysis.BuildIndexClause;
 import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -39,8 +40,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
@@ -117,7 +118,7 @@ public class IndexChangeJobTest {
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         String indexName = "index1";
-        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
         IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
@@ -144,7 +145,7 @@ public class IndexChangeJobTest {
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         String indexName = "index1";
-        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
         IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
@@ -176,7 +177,7 @@ public class IndexChangeJobTest {
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         String indexName = "index1";
-        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
         IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
@@ -210,7 +211,7 @@ public class IndexChangeJobTest {
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         String indexName = "index1";
-        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
         IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
@@ -268,7 +269,7 @@ public class IndexChangeJobTest {
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         String indexName = "index1";
-        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
         IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
@@ -325,7 +326,7 @@ public class IndexChangeJobTest {
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         String indexName = "index1";
-        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
         IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
@@ -372,7 +373,7 @@ public class IndexChangeJobTest {
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         String indexName = "index1";
-        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
         IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
@@ -452,7 +453,7 @@ public class IndexChangeJobTest {
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         String indexName = "index1";
-        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
         IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
@@ -532,7 +533,7 @@ public class IndexChangeJobTest {
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         String indexName = "index1";
-        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
         IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
@@ -597,7 +598,7 @@ public class IndexChangeJobTest {
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         String indexName = "index1";
-        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
         IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
@@ -666,7 +667,7 @@ public class IndexChangeJobTest {
                 Lists.newArrayList(table.getBaseSchema().get(3).getName()),
                 IndexDef.IndexType.NGRAM_BF,
                 Maps.newHashMap(), "ngram bf index");
-        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
         CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze();
@@ -754,7 +755,7 @@ public class IndexChangeJobTest {
                 Lists.newArrayList(table.getBaseSchema().get(3).getName()),
                 IndexDef.IndexType.NGRAM_BF,
                 Maps.newHashMap(), "ngram bf index");
-        TableNameInfo tableName = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
         CreateIndexClause createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze();

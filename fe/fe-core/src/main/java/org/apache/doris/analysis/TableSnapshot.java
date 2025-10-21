@@ -68,12 +68,4 @@ public class TableSnapshot {
             return " FOR TIME AS OF '" + value + "'";
         }
     }
-
-    public String toDigest() {
-        if (this.type == VersionType.VERSION) {
-            return " FOR VERSION AS OF " + '?';
-        } else {
-            return " FOR TIME AS OF '" + '?' + "'";
-        }
-    }
 }

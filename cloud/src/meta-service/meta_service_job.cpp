@@ -1357,6 +1357,29 @@ void schema_change_update_tablet_stats(const TabletSchemaChangeJobPB& schema_cha
                                                      segment_size_remove_rowsets));
 }
 
+std::pair<TabletStatsPB, TabletStatsPB> split_tablet_stats_into_load_and_compact_parts(
+        const TabletStatsPB& stats) {
+    TabletStatsPB load_stats, compact_stats;
+    compact_stats.set_base_compaction_cnt(stats.base_compaction_cnt());
+    compact_stats.set_cumulative_compaction_cnt(stats.cumulative_compaction_cnt());
+    compact_stats.set_cumulative_point(stats.cumulative_point());
+    compact_stats.set_last_base_compaction_time_ms(stats.last_base_compaction_time_ms());
+    compact_stats.set_last_cumu_compaction_time_ms(stats.last_cumu_compaction_time_ms());
+    compact_stats.set_full_compaction_cnt(stats.full_compaction_cnt());
+    compact_stats.set_last_full_compaction_time_ms(stats.last_full_compaction_time_ms());
+    compact_stats.mutable_idx()->CopyFrom(stats.idx());
+
+    load_stats.set_num_rows(stats.num_rows());
+    load_stats.set_num_rowsets(stats.num_rowsets());
+    load_stats.set_num_segments(stats.num_segments());
+    load_stats.set_data_size(stats.data_size());
+    load_stats.set_index_size(stats.index_size());
+    load_stats.set_segment_size(stats.segment_size());
+    load_stats.mutable_idx()->CopyFrom(stats.idx());
+
+    return {load_stats, compact_stats};
+}
+
 std::pair<MetaServiceCode, std::string> scan_schema_change_input_rowsets(
         Transaction* txn, std::string_view instance_id, int64_t new_tablet_id,
         std::string& rs_start, std::string& rs_end, auto&& callback) {

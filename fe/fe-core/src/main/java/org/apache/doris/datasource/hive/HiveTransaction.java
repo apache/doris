@@ -17,8 +17,8 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.TableNameInfo;
 
 import com.google.common.collect.Lists;
 
@@ -63,7 +63,7 @@ public class HiveTransaction {
 
     public Map<String, String> getValidWriteIds(HMSCachedClient client) {
         if (txnValidIds == null) {
-            TableNameInfo tableName = new TableNameInfo(hiveTable.getCatalog().getName(), hiveTable.getRemoteDbName(),
+            TableName tableName = new TableName(hiveTable.getCatalog().getName(), hiveTable.getRemoteDbName(),
                     hiveTable.getRemoteName());
             client.acquireSharedLock(queryId, txnId, user, tableName, partitionNames, 5000);
             txnValidIds = client.getValidWriteIds(tableName.getDb() + "." + tableName.getTbl(), txnId);

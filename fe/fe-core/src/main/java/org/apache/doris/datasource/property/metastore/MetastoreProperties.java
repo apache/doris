@@ -82,7 +82,7 @@ public class MetastoreProperties extends ConnectionProperties {
 
     static {
         //subclasses should be registered here
-        register(Type.HMS, new HivePropertiesFactory());
+        register(Type.HMS, new HMSPropertiesFactory());
         register(Type.ICEBERG, new IcebergPropertiesFactory());
         register(Type.PAIMON, new PaimonPropertiesFactory());
     }

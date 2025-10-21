@@ -20,9 +20,7 @@ package org.apache.doris.common.profile;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.stats.HboPlanInfoProvider;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
@@ -338,24 +336,12 @@ public class Profile {
     }
 
     public String getProfileByLevel() {
-        SafeStringBuilder builder = new SafeStringBuilder();
-        if (DebugPointUtil.isEnable("Profile.profileSizeLimit")) {
-            DebugPointUtil.DebugPoint debugPoint = DebugPointUtil.getDebugPoint("Profile.profileSizeLimit");
-            int maxProfileSize = debugPoint.param("profileSizeLimit", 0);
-            builder = new SafeStringBuilder(maxProfileSize);
-            LOG.info("DebugPoint:Profile.profileSizeLimit, MAX_PROFILE_SIZE = {}", maxProfileSize);
-        }
+        StringBuilder builder = new StringBuilder();
         // add summary to builder
         summaryProfile.prettyPrint(builder);
-        if (!builder.isTruncated()) {
-            getChangedSessionVars(builder);
-        }
-        if (!builder.isTruncated()) {
-            getExecutionProfileContent(builder);
-        }
-        if (!builder.isTruncated()) {
-            getOnStorageProfile(builder);
-        }
+        getChangedSessionVars(builder);
+        getExecutionProfileContent(builder);
+        getOnStorageProfile(builder);
 
         return builder.toString();
     }
@@ -474,9 +460,9 @@ public class Profile {
     }
 
     // Return if profile has been stored to storage
-    public void getExecutionProfileContent(SafeStringBuilder builder) {
+    public void getExecutionProfileContent(StringBuilder builder) {
         if (builder == null) {
-            builder = new SafeStringBuilder();
+            builder = new StringBuilder();
         }
 
         if (profileHasBeenStored()) {
@@ -667,7 +653,7 @@ public class Profile {
             // Write summary profile and execution profile content to memory
             this.summaryProfile.write(memoryDataStream);
 
-            SafeStringBuilder builder = new SafeStringBuilder();
+            StringBuilder builder = new StringBuilder();
             getChangedSessionVars(builder);
             getExecutionProfileContent(builder);
             byte[] executionProfileBytes = builder.toString().getBytes(StandardCharsets.UTF_8);
@@ -772,9 +758,9 @@ public class Profile {
         this.changedSessionVarCache = changedSessionVar;
     }
 
-    private void getChangedSessionVars(SafeStringBuilder builder) {
+    private void getChangedSessionVars(StringBuilder builder) {
         if (builder == null) {
-            builder = new SafeStringBuilder();
+            builder = new StringBuilder();
         }
         if (profileHasBeenStored()) {
             return;
@@ -806,7 +792,7 @@ public class Profile {
         return durationMs > Config.qe_slow_log_ms;
     }
 
-    void getOnStorageProfile(SafeStringBuilder builder) {
+    void getOnStorageProfile(StringBuilder builder) {
         if (!profileHasBeenStored()) {
             return;
         }
@@ -888,7 +874,7 @@ public class Profile {
     }
 
     public String toString() {
-        SafeStringBuilder stringBuilder = new SafeStringBuilder();
+        StringBuilder stringBuilder = new StringBuilder();
         getExecutionProfileContent(stringBuilder);
         return stringBuilder.toString();
     }

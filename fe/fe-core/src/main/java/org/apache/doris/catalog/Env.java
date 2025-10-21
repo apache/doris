@@ -122,8 +122,6 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
-import org.apache.doris.info.PartitionNamesInfo;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -195,6 +193,8 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -1151,8 +1151,6 @@ public class Env {
         pluginMgr.init();
         auditEventProcessor.start();
 
-        cloneClusterSnapshot();
-
         // 2. get cluster id and role (Observer or Follower)
         if (!Config.enable_check_compatibility_mode) {
             checkDeployMode();
@@ -1163,6 +1161,8 @@ public class Env {
             nodeName = genFeNodeName(selfNode.getHost(),
                     selfNode.getPort(), false /* new style */);
         }
+
+        cloneClusterSnapshot();
 
         // 3. Load image first and replay edits
         this.editLog = new EditLog(nodeName);
@@ -3375,7 +3375,7 @@ public class Env {
         if (StringUtils.isEmpty(command.getCtlName())) {
             catalogIf = getCurrentCatalog();
         } else {
-            catalogIf = catalogMgr.getCatalogOrDdlException(command.getCtlName());
+            catalogIf = catalogMgr.getCatalog(command.getCtlName());
         }
         catalogIf.createDb(command.getDbName(), command.isIfNotExists(), command.getProperties());
     }

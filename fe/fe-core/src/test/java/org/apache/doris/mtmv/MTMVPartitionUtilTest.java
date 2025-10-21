@@ -19,13 +19,13 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
 import com.google.common.collect.Lists;
@@ -257,49 +257,49 @@ public class MTMVPartitionUtilTest {
 
     @Test
     public void testIsTableExcluded() {
-        Set<TableNameInfo> excludedTriggerTables = Sets.newHashSet(new TableNameInfo("table1"));
+        Set<TableName> excludedTriggerTables = Sets.newHashSet(new TableName("table1"));
         Assert.assertTrue(
-                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db1", "table1")));
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableName("ctl1", "db1", "table1")));
         Assert.assertTrue(
-                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db2", "table1")));
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableName("ctl1", "db2", "table1")));
         Assert.assertTrue(
-                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl2", "db1", "table1")));
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableName("ctl2", "db1", "table1")));
         Assert.assertFalse(
-                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db1", "table2")));
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableName("ctl1", "db1", "table2")));
 
-        excludedTriggerTables = Sets.newHashSet(new TableNameInfo("db1.table1"));
+        excludedTriggerTables = Sets.newHashSet(new TableName("db1.table1"));
         Assert.assertTrue(
-                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db1", "table1")));
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableName("ctl1", "db1", "table1")));
         Assert.assertFalse(
-                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db2", "table1")));
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableName("ctl1", "db2", "table1")));
         Assert.assertTrue(
-                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl2", "db1", "table1")));
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableName("ctl2", "db1", "table1")));
         Assert.assertFalse(
-                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db1", "table2")));
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableName("ctl1", "db1", "table2")));
 
-        excludedTriggerTables = Sets.newHashSet(new TableNameInfo("ctl1.db1.table1"));
+        excludedTriggerTables = Sets.newHashSet(new TableName("ctl1.db1.table1"));
         Assert.assertTrue(
-                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db1", "table1")));
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableName("ctl1", "db1", "table1")));
         Assert.assertFalse(
-                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db2", "table1")));
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableName("ctl1", "db2", "table1")));
         Assert.assertFalse(
-                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl2", "db1", "table1")));
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableName("ctl2", "db1", "table1")));
         Assert.assertFalse(
-                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableNameInfo("ctl1", "db1", "table2")));
+                MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, new TableName("ctl1", "db1", "table2")));
     }
 
     @Test
     public void testIsTableNamelike() {
-        TableNameInfo tableNameToCheck = new TableNameInfo("ctl1", "db1", "table1");
-        Assert.assertTrue(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("table1"), tableNameToCheck));
-        Assert.assertTrue(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("db1.table1"), tableNameToCheck));
-        Assert.assertTrue(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("ctl1.db1.table1"), tableNameToCheck));
-        Assert.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("ctl1.table1"), tableNameToCheck));
-        Assert.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("ctl1.db2.table1"), tableNameToCheck));
-        Assert.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("ctl1.db1.table2"), tableNameToCheck));
-        Assert.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("ctl2.db1.table1"), tableNameToCheck));
-        Assert.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("db1"), tableNameToCheck));
-        Assert.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableNameInfo("ctl1"), tableNameToCheck));
+        TableName tableNameToCheck = new TableName("ctl1", "db1", "table1");
+        Assert.assertTrue(MTMVPartitionUtil.isTableNamelike(new TableName("table1"), tableNameToCheck));
+        Assert.assertTrue(MTMVPartitionUtil.isTableNamelike(new TableName("db1.table1"), tableNameToCheck));
+        Assert.assertTrue(MTMVPartitionUtil.isTableNamelike(new TableName("ctl1.db1.table1"), tableNameToCheck));
+        Assert.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableName("ctl1.table1"), tableNameToCheck));
+        Assert.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableName("ctl1.db2.table1"), tableNameToCheck));
+        Assert.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableName("ctl1.db1.table2"), tableNameToCheck));
+        Assert.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableName("ctl2.db1.table1"), tableNameToCheck));
+        Assert.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableName("db1"), tableNameToCheck));
+        Assert.assertFalse(MTMVPartitionUtil.isTableNamelike(new TableName("ctl1"), tableNameToCheck));
     }
 
     @Test

@@ -21,9 +21,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.rules.SupportJavaDateFormatter;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMicrosecond;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMillisecond;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -44,7 +41,6 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.DateUtils;
 
 import org.apache.commons.lang3.StringUtils;
@@ -408,8 +404,7 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "date_trunc")
     public static Expression dateTrunc(DateTimeV2Literal date, StringLikeLiteral trunc) {
-        return DateTimeV2Literal.fromJavaDateType(
-                dateTruncHelper(date.toJavaDateType(), trunc.getValue()), date.getScale());
+        return DateTimeV2Literal.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
     }
 
     @ExecFunction(name = "date_trunc")
@@ -419,8 +414,7 @@ public class DateTimeExtractAndTransform {
 
     @ExecFunction(name = "date_trunc")
     public static Expression dateTrunc(StringLikeLiteral trunc, DateTimeV2Literal date) {
-        return DateTimeV2Literal.fromJavaDateType(
-                dateTruncHelper(date.toJavaDateType(), trunc.getValue()), date.getScale());
+        return DateTimeV2Literal.fromJavaDateType(dateTruncHelper(date.toJavaDateType(), trunc.getValue()));
     }
 
     @ExecFunction(name = "date_trunc")
@@ -1063,27 +1057,27 @@ public class DateTimeExtractAndTransform {
 
     @ExecFunction(name = "from_second")
     public static Expression fromSecond(BigIntLiteral second) {
-        return fromMicroSecond(second.getValue() * 1000 * 1000, FromSecond.RESULT_SCALE);
+        return fromMicroSecond(second.getValue() * 1000 * 1000);
     }
 
     @ExecFunction(name = "from_millisecond")
     public static Expression fromMilliSecond(BigIntLiteral milliSecond) {
-        return fromMicroSecond(milliSecond.getValue() * 1000, FromMillisecond.RESULT_SCALE);
+        return fromMicroSecond(milliSecond.getValue() * 1000);
     }
 
     @ExecFunction(name = "from_microsecond")
     public static Expression fromMicroSecond(BigIntLiteral microSecond) {
-        return fromMicroSecond(microSecond.getValue(), FromMicrosecond.RESULT_SCALE);
+        return fromMicroSecond(microSecond.getValue());
     }
 
-    private static Expression fromMicroSecond(long microSecond, int scale) {
+    private static Expression fromMicroSecond(long microSecond) {
         if (microSecond < 0 || microSecond > 253402271999999999L) {
             throw new AnalysisException("Operation from_microsecond of " + microSecond + " out of range");
         }
         LocalDateTime dateTime = LocalDateTime.ofInstant(
                 Instant.ofEpochMilli(microSecond / 1000).plusNanos(microSecond % 1000 * 1000),
                 DateUtils.getTimeZone());
-        return new DateTimeV2Literal(DateTimeV2Type.of(scale), dateTime.getYear(),
+        return new DateTimeV2Literal(DateTimeV2Type.MAX, dateTime.getYear(),
                 dateTime.getMonthValue(), dateTime.getDayOfMonth(), dateTime.getHour(),
                 dateTime.getMinute(), dateTime.getSecond(), dateTime.getNano() / 1000);
     }
@@ -1342,84 +1336,5 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "sec_to_time")
     public static Expression secToTime(DoubleLiteral sec) {
         return new TimeV2Literal(sec.getValue() * 1000000);
-    }
-
-    /**
-     * get_format function for constant folding
-     */
-    @ExecFunction(name = "get_format")
-    public static Expression getFormat(StringLikeLiteral type, StringLikeLiteral format) {
-        String typeStr = type.getValue();
-        String formatStr = format.getValue().toUpperCase();
-
-        String result = null;
-
-        switch (typeStr) {
-            case "DATE":
-                switch (formatStr) {
-                    case "USA":
-                        result = "%m.%d.%Y";
-                        break;
-                    case "JIS":
-                    case "ISO":
-                        result = "%Y-%m-%d";
-                        break;
-                    case "EUR":
-                        result = "%d.%m.%Y";
-                        break;
-                    case "INTERNAL":
-                        result = "%Y%m%d";
-                        break;
-                    default:
-                        break;
-                }
-                break;
-            case "DATETIME":
-                switch (formatStr) {
-                    case "USA":
-                        result = "%Y-%m-%d %H.%i.%s";
-                        break;
-                    case "JIS":
-                    case "ISO":
-                        result = "%Y-%m-%d %H:%i:%s";
-                        break;
-                    case "EUR":
-                        result = "%Y-%m-%d %H.%i.%s";
-                        break;
-                    case "INTERNAL":
-                        result = "%Y%m%d%H%i%s";
-                        break;
-                    default:
-                        break;
-                }
-                break;
-            case "TIME":
-                switch (formatStr) {
-                    case "USA":
-                        result = "%h:%i:%s %p";
-                        break;
-                    case "JIS":
-                    case "ISO":
-                        result = "%H:%i:%s";
-                        break;
-                    case "EUR":
-                        result = "%H.%i.%s";
-                        break;
-                    case "INTERNAL":
-                        result = "%H%i%s";
-                        break;
-                    default:
-                        break;
-                }
-                break;
-            default:
-                break;
-        }
-
-        if (result == null) {
-            return new NullLiteral(StringType.INSTANCE);
-        }
-
-        return new VarcharLiteral(result);
     }
 }

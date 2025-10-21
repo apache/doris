@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.info.PartitionNamesInfo;
-
 import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
@@ -32,7 +30,7 @@ public class ChannelDescription {
     @SerializedName(value = "targetTable")
     private String targetTable;
     @SerializedName(value = "partitionNames")
-    private PartitionNamesInfo partitionNames;
+    private PartitionNames partitionNames;
     // column names of source table
     @SerializedName(value = "colNames")
     private List<String> colNames;

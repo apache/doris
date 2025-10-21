@@ -84,10 +84,4 @@ public class UnboundInlineTable extends LogicalLeaf implements InlineTable, Bloc
     public List<Slot> computeOutput() {
         throw new UnboundException("output");
     }
-
-    @Override
-    public String toDigest() {
-        // TODO handle exprList?
-        return "VALUES ?";
-    }
 }

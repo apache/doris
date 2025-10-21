@@ -133,7 +133,6 @@ public:
         RETURN_IF_CATCH_EXCEPTION(_data.resize(orig_size + to_add_size));
         _count += to_add;
         _remain_element_capacity -= to_add;
-        _raw_data_size += to_add_size;
         // return added number through count
         *num_written = to_add;
         if constexpr (single) {
@@ -172,7 +171,6 @@ public:
         RETURN_IF_CATCH_EXCEPTION({
             size_t block_size = _options.data_page_size;
             _count = 0;
-            _raw_data_size = 0;
             _data.clear();
             _data.reserve(block_size);
             DCHECK_EQ(reinterpret_cast<uintptr_t>(_data.data()) & (alignof(CppType) - 1), 0)
@@ -188,8 +186,6 @@ public:
     size_t count() const override { return _count; }
 
     uint64_t size() const override { return _buffer.size(); }
-
-    uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
     Status get_first_value(void* value) const override {
         DCHECK(_finished);
@@ -268,7 +264,6 @@ private:
     faststring _buffer;
     CppType _first_value;
     CppType _last_value;
-    uint64_t _raw_data_size = 0;
 };
 
 inline Status parse_bit_shuffle_header(const Slice& data, size_t& num_elements,

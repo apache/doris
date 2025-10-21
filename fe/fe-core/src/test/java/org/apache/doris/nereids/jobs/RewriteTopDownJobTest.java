@@ -130,10 +130,5 @@ public class RewriteTopDownJobTest {
         public LogicalBoundRelation withRelationId(RelationId relationId) {
             throw new RuntimeException("should not call LogicalBoundRelation's withRelationId method");
         }
-
-        @Override
-        public LogicalBoundRelation withTableAlias(String alias) {
-            return this;
-        }
     }
 }

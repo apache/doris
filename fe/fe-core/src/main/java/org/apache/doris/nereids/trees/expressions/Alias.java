@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -152,17 +151,6 @@ public class Alias extends NamedExpression implements UnaryExpression {
     @Override
     public String toString() {
         return child().toString() + " AS `" + name.get() + "`#" + exprId;
-    }
-
-    @Override
-    public String toDigest() {
-        StringBuilder sb = new StringBuilder();
-        if (child() instanceof Literal) {
-            sb.append("?");
-        } else {
-            sb.append(child().toDigest()).append(" AS ").append(getName());
-        }
-        return sb.toString();
     }
 
     @Override

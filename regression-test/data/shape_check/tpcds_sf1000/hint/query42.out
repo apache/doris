@@ -19,7 +19,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[item]
 --------------------PhysicalProject
 ----------------------filter((dt.d_moy = 11) and (dt.d_year = 1998))
-------------------------PhysicalOlapScan[date_dim(dt)]
+------------------------PhysicalOlapScan[date_dim]
 
 Hint log:
 Used: leading(store_sales item date_dim )

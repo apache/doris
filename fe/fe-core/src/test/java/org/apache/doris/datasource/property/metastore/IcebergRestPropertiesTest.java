@@ -131,14 +131,14 @@ public class IcebergRestPropertiesTest {
         IcebergRestProperties restProps2 = new IcebergRestProperties(props2);
         Assertions.assertThrows(IllegalArgumentException.class, restProps2::initNormalizeAndCheckProps);
 
-        // Test: credential flow without server URI is ok
+        // Test: credential flow without server URI
         Map<String, String> props3 = new HashMap<>();
         props3.put("iceberg.rest.uri", "http://localhost:8080");
         props3.put("iceberg.rest.security.type", "oauth2");
         props3.put("iceberg.rest.oauth2.credential", "client_credentials");
 
         IcebergRestProperties restProps3 = new IcebergRestProperties(props3);
-        Assertions.assertDoesNotThrow(restProps3::initNormalizeAndCheckProps);
+        Assertions.assertThrows(IllegalArgumentException.class, restProps3::initNormalizeAndCheckProps);
 
         // Test: scope with token (should fail)
         Map<String, String> props4 = new HashMap<>();
@@ -335,7 +335,7 @@ public class IcebergRestPropertiesTest {
         // Test that non-glue signing names don't require additional properties
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
-        props.put("iceberg.rest.signing", "custom-service");
+        props.put("iceberg.rest.signing-name", "custom-service");
 
         IcebergRestProperties restProps = new IcebergRestProperties(props);
         restProps.initNormalizeAndCheckProps(); // Should not throw
@@ -347,16 +347,6 @@ public class IcebergRestPropertiesTest {
         Assertions.assertFalse(catalogProps.containsKey("rest.access-key-id"));
         Assertions.assertFalse(catalogProps.containsKey("rest.secret-access-key"));
         Assertions.assertFalse(catalogProps.containsKey("rest.sigv4-enabled"));
-        props.put("iceberg.rest.signing-name", "custom-service");
-        restProps = new IcebergRestProperties(props);
-        restProps.initNormalizeAndCheckProps(); // Should not throw
-        catalogProps = restProps.getIcebergRestCatalogProperties();
-        // Should not contain glue-specific properties
-        Assertions.assertTrue(catalogProps.containsKey("rest.signing-name"));
-        Assertions.assertTrue(catalogProps.containsKey("rest.signing-region"));
-        Assertions.assertTrue(catalogProps.containsKey("rest.access-key-id"));
-        Assertions.assertTrue(catalogProps.containsKey("rest.secret-access-key"));
-        Assertions.assertTrue(catalogProps.containsKey("rest.sigv4-enabled"));
     }
 
     @Test

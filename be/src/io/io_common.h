@@ -49,7 +49,6 @@ struct FileCacheStatistics {
     int64_t bytes_read_from_local = 0;
     int64_t bytes_read_from_remote = 0;
     int64_t remote_io_timer = 0;
-    int64_t remote_wait_timer = 0;
     int64_t write_cache_io_timer = 0;
     int64_t bytes_write_into_cache = 0;
     int64_t num_skip_cache_io_total = 0;

@@ -154,6 +154,9 @@ INSERT INTO `t4` VALUES (NULL,'4M','DORIS','td','1','kQ','6G','XM','k3','Jp','02
 set parallel_pipeline_task_num = 1;
 """
     sql """
+set enable_pipeline_engine = 0;
+"""
+    sql """
 set enable_profile = 1;
 """
 

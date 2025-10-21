@@ -76,8 +76,8 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
-    DataDistribution required_data_distribution(RuntimeState* state) const override {
-        return _sort_sink_operator->required_data_distribution(state);
+    DataDistribution required_data_distribution() const override {
+        return _sort_sink_operator->required_data_distribution();
     }
     bool require_data_distribution() const override {
         return _sort_sink_operator->require_data_distribution();

@@ -78,17 +78,17 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalIntersect
 ----filter((abs(a) < 3))
-------PhysicalOlapScan[infer_intersect_except1(t1)]
+------PhysicalOlapScan[infer_intersect_except1]
 ----filter((abs(a) < 3))
-------PhysicalOlapScan[infer_intersect_except2(t2)]
+------PhysicalOlapScan[infer_intersect_except2]
 
 -- !function_except --
 PhysicalResultSink
 --PhysicalExcept
 ----filter((abs(a) < 3))
-------PhysicalOlapScan[infer_intersect_except1(t1)]
+------PhysicalOlapScan[infer_intersect_except1]
 ----filter((abs(a) < 3))
-------PhysicalOlapScan[infer_intersect_except2(t2)]
+------PhysicalOlapScan[infer_intersect_except2]
 
 -- !except_res --
 

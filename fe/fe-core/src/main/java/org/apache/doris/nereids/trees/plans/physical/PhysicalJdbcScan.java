@@ -56,19 +56,8 @@ public class PhysicalJdbcScan extends PhysicalCatalogRelation {
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics,
             Collection<Slot> operativeSlots) {
-        this(id, table, qualifier, groupExpression, logicalProperties, physicalProperties, statistics,
-                operativeSlots, "");
-    }
-
-    /**
-     * Constructor for PhysicalJdbcScan.
-     */
-    public PhysicalJdbcScan(RelationId id, TableIf table, List<String> qualifier,
-            Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics,
-            Collection<Slot> operativeSlots, String tableAlias) {
         super(id, PlanType.PHYSICAL_JDBC_SCAN, table, qualifier, groupExpression,
-                logicalProperties, physicalProperties, statistics, operativeSlots, tableAlias);
+                logicalProperties, physicalProperties, statistics, operativeSlots);
     }
 
     @Override
@@ -78,11 +67,11 @@ public class PhysicalJdbcScan extends PhysicalCatalogRelation {
             rfV2 = runtimeFiltersV2.toString();
         }
         return Utils.toSqlString("PhysicalJdbcScan",
-                "qualified", Utils.qualifiedName(qualifier, table.getName()),
-                "alias", tableAlias,
-                "output", getOutput(),
-                "RFV2", rfV2,
-                "stats", statistics);
+            "qualified", Utils.qualifiedName(qualifier, table.getName()),
+            "output", getOutput(),
+            "RFV2", rfV2,
+            "stats", statistics
+        );
     }
 
     @Override
@@ -92,21 +81,19 @@ public class PhysicalJdbcScan extends PhysicalCatalogRelation {
 
     @Override
     public PhysicalJdbcScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalJdbcScan(relationId, table, qualifier, groupExpression, getLogicalProperties(),
-                null, null, operativeSlots, tableAlias);
+        return new PhysicalJdbcScan(relationId, table, qualifier, groupExpression, getLogicalProperties());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalJdbcScan(relationId, table, qualifier, groupExpression, logicalProperties.get(),
-                null, null, operativeSlots, tableAlias);
+        return new PhysicalJdbcScan(relationId, table, qualifier, groupExpression, logicalProperties.get());
     }
 
     @Override
     public PhysicalJdbcScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-            Statistics statistics) {
+                                                           Statistics statistics) {
         return new PhysicalJdbcScan(relationId, table, qualifier, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, operativeSlots, tableAlias);
+                getLogicalProperties(), physicalProperties, statistics, operativeSlots);
     }
 }

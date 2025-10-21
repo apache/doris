@@ -201,7 +201,7 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
-    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
+    DataDistribution required_data_distribution() const override {
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};
         } else {

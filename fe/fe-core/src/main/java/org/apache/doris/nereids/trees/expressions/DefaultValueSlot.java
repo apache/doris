@@ -64,11 +64,6 @@ public class DefaultValueSlot extends Slot {
         return "DEFAULT_VALUE";
     }
 
-    @Override
-    public String toDigest() {
-        return "?";
-    }
-
     public Slot withIndexInSql(Pair<Integer, Integer> index) {
         return this;
     }

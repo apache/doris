@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <memory>
 #include <utility>
 #include <vector>
 
@@ -28,9 +27,8 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 
 class MatchAllDocsScorer : public Scorer {
 public:
-    MatchAllDocsScorer(uint32_t max_doc,
-                       const std::vector<std::shared_ptr<lucene::index::IndexReader>>& readers)
-            : _max_doc(max_doc), _readers(readers) {
+    MatchAllDocsScorer(uint32_t max_doc, std::vector<lucene::index::IndexReader*> readers)
+            : _max_doc(max_doc), _readers(std::move(readers)) {
         if (_max_doc == 0) {
             _doc = TERMINATED;
         } else {
@@ -84,7 +82,7 @@ private:
     }
 
     [[nodiscard]] bool _is_live(uint32_t doc) const {
-        for (const auto& reader : _readers) {
+        for (auto* reader : _readers) {
             if (reader != nullptr && reader->isDeleted(static_cast<int32_t>(doc))) {
                 return false;
             }
@@ -93,7 +91,7 @@ private:
     }
 
     uint32_t _max_doc;
-    std::vector<std::shared_ptr<lucene::index::IndexReader>> _readers;
+    std::vector<lucene::index::IndexReader*> _readers;
     uint32_t _doc = TERMINATED;
 };
 

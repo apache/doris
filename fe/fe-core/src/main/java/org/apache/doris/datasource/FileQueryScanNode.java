@@ -582,7 +582,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     public TableSnapshot getQueryTableSnapshot() {
-        TableSnapshot snapshot = desc.getRef().getTableSnapShot();
+        TableSnapshot snapshot = desc.getRef().getTableSnapshot();
         if (snapshot != null) {
             return snapshot;
         }

@@ -535,17 +535,13 @@ public class StmtExecutor {
         try {
             try {
                 executeByNereids(queryId);
-            } catch (NereidsException | ParseException e) {
+            } catch (Exception e) {
                 if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
                     MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
                 }
                 LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                 context.getState().setError(e.getMessage());
                 return;
-            } catch (Exception e) {
-                LOG.warn("Nereids execute failed. {}", context.getQueryIdentifier(), e);
-                context.getState().setError(e.getMessage());
-                throw e;
             }
         } finally {
             // revert Session Value

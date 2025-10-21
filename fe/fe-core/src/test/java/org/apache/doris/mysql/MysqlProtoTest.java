@@ -315,6 +315,15 @@ public class MysqlProtoTest {
     }
 
     @Test
+    public void testNegotiateInvalidPasswd() throws Exception {
+        mockChannel("user", true);
+        mockPassword(false);
+        mockAccess();
+        ConnectContext context = new ConnectContext(streamConnection);
+        Assert.assertTrue(MysqlProto.negotiate(context));
+    }
+
+    @Test
     public void testNegotiateNoUser() throws Exception {
         mockChannel("", true);
         mockPassword(true);

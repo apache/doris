@@ -257,11 +257,4 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
     public StmtType stmtType() {
         return StmtType.INSERT;
     }
-
-    @Override
-    public String toDigest() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(originLogicalQuery.toDigest());
-        return sb.toString();
-    }
 }

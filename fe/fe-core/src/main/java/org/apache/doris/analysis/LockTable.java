@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.info.TableNameInfo;
-
 public class LockTable {
     public enum LockType {
         READ("READ"),
@@ -37,21 +35,21 @@ public class LockTable {
         }
     }
 
-    private TableNameInfo tableName;
+    private TableName tableName;
     private String alias;
     private LockType lockType;
 
-    public LockTable(TableNameInfo tableName, String alias, LockType lockType) {
+    public LockTable(TableName tableName, String alias, LockType lockType) {
         this.tableName = tableName;
         this.alias = alias;
         this.lockType = lockType;
     }
 
-    public LockTable(TableNameInfo tableName, LockType lockType) {
+    public LockTable(TableName tableName, LockType lockType) {
         this(tableName, null, lockType);
     }
 
-    public TableNameInfo getTableName() {
+    public TableName getTableName() {
         return tableName;
     }
 

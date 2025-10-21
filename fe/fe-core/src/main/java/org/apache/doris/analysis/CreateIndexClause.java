@@ -21,7 +21,6 @@ import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.info.TableNameInfo;
 
 import com.google.common.collect.Maps;
 
@@ -29,7 +28,7 @@ import java.util.Map;
 
 public class CreateIndexClause extends AlterTableClause {
     // in which table the index on, only used when alter = false
-    private TableNameInfo tableNameInfo;
+    private TableName tableName;
     // index definition class
     private IndexDef indexDef;
     // when alter = true, clause like: alter table add index xxxx
@@ -38,17 +37,17 @@ public class CreateIndexClause extends AlterTableClause {
     // index internal class
     private Index index;
 
-    public CreateIndexClause(TableNameInfo tableNameInfo, IndexDef indexDef, boolean alter) {
+    public CreateIndexClause(TableName tableName, IndexDef indexDef, boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
-        this.tableNameInfo = tableNameInfo;
+        this.tableName = tableName;
         this.indexDef = indexDef;
         this.alter = alter;
     }
 
     // for nereids
-    public CreateIndexClause(TableNameInfo tableNameInfo, IndexDef indexDef, Index index, boolean alter) {
+    public CreateIndexClause(TableName tableName, IndexDef indexDef, Index index, boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
-        this.tableNameInfo = tableNameInfo;
+        this.tableName = tableName;
         this.indexDef = indexDef;
         this.index = index;
         this.alter = alter;
@@ -71,8 +70,8 @@ public class CreateIndexClause extends AlterTableClause {
         return alter;
     }
 
-    public TableNameInfo getTableName() {
-        return tableNameInfo;
+    public TableName getTableName() {
+        return tableName;
     }
 
     @Override
@@ -105,7 +104,7 @@ public class CreateIndexClause extends AlterTableClause {
         if (alter) {
             return "ADD " + indexDef.toSql();
         } else {
-            return "CREATE " + indexDef.toSql(tableNameInfo.toSql());
+            return "CREATE " + indexDef.toSql(tableName.toSql());
         }
     }
 }

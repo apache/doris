@@ -110,8 +110,6 @@ struct FileBlockCell {
 
     FileBlockCell& operator=(const FileBlockCell&) = delete;
     FileBlockCell(const FileBlockCell&) = delete;
-
-    size_t dowloading_size() const { return file_block->_downloaded_size; }
 };
 
 class BlockFileCache {
@@ -334,9 +332,6 @@ public:
         return std::max<int64_t>(
                 _cache_capacity_metrics->get_value() - _cur_cache_size_metrics->get_value(), 0);
     }
-
-    Status report_file_cache_inconsistency(std::vector<std::string>& results);
-    Status check_file_cache_consistency(InconsistencyContext& inconsistency_context);
 
 private:
     LRUQueue& get_queue(FileCacheType type);

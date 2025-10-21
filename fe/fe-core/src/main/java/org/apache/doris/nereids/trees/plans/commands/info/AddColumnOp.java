@@ -32,7 +32,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Sets;
@@ -132,7 +131,7 @@ public class AddColumnOp extends AlterTableOp {
      * validateColumnDef
      */
     public static void validateColumnDef(TableNameInfo tableName, ColumnDefinition columnDef, ColumnPosition colPos,
-                                         String rollupName)
+            String rollupName)
             throws UserException {
         if (columnDef == null) {
             throw new AnalysisException("No column definition in add column clause.");

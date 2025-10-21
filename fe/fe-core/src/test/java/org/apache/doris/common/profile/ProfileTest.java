@@ -19,7 +19,6 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.thrift.TUniqueId;
 
 import mockit.Expectations;
@@ -245,7 +244,7 @@ public class ProfileTest {
         profile.setQueryFinishTimestamp(System.currentTimeMillis());
         profile.writeToStorage(testProfileStoragePath);
         profile.releaseMemory();
-        SafeStringBuilder builder = new SafeStringBuilder();
+        StringBuilder builder = new StringBuilder();
         profile.getOnStorageProfile(builder);
 
         // Verify we got content

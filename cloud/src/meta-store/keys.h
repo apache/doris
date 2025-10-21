@@ -66,9 +66,8 @@
 // 0x01 "job" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} -> TabletJobInfoPB
 // 0x01 "job" ${instance_id} "recycle"                                                     -> JobRecyclePB
 // 0x01 "job" ${instance_id} "check"                                                       -> JobRecyclePB
-// 0x01 "job" ${instance_id} "snapshot_data_migrator"                                      -> JobRecyclePB
-// 0x01 "job" ${instance_id} "snapshot_chain_compactor"                                    -> JobRecyclePB
 // 0x01 "job" ${instance_id} "streaming_job" ${db_id} ${job_id}                            -> StreamingJobPB
+
 //
 // 0x01 "copy" ${instance_id} "job" ${stage_id} ${table_id} ${copy_id} ${group_id}         -> CopyJobPB
 // 0x01 "copy" ${instance_id} "loading_file" ${stage_id} ${table_id} ${obj_name} ${etag}   -> CopyFilePB
@@ -205,11 +204,6 @@ using RecycleStageKeyInfo  = BasicKeyInfo<19, std::tuple<std::string,  std::stri
 
 //                                                      0:instance_id
 using JobRecycleKeyInfo    = BasicKeyInfo<20 , std::tuple<std::string>>;
-
-//                                                      0:instance_id
-using JobSnapshotDataMigratorKeyInfo = BasicKeyInfo<53, std::tuple<std::string>>;
-//                                                      0:instance_id
-using JobSnapshotChainCompactorKeyInfo = BasicKeyInfo<54, std::tuple<std::string>>;
 
 //                                                      0:instance_id  1:index_id  2:schema_version
 using MetaSchemaKeyInfo    = BasicKeyInfo<21, std::tuple<std::string,  int64_t,    int64_t>>;
@@ -414,11 +408,7 @@ static inline std::string job_restore_rowset_key(const JobRestoreRowsetKeyInfo& 
 
 void job_recycle_key(const JobRecycleKeyInfo& in, std::string* out);
 void job_check_key(const JobRecycleKeyInfo& in, std::string* out);
-void job_snapshot_data_migrator_key(const JobSnapshotDataMigratorKeyInfo& in, std::string* out);
-void job_snapshot_chain_compactor_key(const JobSnapshotChainCompactorKeyInfo& in, std::string* out);
 static inline std::string job_check_key(const JobRecycleKeyInfo& in) { std::string s; job_check_key(in, &s); return s; }
-static inline std::string job_snapshot_data_migrator_key(const JobSnapshotDataMigratorKeyInfo& in) { std::string s; job_snapshot_data_migrator_key(in, &s); return s; }
-static inline std::string job_snapshot_chain_compactor_key(const JobSnapshotChainCompactorKeyInfo& in) { std::string s; job_snapshot_chain_compactor_key(in, &s); return s; }
 void job_tablet_key(const JobTabletKeyInfo& in, std::string* out);
 static inline std::string job_tablet_key(const JobTabletKeyInfo& in) { std::string s; job_tablet_key(in, &s); return s; }
 void rl_job_progress_key_info(const RLJobProgressKeyInfo& in, std::string* out);
@@ -473,6 +463,7 @@ static inline std::string partition_index_key(const PartitionIndexKeyInfo& in) {
 
 void partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in, std::string* out);
 static inline std::string partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in) { std::string s; partition_inverted_index_key(in, &s); return s; }
+int decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id, int64_t* partition_id);
 
 void tablet_index_key(const TabletIndexKeyInfo& in, std::string* out);
 static inline std::string tablet_index_key(const TabletIndexKeyInfo& in) { std::string s; tablet_index_key(in, &s); return s; }
@@ -545,44 +536,5 @@ int decode_key(std::string_view* in,
  * Return the list of single version meta key prefixs.
  */
 std::vector<std::string> get_single_version_meta_key_prefixs();
-
-namespace versioned {
-
-// Decode partition inverted index key
-// Return true if decode successfully, otherwise false
-bool decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id,
-                                         int64_t* partition_id);
-} // namespace versioned
-
-// Decode stats tablet key
-// Return true if decode successfully, otherwise false
-bool decode_stats_tablet_key(std::string_view* in, int64_t* table_id, int64_t* index_id,
-                             int64_t* partition_id, int64_t* tablet_id);
-
-// Decode table version key
-// Return true if decode successfully, otherwise false
-bool decode_table_version_key(std::string_view* in, int64_t* db_id, int64_t* tbl_id);
-
-// Decode tablet schema key
-// Return true if decode successfully, otherwise false
-bool decode_tablet_schema_key(std::string_view* in, int64_t* index_id, int64_t* schema_version);
-
-// Decode partition version key
-// Return true if decode successfully, otherwise false
-bool decode_partition_version_key(std::string_view* in, int64_t* db_id, int64_t* tbl_id,
-                                  int64_t* partition_id);
-
-// Decode meta tablet key
-// Return true if decode successfully, otherwise false
-bool decode_meta_tablet_key(std::string_view* in, int64_t* table_id, int64_t* index_id,
-                            int64_t* partition_id, int64_t* tablet_id);
-
-// Decode meta rowset key
-// Return true if decode successfully, otherwise false
-bool decode_meta_rowset_key(std::string_view* in, int64_t* tablet_id, int64_t* version);
-
-// Decode meta tablet idx key
-// Return true if decode successfully, otherwise false
-bool decode_meta_tablet_idx_key(std::string_view* in, int64_t* tablet_id);
 
 } // namespace doris::cloud

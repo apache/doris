@@ -605,16 +605,10 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     {
         if (_opts.runtime_state &&
             _opts.runtime_state->query_options().enable_inverted_index_query &&
-            (has_index_in_iterators() || !_common_expr_ctxs_push_down.empty())) {
+            has_index_in_iterators()) {
             SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
             size_t input_rows = _row_bitmap.cardinality();
-            // Only apply column-level inverted index if we have iterators
-            if (has_index_in_iterators()) {
-                RETURN_IF_ERROR(_apply_inverted_index());
-            }
-            // Always apply expr-level index (e.g., search expressions) if we have common_expr_pushdown
-            // This allows search expressions with variant subcolumns to be evaluated even when
-            // the segment doesn't have all subcolumns
+            RETURN_IF_ERROR(_apply_inverted_index());
             RETURN_IF_ERROR(_apply_index_expr());
             for (auto it = _common_expr_ctxs_push_down.begin();
                  it != _common_expr_ctxs_push_down.end();) {
@@ -2704,49 +2698,21 @@ void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_i
         for (auto& inverted_index_result_bitmap_for_expr :
              expr_ctx->get_inverted_index_context()->get_inverted_index_result_bitmap()) {
             const auto* expr = inverted_index_result_bitmap_for_expr.first;
-            const auto& result_bitmap = inverted_index_result_bitmap_for_expr.second;
-            const auto& index_result_bitmap = result_bitmap.get_data_bitmap();
+            const auto& index_result_bitmap =
+                    inverted_index_result_bitmap_for_expr.second.get_data_bitmap();
             auto index_result_column = vectorized::ColumnUInt8::create();
+
             vectorized::ColumnUInt8::Container& vec_match_pred = index_result_column->get_data();
             vec_match_pred.resize(block->rows());
-            std::fill(vec_match_pred.begin(), vec_match_pred.end(), 0);
-
-            const auto& null_bitmap = result_bitmap.get_null_bitmap();
-            bool has_null_bitmap = null_bitmap != nullptr && !null_bitmap->isEmpty();
-            bool expr_returns_nullable = expr->data_type()->is_nullable();
-
-            vectorized::ColumnUInt8::MutablePtr null_map_column = nullptr;
-            vectorized::ColumnUInt8::Container* null_map_data = nullptr;
-            if (has_null_bitmap && expr_returns_nullable) {
-                null_map_column = vectorized::ColumnUInt8::create();
-                auto& null_map_vec = null_map_column->get_data();
-                null_map_vec.resize(block->rows());
-                std::fill(null_map_vec.begin(), null_map_vec.end(), 0);
-                null_map_data = &null_map_column->get_data();
-            }
-
             roaring::BulkContext bulk_context;
             for (uint32_t i = 0; i < select_size; i++) {
                 auto rowid = sel_rowid_idx ? _block_rowids[sel_rowid_idx[i]] : _block_rowids[i];
-                if (index_result_bitmap) {
-                    vec_match_pred[i] = index_result_bitmap->containsBulk(bulk_context, rowid);
-                }
-                if (null_map_data != nullptr && null_bitmap->contains(rowid)) {
-                    (*null_map_data)[i] = 1;
-                    vec_match_pred[i] = 0;
-                }
+                vec_match_pred[i] = index_result_bitmap->containsBulk(bulk_context, rowid);
             }
 
             DCHECK(block->rows() == vec_match_pred.size());
-
-            if (null_map_column) {
-                expr_ctx->get_inverted_index_context()->set_inverted_index_result_column_for_expr(
-                        expr, vectorized::ColumnNullable::create(std::move(index_result_column),
-                                                                 std::move(null_map_column)));
-            } else {
-                expr_ctx->get_inverted_index_context()->set_inverted_index_result_column_for_expr(
-                        expr, std::move(index_result_column));
-            }
+            expr_ctx->get_inverted_index_context()->set_inverted_index_result_column_for_expr(
+                    expr, std::move(index_result_column));
         }
     }
 }

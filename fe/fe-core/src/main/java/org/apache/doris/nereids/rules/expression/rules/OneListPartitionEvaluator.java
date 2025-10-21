@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.types.BooleanType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -114,7 +115,7 @@ public class OneListPartitionEvaluator<K>
 
         Expression newCompareExpr = inPredicate.getCompareExpr().accept(this, context);
         if (newCompareExpr.isNullLiteral()) {
-            return NullLiteral.BOOLEAN_INSTANCE;
+            return new NullLiteral(BooleanType.INSTANCE);
         }
 
         try {
@@ -124,7 +125,7 @@ public class OneListPartitionEvaluator<K>
                 return BooleanLiteral.TRUE;
             }
             if (inPredicate.optionsContainsNullLiteral()) {
-                return NullLiteral.BOOLEAN_INSTANCE;
+                return new NullLiteral(BooleanType.INSTANCE);
             }
             return BooleanLiteral.FALSE;
         } catch (Throwable t) {

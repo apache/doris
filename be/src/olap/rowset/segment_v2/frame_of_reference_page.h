@@ -51,7 +51,6 @@ public:
         }
         _encoder->put_batch(new_vals, *count);
         _count += *count;
-        _raw_data_size += *count * sizeof(CppType);
         _last_val = new_vals[*count - 1];
         return Status::OK();
     }
@@ -67,7 +66,6 @@ public:
     Status reset() override {
         _count = 0;
         _finished = false;
-        _raw_data_size = 0;
         _encoder->clear();
         return Status::OK();
     }
@@ -75,8 +73,6 @@ public:
     size_t count() const override { return _count; }
 
     uint64_t size() const override { return _buf.size(); }
-
-    uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
     Status get_first_value(void* value) const override {
         if (_count == 0) {
@@ -106,7 +102,6 @@ private:
     faststring _buf;
     CppType _first_val;
     CppType _last_val;
-    uint64_t _raw_data_size = 0;
 };
 
 template <FieldType Type>

@@ -79,7 +79,6 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "util/string_util.h"
-#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
 // #include "util/string_parser.hpp"
@@ -487,6 +486,10 @@ public:
 private:
     iterator current_;
 };
+
+using hDictInsert = int (*)(const char*, unsigned int);
+using hDictFind = int (*)(const char*, unsigned int);
+
 using JsonbTypeUnder = std::underlying_type_t<JsonbType>;
 
 #if defined(__clang__)
@@ -853,6 +856,22 @@ public:
         // It's shorter than the size of payload
         return strnlen(payload, size);
     }
+    // convert the string (case insensitive) to a boolean value
+    // "false": 0
+    // "true": 1
+    // all other strings: -1
+    int getBoolVal() {
+        if (size == 4 && tolower(payload[0]) == 't' && tolower(payload[1]) == 'r' &&
+            tolower(payload[2]) == 'u' && tolower(payload[3]) == 'e') {
+            return 1;
+        } else if (size == 5 && tolower(payload[0]) == 'f' && tolower(payload[1]) == 'a' &&
+                   tolower(payload[2]) == 'l' && tolower(payload[3]) == 's' &&
+                   tolower(payload[4]) == 'e') {
+            return 0;
+        } else {
+            return -1;
+        }
+    }
 };
 
 /*
@@ -953,8 +972,6 @@ struct ObjectVal : public ContainerVal {
     iterator end() { return iterator((pointer)(payload + size)); }
 
     const_iterator end() const { return const_iterator((pointer)(payload + size)); }
-
-    std::vector<std::pair<StringRef, const JsonbValue*>> get_ordered_key_value_pairs() const;
 
 private:
     iterator internalSearch(const char* key, unsigned int klen) {

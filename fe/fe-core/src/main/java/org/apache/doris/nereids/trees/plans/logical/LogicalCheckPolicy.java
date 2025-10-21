@@ -91,11 +91,6 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
     }
 
     @Override
-    public String toDigest() {
-        return child().toDigest();
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

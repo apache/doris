@@ -69,11 +69,6 @@ DEFINE_mInt32(sync_load_for_tablets_thread, "32");
 
 DEFINE_mBool(enable_new_tablet_do_compaction, "true");
 
-// Empty rowset compaction strategy configurations
-DEFINE_mBool(enable_empty_rowset_compaction, "true");
-DEFINE_mInt32(empty_rowset_compaction_min_count, "5");
-DEFINE_mDouble(empty_rowset_compaction_min_ratio, "0.3");
-
 DEFINE_mInt32(delete_bitmap_lock_expiration_seconds, "10");
 
 DEFINE_mInt32(get_delete_bitmap_lock_max_retry_times, "100");

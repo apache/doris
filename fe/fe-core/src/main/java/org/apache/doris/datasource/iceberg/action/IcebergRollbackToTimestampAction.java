@@ -17,22 +17,13 @@
 
 package org.apache.doris.datasource.iceberg.action;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.Type;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
-import com.google.common.collect.Lists;
-import org.apache.iceberg.Snapshot;
-import org.apache.iceberg.Table;
-
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -43,7 +34,6 @@ import java.util.Optional;
  * at a specific timestamp.
  */
 public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
-    private static final DateTimeFormatter DATETIME_MS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
     public static final String TIMESTAMP = "timestamp";
 
     public IcebergRollbackToTimestampAction(Map<String, String> properties,
@@ -58,7 +48,7 @@ public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
         // Create a custom timestamp parser that supports both ISO datetime and
         // millisecond formats
         namedArguments.registerRequiredArgument(TIMESTAMP,
-                "A timestamp to rollback to (formats: 'yyyy-MM-dd HH:mm:ss.SSS' or milliseconds since epoch)",
+                "A timestamp to rollback to (ISO datetime 'yyyy-MM-ddTHH:mm:ss' or milliseconds since epoch)",
                 value -> {
                     if (value == null || value.trim().isEmpty()) {
                         throw new IllegalArgumentException("timestamp cannot be empty");
@@ -74,13 +64,14 @@ public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
                         }
                         return trimmed;
                     } catch (NumberFormatException e) {
-                        // Second attempt: Parse as ISO datetime format (yyyy-MM-dd HH:mm:ss.SSS)
+                        // If not a number, try as ISO datetime format
                         try {
-                            java.time.LocalDateTime.parse(trimmed, DATETIME_MS_FORMAT);
+                            java.time.LocalDateTime.parse(trimmed,
+                                    java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME);
                             return trimmed;
                         } catch (java.time.format.DateTimeParseException dte) {
                             throw new IllegalArgumentException("Invalid timestamp format. Expected ISO datetime "
-                                    + "(yyyy-MM-dd HH:mm:ss.SSS) or timestamp in milliseconds: " + trimmed);
+                                    + "(yyyy-MM-ddTHH:mm:ss) or timestamp in milliseconds: " + trimmed);
                         }
                     }
                 });
@@ -96,38 +87,7 @@ public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
 
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
-        Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
-
-        String timestampStr = namedArguments.getString(TIMESTAMP);
-
-        Snapshot previousSnapshot = icebergTable.currentSnapshot();
-        Long previousSnapshotId = previousSnapshot != null ? previousSnapshot.snapshotId() : null;
-
-        try {
-            long targetTimestamp = TimeUtils.msTimeStringToLong(timestampStr, TimeUtils.getTimeZone());
-            icebergTable.manageSnapshots().rollbackToTime(targetTimestamp).commit();
-
-            Snapshot currentSnapshot = icebergTable.currentSnapshot();
-            Long currentSnapshotId = currentSnapshot != null ? currentSnapshot.snapshotId() : null;
-            // invalid iceberg catalog table cache.
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
-            return Lists.newArrayList(
-                    String.valueOf(previousSnapshotId),
-                    String.valueOf(currentSnapshotId)
-            );
-
-        } catch (Exception e) {
-            throw new UserException("Failed to rollback to timestamp " + timestampStr + ": " + e.getMessage(), e);
-        }
-    }
-
-    @Override
-    protected List<Column> getResultSchema() {
-        return Lists.newArrayList(
-                new Column("previous_snapshot_id", Type.BIGINT, false,
-                        "ID of the snapshot that was current before the rollback operation"),
-                new Column("current_snapshot_id", Type.BIGINT, false,
-                        "ID of the snapshot that was current at the specified timestamp and is now set as current"));
+        throw new DdlException("Iceberg rollback_to_timestamp procedure is not implemented yet");
     }
 
     @Override

@@ -139,10 +139,8 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             }
             return plan;
         });
-        InsertIntoTableCommand insertIntoTableCommand = new InsertIntoTableCommand((LogicalPlan) rewritePlan,
-                Optional.empty(), Optional.empty(), Optional.empty(), true, Optional.empty());
-        insertIntoTableCommand.setJobId(originCommand.getJobId());
-        return insertIntoTableCommand;
+        return new InsertIntoTableCommand((LogicalPlan) rewritePlan, Optional.empty(), Optional.empty(),
+                Optional.empty(), true, Optional.empty());
     }
 
     @Override

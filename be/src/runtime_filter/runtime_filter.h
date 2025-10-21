@@ -60,7 +60,7 @@ public:
 
         auto state = _wrapper->get_state();
         if (state != RuntimeFilterWrapper::State::READY) {
-            request->set_disabled(true);
+            request->set_disabled(state == RuntimeFilterWrapper::State::DISABLED);
             return Status::OK();
         }
 

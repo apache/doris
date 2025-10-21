@@ -25,10 +25,6 @@ import lombok.Data;
 import java.util.List;
 import java.util.Map;
 
-/**
- * @deprecated LakeSoul catalog support has been deprecated and will be removed in a future version.
- */
-@Deprecated
 @Data
 public class LakeSoulSplit extends FileSplit {
 

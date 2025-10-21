@@ -8,22 +8,22 @@
 
 -- !sql_test_2 --
 10	1000
-8	800
 9	\N
+8	800
 
 -- !sql_test_3 --
-\N	\N
-\N	Grace
 \N	Ivan
+\N	Grace
+\N	\N
 100	Alice
 200	\N
 
 -- !sql_test_4 --
 10
-3
-4
-6
 8
+6
+4
+3
 
 -- !sql_test_5 --
 \N
@@ -34,15 +34,15 @@ Charlie
 
 -- !sql_test_6 --
 10	Judy
-4	David
-6	Frank
-7	Grace
 9	Ivan
+7	Grace
+6	Frank
+4	David
 
 -- !sql_test_7 --
 1000
-600
 800
+600
 
 -- !sql_test_8 --
 1	Alice
@@ -54,27 +54,27 @@ Charlie
 7	Grace
 
 -- !sql_test_9 --
+9	\N	Ivan
+7	\N	Grace
+5	\N	\N
 1	100	Alice
-10	1000	Judy
 2	200	\N
 3	300	Charlie
 4	400	David
-5	\N	\N
 6	600	Frank
-7	\N	Grace
 8	800	\N
-9	\N	Ivan
+10	1000	Judy
 
 -- !sql_test_10 --
 \N
 \N
 
 -- !sql_test_11 --
+9	\N	Ivan
+7	\N	Grace
+5	\N	\N
 1	100	Alice
 2	200	\N
-5	\N	\N
-7	\N	Grace
-9	\N	Ivan
 
 -- !sql_test_12 --
 1	100
@@ -84,18 +84,18 @@ Charlie
 6	600
 
 -- !sql_test_13 --
-\N	\N
-\N	Grace
 \N	Ivan
+\N	Grace
+\N	\N
 1000	Judy
 800	\N
 
 -- !sql_test_14 --
 10
-3
-4
-6
 8
+6
+4
+3
 
 -- !sql_test_15 --
 \N
@@ -112,14 +112,14 @@ Charlie
 7	Grace
 
 -- !sql_test_17 --
-\N
 200
+\N
 800
 
 -- !sql_test_18 --
 10	1000	Judy
-7	\N	Grace
 9	\N	Ivan
+7	\N	Grace
 
 -- !sql_test_1 --
 1	100	Alice
@@ -130,22 +130,22 @@ Charlie
 
 -- !sql_test_2 --
 10	1000
-8	800
 9	\N
+8	800
 
 -- !sql_test_3 --
-\N	\N
-\N	Grace
 \N	Ivan
+\N	Grace
+\N	\N
 100	Alice
 200	\N
 
 -- !sql_test_4 --
 10
-3
-4
-6
 8
+6
+4
+3
 
 -- !sql_test_5 --
 \N
@@ -156,15 +156,15 @@ Charlie
 
 -- !sql_test_6 --
 10	Judy
-4	David
-6	Frank
-7	Grace
 9	Ivan
+7	Grace
+6	Frank
+4	David
 
 -- !sql_test_7 --
 1000
-600
 800
+600
 
 -- !sql_test_8 --
 1	Alice
@@ -176,27 +176,27 @@ Charlie
 7	Grace
 
 -- !sql_test_9 --
+9	\N	Ivan
+7	\N	Grace
+5	\N	\N
 1	100	Alice
-10	1000	Judy
 2	200	\N
 3	300	Charlie
 4	400	David
-5	\N	\N
 6	600	Frank
-7	\N	Grace
 8	800	\N
-9	\N	Ivan
+10	1000	Judy
 
 -- !sql_test_10 --
 \N
 \N
 
 -- !sql_test_11 --
+9	\N	Ivan
+7	\N	Grace
+5	\N	\N
 1	100	Alice
 2	200	\N
-5	\N	\N
-7	\N	Grace
-9	\N	Ivan
 
 -- !sql_test_12 --
 1	100
@@ -206,18 +206,18 @@ Charlie
 6	600
 
 -- !sql_test_13 --
-\N	\N
-\N	Grace
 \N	Ivan
+\N	Grace
+\N	\N
 1000	Judy
 800	\N
 
 -- !sql_test_14 --
 10
-3
-4
-6
 8
+6
+4
+3
 
 -- !sql_test_15 --
 \N
@@ -234,14 +234,14 @@ Charlie
 7	Grace
 
 -- !sql_test_17 --
-\N
 200
+\N
 800
 
 -- !sql_test_18 --
 10	1000	Judy
-7	\N	Grace
 9	\N	Ivan
+7	\N	Grace
 
 -- !sql_test_1 --
 1	100	Alice
@@ -252,22 +252,22 @@ Charlie
 
 -- !sql_test_2 --
 10	1000
-8	800
 9	\N
+8	800
 
 -- !sql_test_3 --
-\N	\N
-\N	Grace
 \N	Ivan
+\N	Grace
+\N	\N
 100	Alice
 200	\N
 
 -- !sql_test_4 --
 10
-3
-4
-6
 8
+6
+4
+3
 
 -- !sql_test_5 --
 \N
@@ -278,15 +278,15 @@ Charlie
 
 -- !sql_test_6 --
 10	Judy
-4	David
-6	Frank
-7	Grace
 9	Ivan
+7	Grace
+6	Frank
+4	David
 
 -- !sql_test_7 --
 1000
-600
 800
+600
 
 -- !sql_test_8 --
 1	Alice
@@ -298,27 +298,27 @@ Charlie
 7	Grace
 
 -- !sql_test_9 --
+9	\N	Ivan
+7	\N	Grace
+5	\N	\N
 1	100	Alice
-10	1000	Judy
 2	200	\N
 3	300	Charlie
 4	400	David
-5	\N	\N
 6	600	Frank
-7	\N	Grace
 8	800	\N
-9	\N	Ivan
+10	1000	Judy
 
 -- !sql_test_10 --
 \N
 \N
 
 -- !sql_test_11 --
+9	\N	Ivan
+7	\N	Grace
+5	\N	\N
 1	100	Alice
 2	200	\N
-5	\N	\N
-7	\N	Grace
-9	\N	Ivan
 
 -- !sql_test_12 --
 1	100
@@ -328,18 +328,18 @@ Charlie
 6	600
 
 -- !sql_test_13 --
-\N	\N
-\N	Grace
 \N	Ivan
+\N	Grace
+\N	\N
 1000	Judy
 800	\N
 
 -- !sql_test_14 --
 10
-3
-4
-6
 8
+6
+4
+3
 
 -- !sql_test_15 --
 \N
@@ -356,14 +356,14 @@ Charlie
 7	Grace
 
 -- !sql_test_17 --
-\N
 200
+\N
 800
 
 -- !sql_test_18 --
 10	1000	Judy
-7	\N	Grace
 9	\N	Ivan
+7	\N	Grace
 
 -- !sql_test_1 --
 1	100	Alice
@@ -374,22 +374,22 @@ Charlie
 
 -- !sql_test_2 --
 10	1000
-8	800
 9	\N
+8	800
 
 -- !sql_test_3 --
-\N	\N
-\N	Grace
 \N	Ivan
+\N	Grace
+\N	\N
 100	Alice
 200	\N
 
 -- !sql_test_4 --
 10
-3
-4
-6
 8
+6
+4
+3
 
 -- !sql_test_5 --
 \N
@@ -400,15 +400,15 @@ Charlie
 
 -- !sql_test_6 --
 10	Judy
-4	David
-6	Frank
-7	Grace
 9	Ivan
+7	Grace
+6	Frank
+4	David
 
 -- !sql_test_7 --
 1000
-600
 800
+600
 
 -- !sql_test_8 --
 1	Alice
@@ -420,27 +420,27 @@ Charlie
 7	Grace
 
 -- !sql_test_9 --
+9	\N	Ivan
+7	\N	Grace
+5	\N	\N
 1	100	Alice
-10	1000	Judy
 2	200	\N
 3	300	Charlie
 4	400	David
-5	\N	\N
 6	600	Frank
-7	\N	Grace
 8	800	\N
-9	\N	Ivan
+10	1000	Judy
 
 -- !sql_test_10 --
 \N
 \N
 
 -- !sql_test_11 --
+9	\N	Ivan
+7	\N	Grace
+5	\N	\N
 1	100	Alice
 2	200	\N
-5	\N	\N
-7	\N	Grace
-9	\N	Ivan
 
 -- !sql_test_12 --
 1	100
@@ -450,18 +450,18 @@ Charlie
 6	600
 
 -- !sql_test_13 --
-\N	\N
-\N	Grace
 \N	Ivan
+\N	Grace
+\N	\N
 1000	Judy
 800	\N
 
 -- !sql_test_14 --
 10
-3
-4
-6
 8
+6
+4
+3
 
 -- !sql_test_15 --
 \N
@@ -478,12 +478,12 @@ Charlie
 7	Grace
 
 -- !sql_test_17 --
-\N
 200
+\N
 800
 
 -- !sql_test_18 --
 10	1000	Judy
-7	\N	Grace
 9	\N	Ivan
+7	\N	Grace
 

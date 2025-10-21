@@ -157,7 +157,6 @@ suite('use_vcg_read_write_routine_load', 'multi_cluster,docker') {
             cluster.addBackend(2, clusterName2)
 
             // add vcluster
-            def instance_id = "default_instance_id"
             def normalVclusterName = "normalVirtualClusterName"
             def normalVclusterId = "normalVirtualClusterId"
             def vcgClusterNames = [clusterName1, clusterName2]

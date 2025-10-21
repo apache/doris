@@ -30,8 +30,6 @@
 #include <utility>
 
 #include "common/status.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/primitive_type.h"
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -41,18 +39,12 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
-#include "vec/core/call_on_type_index.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_date_or_datetime_v2.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_ipv4.h"
-#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_time.h"
 #include "vec/functions/cast_type_to_either.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
@@ -198,27 +190,34 @@ public:
         return Status::OK();
     }
 
-    template <PrimitiveType PType>
-    Status execute_basic_type(Block& block, const ColumnUInt8* cond_col,
-                              const ColumnWithTypeAndName& then_col,
-                              const ColumnWithTypeAndName& else_col, uint32_t result,
-                              Status& status) const {
+    void execute_basic_type(Block& block, const ColumnUInt8* cond_col,
+                            const ColumnWithTypeAndName& then_col,
+                            const ColumnWithTypeAndName& else_col, uint32_t result,
+                            Status& status) const {
         if (then_col.type->get_primitive_type() != else_col.type->get_primitive_type()) {
-            return Status::InternalError(
-                    "then and else column type must be same for function {} , but got {} , {}",
-                    get_name(), then_col.type->get_name(), else_col.type->get_name());
+            status = Status::InternalError("then and else column type must be same");
+            return;
         }
-
-        auto res_column =
-                NumIfImpl<PType>::execute_if(cond_col->get_data(), then_col.column, else_col.column,
-                                             block.get_by_position(result).type->get_scale());
-        if (!res_column) {
-            return Status::InternalError("unexpected args column {} , {} , of function {}",
-                                         then_col.column->get_name(), else_col.column->get_name(),
-                                         get_name());
+        DCHECK(is_int(then_col.type->get_primitive_type()) ||
+               is_float_or_double(then_col.type->get_primitive_type()))
+                << then_col.type->get_name();
+        auto valid = cast_type_to_either<DataTypeInt8, DataTypeInt16, DataTypeInt32, DataTypeInt64,
+                                         DataTypeInt128, DataTypeFloat32, DataTypeFloat64>(
+                then_col.type.get(), [&](const auto& type) -> bool {
+                    using DataType = std::decay_t<decltype(type)>;
+                    auto res_column = NumIfImpl<DataType::PType>::execute_if(
+                            cond_col->get_data(), then_col.column, else_col.column);
+                    if (!res_column) {
+                        return false;
+                    }
+                    block.replace_by_position(result, std::move(res_column));
+                    return true;
+                });
+        if (!valid) {
+            status = Status::InternalError("unexpected args column type {} , {} , of function {}",
+                                           then_col.type->get_name(), else_col.type->get_name(),
+                                           get_name());
         }
-        block.replace_by_position(result, std::move(res_column));
-        return Status::OK();
     }
 
     Status execute_for_null_then_else(FunctionContext* context, Block& block,
@@ -526,18 +525,11 @@ public:
             return Status::OK();
         }
 
-        Status vec_exec;
-
-        auto call = [&](const auto& type) -> bool {
-            using DataType = std::decay_t<decltype(type)>;
-            vec_exec = execute_basic_type<DataType::PType>(block, cond_col, arg_then, arg_else,
-                                                           result, vec_exec);
-            return true;
-        };
-
-        auto can_use_vec_exec = dispatch_switch_scalar(arg_then.type->get_primitive_type(), call);
-        if (can_use_vec_exec) {
-            return vec_exec;
+        if (is_int(arg_then.type->get_primitive_type()) ||
+            is_float_or_double(arg_then.type->get_primitive_type())) {
+            Status status;
+            execute_basic_type(block, cond_col, arg_then, arg_else, result, status);
+            return status;
         } else {
             return execute_generic(block, cond_col, arg_then, arg_else, result, input_rows_count);
         }

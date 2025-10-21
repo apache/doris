@@ -190,7 +190,7 @@ public class OdbcScanNode extends ExternalScanNode {
         ExprSubstitutionMap sMap = new ExprSubstitutionMap();
         for (SlotRef slotRef : slotRefs) {
             SlotRef tmpRef = (SlotRef) slotRef.clone();
-            tmpRef.setTableNameInfo(null);
+            tmpRef.setTblName(null);
             tmpRef.setLabel(JdbcTable.databaseProperName(odbcType, tmpRef.getColumnName()));
             sMap.put(slotRef, tmpRef);
         }

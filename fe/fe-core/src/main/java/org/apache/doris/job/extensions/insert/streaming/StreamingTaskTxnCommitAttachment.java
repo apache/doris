@@ -23,13 +23,8 @@ import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
-import lombok.Setter;
 
 public class StreamingTaskTxnCommitAttachment extends TxnCommitAttachment {
-
-    public StreamingTaskTxnCommitAttachment() {
-        super(TransactionState.LoadJobSourceType.STREAMING_JOB);
-    }
 
     public StreamingTaskTxnCommitAttachment(long jobId, long taskId,
                 long scannedRows, long loadBytes, long numFiles, long fileBytes, String offset) {
@@ -53,7 +48,6 @@ public class StreamingTaskTxnCommitAttachment extends TxnCommitAttachment {
     }
 
     @Getter
-    @Setter
     private long jobId;
     @Getter
     private long taskId;

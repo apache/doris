@@ -17,6 +17,7 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -29,7 +30,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonUtil;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMetaScanRange;
@@ -68,7 +68,7 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
      * @param queryType the type of metadata query to perform
      * @throws AnalysisException if table validation or initialization fails
      */
-    public PaimonTableValuedFunction(TableNameInfo paimonTableName, String queryType) throws AnalysisException {
+    public PaimonTableValuedFunction(TableName paimonTableName, String queryType) throws AnalysisException {
         this.queryType = queryType;
         CatalogIf<?> dorisCatalog = Env.getCurrentEnv()
                 .getCatalogMgr()
@@ -119,7 +119,7 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
         if (names.length != 3) {
             throw new AnalysisException("The paimon table name contains the catalogName, databaseName, and tableName");
         }
-        TableNameInfo paimonTableName = new TableNameInfo(names[0], names[1], names[2]);
+        TableName paimonTableName = new TableName(names[0], names[1], names[2]);
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), paimonTableName, PrivPredicate.SELECT)) {

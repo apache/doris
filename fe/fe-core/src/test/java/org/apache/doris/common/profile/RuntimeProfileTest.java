@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.profile;
 
-import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
@@ -94,7 +93,7 @@ public class RuntimeProfileTest {
         profile.update(tprofileTree);
         Assert.assertEquals(profile.getInfoString("key"), "value4");
 
-        SafeStringBuilder builder = new SafeStringBuilder();
+        StringBuilder builder = new StringBuilder();
         profile.prettyPrint(builder, "");
         Assert.assertEquals(builder.toString(),
                 "profileName:\n   - key: value4\n   - key3: value3\n");
@@ -179,7 +178,7 @@ public class RuntimeProfileTest {
         tnodeASon.name = "ASON";
 
         profile.update(tprofileTree);
-        SafeStringBuilder builder = new SafeStringBuilder();
+        StringBuilder builder = new StringBuilder();
         profile.computeTimeInProfile();
         profile.prettyPrint(builder, "");
 

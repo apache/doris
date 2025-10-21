@@ -3,9 +3,9 @@
 PhysicalResultSink
 --NestedLoopJoin[LEFT_OUTER_JOIN]
 ----filter((t1.c_s = '870479087484055553'))
-------PhysicalOlapScan[tbl1_test_simplify_comparison_predicate_int_vs_double(t1)]
+------PhysicalOlapScan[tbl1_test_simplify_comparison_predicate_int_vs_double]
 ----filter((cast(c_bigint as DOUBLE) = 8.7047908748405555E17))
-------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double(t2)]
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
 -- !cast_bigint_as_double_result --
 100	870479087484055553	200	870479087484055553	999.999

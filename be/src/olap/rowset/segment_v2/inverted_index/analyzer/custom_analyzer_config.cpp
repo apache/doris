@@ -23,16 +23,11 @@ namespace doris::segment_v2::inverted_index {
 
 CustomAnalyzerConfig::CustomAnalyzerConfig(Builder* builder) {
     _tokenizer_config = builder->_tokenizer_config;
-    _char_filters = builder->_char_filters;
     _token_filters = builder->_token_filters;
 }
 
 ComponentConfigPtr CustomAnalyzerConfig::get_tokenizer_config() {
     return _tokenizer_config;
-}
-
-std::vector<ComponentConfigPtr> CustomAnalyzerConfig::get_char_filter_configs() {
-    return _char_filters;
 }
 
 std::vector<ComponentConfigPtr> CustomAnalyzerConfig::get_token_filter_configs() {
@@ -42,11 +37,6 @@ std::vector<ComponentConfigPtr> CustomAnalyzerConfig::get_token_filter_configs()
 void CustomAnalyzerConfig::Builder::with_tokenizer_config(const std::string& name,
                                                           const Settings& params) {
     _tokenizer_config = std::make_shared<ComponentConfig>(name, params);
-}
-
-void CustomAnalyzerConfig::Builder::add_char_filter_config(const std::string& name,
-                                                           const Settings& params) {
-    _char_filters.emplace_back(std::make_shared<ComponentConfig>(name, params));
 }
 
 void CustomAnalyzerConfig::Builder::add_token_filter_config(const std::string& name,

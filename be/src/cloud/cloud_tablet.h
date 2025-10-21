@@ -26,19 +26,7 @@
 namespace doris {
 
 class CloudStorageEngine;
-
-enum class WarmUpTriggerSource : int { NONE, SYNC_ROWSET, EVENT_DRIVEN, JOB };
-
-enum class WarmUpProgress : int { NONE, DOING, DONE };
-
-struct WarmUpState {
-    WarmUpTriggerSource trigger_source {WarmUpTriggerSource::NONE};
-    WarmUpProgress progress {WarmUpProgress::NONE};
-
-    bool operator==(const WarmUpState& other) const {
-        return trigger_source == other.trigger_source && progress == other.progress;
-    }
-};
+enum class WarmUpState : int;
 
 struct SyncRowsetStats {
     int64_t get_remote_rowsets_num {0};
@@ -338,14 +326,11 @@ public:
     // Add warmup state management
     WarmUpState get_rowset_warmup_state(RowsetId rowset_id);
     bool add_rowset_warmup_state(
-            const RowsetMeta& rowset, WarmUpTriggerSource source,
+            const RowsetMeta& rowset, WarmUpState state,
             std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
-    bool update_rowset_warmup_state_inverted_idx_num(WarmUpTriggerSource source, RowsetId rowset_id,
-                                                     int64_t delta);
-    bool update_rowset_warmup_state_inverted_idx_num_unlocked(WarmUpTriggerSource source,
-                                                              RowsetId rowset_id, int64_t delta);
-    WarmUpState complete_rowset_segment_warmup(WarmUpTriggerSource trigger_source,
-                                               RowsetId rowset_id, Status status,
+    void update_rowset_warmup_state_inverted_idx_num(RowsetId rowset_id, int64_t delta);
+    void update_rowset_warmup_state_inverted_idx_num_unlocked(RowsetId rowset_id, int64_t delta);
+    WarmUpState complete_rowset_segment_warmup(RowsetId rowset_id, Status status,
                                                int64_t segment_num, int64_t inverted_idx_num);
 
     bool is_rowset_warmed_up(const RowsetId& rowset_id) const;
@@ -358,8 +343,8 @@ public:
             auto tmp = fmt::format("{}{}", rs->rowset_id().to_string(), rs->version().to_string());
             if (_rowset_warm_up_states.contains(rs->rowset_id())) {
                 tmp += fmt::format(
-                        ", progress={}, segments_warmed_up={}/{}, inverted_idx_warmed_up={}/{}",
-                        _rowset_warm_up_states.at(rs->rowset_id()).state.progress,
+                        ", state={}, segments_warmed_up={}/{}, inverted_idx_warmed_up={}/{}",
+                        _rowset_warm_up_states.at(rs->rowset_id()).state,
                         _rowset_warm_up_states.at(rs->rowset_id()).num_segments_warmed_up,
                         _rowset_warm_up_states.at(rs->rowset_id()).num_segments,
                         _rowset_warm_up_states.at(rs->rowset_id()).num_inverted_idx_warmed_up,
@@ -378,7 +363,7 @@ private:
     Status sync_if_not_running(SyncRowsetStats* stats = nullptr);
 
     bool add_rowset_warmup_state_unlocked(
-            const RowsetMeta& rowset, WarmUpTriggerSource source,
+            const RowsetMeta& rowset, WarmUpState state,
             std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
 
     // used by capture_rs_reader_xxx functions
@@ -453,15 +438,12 @@ private:
         void done(int64_t num_segments, int64_t num_inverted_idx) {
             num_segments_warmed_up += num_segments;
             num_inverted_idx_warmed_up += num_inverted_idx;
-            update_state();
         }
 
         bool has_finished() const {
             return (num_segments_warmed_up >= num_segments) &&
                    (num_inverted_idx_warmed_up >= num_inverted_idx);
         }
-
-        void update_state();
     };
     std::unordered_map<RowsetId, RowsetWarmUpInfo> _rowset_warm_up_states;
 

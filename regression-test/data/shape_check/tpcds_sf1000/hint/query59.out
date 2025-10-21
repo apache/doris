@@ -25,7 +25,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF3 RF4
 ----------------------PhysicalProject
 ------------------------filter((d.d_month_seq <= 1206) and (d.d_month_seq >= 1195))
---------------------------PhysicalOlapScan[date_dim(d)]
+--------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[store] apply RFs: RF5
 --------------PhysicalProject
@@ -36,7 +36,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF1 RF2
 ----------------------PhysicalProject
 ------------------------filter((d.d_month_seq <= 1218) and (d.d_month_seq >= 1207))
---------------------------PhysicalOlapScan[date_dim(d)]
+--------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[store]
 

@@ -57,8 +57,7 @@ public class AvgDistinctToSumDivCount extends OneRewriteRuleFactory {
                                                 ((Avg) function).child()));
                                 Count count = (Count) TypeCoercionUtils.processBoundFunction(
                                         new Count(true, ((Avg) function).child()));
-                                Expression divide = TypeCoercionUtils.castIfNotSameType(TypeCoercionUtils.processDivide(
-                                        new Divide(sum, count)), function.getDataType());
+                                Expression divide = TypeCoercionUtils.processDivide(new Divide(sum, count));
                                 if (!function.nullable() && divide.nullable()) {
                                     // add NonNullable to ensure the result of divide is not nullable,
                                     // otherwise AdjustNullable rule will throw exception

@@ -83,19 +83,16 @@ public:
             return Status::OK();
         }
         auto* index_iter = iterators[0];
-        if (!index_iter->has_null()) {
-            return Status::OK();
+        if (index_iter->has_null()) {
+            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(index_iter->read_null_bitmap(&null_bitmap_cache_handle));
+            std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+            // only inverted index has null bitmap, so we can calculate
+            if (null_bitmap) {
+                // null_bitmap is null bitmap
+                bitmap_result = segment_v2::InvertedIndexResultBitmap(null_bitmap, null_bitmap);
+            }
         }
-        segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        RETURN_IF_ERROR(index_iter->read_null_bitmap(&null_bitmap_cache_handle));
-        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
-        if (!null_bitmap) {
-            return Status::OK();
-        }
-        auto data_bitmap = std::make_shared<roaring::Roaring>(*null_bitmap);
-        auto empty_null_bitmap = std::make_shared<roaring::Roaring>();
-        bitmap_result = segment_v2::InvertedIndexResultBitmap(std::move(data_bitmap),
-                                                              std::move(empty_null_bitmap));
         return Status::OK();
     }
 };

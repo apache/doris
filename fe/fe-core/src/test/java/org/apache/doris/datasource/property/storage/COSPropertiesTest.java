@@ -53,7 +53,7 @@ public class COSPropertiesTest {
         origProps.put("cos.use_path_style", "true");
         origProps.put(StorageProperties.FS_COS_SUPPORT, "true");
         origProps.put("test_non_storage_param", "6000");
-        Assertions.assertDoesNotThrow(() -> StorageProperties.createAll(origProps));
+        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps), "Invalid endpoint format: https://cos.example.com");
         origProps.put("cos.endpoint", "cos.ap-beijing-1.myqcloud.com");
         COSProperties cosProperties = (COSProperties) StorageProperties.createAll(origProps).get(0);
         Map<String, String> cosConfig = cosProperties.getMatchedProperties();
@@ -151,7 +151,7 @@ public class COSPropertiesTest {
         origProps.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
         origProps.put("cos.secret_key", "myCOSSecretKey");
         Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createPrimary(origProps),
-                "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
     }
 
     @Test
@@ -159,7 +159,7 @@ public class COSPropertiesTest {
         origProps.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
         origProps.put("cos.access_key", "myCOSAccessKey");
         Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createPrimary(origProps),
-                "Both the access key and the secret key must be set.");
+                 "Both the access key and the secret key must be set.");
         origProps.remove("cos.access_key");
         Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
     }

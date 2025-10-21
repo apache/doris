@@ -41,7 +41,7 @@ public class HMSGlueIT {
         System.setProperty("aws.region", "us-east-1");
         System.setProperty("aws.accessKeyId", "");
         System.setProperty("aws.secretKey", "");
-        HiveGlueMetaStoreProperties properties = (HiveGlueMetaStoreProperties) MetastoreProperties.create(baseProps);
+        HMSGlueMetaStoreProperties properties = (HMSGlueMetaStoreProperties) MetastoreProperties.create(baseProps);
         ThriftHMSCachedClient client = new ThriftHMSCachedClient(properties.hiveConf, 1, new ExecutionAuthenticator() {
         });
         client.getTable("default", "test_hive_table");

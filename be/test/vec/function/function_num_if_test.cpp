@@ -31,7 +31,7 @@ TEST(NumIfImplTest, smallTest) {
     auto cond = ColumnHelper::create_column<DataTypeUInt8>({1, 0, 1, 0, 1, 0, 1, 0});
     auto a = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4, 5, 6, 7, 8});
     auto b = ColumnHelper::create_column<DataTypeInt32>({10, 20, 30, 40, 50, 60, 70, 80});
-    auto res = NumIfImpl<TYPE_INT>::execute_if(get_cond_data(cond), a, b, 0);
+    auto res = NumIfImpl<TYPE_INT>::execute_if(get_cond_data(cond), a, b);
     ColumnHelper::column_equal(
             res, ColumnHelper::create_column<DataTypeInt32>({1, 20, 3, 40, 5, 60, 7, 80}));
 }
@@ -49,7 +49,7 @@ TEST(NumIfImplTest, largeTest) {
     auto cond = ColumnHelper::create_column<DataTypeUInt8>(cond_data);
     auto a = ColumnHelper::create_column<DataTypeInt32>(a_data);
     auto b = ColumnHelper::create_column<DataTypeInt32>(b_data);
-    auto res = NumIfImpl<TYPE_INT>::execute_if(get_cond_data(cond), a, b, 0);
+    auto res = NumIfImpl<TYPE_INT>::execute_if(get_cond_data(cond), a, b);
     std::vector<int32_t> expected_data(1024, 0);
     for (size_t i = 0; i < 1024; ++i) {
         expected_data[i] = cond_data[i] ? a_data[i] : b_data[i];
@@ -79,7 +79,7 @@ void test_for_all_const_no_const() {
     if (is_b_const) {
         b = ColumnConst::create(b, 1);
     }
-    auto res = NumIfImpl<DataType::PType>::execute_if(get_cond_data(cond), a, b, 0);
+    auto res = NumIfImpl<DataType::PType>::execute_if(get_cond_data(cond), a, b);
     std::vector<FieldType> expected_data(size, 0);
     for (size_t i = 0; i < size; ++i) {
         expected_data[i] = cond_data[i] ? a_data[is_a_const ? 0 : i] : b_data[is_b_const ? 0 : i];

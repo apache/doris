@@ -101,9 +101,6 @@ private:
     TabletReader::ReaderParams _tablet_reader_params;
     std::unique_ptr<TabletReader> _tablet_reader;
 
-    int64_t _bytes_read_from_local = 0;
-    int64_t _bytes_read_from_remote = 0;
-
 public:
     std::vector<ColumnId> _return_columns;
 

@@ -44,7 +44,7 @@
 // this test is gonna to be a column test template for all column which should make ut test to coverage the function defined in column (all maybe we need 79 interfaces to be tested)
 // for example column_array should test this function:
 // size, reserve, resize, empty, byte_size, allocated_bytes, clone_resized,
-// get_shrinked_column, filter, filter_by_selector, serialize, deserialize, get_max_row_byte_size
+// get_shrinked_column, filter, filter_by_selector, serialize_vec, deserialize_vec, get_max_row_byte_size
 //
 namespace doris::vectorized {
 
@@ -2165,10 +2165,10 @@ public:
         }
     }
 
-    //  serialize, deserialize (called by MethodSerialized.init_serialized_keys), here are some scenarios:
+    //  serialize_vec, deserialize_vec (called by MethodSerialized.init_serialized_keys), here are some scenarios:
     //    1/ AggState: groupby key column which be serialized to hash-table key, eg.AggLocalState::_emplace_into_hash_table
     //    2/ JoinState: hash join key column which be serialized to hash-table key, or probe column which be serialized to hash-table key, eg.ProcessHashTableBuild, ProcessHashTableProbe<JoinOpType>::probe_side_output_column
-    //  serialize_vec_with_null_map, deserialize_vec_with_null_map which only called by ColumnNullable serialize and deserialize, and derived by other columns
+    //  serialize_vec_with_null_map, deserialize_vec_with_null_map which only called by ColumnNullable serialize_vec and deserialize_vec, and derived by other columns
     //  get_max_row_byte_size used in MethodSerialized which calculating the memory size for vectorized serialization of aggregation keys.
     void ser_deser_vec(MutableColumns& columns, DataTypes dataTypes) {
         // step1. make input_keys with given rows for a block
@@ -2208,16 +2208,16 @@ public:
             }
             LOG(INFO) << "max_one_row_byte_size : " << max_one_row_byte_size;
             for (const auto& column : columns) {
-                LOG(INFO) << "now serialize for column:" << column->get_name()
+                LOG(INFO) << "now serialize_vec for column:" << column->get_name()
                           << " with column size: " << column->size();
-                column->serialize(input_keys.data(), rows);
+                column->serialize_vec(input_keys.data(), rows);
             }
         }
         // deserialize the keys from arena into columns
         {
             // step4. deserialize the keys from arena into columns
             for (auto& column : check_columns) {
-                column->deserialize(input_keys.data(), rows);
+                column->deserialize_vec(input_keys.data(), rows);
             }
         }
         // check the deserialized columns
@@ -3405,9 +3405,9 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
         }
         auto wrapper = ColumnNullable::create(std::move(cloned_target_column), std::move(null_col));
         auto target_column = wrapper->get_nested_column_ptr();
-        wrapper->serialize(input_keys.data(), rows);
+        wrapper->serialize_vec(input_keys.data(), rows);
         auto deser_column_wrapper = wrapper->clone_empty();
-        deser_column_wrapper->deserialize(input_keys.data(), rows);
+        deser_column_wrapper->deserialize_vec(input_keys.data(), rows);
         EXPECT_EQ(deser_column_wrapper->size(), rows);
         auto* col_vec_deser =
                 assert_cast<ColumnVecType*>(assert_cast<ColumnNullable*>(deser_column_wrapper.get())
@@ -3487,17 +3487,17 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
         MutableColumnPtr deser_column;
         MutableColumnPtr deser_column_wrapper;
         if (test_null_map) {
-            cloned_target_column->serialize(input_keys.data(), rows);
+            cloned_target_column->serialize_vec(input_keys.data(), rows);
             deser_column_wrapper = cloned_target_column->clone_empty();
             deser_column = ((ColumnNullable*)deser_column_wrapper.get())->get_nested_column_ptr();
         } else {
-            target_column->serialize(input_keys.data(), rows);
+            target_column->serialize_vec(input_keys.data(), rows);
             deser_column = source_column->clone_empty();
         }
         if (test_null_map) {
-            deser_column_wrapper->deserialize(input_keys.data(), rows);
+            deser_column_wrapper->deserialize_vec(input_keys.data(), rows);
         } else {
-            deser_column->deserialize(input_keys.data(), rows);
+            deser_column->deserialize_vec(input_keys.data(), rows);
         }
         EXPECT_EQ(deser_column->size(), rows);
         auto* col_vec_deser = assert_cast<ColumnVecType*>(deser_column.get());

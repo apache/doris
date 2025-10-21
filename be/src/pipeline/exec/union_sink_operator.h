@@ -99,11 +99,11 @@ public:
         }
     }
 
-    bool require_shuffled_data_distribution(RuntimeState* /*state*/) const override {
+    bool require_shuffled_data_distribution() const override {
         return _followed_by_shuffled_operator;
     }
 
-    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
+    DataDistribution required_data_distribution() const override {
         if (_child->is_serial_operator() && _followed_by_shuffled_operator) {
             return DataDistribution(ExchangeType::HASH_SHUFFLE, _distribute_exprs);
         }

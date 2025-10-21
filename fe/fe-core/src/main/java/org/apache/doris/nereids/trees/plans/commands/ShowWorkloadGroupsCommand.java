@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
@@ -87,14 +86,5 @@ public class ShowWorkloadGroupsCommand extends ShowCommand {
     @Override
     public String toString() {
         return toSql();
-    }
-
-    @Override
-    public RedirectStatus toRedirectStatus() {
-        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
-            return RedirectStatus.FORWARD_NO_SYNC;
-        } else {
-            return RedirectStatus.NO_FORWARD;
-        }
     }
 }

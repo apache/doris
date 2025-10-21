@@ -3,51 +3,51 @@
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[INNER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
-------PhysicalOlapScan[t(t1)]
+------PhysicalOlapScan[t]
 ------filter((t2.score > 10))
---------PhysicalOlapScan[t(t2)]
+--------PhysicalOlapScan[t]
 
 -- !right_outer --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[INNER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------filter((t1.score > 10))
---------PhysicalOlapScan[t(t1)]
-------PhysicalOlapScan[t(t2)]
+--------PhysicalOlapScan[t]
+------PhysicalOlapScan[t]
 
 -- !full_outer_join --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------filter((t1.score > 10))
---------PhysicalOlapScan[t(t1)]
-------PhysicalOlapScan[t(t2)]
+--------PhysicalOlapScan[t]
+------PhysicalOlapScan[t]
 
 -- !full_outer_join --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[RIGHT_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
-------PhysicalOlapScan[t(t1)]
+------PhysicalOlapScan[t]
 ------filter((t2.score > 10))
---------PhysicalOlapScan[t(t2)]
+--------PhysicalOlapScan[t]
 
 -- !full_outer_join --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[INNER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------filter((t1.score > 10))
---------PhysicalOlapScan[t(t1)]
+--------PhysicalOlapScan[t]
 ------filter((t2.score > 10))
---------PhysicalOlapScan[t(t2)]
+--------PhysicalOlapScan[t]
 
 -- !left_outer --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[INNER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------filter((t1.score > 10))
---------PhysicalOlapScan[t(t1)]
+--------PhysicalOlapScan[t]
 ------filter((t2.score > 10))
---------PhysicalOlapScan[t(t2)]
+--------PhysicalOlapScan[t]
 
 -- !multiple_left_outer_1 --
 PhysicalResultSink
@@ -55,19 +55,19 @@ PhysicalResultSink
 ----hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((t1.id = t3.id)) otherCondition=()
 ------hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t1.score > 10))
-----------PhysicalOlapScan[t(t1)]
---------PhysicalOlapScan[t(t2)]
-------PhysicalOlapScan[t(t3)]
+----------PhysicalOlapScan[t]
+--------PhysicalOlapScan[t]
+------PhysicalOlapScan[t]
 
 -- !multiple_left_outer_2 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((t1.id = t3.id)) otherCondition=()
 ------hashJoin[INNER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[t(t1)]
+--------PhysicalOlapScan[t]
 --------filter((t2.score > 10))
-----------PhysicalOlapScan[t(t2)]
-------PhysicalOlapScan[t(t3)]
+----------PhysicalOlapScan[t]
+------PhysicalOlapScan[t]
 
 -- !multiple_right_outer_1 --
 PhysicalResultSink
@@ -75,19 +75,19 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN colocated] hashCondition=((t1.id = t3.id)) otherCondition=()
 ------hashJoin[INNER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t1.score > 10))
-----------PhysicalOlapScan[t(t1)]
---------PhysicalOlapScan[t(t2)]
-------PhysicalOlapScan[t(t3)]
+----------PhysicalOlapScan[t]
+--------PhysicalOlapScan[t]
+------PhysicalOlapScan[t]
 
 -- !multiple_right_outer_2 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[INNER_JOIN colocated] hashCondition=((t1.id = t3.id)) otherCondition=()
 ------hashJoin[INNER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[t(t1)]
+--------PhysicalOlapScan[t]
 --------filter((t2.score > 10))
-----------PhysicalOlapScan[t(t2)]
-------PhysicalOlapScan[t(t3)]
+----------PhysicalOlapScan[t]
+------PhysicalOlapScan[t]
 
 -- !multiple_full_outer_1 --
 PhysicalResultSink
@@ -95,43 +95,43 @@ PhysicalResultSink
 ----hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((t1.id = t3.id)) otherCondition=()
 ------hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t1.score > 10))
-----------PhysicalOlapScan[t(t1)]
---------PhysicalOlapScan[t(t2)]
-------PhysicalOlapScan[t(t3)]
+----------PhysicalOlapScan[t]
+--------PhysicalOlapScan[t]
+------PhysicalOlapScan[t]
 
 -- !multiple_full_outer_2 --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((t1.id = t3.id)) otherCondition=()
 ------hashJoin[RIGHT_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[t(t1)]
+--------PhysicalOlapScan[t]
 --------filter((t2.score > 10))
-----------PhysicalOlapScan[t(t2)]
-------PhysicalOlapScan[t(t3)]
+----------PhysicalOlapScan[t]
+------PhysicalOlapScan[t]
 
 -- !left_outer_join_non_null_assertion --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------filter(( not id IS NULL) and (t1.score > 5))
---------PhysicalOlapScan[t(t1)]
-------PhysicalOlapScan[t(t2)]
+--------PhysicalOlapScan[t]
+------PhysicalOlapScan[t]
 
 -- !right_outer_join_non_null_assertion --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[RIGHT_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
-------PhysicalOlapScan[t(t1)]
+------PhysicalOlapScan[t]
 ------filter(( not id IS NULL) and (t2.score > 5))
---------PhysicalOlapScan[t(t2)]
+--------PhysicalOlapScan[t]
 
 -- !full_outer_join_compound_conditions --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----filter(OR[(t1.score > 5),(t2.score > 5)])
 ------hashJoin[FULL_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[t(t1)]
---------PhysicalOlapScan[t(t2)]
+--------PhysicalOlapScan[t]
+--------PhysicalOlapScan[t]
 
 -- !multiple_joins_complex_conditions --
 PhysicalResultSink
@@ -139,10 +139,10 @@ PhysicalResultSink
 ----hashJoin[INNER_JOIN colocated] hashCondition=((t2.id = t3.id)) otherCondition=()
 ------hashJoin[INNER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter((t1.score > 5))
-----------PhysicalOlapScan[t(t1)]
---------PhysicalOlapScan[t(t2)]
+----------PhysicalOlapScan[t]
+--------PhysicalOlapScan[t]
 ------filter(( not score IS NULL))
---------PhysicalOlapScan[t(t3)]
+--------PhysicalOlapScan[t]
 
 -- !using_non_equijoin_conditions --
 PhysicalResultSink
@@ -151,9 +151,9 @@ PhysicalResultSink
 ------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((expr_cast(score as BIGINT) = expr_(cast(score as BIGINT) + 10))) otherCondition=()
 --------PhysicalProject
 ----------filter(( not id IS NULL))
-------------PhysicalOlapScan[t(t1)]
+------------PhysicalOlapScan[t]
 --------PhysicalProject
-----------PhysicalOlapScan[t(t2)]
+----------PhysicalOlapScan[t]
 
 -- !joining_multiple_tables_with_aggregate_functions --
 PhysicalResultSink
@@ -163,9 +163,9 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------PhysicalProject
---------------PhysicalOlapScan[t(t1)]
+--------------PhysicalOlapScan[t]
 ------------PhysicalProject
---------------PhysicalOlapScan[t(t2)]
+--------------PhysicalOlapScan[t]
 
 -- !using_subqueries --
 PhysicalResultSink
@@ -173,44 +173,44 @@ PhysicalResultSink
 ----PhysicalProject
 ------hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------filter(( not id IS NULL))
-----------PhysicalOlapScan[t(t1)]
+----------PhysicalOlapScan[t]
 --------PhysicalProject
-----------PhysicalOlapScan[t(t2)]
+----------PhysicalOlapScan[t]
 
 -- !left_outer --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[INNER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------filter((t1.score > 10))
---------PhysicalOlapScan[t(t1)]
+--------PhysicalOlapScan[t]
 ------filter(( not name IS NULL))
---------PhysicalOlapScan[t(t2)]
+--------PhysicalOlapScan[t]
 
 -- !right_outer --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[INNER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------filter((t1.score > 10))
---------PhysicalOlapScan[t(t1)]
+--------PhysicalOlapScan[t]
 ------filter(( not name IS NULL))
---------PhysicalOlapScan[t(t2)]
+--------PhysicalOlapScan[t]
 
 -- !full_outer --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[INNER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------filter((t1.score > 10))
---------PhysicalOlapScan[t(t1)]
+--------PhysicalOlapScan[t]
 ------filter(( not name IS NULL))
---------PhysicalOlapScan[t(t2)]
+--------PhysicalOlapScan[t]
 
 -- !self_left_outer --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[INNER_JOIN colocated] hashCondition=((t1.id = t1_alias.id)) otherCondition=()
-------PhysicalOlapScan[t(t1)]
+------PhysicalOlapScan[t]
 ------filter((t1_alias.name > '2023-01-01'))
---------PhysicalOlapScan[t(t1_alias)]
+--------PhysicalOlapScan[t]
 
 -- !right_outer_aggregate --
 PhysicalResultSink
@@ -219,9 +219,9 @@ PhysicalResultSink
 ------PhysicalProject
 --------hashJoin[RIGHT_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------PhysicalProject
-------------PhysicalOlapScan[t(t1)]
+------------PhysicalOlapScan[t]
 ----------PhysicalProject
-------------PhysicalOlapScan[t(t2)]
+------------PhysicalOlapScan[t]
 
 -- !full_outer_multiple_tables --
 PhysicalResultSink
@@ -229,15 +229,15 @@ PhysicalResultSink
 ----filter(name IS NULL)
 ------hashJoin[FULL_OUTER_JOIN shuffle] hashCondition=((t1.id = t3.id)) otherCondition=()
 --------hashJoin[FULL_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalOlapScan[t(t1)]
-----------PhysicalOlapScan[t(t2)]
---------PhysicalOlapScan[t(t3)]
+----------PhysicalOlapScan[t]
+----------PhysicalOlapScan[t]
+--------PhysicalOlapScan[t]
 
 -- !left_outer_with_subquery --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[INNER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
-------PhysicalOlapScan[t(t1)]
+------PhysicalOlapScan[t]
 ------PhysicalProject
 --------filter((t2.score > 20))
 ----------PhysicalOlapScan[t]
@@ -248,9 +248,9 @@ PhysicalResultSink
 ----PhysicalProject
 ------hashJoin[INNER_JOIN broadcast] hashCondition=((expr_cast(score as BIGINT) = expr_(cast(score as BIGINT) * 2))) otherCondition=((t1.id < t2.id))
 --------PhysicalProject
-----------PhysicalOlapScan[t(t1)]
+----------PhysicalOlapScan[t]
 --------PhysicalProject
-----------PhysicalOlapScan[t(t2)]
+----------PhysicalOlapScan[t]
 
 -- !multiple_outer_with_window_function --
 PhysicalResultSink
@@ -261,15 +261,15 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------------PhysicalProject
-----------------PhysicalOlapScan[t(t1)]
+----------------PhysicalOlapScan[t]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t(t2)]
+----------------PhysicalOlapScan[t]
 
 -- !join_different_tables_non_null --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----hashJoin[INNER_JOIN colocated] hashCondition=((t1.id = t2.id)) otherCondition=()
-------PhysicalOlapScan[t(t1)]
+------PhysicalOlapScan[t]
 ------filter(( not name IS NULL))
---------PhysicalOlapScan[t(t2)]
+--------PhysicalOlapScan[t]
 

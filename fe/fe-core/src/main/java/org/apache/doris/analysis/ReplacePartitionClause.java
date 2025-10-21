@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;

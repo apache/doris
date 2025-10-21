@@ -68,15 +68,6 @@ public class LogicalIntersect extends LogicalSetOperation {
     }
 
     @Override
-    public String toDigest() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("(").append(child(0).toDigest()).append(")");
-        sb.append(" INTERSECT ").append(qualifier).append(" ");
-        sb.append("(").append(child(1).toDigest()).append(")");
-        return sb.toString();
-    }
-
-    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalIntersect(this, context);
     }

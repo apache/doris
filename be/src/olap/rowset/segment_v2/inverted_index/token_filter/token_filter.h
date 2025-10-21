@@ -19,6 +19,8 @@
 
 #include "olap/rowset/segment_v2/inverted_index/token_stream.h"
 
+using TokenStreamPtr = std::shared_ptr<TokenStream>;
+
 namespace doris::segment_v2::inverted_index {
 
 class DorisTokenFilter : public TokenFilter, public DorisTokenStream {

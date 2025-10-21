@@ -185,7 +185,6 @@ public:
                                                    const IColumn& column, Arena&) const = 0;
 
     /// Inserts results into a column.
-    // todo: Consider whether this passes a ConstAggregateDataPtr
     virtual void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const = 0;
 
     virtual void insert_result_into_vec(const std::vector<AggregateDataPtr>& places,

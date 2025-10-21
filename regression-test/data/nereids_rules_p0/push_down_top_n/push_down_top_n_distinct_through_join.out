@@ -9,8 +9,8 @@ PhysicalResultSink
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalTopN[LOCAL_SORT]
 ----------------hashAgg[GLOBAL]
-------------------PhysicalOlapScan[table_join(t1)]
-------------PhysicalOlapScan[table_join(t2)]
+------------------PhysicalOlapScan[table_join]
+------------PhysicalOlapScan[table_join]
 
 -- !push_down_topn_through_join_data --
 0
@@ -32,7 +32,7 @@ PhysicalResultSink
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalTopN[LOCAL_SORT]
 ----------------hashAgg[GLOBAL]
-------------------PhysicalOlapScan[table_join(t1)]
+------------------PhysicalOlapScan[table_join]
 ------------PhysicalStorageLayerAggregate[table_join]
 
 -- !push_down_topn_through_join_data --

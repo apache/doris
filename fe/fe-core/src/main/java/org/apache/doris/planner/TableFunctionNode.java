@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.LateralViewRef;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.statistics.StatisticalType;
@@ -32,6 +33,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class TableFunctionNode extends PlanNode {
+    private List<LateralViewRef> lateralViewRefs;
     private ArrayList<Expr> fnCallExprList;
     private List<TupleId> lateralViewTupleIds;
 

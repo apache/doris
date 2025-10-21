@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -27,9 +28,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
@@ -87,9 +88,9 @@ public class ShowQueuedAnalyzeJobsCommand extends ShowCommand {
         this.tableNameInfo = tableName == null ? null : new TableNameInfo(tableName);
         this.stateKey = stateKey;
         this.stateValue = stateValue;
-        ctl = "";
-        db = "";
-        table = "";
+        ctl = null;
+        db = null;
+        table = null;
     }
 
     private void validate(ConnectContext ctx) throws AnalysisException {
@@ -137,7 +138,7 @@ public class ShowQueuedAnalyzeJobsCommand extends ShowCommand {
 
     private ShowResultSet handleShowQueuedAnalyzeJobs() {
         List<AutoAnalysisPendingJob> jobs = Env.getCurrentEnv().getAnalysisManager().showAutoPendingJobs(
-                new TableNameInfo(ctl, db, table), stateValue);
+                new TableName(ctl, db, table), stateValue);
         List<List<String>> resultRows = Lists.newArrayList();
         for (AutoAnalysisPendingJob job : jobs) {
             try {

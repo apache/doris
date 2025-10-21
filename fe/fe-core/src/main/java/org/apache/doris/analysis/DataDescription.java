@@ -35,8 +35,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
-import org.apache.doris.info.PartitionNamesInfo;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.load.NereidsLoadUtils;
@@ -109,7 +107,7 @@ public class DataDescription {
     private final String tableName;
 
     private String dbName;
-    private final PartitionNamesInfo partitionNamesInfo;
+    private final PartitionNames partitionNames;
     private final List<String> filePaths;
     private boolean clientLocal = false;
     private final boolean isNegative;
@@ -162,19 +160,19 @@ public class DataDescription {
     private Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     public DataDescription(String tableName,
-                           PartitionNamesInfo partitionNamesInfo,
+                           PartitionNames partitionNames,
                            List<String> filePaths,
                            List<String> columns,
                            Separator columnSeparator,
                            String fileFormat,
                            boolean isNegative,
                            List<Expr> columnMappingList) {
-        this(tableName, partitionNamesInfo, filePaths, columns, columnSeparator, fileFormat, null,
+        this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null,
                 isNegative, columnMappingList, null, null, LoadTask.MergeType.APPEND, null, null, null);
     }
 
     public DataDescription(String tableName,
-                           PartitionNamesInfo partitionNamesInfo,
+                           PartitionNames partitionNames,
                            List<String> filePaths,
                            List<String> columns,
                            Separator columnSeparator,
@@ -188,7 +186,7 @@ public class DataDescription {
                            Expr deleteCondition,
                            String sequenceColName,
                            Map<String, String> properties) {
-        this(tableName, partitionNamesInfo, filePaths, columns, columnSeparator, null,
+        this(tableName, partitionNames, filePaths, columns, columnSeparator, null,
                 fileFormat, null, columnsFromPath, isNegative, columnMappingList, fileFilterExpr, whereExpr,
                 mergeType, deleteCondition, sequenceColName, properties);
     }
@@ -197,7 +195,7 @@ public class DataDescription {
      * this constructor is for full parameters
      */
     public DataDescription(String tableName,
-                           PartitionNamesInfo partitionNamesInfo,
+                           PartitionNames partitionNames,
                            List<String> filePaths,
                            List<String> columns,
                            Separator columnSeparator,
@@ -228,7 +226,7 @@ public class DataDescription {
                            FileFormatProperties fileFormatProperties,
                            Map<String, String> analysisMap) {
         this.tableName = tableName;
-        this.partitionNamesInfo = partitionNamesInfo;
+        this.partitionNames = partitionNames;
         this.filePaths = filePaths;
         this.fileFieldNames = columns;
         this.columnsFromPath = columnsFromPath;
@@ -276,7 +274,7 @@ public class DataDescription {
     }
 
     public DataDescription(String tableName,
-                           PartitionNamesInfo partitionNamesInfo,
+                           PartitionNames partitionNames,
                            List<String> filePaths,
                            List<String> columns,
                            Separator columnSeparator,
@@ -293,7 +291,7 @@ public class DataDescription {
                            String sequenceColName,
                            Map<String, String> properties) {
         this.tableName = tableName;
-        this.partitionNamesInfo = partitionNamesInfo;
+        this.partitionNames = partitionNames;
         this.filePaths = filePaths;
         this.fileFieldNames = columns;
         this.columnsFromPath = columnsFromPath;
@@ -328,7 +326,7 @@ public class DataDescription {
 
     // data from table external_hive_table
     public DataDescription(String tableName,
-                           PartitionNamesInfo partitionNamesInfo,
+                           PartitionNames partitionNames,
                            String srcTableName,
                            boolean isNegative,
                            List<Expr> columnMappingList,
@@ -337,7 +335,7 @@ public class DataDescription {
                            Expr deleteCondition,
                            Map<String, String> properties) {
         this.tableName = tableName;
-        this.partitionNamesInfo = partitionNamesInfo;
+        this.partitionNames = partitionNames;
         this.filePaths = null;
         this.fileFieldNames = null;
         this.columnsFromPath = null;
@@ -359,8 +357,8 @@ public class DataDescription {
     }
 
     // data desc for mysql client
-    public DataDescription(TableNameInfo tableName,
-                           PartitionNamesInfo partitionNamesInfo,
+    public DataDescription(TableName tableName,
+                           PartitionNames partitionNames,
                            String file,
                            boolean clientLocal,
                            List<String> columns,
@@ -371,7 +369,7 @@ public class DataDescription {
                            Map<String, String> properties) {
         this.tableName = tableName.getTbl();
         this.dbName = tableName.getDb();
-        this.partitionNamesInfo = partitionNamesInfo;
+        this.partitionNames = partitionNames;
         this.filePaths = Lists.newArrayList(file);
         this.clientLocal = clientLocal;
         this.fileFieldNames = columns;
@@ -405,7 +403,7 @@ public class DataDescription {
     // For stream load using external file scan node.
     public DataDescription(String tableName, LoadTaskInfo taskInfo) {
         this.tableName = tableName;
-        this.partitionNamesInfo = taskInfo.getPartitionNamesInfo();
+        this.partitionNames = taskInfo.getPartitions();
 
         if (!Strings.isNullOrEmpty(taskInfo.getPath())) {
             this.filePaths = Lists.newArrayList(taskInfo.getPath());
@@ -680,8 +678,8 @@ public class DataDescription {
         return tableName;
     }
 
-    public PartitionNamesInfo getPartitionNamesInfo() {
-        return partitionNamesInfo;
+    public PartitionNames getPartitionNames() {
+        return partitionNames;
     }
 
     public Expr getPrecdingFilterExpr() {
@@ -1067,8 +1065,8 @@ public class DataDescription {
     public void analyzeWithoutCheckPriv(String fullDbName) throws AnalysisException {
         analyzeFilePaths();
 
-        if (partitionNamesInfo != null) {
-            partitionNamesInfo.validate();
+        if (partitionNames != null) {
+            partitionNames.analyze();
         }
 
         analyzeColumns();
@@ -1112,9 +1110,9 @@ public class DataDescription {
         }
         sb.append(" INTO TABLE ");
         sb.append(isMysqlLoad ? ClusterNamespace.getNameFromFullName(dbName) + "." + tableName : tableName);
-        if (partitionNamesInfo != null) {
+        if (partitionNames != null) {
             sb.append(" ");
-            sb.append(partitionNamesInfo.toSql());
+            sb.append(partitionNames.toSql());
         }
         if (analysisMap.get(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR) != null) {
             sb.append(" COLUMNS TERMINATED BY ")

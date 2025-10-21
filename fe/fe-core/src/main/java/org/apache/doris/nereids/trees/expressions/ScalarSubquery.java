@@ -113,15 +113,6 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
         return " (SCALARSUBQUERY) " + super.toString();
     }
 
-    @Override
-    public String toDigest() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("(")
-                .append(queryPlan.toDigest())
-                .append(")");
-        return sb.toString();
-    }
-
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitScalarSubquery(this, context);
     }

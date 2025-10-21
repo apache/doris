@@ -22,7 +22,8 @@
 #include <string_view>
 
 #include "olap/rowset/segment_v2/inverted_index/token_stream.h"
-#include "olap/rowset/segment_v2/inverted_index/util/reader.h"
+
+using TokenStreamPtr = std::shared_ptr<TokenStream>;
 
 namespace doris::segment_v2::inverted_index {
 
@@ -31,7 +32,7 @@ public:
     DorisTokenizer() = default;
     ~DorisTokenizer() override = default;
 
-    void set_reader(const ReaderPtr& in) {
+    void set_reader(CL_NS(util)::Reader* in) {
         if (in == nullptr) {
             throw Exception(ErrorCode::INVALID_ARGUMENT, "reader must not be null");
         }
@@ -43,8 +44,8 @@ public:
     void reset() override { _in = _in_pending; };
 
 protected:
-    ReaderPtr _in;
-    ReaderPtr _in_pending;
+    CL_NS(util)::Reader* _in = nullptr;
+    CL_NS(util)::Reader* _in_pending = nullptr;
 };
 using TokenizerPtr = std::shared_ptr<DorisTokenizer>;
 

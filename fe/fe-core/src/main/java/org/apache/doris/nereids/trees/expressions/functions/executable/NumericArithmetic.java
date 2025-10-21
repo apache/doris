@@ -648,14 +648,6 @@ public class NumericArithmetic {
     }
 
     /**
-     * atan
-     */
-    @ExecFunction(name = "atan")
-    public static Expression atan(DoubleLiteral first, DoubleLiteral second) {
-        return new DoubleLiteral(Math.atan2(first.getValue(), second.getValue()));
-    }
-
-    /**
      * asinh
      */
     @ExecFunction(name = "asinh")

@@ -56,7 +56,7 @@ suite("test_tvf_lz4_compress") {
             set 'column_separator', ','
             set 'columns', 'a,b'
             set 'compress_type', 'lz4'
-            file 'test_compress.csv.lz4'
+            file '../stream_load/test_compress.csv.lz4'
             time 10000
 
             check { result, exception, startTime, endTime ->
@@ -77,7 +77,7 @@ suite("test_tvf_lz4_compress") {
             set 'column_separator', ','
             set 'columns', 'a,b'
             set 'compress_type', 'lz4frame'
-            file 'test_compress.csv.lz4'
+            file '../stream_load/test_compress.csv.lz4'
             time 10000
 
             check { result, exception, startTime, endTime ->

@@ -18,11 +18,7 @@
 #include "http/action/check_encryption_action.h"
 
 #include <gen_cpp/olap_file.pb.h>
-#include <glog/logging.h>
-#include <google/protobuf/util/json_util.h>
-#include <json2pb/pb_to_json.h>
 
-#include <cstdint>
 #include <exception>
 #include <memory>
 #include <shared_mutex>
@@ -31,7 +27,6 @@
 
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
-#include "common/status.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_status.h"
@@ -45,7 +40,6 @@
 namespace doris {
 
 const std::string TABLET_ID = "tablet_id";
-const std::string GET_FOOTER = "get_footer";
 
 CheckEncryptionAction::CheckEncryptionAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
                                              TPrivilegeType::type type)
@@ -101,7 +95,7 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
                 return;
             }
             std::vector<uint8_t> magic_code_buf;
-            magic_code_buf.resize(sizeof(uint64_t));
+            magic_code_buf.reserve(sizeof(uint64_t));
             Slice magic_code(magic_code_buf.data(), sizeof(uint64_t));
             size_t bytes_read;
             st = reader->read_at(reader->size() - sizeof(uint64_t), magic_code, &bytes_read);
@@ -121,50 +115,6 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
         return is_encrypted;
     }
     return st;
-}
-
-Result<std::string> get_last_encrypt_footer(const BaseTabletSPtr& tablet) {
-    std::shared_lock l(tablet->get_header_lock());
-    auto rs = tablet->get_rowset_with_max_version();
-    if (rs->num_segments() == 0) {
-        return "{}";
-    }
-    auto maybe_seg_path = rs->segment_path(0);
-    if (!maybe_seg_path) {
-        return ResultError(maybe_seg_path.error());
-    }
-    auto rs_meta = rs->rowset_meta();
-    if (config::is_cloud_mode() && rs_meta->start_version() == 0 && rs_meta->end_version() == 1) {
-        return "{}";
-    }
-    auto fs = rs_meta->physical_fs();
-    io::FileReaderSPtr reader;
-    RETURN_IF_ERROR_RESULT(fs->open_file(maybe_seg_path.value(), &reader));
-
-    std::vector<uint8_t> pb_len_buf;
-    pb_len_buf.reserve(sizeof(uint64_t));
-    Slice pb_len_slice(pb_len_buf.data(), sizeof(uint64_t));
-    size_t bytes_read;
-    RETURN_IF_ERROR_RESULT(
-            reader->read_at(reader->size() - 256 + sizeof(uint8_t), pb_len_slice, &bytes_read));
-    auto info_pb_size = decode_fixed64_le(pb_len_buf.data());
-
-    std::vector<uint8_t> info_pb_buf;
-    info_pb_buf.resize(info_pb_size);
-    Slice pb_slice(info_pb_buf.data(), info_pb_size);
-    RETURN_IF_ERROR_RESULT(reader->read_at(
-            reader->size() - 256 + sizeof(uint8_t) + sizeof(uint64_t), pb_slice, &bytes_read));
-
-    FileEncryptionInfoPB info_pb;
-    if (!info_pb.ParseFromArray(info_pb_buf.data(), static_cast<int>(info_pb_buf.size()))) {
-        return ResultError(Status::Corruption("parse encryption info failed"));
-    }
-    std::string json;
-    google::protobuf::util::JsonPrintOptions opts;
-    opts.add_whitespace = false;
-    opts.preserve_proto_field_names = true;
-    auto st = google::protobuf::util::MessageToJsonString(info_pb, &json, opts);
-    return json;
 }
 
 Status sync_meta(const CloudTabletSPtr& tablet) {
@@ -193,15 +143,6 @@ void CheckEncryptionAction::handle(HttpRequest* req) {
         return;
     }
 
-    bool is_get_footer = false;
-    if (auto get_footer_flag = req->param(GET_FOOTER); get_footer_flag == "true") {
-        is_get_footer = true;
-    } else if (get_footer_flag != "false") {
-        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST,
-                                "param `get_footer` must be a boolean type");
-        return;
-    }
-
     auto maybe_tablet = ExecEnv::get_tablet(tablet_id);
     if (!maybe_tablet) {
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, maybe_tablet.error().to_string());
@@ -221,22 +162,9 @@ void CheckEncryptionAction::handle(HttpRequest* req) {
 
     auto maybe_is_encrypted = is_tablet_encrypted(tablet);
     if (maybe_is_encrypted.has_value()) {
-        req->add_output_header(HttpHeaders::CONTENT_TYPE, HttpHeaders::JSON_TYPE.data());
-        std::string result = R"({"status":)";
-        result += maybe_is_encrypted.value() ? R"("all encrypted")" : R"("some are not encrypted")";
-        if (is_get_footer) {
-            auto maybe_footer = get_last_encrypt_footer(tablet);
-            if (!maybe_footer) {
-                HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,
-                                        maybe_footer.error().to_json());
-                return;
-            }
-            result += R"(,"footer":)";
-            result += maybe_footer.value();
-        }
-        result += "}";
-
-        HttpChannel::send_reply(req, HttpStatus::OK, result);
+        HttpChannel::send_reply(
+                req, HttpStatus::OK,
+                maybe_is_encrypted.value() ? "all encrypted" : "some are not encrypted");
         return;
     }
     HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,

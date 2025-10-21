@@ -114,7 +114,7 @@ public class JdbcScanNode extends ExternalScanNode {
         ExprSubstitutionMap sMap = new ExprSubstitutionMap();
         for (SlotRef slotRef : slotRefs) {
             SlotRef slotRef1 = (SlotRef) slotRef.clone();
-            slotRef1.setTableNameInfo(null);
+            slotRef1.setTblName(null);
             slotRef1.setLabel(JdbcTable.properNameWithRemoteName(jdbcType, slotRef1.getColumnName()));
             sMap.put(slotRef, slotRef1);
         }

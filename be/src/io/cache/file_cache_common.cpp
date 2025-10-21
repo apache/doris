@@ -99,9 +99,7 @@ FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cach
                                           size_t index_percent, size_t ttl_percent,
                                           const std::string& storage) {
     io::FileCacheSettings settings;
-    if (capacity == 0) {
-        return settings;
-    }
+    if (capacity == 0) return settings;
     settings.capacity = capacity;
     settings.max_file_block_size = config::file_cache_each_block_size;
     settings.max_query_cache_size = max_query_cache_size;
@@ -147,42 +145,5 @@ FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offs
 
 template size_t LRUQueue::get_capacity(std::lock_guard<std::mutex>& cache_lock) const;
 template void LRUQueue::remove(Iterator queue_it, std::lock_guard<std::mutex>& cache_lock);
-
-std::string FileCacheInfo::to_string() const {
-    std::stringstream ss;
-    ss << "Hash: " << hash.to_string() << "\n"
-       << "Expiration Time: " << expiration_time << "\n"
-       << "Offset: " << offset << "\n"
-       << "Cache Type: " << cache_type_to_string(cache_type) << "\n";
-    return ss.str();
-}
-
-std::string InconsistencyType::to_string() const {
-    std::string result = "Inconsistency Reason: ";
-    if (type == NONE) {
-        result += "NONE";
-    } else {
-        if (type & NOT_LOADED) {
-            result += "NOT_LOADED ";
-        }
-        if (type & MISSING_IN_STORAGE) {
-            result += "MISSING_IN_STORAGE ";
-        }
-        if (type & SIZE_INCONSISTENT) {
-            result += "SIZE_INCONSISTENT ";
-        }
-        if (type & CACHE_TYPE_INCONSISTENT) {
-            result += "CACHE_TYPE_INCONSISTENT ";
-        }
-        if (type & EXPIRATION_TIME_INCONSISTENT) {
-            result += "EXPIRATION_TIME_INCONSISTENT ";
-        }
-        if (type & TMP_FILE_EXPECT_DOWNLOADING_STATE) {
-            result += "TMP_FILE_EXPECT_DOWNLOADING_STATE";
-        }
-    }
-    result += "\n";
-    return result;
-}
 
 } // namespace doris::io

@@ -18,9 +18,9 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((c.c_current_addr_sk = ca.ca_address_sk)) otherCondition=()
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer(c)] apply RFs: RF5
+------------------------------------PhysicalOlapScan[customer] apply RFs: RF5
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer_address(ca)]
+------------------------------------PhysicalOlapScan[customer_address]
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[customer_demographics]
 --------------------------PhysicalProject

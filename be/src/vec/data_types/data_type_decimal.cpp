@@ -55,20 +55,10 @@ namespace doris::vectorized {
 DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
     auto transform = [&](DataTypePtr t) -> DataTypePtr {
         if (t->get_primitive_type() == PrimitiveType::TYPE_DECIMALV2) {
-            auto not_nullable_t = remove_nullable(t);
-            const auto* real_type_t = assert_cast<const DataTypeDecimalV2*>(not_nullable_t.get());
-            // should keep the original precision and scale
-            DataTypePtr res = std::make_shared<DataTypeDecimalV2>(
-                    BeConsts::MAX_DECIMALV2_PRECISION, BeConsts::MAX_DECIMALV2_SCALE,
-                    real_type_t->get_original_precision(), real_type_t->get_original_scale());
-
-            // keep nullable property
-            if (t->is_nullable()) {
-                res = make_nullable(res);
-            }
-
+            auto res = DataTypeFactory::instance().create_data_type(
+                    TYPE_DECIMALV2, t->is_nullable(), BeConsts::MAX_DECIMALV2_PRECISION,
+                    BeConsts::MAX_DECIMALV2_SCALE);
             DCHECK_EQ(res->get_scale(), BeConsts::MAX_DECIMALV2_SCALE);
-
             return res;
         } else if (t->get_primitive_type() == PrimitiveType::TYPE_BINARY ||
                    t->get_primitive_type() == PrimitiveType::TYPE_LAMBDA_FUNCTION) {

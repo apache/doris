@@ -37,26 +37,20 @@ import java.util.Optional;
  */
 public class LogicalTestScan extends LogicalCatalogRelation {
     public LogicalTestScan(RelationId relationId, TableIf table, List<String> qualifier) {
-        this(relationId, table, qualifier, Optional.empty(), Optional.empty(), "");
+        this(relationId, table, qualifier, Optional.empty(), Optional.empty());
     }
 
     private LogicalTestScan(RelationId relationId, TableIf table, List<String> qualifier,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            String tableAlias) {
-        super(relationId, PlanType.LOGICAL_TEST_SCAN, table, qualifier, groupExpression, logicalProperties, tableAlias);
-    }
-
-    private LogicalTestScan(RelationId relationId, TableIf table, List<String> qualifier,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
-        this(relationId, table, qualifier, groupExpression, logicalProperties, "");
+               Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+        super(relationId, PlanType.LOGICAL_TEST_SCAN, table, qualifier, groupExpression, logicalProperties);
     }
 
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalTestScan",
                 "qualified", qualifiedName(),
-                "alias", tableAlias,
-                "output", getOutput());
+                "output", getOutput()
+        );
     }
 
     @Override
@@ -67,18 +61,13 @@ public class LogicalTestScan extends LogicalCatalogRelation {
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalTestScan(relationId, table, qualifier,
-                groupExpression, Optional.ofNullable(getLogicalProperties()), tableAlias);
+                groupExpression, Optional.ofNullable(getLogicalProperties()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalTestScan(relationId, table, qualifier, groupExpression, logicalProperties, tableAlias);
-    }
-
-    public LogicalTestScan withTableAlias(String tableAlias) {
-        return new LogicalTestScan(relationId, table, qualifier, Optional.empty(),
-                Optional.of(getLogicalProperties()), tableAlias);
+        return new LogicalTestScan(relationId, table, qualifier, groupExpression, logicalProperties);
     }
 
     @Override

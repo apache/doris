@@ -31,8 +31,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.PartitionNamesInfo;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -58,7 +56,7 @@ public class BuildIndexOp extends AlterTableOp {
     private final PartitionNamesInfo partitionNamesInfo;
 
     public BuildIndexOp(TableNameInfo tableName, String indexName, PartitionNamesInfo partitionNamesInfo,
-                        boolean alter) {
+                            boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.tableName = tableName;
         this.indexName = indexName;
@@ -163,7 +161,8 @@ public class BuildIndexOp extends AlterTableOp {
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
         indexDef.getIndexType();
-        return new BuildIndexClause(tableName, indexDef.translateToLegacyIndexDef(), index, alter);
+        return new BuildIndexClause(tableName.transferToTableName(), indexDef.translateToLegacyIndexDef(), index,
+                alter);
     }
 
     @Override

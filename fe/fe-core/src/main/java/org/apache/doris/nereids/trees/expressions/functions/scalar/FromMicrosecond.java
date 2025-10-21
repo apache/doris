@@ -40,9 +40,8 @@ public class FromMicrosecond extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullLiteral, PropagateNullable,
         FromSecondMonotonic {
 
-    public static final int RESULT_SCALE = 6;
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.of(RESULT_SCALE)).args(BigIntType.INSTANCE));
+            FunctionSignature.ret(DateTimeV2Type.MAX).args(BigIntType.INSTANCE));
 
     public FromMicrosecond(Expression arg0) {
         super("from_microsecond", arg0);

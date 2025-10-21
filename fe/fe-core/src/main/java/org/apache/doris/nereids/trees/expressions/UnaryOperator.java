@@ -56,14 +56,6 @@ public abstract class UnaryOperator extends Expression implements UnaryExpressio
     }
 
     @Override
-    public String toDigest() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(" ").append(symbol).append(" ");
-        sb.append(child().toDigest());
-        return sb.toString();
-    }
-
-    @Override
     public int computeHashCode() {
         return Objects.hash(symbol, child());
     }

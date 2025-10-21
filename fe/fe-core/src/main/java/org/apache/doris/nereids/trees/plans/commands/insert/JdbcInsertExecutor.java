@@ -51,8 +51,8 @@ public class JdbcInsertExecutor extends BaseExternalTableInsertExecutor {
     public JdbcInsertExecutor(ConnectContext ctx, JdbcExternalTable table,
             String labelName, NereidsPlanner planner,
             Optional<InsertCommandContext> insertCtx,
-            boolean emptyInsert, long jobId) {
-        super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
+            boolean emptyInsert) {
+        super(ctx, table, labelName, planner, insertCtx, emptyInsert);
     }
 
     @Override

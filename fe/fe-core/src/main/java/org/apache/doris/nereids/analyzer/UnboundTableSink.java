@@ -196,15 +196,4 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends UnboundLogicalSin
                 "colNames", colNames,
                 "hints", hints);
     }
-
-    @Override
-    public String toDigest() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("INSERT INTO ").append(StringUtils.join(nameParts, "."));
-        if (colNames != null && colNames.size() > 0) {
-            sb.append(" (").append(StringUtils.join(colNames, ", ")).append(")");
-        }
-        sb.append(" ").append(child().toDigest());
-        return sb.toString();
-    }
 }

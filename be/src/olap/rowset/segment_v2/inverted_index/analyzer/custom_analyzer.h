@@ -17,13 +17,17 @@
 
 #pragma once
 
+#include "common/exception.h"
+#include "olap/rowset/segment_v2/inverted_index/analysis_factory_mgr.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/custom_analyzer_config.h"
-#include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/setting.h"
 #include "olap/rowset/segment_v2/inverted_index/token_filter/token_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
+
+class TokenStreamComponents;
+using TokenStreamComponentsPtr = std::shared_ptr<TokenStreamComponents>;
 
 class CustomAnalyzer;
 using CustomAnalyzerPtr = std::shared_ptr<CustomAnalyzer>;
@@ -36,14 +40,11 @@ public:
         ~Builder() = default;
 
         void with_tokenizer(const std::string& name, const Settings& params);
-        void add_char_filter(const std::string& name, const Settings& params);
         void add_token_filter(const std::string& name, const Settings& params);
-
         CustomAnalyzerPtr build();
 
     private:
         TokenizerFactoryPtr _tokenizer;
-        std::vector<CharFilterFactoryPtr> _char_filters;
         std::vector<TokenFilterFactoryPtr> _token_filters;
 
         friend class CustomAnalyzer;
@@ -57,20 +58,29 @@ public:
     TokenStream* tokenStream(const TCHAR* fieldName, lucene::util::Reader* reader) override;
     TokenStream* reusableTokenStream(const TCHAR* fieldName, lucene::util::Reader* reader) override;
 
-    TokenStream* tokenStream(const TCHAR* fieldName, const ReaderPtr& reader) override;
-    TokenStream* reusableTokenStream(const TCHAR* fieldName, const ReaderPtr& reader) override;
-
     static CustomAnalyzerPtr build_custom_analyzer(const CustomAnalyzerConfigPtr& config);
 
 private:
-    ReaderPtr init_reader(ReaderPtr reader);
     TokenStreamComponentsPtr create_components();
 
     TokenizerFactoryPtr _tokenizer;
-    std::vector<CharFilterFactoryPtr> _char_filters;
     std::vector<TokenFilterFactoryPtr> _token_filters;
 
     TokenStreamComponentsPtr _reuse_token_stream;
+};
+
+class TokenStreamComponents {
+public:
+    TokenStreamComponents(TokenizerPtr tokenizer, TokenStreamPtr result)
+            : _source(std::move(tokenizer)), _sink(std::move(result)) {}
+
+    void set_reader(CL_NS(util)::Reader* reader);
+    TokenStreamPtr get_token_stream();
+    TokenizerPtr get_source();
+
+private:
+    TokenizerPtr _source;
+    TokenStreamPtr _sink;
 };
 
 } // namespace doris::segment_v2::inverted_index

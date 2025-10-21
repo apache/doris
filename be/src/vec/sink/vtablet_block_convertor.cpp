@@ -67,7 +67,6 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-// !FIXME: Here we should consider using MutableBlock, due to potential data reorganization
 Status OlapTableBlockConvertor::validate_and_convert_block(
         RuntimeState* state, vectorized::Block* input_block,
         std::shared_ptr<vectorized::Block>& block, vectorized::VExprContextSPtrs output_vexpr_ctxs,
@@ -210,27 +209,18 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         return ret;
     };
 
-    const auto* column_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(*column);
-    const auto& real_column_ptr =
-            column_ptr == nullptr ? column : (column_ptr->get_nested_column_ptr());
-    const auto* null_map = column_ptr == nullptr ? nullptr : column_ptr->get_null_map_data().data();
-    auto need_to_validate = [](size_t j, size_t row, const std::vector<char>& filter_map,
-                               const unsigned char* null_map) {
-        return !filter_map[row] && (null_map == nullptr || null_map[j] == 0);
+    auto column_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(*column);
+    auto& real_column_ptr = column_ptr == nullptr ? column : (column_ptr->get_nested_column_ptr());
+    auto null_map = column_ptr == nullptr ? nullptr : column_ptr->get_null_map_data().data();
+    auto need_to_validate = [&null_map, this](size_t j, size_t row) {
+        return !_filter_map[row] && (null_map == nullptr || null_map[j] == 0);
     };
 
-    // may change orig_column if substring function is performed
-    auto string_column_checker = [&state, &error_msg, need_to_validate,
-                                  set_invalid_and_append_error_msg](
-                                         vectorized::ColumnPtr& orig_column,
-                                         const DataTypePtr& orig_type,
-                                         vectorized::IColumn::Permutation* rows,
-                                         const std::vector<char>& filter_map) {
+    auto string_column_checker = [&](const ColumnString* column_string) {
         int limit = config::string_type_length_soft_limit_bytes;
         int len = -1;
         // when type.len is negative, std::min will return overflow value, so we need to check it
-        const auto* type_str =
-                check_and_get_data_type<DataTypeString>(remove_nullable(orig_type).get());
+        auto* type_str = check_and_get_data_type<DataTypeString>(remove_nullable(type).get());
         if (type_str) {
             if (type_str->len() >= 0) {
                 len = type_str->len();
@@ -238,18 +228,8 @@ Status OlapTableBlockConvertor::_internal_validate_column(
             }
         }
 
-        const auto* tmp_column_ptr =
-                vectorized::check_and_get_column<vectorized::ColumnNullable>(*orig_column);
-        const auto& tmp_real_column_ptr =
-                tmp_column_ptr == nullptr ? orig_column : (tmp_column_ptr->get_nested_column_ptr());
-        const auto* column_string =
-                assert_cast<const vectorized::ColumnString*>(tmp_real_column_ptr.get());
-        const auto* null_map =
-                tmp_column_ptr == nullptr ? nullptr : tmp_column_ptr->get_null_map_data().data();
-
-        const auto* __restrict offsets = column_string->get_offsets().data();
+        auto* __restrict offsets = column_string->get_offsets().data();
         int invalid_count = 0;
-        size_t row_count = orig_column->size();
         for (int64_t j = 0; j < row_count; ++j) {
             invalid_count += (offsets[j] - offsets[j - 1]) > limit;
         }
@@ -262,38 +242,40 @@ Status OlapTableBlockConvertor::_internal_validate_column(
             // This is a workaround for now, need to improve it after better support of multi-byte chars.
             if (type_str && !state->enable_insert_strict()) {
                 ColumnsWithTypeAndName argument_template;
-                auto input_type = remove_nullable(orig_type);
                 auto pos_type = DataTypeFactory::instance().create_data_type(
                         FieldType::OLAP_FIELD_TYPE_INT, 0, 0);
                 auto len_type = DataTypeFactory::instance().create_data_type(
                         FieldType::OLAP_FIELD_TYPE_INT, 0, 0);
-                argument_template.emplace_back(nullptr, input_type, "string column");
+                argument_template.emplace_back(nullptr, type, "string column");
                 argument_template.emplace_back(nullptr, pos_type, "pos column");
                 argument_template.emplace_back(nullptr, len_type, "len column");
                 auto func = SimpleFunctionFactory::instance().get_function(
-                        "substring", argument_template, input_type, {}, state->be_exec_version());
+                        "substring", argument_template, type, {}, state->be_exec_version());
                 if (!func) {
                     return Status::InternalError("get function substring failed");
                 }
                 auto pos_column = pos_type->create_column_const(row_count, to_field<TYPE_INT>(1));
                 auto len_column =
                         len_type->create_column_const(row_count, to_field<TYPE_INT>(limit));
-                Block tmp_block({{remove_nullable(orig_column), input_type, "string column"},
+                Block tmp_block({block->get_by_position(slot_index),
                                  {pos_column, pos_type, "pos"},
                                  {len_column, len_type, "len"},
-                                 {nullptr, input_type, "result"}});
+                                 {nullptr, type, "result"}});
                 RETURN_IF_ERROR(func->execute(nullptr, tmp_block, {0, 1, 2}, 3, row_count));
-                column_string = assert_cast<const vectorized::ColumnString*>(
-                        tmp_block.get_by_position(3).column.get());
-                orig_column =
-                        orig_column->is_nullable()
-                                ? ColumnNullable::create(tmp_block.get_by_position(3).column,
-                                                         tmp_column_ptr->get_null_map_column_ptr())
-                                : std::move(tmp_block.get_by_position(3).column);
+                block->get_by_position(slot_index).column =
+                        std::move(tmp_block.get_by_position(3).column);
+                const auto* tmp_column_ptr =
+                        vectorized::check_and_get_column<vectorized::ColumnNullable>(
+                                *block->get_by_position(slot_index).column);
+                const auto& tmp_real_column_ptr =
+                        tmp_column_ptr == nullptr ? block->get_by_position(slot_index).column
+                                                  : (tmp_column_ptr->get_nested_column_ptr());
+                column_string =
+                        assert_cast<const vectorized::ColumnString*>(tmp_real_column_ptr.get());
             }
             for (size_t j = 0; j < row_count; ++j) {
                 auto row = rows ? (*rows)[j] : j;
-                if (need_to_validate(j, row, filter_map, null_map)) {
+                if (need_to_validate(j, row)) {
                     auto str_val = column_string->get_data_at(j);
                     bool invalid = str_val.size > limit;
                     if (invalid) {
@@ -326,8 +308,9 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
-        RETURN_IF_ERROR(string_column_checker(column, type, rows, _filter_map));
-        block->get_by_position(slot_index).column = std::move(column);
+        const auto column_string =
+                assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
+        RETURN_IF_ERROR(string_column_checker(column_string));
         break;
     }
     case TYPE_JSONB: {
@@ -350,14 +333,13 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         break;
     }
     case TYPE_DECIMALV2: {
-        // column_decimal utilizes the ColumnPtr from the block* block in _validate_data and can be modified.
         auto* column_decimal = const_cast<vectorized::ColumnDecimal128V2*>(
                 assert_cast<const vectorized::ColumnDecimal128V2*>(real_column_ptr.get()));
         const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
         const auto& min_decimalv2 = _get_decimalv2_min_or_max<true>(type);
         for (size_t j = 0; j < row_count; ++j) {
             auto row = rows ? (*rows)[j] : j;
-            if (need_to_validate(j, row, _filter_map, null_map)) {
+            if (need_to_validate(j, row)) {
                 auto dec_val = binary_cast<vectorized::Int128, DecimalV2Value>(
                         column_decimal->get_data()[j]);
                 bool invalid = false;
@@ -392,8 +374,9 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     }
     case TYPE_DECIMAL32: {
 #define CHECK_VALIDATION_FOR_DECIMALV3(DecimalType)                                               \
-    auto column_decimal = assert_cast<const vectorized::ColumnDecimal<DecimalType::PType>*>(      \
-            real_column_ptr.get());                                                               \
+    auto column_decimal = const_cast<vectorized::ColumnDecimal<DecimalType::PType>*>(             \
+            assert_cast<const vectorized::ColumnDecimal<DecimalType::PType>*>(                    \
+                    real_column_ptr.get()));                                                      \
     const auto& max_decimal = _get_decimalv3_min_or_max<DecimalType, false>(type);                \
     const auto& min_decimal = _get_decimalv3_min_or_max<DecimalType, true>(type);                 \
     const auto* __restrict datas = column_decimal->get_data().data();                             \
@@ -405,7 +388,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     if (invalid_count) {                                                                          \
         for (size_t j = 0; j < row_count; ++j) {                                                  \
             auto row = rows ? (*rows)[j] : j;                                                     \
-            if (need_to_validate(j, row, _filter_map, null_map)) {                                \
+            if (need_to_validate(j, row)) {                                                       \
                 auto dec_val = column_decimal->get_data()[j];                                     \
                 bool invalid = false;                                                             \
                 if (dec_val > max_decimal || dec_val < min_decimal) {                             \
@@ -453,27 +436,13 @@ Status OlapTableBlockConvertor::_internal_validate_column(
             }
         }
         fmt::format_to(error_prefix, "ARRAY type failed: ");
-        auto data_column_ptr = column_array->get_data_ptr();
-        switch (nested_type->get_primitive_type()) {
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_STRING: {
-            RETURN_IF_ERROR(
-                    string_column_checker(data_column_ptr, nested_type, &permutation, _filter_map));
-            const_cast<vectorized::ColumnArray*>(column_array)->get_data_ptr() =
-                    std::move(data_column_ptr);
-            break;
-        }
-        default:
-            RETURN_IF_ERROR(_validate_column(state, block, nested_type, data_column_ptr, slot_index,
-                                             error_prefix, permutation.size(), &permutation));
-            break;
-        }
+        RETURN_IF_ERROR(_validate_column(state, block, nested_type, column_array->get_data_ptr(),
+                                         slot_index, error_prefix, permutation.size(),
+                                         &permutation));
         break;
     }
     case TYPE_MAP: {
         const auto* column_map = assert_cast<const vectorized::ColumnMap*>(real_column_ptr.get());
-        // column_map utilizes the ColumnPtr from the block* block in _validate_data and can be modified.
         RETURN_IF_ERROR((const_cast<ColumnMap*>(column_map))->deduplicate_keys(true));
 
         const auto* type_map =
@@ -489,41 +458,12 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         }
 
         fmt::format_to(error_prefix, "MAP type failed: ");
-        switch (key_type->get_primitive_type()) {
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_STRING: {
-            auto key_column_ptr = column_map->get_keys_ptr();
-            RETURN_IF_ERROR(
-                    string_column_checker(key_column_ptr, key_type, &permutation, _filter_map));
-            const_cast<vectorized::ColumnMap*>(column_map)->get_keys_ptr() =
-                    std::move(key_column_ptr);
-            break;
-        }
-        default:
-            RETURN_IF_ERROR(_validate_column(state, block, key_type, column_map->get_keys_ptr(),
-                                             slot_index, error_prefix, permutation.size(),
-                                             &permutation));
-            break;
-        }
-
-        switch (val_type->get_primitive_type()) {
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_STRING: {
-            auto value_column_ptr = column_map->get_values_ptr();
-            RETURN_IF_ERROR(
-                    string_column_checker(value_column_ptr, val_type, &permutation, _filter_map));
-            const_cast<vectorized::ColumnMap*>(column_map)->get_values_ptr() =
-                    std::move(value_column_ptr);
-            break;
-        }
-        default:
-            RETURN_IF_ERROR(_validate_column(state, block, val_type, column_map->get_values_ptr(),
-                                             slot_index, error_prefix, permutation.size(),
-                                             &permutation));
-            break;
-        }
+        RETURN_IF_ERROR(_validate_column(state, block, key_type, column_map->get_keys_ptr(),
+                                         slot_index, error_prefix, permutation.size(),
+                                         &permutation));
+        RETURN_IF_ERROR(_validate_column(state, block, val_type, column_map->get_values_ptr(),
+                                         slot_index, error_prefix, permutation.size(),
+                                         &permutation));
         break;
     }
     case TYPE_STRUCT: {
@@ -534,32 +474,16 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         DCHECK(type_struct->get_elements().size() == column_struct->tuple_size());
         fmt::format_to(error_prefix, "STRUCT type failed: ");
         for (size_t sc = 0; sc < column_struct->tuple_size(); ++sc) {
-            auto element_type = type_struct->get_element(sc);
-            switch (element_type->get_primitive_type()) {
-            case TYPE_CHAR:
-            case TYPE_VARCHAR:
-            case TYPE_STRING: {
-                auto element_column_ptr = column_struct->get_column_ptr(sc);
-                RETURN_IF_ERROR(string_column_checker(element_column_ptr, element_type, nullptr,
-                                                      _filter_map));
-                const_cast<vectorized::ColumnStruct*>(column_struct)->get_column_ptr(sc) =
-                        std::move(element_column_ptr);
-                break;
-            }
-            default:
-                RETURN_IF_ERROR(_validate_column(state, block, type_struct->get_element(sc),
-                                                 column_struct->get_column_ptr(sc), slot_index,
-                                                 error_prefix,
-                                                 column_struct->get_column_ptr(sc)->size()));
-                break;
-            }
+            RETURN_IF_ERROR(_validate_column(
+                    state, block, type_struct->get_element(sc), column_struct->get_column_ptr(sc),
+                    slot_index, error_prefix, column_struct->get_column_ptr(sc)->size()));
         }
         break;
     }
     case TYPE_AGG_STATE: {
         auto* column_string = vectorized::check_and_get_column<ColumnString>(*real_column_ptr);
         if (column_string) {
-            RETURN_IF_ERROR(string_column_checker(column, type, rows, _filter_map));
+            RETURN_IF_ERROR(string_column_checker(column_string));
         }
         break;
     }
