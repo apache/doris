@@ -283,6 +283,11 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     }
 
     @Override
+    protected Set<String> schemas() {
+        return ImmutableSet.of("oss");
+    }
+
+    @Override
     public void initializeHadoopStorageConfig() {
         super.initializeHadoopStorageConfig();
         hadoopStorageConfig.set("fs.oss.impl", "org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem");
