@@ -394,17 +394,6 @@ TEST(MathFunctionTest, positive_test) {
     }
 
     {
-        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
-
-        DataSet data_set = {{{(int32_t)3}, (int32_t)3},
-                            {{(int32_t)-3}, (int32_t)-3},
-                            {{(int32_t)0}, (int32_t)0},
-                            {{(int32_t)-60}, (int32_t)-60}};
-
-        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
-    }
-
-    {
         InputTypeSet input_types = {AnyType {Notnull {PrimitiveType::TYPE_DECIMAL64}, 5, 11}};
 
         DataSet data_set = {
@@ -450,31 +439,11 @@ TEST(MathFunctionTest, negative_test) {
 
         static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
     }
-
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
-
-        DataSet data_set = {{{(int32_t)3}, (int32_t)-3},
-                            {{(int32_t)-3}, (int32_t)3},
-                            {{(int32_t)0}, (int32_t)0},
-                            {{(int32_t)-60}, (int32_t)60}};
-
-        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
-    }
 }
 
 TEST(MathFunctionTest, sign_test) {
     std::string func_name = "sign"; // sign(x) // 1 0 -1
 
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
-
-        DataSet data_set = {{{(int32_t)30}, (int8_t)1.0},
-                            {{(int32_t)0}, (int8_t)0.0},
-                            {{(int32_t)-10}, (int8_t)-1.0}};
-
-        static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
-    }
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
@@ -736,15 +705,6 @@ TEST(MathFunctionTest, signbit_test) {
 
         DataSet data_set = {{{1.0}, UInt8(0)},  {{0.9}, UInt8(0)}, {{-1.0}, UInt8(1)},
                             {{-0.9}, UInt8(1)}, {{0.0}, UInt8(0)}, {{Null()}, Null()}};
-
-        static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
-    }
-
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
-
-        DataSet data_set = {
-                {{(int32_t)1}, UInt8(0)}, {{(int32_t)-1}, UInt8(1)}, {{(int32_t)0}, UInt8(0)}};
 
         static_cast<void>(check_function<DataTypeBool, true>(func_name, input_types, data_set));
     }

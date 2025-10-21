@@ -73,10 +73,6 @@ AggregateFunctionPtr create_aggregate_function_map_agg(const std::string& name,
         return create_agg_function_map_agg<TYPE_CHAR>(argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_VARCHAR:
         return create_agg_function_map_agg<TYPE_VARCHAR>(argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DATE:
-        return create_agg_function_map_agg<TYPE_DATE>(argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DATETIME:
-        return create_agg_function_map_agg<TYPE_DATETIME>(argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DATEV2:
         return create_agg_function_map_agg<TYPE_DATEV2>(argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DATETIMEV2:

@@ -95,12 +95,6 @@ AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& n
     case PrimitiveType::TYPE_DECIMAL256:
         return do_create_agg_function_collect<TYPE_DECIMAL256, HasLimit>(distinct, argument_types,
                                                                          result_is_nullable, attr);
-    case PrimitiveType::TYPE_DATE:
-        return do_create_agg_function_collect<TYPE_DATE, HasLimit>(distinct, argument_types,
-                                                                   result_is_nullable, attr);
-    case PrimitiveType::TYPE_DATETIME:
-        return do_create_agg_function_collect<TYPE_DATETIME, HasLimit>(distinct, argument_types,
-                                                                       result_is_nullable, attr);
     case PrimitiveType::TYPE_DATEV2:
         return do_create_agg_function_collect<TYPE_DATEV2, HasLimit>(distinct, argument_types,
                                                                      result_is_nullable, attr);

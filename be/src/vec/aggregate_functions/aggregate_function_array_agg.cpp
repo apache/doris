@@ -81,11 +81,6 @@ AggregateFunctionPtr create_aggregate_function_array_agg(const std::string& name
     case PrimitiveType::TYPE_DECIMAL256:
         return do_create_agg_function_collect<TYPE_DECIMAL256>(argument_types, result_is_nullable,
                                                                attr);
-    case PrimitiveType::TYPE_DATE:
-        return do_create_agg_function_collect<TYPE_DATE>(argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DATETIME:
-        return do_create_agg_function_collect<TYPE_DATETIME>(argument_types, result_is_nullable,
-                                                             attr);
     case PrimitiveType::TYPE_DATEV2:
         return do_create_agg_function_collect<TYPE_DATEV2>(argument_types, result_is_nullable,
                                                            attr);
