@@ -100,6 +100,7 @@ struct FileBlockCell {
 
     size_t size() const { return file_block->_block_range.size(); }
 
+    FileBlockCell() = default;
     FileBlockCell(FileBlockSPtr file_block, std::lock_guard<std::mutex>& cache_lock);
     FileBlockCell(FileBlockCell&& other) noexcept
             : file_block(std::move(other.file_block)),
