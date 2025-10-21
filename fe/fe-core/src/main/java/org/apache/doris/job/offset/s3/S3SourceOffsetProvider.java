@@ -199,14 +199,14 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
         if (StringUtils.isBlank(offset)) {
             return null;
         }
-        Map<String, String> OffsetMap =
+        Map<String, String> offsetMap =
                 GsonUtils.GSON.fromJson(offset, new TypeToken<HashMap<String, String>>() {}.getType());
 
-        if (OffsetMap == null || OffsetMap.isEmpty()) {
+        if (offsetMap == null || offsetMap.isEmpty()) {
             return null;
         }
 
-        String fileName = OffsetMap.get("fileName");
+        String fileName = offsetMap.get("fileName");
         if (StringUtils.isBlank(fileName)) {
             return null;
         }
