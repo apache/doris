@@ -104,12 +104,6 @@ bool ReloadableSSLSocketFactory::create_and_swap_ssl_context() {
         SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, nullptr);
     } else if (config::tls_verify_mode == CertificateManager::verify_none) {
         SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
-    } else {
-        SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
-        LOG(WARNING) << fmt::format(
-                "unknown verify_mode: {}, only support: verify_fail_if_no_peer_cert, "
-                "verify_peer, verify_none",
-                config::tls_verify_mode);
     }
 
     std::unique_ptr<X509, decltype(&X509_free)> ca_res(

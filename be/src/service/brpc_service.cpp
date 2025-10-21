@@ -20,6 +20,7 @@
 #include <brpc/server.h>
 #include <brpc/ssl_options.h>
 #include <butil/endpoint.h>
+#include <fmt/format.h>
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 #include <gflags/gflags_declare.h>
@@ -96,10 +97,12 @@ Status BRpcService::start(int port, int num_threads) {
         } else if (config::tls_verify_mode == "verify_none") {
             // nothing
         } else {
-            return Status::RuntimeError(
+            std::string msg = fmt::format(
                     "unknown verify_mode: {}, only support: verify_fail_if_no_peer_cert, "
                     "verify_peer, verify_none",
                     config::tls_verify_mode);
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
         }
         options.mutable_ssl_options()->verify.ca_file_path = config::tls_ca_certificate_path;
         options.mutable_ssl_options()->alpns = "h2";

@@ -28,6 +28,7 @@
 #include <event2/http.h>
 #include <event2/http_struct.h>
 #include <event2/thread.h>
+#include <fmt/format.h>
 #include <netinet/in.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -183,10 +184,12 @@ SSL_CTX* EvHttpServer::_create_ssl_context() {
         SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, nullptr);
     } else {
         SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, nullptr);
-        LOG(WARNING) << fmt::format(
+        std::string msg = fmt::format(
                 "unknown verify_mode: {}, only support: verify_fail_if_no_peer_cert, "
                 "verify_peer, verify_none",
                 config::tls_verify_mode);
+        LOG(WARNING) << msg;
+        throw Status::InternalError(msg);
     }
 
     std::unique_ptr<X509, decltype(&X509_free)> ca_res(

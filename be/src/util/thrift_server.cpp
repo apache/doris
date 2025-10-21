@@ -17,6 +17,7 @@
 
 #include "util/thrift_server.h"
 
+#include <fmt/format.h>
 #include <glog/logging.h>
 #include <thrift/Thrift.h>
 #include <thrift/concurrency/ThreadFactory.h>
@@ -396,10 +397,12 @@ Status ThriftServer::start() {
         } else if (config::tls_verify_mode == "verify_none") {
             // nothing
         } else {
-            LOG(WARNING) << fmt::format(
+            std::string msg = fmt::format(
                     "unknown verify_mode: {}, only support: verify_fail_if_no_peer_cert, "
                     "verify_peer, verify_none",
                     config::tls_verify_mode);
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
         }
         _reloadable_ssl_factory->server(true);
         server_socket = new apache::thrift::transport::TSSLServerSocket(

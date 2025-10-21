@@ -22,9 +22,9 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <thread>
-#include <memory>
 
 namespace doris {
 
@@ -212,7 +212,6 @@ FbTx9QAxPsf70ZWQ/FP/8NlG8t9MVHdCN4LwKqvDTxkBUc8ob4TjbKsLGwBEYeVr)";
 
 namespace fs = std::filesystem;
 
-
 // Helper to write content to a temporary file and return its path
 fs::path write_temp_file(const fs::path& dir, const std::string& name, const std::string& content) {
     fs::path path = dir / name;
@@ -244,12 +243,11 @@ TEST_F(CertificateManagerTest, LoadValidCertificatesAndKeys) {
     auto cert_path = write_temp_file(temp_dir, "cert.pem", normal_cert);
     auto key_path = write_temp_file(temp_dir, "key.pem", normal_key);
 
-    std::unique_ptr<X509, decltype(&X509_free)> ca(
-            CertificateManager::load_ca(ca_path), X509_free);
+    std::unique_ptr<X509, decltype(&X509_free)> ca(CertificateManager::load_ca(ca_path), X509_free);
     ASSERT_NE(ca, nullptr);
 
-    std::unique_ptr<X509, decltype(&X509_free)> cert(
-            CertificateManager::load_cert(cert_path), X509_free);
+    std::unique_ptr<X509, decltype(&X509_free)> cert(CertificateManager::load_cert(cert_path),
+                                                     X509_free);
     ASSERT_NE(cert, nullptr);
 
     std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> key(
@@ -280,12 +278,11 @@ TEST_F(CertificateManagerTest, InvalidFilesReturnNull) {
     auto key_path = write_temp_file(temp_dir, "bad_key.pem", incomplete_key);
     auto encrypted_path = write_temp_file(temp_dir, "bad_encrypted.pem", incomplete_encrypted_key);
 
-    std::unique_ptr<X509, decltype(&X509_free)> ca(
-            CertificateManager::load_ca(ca_path), X509_free);
+    std::unique_ptr<X509, decltype(&X509_free)> ca(CertificateManager::load_ca(ca_path), X509_free);
     EXPECT_EQ(ca, nullptr);
 
-    std::unique_ptr<X509, decltype(&X509_free)> cert(
-            CertificateManager::load_cert(cert_path), X509_free);
+    std::unique_ptr<X509, decltype(&X509_free)> cert(CertificateManager::load_cert(cert_path),
+                                                     X509_free);
     EXPECT_EQ(cert, nullptr);
 
     std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> key(

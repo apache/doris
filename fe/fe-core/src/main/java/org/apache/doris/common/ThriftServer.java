@@ -165,7 +165,7 @@ public class ThriftServer {
                     // nothing
                 } else {
                     throw new RuntimeException("The verify mod error(support verify_peer, verify_none"
-                        + ", verify_fail_if_no_peer_cert)");
+                            + ", verify_fail_if_no_peer_cert)");
                 }
 
                 serverTransport = new TServerSocket(new TServerSocket.ServerSocketTransportArgs()
@@ -264,7 +264,7 @@ public class ThriftServer {
                     // nothing
                 } else {
                     throw new RuntimeException("The verify mod error(support verify_peer, verify_none"
-                        + ", verify_fail_if_no_peer_cert)");
+                            + ", verify_fail_if_no_peer_cert)");
                 }
 
                 serverTransport = new TServerSocket(new TServerSocket.ServerSocketTransportArgs()
