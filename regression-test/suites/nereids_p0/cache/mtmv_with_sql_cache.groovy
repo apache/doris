@@ -47,7 +47,7 @@ class CanRetryException extends IllegalStateException {
     }
 }
 
-suite("mtmv_with_sql_cache") { suite ->
+suite("mtmv_with_sql_cache") {
     withGlobalLock("cache_last_version_interval_second") {
 
         sql """ADMIN SET ALL FRONTENDS CONFIG ('cache_last_version_interval_second' = '0');"""
@@ -650,7 +650,6 @@ suite("mtmv_with_sql_cache") { suite ->
                             assertHasCache nested_mtmv_sql1
                         }
                     }),
-
                     extraThread("testInsertOverwriteMtmv", {
                         retryTestSqlCache(3, 1000) {
                             def prefix_str = "test_insert_overwrite_mtmv_"
@@ -747,7 +746,7 @@ suite("mtmv_with_sql_cache") { suite ->
 
                             sql "REFRESH MATERIALIZED VIEW ${mv_name1} AUTO;"
                             waitingMTMVTaskFinishedByMvName(mv_name1)
-                            sleep(10000)
+                            sleep(30 * 1000)
                             assertNoCache "select * from ${mv_name1}"
                             assertNoCache mtmv_sql1
                             assertHasCache "select * from ${nested_mv_name1}"
