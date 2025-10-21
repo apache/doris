@@ -146,6 +146,23 @@ suite("test_multi_pct_bad_mtmv","mtmv") {
             union all
             select * from  ${tableName3}
             """
-    exception "intersected"
+        exception "suitable"
+    }
+
+    test {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(k1)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1'
+            )
+            AS
+            select * from  ${tableName1}
+            union
+            select * from  ${tableName2}
+            """
+        exception "suitable"
     }
 }
