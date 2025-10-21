@@ -149,6 +149,63 @@ suite("test_multi_pct_bad_mtmv","mtmv") {
         exception "suitable"
     }
 
+//     test {
+//         sql """
+//             CREATE MATERIALIZED VIEW ${mvName}
+//             BUILD DEFERRED REFRESH AUTO ON MANUAL
+//             partition by(k1)
+//             DISTRIBUTED BY RANDOM BUCKETS 2
+//             PROPERTIES (
+//             'replication_num' = '1'
+//             )
+//             AS
+//             select * from  ${tableName1}
+//             union
+//             select * from  ${tableName2}
+//             """
+//         exception "suitable"
+//     }
+    sql """drop table if exists `${tableName1}`"""
+    sql """drop table if exists `${tableName2}`"""
+    sql """drop table if exists `${tableName3}`"""
+    sql """drop materialized view if exists ${mvName};"""
+
+    sql """
+        CREATE TABLE ${tableName1}
+        (
+            k1 DATE,
+            k2 INT not null
+        )
+        PARTITION BY RANGE(`k1`)
+        (
+            PARTITION `p201701` VALUES LESS THAN ("2017-01-01"),
+            PARTITION `p201702` VALUES LESS THAN ("2017-02-01"),
+            PARTITION `pmax` VALUES LESS THAN (maxvalue)
+        )
+        DISTRIBUTED BY HASH(k2) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+        """
+
+    sql """
+        CREATE TABLE ${tableName2}
+        (
+            k1 DATE,
+            k2 INT not null
+        )
+        PARTITION BY RANGE(`k1`)
+        (
+            PARTITION `p201701` VALUES LESS THAN ("2017-01-01"),
+            PARTITION `p201703` VALUES LESS THAN ("2017-03-01"),
+            PARTITION `pmax` VALUES LESS THAN (maxvalue)
+        )
+        DISTRIBUTED BY HASH(k2) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+        """
+
     test {
         sql """
             CREATE MATERIALIZED VIEW ${mvName}
@@ -160,9 +217,9 @@ suite("test_multi_pct_bad_mtmv","mtmv") {
             )
             AS
             select * from  ${tableName1}
-            union
+            union all
             select * from  ${tableName2}
             """
-        exception "suitable"
+        exception "intersected"
     }
 }
