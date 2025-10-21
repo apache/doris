@@ -222,4 +222,60 @@ suite("test_multi_pct_bad_mtmv","mtmv") {
             """
         exception "intersected"
     }
+
+    sql """drop table if exists `${tableName1}`"""
+    sql """drop table if exists `${tableName2}`"""
+    sql """drop table if exists `${tableName3}`"""
+    sql """drop materialized view if exists ${mvName};"""
+
+    sql """
+        CREATE TABLE ${tableName1}
+        (
+            k1 INT not null,
+            k2 INT not null
+        )
+        PARTITION BY LIST(`k1`)
+        (
+            PARTITION `p1` VALUES IN ("1","2"),
+            PARTITION `p2` VALUES IN ("3")
+        )
+        DISTRIBUTED BY HASH(k2) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+        """
+
+    sql """
+        CREATE TABLE ${tableName2}
+        (
+            k1 INT not null,
+            k2 INT not null
+        )
+        PARTITION BY LIST(`k1`)
+        (
+            PARTITION `p2` VALUES IN ("2"),
+            PARTITION `p3` VALUES IN ("4")
+        )
+        DISTRIBUTED BY HASH(k2) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+        """
+
+    test {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(k1)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1'
+            )
+            AS
+            select * from  ${tableName1}
+            union all
+            select * from  ${tableName2}
+            """
+        exception "intersected"
+    }
 }
