@@ -93,6 +93,9 @@ public:
 
     int64_t num_rows_filtered() const;
 
+    virtual void set_tablet_load_rowset_num_info(
+            google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_info) {}
+
 protected:
     virtual void _init_profile(RuntimeProfile* profile);
 
@@ -139,6 +142,9 @@ public:
                                              success_slave_tablet_node_ids);
 
     void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
+
+    void set_tablet_load_rowset_num_info(
+            google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_info) override;
 
 private:
     void _init_profile(RuntimeProfile* profile) override;

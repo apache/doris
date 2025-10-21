@@ -41,10 +41,10 @@ public:
 
     void set_skip_writing_rowset_metadata(bool skip) { _skip_writing_rowset_metadata = skip; }
 
-private:
     // Convert `_tablet` from `BaseTablet` to `CloudTablet`
     CloudTablet* cloud_tablet();
 
+private:
     Status check_tablet_version_count();
 
     CloudStorageEngine& _engine;
