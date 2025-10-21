@@ -248,9 +248,9 @@ private:
         // Multiply-shift hashing ala Dietzfelbinger et al.: multiply 'hash' by eight different
         // odd constants, then keep the 5 most significant bits from each product.
         int32x4x2_t t;
-        t.val[0] = 
+        t.val[0] =
                 vreinterpretq_s32_u32(vshrq_n_u32(vmulq_u32(rehash.val[0], hash_data), shift_num));
-        t.val[1] = 
+        t.val[1] =
                 vreinterpretq_s32_u32(vshrq_n_u32(vmulq_u32(rehash.val[1], hash_data), shift_num));
 
         // Use these 5 bits to shift a single bit to a location in each 32-bit lane
