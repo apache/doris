@@ -46,10 +46,12 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
           _data_page_builder(nullptr),
           _dict_builder(nullptr),
           _encoding_type(DICT_ENCODING),
-          _dict_word_page_encoding_type(config::binary_plain_encoding_default_impl == "v2" ? PLAIN_ENCODING_V2
-                                                                    : PLAIN_ENCODING),
-          _fallback_binary_encoding_type(config::binary_plain_encoding_default_impl == "v2" ? PLAIN_ENCODING_V2
-                                                                     : PLAIN_ENCODING) {}
+          _dict_word_page_encoding_type(config::binary_plain_encoding_default_impl == "v2"
+                                                ? PLAIN_ENCODING_V2
+                                                : PLAIN_ENCODING),
+          _fallback_binary_encoding_type(config::binary_plain_encoding_default_impl == "v2"
+                                                 ? PLAIN_ENCODING_V2
+                                                 : PLAIN_ENCODING) {}
 
 Status BinaryDictPageBuilder::init() {
     // initially use DICT_ENCODING
@@ -294,7 +296,7 @@ void BinaryDictPageDecoder::set_dict_decoder(uint32_t num_dict_items, StringRef*
 };
 
 Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
-    if (_encoding_type == PLAIN_ENCODING || _encoding_type == PLAIN_ENCODING_V2) {
+    if (!is_dict_encoding()) {
         dst = dst->convert_to_predicate_column_if_dictionary();
         return _data_page_decoder->next_batch(n, dst);
     }
@@ -324,7 +326,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
 
 Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal,
                                              size_t* n, vectorized::MutableColumnPtr& dst) {
-    if (_encoding_type == PLAIN_ENCODING || _encoding_type == PLAIN_ENCODING_V2) {
+    if (!is_dict_encoding()) {
         dst = dst->convert_to_predicate_column_if_dictionary();
         return _data_page_decoder->read_by_rowids(rowids, page_first_ordinal, n, dst);
     }
