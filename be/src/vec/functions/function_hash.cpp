@@ -130,6 +130,20 @@ using FunctionMurmurHash3_64 =
 using FunctionMurmurHash3_64_V2 =
         FunctionVariadicArgumentsBase<DataTypeInt64, MurmurHash3Impl<TYPE_BIGINT, true>>;
 
+#ifdef BE_TEST
+const char* murmur_hash3_get_name_type_int_for_test() {
+    return MurmurHash3Impl<TYPE_INT>::get_name();
+}
+
+const char* murmur_hash3_get_name_type_bigint_for_test() {
+    return MurmurHash3Impl<TYPE_BIGINT>::get_name();
+}
+
+const char* murmur_hash3_get_name_type_bigint_v2_for_test() {
+    return MurmurHash3Impl<TYPE_BIGINT, true>::get_name();
+}
+#endif
+
 template <PrimitiveType ReturnType>
 struct XxHashImpl {
     static constexpr auto name = ReturnType == TYPE_INT ? "xxhash_32" : "xxhash_64";
