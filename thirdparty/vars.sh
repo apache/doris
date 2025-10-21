@@ -55,10 +55,10 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 #####################################################
 
 # libevent
-LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
-LIBEVENT_NAME=libevent-release-2.1.12-stable.tar.gz
-LIBEVENT_SOURCE=libevent-release-2.1.12-stable
-LIBEVENT_MD5SUM="0d5a27436bf7ff8253420c8cf09f47ca"
+LIBEVENT_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libevent-2.1.12.1.tar.gz"
+LIBEVENT_NAME=libevent-2.1.12.1.tar.gz
+LIBEVENT_SOURCE=doris-thirdparty-libevent-2.1.12.1
+LIBEVENT_MD5SUM="af67af024d42e57e185eb0c5026f8ae6"
 
 # openssl
 OPENSSL_DOWNLOAD="https://github.com/openssl/openssl/archive/OpenSSL_1_1_1s.tar.gz"
