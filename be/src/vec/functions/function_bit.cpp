@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -207,7 +208,14 @@ struct BitLengthImpl {
     }
 };
 
-using FunctionBitNot = FunctionUnaryArithmetic<BitNotImpl, NameBitNot>;
+using FunctionBitNotTinyInt = FunctionUnaryArithmetic<BitNotImpl<Int8>, NameBitNot, TYPE_TINYINT>;
+using FunctionBitNotSmallInt =
+        FunctionUnaryArithmetic<BitNotImpl<Int16>, NameBitNot, TYPE_SMALLINT>;
+using FunctionBitNotInt = FunctionUnaryArithmetic<BitNotImpl<Int32>, NameBitNot, TYPE_INT>;
+using FunctionBitNotBigInt = FunctionUnaryArithmetic<BitNotImpl<Int64>, NameBitNot, TYPE_BIGINT>;
+using FunctionBitNotLargeInt =
+        FunctionUnaryArithmetic<BitNotImpl<Int128>, NameBitNot, TYPE_LARGEINT>;
+
 using FunctionBitLength = FunctionUnaryToType<BitLengthImpl, NameBitLength>;
 
 void register_function_bit(SimpleFunctionFactory& factory) {
@@ -229,7 +237,11 @@ void register_function_bit(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBit<BitXorImpl<TYPE_BIGINT>>>();
     factory.register_function<FunctionBit<BitXorImpl<TYPE_LARGEINT>>>();
 
-    factory.register_function<FunctionBitNot>();
+    factory.register_function<FunctionBitNotTinyInt>();
+    factory.register_function<FunctionBitNotSmallInt>();
+    factory.register_function<FunctionBitNotInt>();
+    factory.register_function<FunctionBitNotBigInt>();
+    factory.register_function<FunctionBitNotLargeInt>();
     factory.register_function<FunctionBitLength>();
 }
 } // namespace doris::vectorized

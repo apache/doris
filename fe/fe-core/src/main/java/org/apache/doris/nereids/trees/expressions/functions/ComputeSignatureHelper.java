@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
@@ -249,6 +250,14 @@ public class ComputeSignatureHelper {
                 sigType = signature.argumentsTypes.get(i);
             }
             DataType expressionType = arguments.get(i).getDataType();
+            // Convert legacy datetime/date types to v2 types, keep v2 types as is
+            if (sigType.isDateTimeType()) {
+                // Legacy DateTimeType -> DateTimeV2Type
+                sigType = DateTimeV2Type.SYSTEM_DEFAULT;
+            } else if (sigType.isDateType()) {
+                // Legacy DateType -> DateV2Type
+                sigType = DateV2Type.INSTANCE;
+            }
             newArgTypes.add(replaceAnyDataTypeWithOutIndex(sigType, expressionType));
         }
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
@@ -318,6 +327,14 @@ public class ComputeSignatureHelper {
         // replace any data type and follow to any data type with real data type
         List<DataType> newArgTypes = Lists.newArrayListWithCapacity(signature.argumentsTypes.size());
         for (DataType sigType : signature.argumentsTypes) {
+            // Convert legacy datetime/date types to v2 types, keep v2 types as is
+            if (sigType.isDateTimeType()) {
+                // Legacy DateTimeType -> DateTimeV2Type
+                sigType = DateTimeV2Type.SYSTEM_DEFAULT;
+            } else if (sigType.isDateType()) {
+                // Legacy DateType -> DateV2Type
+                sigType = DateV2Type.INSTANCE;
+            }
             newArgTypes.add(replaceAnyDataType(sigType, indexToCommonTypes));
         }
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
