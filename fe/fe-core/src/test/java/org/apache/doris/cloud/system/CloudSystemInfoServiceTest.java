@@ -20,19 +20,16 @@ package org.apache.doris.cloud.system;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.catalog.ComputeGroup;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 
-import com.google.common.collect.ImmutableMap;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -367,9 +364,16 @@ public class CloudSystemInfoServiceTest {
         ComputeGroup cg = new ComputeGroup(clusterId, clusterName, ComputeGroup.ComputeTypeEnum.COMPUTE);
         infoService.addComputeGroup(clusterId, cg);
 
-        // Since there are no backends in the cluster, should return 1
-        int result = infoService.getMinPipelineExecutorSize();
-        Assert.assertEquals(1, result);
+        // Set ConnectContext to select the cluster
+        createTestConnectContext(clusterName);
+
+        try {
+            // Since there are no backends in the cluster, should return 1
+            int result = infoService.getMinPipelineExecutorSize();
+            Assert.assertEquals(1, result);
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test
@@ -552,20 +556,20 @@ public class CloudSystemInfoServiceTest {
         }
     }
 
-    // Test for error handling when getBackendsByCurrentCluster throws
-    // AnalysisException
+    // Test for error handling when ConnectContext has no cluster set
     @Test
-    public void testGetMinPipelineExecutorSizeWithAnalysisException() {
-        infoService = new CloudSystemInfoService() {
-            @Override
-            public ImmutableMap<Long, Backend> getBackendsByCurrentCluster() throws AnalysisException {
-                throw new AnalysisException("Test exception: cluster not found");
-            }
-        };
+    public void testGetMinPipelineExecutorSizeWithNoClusterInContext() {
+        infoService = new CloudSystemInfoService();
 
-        // Should return 1 when AnalysisException is caught
-        int result = infoService.getMinPipelineExecutorSize();
-        Assert.assertEquals(1, result);
+        // Create ConnectContext but don't set any cluster (empty cluster name)
+        createTestConnectContext(null);
+        try {
+            // Should return 1 when no cluster is set in ConnectContext
+            int result = infoService.getMinPipelineExecutorSize();
+            Assert.assertEquals(1, result);
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test
@@ -721,34 +725,7 @@ public class CloudSystemInfoServiceTest {
     // Test for multiple compute groups - should only use current cluster
     @Test
     public void testGetMinPipelineExecutorSizeWithMultipleComputeGroups() {
-        infoService = new CloudSystemInfoService() {
-            @Override
-            public ImmutableMap<Long, Backend> getBackendsByCurrentCluster() throws AnalysisException {
-                // Mock returning only backends from current cluster (cluster2)
-                String currentClusterName = "cluster2";
-                String currentClusterId = "cluster2_id";
-
-                Map<Long, Backend> currentClusterBackends = new HashMap<>();
-                // Create backends for current cluster with specific pipeline executor sizes
-                Backend backend1 = new Backend(101L, "192.168.1.1", 9050);
-                Map<String, String> tagMap1 = Tag.DEFAULT_BACKEND_TAG.toMap();
-                tagMap1.put(Tag.CLOUD_CLUSTER_NAME, currentClusterName);
-                tagMap1.put(Tag.CLOUD_CLUSTER_ID, currentClusterId);
-                backend1.setTagMap(tagMap1);
-                backend1.setPipelineExecutorSize(8);
-                currentClusterBackends.put(101L, backend1);
-
-                Backend backend2 = new Backend(102L, "192.168.1.2", 9050);
-                Map<String, String> tagMap2 = Tag.DEFAULT_BACKEND_TAG.toMap();
-                tagMap2.put(Tag.CLOUD_CLUSTER_NAME, currentClusterName);
-                tagMap2.put(Tag.CLOUD_CLUSTER_ID, currentClusterId);
-                backend2.setTagMap(tagMap2);
-                backend2.setPipelineExecutorSize(12); // Higher than cluster1's minimum
-                currentClusterBackends.put(102L, backend2);
-
-                return ImmutableMap.copyOf(currentClusterBackends);
-            }
-        };
+        infoService = new CloudSystemInfoService();
 
         // Setup multiple clusters with different pipeline executor sizes
         String cluster1Name = "cluster1";
@@ -804,10 +781,16 @@ public class CloudSystemInfoServiceTest {
 
         infoService.updateCloudClusterMapNoLock(cluster2Backends, new ArrayList<>());
 
-        // Should return 8 (minimum from current cluster2), not 2 (global minimum from
-        // cluster1)
-        int result = infoService.getMinPipelineExecutorSize();
-        Assert.assertEquals(8, result);
+        // Set ConnectContext to cluster2 to test that only cluster2 backends are used
+        createTestConnectContext(cluster2Name);
+
+        try {
+            // Should return 8 (minimum from current cluster2), not 2 (global minimum from cluster1)
+            int result = infoService.getMinPipelineExecutorSize();
+            Assert.assertEquals(8, result);
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test
