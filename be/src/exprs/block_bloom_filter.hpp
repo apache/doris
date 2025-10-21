@@ -238,7 +238,9 @@ private:
         // Use these 5 bits to shift a single bit to a location in each 32-bit lane
         return _mm256_sllv_epi32(ones, hash_data);
     }
-#elif defined(__ARM_NEON)
+#endif
+
+#ifdef __ARM_NEON
     static inline ALWAYS_INLINE uint32x4x2_t make_mask(const uint32_t hash) noexcept {
         const uint32x4_t ones = vdupq_n_u32(1);
         const uint32x4x2_t rehash = vld1q_u32_x2(&kRehash[0]);
