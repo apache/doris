@@ -71,6 +71,7 @@ import com.google.common.base.Suppliers;
 import com.google.common.base.Throwables;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
@@ -157,6 +158,7 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteConsumer = new HashMap<>();
+    private final Set<CTEId> recursiveCteIds = new HashSet<>();
     private final Set<String> viewDdlSqlSet = Sets.newHashSet();
     private final SqlCacheContext sqlCacheContext;
 
@@ -592,6 +594,14 @@ public class StatementContext implements Closeable {
 
     public Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
         return cteIdToConsumerGroup;
+    }
+
+    public void addRecursiveCteIds(CTEId cteId) {
+        recursiveCteIds.add(cteId);
+    }
+
+    public Set<CTEId> getRecursiveCteIds() {
+        return ImmutableSet.copyOf(recursiveCteIds);
     }
 
     public Map<CTEId, LogicalPlan> getRewrittenCteProducer() {

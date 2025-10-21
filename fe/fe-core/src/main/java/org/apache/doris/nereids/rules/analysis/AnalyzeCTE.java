@@ -140,7 +140,8 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         Preconditions.checkArgument(aliasQuery.isRecursiveCte(), "alias query must be recursive cte");
         LogicalPlan parsedCtePlan = (LogicalPlan) aliasQuery.child();
         if (!(parsedCtePlan instanceof LogicalUnion) || parsedCtePlan.children().size() != 2) {
-            throw new AnalysisException("recursive cte must be union");
+            throw new AnalysisException(String.format("recursive cte must be union, don't support %s",
+                    parsedCtePlan.getClass().getSimpleName()));
         }
         // analyze anchor child, its output list will be recursive cte temp table's schema
         LogicalPlan anchorChild = (LogicalPlan) parsedCtePlan.child(0);
@@ -151,6 +152,11 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         });
         cascadesContext.addPlanProcesses(innerAnchorCascadesCtx.getPlanProcesses());
         LogicalPlan analyzedAnchorChild = (LogicalPlan) innerAnchorCascadesCtx.getRewritePlan();
+        if (!analyzedAnchorChild.collect(LogicalRecursiveCteScan.class::isInstance).isEmpty()) {
+            throw new AnalysisException(
+                    String.format("recursive reference to query %s must not appear within its non-recursive term",
+                    aliasQuery.getAlias()));
+        }
         checkColumnAlias(aliasQuery, analyzedAnchorChild.getOutput());
         // make all output nullable
         analyzedAnchorChild = forceOutputNullable(analyzedAnchorChild,
@@ -179,10 +185,10 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         List<Slot> recursiveChildOutputs = analyzedRecursiveChild.getOutput();
         for (int i = 0; i < recursiveChildOutputs.size(); ++i) {
             if (!recursiveChildOutputs.get(i).getDataType().equals(anchorChildOutputTypes.get(i))) {
-                throw new AnalysisException(String.format("recursive child's %d column's datatype in select list %s "
+                throw new AnalysisException(String.format("%s recursive child's %d column's datatype in select list %s "
                                 + "is different from anchor child's output datatype %s, please add cast manually "
-                                + "to get expect datatype",
-                        i + 1, recursiveChildOutputs.get(i).getDataType(), anchorChildOutputTypes.get(i)));
+                                + "to get expect datatype", aliasQuery.getAlias(), i + 1,
+                        recursiveChildOutputs.get(i).getDataType(), anchorChildOutputTypes.get(i)));
             }
         }
         analyzedRecursiveChild = new LogicalRecursiveCteRecursiveChild<>(forceOutputNullable(analyzedRecursiveChild,
@@ -216,6 +222,7 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         analyzedCtePlan = analyzedCtePlan.withNewOutputs(newOutputs);
 
         CTEId cteId = StatementScopeIdGenerator.newCTEId();
+        cascadesContext.getStatementContext().addRecursiveCteIds(cteId);
         LogicalSubQueryAlias<Plan> logicalSubQueryAlias = aliasQuery.withChildren(ImmutableList.of(analyzedCtePlan));
         outerCteCtx = new CTEContext(cteId, logicalSubQueryAlias, outerCteCtx);
         outerCteCtx.setAnalyzedPlan(logicalSubQueryAlias);

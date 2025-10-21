@@ -2333,14 +2333,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             setPlanRoot(recursiveCteFragment, recursiveCteNode, recursiveCte);
         }
 
-        // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution
-        // we need turn of parallel scan to ensure to get correct result.
-        // TODO: nereids forbid all parallel scan under PhysicalSetOperation temporary
-        if (!recursiveCte.getPhysicalProperties().equals(PhysicalProperties.ANY)
-                && findOlapScanNodesByPassExchangeAndJoinNode(recursiveCteFragment.getPlanRoot())) {
-            recursiveCteFragment.setHasColocatePlanNode(true);
-            recursiveCteNode.setColocate(true);
-        }
         recursiveCteFragment.updateDataPartition(DataPartition.UNPARTITIONED);
         recursiveCteFragment.setOutputPartition(DataPartition.UNPARTITIONED);
 

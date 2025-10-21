@@ -26,19 +26,31 @@ import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TRecCTENode;
 
 import com.google.common.base.MoreObjects;
+import com.google.common.collect.Lists;
 
-public class RecursiveCteNode extends SetOperationNode {
+import java.util.List;
+
+public class RecursiveCteNode extends PlanNode {
 
     private boolean isUnionAll;
+    private List<List<Expr>> materializedResultExprLists = Lists.newArrayList();
     private TRecCTENode tRecCTENode;
 
     public RecursiveCteNode(PlanNodeId id, TupleId tupleId, boolean isUnionAll) {
-        super(id, tupleId, "RECURSIVE_CTE", StatisticalType.RECURSIVE_CTE_NODE);
+        super(id, tupleId.asList(), "RECURSIVE_CTE", StatisticalType.RECURSIVE_CTE_NODE);
         this.isUnionAll = isUnionAll;
     }
 
     public boolean isUnionAll() {
         return isUnionAll;
+    }
+
+    public void setMaterializedResultExprLists(List<List<Expr>> exprs) {
+        this.materializedResultExprLists = exprs;
+    }
+
+    public List<List<Expr>> getMaterializedResultExprLists() {
+        return materializedResultExprLists;
     }
 
     public void settRecCTENode(TRecCTENode tRecCTENode) {
@@ -67,7 +79,7 @@ public class RecursiveCteNode extends SetOperationNode {
     public String toString() {
         return MoreObjects.toStringHelper(this)
                 .add("id", getId().asInt())
-                .add("tid", tupleId.asInt())
+                .add("tid", tupleIds.get(0).asInt())
                 .add("isUnionAll", isUnionAll).toString();
     }
 }
