@@ -1619,7 +1619,10 @@ DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config)
     return config == "v1" || config == "v2";
 });
 
-DEFINE_Bool(use_plain_binary_v2, "false");
+DEFINE_mString(binary_plain_encoding_default_impl, "v1");
+DEFINE_Validator(binary_plain_encoding_default_impl, [](const std::string& config) -> bool {
+    return config == "v1" || config == "v2";
+});
 
 // clang-format off
 #ifdef BE_TEST

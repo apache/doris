@@ -109,8 +109,8 @@ public:
         auto it = encoding_map.find(type);
         if (it != encoding_map.end()) {
             EncodingTypePB encoding = it->second;
-            // For binary types, use PLAIN_ENCODING_V2 if config::use_plain_binary_v2 is true
-            if (encoding == PLAIN_ENCODING && config::use_plain_binary_v2 &&
+            // For binary types, use PLAIN_ENCODING_V2 if config::binary_plain_encoding_default_impl is "v2"
+            if (encoding == PLAIN_ENCODING && config::binary_plain_encoding_default_impl == "v2" &&
                 _encoding_map.contains(std::make_pair(type, PLAIN_ENCODING_V2))) {
                 return PLAIN_ENCODING_V2;
             }

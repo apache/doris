@@ -58,16 +58,16 @@ TEST_F(EncodingInfoTest, test_use_plain_binary_v2_config) {
     auto test_dict_type_encoding = [](FieldType type, const std::string& type_name) {
         const auto* type_info = get_scalar_type_info(type);
 
-        // Test with use_plain_binary_v2 = false (default)
+        // Test with binary_plain_encoding_default_impl = "v1" (default)
         // String and JSON types default to DICT_ENCODING
-        config::use_plain_binary_v2 = false;
+        config::binary_plain_encoding_default_impl = "v1";
         EncodingTypePB encoding_type = EncodingInfo::get_default_encoding(type_info->type(), false);
         EXPECT_EQ(DICT_ENCODING, encoding_type)
                 << "Type " << type_name << " should use DICT_ENCODING when config is false";
 
-        // Test with use_plain_binary_v2 = true
+        // Test with binary_plain_encoding_default_impl = "v2"
         // Config doesn't affect DICT_ENCODING types
-        config::use_plain_binary_v2 = true;
+        config::binary_plain_encoding_default_impl = "v2";
         encoding_type = EncodingInfo::get_default_encoding(type_info->type(), false);
         EXPECT_EQ(DICT_ENCODING, encoding_type)
                 << "Type " << type_name << " should still use DICT_ENCODING when config is true";
@@ -77,14 +77,14 @@ TEST_F(EncodingInfoTest, test_use_plain_binary_v2_config) {
     auto test_plain_type_encoding = [](FieldType type, const std::string& type_name) {
         const auto* type_info = get_scalar_type_info(type);
 
-        // Test with use_plain_binary_v2 = false (default)
-        config::use_plain_binary_v2 = false;
+        // Test with binary_plain_encoding_default_impl = "v1" (default)
+        config::binary_plain_encoding_default_impl = "v1";
         EncodingTypePB encoding_type = EncodingInfo::get_default_encoding(type_info->type(), false);
         EXPECT_EQ(PLAIN_ENCODING, encoding_type)
                 << "Type " << type_name << " should use PLAIN_ENCODING when config is false";
 
-        // Test with use_plain_binary_v2 = true
-        config::use_plain_binary_v2 = true;
+        // Test with binary_plain_encoding_default_impl = "v2"
+        config::binary_plain_encoding_default_impl = "v2";
         encoding_type = EncodingInfo::get_default_encoding(type_info->type(), false);
         EXPECT_EQ(PLAIN_ENCODING_V2, encoding_type)
                 << "Type " << type_name << " should use PLAIN_ENCODING_V2 when config is true";
@@ -108,17 +108,17 @@ TEST_F(EncodingInfoTest, test_use_plain_binary_v2_config) {
     // Test non-binary type (BIGINT) - should not be affected by the config
     const auto* bigint_type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BIGINT>();
 
-    config::use_plain_binary_v2 = false;
+    config::binary_plain_encoding_default_impl = "v1";
     EncodingTypePB encoding_type =
             EncodingInfo::get_default_encoding(bigint_type_info->type(), false);
     EXPECT_EQ(BIT_SHUFFLE, encoding_type);
 
-    config::use_plain_binary_v2 = true;
+    config::binary_plain_encoding_default_impl = "v2";
     encoding_type = EncodingInfo::get_default_encoding(bigint_type_info->type(), false);
     EXPECT_EQ(BIT_SHUFFLE, encoding_type); // Should remain BIT_SHUFFLE
 
     // Reset to default
-    config::use_plain_binary_v2 = false;
+    config::binary_plain_encoding_default_impl = "v1";
 }
 
 } // namespace segment_v2

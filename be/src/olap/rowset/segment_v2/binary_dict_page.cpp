@@ -46,9 +46,9 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
           _data_page_builder(nullptr),
           _dict_builder(nullptr),
           _encoding_type(DICT_ENCODING),
-          _dict_word_page_encoding_type(config::use_plain_binary_v2 ? PLAIN_ENCODING_V2
+          _dict_word_page_encoding_type(config::binary_plain_encoding_default_impl == "v2" ? PLAIN_ENCODING_V2
                                                                     : PLAIN_ENCODING),
-          _fallback_binary_encoding_type(config::use_plain_binary_v2 ? PLAIN_ENCODING_V2
+          _fallback_binary_encoding_type(config::binary_plain_encoding_default_impl == "v2" ? PLAIN_ENCODING_V2
                                                                      : PLAIN_ENCODING) {}
 
 Status BinaryDictPageBuilder::init() {
