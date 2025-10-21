@@ -87,8 +87,8 @@ public:
     // month_names: {"", "January", ..., "December"}
     struct LocaleDayMonthNameState {
         std::string locale_name;
-        std::vector<std::string> day_name_storage{7};
-        std::vector<std::string> month_name_storage{13};
+        std::vector<std::string> day_name_storage {7};
+        std::vector<std::string> month_name_storage {13};
         const char* day_names[7];
         const char* month_names[13];
     };

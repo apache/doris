@@ -1620,8 +1620,7 @@ const char* VecDateTimeValue::month_name() const {
     return s_month_name[_month];
 }
 
-const char* VecDateTimeValue::month_name_with_locale(
-        const char* const* month_names) const {
+const char* VecDateTimeValue::month_name_with_locale(const char* const* month_names) const {
     if (_month < 1 || _month > 12) {
         return nullptr;
     }
@@ -1636,11 +1635,7 @@ const char* VecDateTimeValue::day_name() const {
     return s_day_name[day];
 }
 
-const char* VecDateTimeValue::day_name_with_locale(
-        const char* const* day_names) const {
-    // weekday() returns: 0=Monday, 1=Tuesday, ..., 6=Sunday
-    // ICU weekdays array: index 1=Sunday, 2=Monday, ..., 7=Saturday
-    // Convert: Monday(0)->2, Tuesday(1)->3, ..., Saturday(5)->7, Sunday(6)->1
+const char* VecDateTimeValue::day_name_with_locale(const char* const* day_names) const {
     int day = weekday();
     if (day < 0 || day >= 7) {
         return nullptr;
@@ -2929,8 +2924,7 @@ const char* DateV2Value<T>::day_name() const {
 }
 
 template <typename T>
-const char* DateV2Value<T>::month_name_with_locale(
-        const char* const* month_names) const {
+const char* DateV2Value<T>::month_name_with_locale(const char* const* month_names) const {
     if (date_v2_value_.month_ < 1 || date_v2_value_.month_ > 12) {
         return nullptr;
     }
