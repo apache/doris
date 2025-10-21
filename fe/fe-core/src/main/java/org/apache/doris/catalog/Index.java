@@ -285,7 +285,9 @@ public class Index implements Writable {
         if (schema != null) {
             for (String columnName : columns) {
                 for (Column column : schema) {
-                    if (columnName.equalsIgnoreCase(column.getName())) {
+                    // Remove shadow prefix when comparing to handle schema change scenarios
+                    if (columnName.equalsIgnoreCase(
+                            Column.removeNamePrefix(column.getName()))) {
                         columnUniqueIds.add(column.getUniqueId());
                     }
                 }
