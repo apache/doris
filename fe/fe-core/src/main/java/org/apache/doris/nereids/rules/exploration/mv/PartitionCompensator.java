@@ -138,12 +138,14 @@ public class PartitionCompensator {
                         .addAll(baseTableNeedUnionTable.value());
             }
             // merge all partition to delete or union
-            Set<String> unionSet = new HashSet<>();
-            mvPartitionNeedRemoveNameMap.values().forEach(unionSet::addAll);
-            mvPartitionNeedRemoveNameMap.replaceAll((k, v) -> unionSet);
+            Set<String> needRemovePartitionSet = new HashSet<>();
+            mvPartitionNeedRemoveNameMap.values().forEach(needRemovePartitionSet::addAll);
+            mvPartitionNeedRemoveNameMap.replaceAll((k, v) -> needRemovePartitionSet);
 
-            baseTablePartitionNeedUnionNameMap.values().forEach(unionSet::addAll);
-            baseTablePartitionNeedUnionNameMap.replaceAll((k, v) -> unionSet);
+            // consider multi base table partition name not same, how to handle it?
+            Set<String> needUnionPartitionSet = new HashSet<>();
+            baseTablePartitionNeedUnionNameMap.values().forEach(needUnionPartitionSet::addAll);
+            baseTablePartitionNeedUnionNameMap.replaceAll((k, v) -> needUnionPartitionSet);
         }
         if (allCompensateIsNull) {
             return null;
@@ -187,7 +189,12 @@ public class PartitionCompensator {
         Sets.difference(rewrittenPlanUsePartitionNameSet, mvValidPartitionNameSet)
                 .copyInto(mvNeedRemovePartitionNameSet);
         for (String partitionName : mvNeedRemovePartitionNameSet) {
-            baseTableNeedUnionPartitionNameSet.addAll(partitionMapping.get(partitionName));
+            Set<String> baseTablePartitions = partitionMapping.get(partitionName);
+            if (baseTablePartitions == null) {
+                // Base table partition maybe deleted, need not union
+                continue;
+            }
+            baseTableNeedUnionPartitionNameSet.addAll(baseTablePartitions);
         }
         // If related base table create partitions or mv is created with ttl, need base table union
         Sets.difference(queryUsedBaseTablePartitionNameSet, mvValidBaseTablePartitionNameSet)
