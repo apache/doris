@@ -46,6 +46,12 @@ public interface SourceOffsetProvider {
     String getShowCurrentOffset();
 
     /**
+     * Get current offset to show
+     * @return
+     */
+    Offset getCurrentOffset();
+
+    /**
      * Get remote datasource max offset to show
      * @return
      */

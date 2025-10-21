@@ -118,6 +118,11 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
+    public Offset getCurrentOffset() {
+        return currentOffset;
+    }
+
+    @Override
     public String getShowMaxOffset() {
         if (maxEndFile != null) {
             Map<String, String> res = new HashMap<>();

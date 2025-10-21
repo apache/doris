@@ -902,6 +902,109 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
     }
 }
 
+void MetaServiceImpl::reset_streaming_job_progress(::google::protobuf::RpcController* controller,
+                                                   const ResetStreamingJobProgressRequest* request,
+                                                   ResetStreamingJobProgressResponse* response,
+                                                   ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(reset_streaming_job_progress, get, put, del);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    RPC_RATE_LIMIT(reset_streaming_job_progress)
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        ss << "failed to create txn, err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    if (!request->has_db_id() || !request->has_job_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty db_id or job_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    int64_t db_id = request->db_id();
+    int64_t job_id = request->job_id();
+    std::string streaming_job_key_str = streaming_job_key({instance_id, db_id, job_id});
+    std::string streaming_job_val;
+
+    // If no offset provided, remove the streaming job progress
+    if (!request->has_offset()) {
+        txn->remove(streaming_job_key_str);
+        LOG(INFO) << "remove streaming_job_key key=" << hex(streaming_job_key_str);
+    } else {
+        // If offset is provided, update the streaming job progress
+        bool prev_existed = true;
+        StreamingTaskCommitAttachmentPB prev_job_info;
+        err = txn->get(streaming_job_key_str, &streaming_job_val);
+        if (err != TxnErrorCode::TXN_OK) {
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                prev_existed = false;
+            } else {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get streaming job progress, db_id=" << db_id 
+                   << " job_id=" << job_id << " err=" << err;
+                msg = ss.str();
+                return;
+            }
+        }
+
+        if (prev_existed) {
+            if (!prev_job_info.ParseFromString(streaming_job_val)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                ss << "failed to parse streaming job progress, db_id=" << db_id
+                   << " job_id=" << job_id;
+                msg = ss.str();
+                return;
+            }
+        }
+
+        std::string new_job_val;
+        StreamingTaskCommitAttachmentPB new_job_info;
+        
+        // Set the new offset
+        new_job_info.set_offset(request->offset());
+        new_job_info.set_job_id(job_id);
+        
+        // Preserve existing statistics if they exist
+        if (prev_existed) {
+            new_job_info.set_scanned_rows(prev_job_info.scanned_rows());
+            new_job_info.set_load_bytes(prev_job_info.load_bytes());
+            new_job_info.set_num_files(prev_job_info.num_files());
+            new_job_info.set_file_bytes(prev_job_info.file_bytes());
+        }
+
+        if (!new_job_info.SerializeToString(&new_job_val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            ss << "failed to serialize new streaming job val, db_id=" << db_id
+               << " job_id=" << job_id;
+            msg = ss.str();
+            return;
+        }
+        
+        txn->put(streaming_job_key_str, new_job_val);
+        LOG(INFO) << "put streaming_job_key key=" << hex(streaming_job_key_str)
+                  << " new offset: " << request->offset();
+    }
+
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "failed to commit streaming job progress, db_id=" << db_id 
+           << " job_id=" << job_id << " err=" << err;
+        msg = ss.str();
+        return;
+    }
+}
+
 void MetaServiceImpl::delete_streaming_job(::google::protobuf::RpcController* controller,
                                            const DeleteStreamingJobRequest* request,
                                            DeleteStreamingJobResponse* response,

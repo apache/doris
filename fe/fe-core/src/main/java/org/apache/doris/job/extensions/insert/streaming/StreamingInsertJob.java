@@ -411,11 +411,35 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.offsetProvider.updateOffset(offset);
 
             if (Config.isCloudMode()) {
-                // todo: reset cloud currentOffset
+                resetCloudProgress();
             }
         }
         this.properties.putAll(inputProperties);
         this.jobProperties = new StreamingJobProperties(this.properties);
+    }
+
+    private void resetCloudProgress() throws AnalysisException {
+        // In cloud mode, after modifying the initOffset property, the currentOffset in the cloud needs to be reset
+        Cloud.ResetStreamingJobOffsetRequest.Builder builder =
+                Cloud.ResetStreamingJobOffsetRequest.newBuilder();
+        builder.setCloudUniqueId(Config.cloud_unique_id);
+        builder.setDbId(dbId);
+        builder.setJobId(getJobId());
+        Preconditions.checkNotNull(offsetProvider.getCurrentOffset(), "current offset is null");
+        String offsetStr = offsetProvider.getCurrentOffset().toSerializedJson();
+        builder.setOffset(offsetStr);
+
+        Cloud.ResetStreamingJobOffsetResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().resetStreamingJobOffset(builder.build());
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                log.warn("failed to reset streaming job progress, response: {}", response);
+                throw new AnalysisException(response.getStatus().getMsg());
+            }
+        } catch (RpcException e) {
+            log.info("failed to reset streaming job progress {}", e);
+            throw new AnalysisException(e.getMessage());
+        }
     }
 
     @Override
