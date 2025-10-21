@@ -432,6 +432,9 @@ void murmur_hash3_x64_process(const void* key, const int len, uint64_t& h1, uint
 
 //-----------------------------------------------------------------------------
 
+// The origin function `murmur_hash3_x64_128` is copied from: https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
+// And Doris modified it into function `murmur_hash3_x64_process`
+// For this reason, this function is still retained even though it has no calls.
 void murmur_hash3_x64_128(const void* key, const int len, const uint32_t seed, void* out) {
     uint64_t h1 = seed;
     uint64_t h2 = seed;
@@ -444,6 +447,7 @@ void murmur_hash3_x64_128(const void* key, const int len, const uint32_t seed, v
 
 // MurmurHash3 x64 64-bit variant using shared 128-bit processing function
 // This implementation reuses the murmur_hash3_x64_process function and only outputs the first hash value
+// Used for function mmh3_64_v2
 void murmur_hash3_x64_64_shared(const void* key, const int64_t len, const uint64_t seed,
                                 void* out) {
     uint64_t h1 = seed;
@@ -456,6 +460,7 @@ void murmur_hash3_x64_64_shared(const void* key, const int64_t len, const uint64
 
 // MurmurHash3 x64 64-bit variant with optimized standalone implementation
 // This implementation is specifically optimized for 64-bit output
+// Used for function mmh3_64
 void murmur_hash3_x64_64(const void* key, const int64_t len, const uint64_t seed, void* out) {
     const uint8_t* data = (const uint8_t*)key;
     const int nblocks = (int)len / 8;

@@ -26,6 +26,8 @@ suite("test_hash_function", "arrow_flight_sql") {
     qt_sql "SELECT murmur_hash3_64(\"hello\");"
     qt_sql "SELECT murmur_hash3_64(\"hello\", \"world\");"
 
+    // Keep the results same with `mmh3.hash64` in python or `murmur3.Sum64` in go
+    // Please dont auto genOut for this test
     qt_mmh3_64_v2_1 "SELECT MURMUR_HASH3_64_V2(NULL);"
     qt_mmh3_64_v2_2 "SELECT MURMUR_HASH3_64_V2('1000209601_1756808272');"
     qt_mmh3_64_v2_3 "SELECT MURMUR_HASH3_64_V2('hello world');"
