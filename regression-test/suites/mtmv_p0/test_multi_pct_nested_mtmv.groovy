@@ -187,7 +187,7 @@ suite("test_multi_pct_nested_mtmv","mtmv") {
 
 
     order_qt_refresh_mode_t2 "select RefreshMode from tasks('type'='mv') where MvName='${mvName3}' order by CreateTime desc limit 1"
-    order_qt_3 "SELECT * FROM ${mvName}"
+    order_qt_3 "SELECT * FROM ${mvName3}"
 
     sql """
         insert into ${tableName3} values(5,5);
