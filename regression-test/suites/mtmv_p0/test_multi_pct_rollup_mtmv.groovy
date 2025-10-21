@@ -17,8 +17,8 @@
 
 import org.junit.Assert;
 
-suite("test_multi_pct_union_mtmv","mtmv") {
-    String suiteName = "test_multi_pct_union_mtmv"
+suite("test_multi_pct_rollup_mtmv","mtmv") {
+    String suiteName = "test_multi_pct_rollup_mtmv"
     String dbName = context.config.getDbNameByFile(context.file)
     String tableName1 = "${suiteName}_table1"
     String tableName2 = "${suiteName}_table2"
@@ -36,7 +36,8 @@ suite("test_multi_pct_union_mtmv","mtmv") {
         PARTITION BY RANGE(`k1`)
         (
             PARTITION `p201701` VALUES [("2017-01-01"),  ("2017-02-01")),
-            PARTITION `p201702` VALUES [("2017-02-01"), ("2017-03-01"))
+            PARTITION `p203801` VALUES [("2038-01-01"), ("2038-02-01")),
+            PARTITION `p203802` VALUES [("2038-02-01"), ("2038-03-01"))
         )
         DISTRIBUTED BY HASH(k2) BUCKETS 2
         PROPERTIES (
@@ -45,7 +46,8 @@ suite("test_multi_pct_union_mtmv","mtmv") {
         """
     sql """
         insert into ${tableName1} values("2017-01-01",1);
-        insert into ${tableName1} values("2017-02-01",2);
+        insert into ${tableName1} values("2038-01-01",2);
+        insert into ${tableName1} values("2038-02-01",3);
         """
 
     sql """
@@ -56,8 +58,9 @@ suite("test_multi_pct_union_mtmv","mtmv") {
         )
         PARTITION BY RANGE(`k1`)
         (
-            PARTITION `p201702` VALUES [("2017-02-01"),  ("2017-03-01")),
-            PARTITION `p201703` VALUES [("2017-03-01"), ("2017-04-01"))
+            PARTITION `p201601` VALUES [("2016-01-01"),  ("2016-02-01")),
+            PARTITION `p203802` VALUES [("2038-03-01"), ("2038-04-01")),
+            PARTITION `p203803` VALUES [("2037-01-01"), ("2037-02-01"))
         )
         DISTRIBUTED BY HASH(k2) BUCKETS 2
         PROPERTIES (
@@ -65,17 +68,20 @@ suite("test_multi_pct_union_mtmv","mtmv") {
         );
         """
     sql """
-        insert into ${tableName2} values("2017-02-01",3);
-        insert into ${tableName2} values("2017-03-01",4);
+        insert into ${tableName2} values("2016-01-01",4);
+        insert into ${tableName2} values("2038-03-01",5);
+        insert into ${tableName2} values("2037-01-01",6);
         """
 
     String mvSql = "SELECT * from ${tableName1} union all SELECT * from ${tableName2};";
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD DEFERRED REFRESH AUTO ON MANUAL
-        partition by(k1)
+        partition by(date_trunc(`k1`, 'year'))
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
+        'partition_sync_limit'='2',
+        'partition_sync_time_unit'='YEAR',
         'replication_num' = '1'
         )
         AS
@@ -84,9 +90,8 @@ suite("test_multi_pct_union_mtmv","mtmv") {
 
     def showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-    assertTrue(showPartitionsResult.toString().contains("p_20170101_20170201"))
-    assertTrue(showPartitionsResult.toString().contains("p_20170201_20170301"))
-    assertTrue(showPartitionsResult.toString().contains("p_20170301_20170401"))
+    assertTrue(showPartitionsResult.toString().contains("p_20370101_20380101"))
+    assertTrue(showPartitionsResult.toString().contains("p_20380101_20390101"))
 
      sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
@@ -96,7 +101,7 @@ suite("test_multi_pct_union_mtmv","mtmv") {
     order_qt_1 "SELECT * FROM ${mvName}"
 
     sql """
-        insert into ${tableName1} values("2017-01-01",5);
+        insert into ${tableName1} values("2038-01-01",7);
         """
 
     sql """
@@ -107,7 +112,7 @@ suite("test_multi_pct_union_mtmv","mtmv") {
     order_qt_2 "SELECT * FROM ${mvName}"
 
     sql """
-        insert into ${tableName2} values("2017-02-01",6);
+        insert into ${tableName2} values("2037-01-01",8);
         """
 
     sql """
