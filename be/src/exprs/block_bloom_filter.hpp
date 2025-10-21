@@ -23,9 +23,6 @@
 #include "vec/common/string_ref.h"
 #ifdef __AVX2__
 #include <immintrin.h>
-#elif defined(__ARM_FEATURE_SVE)
-#include <arm_sve.h>
-#elif defined(__ARM_NEON)
 #include <arm_neon.h>
 #endif
 
@@ -239,15 +236,6 @@ private:
         hash_data = _mm256_srli_epi32(hash_data, shift_num);
         // Use these 5 bits to shift a single bit to a location in each 32-bit lane
         return _mm256_sllv_epi32(ones, hash_data);
-    }
-#elif defined(__ARM_FEATURE_SVE)
-    static inline ALWAYS_INLINE svuint32_t make_mask(svbool_t pg, const uint32_t base, const uint32_t hash) noexcept {
-        const svuint32_t vones = svdup_u32(1U);
-        const svuint32_t vhash = svdup_u32(hash);
-        svuint32_t vrehash = svld1(pg, kRehash + base);
-        svuint32_t vprod = svmul_u32_x(pg, vrehash, vhash);
-        svuint32_t vshr  = svlsr_n_u32_x(pg, vprod, shift_num);
-        return svlsl_u32_x(pg, vones, vshr);
     }
 #elif defined(__ARM_NEON)
     static inline ALWAYS_INLINE uint32x4x2_t make_mask(const uint32_t hash) noexcept {

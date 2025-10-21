@@ -119,39 +119,7 @@ void BlockBloomFilter::close() {
     }
 }
 
-#ifdef __ARM_FEATURE_SVE
-void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t hash) noexcept {
-    uint32_t* bucket = _directory[bucket_idx];
-
-    uint32_t base = 0;
-    while (base < kBucketWords) {
-        svbool_t pg = svwhilelt_b32(base, (uint32_t)kBucketWords);
-        svuint32_t mask = make_mask(pg, base, hash);
-        svuint32_t data = svld1(pg, bucket + base);
-        data = svorr_u32_x(pg, data, mask);
-        svst1(pg, bucket + base, data);
-        base += svcntw();
-    }
-}
-
-bool BlockBloomFilter::bucket_find(uint32_t bucket_idx, uint32_t hash) const noexcept {
-    const uint32_t* bucket = _directory[bucket_idx];
-
-    uint32_t base = 0;
-    while (base < kBucketWords) {
-        svbool_t pg = svwhilelt_b32(base, (uint32_t)kBucketWords);
-        svuint32_t mask = make_mask(pg, base, hash);
-        svuint32_t data = svld1(pg, bucket + base);
-        data = svand_u32_x(pg, data, mask);
-        svbool_t zero = svcmpeq_n_u32(pg, data, 0U);
-        if (svptest_any(pg, zero)) {
-            return false;
-        }
-        base += svcntw();
-    }
-    return true;
-}
-#elif defined(__ARM_NEON)
+#ifdef __ARM_NEON
 void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t hash) noexcept {
     const uint32x4x2_t mask = make_mask(hash);
     uint32x4x2_t data = vld1q_u32_x2(&_directory[bucket_idx][0]);
@@ -240,10 +208,27 @@ Status BlockBloomFilter::or_equal_array(size_t n, const uint8_t* __restrict__ in
 
 void BlockBloomFilter::or_equal_array_no_avx2(size_t n, const uint8_t* __restrict__ in,
                                               uint8_t* __restrict__ out) {
-    // Let compiler do auto-vectorization.
+#if defined(__SSE4_2__) || defined(__aarch64__)
+    // The trivial loop out[i] |= in[i] should auto-vectorize with gcc at -O3, but it is not
+    // written in a way that is very friendly to auto-vectorization. Instead, we manually
+    // vectorize, increasing the speed by up to 56x.
+    const __m128i* simd_in = reinterpret_cast<const __m128i*>(in);
+    const __m128i* const simd_in_end = reinterpret_cast<const __m128i*>(in + n);
+    __m128i* simd_out = reinterpret_cast<__m128i*>(out);
+    // in.directory has a size (in bytes) that is a multiple of 32. Since sizeof(__m128i)
+    // == 16, we can do two _mm_or_si128's in each iteration without checking array
+    // bounds.
+    while (simd_in != simd_in_end) {
+        for (int i = 0; i < 2; ++i, ++simd_in, ++simd_out) {
+            _mm_storeu_si128(simd_out,
+                             _mm_or_si128(_mm_loadu_si128(simd_out), _mm_loadu_si128(simd_in)));
+        }
+    }
+#else
     for (int i = 0; i < n; ++i) {
         out[i] |= in[i];
     }
+#endif
 }
 
 Status BlockBloomFilter::merge(const BlockBloomFilter& other) {
