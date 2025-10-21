@@ -349,7 +349,8 @@ build_libevent() {
     CFLAGS="-std=c99 -D_BSD_SOURCE -fno-omit-frame-pointer -g -ggdb -O2 -I${TP_INCLUDE_DIR}" \
         CPPLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DEVENT__DISABLE_TESTS=ON \
+        "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DEVENT__DISABLE_TESTS=ON \
         -DEVENT__DISABLE_SAMPLES=ON -DEVENT__DISABLE_REGRESS=ON ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
@@ -440,7 +441,8 @@ build_protobuf() {
 
     CXXFLAGS="-O2 -I${TP_INCLUDE_DIR}" \
         LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release \
+        "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
         -Dprotobuf_USE_EXTERNAL_GTEST=ON \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
@@ -517,7 +519,8 @@ build_gtest() {
     cd "${BUILD_DIR}"
 
     rm -rf CMakeCache.txt CMakeFiles/
-    "${CMAKE_CMD}" ../ -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_POSITION_INDEPENDENT_CODE=On
+    "${CMAKE_CMD}" ../ -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+      -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_POSITION_INDEPENDENT_CODE=On
     # -DCMAKE_CXX_FLAGS="$warning_uninitialized"
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
@@ -535,7 +538,8 @@ build_rapidjson() {
 
     rm -rf CMakeCache.txt CMakeFiles/
 
-    "${CMAKE_CMD}" ../ -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DRAPIDJSON_BUILD_DOC=OFF \
+    "${CMAKE_CMD}" ../ -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DRAPIDJSON_BUILD_DOC=OFF \
         -DRAPIDJSON_BUILD_EXAMPLES=OFF -DRAPIDJSON_BUILD_TESTS=OFF
 
     make -j "${PARALLEL}"
@@ -553,6 +557,7 @@ build_snappy() {
     rm -rf CMakeCache.txt CMakeFiles/
 
     CFLAGS="-O3" CXXFLAGS="-O3" "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DCMAKE_INSTALL_INCLUDEDIR="${TP_INCLUDE_DIR}"/snappy \
         -DSNAPPY_BUILD_TESTS=0 ../
@@ -629,7 +634,8 @@ build_zstd() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_TESTING=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_BUILD_STATIC=ON \
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DBUILD_TESTING=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_BUILD_STATIC=ON \
         -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_SHARED=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
@@ -693,7 +699,8 @@ build_re2() {
     check_if_source_exist "${RE2_SOURCE}"
     cd "${TP_SOURCE_DIR}/${RE2_SOURCE}"
 
-    "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_BUILD_TYPE=Release -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
     strip_lib libre2.a
@@ -724,7 +731,8 @@ build_hyperscan() {
     cd "${BUILD_DIR}"
 
     CXXFLAGS="-D_HAS_AUTO_PTR_ETC=0" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DBOOST_ROOT="${TP_INSTALL_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_EXAMPLES=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
     strip_lib libhs.a
@@ -774,7 +782,8 @@ build_mysql() {
     fi
 
     CFLAGS="${cflags}" CXXFLAGS="${cxxflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" ../ -DCMAKE_LINK_SEARCH_END_STATIC=1 \
+        "${CMAKE_CMD}" -G "${GENERATOR}" ../ -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_LINK_SEARCH_END_STATIC=1 \
         -DWITH_BOOST="$(pwd)/${BOOST_SOURCE}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}/mysql" \
         -DWITHOUT_SERVER=1 -DWITH_ZLIB=1 -DZLIB_ROOT="${TP_INSTALL_DIR}" \
         -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g -fabi-version=2 -fno-omit-frame-pointer -fno-strict-aliasing -std=gnu++11" \
@@ -805,7 +814,8 @@ build_leveldb() {
 
     rm -rf CMakeCache.txt CMakeFiles/
 
-    CXXFLAGS="-fPIC" "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DLEVELDB_BUILD_BENCHMARKS=OFF \
+    CXXFLAGS="-fPIC" "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DLEVELDB_BUILD_BENCHMARKS=OFF \
         -DLEVELDB_BUILD_TESTS=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
     strip_lib libleveldb.a
@@ -840,6 +850,7 @@ build_brpc() {
     # glog must be enabled, otherwise error: `flag 'v' was defined more than once` (in files 'glog-0.6.0/src/vlog_is_on.cc' and 'brpc-1.6.0/src/butil/logging.cc')
     LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=ON -DWITH_GLOG=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \
         -DBUILD_BRPC_TOOLS=OFF \
         -DPROTOBUF_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" ..
@@ -953,6 +964,7 @@ build_flatbuffers() {
 
     LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DFLATBUFFERS_CXX_FLAGS="${warning_class_memaccess} ${warning_unused_but_set_variable}" \
         -DFLATBUFFERS_BUILD_TESTS=OFF \
         ..
@@ -1048,7 +1060,8 @@ build_arrow() {
     fi
 
     LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
+        "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
         -DARROW_BUILD_STATIC=ON -DARROW_WITH_BROTLI=ON -DARROW_WITH_LZ4=ON -DARROW_USE_GLOG=ON \
         -DARROW_WITH_SNAPPY=ON -DARROW_WITH_ZLIB=ON -DARROW_WITH_ZSTD=ON -DARROW_JSON=ON \
         -DARROW_WITH_UTF8PROC=OFF -DARROW_WITH_RE2=ON -DARROW_ORC=ON \
@@ -1107,7 +1120,8 @@ build_abseil() {
     cd "${TP_SOURCE_DIR}/${ABSEIL_SOURCE}"
 
     LDFLAGS="-L${TP_LIB_DIR}" \
-        "${CMAKE_CMD}" -B "${BUILD_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -B "${BUILD_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DABSL_ENABLE_INSTALL=ON \
         -DBUILD_DEPS=ON \
         -DCMAKE_BUILD_TYPE=Release \
@@ -1130,7 +1144,8 @@ build_s2() {
     rm -rf CMakeCache.txt CMakeFiles/
 
     LDFLAGS="-L${TP_LIB_DIR}" \
-        ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        ${CMAKE_CMD} -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -G "${GENERATOR}" -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
         -DBUILD_SHARED_LIBS=OFF \
         -DWITH_GFLAGS=ON \
@@ -1242,7 +1257,8 @@ build_croaringbitmap() {
 
     CXXFLAGS="-O3" \
         LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" ${avx_flag:+${avx_flag}} -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -G "${GENERATOR}" ${avx_flag:+${avx_flag}} -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DENABLE_ROARING_TESTS=OFF ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
@@ -1259,7 +1275,8 @@ build_fmt() {
 
     rm -rf CMakeCache.txt CMakeFiles/
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=FALSE -DFMT_TEST=OFF -DFMT_DOC=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
+    "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+     -G "${GENERATOR}" -DBUILD_SHARED_LIBS=FALSE -DFMT_TEST=OFF -DFMT_DOC=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
     "${BUILD_SYSTEM}" -j"${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -1297,6 +1314,7 @@ build_orc() {
 
     CXXFLAGS="-O3 -Wno-array-bounds ${warning_reserved_identifier} ${warning_suggest_override}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" ../ -DBUILD_JAVA=OFF \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DPROTOBUF_HOME="${TP_INSTALL_DIR}" \
         -DSNAPPY_HOME="${TP_INSTALL_DIR}" \
         -DLZ4_HOME="${TP_INSTALL_DIR}" \
@@ -1324,7 +1342,8 @@ build_cctz() {
 
     rm -rf CMakeCache.txt CMakeFiles/
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_TESTING=OFF ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_TESTING=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
 }
 
@@ -1363,6 +1382,7 @@ build_aws_sdk() {
 
     # -Wno-nonnull gcc-11
     "${CMAKE_CMD}" -G "${GENERATOR}" -B"${BUILD_DIR}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
         -DBUILD_ONLY="core;s3;s3-crt;transfer;identity-management;sts" \
@@ -1617,6 +1637,7 @@ build_simdjson() {
 
     CXXFLAGS="-O3" CFLAGS="-O3" \
         "${CMAKE_CMD}" -DSIMDJSON_EXCEPTIONS=OFF \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DSIMDJSON_DEVELOPER_MODE=OFF -DSIMDJSON_BUILD_STATIC=ON \
         -DSIMDJSON_JUST_LIBRARY=ON -DSIMDJSON_ENABLE_THREADS=ON ..
     "${CMAKE_CMD}" --build . --config Release
@@ -1633,7 +1654,8 @@ build_nlohmann_json() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DJSON_BuildTests=OFF ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DJSON_BuildTests=OFF ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -1753,7 +1775,8 @@ build_libdeflate() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -1767,7 +1790,8 @@ build_streamvbyte() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -1779,7 +1803,8 @@ build_jsoncpp() {
     rm -rf "${BUILD_DIR}"
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DJSONCPP_WITH_TESTS=OFF -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DJSONCPP_WITH_TESTS=OFF -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -1806,7 +1831,8 @@ build_ali_sdk() {
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         CXXFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_PRODUCT=core -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DBUILD_PRODUCT=core -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DTP_INSTALL_DIR="${TP_INSTALL_DIR}" ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -1821,7 +1847,8 @@ build_base64() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
     MACHINE_TYPE="$(uname -m)"
     if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
         CFLAGS="--target=aarch64-linux-gnu -march=armv8-a+crc" NEON64_CFLAGS=" "
@@ -1849,7 +1876,8 @@ build_azure() {
         AZURE_PORTS="vcpkg-custom-ports"
         AZURE_MANIFEST_DIR="."
 
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized" -DDISABLE_RUST_IN_BUILD=ON -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized" -DDISABLE_RUST_IN_BUILD=ON -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
         "${BUILD_SYSTEM}" -j "${PARALLEL}"
         "${BUILD_SYSTEM}" install
     fi
@@ -1864,7 +1892,8 @@ build_dragonbox() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DDRAGONBOX_INSTALL_TO_CHARS=ON ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DDRAGONBOX_INSTALL_TO_CHARS=ON ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -1909,7 +1938,8 @@ build_pugixml() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+    -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 
