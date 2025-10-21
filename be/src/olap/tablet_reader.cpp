@@ -272,6 +272,9 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.vir_col_idx_to_type = read_params.vir_col_idx_to_type;
     _reader_context.ann_topn_runtime = read_params.ann_topn_runtime;
 
+    _reader_context.all_access_paths = read_params.all_access_paths;
+    _reader_context.predicate_access_paths = read_params.predicate_access_paths;
+
     return Status::OK();
 }
 

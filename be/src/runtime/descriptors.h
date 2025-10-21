@@ -82,6 +82,9 @@ public:
     bool is_key() const { return _is_key; }
     const std::vector<std::string>& column_paths() const { return _column_paths; };
 
+    const TColumnAccessPaths& all_access_paths() const { return _all_access_paths; }
+    const TColumnAccessPaths& predicate_access_paths() const { return _predicate_access_paths; }
+
     bool is_auto_increment() const { return _is_auto_increment; }
 
     bool is_skip_bitmap_col() const { return _col_name == SKIP_BITMAP_COL; }
@@ -127,6 +130,9 @@ private:
 
     const bool _is_key;
     const std::vector<std::string> _column_paths;
+
+    const TColumnAccessPaths _all_access_paths;
+    const TColumnAccessPaths _predicate_access_paths;
 
     const bool _is_auto_increment;
     const std::string _col_default_value;
