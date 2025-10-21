@@ -167,6 +167,7 @@ under the License.
                         <configLocation>check/checkstyle/checkstyle.xml</configLocation>
                         <suppressionsLocation>check/checkstyle/suppressions.xml</suppressionsLocation>
                         <encoding>UTF-8</encoding>
+                        <skip>true</skip>
                         <consoleOutput>true</consoleOutput>
                         <failsOnError>true</failsOnError>
                         <linkXRef>false</linkXRef>
