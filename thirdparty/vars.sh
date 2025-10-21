@@ -222,10 +222,10 @@ LIBRDKAFKA_SOURCE=librdkafka-1.9.2
 LIBRDKAFKA_MD5SUM="fe9624e905abbf8324b0f6be520d9c24"
 
 # zstd
-ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.5/zstd-1.5.5.tar.gz"
-ZSTD_NAME=zstd-1.5.5.tar.gz
-ZSTD_SOURCE=zstd-1.5.5
-ZSTD_MD5SUM="63251602329a106220e0a5ad26ba656f"
+ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"
+ZSTD_NAME=zstd-1.5.7.tar.gz
+ZSTD_SOURCE=zstd-1.5.7
+ZSTD_MD5SUM="780fc1896922b1bc52a4e90980cdda48"
 
 # brotli
 BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v1.0.9.tar.gz"
