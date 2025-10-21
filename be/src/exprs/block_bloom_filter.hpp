@@ -23,6 +23,7 @@
 #include "vec/common/string_ref.h"
 #ifdef __AVX2__
 #include <immintrin.h>
+#elif defined(__ARM_NEON)
 #include <arm_neon.h>
 #endif
 
@@ -247,34 +248,16 @@ private:
         // Multiply-shift hashing ala Dietzfelbinger et al.: multiply 'hash' by eight different
         // odd constants, then keep the 5 most significant bits from each product.
         int32x4x2_t t;
-        t.val[0] = vreinterpretq_s32_u32(vshrq_n_u32(vmulq_u32(rehash.val[0], hash_data), shift_num));
-        t.val[1] = vreinterpretq_s32_u32(vshrq_n_u32(vmulq_u32(rehash.val[1], hash_data), shift_num));
+        t.val[0] = 
+                vreinterpretq_s32_u32(vshrq_n_u32(vmulq_u32(rehash.val[0], hash_data), shift_num));
+        t.val[1] = 
+                vreinterpretq_s32_u32(vshrq_n_u32(vmulq_u32(rehash.val[1], hash_data), shift_num));
 
         // Use these 5 bits to shift a single bit to a location in each 32-bit lane
         uint32x4x2_t res;
         res.val[0] = vshlq_u32(ones, t.val[0]);
         res.val[1] = vshlq_u32(ones, t.val[1]);
         return res;
-    }
-
-    void make_find_mask(uint32_t key, uint32x4_t* masks) const noexcept {
-        const uint32x4_t ones = vdupq_n_u32(1);
-        uint32x4_t rehash_1 = vld1q_u32(&kRehash[0]);
-        uint32x4_t rehash_2 = vld1q_u32(&kRehash[4]);
-        uint32x4_t hash_data_1 = vdupq_n_u32(key);
-        uint32x4_t hash_data_2 = vdupq_n_u32(key);
-
-        //  masks[i] = key * kRehash[i];
-        hash_data_1 = vmulq_u32(rehash_1, hash_data_1);
-        hash_data_2 = vmulq_u32(rehash_2, hash_data_2);
-        //  masks[i] = masks[i] >> shift_num;
-        hash_data_1 = vshrq_n_u32(hash_data_1, shift_num);
-        hash_data_2 = vshrq_n_u32(hash_data_2, shift_num);
-
-
-        // masks[i] = 0x1 << masks[i];
-        masks[0] = vshlq_u32(ones, reinterpret_cast<int32x4_t>(hash_data_1));
-        masks[1] = vshlq_u32(ones, reinterpret_cast<int32x4_t>(hash_data_2));
     }
 #else
     static inline ALWAYS_INLINE void make_mask(uint32_t hash, uint32_t* masks) noexcept {

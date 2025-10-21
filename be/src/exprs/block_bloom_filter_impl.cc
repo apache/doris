@@ -25,10 +25,10 @@
 #include <algorithm>
 #include <climits> // IWYU pragma: keep
 #include <cmath>   // IWYU pragma: keep
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <cstddef>
 
 #include "common/status.h"
 #include "exprs/block_bloom_filter.hpp"
