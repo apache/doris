@@ -178,6 +178,7 @@ Status FileBlock::change_cache_type_between_ttl_and_others(FileCacheType new_typ
     DCHECK(expr);
 
     // change cache type between TTL to others don't need to rename the filename suffix
+    //TODO(zhengyu): now we need to update meta store
     _key.meta.type = new_type;
     return Status::OK();
 }

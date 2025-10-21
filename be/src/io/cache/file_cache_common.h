@@ -59,6 +59,11 @@ struct UInt128Wrapper {
 
     uint64_t high() const { return static_cast<uint64_t>(value_ >> 64); }
     uint64_t low() const { return static_cast<uint64_t>(value_); }
+
+    friend std::ostream& operator<<(std::ostream& os, const UInt128Wrapper& wrapper) {
+        os << "UInt128Wrapper(" << wrapper.high() << ", " << wrapper.low() << ")";
+        return os;
+    }
 };
 
 struct ReadStatistics {

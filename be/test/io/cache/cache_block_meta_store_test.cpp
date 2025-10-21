@@ -39,9 +39,6 @@ protected:
         std::filesystem::create_directories(test_db_path_);
 
         meta_store_ = std::make_unique<CacheBlockMetaStore>(test_db_path_.string());
-        auto status = meta_store_->init();
-        ASSERT_TRUE(status.ok()) << "Failed to initialize CacheBlockMetaStore: "
-                                 << status.to_string();
     }
 
     void TearDown() override {
