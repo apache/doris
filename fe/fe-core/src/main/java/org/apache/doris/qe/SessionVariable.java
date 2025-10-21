@@ -2275,10 +2275,6 @@ public class SessionVariable implements Serializable, Writable {
             "Make the READ_SLICE_SIZE variable configurable to reduce the impact caused by read amplification."})
     public int mergeReadSliceSize = 8388608;
 
-    public void setAggPhase(int phase) {
-        aggPhase = phase;
-    }
-
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
         if (ignoreRuntimeFilterIds.isEmpty()) {
