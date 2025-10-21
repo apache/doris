@@ -59,6 +59,7 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
 
         /// This will also prevent possible overflow in offset.
         if (keys_column->size() != last_offset) {
+            DCHECK(0);
             throw doris::Exception(
                     doris::ErrorCode::INTERNAL_ERROR,
                     "offsets_column size {} has data inconsistent with key_column {}", last_offset,

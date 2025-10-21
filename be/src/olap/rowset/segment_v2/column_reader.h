@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <sys/types.h>
 
@@ -271,7 +272,6 @@ private:
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges,
                                  const ColumnIteratorOptions& iter_opts);
 
-private:
     int64_t _meta_length;
     FieldType _meta_type;
     FieldType _meta_children_column_type;
@@ -366,8 +366,26 @@ public:
 
     virtual bool is_all_dict_encoding() const { return false; }
 
+    virtual Status set_access_paths(const TColumnAccessPaths& all_access_paths,
+                                    const TColumnAccessPaths& predicate_access_paths) {
+        if (!predicate_access_paths.name_access_paths.empty()) {
+            _reading_flag = ReadingFlag::READING_FOR_PREDICATE;
+        }
+        return Status::OK();
+    }
+
+    void set_column_name(const std::string& column_name) { _column_name = column_name; }
+
+    const std::string& column_name() const { return _column_name; }
+
+    enum class ReadingFlag { NORMAL_READING, READING_FOR_PREDICATE, SKIP_READING };
+    void set_reading_flag(ReadingFlag flag) { _reading_flag = flag; }
+
 protected:
     ColumnIteratorOptions _opts;
+
+    ReadingFlag _reading_flag {ReadingFlag::NORMAL_READING};
+    std::string _column_name;
 };
 
 // This iterator is used to read column data from file
@@ -504,6 +522,9 @@ public:
         return _offsets_iterator->get_current_ordinal();
     }
 
+    Status set_access_paths(const TColumnAccessPaths& all_access_paths,
+                            const TColumnAccessPaths& predicate_access_paths) override;
+
 private:
     std::shared_ptr<ColumnReader> _map_reader = nullptr;
     ColumnIteratorUPtr _null_iterator;
@@ -533,6 +554,9 @@ public:
         return _sub_column_iterators[0]->get_current_ordinal();
     }
 
+    Status set_access_paths(const TColumnAccessPaths& all_access_paths,
+                            const TColumnAccessPaths& predicate_access_paths) override;
+
 private:
     std::shared_ptr<ColumnReader> _struct_reader = nullptr;
     ColumnIteratorUPtr _null_iterator;
@@ -560,6 +584,9 @@ public:
     ordinal_t get_current_ordinal() const override {
         return _offset_iterator->get_current_ordinal();
     }
+
+    Status set_access_paths(const TColumnAccessPaths& all_access_paths,
+                            const TColumnAccessPaths& predicate_access_paths) override;
 
 private:
     std::shared_ptr<ColumnReader> _array_reader = nullptr;
