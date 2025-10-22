@@ -1665,6 +1665,8 @@ DECLARE_mString(aws_credentials_provider_version);
 
 DECLARE_mString(binary_plain_encoding_default_impl);
 
+DECLARE_mBool(enable_fuzzy_storage_encoding);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
