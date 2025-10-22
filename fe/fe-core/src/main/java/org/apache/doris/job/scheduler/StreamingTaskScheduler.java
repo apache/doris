@@ -41,8 +41,8 @@ import java.util.concurrent.TimeUnit;
 @Log4j2
 public class StreamingTaskScheduler extends MasterDaemon {
     private final ThreadPoolExecutor threadPool = new ThreadPoolExecutor(
-                    0,
-                    Config.max_streaming_job_num,
+                    Config.job_streaming_task_exec_thread_num,
+                    Config.job_streaming_task_exec_thread_num,
                     60,
                     TimeUnit.SECONDS,
                     new ArrayBlockingQueue<>(Config.max_streaming_job_num),
@@ -120,9 +120,11 @@ public class StreamingTaskScheduler extends MasterDaemon {
         log.info("prepare to schedule task, task id: {}, job id: {}", task.getTaskId(), task.getJobId());
         job.setLastScheduleTaskTimestamp(System.currentTimeMillis());
         Env.getCurrentEnv().getJobManager().getStreamingTaskManager().addRunningTask(task);
-
+        long start = System.currentTimeMillis();
         try {
             task.execute();
+            log.info("Finished executing task, task id: {}, job id: {}, cost {}ms",
+                    task.getTaskId(), task.getJobId(), System.currentTimeMillis() - start);
         } catch (Exception e) {
             log.error("Failed to execute task, task id: {}, job id: {}", task.getTaskId(), task.getJobId(), e);
         }
