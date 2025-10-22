@@ -34,6 +34,14 @@ enum class FieldType;
 
 namespace segment_v2 {
 
+namespace {
+bool is_integer_type(FieldType type) {
+    return type == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+           type == FieldType::OLAP_FIELD_TYPE_SMALLINT || type == FieldType::OLAP_FIELD_TYPE_INT ||
+           type == FieldType::OLAP_FIELD_TYPE_BIGINT || type == FieldType::OLAP_FIELD_TYPE_LARGEINT;
+}
+} // namespace
+
 class PageBuilder;
 class PageDecoder;
 struct PageBuilderOptions;
@@ -114,6 +122,12 @@ public:
                 _encoding_map.contains(std::make_pair(type, PLAIN_ENCODING_V2))) {
                 return PLAIN_ENCODING_V2;
             }
+
+            if (is_integer_type(type) && config::integer_type_default_use_plain_encoding &&
+                _encoding_map.contains(std::make_pair(type, PLAIN_ENCODING))) {
+                return PLAIN_ENCODING;
+            }
+
             return encoding;
         }
         return UNKNOWN_ENCODING;
