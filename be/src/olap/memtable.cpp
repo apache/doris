@@ -481,7 +481,7 @@ void MemTable::_clear_row_agg(RowInBlock* row) {
         row->remove_init_agg();
     }
 }
-// only in to_block the is_final will be true, in other cases, it will be false
+// only in `to_block` the `is_final` flag will be true, in other cases, it will be false
 template <bool is_final, bool has_skip_bitmap_col>
 void MemTable::_aggregate() {
     SCOPED_RAW_TIMER(&_stat.agg_ns);
