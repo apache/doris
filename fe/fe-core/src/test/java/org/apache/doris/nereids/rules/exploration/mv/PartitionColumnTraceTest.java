@@ -1027,7 +1027,9 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("L_SHIPDATE", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfo, "");
+                            successWith(relatedTableInfo, ImmutableSet.of(ImmutableList.of("lineitem", "l_shipdate", "true", "true"),
+                                            ImmutableList.of("orders", "o_orderdate", "true", "true")),
+                                    "");
                         });
     }
 
@@ -1098,6 +1100,27 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                                             ImmutableList.of("lineitem", "l_shipdate", "true", "true"),
                                             ImmutableList.of("orders", "o_orderdate", "true", "true")),
                                     null);
+                        });
+    }
+
+
+    // test with union but not union all
+    @Test
+    public void test41() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select L_SHIPDATE, L_COMMITDATE\n"
+                                + "from\n"
+                                + "lineitem\n"
+                                + "union\n"
+                                + "select O_ORDERDATE, O_ORDERDATE_NOT\n"
+                                + "from\n"
+                                + "orders;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfos("L_SHIPDATE", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            failWith(relatedTableInfo, "");
                         });
     }
 
