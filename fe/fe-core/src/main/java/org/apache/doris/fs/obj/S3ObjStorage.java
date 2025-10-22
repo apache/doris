@@ -188,7 +188,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return Status.OK;
     }
 
-    private Path toPath(String schemaAndBucket, String key) {
+    protected static Path toPath(String schemaAndBucket, String key) {
         // Ensure inputs are not null
         if (schemaAndBucket == null) {
             schemaAndBucket = "";
