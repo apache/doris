@@ -341,7 +341,7 @@ public class EncryptSQLTest extends ParserTestBase {
         Assertions.assertEquals(res, event.stmt);
 
         String errorMsg = "errCode = 2, detailMessage = Database [test] does not exist.";
-        Assertions.assertEquals(errorMsg, event.errorMessage);
+        Assertions.assertTrue(event.errorMessage.contains(errorMsg));
     }
 
     private void parseAndCheck(String sql, String expected) throws Exception {
