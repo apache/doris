@@ -112,7 +112,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             Type keyType = columns.get(i).getType();
             // If column type is datatime and key type is date, we should convert date to datetime.
             // if it's max value, no need to parse.
-            if (!keys.get(i).isMax() && (keyType.isDatetime() || keyType.isDatetimeV2())) {
+            if (!keys.get(i).isMax() && (keyType.isDatetime() || keyType.isDatetimeV2() || keyType.isTimeStampTz())) {
                 Literal dateTimeLiteral = getDateTimeLiteral(keys.get(i).getStringValue(), keyType);
                 partitionKey.keys.add(dateTimeLiteral.toLegacyLiteral());
             } else {
@@ -134,7 +134,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     private static Literal getDateTimeLiteral(String value, Type type) throws AnalysisException {
         if (type.isDatetime()) {
             return new DateTimeLiteral(value);
-        } else if (type.isDatetimeV2()) {
+        } else if (type.isDatetimeV2() || type.isTimeStampTz()) {
             return new DateTimeV2Literal(value);
         }
         throw new AnalysisException("date convert to datetime failed, "
