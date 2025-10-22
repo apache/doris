@@ -35,6 +35,7 @@ import java.util.Set;
 public class InvertedIndexUtil {
 
     public static String INVERTED_INDEX_PARSER_KEY = "parser";
+    public static String INVERTED_INDEX_PARSER_KEY_ALIAS = "built_in_analyzer";
     public static String INVERTED_INDEX_PARSER_UNKNOWN = "unknown";
     public static String INVERTED_INDEX_PARSER_NONE = "none";
     public static String INVERTED_INDEX_PARSER_STANDARD = "standard";
@@ -72,9 +73,25 @@ public class InvertedIndexUtil {
     public static String INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY = "field_pattern";
 
     public static String getInvertedIndexParser(Map<String, String> properties) {
-        String parser = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_KEY);
-        // default is "none" if not set
+        if (properties == null) {
+            return INVERTED_INDEX_PARSER_NONE;
+        }
+        String parser = properties.get(INVERTED_INDEX_PARSER_KEY);
+        if (parser == null) {
+            parser = properties.get(INVERTED_INDEX_PARSER_KEY_ALIAS);
+        }
         return parser != null ? parser : INVERTED_INDEX_PARSER_NONE;
+    }
+
+    public static String getInvertedIndexParserMode(Map<String, String> properties) {
+        String mode = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_MODE_KEY);
+        String parser = properties.get(INVERTED_INDEX_PARSER_KEY);
+        if (parser == null) {
+            parser = properties.get(INVERTED_INDEX_PARSER_KEY_ALIAS);
+        }
+        return mode != null ? mode :
+            INVERTED_INDEX_PARSER_IK.equals(parser) ? INVERTED_INDEX_PARSER_SMART :
+                INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
     }
 
     public static String getInvertedIndexFieldPattern(Map<String, String> properties) {
@@ -91,15 +108,6 @@ public class InvertedIndexUtil {
     public static String getCustomAnalyzer(Map<String, String> properties) {
         String customAnalyzer = properties == null ? null : properties.get(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
         return customAnalyzer != null ? customAnalyzer : "";
-    }
-
-    public static String getInvertedIndexParserMode(Map<String, String> properties) {
-        String mode = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_MODE_KEY);
-        // default is "none" if not set
-        String parser = properties.get(INVERTED_INDEX_PARSER_KEY);
-        return mode != null ? mode :
-            INVERTED_INDEX_PARSER_IK.equals(parser) ? INVERTED_INDEX_PARSER_SMART :
-                INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
     }
 
     public static Map<String, String> getInvertedIndexCharFilter(Map<String, String> properties) {
@@ -161,7 +169,9 @@ public class InvertedIndexUtil {
         String analyzer = null;
         if (properties != null) {
             parser = properties.get(INVERTED_INDEX_PARSER_KEY);
-            analyzer = properties.get(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
+            if (parser == null) {
+                parser = properties.get(INVERTED_INDEX_PARSER_KEY_ALIAS);
+            }
             checkInvertedIndexProperties(properties, colType, invertedIndexFileStorageFormat);
         }
 
@@ -199,6 +209,7 @@ public class InvertedIndexUtil {
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
         Set<String> allowedKeys = new HashSet<>(Arrays.asList(
                 INVERTED_INDEX_PARSER_KEY,
+                INVERTED_INDEX_PARSER_KEY_ALIAS,
                 INVERTED_INDEX_PARSER_MODE_KEY,
                 INVERTED_INDEX_SUPPORT_PHRASE_KEY,
                 INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE,
@@ -219,6 +230,9 @@ public class InvertedIndexUtil {
         }
 
         String parser = properties.get(INVERTED_INDEX_PARSER_KEY);
+        if (parser == null) {
+            parser = properties.get(INVERTED_INDEX_PARSER_KEY_ALIAS);
+        }
         String parserMode = properties.get(INVERTED_INDEX_PARSER_MODE_KEY);
         String supportPhrase = properties.get(INVERTED_INDEX_SUPPORT_PHRASE_KEY);
         String charFilterType = properties.get(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE);

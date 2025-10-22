@@ -17,32 +17,28 @@
 
 #pragma once
 
-#include <unicode/utext.h>
+#include "icu_tokenizer_config.h"
 
-#include "CLucene.h"
-#include "CLucene/analysis/AnalysisHeader.h"
-#include "olap/rowset/segment_v2/inverted_index/analyzer/icu/icu_common.h"
+namespace doris::segment_v2::inverted_index {
 
-using namespace lucene::analysis;
-
-namespace doris::segment_v2 {
-
-class BasicTokenizer : public Tokenizer {
+class DefaultICUTokenizerConfig : public ICUTokenizerConfig {
 public:
-    BasicTokenizer();
-    BasicTokenizer(bool lowercase, bool ownReader);
-    ~BasicTokenizer() override = default;
+    DefaultICUTokenizerConfig(bool cjkAsWords, bool myanmarAsWords);
+    ~DefaultICUTokenizerConfig() override = default;
 
-    Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
-
-    void cut();
+    void initialize(const std::string& dictPath) override;
+    bool combine_cj() override { return cjk_as_words_; }
+    icu::BreakIterator* get_break_iterator(int32_t script) override;
 
 private:
-    int32_t _buffer_index = 0;
-    int32_t _data_len = 0;
-    std::string _buffer;
-    std::vector<std::string_view> _tokens_text;
+    static void read_break_iterator(BreakIteratorPtr& rbbi, const std::string& filename);
+
+    static BreakIteratorPtr cjk_break_iterator_;
+    static BreakIteratorPtr default_break_iterator_;
+    static BreakIteratorPtr myanmar_syllable_iterator_;
+
+    bool cjk_as_words_ = false;
+    bool myanmar_as_words_ = false;
 };
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index

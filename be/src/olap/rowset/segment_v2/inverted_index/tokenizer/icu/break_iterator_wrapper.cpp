@@ -25,7 +25,7 @@
 #include "icu_common.h"
 #include "icu_tokenizer_config.h"
 
-namespace doris::segment_v2 {
+namespace doris::segment_v2::inverted_index {
 
 icu::UnicodeSet BreakIteratorWrapper::EMOJI_RK;
 icu::UnicodeSet BreakIteratorWrapper::EMOJI;
@@ -104,4 +104,4 @@ void BreakIteratorWrapper::set_text(const UChar* text, int32_t start, int32_t le
     status_ = UBRK_WORD_NONE;
 }
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index

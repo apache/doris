@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateIndexAnalyzerCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateIndexCharFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateIndexTokenFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateIndexTokenizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropIndexAnalyzerCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropIndexCharFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropIndexTokenFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropIndexTokenizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
@@ -59,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexAnalyzerCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowIndexCharFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
@@ -246,6 +249,11 @@ public interface CommandVisitor<R, C> {
         return visitCommand(createIndexAnalyzerCommand, context);
     }
 
+    default R visitCreateIndexCharFilterCommand(
+            CreateIndexCharFilterCommand createIndexCharFilterCommand, C context) {
+        return visitCommand(createIndexCharFilterCommand, context);
+    }
+
     default R visitCreateIndexTokenizerCommand(
             CreateIndexTokenizerCommand createIndexTokenizerCommand, C context) {
         return visitCommand(createIndexTokenizerCommand, context);
@@ -261,6 +269,11 @@ public interface CommandVisitor<R, C> {
         return visitCommand(dropIndexAnalyzerCommand, context);
     }
 
+    default R visitDropIndexCharFilterCommand(
+            DropIndexCharFilterCommand dropIndexCharFilterCommand, C context) {
+        return visitCommand(dropIndexCharFilterCommand, context);
+    }
+
     default R visitDropIndexTokenizerCommand(
             DropIndexTokenizerCommand dropIndexTokenizerCommand, C context) {
         return visitCommand(dropIndexTokenizerCommand, context);
@@ -274,6 +287,11 @@ public interface CommandVisitor<R, C> {
     default R visitShowIndexAnalyzerCommand(
             ShowIndexAnalyzerCommand showIndexAnalyzerCommand, C context) {
         return visitCommand(showIndexAnalyzerCommand, context);
+    }
+
+    default R visitShowIndexCharFilterCommand(
+            ShowIndexCharFilterCommand showIndexCharFilterCommand, C context) {
+        return visitCommand(showIndexCharFilterCommand, context);
     }
 
     default R visitShowIndexTokenizerCommand(

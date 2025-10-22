@@ -24,20 +24,22 @@ import com.google.common.collect.ImmutableSet;
 import java.util.Map;
 import java.util.Set;
 
-public class KeywordTokenizerValidator extends BasePolicyValidator {
+public class NoOperationValidator extends BasePolicyValidator {
     private static final Set<String> ALLOWED_PROPS = ImmutableSet.of("type");
+    private final String typeName;
 
-    public KeywordTokenizerValidator() {
+    public NoOperationValidator(String typeName) {
         super(ALLOWED_PROPS);
+        this.typeName = typeName;
     }
 
     @Override
     protected String getTypeName() {
-        return "keyword tokenizer";
+        return typeName;
     }
 
     @Override
     protected void validateSpecific(Map<String, String> props) throws DdlException {
-        // No parameters to validate
+        // No additional parameters to validate
     }
 }
