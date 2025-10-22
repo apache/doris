@@ -92,6 +92,26 @@ public class PruneNestedColumnTest extends TestWithFeService {
     @Test
     public void testProject() throws Exception {
         assertColumn("select 100 from tbl", null, null, null);
+        assertColumn("select * from tbl",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s")),
+                ImmutableList.of()
+        );
+        assertColumn("select tbl.* from tbl",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s")),
+                ImmutableList.of()
+        );
+        assertColumn("select test.tbl.* from tbl",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s")),
+                ImmutableList.of()
+        );
+        assertColumn("select internal.test.tbl.* from tbl",
+                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s")),
+                ImmutableList.of()
+        );
         assertColumn("select s from tbl",
                 "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s")),
