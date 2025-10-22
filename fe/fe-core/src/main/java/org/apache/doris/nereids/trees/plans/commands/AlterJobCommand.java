@@ -119,8 +119,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
     private void validateProps(StreamingInsertJob streamingJob) throws AnalysisException {
         StreamingJobProperties jobProperties = new StreamingJobProperties(properties);
         jobProperties.validate();
-        if (jobProperties.getInitOffset() != null) {
-            streamingJob.validateOffset(jobProperties.getInitOffset());
+        if (jobProperties.getOffsetProperty() != null) {
+            streamingJob.validateOffset(jobProperties.getOffsetProperty());
         }
     }
 

@@ -118,11 +118,6 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
-    public Offset getCurrentOffset() {
-        return currentOffset;
-    }
-
-    @Override
     public String getShowMaxOffset() {
         if (maxEndFile != null) {
             Map<String, String> res = new HashMap<>();
@@ -200,24 +195,24 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
      * {"fileName": 1.csv} => S3Offset(endFile=1.csv)
      */
     @Override
-    public Offset deserializeInitOffset(String offset) {
+    public Offset deserializeOffsetProperty(String offset) {
         if (StringUtils.isBlank(offset)) {
             return null;
         }
-        Map<String, String> initOffsetMap =
+        Map<String, String> offsetMap =
                 GsonUtils.GSON.fromJson(offset, new TypeToken<HashMap<String, String>>() {}.getType());
 
-        if (initOffsetMap == null || initOffsetMap.isEmpty()) {
+        if (offsetMap == null || offsetMap.isEmpty()) {
             return null;
         }
 
-        String fileName = initOffsetMap.get("fileName");
+        String fileName = offsetMap.get("fileName");
         if (StringUtils.isBlank(fileName)) {
             return null;
         }
 
-        S3Offset initOffset = new S3Offset();
-        initOffset.setEndFile(fileName);
-        return initOffset;
+        S3Offset s3Offset = new S3Offset();
+        s3Offset.setEndFile(fileName);
+        return s3Offset;
     }
 }

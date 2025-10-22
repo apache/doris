@@ -46,12 +46,6 @@ public interface SourceOffsetProvider {
     String getShowCurrentOffset();
 
     /**
-     * Get current offset to show
-     * @return
-     */
-    Offset getCurrentOffset();
-
-    /**
      * Get remote datasource max offset to show
      * @return
      */
@@ -88,10 +82,10 @@ public interface SourceOffsetProvider {
     Offset deserializeOffset(String offset);
 
     /**
-     * Deserialize init offset to Offset
+     * Deserialize offset property to Offset
      * @return
      */
-    Offset deserializeInitOffset(String offset);
+    Offset deserializeOffsetProperty(String offset);
 
 }
 
