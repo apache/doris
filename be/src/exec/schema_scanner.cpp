@@ -450,6 +450,11 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized:
         break;
     }
 
+    case TYPE_DOUBLE: {
+        reinterpret_cast<vectorized::ColumnFloat64*>(col_ptr)->insert_value(cell.doubleVal);
+        break;
+    }
+
     case TYPE_BOOLEAN: {
         reinterpret_cast<vectorized::ColumnUInt8*>(col_ptr)->insert_value(cell.boolVal);
         break;
