@@ -30,11 +30,10 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
-import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableCollection;
@@ -57,11 +56,17 @@ public class PushDownNestedColumn implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.PUSH_DOWN_NESTED_COLUMN_THROUGH_JOIN.build(
-                logicalProject(logicalJoin()).thenApply(this::pushThroughJoin)
+                logicalProject(logicalJoin()).thenApply(this::defaultPushDown)
             ),
             RuleType.PUSH_DOWN_NESTED_COLUMN_THROUGH_WINDOW.build(
-                logicalProject(logicalWindow()).thenApply(this::pushThroughWindow)
+                logicalProject(logicalWindow()).thenApply(this::defaultPushDown)
             ),
+            RuleType.PUSH_DOWN_NESTED_COLUMN_THROUGH_PARTITION_TOP_N.build(
+                logicalProject(logicalPartitionTopN()).thenApply(this::defaultPushDown)
+            ),
+            // RuleType.PUSH_DOWN_NESTED_COLUMN_THROUGH_DEFER_MATERIALIZE_TOP_N.build(
+            //     logicalProject(logicalDeferMaterializeTopN()).thenApply(this::defaultPushDown)
+            // ),
             RuleType.PUSH_DOWN_NESTED_COLUMN_THROUGH_UNION.build(
                 logicalProject(
                         logicalUnion().when(u -> u.getQualifier() == Qualifier.ALL)
@@ -70,30 +75,11 @@ public class PushDownNestedColumn implements RewriteRuleFactory {
         );
     }
 
-    private Plan pushThroughWindow(MatchingContext<LogicalProject<LogicalWindow<Plan>>> ctx) {
-        LogicalProject<LogicalWindow<Plan>> project = ctx.root;
-        LogicalWindow<Plan> window = project.child();
+    private <C extends LogicalPlan> Plan defaultPushDown(MatchingContext<LogicalProject<C>> ctx) {
+        LogicalProject<C> project = ctx.root;
+        C child = project.child();
         PushdownProjectHelper pushdownProjectHelper
-                = new PushdownProjectHelper(ctx.statementContext, window);
-
-        Pair<Boolean, List<NamedExpression>> pushProjects
-                = pushdownProjectHelper.pushDownExpressions(project.getProjects());
-
-        if (pushProjects.first) {
-            List<Plan> newWindowChildren = pushdownProjectHelper.buildNewChildren();
-            return new LogicalProject<>(
-                    pushProjects.second,
-                    window.withChildren(newWindowChildren)
-            );
-        }
-        return project;
-    }
-
-    private Plan pushThroughJoin(MatchingContext<LogicalProject<LogicalJoin<Plan, Plan>>> ctx) {
-        LogicalProject<LogicalJoin<Plan, Plan>> project = ctx.root;
-        LogicalJoin<Plan, Plan> join = project.child();
-        PushdownProjectHelper pushdownProjectHelper
-                = new PushdownProjectHelper(ctx.statementContext, join);
+                = new PushdownProjectHelper(ctx.statementContext, child);
 
         Pair<Boolean, List<NamedExpression>> pushProjects
                 = pushdownProjectHelper.pushDownExpressions(project.getProjects());
@@ -102,7 +88,7 @@ public class PushDownNestedColumn implements RewriteRuleFactory {
             List<Plan> newJoinChildren = pushdownProjectHelper.buildNewChildren();
             return new LogicalProject<>(
                     pushProjects.second,
-                    join.withChildren(newJoinChildren)
+                    child.withChildren(newJoinChildren)
             );
         }
         return project;
