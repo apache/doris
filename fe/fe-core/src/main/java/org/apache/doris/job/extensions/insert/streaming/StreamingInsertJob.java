@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TCell;
@@ -89,7 +90,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 @Log4j2
 public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, Map<Object, Object>> implements
         TxnStateChangeCallback, GsonPostProcessable {
-    private final long dbId;
+    private long dbId;
     private StreamingJobStatistic jobStatistic = new StreamingJobStatistic();
     @Getter
     @Setter
@@ -626,7 +627,25 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         succeedTaskCount.incrementAndGet();
     }
 
+    /**
+     * When restarting fe on cloud, dbId needs to be reset
+     */
+    private void resetDbId() {
+        if (this.dbId <= 0) {
+            ConnectContext ctx = null;
+            try {
+                ctx = ConnectContextUtil.getDummyCtx(getCurrentDbName());
+                this.dbId = ctx.getCurrentDbId();
+            } finally {
+                if (ctx != null) {
+                    ctx.cleanup();
+                }
+            }
+        }
+    }
+
     public void replayOnCloudMode() throws JobException {
+        resetDbId();
         Cloud.GetStreamingTaskCommitAttachRequest.Builder builder =
                 Cloud.GetStreamingTaskCommitAttachRequest.newBuilder();
         builder.setCloudUniqueId(Config.cloud_unique_id);
