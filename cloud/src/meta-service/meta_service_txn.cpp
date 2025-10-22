@@ -902,11 +902,11 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
     }
 }
 
-void MetaServiceImpl::reset_streaming_job_progress(::google::protobuf::RpcController* controller,
-                                                   const ResetStreamingJobProgressRequest* request,
-                                                   ResetStreamingJobProgressResponse* response,
+void MetaServiceImpl::reset_streaming_job_offset(::google::protobuf::RpcController* controller,
+                                                   const ResetStreamingJobOffsetRequest* request,
+                                                   ResetStreamingJobOffsetResponse* response,
                                                    ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(reset_streaming_job_progress, get, put, del);
+    RPC_PREPROCESS(reset_streaming_job_offset, get, put, del);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -914,7 +914,7 @@ void MetaServiceImpl::reset_streaming_job_progress(::google::protobuf::RpcContro
         LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
-    RPC_RATE_LIMIT(reset_streaming_job_progress)
+    RPC_RATE_LIMIT(reset_streaming_job_offset)
 
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -960,7 +960,7 @@ void MetaServiceImpl::reset_streaming_job_progress(::google::protobuf::RpcContro
         if (prev_existed) {
             if (!prev_job_info.ParseFromString(streaming_job_val)) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                ss << "failed to parse streaming job progress, db_id=" << db_id
+                ss << "failed to parse streaming job offset, db_id=" << db_id
                    << " job_id=" << job_id;
                 msg = ss.str();
                 return;
@@ -991,14 +991,16 @@ void MetaServiceImpl::reset_streaming_job_progress(::google::protobuf::RpcContro
         }
         
         txn->put(streaming_job_key_str, new_job_val);
-        LOG(INFO) << "put streaming_job_key key=" << hex(streaming_job_key_str)
-                  << " new offset: " << request->offset();
+        LOG(INFO) << "reset offset, put streaming_job_key key=" << hex(streaming_job_key_str)
+                  << " old meta: " << streaming_job_val
+                  << " new meta: " << new_job_val;
+
     }
 
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to commit streaming job progress, db_id=" << db_id 
+        ss << "failed to commit streaming job offset, db_id=" << db_id 
            << " job_id=" << job_id << " err=" << err;
         msg = ss.str();
         return;

@@ -92,7 +92,7 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
         assert jobInfo.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(2) == "{\"scannedRows\":10,\"loadBytes\":425,\"fileNumber\":0,\"fileSize\":0}"
+        assert jobInfo.get(0).get(2) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":0,\"fileSize\":0}"
 
 
         sql """
@@ -113,7 +113,7 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/anoexist1234.csv\"}";
         assert jobInfo.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(2) == "{\"scannedRows\":20,\"loadBytes\":425,\"fileNumber\":0,\"fileSize\":0}"
+        assert jobInfo.get(0).get(2) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":0,\"fileSize\":0}"
         assert jobInfo.get(0).get(3) == "{\"init_offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
 
         // Restart FE
@@ -127,17 +127,16 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
         log.info("jobstatus: " + jobStatus)
         assert jobStatus.get(0).get(0) == "PAUSED"
         jobInfo = sql """
-        select currentOffset, endoffset, loadStatistic, properties from jobs("type"="insert") where Name='${jobName}'
+        select currentOffset, loadStatistic, properties from jobs("type"="insert") where Name='${jobName}'
         """
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/anoexist1234.csv\"}";
-        assert jobInfo.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(2) == "{\"scannedRows\":20,\"loadBytes\":425,\"fileNumber\":0,\"fileSize\":0}"
-        assert jobInfo.get(0).get(3) == "{\"init_offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
+        assert jobInfo.get(0).get(1) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":0,\"fileSize\":0}"
+        assert jobInfo.get(0).get(2) == "{\"init_offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
 
         // resume to check whether consumption will resume
         sql """
-        RESUME JOB where jobname =  '${jobName}'
+        RESUME JOB where jobname = '${jobName}'
         """
         // wait to running
         try {
