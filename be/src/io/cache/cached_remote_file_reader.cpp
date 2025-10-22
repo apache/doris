@@ -341,6 +341,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                     }
                     size_t block_size = block->range().size();
                     stats.bytes_write_into_file_cache += block_size;
+                    block->_mgr->_async_fill_block_num.fetch_add(1);
                 }
             }
         }
@@ -463,6 +464,10 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                             << "Write data to file cache failed. err=" << st.msg();
                 } else {
                     _insert_file_reader(block);
+                }
+                block->_mgr->_async_fill_block_num.fetch_sub(1);
+                if (block->_mgr->_is_destructing && block->_mgr->_async_fill_block_num == 0) {
+                    block->_mgr->_cv.notify_one();
                 }
             }
         };
