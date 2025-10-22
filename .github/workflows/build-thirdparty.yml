@@ -132,7 +132,7 @@ jobs:
           export PATH="$(find /usr/lib/jvm/java-8-openjdk* -maxdepth 1 -type d -name 'bin'):${PATH}"
           export JAVA_HOME="$(find /usr/lib/jvm/java-8-openjdk* -maxdepth 0)"
           export DORIS_TOOLCHAIN=gcc
-          export CMAKE_POLICY_VERSION_MINIMUM=3.5
+          export CMAKE_POLICY_VERSION_MINIMUM=3.10
 
           cd thirdparty
           ./build-thirdparty.sh -j "$(nproc)"
@@ -191,7 +191,7 @@ jobs:
       - name: Build
         run: |
           export MACOSX_DEPLOYMENT_TARGET=12.0
-          export CMAKE_POLICY_VERSION_MINIMUM=3.5
+          export CMAKE_POLICY_VERSION_MINIMUM=3.10
 
           cd thirdparty
           ./build-thirdparty.sh -j "$(nproc)"
@@ -250,7 +250,7 @@ jobs:
       - name: Build
         run: |
           export MACOSX_DEPLOYMENT_TARGET=12.0
-          export CMAKE_POLICY_VERSION_MINIMUM=3.5
+          export CMAKE_POLICY_VERSION_MINIMUM=3.10
 
           cd thirdparty
           ./build-thirdparty.sh -j "$(nproc)"
