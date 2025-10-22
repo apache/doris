@@ -272,8 +272,9 @@ check_if_source_exist() {
     fi
 
     if [[ ! -d "${TP_SOURCE_DIR}/$1" ]]; then
-        echo "${TP_SOURCE_DIR}/$1 does not exist."
-        ls "${TP_SOURCE_DIR}"
+        echo "${TP_SOURCE_DIR}/$1 does not exist yet."
+        res=`ls "${TP_SOURCE_DIR}"`
+        echo "${res}"
         exit 1
     fi
     echo "===== begin build $1"
