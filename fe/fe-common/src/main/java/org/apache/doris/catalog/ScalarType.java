@@ -147,7 +147,7 @@ public class ScalarType extends Type {
             case TIMEV2:
                 return createTimeV2Type(scale);
             case TIMESTAMPTZ:
-                return createTimeStampTzType();
+                return createTimeStampTzType(scale);
             case VARBINARY:
                 return createVarbinaryType(len);
             default:
@@ -206,7 +206,7 @@ public class ScalarType extends Type {
             case TIMEV2:
                 return TIMEV2;
             case TIMESTAMPTZ:
-                return createTimeStampTzType();
+                return DEFAULT_TIMESTAMP_TZ;
             case DECIMAL32:
                 return DEFAULT_DECIMAL32;
             case DECIMAL64:
@@ -458,10 +458,10 @@ public class ScalarType extends Type {
     }
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
-    public static ScalarType createTimeStampTzType() {
+    public static ScalarType createTimeStampTzType(int scale) {
         ScalarType type = new ScalarType(PrimitiveType.TIMESTAMPTZ);
-        type.precision = 0;
-        type.scale = 0;
+        type.precision = DATETIME_PRECISION;
+        type.scale = scale;
         return type;
     }
 

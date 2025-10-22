@@ -19,36 +19,61 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+
+import com.google.common.base.Preconditions;
+
+import java.util.Objects;
 
 /**
  * TimeStampTz type in Nereids.
  */
 public class TimeStampTzType extends PrimitiveType {
-
-    public static final TimeStampTzType INSTANCE = new TimeStampTzType();
+    public static final int MAX_SCALE = 6;
+    public static final TimeStampTzType SYSTEM_DEFAULT = new TimeStampTzType(0);
+    public static final TimeStampTzType MAX = new TimeStampTzType(MAX_SCALE);
 
     private static final int WIDTH = 8;
 
-    private TimeStampTzType() {
+    private final int scale;
 
+    private TimeStampTzType(int scale) {
+        Preconditions.checkArgument(0 <= scale && scale <= MAX_SCALE);
+        this.scale = scale;
     }
 
     @Override
     public Type toCatalogDataType() {
-        return ScalarType.createTimeStampTzType();
+        return ScalarType.createTimeStampTzType(scale);
     }
 
     /**
      * create TimeStampTzType
      */
-    public static TimeStampTzType of() {
-        return new TimeStampTzType();
+    public static TimeStampTzType of(int scale) {
+        if (scale == SYSTEM_DEFAULT.scale) {
+            return SYSTEM_DEFAULT;
+        } else if (scale > MAX_SCALE || scale < 0) {
+            throw new AnalysisException("Scale of TimeStampTz must between 0 and 6. Scale was set to: " + scale);
+        } else {
+            return new TimeStampTzType(scale);
+        }
     }
 
     @Override
     public boolean equals(Object o) {
-        return o instanceof TimeStampTzType;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        TimeStampTzType that = (TimeStampTzType) o;
+        return Objects.equals(scale, that.scale);
     }
 
     @Override
@@ -58,6 +83,6 @@ public class TimeStampTzType extends PrimitiveType {
 
     @Override
     public String toSql() {
-        return "timestamptz";
+        return super.toSql() + "(" + scale + ")";
     }
 }
