@@ -272,9 +272,7 @@ check_if_source_exist() {
     fi
 
     if [[ ! -d "${TP_SOURCE_DIR}/$1" ]]; then
-        echo "${TP_SOURCE_DIR}/$1 does not exist yet."
-        res=`ls "${TP_SOURCE_DIR}"`
-        echo "${res}"
+        echo "${TP_SOURCE_DIR}/$1 does not exist."
         exit 1
     fi
     echo "===== begin build $1"
@@ -985,7 +983,7 @@ build_cares() {
 
     mkdir -p build
     cd build
-    cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \ 
+    cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_BUILD_TYPE=Release \
         -DCARES_STATIC=ON \
         -DCARES_SHARED=OFF \
