@@ -313,8 +313,10 @@ public class PartitionIncrementMaintainer {
                         table.getName()));
                 return null;
             }
-            Set<Column> relatedTablePartitionColumnSet = new HashSet<>(relatedTable.getPartitionColumns(
-                    MvccUtil.getSnapshotFromContext(relatedTable)));
+            Set<String> relatedTablePartitionColumnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+            relatedTablePartitionColumnSet.addAll(relatedTable.getPartitionColumns(
+                    MvccUtil.getSnapshotFromContext(relatedTable)).stream()
+                    .map(Column::getName).collect(Collectors.toSet()));
             for (Map.Entry<NamedExpression, RelatedTableColumnInfo> contextPartitionColumnEntry
                     : context.getPartitionAndRefExpressionMap().entrySet()) {
                 NamedExpression partitionNamedExpression = contextPartitionColumnEntry.getKey();
@@ -335,10 +337,15 @@ public class PartitionIncrementMaintainer {
                                     + " mvReferenceColumnInfo is %s", mvReferenceColumnInfo));
                     continue;
                 }
-                if (!relatedTablePartitionColumnSet.contains(mvReferenceColumnToCheck)
-                        || (mvReferenceColumnToCheck.isAllowNull() && !relatedTable.isPartitionColumnAllowNull())) {
+                if (!relatedTablePartitionColumnSet.contains(mvReferenceColumnToCheck.getName())) {
                     context.addFailReason(String.format("related base table partition column doesn't contain the mv"
-                                    + " partition or partition nullable check fail, the mvReferenceColumnToCheck is %s",
+                                    + " partition, the mvReferenceColumnToCheck is %s",
+                            mvReferenceColumnToCheck));
+                    continue;
+                }
+                if ((mvReferenceColumnToCheck.isAllowNull() && !relatedTable.isPartitionColumnAllowNull())) {
+                    context.addFailReason(String.format("related base table partition column"
+                                    + " partition nullable check fail, the mvReferenceColumnToCheck is %s",
                             mvReferenceColumnToCheck));
                     continue;
                 }
