@@ -1663,6 +1663,8 @@ DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 
 DECLARE_mString(aws_credentials_provider_version);
 
+DECLARE_mString(binary_plain_encoding_default_impl);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
