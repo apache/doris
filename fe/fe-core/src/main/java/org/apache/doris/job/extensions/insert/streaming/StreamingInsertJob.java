@@ -549,7 +549,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         succeedTaskCount.incrementAndGet();
     }
 
-    public void replayOnCloudMode() throws UserException {
+    public void replayOnCloudMode() throws JobException {
         Cloud.GetStreamingTaskCommitAttachRequest.Builder builder =
                 Cloud.GetStreamingTaskCommitAttachRequest.newBuilder();
         builder.setCloudUniqueId(Config.cloud_unique_id);
@@ -565,12 +565,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     log.warn("not found streaming job progress, response: {}", response);
                     return;
                 } else {
-                    throw new UserException(response.getStatus().getMsg());
+                    throw new JobException(response.getStatus().getMsg());
                 }
             }
         } catch (RpcException e) {
             log.info("failed to get streaming task commit attach {}", e);
-            throw new UserException(e.getMessage());
+            throw new JobException(e.getMessage());
         }
 
         StreamingTaskTxnCommitAttachment commitAttach =
