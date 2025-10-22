@@ -1977,7 +1977,7 @@ public class Config extends ConfigBase {
     public static int job_dictionary_task_consumer_thread_num = 3;
 
     @ConfField(masterOnly = true, description = {"用于执行 Streaming 任务的线程数,值应该大于0，否则默认为10",
-            "The number of threads used to consume Streaming Tasks, "
+            "The number of threads used to execute Streaming Tasks, "
                     + "the value should be greater than 0, if it is <=0, default is 10."})
     public static int job_streaming_task_exec_thread_num = 10;
 

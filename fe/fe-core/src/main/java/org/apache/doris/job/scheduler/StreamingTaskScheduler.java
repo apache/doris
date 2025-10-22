@@ -43,7 +43,7 @@ public class StreamingTaskScheduler extends MasterDaemon {
     private final ThreadPoolExecutor threadPool = new ThreadPoolExecutor(
                     Config.job_streaming_task_exec_thread_num,
                     Config.job_streaming_task_exec_thread_num,
-                    60,
+                    0,
                     TimeUnit.SECONDS,
                     new ArrayBlockingQueue<>(Config.max_streaming_job_num),
                     new CustomThreadFactory("streaming-task-execute"),
