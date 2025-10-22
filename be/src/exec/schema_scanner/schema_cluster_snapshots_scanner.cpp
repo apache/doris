@@ -174,25 +174,12 @@ Status SchemaClusterSnapshotsScanner::_fill_block_impl(vectorized::Block* block)
     }
     // status
     {
-        std::string prepare_status = "SNAPSHOT_PREPARE";
-        std::string normal_status = "SNAPSHOT_NORMAL";
-        std::string aborted_status = "SNAPSHOT_ABORTED";
+        std::vector<std::string> status(row_num);
         for (int i = 0; i < row_num; ++i) {
             auto& snapshot = _snapshots[i];
             if (snapshot.has_status()) {
-                auto status = snapshot.status();
-                std::string* value;
-                if (status == cloud::SnapshotStatus::SNAPSHOT_PREPARE) {
-                    value = &prepare_status;
-                } else if (status == cloud::SnapshotStatus::SNAPSHOT_NORMAL) {
-                    value = &normal_status;
-                } else if (status == cloud::SnapshotStatus::SNAPSHOT_ABORTED) {
-                    value = &aborted_status;
-                } else {
-                    return Status::InternalError("Unknown snapshot status: ",
-                                                 std::to_string(status));
-                }
-                strs[i] = StringRef(value->c_str(), value->size());
+                status[i] = SnapshotStatus_Name(snapshot.status());
+                strs[i] = StringRef(status[i].c_str(), status[i].size());
                 datas[i] = strs.data() + i;
             } else {
                 datas[i] = nullptr;
@@ -253,10 +240,14 @@ Status SchemaClusterSnapshotsScanner::_fill_block_impl(vectorized::Block* block)
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, datas));
     }
-    // TODO count
+    // count
     {
-        std::vector<void*> null_datas(row_num, nullptr);
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, null_datas));
+        std::vector<int32_t> srcs(row_num);
+        for (int i = 0; i < row_num; ++i) {
+            srcs[i] = _snapshots[i].derived_instance_ids_size();
+            datas[i] = srcs.data() + i;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));
     }
     return Status::OK();
 }

@@ -406,4 +406,82 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
         exception """url"""
     }
     qt_sql_string_exceed_len_strict1 "select * from test_insert_strict_mode_and_filter_ratio order by 1"
+
+    // TODO: change the following test case when BE support mbstring length check
+    // 6 test Chinese char
+    // 6.1 string exceed schema length, enable_insert_strict=false, insert_max_filter_ratio=0.3, load fail
+    sql """
+        drop table if exists test_insert_strict_mode_and_filter_ratio;
+    """
+    sql """
+        create table test_insert_strict_mode_and_filter_ratio (
+          id int,
+          name char(1)
+        ) properties ('replication_num' = '1');
+    """
+    sql "set enable_insert_strict=false"
+    sql "set enable_strict_cast=true"
+    sql "set insert_max_filter_ratio=0.3"
+    test {
+        sql """
+        insert into test_insert_strict_mode_and_filter_ratio  values
+            (1, "a"),
+            (2, "b"),
+            (3, "c"),
+            (4, "d"),
+            (5, "e"),
+            (6, "f"),
+            (7, "宅z"),
+            (8, "兹z"),
+            (9, "中z"),
+            (10, "国g");
+        """
+        exception """Insert has too many filtered data"""
+    }
+    qt_sql_mb_string_exceed_len_non_strict0 "select * from test_insert_strict_mode_and_filter_ratio order by 1"
+
+    // 6.2 string exceed schema length, enable_insert_strict=false, insert_max_filter_ratio=0.4, load success
+    sql """
+        truncate table test_insert_strict_mode_and_filter_ratio;
+    """
+    sql "set insert_max_filter_ratio=0.4"
+    sql """
+    insert into test_insert_strict_mode_and_filter_ratio  values
+        (1, "a"),
+        (2, "b"),
+        (3, "c"),
+        (4, "d"),
+        (5, "e"),
+        (6, "f"),
+        (7, "宅z"),
+        (8, "兹z"),
+        (9, "中z"),
+        (10, "国g");
+    """
+    qt_sql_mb_string_exceed_len_non_strict1 "select * from test_insert_strict_mode_and_filter_ratio order by 1"
+
+    // 6.3 string exceed schema length, enable_insert_strict=true, insert_max_filter_ratio=1, load fail
+    sql """
+        truncate table test_insert_strict_mode_and_filter_ratio;
+    """
+    sql "set enable_insert_strict=true"
+    sql "set enable_strict_cast=false"
+    sql "set insert_max_filter_ratio=1"
+    test {
+        sql """
+        insert into test_insert_strict_mode_and_filter_ratio  values
+            (1, "a"),
+            (2, "b"),
+            (3, "c"),
+            (4, "d"),
+            (5, "e"),
+            (6, "f"),
+            (7, "宅z"),
+            (8, "兹z"),
+            (9, "中z"),
+            (10, "国g");
+        """
+        exception """Insert has filtered data in strict mode"""
+    }
+    qt_sql_mb_string_exceed_len_strict0 "select * from test_insert_strict_mode_and_filter_ratio order by 1"
 }

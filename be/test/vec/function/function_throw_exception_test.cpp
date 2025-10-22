@@ -46,8 +46,32 @@ public:
     }
 };
 
+class MockFunctionThrowExceptionNotMatchReturnType : public IFunction {
+public:
+    static constexpr auto name = "mock_function_throw_exception_not_match_return_type";
+    static FunctionPtr create() {
+        return std::make_shared<MockFunctionThrowExceptionNotMatchReturnType>();
+    }
+    String get_name() const override { return name; }
+    bool use_default_implementation_for_constants() const override { return false; }
+
+    size_t get_number_of_arguments() const override { return 0; }
+
+    bool is_variadic() const override { return true; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeFloat64>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "BEUT TEST: MockFunctionThrowException");
+    }
+};
+
 void register_function_throw_exception(SimpleFunctionFactory& factory) {
     factory.register_function<MockFunctionThrowException>();
+    factory.register_function<MockFunctionThrowExceptionNotMatchReturnType>();
 }
 
 TEST(FunctionThrowExceptionTest, test_throw_exception) {
@@ -61,4 +85,18 @@ TEST(FunctionThrowExceptionTest, test_throw_exception) {
     EXPECT_EQ(st.code(), ErrorCode::INTERNAL_ERROR);
     EXPECT_EQ(st.msg(), "BEUT TEST: MockFunctionThrowException");
 }
+
+TEST(FunctionThrowExceptionTest, not_match_return_type) {
+    try {
+        auto function = SimpleFunctionFactory::instance().get_function(
+                "mock_function_throw_exception_not_match_return_type", {},
+                std::make_shared<DataTypeInt32>(), {false},
+                BeExecVersionManager::get_newest_version());
+
+    } catch (doris::Exception& e) {
+        EXPECT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
+        std::cout << "Exception msg: " << e.to_string() << std::endl;
+    }
+}
+
 } // namespace doris::vectorized

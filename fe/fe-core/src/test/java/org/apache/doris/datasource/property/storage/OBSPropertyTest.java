@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
@@ -39,7 +40,7 @@ public class OBSPropertyTest {
         origProps.put("obs.secret_key", "myOBSSecretKey");
         origProps.put(StorageProperties.FS_OBS_SUPPORT, "true");
         ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Invalid endpoint: https://obs.example.com", () -> StorageProperties.createAll(origProps));
+                "Region is not set. If you are using a standard endpoint, the region will be detected automatically. Otherwise, please specify it explicitly.", () -> StorageProperties.createAll(origProps));
 
         // Test creation without additional properties
         origProps = new HashMap<>();
@@ -150,6 +151,23 @@ public class OBSPropertyTest {
         props.put("obs.secret_key", "mySecretKey");
         obsStorageProperties = (OBSProperties) StorageProperties.createPrimary(props);
         Assertions.assertEquals(StaticCredentialsProvider.class, obsStorageProperties.getAwsCredentialsProvider().getClass());
+    }
+
+    @Test
+    public void testS3DisableHadoopCache() {
+        Map<String, String> props = Maps.newHashMap();
+        props.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
+        OBSProperties s3Properties = (OBSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertTrue(s3Properties.hadoopStorageConfig.getBoolean("fs.obs.impl.disable.cache", false));
+        props.put("fs.obs.impl.disable.cache", "true");
+        s3Properties = (OBSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertTrue(s3Properties.hadoopStorageConfig.getBoolean("fs.obs.impl.disable.cache", false));
+        props.put("fs.obs.impl.disable.cache", "false");
+        s3Properties = (OBSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertFalse(s3Properties.hadoopStorageConfig.getBoolean("fs.obs.impl.disable.cache", false));
+        props.put("fs.obs.impl.disable.cache", "null");
+        s3Properties = (OBSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertFalse(s3Properties.hadoopStorageConfig.getBoolean("fs.obs.impl.disable.cache", false));
     }
 
     @Test

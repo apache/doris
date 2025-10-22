@@ -37,6 +37,11 @@ suite("test_cold_data_compaction", "nonConcurrent") {
         }
     }
 
+    def custoBeConfig = [
+        cold_data_compaction_score_threshold : 4
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
     String suffix = UUID.randomUUID().hashCode().abs().toString()
     String s3Prefix = "regression/cold_data_compaction"
     multi_sql """
@@ -152,4 +157,5 @@ suite("test_cold_data_compaction", "nonConcurrent") {
         logger.info("after drop t_recycle_in_s3, remote file number is ${filesAfterDrop.size()}")
         return filesAfterDrop.size() == 0
     })
+    }
 }

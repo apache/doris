@@ -118,6 +118,9 @@ public class CreateJobInfo {
         String jobName = labelNameOptional.get();
         checkJobName(jobName);
         String dbName = ctx.getDatabase();
+        if (Strings.isNullOrEmpty(dbName)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+        }
 
         Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         // check its insert stmt,currently only support insert stmt
@@ -211,7 +214,12 @@ public class CreateJobInfo {
         startsTimeStampOptional.ifPresent(s -> timerDefinition.setStartTimeMs(stripQuotesAndParseTimestamp(s)));
     }
 
-    protected static void checkAuth() throws AnalysisException {
+    protected void checkAuth() throws AnalysisException {
+        if (streamingJob) {
+            StreamingInsertJob.checkPrivilege(ConnectContext.get(), executeSql);
+            return;
+        }
+
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }

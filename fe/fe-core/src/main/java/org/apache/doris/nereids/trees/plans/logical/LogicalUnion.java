@@ -124,6 +124,15 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(").append(child(0).toDigest()).append(")");
+        sb.append(" UNION ").append(qualifier).append(" ");
+        sb.append("(").append(child(1).toDigest()).append(")");
+        return sb.toString();
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -218,7 +227,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     @Override
     public void computeUniform(DataTrait.Builder builder) {
         final Optional<ExpressionRewriteContext> context = ConnectContext.get() == null ? Optional.empty()
-                : Optional.of(new ExpressionRewriteContext(CascadesContext.initContext(
+                : Optional.of(new ExpressionRewriteContext(this, CascadesContext.initContext(
                         ConnectContext.get().getStatementContext(), this, PhysicalProperties.ANY)));
         for (int i = 0; i < getOutputs().size(); i++) {
             Optional<Literal> value = Optional.empty();

@@ -337,7 +337,7 @@ Status JniConnector::_fill_block(Block* block, size_t num_rows) {
 }
 
 Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_column,
-                                  DataTypePtr& data_type, size_t num_rows) {
+                                  const DataTypePtr& data_type, size_t num_rows) {
     auto logical_type = data_type->get_primitive_type();
     void* null_map_ptr = address.next_meta_as_ptr();
     if (null_map_ptr == nullptr) {
@@ -388,25 +388,31 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
 
 Status JniConnector::_fill_varbinary_column(TableMetaAddress& address,
                                             MutableColumnPtr& doris_column, size_t num_rows) {
+    auto* meta_base = reinterpret_cast<char*>(address.next_meta_as_ptr());
     auto& varbinary_col = assert_cast<ColumnVarbinary&>(*doris_column);
-    int* offsets = reinterpret_cast<int*>(address.next_meta_as_ptr());
-    char* chars = reinterpret_cast<char*>(address.next_meta_as_ptr());
-    if (num_rows == 0) {
-        return Status::OK();
-    }
+    // Java side writes per-row metadata as 16 bytes: [len: long][addr: long]
     for (size_t i = 0; i < num_rows; ++i) {
-        int start_offset = (i == 0) ? 0 : offsets[i - 1];
-        int end_offset = offsets[i];
-        varbinary_col.insert_data(chars + start_offset, end_offset - start_offset);
+        // Read length (first 8 bytes)
+        int64_t len = 0;
+        memcpy(&len, meta_base + 16 * i, sizeof(len));
+        if (len <= 0) {
+            varbinary_col.insert_default();
+        } else {
+            // Read address (next 8 bytes)
+            uint64_t addr_u = 0;
+            memcpy(&addr_u, meta_base + 16 * i + 8, sizeof(addr_u));
+            const char* src = reinterpret_cast<const char*>(addr_u);
+            varbinary_col.insert_data(src, static_cast<size_t>(len));
+        }
     }
     return Status::OK();
 }
 
 Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                          size_t num_rows) {
-    const auto& string_col = static_cast<const ColumnString&>(*doris_column);
-    auto& string_chars = const_cast<ColumnString::Chars&>(string_col.get_chars());
-    auto& string_offsets = const_cast<ColumnString::Offsets&>(string_col.get_offsets());
+    auto& string_col = static_cast<ColumnString&>(*doris_column);
+    ColumnString::Chars& string_chars = string_col.get_chars();
+    ColumnString::Offsets& string_offsets = string_col.get_offsets();
     int* offsets = reinterpret_cast<int*>(address.next_meta_as_ptr());
     char* chars = reinterpret_cast<char*>(address.next_meta_as_ptr());
 
@@ -432,11 +438,11 @@ Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColum
 }
 
 Status JniConnector::_fill_array_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                        DataTypePtr& data_type, size_t num_rows) {
+                                        const DataTypePtr& data_type, size_t num_rows) {
     ColumnPtr& element_column = static_cast<ColumnArray&>(*doris_column).get_data_ptr();
-    DataTypePtr& element_type = const_cast<DataTypePtr&>(
+    const DataTypePtr& element_type =
             (assert_cast<const DataTypeArray*>(remove_nullable(data_type).get()))
-                    ->get_nested_type());
+                    ->get_nested_type();
     ColumnArray::Offsets64& offsets_data = static_cast<ColumnArray&>(*doris_column).get_offsets();
 
     int64_t* offsets = reinterpret_cast<int64_t*>(address.next_meta_as_ptr());
@@ -454,13 +460,13 @@ Status JniConnector::_fill_array_column(TableMetaAddress& address, MutableColumn
 }
 
 Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                      DataTypePtr& data_type, size_t num_rows) {
+                                      const DataTypePtr& data_type, size_t num_rows) {
     auto& map = static_cast<ColumnMap&>(*doris_column);
-    DataTypePtr& key_type = const_cast<DataTypePtr&>(
-            reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())->get_key_type());
-    DataTypePtr& value_type = const_cast<DataTypePtr&>(
+    const DataTypePtr& key_type =
+            reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())->get_key_type();
+    const DataTypePtr& value_type =
             reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())
-                    ->get_value_type());
+                    ->get_value_type();
     ColumnPtr& key_column = map.get_keys_ptr();
     ColumnPtr& value_column = map.get_values_ptr();
     ColumnArray::Offsets64& map_offsets = map.get_offsets();
@@ -481,13 +487,13 @@ Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPt
 }
 
 Status JniConnector::_fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                         DataTypePtr& data_type, size_t num_rows) {
+                                         const DataTypePtr& data_type, size_t num_rows) {
     auto& doris_struct = static_cast<ColumnStruct&>(*doris_column);
     const DataTypeStruct* doris_struct_type =
             reinterpret_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
     for (int i = 0; i < doris_struct.tuple_size(); ++i) {
         ColumnPtr& struct_field = doris_struct.get_column_ptr(i);
-        DataTypePtr& field_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(i));
+        const DataTypePtr& field_type = doris_struct_type->get_element(i);
         RETURN_IF_ERROR(_fill_column(address, struct_field, field_type, num_rows));
     }
     return Status::OK();
@@ -784,12 +790,9 @@ Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const Data
         break;
     }
     case PrimitiveType::TYPE_VARBINARY: {
-        // TODO, here is maybe not efficient, need optimize later
         const auto& varbinary_col = assert_cast<const ColumnVarbinary&>(*data_column);
-        auto string_column_ptr = varbinary_col.convert_to_string_column();
-        const auto& string_col = assert_cast<const ColumnString&>(*string_column_ptr);
-        meta_data.emplace_back((long)string_col.get_offsets().data());
-        meta_data.emplace_back((long)string_col.get_chars().data());
+        meta_data.emplace_back(
+                (long)assert_cast<const ColumnVarbinary&>(varbinary_col).get_data().data());
         break;
     }
     default:

@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <memory>
+#include <random>
 #include <set>
 
 #include "cloud/cloud_storage_engine.h"
@@ -44,57 +45,127 @@ class CloudMetaMgrTest : public testing::Test {
 
 TEST_F(CloudMetaMgrTest, bthread_fork_join_test) {
     // clang-format off
-    std::vector<std::function<Status()>> tasks {
-        []{ bthread_usleep(20000); return Status::OK(); },
-        []{ bthread_usleep(20000); return Status::OK(); },
-        []{ bthread_usleep(20000); return Status::OK(); },
-        []{ bthread_usleep(20000); return Status::OK(); },
-        []{ bthread_usleep(20000); return Status::OK(); },
-        []{ bthread_usleep(20000); return Status::OK(); },
-        []{ bthread_usleep(20000); return Status::OK(); },
-    };
+    std::atomic<int> task_counter{0};
+    std::atomic<int> concurrent_tasks{0};
+    std::atomic<int> max_concurrent_tasks{0};
+    int num_tasks = 7;
+    int concurrency = 3;
+    int sleep_us = 10000;
+
+    std::mt19937 rng(system_clock::now().time_since_epoch().count());
+    std::uniform_int_distribution<int> dist(0, sleep_us);
+    std::vector<std::function<Status()>> tasks (
+        num_tasks,
+        [&]{
+            int current = ++concurrent_tasks;
+            int old_max = max_concurrent_tasks.load();
+            while (current > old_max && !max_concurrent_tasks.compare_exchange_weak(old_max, current)) {
+                // Update max if needed
+            }
+            bthread_usleep(sleep_us);
+            task_counter.fetch_add(1);
+            --concurrent_tasks;
+            return Status::OK();
+        }
+    );
+
+    // Test synchronous execution
     {
         auto start = steady_clock::now();
-        EXPECT_TRUE(bthread_fork_join(tasks, 3).ok());
+        task_counter.store(0);
+        concurrent_tasks.store(0);
+        max_concurrent_tasks.store(0);
+
+        EXPECT_TRUE(bthread_fork_join(tasks, concurrency).ok());
         auto end = steady_clock::now();
-        auto elapsed = duration_cast<milliseconds>(end - start).count();
-        EXPECT_GT(elapsed, 40); // at least 2 rounds running for 7 tasks
-    }
-    {
-        std::future<Status> fut;
-        auto start = steady_clock::now();
-        auto t = tasks;
-        EXPECT_TRUE(bthread_fork_join(std::move(t), 3, &fut).ok()); // return immediately
-        auto end = steady_clock::now();
-        auto elapsed = duration_cast<milliseconds>(end - start).count();
-        EXPECT_LE(elapsed, 40); // async
-        EXPECT_TRUE(fut.get().ok());
-        end = steady_clock::now();
-        elapsed = duration_cast<milliseconds>(end - start).count();
-        EXPECT_GT(elapsed, 40); // at least 2 rounds running for 7 tasks
+
+        // All 7 tasks should have completed
+        EXPECT_EQ(task_counter.load(), num_tasks);
+        // With concurrency 3, we should see at most 3 concurrent tasks
+        EXPECT_LE(max_concurrent_tasks.load(), concurrency);
+        EXPECT_GT(max_concurrent_tasks.load(), 0);
+        EXPECT_GE(duration_cast<microseconds>(end - start).count(), (num_tasks * sleep_us / concurrency));
     }
 
-    // make the first batch fail fast
-    tasks.insert(tasks.begin(), []{ bthread_usleep(20000); return Status::InternalError<false>("error"); });
+    // Test asynchronous execution
     {
         auto start = steady_clock::now();
-        EXPECT_FALSE(bthread_fork_join(tasks, 3).ok());
-        auto end = steady_clock::now();
-        auto elapsed = duration_cast<milliseconds>(end - start).count();
-        EXPECT_LE(elapsed, 40); // at most 1 round running for 7 tasks
-    }
-    {
+        task_counter.store(0);
+        concurrent_tasks.store(0);
+        max_concurrent_tasks.store(0);
+
         std::future<Status> fut;
-        auto start = steady_clock::now();
         auto t = tasks;
-        EXPECT_TRUE(bthread_fork_join(std::move(t), 3, &fut).ok()); // return immediately
+        EXPECT_TRUE(bthread_fork_join(std::move(t), concurrency, &fut).ok()); // return immediately
+        EXPECT_LT(task_counter.load(), num_tasks);
+
+        // Initially no tasks should have completed
+        EXPECT_EQ(task_counter.load(), 0);
+
+        // Wait for completion
+        EXPECT_TRUE(fut.get().ok());
         auto end = steady_clock::now();
-        auto elapsed = duration_cast<milliseconds>(end - start).count();
-        EXPECT_LE(elapsed, 40); // async
+
+        // All 7 tasks should have completed
+        EXPECT_EQ(task_counter.load(), num_tasks);
+        // With concurrency 3, we should see at most 3 concurrent tasks
+        EXPECT_LE(max_concurrent_tasks.load(), concurrency);
+        EXPECT_GT(max_concurrent_tasks.load(), 0);
+        EXPECT_GE(duration_cast<microseconds>(end - start).count(), (num_tasks * sleep_us / concurrency));
+    }
+
+    // Test error handling - make the first task fail fast
+    {
+        auto start = steady_clock::now();
+        task_counter.store(0);
+        concurrent_tasks.store(0);
+        max_concurrent_tasks.store(0);
+
+        auto error_tasks = tasks;
+        error_tasks.insert(error_tasks.begin(), [&]{
+            // This task fails immediately
+            return Status::InternalError<false>("error");
+        });
+
+        EXPECT_FALSE(bthread_fork_join(error_tasks, concurrency).ok());
+        auto end = steady_clock::now();
+
+        // When first task fails, not all tasks may complete
+        // We can only verify that at least one task ran
+        EXPECT_LE(task_counter.load(), concurrency);
+        EXPECT_GE(duration_cast<microseconds>(end - start).count(), sleep_us);
+    }
+
+    // Test asynchronous error handling
+    {
+        auto start = steady_clock::now();
+        auto end = steady_clock::now();
+        task_counter.store(0);
+        concurrent_tasks.store(0);
+        max_concurrent_tasks.store(0);
+
+        auto error_tasks = tasks;
+        error_tasks.insert(error_tasks.begin(), [&]{
+            // This task fails immediately
+            return Status::InternalError<false>("error");
+        });
+
+        std::future<Status> fut;
+        auto t = error_tasks;
+        EXPECT_TRUE(bthread_fork_join(std::move(t), concurrency, &fut).ok()); // return immediately
+        EXPECT_LT(task_counter.load(), concurrency);
+
+        // Initially no tasks should have completed
+        EXPECT_EQ(task_counter.load(), 0);
+
+        // Wait for completion - should fail
         EXPECT_FALSE(fut.get().ok());
         end = steady_clock::now();
-        elapsed = duration_cast<milliseconds>(end - start).count();
-        EXPECT_LE(elapsed, 40); // at most 1 round running for 7 tasks
+
+        // When first task fails, not all tasks may complete
+        // We can only verify that at least one task ran
+        EXPECT_LE(task_counter.load(), concurrency);
+        EXPECT_GE(duration_cast<microseconds>(end - start).count(), sleep_us);
     }
     // clang-format on
 }
@@ -145,7 +216,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_no_holes) {
     // Verify tablet still has the same number of rowsets (no holes to fill)
     EXPECT_EQ(tablet->tablet_meta()->all_rs_metas().size(), 5);
     // Verify rows number is correct
-    for (const auto& rs_meta : tablet->tablet_meta()->all_rs_metas()) {
+    for (const auto& [_, rs_meta] : tablet->tablet_meta()->all_rs_metas()) {
         EXPECT_EQ(rs_meta->num_rows(), 100);
     }
 }
@@ -203,7 +274,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_with_holes) {
     // Verify all versions are present
     auto rs_metas = tablet->tablet_meta()->all_rs_metas();
     std::set<int64_t> found_versions;
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         found_versions.insert(rs_meta->version().first);
     }
     EXPECT_EQ(found_versions.size(), 5);
@@ -214,7 +285,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_with_holes) {
     EXPECT_TRUE(found_versions.contains(4));
 
     // Verify the hole rowsets (versions 1 and 3) are empty
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         if (rs_meta->version().first == 1 || rs_meta->version().first == 3) {
             EXPECT_TRUE(rs_meta->empty());
             EXPECT_EQ(rs_meta->num_rows(), 0);
@@ -379,7 +450,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_trailing_holes) {
     // Verify all versions are present
     auto rs_metas = tablet->tablet_meta()->all_rs_metas();
     std::set<int64_t> found_versions;
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         found_versions.insert(rs_meta->version().first);
     }
     EXPECT_EQ(found_versions.size(), 6);
@@ -388,7 +459,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_trailing_holes) {
     }
 
     // Verify the trailing hole rowsets (versions 3, 4, 5) are empty
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         if (rs_meta->version().first >= 3) {
             EXPECT_TRUE(rs_meta->empty())
                     << "Version " << rs_meta->version().first << " should be empty";
@@ -454,7 +525,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_single_hole) {
     // Verify all versions are present
     auto rs_metas = tablet->tablet_meta()->all_rs_metas();
     std::set<int64_t> found_versions;
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         found_versions.insert(rs_meta->version().first);
     }
     EXPECT_EQ(found_versions.size(), 3);
@@ -463,7 +534,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_single_hole) {
     EXPECT_TRUE(found_versions.contains(2));
 
     // Verify the hole rowset (version 1) is empty
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         if (rs_meta->version().first == 1) {
             EXPECT_TRUE(rs_meta->empty());
             EXPECT_EQ(rs_meta->num_rows(), 0);
@@ -527,7 +598,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_multiple_consecutive_holes) {
     // Verify all versions are present
     auto rs_metas = tablet->tablet_meta()->all_rs_metas();
     std::set<int64_t> found_versions;
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         found_versions.insert(rs_meta->version().first);
     }
     EXPECT_EQ(found_versions.size(), 6);
@@ -536,7 +607,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_multiple_consecutive_holes) {
     }
 
     // Verify the hole rowsets (versions 1, 2, 3, 4) are empty
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         if (rs_meta->version().first >= 1 && rs_meta->version().first <= 4) {
             EXPECT_TRUE(rs_meta->empty())
                     << "Version " << rs_meta->version().first << " should be empty";
@@ -602,7 +673,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_mixed_holes) {
     // Verify all versions are present
     auto rs_metas = tablet->tablet_meta()->all_rs_metas();
     std::set<int64_t> found_versions;
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         found_versions.insert(rs_meta->version().first);
     }
     EXPECT_EQ(found_versions.size(), 9);
@@ -613,7 +684,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_mixed_holes) {
     // Verify the hole rowsets (versions 1, 3, 4, 7, 8) are empty
     std::set<int64_t> original_versions = {0, 2, 5, 6};
     std::set<int64_t> hole_versions = {1, 3, 4, 7, 8};
-    for (const auto& rs_meta : rs_metas) {
+    for (const auto& [_, rs_meta] : rs_metas) {
         int64_t version = rs_meta->version().first;
         if (hole_versions.contains(version)) {
             EXPECT_TRUE(rs_meta->empty()) << "Version " << version << " should be empty";

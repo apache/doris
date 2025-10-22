@@ -889,6 +889,7 @@ public:
         DCHECK(res);
     }
 
+    // !FIXME: We should rethink the logic here
     BitmapValue(const BitmapValue& other) {
         _type = other._type;
         switch (other._type) {
@@ -909,10 +910,11 @@ public:
             _is_shared = true;
             // should also set other's state to shared, so that other bitmap value will
             // create a new bitmap when it wants to modify it.
-            const_cast<BitmapValue&>(other)._is_shared = true;
+            other._is_shared = true;
         }
     }
 
+    // !FIXME: We should rethink the logic here
     BitmapValue(BitmapValue&& other) noexcept {
         _type = other._type;
         switch (other._type) {
@@ -934,6 +936,7 @@ public:
         other._is_shared = false;
     }
 
+    // !FIXME: We should rethink the logic here
     BitmapValue& operator=(const BitmapValue& other) {
         if (this == &other) {
             return *this;
@@ -958,7 +961,7 @@ public:
             _is_shared = true;
             // should also set other's state to shared, so that other bitmap value will
             // create a new bitmap when it wants to modify it.
-            const_cast<BitmapValue&>(other)._is_shared = true;
+            other._is_shared = true;
         }
         return *this;
     }
@@ -1219,6 +1222,7 @@ public:
     // EMPTY  -> SINGLE
     // EMPTY  -> BITMAP
     // SINGLE -> BITMAP
+    // !FIXME: We should rethink the logic here
     BitmapValue& operator|=(const BitmapValue& rhs) {
         switch (rhs._type) {
         case EMPTY:
@@ -1230,13 +1234,13 @@ public:
             switch (_type) {
             case EMPTY:
                 _bitmap = rhs._bitmap;
-                const_cast<BitmapValue&>(rhs)._is_shared = true;
+                rhs._is_shared = true;
                 _is_shared = true;
                 _type = BITMAP;
                 break;
             case SINGLE:
                 _bitmap = rhs._bitmap;
-                const_cast<BitmapValue&>(rhs)._is_shared = true;
+                rhs._is_shared = true;
                 _is_shared = true;
                 _prepare_bitmap_for_write();
                 _bitmap->add(_sv);
@@ -1529,6 +1533,7 @@ public:
     // SINGLE -> EMPTY
     // BITMAP -> EMPTY
     // BITMAP -> SINGLE
+    // !FIXME: We should rethink the logic here
     BitmapValue& operator^=(const BitmapValue& rhs) {
         switch (rhs._type) {
         case EMPTY:
@@ -1566,13 +1571,13 @@ public:
             switch (_type) {
             case EMPTY:
                 _bitmap = rhs._bitmap;
-                const_cast<BitmapValue&>(rhs)._is_shared = true;
+                rhs._is_shared = true;
                 _is_shared = true;
                 _type = BITMAP;
                 break;
             case SINGLE:
                 _bitmap = rhs._bitmap;
-                const_cast<BitmapValue&>(rhs)._is_shared = true;
+                rhs._is_shared = true;
                 _is_shared = true;
                 _type = BITMAP;
                 _prepare_bitmap_for_write();
@@ -1870,7 +1875,8 @@ public:
 
     // Return how many bytes are required to serialize this bitmap.
     // See BitmapTypeCode for the serialized format.
-    size_t getSizeInBytes() {
+    // !FIXME: We should rethink the logic here
+    size_t getSizeInBytes() const {
         size_t res = 0;
         switch (_type) {
         case EMPTY:
@@ -2129,7 +2135,7 @@ public:
      * Return new set with specified range (not include the range_end)
      */
     int64_t sub_range(const int64_t& range_start, const int64_t& range_end,
-                      BitmapValue* ret_bitmap) {
+                      BitmapValue* ret_bitmap) const {
         switch (_type) {
         case EMPTY:
             return 0;
@@ -2181,7 +2187,7 @@ public:
      * @return the real count for subset, maybe less than cardinality_limit
      */
     int64_t sub_limit(const int64_t& range_start, const int64_t& cardinality_limit,
-                      BitmapValue* ret_bitmap) {
+                      BitmapValue* ret_bitmap) const {
         switch (_type) {
         case EMPTY:
             return 0;
@@ -2236,7 +2242,8 @@ public:
      * The number of returned elements is limited by the cardinality_limit parameter.
      * Analog of the substring string function, but for bitmap.
      */
-    int64_t offset_limit(const int64_t& offset, const int64_t& limit, BitmapValue* ret_bitmap) {
+    int64_t offset_limit(const int64_t& offset, const int64_t& limit,
+                         BitmapValue* ret_bitmap) const {
         switch (_type) {
         case EMPTY:
             return 0;
@@ -2393,7 +2400,7 @@ private:
         return result;
     }
 
-    void _prepare_bitmap_for_write() {
+    void _prepare_bitmap_for_write() const {
         if (!_bitmap) {
             _bitmap = std::make_shared<detail::Roaring64Map>();
             _is_shared = false;
@@ -2431,12 +2438,13 @@ private:
         BITMAP = 2, // more than one elements
         SET = 3     // elements count less or equal than 32
     };
-    uint64_t _sv = 0;                              // store the single value when _type == SINGLE
-    std::shared_ptr<detail::Roaring64Map> _bitmap; // used when _type == BITMAP
+    uint64_t _sv = 0; // store the single value when _type == SINGLE
+    // !FIXME: We should rethink the logic about _bitmap and _is_shared
+    mutable std::shared_ptr<detail::Roaring64Map> _bitmap; // used when _type == BITMAP
     SetContainer<uint64_t> _set;
     BitmapDataType _type {EMPTY};
     // Indicate whether the state is shared among multi BitmapValue object
-    bool _is_shared = true;
+    mutable bool _is_shared = true;
     static constexpr uint64_t SET_TYPE_THRESHOLD = 32;
 };
 

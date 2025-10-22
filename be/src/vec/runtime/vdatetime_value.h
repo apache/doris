@@ -647,8 +647,10 @@ public:
     bool operator>(const DateV2Value<T>& other) const;
 
     const char* month_name() const;
+    const char* month_name_with_locale(const char* const* month_names) const;
 
     const char* day_name() const;
+    const char* day_name_with_locale(const char* const* day_names) const;
 
     VecDateTimeValue& operator+=(int64_t count) {
         bool is_neg = false;
@@ -1175,8 +1177,10 @@ public:
     DateV2Value<T>& operator=(const DateV2Value<T>& other) = default;
 
     const char* month_name() const;
+    const char* month_name_with_locale(const char* const* month_names) const;
 
     const char* day_name() const;
+    const char* day_name_with_locale(const char* const* day_names) const;
 
     DateV2Value<T>& operator+=(int64_t count) {
         bool is_neg = false;
@@ -1425,13 +1429,14 @@ public:
 
     int64_t to_int64() const {
         if constexpr (is_datetime) {
-            return (date_v2_value_.year_ * 10000L + date_v2_value_.month_ * 100 +
+            return (date_v2_value_.year_ * 10000LL + date_v2_value_.month_ * 100LL +
                     date_v2_value_.day_) *
-                           1000000L +
-                   date_v2_value_.hour_ * 10000 + date_v2_value_.minute_ * 100 +
+                           1000000LL +
+                   date_v2_value_.hour_ * 10000LL + date_v2_value_.minute_ * 100LL +
                    date_v2_value_.second_;
         } else {
-            return date_v2_value_.year_ * 10000 + date_v2_value_.month_ * 100 + date_v2_value_.day_;
+            return date_v2_value_.year_ * 10000LL + date_v2_value_.month_ * 100LL +
+                   date_v2_value_.day_;
         }
     }
 

@@ -32,6 +32,7 @@
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
+#include "meta-store/clone_chain_reader.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/meta_reader.h"
@@ -901,6 +902,50 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
     }
 }
 
+void MetaServiceImpl::delete_streaming_job(::google::protobuf::RpcController* controller,
+                                           const DeleteStreamingJobRequest* request,
+                                           DeleteStreamingJobResponse* response,
+                                           ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(delete_streaming_job, del);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    RPC_RATE_LIMIT(delete_streaming_job)
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        ss << "filed to create txn, err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    if (!request->has_db_id() || !request->has_job_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "missing db_id or job_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    int64_t db_id = request->db_id();
+    int64_t job_id = request->job_id();
+    std::string key_to_delete = streaming_job_key({instance_id, db_id, job_id});
+
+    txn->remove(key_to_delete);
+    LOG(INFO) << "remove key=" << hex(key_to_delete);
+
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        ss << "failed to commit delete, err=" << err;
+        msg = ss.str();
+        return;
+    }
+}
+
 void get_txn_db_id(TxnKv* txn_kv, const std::string& instance_id, int64_t txn_id,
                    MetaServiceCode& code, std::string& msg, int64_t* db_id, KVStats* stats) {
     std::stringstream ss;
@@ -1357,7 +1402,7 @@ void MetaServiceImpl::commit_txn_immediately(
 
         LOG(INFO) << "txn_id=" << txn_id << " txn_info=" << txn_info.ShortDebugString();
 
-        MetaReader meta_reader(instance_id, txn_kv_.get());
+        CloneChainReader meta_reader(instance_id, resource_mgr_.get());
 
         // Prepare rowset meta and new_versions
         AnnotateTag txn_tag("txn_id", txn_id);
@@ -1902,7 +1947,7 @@ void MetaServiceImpl::commit_txn_eventually(
             stats.del_counter += txn->num_del_keys();
         };
 
-        MetaReader meta_reader(instance_id, txn_kv_.get());
+        CloneChainReader meta_reader(instance_id, resource_mgr_.get());
 
         AnnotateTag txn_tag("txn_id", txn_id);
 
@@ -2401,7 +2446,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
 
         bool is_versioned_write = is_version_write_enabled(instance_id);
         bool is_versioned_read = is_version_read_enabled(instance_id);
-        MetaReader meta_reader(instance_id, txn_kv_.get());
+        CloneChainReader meta_reader(instance_id, resource_mgr_.get());
 
         // Prepare rowset meta and new_versions
         std::unordered_map<int64_t, TabletIndexPB> tablet_ids;

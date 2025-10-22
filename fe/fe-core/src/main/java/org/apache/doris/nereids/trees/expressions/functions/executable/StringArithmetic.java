@@ -45,6 +45,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.io.UnsupportedEncodingException;
+import java.math.BigInteger;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -877,6 +878,9 @@ public class StringArithmetic {
             throw new RuntimeException(e);
         }
         StringBuilder sb = new StringBuilder();
+        if (uri.getScheme() == null) {
+            return new NullLiteral(first.getDataType());
+        }
         switch (second.getValue().toUpperCase()) {
             case "PROTOCOL":
                 String scheme = uri.getScheme();
@@ -936,7 +940,11 @@ public class StringArithmetic {
                 sb.append(query);  // e.g., param1=value1&param2=value2
                 break;
             case "PORT":
-                sb.append(uri.getPort());
+                int port = uri.getPort();
+                if (port == -1) {
+                    return new NullLiteral(first.getDataType());
+                }
+                sb.append(port);
                 break;
             case "USERINFO":
                 String userInfo = uri.getUserInfo();
@@ -1113,5 +1121,125 @@ public class StringArithmetic {
         }
 
         return castStringLikeLiteral(first, result);
+    }
+
+    /**
+     * Executable arithmetic functions make_set
+     */
+    @ExecFunction(name = "make_set")
+    public static Expression make_set(BigIntLiteral bitLiteral, StringLikeLiteral... args) {
+        long bit = bitLiteral.getValue();
+        final StringBuilder sb = new StringBuilder();
+        int pos = Long.numberOfTrailingZeros(bit);
+        while (pos != 64 && pos < args.length && bit != 0) {
+            sb.append(args[pos].getValue());
+            sb.append(',');
+            bit &= ~(1 << pos);
+            pos = Long.numberOfTrailingZeros(bit);
+        }
+        if (sb.length() != 0) {
+            sb.deleteCharAt(sb.length() - 1);
+        }
+        return castStringLikeLiteral(args[0], sb.toString());
+    }
+
+    /**
+     * Executable arithmetic functions export_set in 3 args
+     */
+    @ExecFunction(name = "export_set")
+    public static Expression export_set(LargeIntLiteral bitLiteral, StringLikeLiteral on, StringLikeLiteral off) {
+        BigInteger ullongMax = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE);
+        BigInteger llongMin = BigInteger.valueOf(Long.MIN_VALUE);
+        BigInteger bitValue = bitLiteral.getValue();
+
+        long finalBitValue;
+        if (bitValue.compareTo(ullongMax) > 0) {
+            finalBitValue = Long.MAX_VALUE;
+        } else if (bitValue.compareTo(llongMin) < 0) {
+            finalBitValue = Long.MIN_VALUE;
+        } else {
+            finalBitValue = bitValue.longValue();
+        }
+
+        return exportSetImpl(finalBitValue, on.getValue(), off.getValue(), ",", 64);
+    }
+
+    /**
+     * Executable arithmetic functions export_set in 4 args
+     */
+    @ExecFunction(name = "export_set")
+    public static Expression export_set(LargeIntLiteral bitLiteral, StringLikeLiteral on, StringLikeLiteral off,
+                                      StringLikeLiteral separator) {
+        BigInteger ullongMax = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE);
+        BigInteger llongMin = BigInteger.valueOf(Long.MIN_VALUE);
+        BigInteger bitValue = bitLiteral.getValue();
+
+        long finalBitValue;
+        if (bitValue.compareTo(ullongMax) > 0) {
+            finalBitValue = Long.MAX_VALUE;
+        } else if (bitValue.compareTo(llongMin) < 0) {
+            finalBitValue = Long.MIN_VALUE;
+        } else {
+            finalBitValue = bitValue.longValue();
+        }
+
+        return exportSetImpl(finalBitValue, on.getValue(), off.getValue(), separator.getValue(), 64);
+    }
+
+    /**
+     * Executable arithmetic functions export_set in 5 args
+     */
+    @ExecFunction(name = "export_set")
+    public static Expression export_set(LargeIntLiteral bitLiteral, StringLikeLiteral on, StringLikeLiteral off,
+                                      StringLikeLiteral separator, IntegerLiteral numBits) {
+        BigInteger ullongMax = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE);
+        BigInteger llongMin = BigInteger.valueOf(Long.MIN_VALUE);
+        BigInteger bitValue = bitLiteral.getValue();
+
+        long finalBitValue;
+        if (bitValue.compareTo(ullongMax) > 0) {
+            finalBitValue = Long.MAX_VALUE;
+        } else if (bitValue.compareTo(llongMin) < 0) {
+            finalBitValue = Long.MIN_VALUE;
+        } else {
+            finalBitValue = bitValue.longValue();
+        }
+
+        int bits = numBits.getValue();
+        if (bits < 0 || bits > 64) {
+            bits = 64;
+        }
+        return exportSetImpl(finalBitValue, on.getValue(), off.getValue(), separator.getValue(), bits);
+    }
+
+    private static Expression exportSetImpl(long bit, String on, String off, String separator, int numBits) {
+        StringBuilder result = new StringBuilder();
+        boolean first = true;
+
+        while (bit != 0 && numBits > 0) {
+            if (!first) {
+                result.append(separator);
+            }
+            first = false;
+
+            if ((bit & 1) == 1) {
+                result.append(on);
+            } else {
+                result.append(off);
+            }
+            bit >>>= 1;
+            numBits--;
+        }
+
+        while (numBits > 0) {
+            if (!first) {
+                result.append(separator);
+            }
+            first = false;
+            result.append(off);
+            numBits--;
+        }
+
+        return new VarcharLiteral(result.toString());
     }
 }

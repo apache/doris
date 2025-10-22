@@ -34,6 +34,7 @@
 #include <thread>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/simple_thread_pool.h"
 #include "common/util.h"
@@ -1172,12 +1173,19 @@ static int get_copy_file_num(TxnKv* txn_kv, const std::string& stage_id, int64_t
     return 0;
 }
 
-static void check_delete_bitmap_keys_size(TxnKv* txn_kv, int64_t tablet_id, int expected_size) {
+static void check_delete_bitmap_keys_size(TxnKv* txn_kv, int64_t tablet_id, int expected_size,
+                                          int version = 2) {
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     std::unique_ptr<RangeGetIterator> it;
-    auto dbm_start_key = versioned::meta_delete_bitmap_key({instance_id, tablet_id, ""});
-    std::string dbm_end_key = versioned::meta_delete_bitmap_key({instance_id, tablet_id + 1, ""});
+    std::string dbm_start_key, dbm_end_key;
+    if (version == 2) {
+        dbm_start_key = versioned::meta_delete_bitmap_key({instance_id, tablet_id, ""});
+        dbm_end_key = versioned::meta_delete_bitmap_key({instance_id, tablet_id + 1, ""});
+    } else if (version == 1) {
+        dbm_start_key = meta_delete_bitmap_key({instance_id, tablet_id, "", 0, 0});
+        dbm_end_key = meta_delete_bitmap_key({instance_id, tablet_id + 1, "", 0, 0});
+    }
     ASSERT_EQ(txn->get(dbm_start_key, dbm_end_key, &it), TxnErrorCode::TXN_OK);
     EXPECT_EQ(it->size(), expected_size);
 }
@@ -1496,16 +1504,23 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     int64_t txn_id_base = 114115;
     int64_t tablet_id_base = 10015;
     int64_t index_id_base = 1000;
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     for (int i = 0; i < 50; ++i) {
         int64_t txn_id = txn_id_base + i;
         for (int j = 0; j < 1000; ++j) {
             auto rowset = create_rowset("recycle_tmp_rowsets", tablet_id_base + j,
                                         index_id_base + j, 5, schemas[i % 5], txn_id);
             create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, i & 1, false, i < 50);
+            if (i < 50) {
+                create_delete_bitmaps(txn.get(), tablet_id_base + j, rowset.rowset_id_v2(), 0, 1);
+            }
         }
     }
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     for (int j = 0; j < 20; ++j) {
         check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 50);
+        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 100, 1);
     }
 
     auto start = std::chrono::steady_clock::now();
@@ -1520,7 +1535,6 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     ASSERT_EQ(0, accessor->list_directory("data/", &list_iter));
     ASSERT_FALSE(list_iter->has_next());
     // check all tmp rowset kv have been deleted
-    std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     std::unique_ptr<RangeGetIterator> it;
     auto begin_key = meta_rowset_tmp_key({instance_id, 0, 0});
@@ -1538,6 +1552,7 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     ASSERT_EQ(it->size(), 0);
     for (int j = 0; j < 20; ++j) {
         check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 0);
+        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 0, 1);
     }
 }
 
@@ -7191,6 +7206,62 @@ TEST(CheckerTest, check_txn_running_key) {
         int ret = checker.check_txn_running_key(invalid_key, val);
         ASSERT_EQ(ret, -1);
     }
+}
+
+TEST(CheckerTest, CheckCostTooMuchTime) {
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+
+    int64_t tablet_id = 1000;
+    constexpr size_t NUM_BATCH_SIZE = 100;
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    for (size_t i = 0; i < NUM_BATCH_SIZE * 2; i++) {
+        std::string key = meta_rowset_key({instance_id, tablet_id, i});
+        std::string value = "rowset_value_" + std::to_string(i);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, value);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    sp->set_call_back("InstanceChecker:scan_and_handle_kv:limit",
+                      [&](auto&& args) { *try_any_cast<int*>(args[0]) = NUM_BATCH_SIZE; });
+
+    std::vector<doris::RowsetMetaCloudPB> rowset_metas;
+    size_t count = 0;
+    sp->set_call_back("InstanceChecker:scan_and_handle_kv:get_err", [&](auto&& args) {
+        if (++count == 2) {
+            *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TOO_OLD;
+        }
+    });
+
+    std::string begin = meta_rowset_key({instance_id, tablet_id, 0});
+    std::string end = meta_rowset_key({instance_id, tablet_id + 1, 0});
+
+    int ret =
+            checker.scan_and_handle_kv(begin, end, [&](std::string_view key, std::string_view val) {
+                doris::RowsetMetaCloudPB rowset_meta;
+                if (rowset_meta.ParseFromArray(val.data(), val.size()) != 0) {
+                    return -1;
+                }
+                rowset_metas.push_back(rowset_meta);
+                return 0;
+            });
+    ASSERT_EQ(0, ret);
+    ASSERT_EQ(rowset_metas.size(), NUM_BATCH_SIZE * 2);
 }
 
 } // namespace doris::cloud

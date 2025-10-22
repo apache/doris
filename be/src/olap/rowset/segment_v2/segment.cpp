@@ -197,13 +197,16 @@ Status Segment::_open(OlapReaderStatistics* stats) {
     _num_rows = footer_pb_shared->num_rows();
 
     // An estimated memory usage of a segment
-    _meta_mem_usage += footer_pb_shared->ByteSizeLong();
+    // Footer is seperated to StoragePageCache so we don't need to add it to _meta_mem_usage
+    // _meta_mem_usage += footer_pb_shared->ByteSizeLong();
     if (_pk_index_meta != nullptr) {
         _meta_mem_usage += _pk_index_meta->ByteSizeLong();
     }
 
     _meta_mem_usage += sizeof(*this);
-    _meta_mem_usage += _tablet_schema->num_columns() * config::estimated_mem_per_column_reader;
+    _meta_mem_usage += std::min(static_cast<int>(_tablet_schema->num_columns()),
+                                config::max_segment_partial_column_cache_size) *
+                       config::estimated_mem_per_column_reader;
 
     // 1024 comes from SegmentWriterOptions
     _meta_mem_usage += (_num_rows + 1023) / 1024 * (36 + 4);
@@ -722,7 +725,9 @@ Status Segment::new_default_iterator(const TabletColumn& tablet_column,
 // but they are not the same column
 Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     std::unique_ptr<ColumnIterator>* iter,
-                                    const StorageReadOptions* opt) {
+                                    const StorageReadOptions* opt,
+                                    const std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>*
+                                            variant_sparse_column_cache) {
     if (opt->runtime_state != nullptr) {
         _be_exec_version = opt->runtime_state->be_exec_version();
     }
@@ -743,10 +748,21 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
         return Status::InternalError("column reader is nullptr, unique_id={}", unique_id);
     }
     if (reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
+        // if sparse_column_cache_ptr is nullptr, means the sparse column cache is not used
+        PathToSparseColumnCache* sparse_column_cache_ptr = nullptr;
+        if (variant_sparse_column_cache) {
+            auto it = variant_sparse_column_cache->find(unique_id);
+            if (it != variant_sparse_column_cache->end()) {
+                sparse_column_cache_ptr = it->second.get();
+            } else {
+                DCHECK(false) << "sparse column cache is not found, unique_id=" << unique_id;
+            }
+        }
         // use _column_reader_cache to get variant subcolumn(path column) reader
-        RETURN_IF_ERROR(
-                assert_cast<VariantColumnReader*>(reader.get())
-                        ->new_iterator(iter, &tablet_column, opt, _column_reader_cache.get()));
+        RETURN_IF_ERROR(assert_cast<VariantColumnReader*>(reader.get())
+                                ->new_iterator(iter, &tablet_column, opt,
+                                               _column_reader_cache.get(),
+                                               sparse_column_cache_ptr));
     } else {
         RETURN_IF_ERROR(reader->new_iterator(iter, &tablet_column, opt));
     }
@@ -773,6 +789,15 @@ Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>
                                                           col_uid);
     }
     return _column_reader_cache->get_column_reader(col_uid, column_reader, stats);
+}
+
+Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor) {
+    std::shared_ptr<SegmentFooterPB> footer_pb_shared;
+    RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, nullptr));
+    for (const auto& column : footer_pb_shared->columns()) {
+        visitor(column);
+    }
+    return Status::OK();
 }
 
 Status Segment::get_column_reader(const TabletColumn& col,
@@ -1064,11 +1089,16 @@ Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb,
 
     PageCacheHandle cache_handle;
 
+    // Put segment footer into index page cache.
+    // Rationale:
+    // - Footer is metadata (small, parsed with indexes), not data page payload.
+    // - Using PageTypePB::INDEX_PAGE keeps it under the same eviction policy/shards
+    //   as other index/metadata pages and avoids competing with DATA_PAGE budget.
     if (!segment_footer_cache->lookup(cache_key, &cache_handle,
-                                      segment_v2::PageTypePB::DATA_PAGE)) {
+                                      segment_v2::PageTypePB::INDEX_PAGE)) {
         RETURN_IF_ERROR(_parse_footer(footer_pb_shared, stats));
         segment_footer_cache->insert(cache_key, footer_pb_shared, footer_pb_shared->ByteSizeLong(),
-                                     &cache_handle, segment_v2::PageTypePB::DATA_PAGE);
+                                     &cache_handle, segment_v2::PageTypePB::INDEX_PAGE);
     } else {
         VLOG_DEBUG << fmt::format("Segment footer of {}:{}:{} is found in cache",
                                   _file_reader->path().native(), _file_reader->size(),

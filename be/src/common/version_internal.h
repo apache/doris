@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+#include <string>
 
 namespace doris {
 namespace version {
@@ -32,6 +33,7 @@ extern const char* doris_build_hash();
 extern const char* doris_build_short_hash();
 extern const char* doris_build_time();
 extern const char* doris_build_info();
+extern const std::string doris_feature_list();
 
 } // namespace version
 

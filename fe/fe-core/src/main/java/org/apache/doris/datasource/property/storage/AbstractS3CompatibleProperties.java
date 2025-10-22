@@ -19,7 +19,9 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
@@ -131,14 +133,20 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         setEndpointIfPossible();
-        if (!isValidEndpoint(getEndpoint())) {
-            throw new IllegalArgumentException("Invalid endpoint: " + getEndpoint());
-        }
         setRegionIfPossible();
         //Allow anonymous access if both access_key and secret_key are empty
         //But not recommended for production use.
         if (StringUtils.isBlank(getAccessKey()) != StringUtils.isBlank(getSecretKey())) {
             throw new IllegalArgumentException("Both the access key and the secret key must be set.");
+        }
+        if (StringUtils.isBlank(getRegion())) {
+            throw new IllegalArgumentException("Region is not set. If you are using a standard endpoint, the region "
+                    + "will be detected automatically. Otherwise, please specify it explicitly."
+            );
+        }
+        if (StringUtils.isBlank(getEndpoint())) {
+            throw new IllegalArgumentException("Endpoint is not set. Please specify it explicitly."
+            );
         }
     }
 
@@ -162,22 +170,23 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         if (StringUtils.isNotBlank(getEndpoint())) {
             return;
         }
-        String endpoint = null;
-        // 1. try getting endpoint from uri
+        // 1. try getting endpoint region
+        String endpoint = getEndpointFromRegion();
+        if (StringUtils.isNotBlank(endpoint)) {
+            setEndpoint(endpoint);
+            return;
+        }
+        // 2. try getting endpoint from uri
         try {
             endpoint = S3PropertyUtils.constructEndpointFromUrl(origProps, getUsePathStyle(),
                     getForceParsingByStandardUrl());
+            if (StringUtils.isNotBlank(endpoint)) {
+                setEndpoint(endpoint);
+            }
         } catch (Exception e) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Failed to construct endpoint from url: " + origProps, e);
+                LOG.debug("Failed to construct endpoint from url: {}", e.getMessage(), e);
             }
-        }
-        // 2. try getting endpoint region
-        if (StringUtils.isBlank(endpoint)) {
-            endpoint = getEndpointFromRegion();
-        }
-        if (!StringUtils.isBlank(endpoint)) {
-            setEndpoint(endpoint);
         }
     }
 
@@ -217,22 +226,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
 
     protected abstract Set<Pattern> endpointPatterns();
 
-    private boolean isValidEndpoint(String endpoint) {
-        if (StringUtils.isBlank(endpoint)) {
-            // Endpoint is not required, so we consider it valid if empty.
-            return true;
-        }
-        if (endpointPatterns().isEmpty()) {
-            return true;
-        }
-        for (Pattern pattern : endpointPatterns()) {
-            Matcher matcher = pattern.matcher(endpoint.toLowerCase());
-            if (matcher.matches()) {
-                return true;
-            }
-        }
-        return false;
-    }
+    protected abstract Set<String> schemas();
 
     // This method should be overridden by subclasses to provide a default endpoint based on the region.
     // Because for aws s3, only region is needed, the endpoint can be constructed from the region.
@@ -255,23 +249,71 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     @Override
     public void initializeHadoopStorageConfig() {
         hadoopStorageConfig = new Configuration();
+        origProps.forEach((key, value) -> {
+            if (key.startsWith("fs.")) {
+                hadoopStorageConfig.set(key, value);
+            }
+        });
         // Compatibility note: Due to historical reasons, even when the underlying
         // storage is OSS, OBS, etc., users may still configure the schema as "s3://".
         // To ensure backward compatibility, we append S3-related properties by default.
         appendS3HdfsProperties(hadoopStorageConfig);
+        ensureDisableCache(hadoopStorageConfig, origProps);
     }
 
     private void appendS3HdfsProperties(Configuration hadoopStorageConfig) {
         hadoopStorageConfig.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         hadoopStorageConfig.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        // use google assert not null
+        Preconditions.checkNotNull(getEndpoint(), "endpoint is null");
         hadoopStorageConfig.set("fs.s3a.endpoint", getEndpoint());
+        Preconditions.checkNotNull(getRegion(), "region is null");
         hadoopStorageConfig.set("fs.s3a.endpoint.region", getRegion());
-        hadoopStorageConfig.set("fs.s3a.access.key", getAccessKey());
-        hadoopStorageConfig.set("fs.s3a.secret.key", getSecretKey());
+        hadoopStorageConfig.set("fs.s3.impl.disable.cache", "true");
+        hadoopStorageConfig.set("fs.s3a.impl.disable.cache", "true");
+        if (StringUtils.isNotBlank(getAccessKey())) {
+            hadoopStorageConfig.set("fs.s3a.access.key", getAccessKey());
+            hadoopStorageConfig.set("fs.s3a.secret.key", getSecretKey());
+            if (StringUtils.isNotBlank(getSessionToken())) {
+                hadoopStorageConfig.set("fs.s3a.session.token", getSessionToken());
+            }
+        }
         hadoopStorageConfig.set("fs.s3a.connection.maximum", getMaxConnections());
         hadoopStorageConfig.set("fs.s3a.connection.request.timeout", getRequestTimeoutS());
         hadoopStorageConfig.set("fs.s3a.connection.timeout", getConnectionTimeoutS());
         hadoopStorageConfig.set("fs.s3a.path.style.access", getUsePathStyle());
+    }
+
+    /**
+     * By default, Hadoop caches FileSystem instances per scheme and authority (e.g. s3a://bucket/), meaning that all
+     * subsequent calls using the same URI will reuse the same FileSystem object.
+     * In multi-tenant or dynamic credential environments — where different users may access the same bucket using
+     * different access keys or tokens — this cache reuse can lead to cross-credential contamination.
+     * <p>
+     * Specifically, if the cache is not disabled, a FileSystem instance initialized with one set of credentials may
+     * be reused by another session targeting the same bucket but with a different AK/SK. This results in:
+     * <p>
+     * Incorrect authentication (using stale credentials)
+     * <p>
+     * Unexpected permission errors or access denial
+     * <p>
+     * Potential data leakage between users
+     * <p>
+     * To avoid such risks, the configuration property
+     * fs.<schema>.impl.disable.cache
+     * must be set to true for all object storage backends (e.g., S3A, OSS, COS, OBS), ensuring that each new access
+     * creates an isolated FileSystem instance with its own credentials and configuration context.
+     */
+    private void ensureDisableCache(Configuration conf, Map<String, String> origProps) {
+        for (String schema : schemas()) {
+            String key = "fs." + schema + ".impl.disable.cache";
+            String userValue = origProps.get(key);
+            if (StringUtils.isNotBlank(userValue)) {
+                conf.setBoolean(key, BooleanUtils.toBoolean(userValue));
+            } else {
+                conf.setBoolean(key, true);
+            }
+        }
     }
 
     @Override

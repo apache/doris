@@ -60,6 +60,7 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vmap_literal.h"
 #include "vec/exprs/vmatch_predicate.h"
+#include "vec/exprs/vsearch.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
 #include "vec/utils/util.hpp"
@@ -495,6 +496,10 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             expr = VCastExpr::create_shared(expr_node);
             break;
         }
+        case TExprNodeType::TRY_CAST_EXPR: {
+            expr = TryCastExpr::create_shared(expr_node);
+            break;
+        }
         case TExprNodeType::IN_PRED: {
             expr = VInPredicate::create_shared(expr_node);
             break;
@@ -508,6 +513,10 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         }
         case TExprNodeType::INFO_FUNC: {
             expr = VInfoFunc::create_shared(expr_node);
+            break;
+        }
+        case TExprNodeType::SEARCH_EXPR: {
+            expr = VSearchExpr::create_shared(expr_node);
             break;
         }
         default:
@@ -794,6 +803,25 @@ Status VExpr::check_constant(const Block& block, ColumnNumbers arguments) const 
     return Status::OK();
 }
 
+uint64_t VExpr::get_digest(uint64_t seed) const {
+    auto digest = seed;
+    for (auto child : _children) {
+        digest = child->get_digest(digest);
+        if (digest == 0) {
+            return 0;
+        }
+    }
+
+    auto& fn_name = _fn.name.function_name;
+    if (!fn_name.empty()) {
+        digest = HashUtil::hash64(fn_name.c_str(), fn_name.size(), digest);
+    } else {
+        digest = HashUtil::hash64((const char*)&_node_type, sizeof(_node_type), digest);
+        digest = HashUtil::hash64((const char*)&_opcode, sizeof(_opcode), digest);
+    }
+    return digest;
+}
+
 Status VExpr::get_result_from_const(vectorized::Block* block, const std::string& expr_name,
                                     int* result_column_id) {
     *result_column_id = block->columns();
@@ -899,6 +927,8 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
             auto* column_literal = assert_cast<VLiteral*>(child.get());
             arguments.emplace_back(column_literal->get_column_ptr(),
                                    column_literal->get_data_type(), column_literal->expr_name());
+        } else if (child->can_push_down_to_index()) {
+            RETURN_IF_ERROR(child->evaluate_inverted_index(context, segment_num_rows));
         } else {
             return Status::OK(); // others cases
         }

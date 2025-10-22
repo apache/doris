@@ -68,6 +68,15 @@ public class LogicalExcept extends LogicalSetOperation {
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(").append(child(0).toDigest()).append(")");
+        sb.append(" EXCEPT ").append(qualifier).append(" ");
+        sb.append("(").append(child(1).toDigest()).append(")");
+        return sb.toString();
+    }
+
+    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalExcept(this, context);
     }

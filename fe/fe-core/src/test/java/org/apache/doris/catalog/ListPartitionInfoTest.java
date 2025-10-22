@@ -22,9 +22,9 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.info.TableNameInfo;
 
 import com.google.common.collect.Lists;
 import org.junit.Assert;
@@ -235,8 +235,8 @@ public class ListPartitionInfoTest {
         partitionColumns.add(k2);
 
         ArrayList<Expr> partitionExprs = new ArrayList<>();
-        SlotRef s1 = new SlotRef(new TableName("tbl"), "k1");
-        SlotRef s2 = new SlotRef(new TableName("tbl"), "k2");
+        SlotRef s1 = new SlotRef(new TableNameInfo("tbl"), "k1");
+        SlotRef s2 = new SlotRef(new TableNameInfo("tbl"), "k2");
         partitionExprs.add(s1);
         partitionExprs.add(s2);
 

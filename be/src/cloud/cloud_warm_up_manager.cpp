@@ -27,6 +27,7 @@
 #include <tuple>
 
 #include "bvar/bvar.h"
+#include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/cast_set.h"
@@ -154,7 +155,7 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                         .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                         .is_warmup = true},
                 .download_done =
-                        [&](Status st) {
+                        [&, done_cb = std::move(done_cb)](Status st) {
                             if (done_cb) done_cb(st);
                             if (!st) {
                                 LOG_WARNING("Warm up error ").error(st);
@@ -221,26 +222,25 @@ void CloudWarmUpManager::handle_jobs() {
             auto tablet_meta = tablet->tablet_meta();
             auto rs_metas = snapshot_rs_metas(tablet.get());
             for (auto& [_, rs] : rs_metas) {
+                auto storage_resource = rs->remote_storage_resource();
+                if (!storage_resource) {
+                    LOG(WARNING) << storage_resource.error();
+                    continue;
+                }
+
+                int64_t expiration_time =
+                        tablet_meta->ttl_seconds() == 0 || rs->newest_write_timestamp() <= 0
+                                ? 0
+                                : rs->newest_write_timestamp() + tablet_meta->ttl_seconds();
+                if (expiration_time <= UnixSeconds()) {
+                    expiration_time = 0;
+                }
+                if (!tablet->add_rowset_warmup_state(*rs, WarmUpTriggerSource::JOB)) {
+                    LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
+                              << ", skip it";
+                    continue;
+                }
                 for (int64_t seg_id = 0; seg_id < rs->num_segments(); seg_id++) {
-                    auto storage_resource = rs->remote_storage_resource();
-                    if (!storage_resource) {
-                        LOG(WARNING) << storage_resource.error();
-                        continue;
-                    }
-
-                    int64_t expiration_time =
-                            tablet_meta->ttl_seconds() == 0 || rs->newest_write_timestamp() <= 0
-                                    ? 0
-                                    : rs->newest_write_timestamp() + tablet_meta->ttl_seconds();
-                    if (expiration_time <= UnixSeconds()) {
-                        expiration_time = 0;
-                    }
-                    if (!tablet->add_rowset_warmup_state(*rs, WarmUpState::TRIGGERED_BY_JOB)) {
-                        LOG(INFO) << "found duplicate warmup task for rowset " << rs->rowset_id()
-                                  << ", skip it";
-                        continue;
-                    }
-
                     // 1st. download segment files
                     submit_download_tasks(
                             storage_resource.value()->remote_segment_path(*rs, seg_id),
@@ -249,8 +249,10 @@ void CloudWarmUpManager::handle_jobs() {
                             [tablet, rs, seg_id](Status st) {
                                 VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
                                            << seg_id << " completed";
-                                if (tablet->complete_rowset_segment_warmup(
-                                            rs->rowset_id(), st, 1, 0) == WarmUpState::DONE) {
+                                if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::JOB,
+                                                                           rs->rowset_id(), st, 1,
+                                                                           0)
+                                            .trigger_source == WarmUpTriggerSource::JOB) {
                                     VLOG_DEBUG << "warmup rowset " << rs->version() << " completed";
                                 }
                             });
@@ -284,16 +286,18 @@ void CloudWarmUpManager::handle_jobs() {
                                     }
                                 }
                             }
-                            tablet->update_rowset_warmup_state_inverted_idx_num(rs->rowset_id(), 1);
+                            tablet->update_rowset_warmup_state_inverted_idx_num(
+                                    WarmUpTriggerSource::JOB, rs->rowset_id(), 1);
                             submit_download_tasks(
                                     idx_path, file_size, storage_resource.value()->fs,
                                     expiration_time, wait, true, [=](Status st) {
                                         VLOG_DEBUG << "warmup rowset " << rs->version()
                                                    << " segment " << seg_id
                                                    << "inverted idx:" << idx_path << " completed";
-                                        if (tablet->complete_rowset_segment_warmup(rs->rowset_id(),
-                                                                                   st, 0, 1) ==
-                                            WarmUpState::DONE) {
+                                        if (tablet->complete_rowset_segment_warmup(
+                                                          WarmUpTriggerSource::JOB, rs->rowset_id(),
+                                                          st, 0, 1)
+                                                    .trigger_source == WarmUpTriggerSource::JOB) {
                                             VLOG_DEBUG << "warmup rowset " << rs->version()
                                                        << " completed";
                                         }
@@ -305,16 +309,18 @@ void CloudWarmUpManager::handle_jobs() {
                                     storage_resource.value()->remote_idx_v2_path(*rs, seg_id);
                             file_size = idx_file_info.has_index_size() ? idx_file_info.index_size()
                                                                        : -1;
-                            tablet->update_rowset_warmup_state_inverted_idx_num(rs->rowset_id(), 1);
+                            tablet->update_rowset_warmup_state_inverted_idx_num(
+                                    WarmUpTriggerSource::JOB, rs->rowset_id(), 1);
                             submit_download_tasks(
                                     idx_path, file_size, storage_resource.value()->fs,
                                     expiration_time, wait, true, [=](Status st) {
                                         VLOG_DEBUG << "warmup rowset " << rs->version()
                                                    << " segment " << seg_id
                                                    << "inverted idx:" << idx_path << " completed";
-                                        if (tablet->complete_rowset_segment_warmup(rs->rowset_id(),
-                                                                                   st, 0, 1) ==
-                                            WarmUpState::DONE) {
+                                        if (tablet->complete_rowset_segment_warmup(
+                                                          WarmUpTriggerSource::JOB, rs->rowset_id(),
+                                                          st, 0, 1)
+                                                    .trigger_source == WarmUpTriggerSource::JOB) {
                                             VLOG_DEBUG << "warmup rowset " << rs->version()
                                                        << " completed";
                                         }

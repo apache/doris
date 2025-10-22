@@ -76,6 +76,7 @@ suite("one_level_nestedtypes_with_s3data") {
         }
     }
     def load_from_s3 = {table_name, uri_file, format ->
+        sql "set enable_insert_strict = false;"
         if (format == "csv") {
             order_qt_sql_s3 """select * from s3(
                 "uri" = "${uri_file}",
@@ -113,6 +114,7 @@ suite("one_level_nestedtypes_with_s3data") {
                     "provider" = "${getS3Provider()}",
                     "read_json_by_line"="true"); """
         }
+        sql "set enable_insert_strict = true;"
     }
 
     // step1. create table
@@ -153,9 +155,9 @@ suite("one_level_nestedtypes_with_s3data") {
     // select element_at(column)
     for (String col : colNameArr) {
         // first
-        order_qt_select_arr "select ${col}[1] from ${table_names[0]} where k1 IS NOT NULL order by k1 limit 10;"
+        order_qt_select_arr "select ${col}[1], k1 from ${table_names[0]} where k1 IS NOT NULL order by k1 limit 10;"
         // last
-        order_qt_select_arr "select ${col}[-1] from ${table_names[0]} where k1 IS NOT NULL order by k1 limit 10;"
+        order_qt_select_arr "select ${col}[-1], k1 from ${table_names[0]} where k1 IS NOT NULL order by k1 limit 10;"
         // null
         order_qt_select_arr_null "select ${col}[0] from ${table_names[0]} where k1 IS NOT NULL order by k1 limit 10;"
         // null
@@ -163,7 +165,7 @@ suite("one_level_nestedtypes_with_s3data") {
     }
     // select * from table where element_at(column) with equal expr
     for (String col : colNameArr) {
-        order_qt_select_arr "select ${col}[1], ${col}[-1] from ${table_names[0]} where k1 IS NOT NULL AND ${col}[1]<${col}[-1] order by k1 limit 10;"
+        order_qt_select_arr "select ${col}[1], ${col}[-1], k1 from ${table_names[0]} where k1 IS NOT NULL AND ${col}[1]<${col}[-1] order by k1 limit 10;"
     }
     // select * from table where groupby|orderby element_at(column)
     for (String col : colNameArr) {

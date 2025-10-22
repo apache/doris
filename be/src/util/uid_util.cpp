@@ -59,5 +59,15 @@ std::string print_id(const PUniqueId& id) {
                        static_cast<uint64_t>(id.lo()));
 }
 
+bool TUniqueId::operator<(const TUniqueId& rhs) const {
+    if (hi < rhs.hi) {
+        return true;
+    }
+    if (hi > rhs.hi) {
+        return false;
+    }
+    return lo < rhs.lo;
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris
