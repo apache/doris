@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
@@ -196,6 +197,12 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     public Void visitMapContainsValue(MapContainsValue mapContainsValue, CollectorContext context) {
         context.accessPathBuilder.addPrefix("VALUES");
         return continueCollectAccessPath(mapContainsValue.getArgument(0), context);
+    }
+
+    @Override
+    public Void visitMapContainsEntry(MapContainsEntry mapContainsEntry, CollectorContext context) {
+        context.accessPathBuilder.addPrefix("*");
+        return continueCollectAccessPath(mapContainsEntry.getArgument(0), context);
     }
 
     @Override

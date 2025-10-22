@@ -114,6 +114,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughSort;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushDownJoinOtherCondition;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownNestedColumn;
 import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
@@ -165,6 +166,7 @@ public class RuleSet {
             new PushDownFilterThroughSetOperation(),
             new PushDownFilterThroughGenerate(),
             new PushDownProjectThroughLimit(),
+            new PushDownNestedColumn(),
             new EliminateOuterJoin(),
             new MergeProjectable(),
             new MergeFilters(),
