@@ -105,9 +105,6 @@ public class MTMVPartitionUtil {
                 Set<String> relatedPartitionNames = partitionMappings.get(pctTable);
                 // if follow base table, not need compare with related table, only should compare with related partition
                 excludedTriggerTables.add(new TableNameInfo(pctTable));
-                if (CollectionUtils.isEmpty(relatedPartitionNames)) {
-                    continue;
-                }
                 if (!isSyncWithPartitions(refreshContext, partitionName, relatedPartitionNames, pctTable)) {
                     return false;
                 }
@@ -277,9 +274,6 @@ public class MTMVPartitionUtil {
                     res.add(pctTable.getName());
                 }
                 Set<String> pctPartitions = mappings.get(pctTable);
-                if (CollectionUtils.isEmpty(pctPartitions)) {
-                    continue;
-                }
                 boolean isSyncWithPartition = isSyncWithPartitions(context, partitionName,
                         pctPartitions, pctTable);
                 if (!isSyncWithPartition) {
@@ -341,6 +335,9 @@ public class MTMVPartitionUtil {
                 .getPctSnapshots(mtmvPartitionName, pctTableInfo);
         if (!Objects.equals(pctPartitionNames, snapshotPartitions)) {
             return false;
+        }
+        if (CollectionUtils.isEmpty(pctPartitionNames)) {
+            return true;
         }
         for (String pctPartitionName : pctPartitionNames) {
             MTMVSnapshotIf pctCurrentSnapshot = pctTable
