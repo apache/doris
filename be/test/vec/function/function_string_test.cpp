@@ -2519,7 +2519,7 @@ TEST(function_string_test, function_hex_test) {
             {{std::string("测试")}, std::string("E6B58BE8AF95")},
             {{std::string("こんにちは")}, std::string("E38193E38293E381ABE381A1E381AF")},
             {{std::string("안녕하세요")}, std::string("EC9588EB8595ED9598EC84B8EC9A94")},
-            {{std::string("테스트")}, std::string("ED8580EC8A94ED8A80ED8A94")},
+            {{std::string("테스트")}, std::string("ED858CEC8AA4ED8AB8")},
             {{std::string("🎉🍔")}, std::string("F09F8E89F09F8D94")},
     };
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
@@ -2543,7 +2543,7 @@ TEST(function_string_test, function_unhex_test) {
             {{std::string("20202020202B20202020202020323320")}, std::string("     +       23 ")},
             {{std::string("E38193E38293E381ABE381A1E381AF")}, std::string("こんにちは")},
             {{std::string("EC9588EB8595ED9598EC84B8EC9A94")}, std::string("안녕하세요")},
-            {{std::string("ED8580EC8A94ED8A80ED8A94")}, std::string("테스트")},
+            {{std::string("ED858CEC8AA4ED8AB8")}, std::string("테스트")},
     };
     check_function_all_arg_comb<DataTypeString, true>(unhex_func_name, input_types, data_set);
 
@@ -2567,7 +2567,7 @@ TEST(function_string_test, function_unhex_test) {
             {{std::string("F09F8E89F09F8D94")}, std::string("🎉🍔")},
             {{std::string("E38193E38293E381ABE381A1E381AF")}, std::string("こんにちは")},
             {{std::string("EC9588EB8595ED9598EC84B8EC9A94")}, std::string("안녕하세요")},
-            {{std::string("ED8580EC8A94ED8A80ED8A94")}, std::string("테스트")},
+            {{std::string("ED858CEC8AA4ED8AB8")}, std::string("테스트")},
     };
     check_function_all_arg_comb<DataTypeString, true>(unhex_null_func_name, input_types, data_set);
 }
