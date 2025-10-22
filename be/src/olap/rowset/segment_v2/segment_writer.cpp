@@ -1045,8 +1045,7 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
         auto size = *index_size + *segment_file_size;
         auto holder = cache_builder->allocate_cache_holder(index_start, size);
         for (auto& segment : holder->file_blocks) {
-            static_cast<void>(
-                    segment->change_cache_type_between_normal_and_index(io::FileCacheType::INDEX));
+            static_cast<void>(segment->change_cache_type(io::FileCacheType::INDEX));
         }
     }
     return Status::OK();

@@ -423,24 +423,7 @@ Status FSFileCacheStorage::collect_directory_entries(const std::filesystem::path
 }
 
 Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
-    return Status::OK(); // version 3 don't need upgrade
-    /*
-     * If use version2 but was version 1, do upgrade:
-     *
-     * Action I:
-     *     version 1.0: cache_base_path / key / offset
-     *     version 2.0: cache_base_path / key_prefix / key / offset
-     *
-     * Action II:
-     *     add '_0' to hash dir
-     *
-     * Note: This is a sync operation with tons of IOs, so it may affect BE
-     * boot time heavily. Fortunately, Action I & II will only happen when
-     * upgrading (once in the cluster life time).
-     */
-
     std::string version;
-    std::error_code ec;
     int rename_count = 0;
     int failure_count = 0;
     auto start_time = std::chrono::steady_clock::now();
@@ -452,102 +435,18 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
                       "upgrade to 2.0 first,or clear the file cache directory to start anew "
                       "(LOSING ALL THE CACHE).";
         exit(-1);
-    } else if (version == "2.0" && config::file_cache_upgrade_v3) {
-        LOG(INFO) << "need upgrade from cache version 2.0 to 3.0";
-        // TODO(zhengyu): implement the upgrade
-        // move directories format as version 2.0
-        std::vector<std::string> file_list;
-        file_list.reserve(10000);
-        RETURN_IF_ERROR(collect_directory_entries(_cache_base_path, file_list));
-
-        // this directory_iterator should be a problem in concurrent access
-        for (const auto& file_path : file_list) {
-            try {
-                if (std::filesystem::is_directory(file_path)) {
-                    std::string cache_key = std::filesystem::path(file_path).filename().native();
-                    if (cache_key.size() > KEY_PREFIX_LENGTH) {
-                        if (cache_key.find('_') == std::string::npos) {
-                            cache_key += "_0";
-                        }
-                        std::string key_prefix =
-                                Path(_cache_base_path) / cache_key.substr(0, KEY_PREFIX_LENGTH);
-                        bool exists = false;
-                        auto exists_status = fs->exists(key_prefix, &exists);
-                        if (!exists_status.ok()) {
-                            LOG(WARNING) << "Failed to check directory existence: " << key_prefix
-                                         << ", error: " << exists_status.to_string();
-                            ++failure_count;
-                            continue;
-                        }
-                        if (!exists) {
-                            auto create_status = fs->create_directory(key_prefix);
-                            if (!create_status.ok() &&
-                                create_status.code() != TStatusCode::type::ALREADY_EXIST) {
-                                LOG(WARNING) << "Failed to create directory: " << key_prefix
-                                             << ", error: " << create_status.to_string();
-                                ++failure_count;
-                                continue;
-                            }
-                        }
-                        auto rename_status = Status::OK();
-                        const std::string new_file_path = key_prefix + "/" + cache_key;
-                        TEST_SYNC_POINT_CALLBACK(
-                                "FSFileCacheStorage::upgrade_cache_dir_if_necessary_rename",
-                                &file_path, &new_file_path);
-                        rename_status = fs->rename(file_path, new_file_path);
-                        if (rename_status.ok() ||
-                            rename_status.code() == TStatusCode::type::DIRECTORY_NOT_EMPTY) {
-                            ++rename_count;
-                        } else {
-                            LOG(WARNING)
-                                    << "Failed to rename directory from " << file_path << " to "
-                                    << new_file_path << ", error: " << rename_status.to_string();
-                            ++failure_count;
-                            continue;
-                        }
-                    }
-                }
-            } catch (const std::exception& e) {
-                LOG(WARNING) << "Error occurred while upgrading file cache directory: " << file_path
-                             << " err: " << e.what();
-                ++failure_count;
-            }
-        }
-
-        std::vector<std::string> rebuilt_file_list;
-        rebuilt_file_list.reserve(10000);
-        RETURN_IF_ERROR(collect_directory_entries(_cache_base_path, rebuilt_file_list));
-
-        for (const auto& key_it : rebuilt_file_list) {
-            if (!std::filesystem::is_directory(key_it)) {
-                // maybe version hits file
-                continue;
-            }
-            try {
-                if (Path(key_it).filename().native().size() != KEY_PREFIX_LENGTH) {
-                    LOG(WARNING) << "Unknown directory " << key_it << ", try to remove it";
-                    auto delete_status = fs->delete_directory(key_it);
-                    if (!delete_status.ok()) {
-                        LOG(WARNING) << "Failed to delete unknown directory: " << key_it
-                                     << ", error: " << delete_status.to_string();
-                        ++failure_count;
-                        continue;
-                    }
-                }
-            } catch (const std::exception& e) {
-                LOG(WARNING) << "Error occurred while upgrading file cache directory: " << key_it
-                             << " err: " << e.what();
-                ++failure_count;
-            }
-        }
-        if (auto st = write_file_cache_version(); !st.ok()) {
-            return Status::InternalError("Failed to write version hints for file cache, err={}",
-                                         st.to_string());
-        }
+    } else if (version == "2.0") {
+        LOG(INFO) << "Cache will upgrade from 2.0 to 3.0 progressively during running. 2.0 data "
+                     "format will evict eventually.";
+        return Status::OK();
+    } else if (version == "3.0") {
+        LOG(INFO) << "Readly 3.0 format, no need to upgrade.";
+        return Status::OK();
     } else {
         LOG(ERROR) << "Cache version upgrade issue: current version " << version
                    << " is not valid. Clear the file cache directory to start anew (LOSING ALL THE "
                       "CACHE).";
+        exit(-1);
     }
 
     auto end_time = std::chrono::steady_clock::now();
@@ -572,7 +471,7 @@ Status FSFileCacheStorage::read_file_cache_version(std::string* buffer) const {
     bool exists = false;
     RETURN_IF_ERROR(fs->exists(version_path, &exists));
     if (!exists) {
-        *buffer = "1.0";
+        *buffer = "2.0"; // return 2.0 if not exist to utilize filesystem
         return Status::OK();
     }
     FileReaderSPtr version_reader;
@@ -897,7 +796,8 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mg
         CacheContext ctx;
         ctx.cache_type = static_cast<FileCacheType>(meta_value.type);
         ctx.expiration_time = meta_value.ttl;
-        ctx.tablet_id = meta_key.tablet_id; //TODO(zhengyu): zero if loaded from v2
+        ctx.tablet_id =
+                meta_key.tablet_id; //TODO(zhengyu): zero if loaded from v2, we can use this to decide whether the block is loaded from v2 or v3
         args.ctx = ctx;
 
         args.key_path = "";
@@ -914,8 +814,7 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mg
     }
 
     LOG(INFO) << "Finished loading cache info from meta store using RocksDB iterator";
-    std::this_thread::sleep_for(
-            std::chrono::microseconds(1000)); //TODO(zhengyu): remove debug sleep
+
     if (!batch_load_buffer.empty()) {
         add_cell_batch_func();
     }
@@ -950,13 +849,13 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
     LOG(INFO) << "Cache loading statistics - DB blocks: " << db_block_count
               << ", Estimated FS files: " << estimated_file_count;
 
-    // If the difference is more than 30%, load from filesystem as well
+    // If the difference is more than threshold, load from filesystem as well
     if (estimated_file_count > 0) {
         double difference_ratio =
                 static_cast<double>(estimated_file_count) -
                 static_cast<double>(db_block_count) / static_cast<double>(estimated_file_count);
 
-        if (difference_ratio > 0.3) {
+        if (difference_ratio > config::file_cache_meta_store_vs_file_system_diff_num_threshold) {
             LOG(WARNING) << "Significant difference between DB blocks (" << db_block_count
                          << ") and estimated FS files (" << estimated_file_count
                          << "), difference ratio: " << difference_ratio * 100 << "%"
