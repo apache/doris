@@ -3039,9 +3039,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "倒排索引默认存储格式",
-            "Default storage format of inverted index, the default value is V1."
+            "Default storage format of inverted index, the default value is V3."
     })
-    public static String inverted_index_storage_format = "V2";
+    public static String inverted_index_storage_format = "V3";
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否在unique表mow上开启delete语句写delete predicate。若开启，会提升delete语句的性能，"
