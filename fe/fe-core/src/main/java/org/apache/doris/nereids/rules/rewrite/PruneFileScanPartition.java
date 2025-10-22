@@ -64,26 +64,28 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                     LogicalFileScan scan = filter.child();
                     ExternalTable tbl = scan.getTable();
 
-                    SelectedPartitions selectedPartitions;
+                    Pair<SelectedPartitions, Optional<Expression>> prunedRes;
                     if (tbl.supportInternalPartitionPruned()) {
-                        selectedPartitions = pruneExternalPartitions(tbl, filter, scan, ctx.cascadesContext);
+                        prunedRes = pruneExternalPartitions(tbl, filter, scan, ctx.cascadesContext);
                     } else {
                         // set isPruned so that it won't go pass the partition prune again
-                        selectedPartitions = new SelectedPartitions(0, ImmutableMap.of(), true);
+                        prunedRes = Pair.of(new SelectedPartitions(0, ImmutableMap.of(), true),
+                                Optional.empty());
                     }
-                    LogicalFileScan rewrittenScan = scan.withSelectedPartitions(selectedPartitions);
-                    return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
+                    LogicalFileScan rewrittenScan = scan.withSelectedPartitions(prunedRes.first);
+                    return PartitionPruner.prunePredicate(ctx.statementContext.isSkipPrunePredicate(), prunedRes.second,
+                            filter, rewrittenScan);
                 }).toRule(RuleType.FILE_SCAN_PARTITION_PRUNE);
     }
 
-    private SelectedPartitions pruneExternalPartitions(ExternalTable externalTable,
+    private Pair<SelectedPartitions, Optional<Expression>> pruneExternalPartitions(ExternalTable externalTable,
             LogicalFilter<LogicalFileScan> filter, LogicalFileScan scan, CascadesContext ctx) {
         Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMap();
         if (CollectionUtils.isEmpty(externalTable.getPartitionColumns(
                 ctx.getStatementContext().getSnapshot(externalTable)))) {
             // non partitioned table, return NOT_PRUNED.
             // non partition table will be handled in HiveScanNode.
-            return SelectedPartitions.NOT_PRUNED;
+            return Pair.of(SelectedPartitions.NOT_PRUNED, Optional.empty());
         }
         Map<String, Slot> scanOutput = scan.getOutput()
                 .stream()
@@ -110,6 +112,6 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         for (String name : prunedPartitions) {
             selectedPartitionItems.put(name, nameToPartitionItem.get(name));
         }
-        return new SelectedPartitions(nameToPartitionItem.size(), selectedPartitionItems, true);
+        return Pair.of(new SelectedPartitions(nameToPartitionItem.size(), selectedPartitionItems, true), res.second);
     }
 }

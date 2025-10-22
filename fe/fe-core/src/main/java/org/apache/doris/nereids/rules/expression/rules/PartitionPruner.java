@@ -36,7 +36,11 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
@@ -47,6 +51,7 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -344,6 +349,24 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             }
             // only have false result: Can be pruned out. have other exprs: CanNot be pruned out
             return Pair.of(true, false);
+        }
+    }
+
+    /** remove predicates that are always true*/
+    public static Plan prunePredicate(boolean skipPrunePredicate, Optional<Expression> prunedPredicates,
+            LogicalFilter<? extends Plan> filter, LogicalRelation scan) {
+        if (!skipPrunePredicate && prunedPredicates.isPresent()) {
+            Set<Expression> conjuncts = new LinkedHashSet<>(filter.getConjuncts());
+            Expression deletedPredicate = prunedPredicates.get();
+            Set<Expression> deletedPredicateSet = ExpressionUtils.extractConjunctionToSet(deletedPredicate);
+            conjuncts.removeAll(deletedPredicateSet);
+            if (conjuncts.isEmpty()) {
+                return scan;
+            } else {
+                return filter.withConjunctsAndChild(conjuncts, scan);
+            }
+        } else {
+            return filter.withChildren(ImmutableList.of(scan));
         }
     }
 }

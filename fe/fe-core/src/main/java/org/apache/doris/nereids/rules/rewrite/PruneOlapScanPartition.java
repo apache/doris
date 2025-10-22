@@ -39,7 +39,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -82,29 +81,17 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                         LogicalFilter<LogicalOlapScan> filter = ctx.root;
                         LogicalOlapScan scan = filter.child();
                         OlapTable table = scan.getTable();
-                        Pair<LogicalRelation, Optional<Expression>> res = prunePartition(scan, table, filter, ctx);
-                        LogicalRelation rewrittenLogicalRelation = res.first;
+                        Pair<LogicalRelation, Optional<Expression>> prunedRes
+                                = prunePartition(scan, table, filter, ctx);
+                        LogicalRelation rewrittenLogicalRelation = prunedRes.first;
                         if (rewrittenLogicalRelation == null) {
                             return null;
                         }
                         if (rewrittenLogicalRelation instanceof LogicalEmptyRelation) {
                             return rewrittenLogicalRelation;
                         } else {
-                            if (!ctx.statementContext.isSkipPrunePredicate() && res.second.isPresent()) {
-                                Set<Expression> conjuncts = new LinkedHashSet<>(filter.getConjuncts());
-                                Expression deletedPredicate = res.second.get();
-                                Set<Expression> deletedPredicateSet =
-                                        ExpressionUtils.extractConjunctionToSet(deletedPredicate);
-                                conjuncts.removeAll(deletedPredicateSet);
-                                if (conjuncts.isEmpty()) {
-                                    return rewrittenLogicalRelation;
-                                } else {
-                                    return filter.withConjunctsAndChild(conjuncts, rewrittenLogicalRelation);
-                                }
-                            } else {
-                                LogicalOlapScan rewrittenScan = (LogicalOlapScan) rewrittenLogicalRelation;
-                                return filter.withChildren(ImmutableList.of(rewrittenScan));
-                            }
+                            return PartitionPruner.prunePredicate(ctx.statementContext.isSkipPrunePredicate(),
+                                    prunedRes.second, filter, rewrittenLogicalRelation);
                         }
                     }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE)
         );
