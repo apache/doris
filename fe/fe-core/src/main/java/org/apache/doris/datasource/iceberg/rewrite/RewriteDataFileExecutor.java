@@ -134,10 +134,21 @@ public class RewriteDataFileExecutor {
         // Wait for all tasks to complete
         waitForTasksCompletion(resultCollector, groups.size());
 
-        // Commit transaction
+        // Finish rewrite operation
         transaction.finishRewrite();
+
+        // Collect statistics from transaction after all tasks are completed
+        int rewrittenDataFilesCount = groups.stream().mapToInt(group -> group.getDataFiles().size()).sum();
+        // this should after finishRewrite
+        int addedDataFilesCount = transaction.getFilesToAddCount();
+        long rewrittenBytesCount = groups.stream().mapToLong(group -> group.getTotalSize()).sum();
+        int removedDeleteFilesCount = groups.stream().mapToInt(group -> group.getDeleteFileCount()).sum();
+
+        // Commit transaction
         transaction.commit();
-        return new RewriteResult(groups.size(), groups.size(), 0, 0);
+
+        return new RewriteResult(rewrittenDataFilesCount, addedDataFilesCount,
+                rewrittenBytesCount, removedDeleteFilesCount);
     }
 
     /**
