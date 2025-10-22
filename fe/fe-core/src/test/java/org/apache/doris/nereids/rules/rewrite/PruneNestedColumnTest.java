@@ -331,6 +331,32 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testPushDownThroughWindow() {
+        PlanChecker.from(connectContext)
+                .analyze("select struct_element(s, 'city'), r from (select s, rank() over(partition by id) r from tbl t)a")
+                .rewrite()
+                .matches(
+                    logicalResultSink(
+                        logicalProject(
+                            logicalWindow(
+                                logicalProject(
+                                    logicalOlapScan()
+                                ).when(p -> {
+                                    Assertions.assertEquals(2, p.getProjects().size());
+                                    Assertions.assertTrue(p.getProjects().stream()
+                                            .anyMatch(o -> o instanceof Alias && o.child(0) instanceof StructElement));
+                                    return true;
+                                })
+                            )
+                        ).when(p -> {
+                            Assertions.assertTrue(p.getProjects().size() == 2 && p.getProjects().get(0) instanceof SlotReference);
+                            return true;
+                        })
+                    )
+                );
+    }
+
+    @Test
     public void testPushDownThroughUnion() {
         PlanChecker.from(connectContext)
                 .analyze("select struct_element(s, 'city') from (select id, s from tbl union all select 1, null) tmp")

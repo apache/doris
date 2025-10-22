@@ -198,6 +198,7 @@ public enum RuleType {
     // Pushdown nested column project
     PUSH_DOWN_NESTED_COLUMN_THROUGH_JOIN(RuleTypeClass.REWRITE),
     PUSH_DOWN_NESTED_COLUMN_THROUGH_UNION(RuleTypeClass.REWRITE),
+    PUSH_DOWN_NESTED_COLUMN_THROUGH_WINDOW(RuleTypeClass.REWRITE),
     // Pushdown filter
     PUSH_DOWN_FILTER_THROUGH_JOIN(RuleTypeClass.REWRITE),
     PUSH_DOWN_FILTER_THROUGH_LEFT_SEMI_JOIN(RuleTypeClass.REWRITE),
