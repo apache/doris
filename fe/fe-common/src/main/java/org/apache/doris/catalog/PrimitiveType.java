@@ -887,11 +887,11 @@ public enum PrimitiveType {
     }
 
     public boolean isDateType() {
-        return (this == DATE || this == DATETIME || this == DATEV2 || this == DATETIMEV2);
+        return (this == DATE || this == DATETIME || this == DATEV2 || this == DATETIMEV2 || this == TIMESTAMPTZ);
     }
 
     public boolean isDateV2Type() {
-        return (this == DATEV2 || this == DATETIMEV2);
+        return (this == DATEV2 || this == DATETIMEV2 || this == TIMESTAMPTZ);
     }
 
     public boolean isTimeStampTzType() {
