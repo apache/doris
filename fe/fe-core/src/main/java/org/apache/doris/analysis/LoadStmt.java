@@ -678,15 +678,15 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
                     Pair<String, String> pair = getBucketAndObjectFromPath(filePath);
                     String bucket = pair.getLeft();
                     String object = pair.getRight();
-                    String token = "";
-                    if (brokerDescProperties.containsKey(S3Properties.Env.TOKEN)) {
-                        token = brokerDescProperties.get(S3Properties.Env.TOKEN);
-                    }
                     objectInfo = new ObjectInfo(ObjectStoreInfoPB.Provider.valueOf(provider.toUpperCase()),
                             brokerDescProperties.get(S3Properties.Env.ACCESS_KEY),
                             brokerDescProperties.get(S3Properties.Env.SECRET_KEY),
                             bucket, brokerDescProperties.get(S3Properties.Env.ENDPOINT),
-                            brokerDescProperties.get(S3Properties.Env.REGION), token);
+                            brokerDescProperties.get(S3Properties.Env.REGION), "");
+                    if (brokerDescProperties.containsKey(S3Properties.Env.TOKEN)) {
+                        String token = brokerDescProperties.get(S3Properties.Env.TOKEN);
+                        objectInfo.setToken(token);
+                    }
                     remote = RemoteBase.newInstance(objectInfo);
                     // Verify read permissions by calling headObject() on the S3 object.
                     // RemoteBase#headObject does not throw exception if key does not exist.

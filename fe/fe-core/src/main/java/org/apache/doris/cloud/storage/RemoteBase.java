@@ -52,7 +52,7 @@ public abstract class RemoteBase {
         private final String arn;
         // only used for aws
         private final String externalId;
-        private final String token;
+        private String token;
 
         // Used to get sts token
         public ObjectInfo(Cloud.ObjectStoreInfoPB.Provider provider, String ak, String sk,
@@ -93,6 +93,10 @@ public abstract class RemoteBase {
             this.roleName = roleName;
             this.arn = arn;
             this.externalId = externalId;
+            this.token = token;
+        }
+
+        public void setToken(String token) {
             this.token = token;
         }
 
