@@ -65,6 +65,10 @@ std::vector<SchemaScanner::ColumnDesc> SchemaBackendsScanner::_s_backends_column
         {"STATUS", TYPE_STRING, sizeof(StringRef), true},
         {"HEARTBEATFAILURECOUNTER", TYPE_INT, sizeof(int32_t), true},
         {"NODEROLE", TYPE_STRING, sizeof(StringRef), true},
+        {"CPUCORES", TYPE_INT, sizeof(int32_t), true},
+        {"MEMORY", TYPE_STRING, sizeof(StringRef), true},
+        {"LIVESINCE", TYPE_STRING, sizeof(StringRef), true},
+        {"RUNNINGTASKS", TYPE_BIGINT, sizeof(int64_t), true},
 };
 
 SchemaBackendsScanner::SchemaBackendsScanner()

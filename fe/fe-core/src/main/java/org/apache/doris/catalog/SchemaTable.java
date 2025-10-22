@@ -794,6 +794,10 @@ public class SchemaTable extends Table {
                             .column("STATUS", ScalarType.createStringType())
                             .column("HEARTBEATFAILURECOUNTER", ScalarType.createType(PrimitiveType.INT))
                             .column("NODEROLE", ScalarType.createStringType())
+                            .column("CPUCORES", ScalarType.createType(PrimitiveType.INT))
+                            .column("MEMORY", ScalarType.createStringType())
+                            .column("LIVESINCE", ScalarType.createStringType())
+                            .column("RUNNINGTASKS", ScalarType.createType(PrimitiveType.BIGINT))
                             .build()))
             .put("frontends",
                     new SchemaTable(SystemIdGenerator.getNextId(), "frontends", TableType.SCHEMA,
