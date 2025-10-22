@@ -560,6 +560,9 @@ public class MTMV extends OlapTable {
         if (relatedTableInfo == null) {
             return;
         }
+        if (MapUtils.isEmpty(partitionSnapshots)) {
+            return;
+        }
         for (MTMVRefreshPartitionSnapshot partitionSnapshot : partitionSnapshots.values()) {
             Map<String, MTMVSnapshotIf> partitions = partitionSnapshot.getPartitions();
             Map<BaseTableInfo, Map<String, MTMVSnapshotIf>> pcts = partitionSnapshot.getPcts();

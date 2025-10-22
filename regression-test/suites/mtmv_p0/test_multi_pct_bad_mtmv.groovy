@@ -278,4 +278,116 @@ suite("test_multi_pct_bad_mtmv","mtmv") {
             """
         exception "repeat"
     }
+
+    sql """drop table if exists `${tableName1}`"""
+    sql """drop table if exists `${tableName2}`"""
+    sql """drop table if exists `${tableName3}`"""
+    sql """drop materialized view if exists ${mvName};"""
+
+    sql """
+         CREATE TABLE ${tableName1}
+            (
+                k1 DATE not null,
+                k2 INT not null
+            )
+            PARTITION BY RANGE(`k1`)
+            (
+                 PARTITION `p201701` VALUES [("2017-01-01"),  ("2017-02-01")),
+                 PARTITION `p201702` VALUES [("2017-02-01"), ("2017-03-01"))
+            )
+            DISTRIBUTED BY HASH(k2) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+
+    sql """
+        CREATE TABLE ${tableName2}
+        (
+            k1 DATE not null,
+            k2 INT not null
+        )
+        PARTITION BY LIST(`k1`)
+        (
+            PARTITION `p2` VALUES IN ("2017-01-01"),
+            PARTITION `p3` VALUES IN ("2017-02-01")
+        )
+        DISTRIBUTED BY HASH(k2) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+        """
+
+    test {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(k1)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1'
+            )
+            AS
+            select * from  ${tableName1}
+            union all
+            select * from  ${tableName2}
+            """
+        exception "same"
+    }
+
+    sql """drop table if exists `${tableName1}`"""
+    sql """drop table if exists `${tableName2}`"""
+    sql """drop table if exists `${tableName3}`"""
+    sql """drop materialized view if exists ${mvName};"""
+
+    sql """
+        CREATE TABLE ${tableName1}
+        (
+            k1 INT not null,
+            k2 INT not null
+        )
+        PARTITION BY LIST(`k1`)
+        (
+            PARTITION `p1` VALUES IN ("1"),
+            PARTITION `p2` VALUES IN ("2")
+        )
+        DISTRIBUTED BY HASH(k2) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+        """
+
+    sql """
+        CREATE TABLE ${tableName2}
+        (
+            k1 bigint not null,
+            k2 INT not null
+        )
+        PARTITION BY LIST(`k1`)
+        (
+            PARTITION `p1` VALUES IN ("1"),
+            PARTITION `p2` VALUES IN ("2")
+        )
+        DISTRIBUTED BY HASH(k2) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+        """
+
+    test {
+        sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(k1)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1'
+            )
+            AS
+            select * from  ${tableName1}
+            union all
+            select * from  ${tableName2}
+            """
+        exception "suitable"
+    }
 }

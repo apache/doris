@@ -571,6 +571,7 @@ public class MTMVPlanUtil {
                 return originalExprService.equals(analyzedExprService);
             } catch (org.apache.doris.common.AnalysisException e) {
                 LOG.warn(e);
+                return false;
             }
         }
         return true;
