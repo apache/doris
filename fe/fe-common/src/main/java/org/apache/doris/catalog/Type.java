@@ -661,7 +661,8 @@ public abstract class Type {
 
     public boolean isDateType() {
         return isScalarType(PrimitiveType.DATE) || isScalarType(PrimitiveType.DATETIME)
-                || isScalarType(PrimitiveType.DATEV2) || isScalarType(PrimitiveType.DATETIMEV2);
+                || isScalarType(PrimitiveType.DATEV2) || isScalarType(PrimitiveType.DATETIMEV2)
+                || isScalarType(PrimitiveType.TIMESTAMPTZ);
     }
 
     public boolean isDateOrDateTime() {
