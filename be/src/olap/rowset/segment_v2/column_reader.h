@@ -382,6 +382,7 @@ public:
     void set_reading_flag(ReadingFlag flag) { _reading_flag = flag; }
 
 protected:
+    Result<TColumnAccessPaths> _get_sub_access_paths(const TColumnAccessPaths& access_paths);
     ColumnIteratorOptions _opts;
 
     ReadingFlag _reading_flag {ReadingFlag::NORMAL_READING};
