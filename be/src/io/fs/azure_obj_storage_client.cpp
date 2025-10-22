@@ -56,7 +56,7 @@ std::string wrap_object_storage_path_msg(const doris::io::ObjectStoragePathOptio
 
 auto base64_encode_part_num(int part_num) {
     uint8_t buf[4];
-    encode_fixed32_le(buf, static_cast<uint32_t>(part_num));
+    doris::encode_fixed32_le(buf, static_cast<uint32_t>(part_num));
     return Aws::Utils::HashingUtils::Base64Encode({buf, sizeof(buf)});
 }
 
