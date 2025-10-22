@@ -323,6 +323,10 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                     MTMVRelatedTableIf targetTable = (MTMVRelatedTableIf) table;
                     for (String partitionName : filterTableEntry.getValue()) {
                         Partition partition = targetTable.getPartition(partitionName);
+                        if (partition == null) {
+                            // partition maybe deleted, skip it
+                            continue;
+                        }
                         if (targetTable instanceof OlapTable && !((OlapTable) targetTable).selectNonEmptyPartitionIds(
                                 Lists.newArrayList(partition.getId())).isEmpty()) {
                             // Add filter only when partition has data when olap table
