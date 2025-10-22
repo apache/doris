@@ -33,7 +33,9 @@ public class AutoBucketUtils {
     private static Logger logger = LogManager.getLogger(AutoBucketUtils.class);
 
     static final long SIZE_100MB = 100 * 1024 * 1024L;
+
     static final long SIZE_1GB = 1 * 1024 * 1024 * 1024L;
+
     static final long SIZE_1TB = 1024 * SIZE_1GB;
 
     private static int getBENum() {
@@ -55,7 +57,8 @@ public class AutoBucketUtils {
         return activeBENum;
     }
 
-    private static int getBucketsNumByBEDisks() {
+    // public for mock in test
+    public static int getBucketsNumByBEDisks() {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         ImmutableMap<Long, Backend> backends;
         try {
@@ -99,10 +102,9 @@ public class AutoBucketUtils {
                 } else {
                     partitionSizePerBucket = 5;
                 }
-                logger.debug("autobucket_partition_size_per_bucket_gb <= 0, use adaptive {}",
-                        partitionSizePerBucket);
+                logger.debug("autobucket_partition_size_per_bucket_gb <= 0, use adaptive {}", partitionSizePerBucket);
             }
-            return  (int) ((partitionSize - 1) / (partitionSizePerBucket * SIZE_1GB) + 1);
+            return (int) ((partitionSize - 1) / (partitionSizePerBucket * SIZE_1GB) + 1);
         }
     }
 

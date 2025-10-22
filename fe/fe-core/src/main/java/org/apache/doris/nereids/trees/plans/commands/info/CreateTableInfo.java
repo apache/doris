@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -284,6 +285,13 @@ public class CreateTableInfo {
         }
         paddingEngineName(ctlName, ctx);
         checkEngineName();
+
+        // not allow auto bucket with auto list partition
+        if (partitionTableInfo != null
+                && partitionTableInfo.getPartitionType().equalsIgnoreCase(PartitionType.LIST.name())
+                && partitionTableInfo.isAutoPartition() && distribution != null && distribution.isAutoBucket()) {
+            throw new AnalysisException("Cannot use auto bucket with auto list partition");
+        }
 
         if (properties == null) {
             properties = Maps.newHashMap();
