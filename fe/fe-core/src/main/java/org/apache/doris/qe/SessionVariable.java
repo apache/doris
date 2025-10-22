@@ -131,6 +131,29 @@ public class SessionVariable implements Serializable, Writable {
     public static final String NET_WRITE_TIMEOUT = "net_write_timeout";
     public static final String NET_READ_TIMEOUT = "net_read_timeout";
     public static final String TIME_ZONE = "time_zone";
+    public static final String LC_TIME_NAMES = "lc_time_names";
+    private static final ImmutableSet<String> SUPPORTED_LC_TIME_NAMES = ImmutableSet.of(
+            "ar_AE", "ar_BH", "ar_JO", "ar_SA", "ar_SY", "be_BY",
+            "bg_BG", "ca_ES", "cs_CZ", "da_DK", "de_AT", "de_DE",
+            "en_US", "es_ES", "et_EE", "eu_ES", "fi_FI", "fo_FO",
+            "fr_FR", "gl_ES", "gu_IN", "he_IL", "hi_IN", "hr_HR",
+            "hu_HU", "id_ID", "is_IS", "it_CH", "ja_JP", "ko_KR",
+            "lt_LT", "lv_LV", "mk_MK", "mn_MN", "ms_MY", "nb_NO",
+            "nl_NL", "pl_PL", "pt_BR", "pt_PT", "ro_RO", "ru_RU",
+            "ru_UA", "sk_SK", "sl_SI", "sq_AL", "sr_RS", "sv_SE",
+            "ta_IN", "te_IN", "th_TH", "tr_TR", "uk_UA", "ur_PK",
+            "vi_VN", "zh_CN", "zh_TW", "ar_DZ", "ar_EG", "ar_IN",
+            "ar_IQ", "ar_KW", "ar_LB", "ar_LY", "ar_MA", "ar_OM",
+            "ar_QA", "ar_SD", "ar_TN", "ar_YE", "de_BE", "de_CH",
+            "de_LU", "en_AU", "en_CA", "en_GB", "en_IN", "en_NZ",
+            "en_PH", "en_ZA", "en_ZW", "es_AR", "es_BO", "es_CL",
+            "es_CO", "es_CR", "es_DO", "es_EC", "es_GT", "es_HN",
+            "es_MX", "es_NI", "es_PA", "es_PE", "es_PR", "es_PY",
+            "es_SV", "es_US", "es_UY", "es_VE", "fr_BE", "fr_CA",
+            "fr_CH", "fr_LU", "it_IT", "nl_BE", "no_NO", "sv_FI",
+            "zh_HK", "el_GR", "rm_CH"
+    );
+
     public static final String SQL_SAFE_UPDATES = "sql_safe_updates";
     public static final String NET_BUFFER_LENGTH = "net_buffer_length";
     public static final String HAVE_QUERY_CACHE =  "have_query_cache";
@@ -1128,6 +1151,10 @@ public class SessionVariable implements Serializable, Writable {
     // The current time zone
     @VariableMgr.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResult = true)
     public String timeZone = TimeUtils.getSystemTimeZone().getID();
+
+    @VariableMgr.VarAttr(name = LC_TIME_NAMES, needForward = true, affectQueryResult = true,
+            setter = "setLcTimeNames")
+    public String lcTimeNames = "en_US";
 
     @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
     public int exchangeInstanceParallel = 100;
@@ -3508,6 +3535,33 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setTimeZone(String timeZone) {
         this.timeZone = timeZone;
+    }
+
+    private static String standarlizeLcTimeNames(String value) {
+        if (value.isEmpty()) {
+            throw new InvalidParameterException("lc_time_names value is empty");
+        }
+        String[] segments = value.split("_");
+        if (segments.length != 2) {
+            throw new InvalidParameterException(
+                    "lc_time_names value must be in language_COUNTRY form: " + value);
+        }
+
+        return segments[0].toLowerCase() + "_" + segments[1].toUpperCase();
+    }
+
+    public void setLcTimeNames(String lcTimeNames) {
+        String standardLcTimeNames = standarlizeLcTimeNames(lcTimeNames);
+        if (!SUPPORTED_LC_TIME_NAMES.contains(standardLcTimeNames)) {
+            String supportedList = String.join(", ", SUPPORTED_LC_TIME_NAMES);
+            throw new InvalidParameterException("Unsupported lc_time_names value: " + lcTimeNames
+                + ". Supported values are: " + supportedList);
+        }
+        this.lcTimeNames = standardLcTimeNames;
+    }
+
+    public String getLcTimeNames() {
+        return lcTimeNames;
     }
 
     public int getSqlSafeUpdates() {
