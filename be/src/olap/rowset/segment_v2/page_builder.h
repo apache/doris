@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/segment_v2.pb.h>
 #include <stdint.h>
 
 #include <memory>
@@ -70,6 +71,14 @@ public:
     // Get the dictionary page for dictionary encoding mode column.
     virtual Status get_dictionary_page(OwnedSlice* dictionary_page) {
         return Status::NotSupported("get_dictionary_page not implemented");
+    }
+
+    virtual Status get_dictionary_page_encoding(EncodingTypePB* encoding) const {
+        return Status::NotSupported("get_dictionary_page_encoding not implemented");
+    }
+
+    virtual Status get_dict_word(uint32_t value_code, Slice* word) {
+        return Status::NotSupported("get_dict_word not implemented");
     }
 
     // Reset the internal state of the page builder.
