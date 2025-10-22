@@ -469,7 +469,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
      */
     public LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery) {
         OlapTable targetTable = getTargetTable(ctx);
-        // checkTargetTable(targetTable);
+        checkTargetTable(targetTable);
         // add select and insert node.
         List<NamedExpression> selectLists = Lists.newArrayList();
         List<String> cols = Lists.newArrayList();
