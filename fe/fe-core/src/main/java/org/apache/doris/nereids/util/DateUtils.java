@@ -382,6 +382,9 @@ public class DateUtils {
         return accessor.isSupported(field) ? accessor.get(field) : /* default value */ 0;
     }
 
+    /**
+     * get month from accessor, if not support day field, return 1
+     */
     public static int getMonthOrDefault(final TemporalAccessor accessor) {
         if (accessor.isSupported(ChronoField.MONTH_OF_YEAR)) {
             return accessor.get(ChronoField.MONTH_OF_YEAR);
@@ -390,6 +393,9 @@ public class DateUtils {
         }
     }
 
+    /**
+     * get day from accessor, if not support day field, return 1
+     */
     public static int getDayOrDefault(final TemporalAccessor accessor) {
         if (accessor.isSupported(ChronoField.DAY_OF_MONTH)) {
             return accessor.get(ChronoField.DAY_OF_MONTH);
@@ -412,8 +418,6 @@ public class DateUtils {
             return 0;
         }
     }
-
-
 
     public static ZoneId getTimeZone() {
         if (ConnectContext.get() == null || ConnectContext.get().getSessionVariable() == null) {
