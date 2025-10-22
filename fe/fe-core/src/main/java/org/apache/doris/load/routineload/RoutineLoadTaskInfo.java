@@ -179,7 +179,7 @@ public abstract class RoutineLoadTaskInfo {
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
         if (rlTaskTxnCommitAttachment.getTotalRows() < routineLoadJob.getMaxBatchRows()
                 && rlTaskTxnCommitAttachment.getReceivedBytes() < routineLoadJob.getMaxBatchSizeBytes()
-                && rlTaskTxnCommitAttachment.getTaskExecutionTimeMs() < this.timeoutMs) {
+                && rlTaskTxnCommitAttachment.getTaskExecutionTimeMs() < routineLoadJob.getMaxBatchIntervalS() * 1000) {
             this.isEof = true;
         } else {
             this.isEof = false;

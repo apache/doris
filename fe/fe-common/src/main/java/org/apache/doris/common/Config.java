@@ -1221,6 +1221,12 @@ public class Config extends ConfigBase {
     public static int routine_load_blacklist_expire_time_second = 300;
 
     /**
+     * Minimum batch interval for adaptive routine load tasks when not at EOF.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_adaptive_min_batch_interval_sec = 360;
+
+    /**
      * The max number of files store in SmallFileMgr
      */
     @ConfField(mutable = true, masterOnly = true)
