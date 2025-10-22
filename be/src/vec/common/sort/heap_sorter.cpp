@@ -17,17 +17,12 @@
 
 #include "vec/common/sort/heap_sorter.h"
 
+#include "common/status.h"
+
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
-                       ObjectPool* pool, std::vector<bool>& is_asc_order,
-                       std::vector<bool>& nulls_first, const RowDescriptor& row_desc)
-        : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
-          _heap_size(limit + offset),
-          _state(MergeSorterState::create_unique(row_desc, offset)) {}
-
-Status HeapSorter::append_block(Block* block) {
+Status HeapSorterWithRuntimePredicate::append_block(Block* block) {
     auto tmp_block = std::make_shared<Block>(block->clone_empty());
     RETURN_IF_ERROR(partial_sort(*block, *tmp_block, true));
     _queue.push(
@@ -47,11 +42,10 @@ Status HeapSorter::append_block(Block* block) {
         }
         _queue_row_num -= current_rows;
     }
-
     return Status::OK();
 }
 
-Status HeapSorter::prepare_for_read(bool is_spill) {
+Status HeapSorterWithRuntimePredicate::prepare_for_read(bool is_spill) {
     if (is_spill) {
         return Status::InternalError("HeapSorter does not support spill");
     }
@@ -66,13 +60,18 @@ Status HeapSorter::prepare_for_read(bool is_spill) {
     return Status::OK();
 }
 
-Status HeapSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
+Status HeapSorterWithRuntimePredicate::get_next(RuntimeState* state, Block* block, bool* eos) {
     return _state->merge_sort_read(block, state->batch_size(), eos);
 }
 
-Field HeapSorter::get_top_value() {
+size_t HeapSorterWithRuntimePredicate::data_size() const {
+    return _data_size;
+}
+
+Field HeapSorterWithRuntimePredicate::get_top_value() {
     Field field {PrimitiveType::TYPE_NULL};
     // get field from first sort column of top row
+
     if (_queue_row_num >= _heap_size) {
         auto [current, current_rows] = _queue.current();
         field = current->get_top_value();
@@ -81,8 +80,124 @@ Field HeapSorter::get_top_value() {
     return field;
 }
 
-size_t HeapSorter::data_size() const {
+Status HeapSorterWithoutRuntimePredicate::append_block(Block* block) {
+    DCHECK(block->rows() > 0);
+    auto tmp_block = block->clone_empty();
+    RETURN_IF_ERROR(_prepare_sort_columns(*block, tmp_block, false));
+    if (_materialize_sort_exprs) {
+        block->clear_column_data();
+    } else {
+        tmp_block.swap(*block);
+    }
+    size_t num_rows = tmp_block.rows();
+    auto block_view =
+            std::make_shared<HeapSortCursorBlockView>(std::move(tmp_block), _sort_description);
+    bool filtered = false;
+    if (_heap_size == _heap->size()) {
+        {
+            SCOPED_TIMER(_topn_filter_timer);
+            _do_filter(*block_view, num_rows);
+        }
+        size_t remain_rows = block_view->block.rows();
+        _topn_filter_rows += (num_rows - remain_rows);
+        COUNTER_SET(_topn_filter_rows_counter, _topn_filter_rows);
+        filtered = remain_rows == 0;
+        for (size_t i = 0; i < remain_rows; ++i) {
+            HeapSortCursorImpl cursor(i, block_view);
+            _heap->replace_top_if_less(std::move(cursor));
+        }
+    } else {
+        size_t free_slots = std::min<size_t>(_heap_size - _heap->size(), num_rows);
+        size_t i = 0;
+        for (; i < free_slots; ++i) {
+            HeapSortCursorImpl cursor(i, block_view);
+            _heap->push(std::move(cursor));
+        }
+
+        for (; i < num_rows; ++i) {
+            HeapSortCursorImpl cursor(i, block_view);
+            _heap->replace_top_if_less(std::move(cursor));
+        }
+    }
+    if (!filtered) {
+        _data_size += block_view->block.allocated_bytes();
+    }
+    return Status::OK();
+}
+
+Status HeapSorterWithoutRuntimePredicate::prepare_for_read(bool is_spill) {
+    if (is_spill) {
+        return Status::InternalError("HeapSorter does not support spill");
+    }
+    if (!_heap->empty() && _heap->size() > _offset) {
+        const auto& top = _heap->top();
+        size_t num_columns = top.block()->columns();
+        MutableColumns result_columns = top.block()->clone_empty_columns();
+
+        size_t init_size = std::min((size_t)_limit, _heap->size());
+        result_columns.reserve(init_size);
+
+        DCHECK(_heap->size() <= _heap_size);
+        // Use a vector to reverse elements in heap
+        std::vector<HeapSortCursorImpl> vector_to_reverse;
+        vector_to_reverse.reserve(init_size);
+        size_t capacity = 0;
+        while (!_heap->empty()) {
+            auto current = _heap->top();
+            _heap->pop();
+            vector_to_reverse.emplace_back(std::move(current));
+            capacity++;
+            if (_offset != 0 && _heap->size() == _offset) {
+                break;
+            }
+        }
+        for (int64_t i = capacity - 1; i >= 0; i--) {
+            auto rid = vector_to_reverse[i].row_id();
+            const auto* cur_block = vector_to_reverse[i].block();
+            Columns columns = cur_block->get_columns();
+            for (size_t j = 0; j < num_columns; ++j) {
+                result_columns[j]->insert_from(*(columns[j]), rid);
+            }
+        }
+        _return_block = vector_to_reverse[0].block()->clone_with_columns(std::move(result_columns));
+    }
+    return Status::OK();
+}
+
+Status HeapSorterWithoutRuntimePredicate::get_next(RuntimeState* state, Block* block, bool* eos) {
+    _return_block.swap(*block);
+    *eos = true;
+    return Status::OK();
+}
+
+size_t HeapSorterWithoutRuntimePredicate::data_size() const {
     return _data_size;
+}
+
+Field HeapSorterWithoutRuntimePredicate::get_top_value() {
+    Field field {PrimitiveType::TYPE_NULL};
+    // get field from first sort column of top row
+    if (_heap->size() >= _heap_size) {
+        const auto& top = _heap->top();
+        top.sort_columns()[0]->get(top.row_id(), field);
+    }
+    return field;
+}
+
+void HeapSorterWithoutRuntimePredicate::_do_filter(HeapSortCursorBlockView& block_view,
+                                                   size_t num_rows) {
+    const auto& top_cursor = _heap->top();
+    const auto cursor_rid = top_cursor.row_id();
+    IColumn::Filter filter(num_rows, 0);
+    std::vector<uint8_t> cmp_res(num_rows, 0);
+
+    for (size_t col_id = 0; col_id < _sort_description.size(); ++col_id) {
+        block_view.sort_columns[col_id]->compare_internal(
+                cursor_rid, *top_cursor.sort_columns()[col_id],
+                _sort_description[col_id].nulls_direction, _sort_description[col_id].direction,
+                cmp_res, filter.data());
+    }
+    block_view.filter_block(filter);
 }
 
 #include "common/compile_check_end.h"
