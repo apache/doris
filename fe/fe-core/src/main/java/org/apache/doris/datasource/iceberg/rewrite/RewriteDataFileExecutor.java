@@ -136,6 +136,7 @@ public class RewriteDataFileExecutor {
 
         // Commit transaction
         transaction.finishRewrite();
+        transaction.commit();
         return new RewriteResult(groups.size(), groups.size(), 0, 0);
     }
 
