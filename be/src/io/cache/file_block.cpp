@@ -165,36 +165,11 @@ Status FileBlock::read(Slice buffer, size_t read_offset) {
     return _mgr->_storage->read(_key, read_offset, buffer);
 }
 
-Status FileBlock::change_cache_type_between_ttl_and_others(FileCacheType new_type) {
-    std::lock_guard block_lock(_mutex);
-    DCHECK(new_type != _key.meta.type);
-    bool expr = (new_type == FileCacheType::TTL || _key.meta.type == FileCacheType::TTL);
-    if (!expr) {
-        LOG(WARNING) << "none of the cache type is TTL"
-                     << ", hash: " << _key.hash.to_string() << ", offset: " << _key.offset
-                     << ", new type: " << cache_type_to_string(new_type)
-                     << ", old type: " << cache_type_to_string(_key.meta.type);
-    }
-    DCHECK(expr);
-
-    // change cache type between TTL to others don't need to rename the filename suffix
-    //TODO(zhengyu): now we need to update meta store
-    _key.meta.type = new_type;
-    return Status::OK();
-}
-
-Status FileBlock::change_cache_type_between_normal_and_index(FileCacheType new_type) {
+Status FileBlock::change_cache_type(FileCacheType new_type) {
     SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
     std::lock_guard block_lock(_mutex);
-    bool expr = (new_type != FileCacheType::TTL && _key.meta.type != FileCacheType::TTL);
-    if (!expr) {
-        LOG(WARNING) << "one of the cache type is TTL"
-                     << ", hash: " << _key.hash.to_string() << ", offset: " << _key.offset
-                     << ", new type: " << cache_type_to_string(new_type)
-                     << ", old type: " << cache_type_to_string(_key.meta.type);
-    }
-    DCHECK(expr);
-    if (_key.meta.type == FileCacheType::TTL || new_type == _key.meta.type) {
+
+    if (new_type == _key.meta.type) {
         return Status::OK();
     }
     if (_download_state == State::DOWNLOADED) {
