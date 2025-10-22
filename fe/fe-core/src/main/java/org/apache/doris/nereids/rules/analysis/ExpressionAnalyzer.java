@@ -171,13 +171,22 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 cascadesContext, false, false);
         return analyzer.analyze(
                 expression,
-                cascadesContext == null ? null : new ExpressionRewriteContext(cascadesContext)
+                cascadesContext == null ? null : new ExpressionRewriteContext(plan, cascadesContext)
         );
     }
 
+    /** analyze */
     public Expression analyze(Expression expression) {
         CascadesContext cascadesContext = getCascadesContext();
-        return analyze(expression, cascadesContext == null ? null : new ExpressionRewriteContext(cascadesContext));
+        ExpressionRewriteContext rewriteContext;
+        if (cascadesContext == null) {
+            rewriteContext = null;
+        } else if (currentPlan == null) {
+            rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        } else {
+            rewriteContext = new ExpressionRewriteContext(currentPlan, cascadesContext);
+        }
+        return analyze(expression, rewriteContext);
     }
 
     /** analyze */
