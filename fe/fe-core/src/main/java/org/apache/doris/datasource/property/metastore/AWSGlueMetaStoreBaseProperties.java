@@ -21,13 +21,30 @@ import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.ParamRules;
 
+import com.google.common.base.Strings;
+import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
+import software.amazon.awssdk.auth.credentials.ContainerCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.SystemPropertyCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.sts.StsClient;
+import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class AWSGlueMetaStoreBaseProperties {
+    @Getter
     @ConnectorProperty(names = {"glue.endpoint", "aws.endpoint", "aws.glue.endpoint"},
             description = "The endpoint of the AWS Glue.")
     protected String glueEndpoint = "";
@@ -36,6 +53,7 @@ public class AWSGlueMetaStoreBaseProperties {
             description = "The region of the AWS Glue. "
                     + "If not set, it will use the default region configured in the AWS SDK or environment variables."
     )
+    @Getter
     protected String glueRegion = "";
 
     /**
@@ -123,6 +141,53 @@ public class AWSGlueMetaStoreBaseProperties {
             }
         }
         throw new IllegalArgumentException("Could not extract region from endpoint: " + glueEndpoint);
+    }
+
+    /**
+     * Build AWS credentials provider for Glue client.
+     *
+     * @return AwsCredentialsProvider
+     */
+    public AwsCredentialsProvider getAwsCredentialsProvider() {
+        // If access key is configured, use it
+        if (StringUtils.isNotBlank(glueAccessKey) && StringUtils.isNotBlank(glueSecretKey)) {
+            if (Strings.isNullOrEmpty(glueSessionToken)) {
+                return StaticCredentialsProvider.create(AwsBasicCredentials.create(glueAccessKey, glueSecretKey));
+            } else {
+                return StaticCredentialsProvider.create(AwsSessionCredentials.create(glueAccessKey, glueSecretKey,
+                        glueSessionToken));
+            }
+        }
+        // If IAM role is configured, use STS AssumeRole
+        if (StringUtils.isNotBlank(glueIAMRole)) {
+            StsClient stsClient = StsClient.builder()
+                    .region(Region.of(glueRegion))
+                    .credentialsProvider(AwsCredentialsProviderChain.of(
+                            WebIdentityTokenFileCredentialsProvider.create(),
+                            ContainerCredentialsProvider.create(),
+                            InstanceProfileCredentialsProvider.create(),
+                            SystemPropertyCredentialsProvider.create(),
+                            EnvironmentVariableCredentialsProvider.create(),
+                            ProfileCredentialsProvider.create()))
+                    .build();
+
+            return StsAssumeRoleCredentialsProvider.builder()
+                    .stsClient(stsClient)
+                    .refreshRequest(builder -> {
+                        builder.roleArn(glueIAMRole).roleSessionName("aws-glue-java-fe");
+                        if (StringUtils.isNotBlank(glueExternalId)) {
+                            builder.externalId(glueExternalId);
+                        }
+                    }).build();
+        }
+
+        return AwsCredentialsProviderChain.of(
+                WebIdentityTokenFileCredentialsProvider.create(),
+                ContainerCredentialsProvider.create(),
+                InstanceProfileCredentialsProvider.create(),
+                SystemPropertyCredentialsProvider.create(),
+                EnvironmentVariableCredentialsProvider.create(),
+                ProfileCredentialsProvider.create());
     }
 }
 

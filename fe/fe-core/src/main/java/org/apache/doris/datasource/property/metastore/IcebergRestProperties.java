@@ -25,6 +25,7 @@ import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.Maps;
+import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
@@ -49,6 +50,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     private Map<String, String> icebergRestCatalogProperties;
 
+    @Getter
     @ConnectorProperty(names = {"iceberg.rest.uri", "uri"},
             description = "The uri of the iceberg rest catalog service.")
     private String icebergRestUri = "";
