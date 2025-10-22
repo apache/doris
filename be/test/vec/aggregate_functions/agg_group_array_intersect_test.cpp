@@ -68,12 +68,17 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
     nested_column->insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)11);
     nested_column->insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)2);
     nested_column->insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)3);
+    auto null_map_column = ColumnUInt8::create();
+    null_map_column->get_data().resize_fill(nested_column->size(), 0);
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
     offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(3));
     offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(6));
 
-    test_col_data = ColumnArray::create(std::move(nested_column), std::move(offsets_column));
+    // array nested column should be nullable
+    test_col_data = ColumnArray::create(
+            ColumnNullable::create(std::move(nested_column), std::move(null_map_column)),
+            std::move(offsets_column));
     EXPECT_EQ(test_col_data->size(), 2);
 
     // Prepare test function and parameters.
@@ -104,8 +109,11 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
     }
 
     // Check result.
-    ColumnArray ans(PrimitiveTypeTraits<T>::ColumnType::create(),
-                    ColumnArray::ColumnOffsets::create());
+    auto nested_result_column = PrimitiveTypeTraits<T>::ColumnType::create();
+    auto null_map_result_column = ColumnUInt8::create();
+    auto nullable_nested_result_column = ColumnNullable::create(std::move(nested_result_column),
+                                                                std::move(null_map_result_column));
+    ColumnArray ans(std::move(nullable_nested_result_column), ColumnArray::ColumnOffsets::create());
     agg_function->insert_result_into(place, ans);
     Field actual_field;
     ans.get(0, actual_field);
@@ -244,13 +252,17 @@ TEST(AggGroupArrayIntersectTest, string_test) {
     nested_column->insert_data("aaaa", 4);
     nested_column->insert_data("b", 1);
     nested_column->insert_data("c", 1);
+    auto null_map_column = ColumnUInt8::create();
+    null_map_column->get_data().resize_fill(nested_column->size(), 0);
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
     offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(3));
     offsets_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(6));
 
-    auto column_array_string =
-            ColumnArray::create(std::move(nested_column), std::move(offsets_column));
+    // array nested column should be nullable
+    auto column_array_string = ColumnArray::create(
+            ColumnNullable::create(std::move(nested_column), std::move(null_map_column)),
+            std::move(offsets_column));
 
     EXPECT_EQ(column_array_string->size(), 2);
 
@@ -275,7 +287,11 @@ TEST(AggGroupArrayIntersectTest, string_test) {
     }
 
     // Check result.
-    ColumnArray ans(ColumnString::create(), ColumnArray::ColumnOffsets::create());
+    auto nested_result_column = ColumnString::create();
+    auto null_map_result_column = ColumnUInt8::create();
+    auto nullable_nested_result_column = ColumnNullable::create(std::move(nested_result_column),
+                                                                std::move(null_map_result_column));
+    ColumnArray ans(std::move(nullable_nested_result_column), ColumnArray::ColumnOffsets::create());
     agg_function->insert_result_into(place, ans);
     Field actual_field;
     ans.get(0, actual_field);
