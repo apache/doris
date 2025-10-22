@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
@@ -40,7 +41,7 @@ import java.util.List;
  * ScalarFunction 'struct_element'.
  */
 public class StructElement extends ScalarFunction
-        implements ExplicitlyCastableSignature, AlwaysNullable, PropagateNullLiteral {
+        implements ExplicitlyCastableSignature, AlwaysNullable, PropagateNullLiteral, PreferPushDownProject {
 
     /**
      * constructor with 0 or more arguments.

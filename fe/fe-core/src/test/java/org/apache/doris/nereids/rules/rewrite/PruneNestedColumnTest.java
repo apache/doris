@@ -28,10 +28,14 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.thrift.TAccessPathType;
@@ -52,7 +56,7 @@ import java.util.Map.Entry;
 import java.util.TreeSet;
 import java.util.function.Consumer;
 
-public class PruneNestedColumnTest extends TestWithFeService {
+public class PruneNestedColumnTest extends TestWithFeService implements MemoPatternMatchSupported {
     @BeforeAll
     public void createTable() throws Exception {
         createDatabase("test");
@@ -295,6 +299,59 @@ public class PruneNestedColumnTest extends TestWithFeService {
                 ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
         );
+    }
+
+    @Test
+    public void testPushDownThroughJoin() {
+        PlanChecker.from(connectContext)
+                .analyze("select struct_element(s, 'city') from (select * from tbl)a join (select 100 id, 'f1' name)b on a.id=b.id")
+                .rewrite()
+                .matches(
+                    logicalResultSink(
+                        logicalProject(
+                            logicalJoin(
+                                logicalProject(
+                                    logicalFilter(
+                                        logicalOlapScan()
+                                    )
+                                ).when(p -> {
+                                    Assertions.assertEquals(2, p.getProjects().size());
+                                    Assertions.assertTrue(p.getProjects().stream()
+                                            .anyMatch(o -> o instanceof Alias && o.child(0) instanceof StructElement));
+                                    return true;
+                                }),
+                                logicalOneRowRelation()
+                            )
+                        ).when(p -> {
+                            Assertions.assertTrue(p.getProjects().size() == 1 && p.getProjects().get(0) instanceof SlotReference);
+                            return true;
+                        })
+                    )
+                );
+    }
+
+    @Test
+    public void testPushDownThroughUnion() {
+        PlanChecker.from(connectContext)
+                .analyze("select struct_element(s, 'city') from (select id, s from tbl union all select 1, null) tmp")
+                .rewrite()
+                .matches(
+                    logicalResultSink(
+                        logicalUnion(
+                            logicalProject(
+                                logicalOlapScan()
+                            ).when(p -> {
+                                Assertions.assertEquals(1, p.getProjects().size());
+                                Assertions.assertInstanceOf(StructElement.class, p.getProjects().get(0).child(0));
+                                return true;
+                            })
+                        ).when(u -> {
+                            Assertions.assertEquals(1, u.getConstantExprsList().size());
+                            Assertions.assertInstanceOf(NullLiteral.class, u.getConstantExprsList().get(0).get(0).child(0));
+                            return true;
+                        })
+                    )
+                );
     }
 
     private void assertColumn(String sql, String expectType,
