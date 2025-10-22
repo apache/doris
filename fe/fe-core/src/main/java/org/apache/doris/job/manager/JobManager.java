@@ -49,6 +49,7 @@ import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -271,10 +272,16 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         jobMap.get(jobId).logUpdateOperation();
     }
 
-    public void alterJob(T job) {
+    public void alterJob(AlterJobCommand alterJobCommand) throws JobException, AnalysisException {
+        T job = getJobByName(alterJobCommand.getJobName());
         writeLock();
         try {
-            jobMap.put(job.getJobId(), job);
+            if (job instanceof StreamingInsertJob) {
+                StreamingInsertJob streamingJob = (StreamingInsertJob) job;
+                streamingJob.alterJob(alterJobCommand);
+            } else {
+                throw new JobException("Unsupported job type for ALTER:" + job.getJobType());
+            }
             job.logUpdateOperation();
         } finally {
             writeUnlock();
