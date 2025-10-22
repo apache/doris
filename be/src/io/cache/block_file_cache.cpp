@@ -333,8 +333,9 @@ BlockFileCache::QueryFileCacheContextPtr BlockFileCache::get_or_set_query_contex
     }
 
     // provide a minimum guaranteed capacity 256MB (or _capacity if smaller)
-    auto query_context = std::make_shared<QueryFileCacheContext>(std::max(
-            _capacity * file_cache_query_limit_percent / 100, std::min(_capacity, (size_t)268435456)));
+    auto query_context = std::make_shared<QueryFileCacheContext>(
+            std::max(_capacity * file_cache_query_limit_percent / 100,
+                    std::min(_capacity, (size_t)268435456)));
     auto query_iter = _query_map.emplace(query_id, query_context).first;
     return query_iter->second;
 }
