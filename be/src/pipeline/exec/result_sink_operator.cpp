@@ -189,7 +189,7 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
     Status final_status = exec_status;
     if (_writer) {
         // close the writer
-        Status st = _writer->close();
+        Status st = _writer->close(exec_status);
         if (!st.ok() && final_status.ok()) {
             // close file writer failed, should return this error to client
             final_status = st;

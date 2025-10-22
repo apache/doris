@@ -216,14 +216,14 @@ Status AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* ope
     { st = _writer_status.status(); }
 
     Status close_st = Status::OK();
-    if (!_closed) {
-        close_st = close(st);
-        _closed = true;
-    }
     {
         // If it is already failed before, then not update the write status so that we could get
         // the real reason.
         std::lock_guard l(_m);
+        if (!_closed) {
+            close_st = close(st);
+            _closed = true;
+        }
         if (_writer_status.ok() && !close_st.ok()) {
             _writer_status.update(close_st);
         }
@@ -256,6 +256,10 @@ void AsyncResultWriter::force_close(Status s) {
     std::lock_guard l(_m);
     if (!s.ok()) {
         _writer_status.update(s);
+        if (!_closed) {
+            WARN_IF_ERROR(close(s), "close failed: ");
+            _closed = true;
+        }
     }
     DCHECK(_dependency);
     if (_is_finished()) {
