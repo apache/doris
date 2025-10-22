@@ -432,6 +432,13 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             fileScanRangeParams.setHdfsParams(tHdfsParams);
         }
 
+        if (getTFileType() == TFileType.FILE_HTTP) {
+            if(fileStatuses.isEmpty()) {
+                String uri = getFilePath();
+                fileStatuses.add(new TBrokerFileStatus(uri, false, -1, false));
+            }
+        }
+
         // get first file, used to parse table schema
         TBrokerFileStatus firstFile = null;
         for (TBrokerFileStatus fileStatus : fileStatuses) {

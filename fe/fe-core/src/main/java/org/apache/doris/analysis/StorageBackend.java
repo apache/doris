@@ -133,6 +133,7 @@ public class StorageBackend implements ParseNode {
         JFS("Juicefs"),
         STREAM("Stream load pipe"),
         AZURE("MicroSoft Azure Blob");
+        HTTP("HTTP");
 
         @SerializedName("desc")
         private final String description;

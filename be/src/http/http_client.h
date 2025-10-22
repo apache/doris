@@ -181,6 +181,13 @@ public:
     // https://datatracker.ietf.org/doc/html/rfc3986
     Status _escape_url(const std::string& url, std::string* escaped_url);
 
+    void set_range(size_t offset, size_t length) {
+        std::string range_header = "Range: bytes=" + std::to_string(offset) + "-" +
+                                   std::to_string(offset + length - 1);
+        _header_list = curl_slist_append(_header_list, range_header.c_str());
+        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
+    }
+
 private:
     const char* _to_errmsg(CURLcode code) const;
     const char* _get_url() const;

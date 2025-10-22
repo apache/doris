@@ -1,3 +1,11 @@
+/*
+ * @Author: 宋光璠 songguangfan@sf.com
+ * @Date: 2025-10-22 18:59:09
+ * @LastEditors: 宋光璠 songguangfan@sf.com
+ * @LastEditTime: 2025-10-22 19:08:19
+ * @FilePath: /doris/fe/fe-core/src/main/java/org/apache/doris/catalog/BuiltinTableValuedFunctions.java
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -67,7 +75,8 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Tasks.class, "tasks"),
             tableValued(Query.class, "query"),
             tableValued(PartitionValues.class, "partition_values"),
-            tableValued(File.class, "file")
+            tableValued(File.class, "file"),
+            tableValued(Http.class, "http")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();

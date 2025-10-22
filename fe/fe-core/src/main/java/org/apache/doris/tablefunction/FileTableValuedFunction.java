@@ -58,7 +58,10 @@ public class FileTableValuedFunction extends ExternalFileTableValuedFunction {
                 delegateTvf = new HdfsTableValuedFunction(properties);
             } else if (this.storageProperties instanceof LocalProperties) {
                 delegateTvf = new LocalTableValuedFunction(properties);
-            } else {
+            } else if (this.storageProperties instanceof HttpProperties) {
+                delegateTvf = new HttpTableValuedFunction(properties);
+            }
+            else {
                 throw new AnalysisException("Could not find storage_type: " + storageProperties);
             }
         } catch (UserException e) {
