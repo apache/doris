@@ -46,6 +46,10 @@ public class MTMVRefreshContext {
         return partitionMappings;
     }
 
+    public Map<MTMVRelatedTableIf, Set<String>> getByPartitionName(String partitionName) {
+        return partitionMappings.getOrDefault(partitionName, Maps.newHashMap());
+    }
+
     public MTMVBaseVersions getBaseVersions() {
         return baseVersions;
     }

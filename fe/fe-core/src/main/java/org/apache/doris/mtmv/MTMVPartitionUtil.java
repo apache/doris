@@ -92,8 +92,7 @@ public class MTMVPartitionUtil {
             Set<BaseTableInfo> tables,
             Set<TableNameInfo> excludedTriggerTables) throws AnalysisException {
         MTMV mtmv = refreshContext.getMtmv();
-        Map<MTMVRelatedTableIf, Set<String>> partitionMappings = refreshContext.getPartitionMappings()
-                .get(partitionName);
+        Map<MTMVRelatedTableIf, Set<String>> partitionMappings = refreshContext.getByPartitionName(partitionName);
         if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             if (MapUtils.isEmpty(partitionMappings)) {
                 LOG.warn("can not found pct partition, partitionName: {}, mtmvName: {}",
@@ -102,7 +101,7 @@ public class MTMVPartitionUtil {
             }
             Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
             for (MTMVRelatedTableIf pctTable : pctTables) {
-                Set<String> relatedPartitionNames = partitionMappings.get(pctTable);
+                Set<String> relatedPartitionNames = partitionMappings.getOrDefault(pctTable, Sets.newHashSet());
                 // if follow base table, not need compare with related table, only should compare with related partition
                 excludedTriggerTables.add(new TableNameInfo(pctTable));
                 if (!isSyncWithPartitions(refreshContext, partitionName, relatedPartitionNames, pctTable)) {
@@ -254,8 +253,7 @@ public class MTMVPartitionUtil {
     private static List<String> getPartitionUnSyncTables(MTMVRefreshContext context, String partitionName)
             throws AnalysisException {
         MTMV mtmv = context.getMtmv();
-        Map<MTMVRelatedTableIf, Set<String>> mappings = context.getPartitionMappings()
-                .get(partitionName);
+        Map<MTMVRelatedTableIf, Set<String>> mappings = context.getByPartitionName(partitionName);
         Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
         List<String> res = Lists.newArrayList();
         for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTablesOneLevelAndFromView()) {
@@ -269,11 +267,7 @@ public class MTMVPartitionUtil {
             }
             if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE && pctTables.contains(
                     pctTable)) {
-                if (MapUtils.isEmpty(mappings)) {
-                    // can not found pct partition
-                    res.add(pctTable.getName());
-                }
-                Set<String> pctPartitions = mappings.get(pctTable);
+                Set<String> pctPartitions = mappings.getOrDefault(pctTable, Sets.newHashSet());
                 boolean isSyncWithPartition = isSyncWithPartitions(context, partitionName,
                         pctPartitions, pctTable);
                 if (!isSyncWithPartition) {
