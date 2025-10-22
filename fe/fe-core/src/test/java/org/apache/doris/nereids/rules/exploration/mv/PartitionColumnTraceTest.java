@@ -1027,9 +1027,7 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("L_SHIPDATE", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            successWith(relatedTableInfo, ImmutableSet.of(ImmutableList.of("lineitem", "l_shipdate", "true", "true"),
-                                            ImmutableList.of("orders", "o_orderdate", "true", "true")),
-                                    "");
+                            failWith(relatedTableInfo, "not union all output pass partition increment check");
                         });
     }
 
@@ -1120,7 +1118,9 @@ public class PartitionColumnTraceTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfos("L_SHIPDATE", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            failWith(relatedTableInfo, "");
+                            successWith(relatedTableInfo, ImmutableSet.of(ImmutableList.of("lineitem", "l_shipdate", "true", "true"),
+                                            ImmutableList.of("orders", "o_orderdate", "true", "true")),
+                                    "");
                         });
     }
 
