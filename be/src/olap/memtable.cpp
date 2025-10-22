@@ -516,7 +516,7 @@ void MemTable::_aggregate() {
                     // The rows from the previous batch of _row_in_blocks have been merged into temp_row_in_blocks,
                     // now call finalize to write the aggregation results into _output_mutable_block.
                     _finalize_one_row<is_final>(temp_row_in_blocks.back().get(), block_data,
-                                                row_pos)
+                                                row_pos);
                 }
                 temp_row_in_blocks.push_back(cur_row_ptr);
                 row_pos++;
