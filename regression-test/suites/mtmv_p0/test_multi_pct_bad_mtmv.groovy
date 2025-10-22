@@ -149,22 +149,6 @@ suite("test_multi_pct_bad_mtmv","mtmv") {
         exception "suitable"
     }
 
-//     test {
-//         sql """
-//             CREATE MATERIALIZED VIEW ${mvName}
-//             BUILD DEFERRED REFRESH AUTO ON MANUAL
-//             partition by(k1)
-//             DISTRIBUTED BY RANDOM BUCKETS 2
-//             PROPERTIES (
-//             'replication_num' = '1'
-//             )
-//             AS
-//             select * from  ${tableName1}
-//             union
-//             select * from  ${tableName2}
-//             """
-//         exception "suitable"
-//     }
     sql """drop table if exists `${tableName1}`"""
     sql """drop table if exists `${tableName2}`"""
     sql """drop table if exists `${tableName3}`"""
