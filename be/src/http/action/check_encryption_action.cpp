@@ -32,7 +32,6 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "common/status.h"
-#include "enterprise/encryption_common.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_status.h"
@@ -147,19 +146,17 @@ Result<std::string> get_last_encrypt_footer(const BaseTabletSPtr& tablet) {
     Slice pb_len_slice(pb_len_buf.data(), sizeof(uint64_t));
     size_t bytes_read;
     RETURN_IF_ERROR_RESULT(
-            reader->read_at(reader->size() - io::ENCRYPT_FOOTER_LENGTH + sizeof(uint8_t),
-                            pb_len_slice, &bytes_read));
+            reader->read_at(reader->size() - 256 + sizeof(uint8_t), pb_len_slice, &bytes_read));
     auto info_pb_size = decode_fixed64_le(pb_len_buf.data());
 
     std::vector<uint8_t> info_pb_buf;
     info_pb_buf.resize(info_pb_size);
     Slice pb_slice(info_pb_buf.data(), info_pb_size);
     RETURN_IF_ERROR_RESULT(reader->read_at(
-            reader->size() - io::ENCRYPT_FOOTER_LENGTH + sizeof(uint8_t) + sizeof(uint64_t),
-            pb_slice, &bytes_read));
+            reader->size() - 256 + sizeof(uint8_t) + sizeof(uint64_t), pb_slice, &bytes_read));
 
     FileEncryptionInfoPB info_pb;
-    if (!info_pb.ParseFromArray(info_pb_buf.data(), info_pb_buf.size())) {
+    if (!info_pb.ParseFromArray(info_pb_buf.data(), static_cast<int>(info_pb_buf.size()))) {
         return ResultError(Status::Corruption("parse encryption info failed"));
     }
     std::string json;

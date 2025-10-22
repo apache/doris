@@ -133,10 +133,11 @@ public class KeyManagerTest {
         try {
             manager.rotateRootKey(properties);
 
-            Assert.assertTrue(masterKey.ciphertext.endsWith("MQ=="));
-            Assert.assertArrayEquals("1".getBytes(StandardCharsets.UTF_8), masterKey.plaintext);
-            Assert.assertNotEquals(0, masterKey.mtime);
-            masterKey.mtime = 0;
+            EncryptionKey masterKey0 = keyManagerStore.getMasterKeys().get(0);
+            Assert.assertTrue(masterKey0.ciphertext.endsWith("MQ=="));
+            Assert.assertArrayEquals("1".getBytes(StandardCharsets.UTF_8), masterKey0.plaintext);
+            Assert.assertNotEquals(0, masterKey0.mtime);
+            masterKey0.mtime = 0;
         } catch (Exception e) {
             e.printStackTrace();
             Assert.fail();
@@ -149,9 +150,10 @@ public class KeyManagerTest {
         try {
             manager.rotateRootKey(properties);
 
-            Assert.assertTrue(masterKey.ciphertext.endsWith("Mg=="));
-            Assert.assertArrayEquals("1".getBytes(StandardCharsets.UTF_8), masterKey.plaintext);
-            Assert.assertNotEquals(0, masterKey.mtime);
+            EncryptionKey masterKey0 = keyManagerStore.getMasterKeys().get(0);
+            Assert.assertTrue(masterKey0.ciphertext.endsWith("Mg=="));
+            Assert.assertArrayEquals("1".getBytes(StandardCharsets.UTF_8), masterKey0.plaintext);
+            Assert.assertNotEquals(0, masterKey0.mtime);
         } catch (Exception e) {
             e.printStackTrace();
             Assert.fail();
