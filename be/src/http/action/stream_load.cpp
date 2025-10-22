@@ -164,6 +164,11 @@ void StreamLoadAction::_on_finish(std::shared_ptr<StreamLoadContext> ctx, HttpRe
 }
 
 void StreamLoadAction::_send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req) {
+    std::lock_guard<std::mutex> lock1(ctx->_send_reply_lock);
+    if (ctx->_finish_send_reply) {
+        return ;
+    }
+    ctx->_finish_send_reply = true;
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
     if (!ctx->status.ok() && !ctx->status.is<PUBLISH_TIMEOUT>()) {
@@ -241,23 +246,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     }
     if (!st.ok()) {
         ctx->status = std::move(st);
-        if (ctx->need_rollback) {
-            _exec_env->stream_load_executor()->rollback_txn(ctx.get());
-            ctx->need_rollback = false;
-        }
-        if (ctx->body_sink != nullptr) {
-            ctx->body_sink->cancel(ctx->status.to_string());
-        }
-        auto str = ctx->to_json();
-        // add new line at end
-        str = str + '\n';
-        HttpChannel::send_reply(req, str);
-#ifndef BE_TEST
-        if (config::enable_stream_load_record) {
-            str = ctx->prepare_stream_load_record(str);
-            _save_stream_load_record(ctx, str);
-        }
-#endif
+        _send_reply(ctx, req);
         return -1;
     }
     return 0;

@@ -256,6 +256,9 @@ public:
     std::string qualified_user;
     std::string cloud_cluster;
 
+    std::mutex _send_reply_lock;
+    bool _finish_send_reply = false;
+
 public:
     ExecEnv* exec_env() { return _exec_env; }
 
