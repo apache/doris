@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <rocksdb/listener.h>
 #include <stddef.h>
 #include <stdint.h>
 
