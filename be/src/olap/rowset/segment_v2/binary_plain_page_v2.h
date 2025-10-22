@@ -228,8 +228,8 @@ public:
         }
 
         // Decode trailer (last 8 bytes: lengths_offset and num_elems)
-        uint32_t lengths_offset = decode_fixed32_le(
-                (const uint8_t*)&_data[_data.get_size() - 2 * sizeof(uint32_t)]);
+        uint32_t lengths_offset =
+                decode_fixed32_le((const uint8_t*)&_data[_data.get_size() - 2 * sizeof(uint32_t)]);
         _num_elems = decode_fixed32_le((const uint8_t*)&_data[_data.get_size() - sizeof(uint32_t)]);
 
         // Decode lengths using ForDecoder
@@ -237,7 +237,8 @@ public:
         _lengths.reserve(_num_elems);
 
         if (_num_elems > 0) {
-            const uint8_t* lengths_data = reinterpret_cast<const uint8_t*>(_data.data) + lengths_offset;
+            const uint8_t* lengths_data =
+                    reinterpret_cast<const uint8_t*>(_data.data) + lengths_offset;
             size_t lengths_size = _data.get_size() - lengths_offset - 2 * sizeof(uint32_t);
 
             ForDecoder<uint32_t> decoder(lengths_data, lengths_size);
