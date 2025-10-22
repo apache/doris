@@ -36,7 +36,7 @@ suite("explain_alias") {
             select sum(a) as mysum from t;
         """
         contains "col=mysum"
-
+    }
         /**
         even SlotDescriptor.column is null, the col in explain is not null
         | Tuples:                                                                                                                                                        |
