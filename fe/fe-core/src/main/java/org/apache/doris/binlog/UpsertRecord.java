@@ -117,7 +117,7 @@ public class UpsertRecord {
             tabletDeltaRows = Maps.newHashMap();
         }
         final Map<Long, Map<Long, Long>> finalTabletDeltaRows = tabletDeltaRows;
-        if (state.getSubTxnIds() != null) {
+        if (state.getSubTxnIds() != null && state.getSubTxnIdToTableCommitInfo() != null) {
             state.getSubTxnIdToTableCommitInfo().forEach((subTxnId, tableCommitInfo) -> {
                 Set<Long> indexIds = loadedTableIndexIds.get(tableCommitInfo.getTableId());
                 Map<Long, Long> deltaRows = finalTabletDeltaRows.get(tableCommitInfo.getTableId());

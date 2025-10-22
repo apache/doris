@@ -1218,7 +1218,8 @@ public class DatabaseTransactionMgr {
 
     private void setTableVersion(TransactionState transactionState, Database db) {
         List<TableCommitInfo> tableCommitInfos;
-        if (!transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
+        if (transactionState.getSubTxnIdToTableCommitInfo() != null
+                && !transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
             tableCommitInfos = transactionState.getSubTxnTableCommitInfos();
         } else {
             tableCommitInfos = Lists.newArrayList(transactionState.getIdToTableCommitInfos().values());
@@ -1238,7 +1239,8 @@ public class DatabaseTransactionMgr {
 
     private void produceEvent(TransactionState transactionState, Database db) throws AnalysisException {
         Collection<TableCommitInfo> tableCommitInfos;
-        if (!transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
+        if (transactionState.getSubTxnIdToTableCommitInfo() != null
+                && !transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
             tableCommitInfos = transactionState.getSubTxnTableCommitInfos();
         } else {
             tableCommitInfos = transactionState.getIdToTableCommitInfos().values();
@@ -2237,7 +2239,8 @@ public class DatabaseTransactionMgr {
         Set<Long> failedVersionSetReplicas = new HashSet<>();
 
         Collection<TableCommitInfo> tableCommitInfos;
-        if (!transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
+        if (transactionState.getSubTxnIdToTableCommitInfo() != null
+                && !transactionState.getSubTxnIdToTableCommitInfo().isEmpty()) {
             tableCommitInfos = transactionState.getSubTxnTableCommitInfos();
         } else {
             tableCommitInfos = transactionState.getIdToTableCommitInfos().values();

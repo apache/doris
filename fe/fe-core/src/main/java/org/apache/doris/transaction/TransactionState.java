@@ -710,8 +710,10 @@ public class TransactionState implements Writable {
         sb.append(", callback id: ").append(callbackId);
         sb.append(", coordinator: ").append(txnCoordinator);
         sb.append(", transaction status: ").append(transactionStatus);
-        sb.append(", error replicas num: ").append(errorReplicas.size());
-        sb.append(", replica ids: ").append(Joiner.on(",").join(errorReplicas.stream().limit(5).toArray()));
+        if (errorReplicas != null) {
+            sb.append(", error replicas num: ").append(errorReplicas.size());
+            sb.append(", replica ids: ").append(Joiner.on(",").join(errorReplicas.stream().limit(5).toArray()));
+        }
         sb.append(", prepare time: ").append(prepareTime);
         sb.append(", commit time: ").append(commitTime);
         sb.append(", finish time: ").append(finishTime);
@@ -725,7 +727,7 @@ public class TransactionState implements Writable {
         if (subTxnIds != null) {
             sb.append(", sub txn ids: ").append(subTxnIds);
         }
-        if (!subTxnIdToTableCommitInfo.isEmpty()) {
+        if (subTxnIdToTableCommitInfo != null && !subTxnIdToTableCommitInfo.isEmpty()) {
             sb.append(", sub txn table commit info: ").append(subTxnIdToTableCommitInfo);
         }
         return sb.toString();
