@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableCollection;
@@ -58,12 +59,34 @@ public class PushDownNestedColumn implements RewriteRuleFactory {
             RuleType.PUSH_DOWN_NESTED_COLUMN_THROUGH_JOIN.build(
                 logicalProject(logicalJoin()).thenApply(this::pushThroughJoin)
             ),
+            RuleType.PUSH_DOWN_NESTED_COLUMN_THROUGH_WINDOW.build(
+                logicalProject(logicalWindow()).thenApply(this::pushThroughWindow)
+            ),
             RuleType.PUSH_DOWN_NESTED_COLUMN_THROUGH_UNION.build(
                 logicalProject(
                         logicalUnion().when(u -> u.getQualifier() == Qualifier.ALL)
                 ).thenApply(this::pushThroughUnion)
             )
         );
+    }
+
+    private Plan pushThroughWindow(MatchingContext<LogicalProject<LogicalWindow<Plan>>> ctx) {
+        LogicalProject<LogicalWindow<Plan>> project = ctx.root;
+        LogicalWindow<Plan> window = project.child();
+        PushdownProjectHelper pushdownProjectHelper
+                = new PushdownProjectHelper(ctx.statementContext, window);
+
+        Pair<Boolean, List<NamedExpression>> pushProjects
+                = pushdownProjectHelper.pushDownExpressions(project.getProjects());
+
+        if (pushProjects.first) {
+            List<Plan> newWindowChildren = pushdownProjectHelper.buildNewChildren();
+            return new LogicalProject<>(
+                    pushProjects.second,
+                    window.withChildren(newWindowChildren)
+            );
+        }
+        return project;
     }
 
     private Plan pushThroughJoin(MatchingContext<LogicalProject<LogicalJoin<Plan, Plan>>> ctx) {
