@@ -152,10 +152,10 @@ public class CloudClusterChecker extends MasterDaemon {
                 // del clusterName
                 String delClusterName = cloudSystemInfoService.getClusterNameByClusterId(delId);
                 if (delClusterName.isEmpty()) {
-                    LOG.warn("can't get delClusterName, clusterId: {}, plz check", delId);
                     return;
                 }
                 // del clusterID
+                MetricRepo.unregisterCloudMetrics(delId, delClusterName, toDel);
                 cloudSystemInfoService.dropCluster(delId, delClusterName);
             }
         );
