@@ -317,6 +317,37 @@ EncodingInfoResolver::~EncodingInfoResolver() {
     _encoding_map.clear();
 }
 
+namespace {
+bool is_integer_type(FieldType type) {
+    return type == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+           type == FieldType::OLAP_FIELD_TYPE_SMALLINT || type == FieldType::OLAP_FIELD_TYPE_INT ||
+           type == FieldType::OLAP_FIELD_TYPE_BIGINT || type == FieldType::OLAP_FIELD_TYPE_LARGEINT;
+}
+} // namespace
+
+EncodingTypePB EncodingInfoResolver::get_default_encoding(FieldType type,
+                                                          bool optimize_value_seek) const {
+    auto& encoding_map =
+            optimize_value_seek ? _value_seek_encoding_map : _default_encoding_type_map;
+    auto it = encoding_map.find(type);
+    if (it != encoding_map.end()) {
+        EncodingTypePB encoding = it->second;
+        // For binary types, use PLAIN_ENCODING_V2 if config::binary_plain_encoding_default_impl is "v2"
+        if (encoding == PLAIN_ENCODING && config::binary_plain_encoding_default_impl == "v2" &&
+            _encoding_map.contains(std::make_pair(type, PLAIN_ENCODING_V2))) {
+            return PLAIN_ENCODING_V2;
+        }
+
+        if (is_integer_type(type) && config::integer_type_default_use_plain_encoding &&
+            _encoding_map.contains(std::make_pair(type, PLAIN_ENCODING))) {
+            return PLAIN_ENCODING;
+        }
+
+        return encoding;
+    }
+    return UNKNOWN_ENCODING;
+}
+
 Status EncodingInfoResolver::get(FieldType data_type, EncodingTypePB encoding_type,
                                  const EncodingInfo** out) {
     if (encoding_type == DEFAULT_ENCODING) {
