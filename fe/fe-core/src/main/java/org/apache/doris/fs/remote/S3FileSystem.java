@@ -28,10 +28,15 @@ import org.apache.doris.fs.obj.S3ObjStorage;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class S3FileSystem extends ObjFileSystem {
@@ -107,5 +112,24 @@ public class S3FileSystem extends ObjFileSystem {
                 throw new RuntimeException(e);
             }
         }
+    }
+
+    @Override
+    public void completeMultipartUpload(String bucket, String key, String uploadId, Map<Integer, String> parts) {
+        S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
+        List<CompletedPart> completedParts = new ArrayList<>();
+        for (Map.Entry<Integer, String> entry : parts.entrySet()) {
+            completedParts.add(CompletedPart.builder()
+                    .partNumber(entry.getKey())
+                    .eTag(entry.getValue())
+                    .build());
+        }
+
+        objStorage.getClient().completeMultipartUpload(CompleteMultipartUploadRequest.builder()
+                .bucket(bucket)
+                .key(key)
+                .uploadId(uploadId)
+                .multipartUpload(CompletedMultipartUpload.builder().parts(completedParts).build())
+                .build());
     }
 }
