@@ -179,12 +179,13 @@ public class PartitionCompensator {
             }
         }
         if (Sets.intersection(mvValidHasDataRelatedBaseTableNameSet, queryUsedBaseTablePartitionNameSet).isEmpty()) {
-            // if mv can not offer any partition for query, query rewrite bail out
+            // if mv couldn't offer any partition for query, query rewrite should bail out
             return null;
         }
-        // Check when mv partition relates base table partition data change or delete partition, the mv partition would
-        // be invalid
-        // If rewritten plan use but not in mv valid partition name set, need to be removed in mv and union base table
+        // Check when mv partition relates base table partition data change or delete partition,
+        // the mv partition would be invalid.
+        // Partitions rewritten plan used but not in mv valid partition name set,
+        // need to be removed in mv and union base table
         Set<String> mvNeedRemovePartitionNameSet = new HashSet<>();
         Sets.difference(rewrittenPlanUsePartitionNameSet, mvValidPartitionNameSet)
                 .copyInto(mvNeedRemovePartitionNameSet);
@@ -196,7 +197,7 @@ public class PartitionCompensator {
             }
             baseTableNeedUnionPartitionNameSet.addAll(baseTablePartitions);
         }
-        // If related base table create partitions or mv is created with ttl, need base table union
+        // If related base table creates partitions or mv is created with ttl, need base table union
         Sets.difference(queryUsedBaseTablePartitionNameSet, mvValidBaseTablePartitionNameSet)
                 .copyInto(baseTableNeedUnionPartitionNameSet);
         // Construct result map
