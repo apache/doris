@@ -111,8 +111,8 @@ struct RowsetWriterContext {
     uint64_t approximate_bytes_to_write = 0;
     /// end file cache opts
 
-    // segcompaction for this RowsetWriter, disable it for some transient writers
-    bool enable_segcompaction = true;
+    // segcompaction for this RowsetWriter, only enabled when importing data
+    bool enable_segcompaction = false;
 
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
 
