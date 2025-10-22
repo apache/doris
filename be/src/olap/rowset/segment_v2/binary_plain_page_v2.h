@@ -15,13 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Binary plain page encoding V2 with varuint length prefix.
+// Binary plain page encoding V2 with Frame-of-Reference encoded lengths.
 //
 // The page consists of:
-// Data:
-//   |length1(varuint)|binary1|length2(varuint)|binary2|...
+// Region 1 (String Data):
+//   |binary1|binary2|binary3|... (contiguous string data)
+// Region 2 (Lengths):
+//   FOR-encoded lengths using ForEncoder
 // Trailer:
-//   num_elems (32-bit fixed)
+//   lengths_offset (32-bit): offset to Region 2
+//   num_elems (32-bit): number of elements
 //
 
 #pragma once
@@ -34,6 +37,7 @@
 #include "olap/types.h"
 #include "util/coding.h"
 #include "util/faststring.h"
+#include "util/frame_of_reference_coding.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 
@@ -75,18 +79,14 @@ public:
             // Store position for later retrieval
             _positions.push_back(cast_set<uint32_t>(_buffer.size()));
 
-            // Write varuint length prefix
-            uint8_t length_buffer[5]; // Max varuint32 size
-            uint8_t* ptr = length_buffer;
-            ptr = encode_varint32(ptr, cast_set<uint32_t>(src->size));
-            size_t length_size = ptr - length_buffer;
-            RETURN_IF_CATCH_EXCEPTION(_buffer.append(length_buffer, length_size));
+            // Store the length for later FOR encoding
+            _lengths.push_back(cast_set<uint32_t>(src->size));
 
-            // Write the actual data
+            // Write only the string data (no length prefix)
             RETURN_IF_CATCH_EXCEPTION(_buffer.append(src->data, src->size));
 
             _last_value_size = cast_set<uint32_t>(src->size);
-            _size_estimate += length_size + src->size;
+            _size_estimate += src->size;
             _raw_data_size += src->size;
 
             i++;
@@ -107,7 +107,22 @@ public:
                 _copy_value_at(_positions.size() - 1, &_last_value);
             }
 
-            // Write trailer: number of elements
+            // Record the offset to Region 2 (lengths)
+            uint32_t lengths_offset = cast_set<uint32_t>(_buffer.size());
+
+            // Encode lengths using ForEncoder
+            if (!_lengths.empty()) {
+                faststring lengths_buffer;
+                ForEncoder<uint32_t> encoder(&lengths_buffer);
+                encoder.put_batch(_lengths.data(), _lengths.size());
+                encoder.flush();
+
+                // Append encoded lengths to buffer
+                _buffer.append(lengths_buffer.data(), lengths_buffer.size());
+            }
+
+            // Write trailer: lengths_offset and number of elements
+            put_fixed32_le(&_buffer, lengths_offset);
             put_fixed32_le(&_buffer, cast_set<uint32_t>(_positions.size()));
 
             *slice = _buffer.build();
@@ -118,11 +133,12 @@ public:
     Status reset() override {
         RETURN_IF_CATCH_EXCEPTION({
             _positions.clear();
+            _lengths.clear();
             _buffer.clear();
             _buffer.reserve(_options.data_page_size == 0
                                     ? 1024
                                     : std::min(_options.data_page_size, _options.dict_page_size));
-            _size_estimate = sizeof(uint32_t); // For the trailer
+            _size_estimate = 2 * sizeof(uint32_t); // For the trailer (lengths_offset + num_elems)
             _finished = false;
             _last_value_size = 0;
             _raw_data_size = 0;
@@ -160,11 +176,10 @@ public:
                     "value_code {} is out of range [0, {})", value_code, _positions.size());
         }
 
-        const uint8_t* ptr = reinterpret_cast<const uint8_t*>(&_buffer[_positions[value_code]]);
-        uint32_t length;
-        const uint8_t* data_ptr = decode_varint32_ptr(ptr, ptr + 5, &length);
+        const char* data_ptr = reinterpret_cast<const char*>(&_buffer[_positions[value_code]]);
+        uint32_t length = _lengths[value_code];
 
-        word->data = const_cast<char*>(reinterpret_cast<const char*>(data_ptr));
+        word->data = const_cast<char*>(data_ptr);
         word->size = length;
 
         return Status::OK();
@@ -176,15 +191,16 @@ private:
 
     void _copy_value_at(size_t idx, faststring* value) const {
         const uint8_t* ptr = &_buffer[_positions[idx]];
-        uint32_t length;
-        const uint8_t* data_ptr = decode_varint32_ptr(ptr, ptr + 5, &length);
-        value->assign_copy(data_ptr, length);
+        uint32_t length = _lengths[idx];
+        value->assign_copy(ptr, length);
     }
 
     faststring _buffer;
     size_t _size_estimate = 0;
-    // Positions of each entry in the buffer (pointing to the varuint length)
+    // Positions of each entry in the buffer (pointing to the string data)
     std::vector<uint32_t> _positions;
+    // Lengths of each string
+    std::vector<uint32_t> _lengths;
     bool _finished = false;
     PageBuilderOptions _options;
     uint32_t _last_value_size = 0;
@@ -204,55 +220,55 @@ public:
     Status init() override {
         CHECK(!_parsed);
 
-        if (_data.size < sizeof(uint32_t)) {
+        if (_data.size < 2 * sizeof(uint32_t)) {
             return Status::Corruption(
                     "file corruption: not enough bytes for trailer in BinaryPlainPageV2Decoder. "
                     "invalid data size:{}, trailer size:{}",
-                    _data.size, sizeof(uint32_t));
+                    _data.size, 2 * sizeof(uint32_t));
         }
 
-        // Decode trailer (last 4 bytes contain num_elems)
+        // Decode trailer (last 8 bytes: lengths_offset and num_elems)
+        uint32_t lengths_offset = decode_fixed32_le(
+                (const uint8_t*)&_data[_data.get_size() - 2 * sizeof(uint32_t)]);
         _num_elems = decode_fixed32_le((const uint8_t*)&_data[_data.get_size() - sizeof(uint32_t)]);
 
-        // Build position index by scanning through the data
-        const uint8_t* ptr = reinterpret_cast<const uint8_t*>(_data.data);
-        const uint8_t* limit = ptr + _data.get_size() - sizeof(uint32_t);
-
-        _positions.reserve(_num_elems + 1); // +1 for end boundary
+        // Decode lengths using ForDecoder
+        _positions.reserve(_num_elems);
         _lengths.reserve(_num_elems);
 
-        for (uint32_t i = 0; i < _num_elems; i++) {
-            if (ptr >= limit) {
+        if (_num_elems > 0) {
+            const uint8_t* lengths_data = reinterpret_cast<const uint8_t*>(_data.data) + lengths_offset;
+            size_t lengths_size = _data.get_size() - lengths_offset - 2 * sizeof(uint32_t);
+
+            ForDecoder<uint32_t> decoder(lengths_data, lengths_size);
+            if (!decoder.init()) {
                 return Status::Corruption(
-                        "file corruption: unexpected end of data while parsing "
-                        "BinaryPlainPageV2Decoder");
+                        "file corruption: failed to init ForDecoder in BinaryPlainPageV2Decoder");
             }
 
-            // Decode varuint length
-            uint32_t length;
-            const uint8_t* data_start = decode_varint32_ptr(ptr, limit, &length);
-            if (data_start == nullptr) {
+            // Decode all lengths
+            std::vector<uint32_t> decoded_lengths(_num_elems);
+            if (!decoder.get_batch(decoded_lengths.data(), _num_elems)) {
                 return Status::Corruption(
-                        "file corruption: failed to decode varuint in BinaryPlainPageV2Decoder");
+                        "file corruption: failed to decode lengths in BinaryPlainPageV2Decoder");
             }
 
-            // Store the position of actual data (after varuint)
-            _positions.push_back(
-                    cast_set<uint32_t>(data_start - reinterpret_cast<const uint8_t*>(_data.data)));
-            _lengths.push_back(length);
+            // Calculate positions based on lengths
+            uint32_t current_pos = 0;
+            for (uint32_t i = 0; i < _num_elems; i++) {
+                _positions.push_back(current_pos);
+                _lengths.push_back(decoded_lengths[i]);
+                current_pos += decoded_lengths[i];
+            }
 
-            // Move to next entry
-            ptr = data_start + length;
-
-            if (ptr > limit) {
+            // Verify that the last position matches lengths_offset
+            if (current_pos != lengths_offset) {
                 return Status::Corruption(
-                        "file corruption: data extends beyond page in BinaryPlainPageV2Decoder");
+                        "file corruption: calculated string data size {} does not match "
+                        "lengths_offset {} in BinaryPlainPageV2Decoder",
+                        current_pos, lengths_offset);
             }
         }
-
-        // Add end position for boundary checking
-        _positions.push_back(
-                cast_set<uint32_t>(ptr - reinterpret_cast<const uint8_t*>(_data.data)));
 
         _parsed = true;
         return Status::OK();
@@ -360,9 +376,9 @@ private:
 
     uint32_t _num_elems;
 
-    // Positions of each entry's actual data (after the varuint length)
+    // Positions of each string data in Region 1
     std::vector<uint32_t> _positions;
-    // Length of each binary data entry
+    // Length of each binary data entry (decoded from Region 2 using ForDecoder)
     std::vector<uint32_t> _lengths;
 
     std::vector<StringRef> _binary_data;
