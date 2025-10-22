@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/primitive_type.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 
@@ -678,6 +679,7 @@ Status AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs&
     return Status::OK();
 }
 
+// TODO: Tricky processing if `multi_distinct_` exists which will be re-planed by optimizer.
 AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
                                    const DescriptorTbl& descs, bool require_bucket_distribution)
         : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode.node_id),
@@ -690,9 +692,20 @@ AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPla
           _limit(tnode.limit),
           _have_conjuncts((tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()) ||
                           (tnode.__isset.conjuncts && !tnode.conjuncts.empty())),
-          _partition_exprs(tnode.__isset.distribute_expr_lists && require_bucket_distribution
-                                   ? tnode.distribute_expr_lists[0]
-                                   : tnode.agg_node.grouping_exprs),
+          _partition_exprs(
+                  tnode.__isset.distribute_expr_lists &&
+                                  (require_bucket_distribution ||
+                                   std::any_of(
+                                           tnode.agg_node.aggregate_functions.begin(),
+                                           tnode.agg_node.aggregate_functions.end(),
+                                           [](const TExpr& texpr) -> bool {
+                                               return texpr.nodes[0]
+                                                       .fn.name.function_name.starts_with(
+                                                               vectorized::
+                                                                       DISTINCT_FUNCTION_PREFIX);
+                                           }))
+                          ? tnode.distribute_expr_lists[0]
+                          : tnode.agg_node.grouping_exprs),
           _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate),
           _require_bucket_distribution(require_bucket_distribution),
           _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
