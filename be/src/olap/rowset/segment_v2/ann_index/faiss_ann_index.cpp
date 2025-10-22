@@ -268,7 +268,11 @@ doris::Status FaissVectorIndex::add(vectorized::Int64 n, const float* vec) {
             // Apply the same thread budget when adding vectors to limit concurrency.
             ScopedOmpThreadBudget thread_budget;
             DorisMetrics::instance()->ann_index_construction->increment(1);
+#ifdef __APPLE__
+            vectorized::Int64 chunk_size = std::min(1'000'000LL, n - i);
+#else
             vectorized::Int64 chunk_size = std::min(1'000'000L, n - i);
+#endif
             _index->add(chunk_size, vec + i * _dimension);
             DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(chunk_size);
             DorisMetrics::instance()->ann_index_construction->increment(-1);

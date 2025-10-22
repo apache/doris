@@ -265,7 +265,7 @@ struct TQueryOptions {
 
   91: optional bool runtime_filter_wait_infinitely = false;
 
-  92: optional i32 wait_full_block_schedule_times = 1; // deprecated
+  92: optional i32 condition_cache_digest = 0;
   
   93: optional i32 inverted_index_max_expansions = 50;
 
@@ -368,7 +368,7 @@ struct TQueryOptions {
 
   144: optional bool enable_inverted_index_searcher_cache = true;
   145: optional bool enable_inverted_index_query_cache = true;
-  146: optional bool fuzzy_disable_runtime_filter_in_be = false; // deprecated
+  146: optional bool enable_condition_cache = false; //deprecated 
 
   147: optional i32 profile_level = 1;
 
@@ -442,6 +442,7 @@ struct TRuntimeFilterParams {
   // Runtime filter merge instance address. Used if this filter has a remote target
   1: optional Types.TNetworkAddress runtime_filter_merge_addr
 
+  // keep 2/3/4/5 unset if BE is not used for merge 
   // deprecated
   2: optional map<i32, list<TRuntimeFilterTargetParams>> rid_to_target_param
 

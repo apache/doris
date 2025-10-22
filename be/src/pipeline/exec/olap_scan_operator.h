@@ -242,6 +242,10 @@ private:
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
 
+    // condition cache filter stats
+    RuntimeProfile::Counter* _condition_cache_hit_segment_counter = nullptr;
+    RuntimeProfile::Counter* _condition_cache_filtered_rows_counter = nullptr;
+
     // timer about tablet reader
     RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_capture_rs_readers_timer = nullptr;

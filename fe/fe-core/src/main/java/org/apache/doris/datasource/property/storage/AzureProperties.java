@@ -67,18 +67,20 @@ public class AzureProperties extends StorageProperties {
 
 
     @Getter
-    @ConnectorProperty(names = {"azure.access_key", "s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
+    @ConnectorProperty(names = {"azure.account_name", "azure.access_key", "s3.access_key",
+            "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
             description = "The access key of S3.")
-    protected String accessKey = "";
+    protected String accountName = "";
 
     @Getter
-    @ConnectorProperty(names = {"azure.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key"},
+    @ConnectorProperty(names = {"azure.account_key", "azure.secret_key", "s3.secret_key",
+            "AWS_SECRET_KEY", "secret_key"},
             sensitive = true,
             description = "The secret key of S3.")
-    protected String secretKey = "";
+    protected String accountKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"azure.bucket", "s3.bucket"},
+    @ConnectorProperty(names = {"container", "azure.bucket", "s3.bucket"},
             required = false,
             description = "The container of Azure blob.")
     protected String container = "";
@@ -111,7 +113,7 @@ public class AzureProperties extends StorageProperties {
             throw new IllegalArgumentException(String.format("Endpoint '%s' is not valid. It should end with '%s'.",
                     endpoint, AZURE_ENDPOINT_SUFFIX));
         }
-        this.endpoint = formatAzureEndpoint(endpoint, accessKey);
+        this.endpoint = formatAzureEndpoint(endpoint, accountName);
     }
 
     public static boolean guessIsMe(Map<String, String> origProps) {
@@ -136,8 +138,8 @@ public class AzureProperties extends StorageProperties {
         Map<String, String> s3Props = new HashMap<>();
         s3Props.put("AWS_ENDPOINT", endpoint);
         s3Props.put("AWS_REGION", "dummy_region");
-        s3Props.put("AWS_ACCESS_KEY", accessKey);
-        s3Props.put("AWS_SECRET_KEY", secretKey);
+        s3Props.put("AWS_ACCESS_KEY", accountName);
+        s3Props.put("AWS_SECRET_KEY", accountKey);
         s3Props.put("AWS_NEED_OVERRIDE_ENDPOINT", "true");
         s3Props.put("provider", "azure");
         s3Props.put("use_path_style", usePathStyle);
@@ -158,22 +160,34 @@ public class AzureProperties extends StorageProperties {
 
     @Override
     public String validateAndNormalizeUri(String url) throws UserException {
-        return S3PropertyUtils.validateAndNormalizeUri(url, usePathStyle, forceParsingByStandardUrl);
+        return AzurePropertyUtils.validateAndNormalizeUri(url);
 
     }
 
     @Override
     public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
-        return S3PropertyUtils.validateAndGetUri(loadProps);
+        return AzurePropertyUtils.validateAndGetUri(loadProps);
     }
 
     @Override
     public String getStorageName() {
-        return "Azure";
+        return "AZURE";
     }
 
     @Override
     public void initializeHadoopStorageConfig() {
+        hadoopStorageConfig = new Configuration();
+        //disable azure cache
+        // Disable all Azure ABFS/WASB FileSystem caching to ensure fresh instances per configuration
+        for (String scheme : new String[]{"abfs", "abfss", "wasb", "wasbs"}) {
+            hadoopStorageConfig.set("fs." + scheme + ".impl.disable.cache", "true");
+        }
+        origProps.forEach((k, v) -> {
+            if (k.startsWith("fs.azure.")) {
+                hadoopStorageConfig.set(k, v);
+            }
+        });
+        setAzureAccountKeys(hadoopStorageConfig, accountName, accountKey);
         // Azure does not require any special Hadoop configuration for S3 compatibility.
         // The properties are already set in the getBackendConfigProperties method.
         // This method will be removed in the future when FileIO is fully implemented.
@@ -184,4 +198,17 @@ public class AzureProperties extends StorageProperties {
     protected Set<String> schemas() {
         return ImmutableSet.of("wasb", "wasbs", "abfs", "abfss");
     }
+
+    private static void setAzureAccountKeys(Configuration conf, String accountName, String accountKey) {
+        String[] endpoints = {
+                "dfs.core.windows.net",
+                "blob.core.windows.net"
+        };
+        for (String endpoint : endpoints) {
+            String key = String.format("fs.azure.account.key.%s.%s", accountName, endpoint);
+            conf.set(key, accountKey);
+        }
+        conf.set("fs.azure.account.key", accountKey);
+    }
+
 }
