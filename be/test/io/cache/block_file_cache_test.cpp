@@ -1500,8 +1500,7 @@ TEST_F(BlockFileCacheTest, change_cache_type) {
         std::string data(size, '0');
         Slice result(data.data(), size);
         ASSERT_TRUE(blocks[0]->append(result).ok());
-        ASSERT_TRUE(
-                blocks[0]->change_cache_type_between_normal_and_index(io::FileCacheType::INDEX));
+        ASSERT_TRUE(blocks[0]->change_cache_type(io::FileCacheType::INDEX));
         ASSERT_TRUE(blocks[0]->finalize().ok());
         auto key_str = key.to_string();
         auto subdir = fs::path(cache_base_path) / key_str.substr(0, 3) /
@@ -1550,8 +1549,7 @@ TEST_F(BlockFileCacheTest, change_cache_type_memory_storage) {
         std::string data(size, '0');
         Slice result(data.data(), size);
         ASSERT_TRUE(blocks[0]->append(result).ok());
-        ASSERT_TRUE(
-                blocks[0]->change_cache_type_between_normal_and_index(io::FileCacheType::INDEX));
+        ASSERT_TRUE(blocks[0]->change_cache_type(io::FileCacheType::INDEX));
         ASSERT_TRUE(blocks[0]->finalize().ok());
     }
 }
@@ -3447,8 +3445,7 @@ TEST_F(BlockFileCacheTest, append_many_time) {
         auto holder = cache.get_or_set(key, 0, 5, context);
         auto blocks = fromHolder(holder);
         assert_range(1, blocks[0], io::FileBlock::Range(0, 4), io::FileBlock::State::DOWNLOADED);
-        ASSERT_TRUE(
-                blocks[0]->change_cache_type_between_normal_and_index(FileCacheType::INDEX).ok());
+        ASSERT_TRUE(blocks[0]->change_cache_type(FileCacheType::INDEX).ok());
         if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
             storage != nullptr) {
             auto dir = storage->get_path_in_local_cache_v2(blocks[0]->get_hash_value(),
@@ -3456,8 +3453,7 @@ TEST_F(BlockFileCacheTest, append_many_time) {
             EXPECT_TRUE(fs::exists(storage->get_path_in_local_cache_v2(dir, blocks[0]->offset(),
                                                                        blocks[0]->cache_type())));
         }
-        ASSERT_TRUE(
-                blocks[0]->change_cache_type_between_normal_and_index(FileCacheType::INDEX).ok());
+        ASSERT_TRUE(blocks[0]->change_cache_type(FileCacheType::INDEX).ok());
         auto sp = SyncPoint::get_instance();
         sp->enable_processing();
         SyncPoint::CallbackGuard guard1;
@@ -3470,9 +3466,7 @@ TEST_F(BlockFileCacheTest, append_many_time) {
                 },
                 &guard1);
         {
-            ASSERT_FALSE(blocks[0]
-                                 ->change_cache_type_between_normal_and_index(FileCacheType::NORMAL)
-                                 .ok());
+            ASSERT_FALSE(blocks[0]->change_cache_type(FileCacheType::NORMAL).ok());
             EXPECT_EQ(blocks[0]->cache_type(), FileCacheType::INDEX);
             std::string buffer;
             buffer.resize(5);

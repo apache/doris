@@ -364,8 +364,7 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
             auto block = blocks[0];
             ASSERT_EQ(block->tablet_id(), 47);
 
-            ASSERT_TRUE(blocks[0]->change_cache_type_between_normal_and_index(
-                    io::FileCacheType::INDEX));
+            ASSERT_TRUE(blocks[0]->change_cache_type(io::FileCacheType::INDEX));
         }
         // check the meta
         {
