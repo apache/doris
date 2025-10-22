@@ -17,6 +17,8 @@
 
 import groovy.json.JsonSlurper
 import org.apache.doris.regression.action.ProfileAction
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 suite("test_bloom_filter_hit_with_renamed_column") {
     def tableName = "test_bloom_filter_hit_with_renamed_column"
@@ -85,56 +87,47 @@ suite("test_bloom_filter_hit_with_renamed_column") {
     sql """ ALTER TABLE ${tableName} RENAME COLUMN C_COMMENT C_COMMENT_NEW; """
     wait_for_latest_op_on_table_finish(tableName, timeout)
 
-    sql """ SET enable_profile = true """
-    sql """ set profile_level = 2; """
-    sql """ set parallel_scan_min_rows_per_scanner = 2097152; """
-    sql "sync"
-    //sql """ select C_COMMENT_NEW from ${tableName} where C_COMMENT_NEW='OK' """
-
-    // get and check profile with retry logic
-    def getProfileIdWithRetry = { query, maxRetries, waitSeconds, pattern ->
-        def profiles = null
-        def profileId = null
-        def profileData = null
-        int attempt = 0
-        def profileAction = new ProfileAction(context)
-
-        while (attempt < maxRetries) {
-            sql "sync"
-            sql """ ${query} """
-            profiles = profileAction.getProfileList()
-            if (profiles.size() == 0) {
-                log.warn("Failed to fetch profiles on attempt ${attempt + 1}")
-                continue
-            }
-            for (def profile in profiles) {
-                if (profile["Sql Statement"].contains(query)) {
-                    profileId = profile["Profile ID"]
-                    log.info("profileId:{}", profileId)
-                    profileData = profileAction.getProfile(profileId)
-                    log.info(profileData)
-                    break;
-                }
-            }
-
-            if (profileId != null) {
-                assertTrue(profileData.contains("${pattern}"))
-                break
+    // Helper method to extract and validate RowsBloomFilterFiltered value
+    def validateBloomFilterFiltered = { profileString ->
+        log.info("Profile content: ${profileString}")
+        // Pattern to match "RowsBloomFilterFiltered:" followed by a number (with optional units and parentheses)
+        Pattern pattern = Pattern.compile("RowsBloomFilterFiltered:\\s+(\\d+(?:\\.\\d+)?[KMG]?)(?:\\s+\\((\\d+)\\))?")
+        Matcher matcher = pattern.matcher(profileString)
+        if (matcher.find()) {
+            def value1 = matcher.group(1)  // First number (possibly with K/M/G suffix)
+            def value2 = matcher.group(2)  // Second number in parentheses (if exists)
+            // Parse the first value
+            def numValue = 0L
+            if (value1.endsWith("K")) {
+                numValue = (Double.parseDouble(value1.substring(0, value1.length() - 1)) * 1000).toLong()
+            } else if (value1.endsWith("M")) {
+                numValue = (Double.parseDouble(value1.substring(0, value1.length() - 1)) * 1000000).toLong()
+            } else if (value1.endsWith("G")) {
+                numValue = (Double.parseDouble(value1.substring(0, value1.length() - 1)) * 1000000000).toLong()
             } else {
-                attempt++
-                if (attempt < maxRetries) {
-                    log.info("profileId is null, retrying after ${waitSeconds} second(s)... (Attempt ${attempt + 1}/${maxRetries})")
-                    sleep(waitSeconds * 1000)
-                }
+                numValue = Long.parseLong(value1)
             }
+            log.info("Extracted RowsBloomFilterFiltered value: ${numValue}")
+            assertTrue(numValue > 0)
+            return true
+        } else {
+            fail("Could not find RowsBloomFilterFiltered in profile output")
+            return false
         }
-        assertTrue(attempt < maxRetries || profileId != null)
     }
 
     sql "set profile_level=2;"
-    def query = """select C_COMMENT_NEW from ${tableName} where C_COMMENT_NEW='OK'"""
-    def pattern = """BloomFilterFiltered: 15.0K (15000)"""
-    def profileId = getProfileIdWithRetry(query, 3, 30, pattern)
+    profile("sql_alter_c_comment_ok") {
+        run {
+            sql "/* sql_alter_c_comment_ok */ select C_COMMENT_NEW from ${tableName} where C_COMMENT_NEW='OK'"
+            sleep(1000)
+        }
+
+        check { profileString, exception ->
+            log.info(profileString)
+            validateBloomFilterFiltered(profileString)
+        }
+    }
 
     //———————— clean table and disable profile ————————
     sql """ SET enable_profile = false """
