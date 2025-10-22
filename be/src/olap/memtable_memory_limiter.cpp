@@ -105,7 +105,7 @@ bool MemTableMemoryLimiter::_load_usage_low() {
     return _mem_tracker->consumption() <= _load_safe_mem_permit;
 }
 
-int64_t MemTableMemoryLimiter::_need_flush() {
+int64_t MemTableMemoryLimiter::_need_flush(FlushReason &reason) {
     DBUG_EXECUTE_IF("MemTableMemoryLimiter._need_flush.random_flush", {
         if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
             LOG(INFO) << "debug memtable need flush return 1";
@@ -115,11 +115,23 @@ int64_t MemTableMemoryLimiter::_need_flush() {
     int64_t limit1 = _mem_tracker->consumption() - _load_soft_mem_limit;
     int64_t limit2 = _sys_avail_mem_less_than_warning_water_mark();
     int64_t limit3 = _process_used_mem_more_than_soft_mem_limit();
+    
+    // limit1: Import memory exceeds soft limit
+    // limit2: System available memory is insufficient
+    // limit3: Process memory exceeds soft limit
+    if (limit2 >= limit1 && limit2 >= limit3 && limit2 > 0) {
+        reason = FlushReason::SYS_MEMORY_INSUFFICIENT;
+    } else if (limit3 >= limit1 && limit3 >= limit2 && limit3 > 0) {
+        reason = FlushReason::SYS_MEMORY_INSUFFICIENT;
+    } else {
+        reason = FlushReason::LOAD_MEMORY_EXCEED;
+    }
+    
     int64_t need_flush = std::max(limit1, std::max(limit2, limit3));
     return need_flush - _queue_mem_usage - _flush_mem_usage;
 }
 
-void MemTableMemoryLimiter::handle_memtable_flush(FlushReason reason, std::function<bool()> cancel_check) {
+void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_check) {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
     do {
@@ -148,7 +160,8 @@ void MemTableMemoryLimiter::handle_memtable_flush(FlushReason reason, std::funct
             return;
         }
         first = false;
-        int64_t need_flush = _need_flush();
+        FlushReason reason;
+        int64_t need_flush = _need_flush(reason);
         if (need_flush > 0) {
             auto limit = _hard_limit_reached() ? Limit::HARD : Limit::SOFT;
             LOG(INFO) << "reached memtable memory " << (limit == Limit::HARD ? "hard" : "soft")

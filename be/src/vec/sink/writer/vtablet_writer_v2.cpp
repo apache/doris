@@ -561,7 +561,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
     }
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
-        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush(FlushReason::SYS_MEMORY_INSUFFICIENT,
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush(
                 [state = _state]() { return state->is_cancelled(); });
         if (_state->is_cancelled()) {
             return _state->cancel_reason();
