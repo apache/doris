@@ -510,7 +510,7 @@ public:
     template <typename Func>
     MutableColumnPtr apply_for_columns(Func&& func) const;
 
-    bool empty() const;
+    bool only_have_default_values() const;
 
     // Check if all columns and types are aligned, only in debug mode
     Status sanitize() const;
