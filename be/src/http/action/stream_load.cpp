@@ -166,7 +166,7 @@ void StreamLoadAction::_on_finish(std::shared_ptr<StreamLoadContext> ctx, HttpRe
 void StreamLoadAction::_send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req) {
     std::lock_guard<std::mutex> lock1(ctx->_send_reply_lock);
     if (ctx->_finish_send_reply) {
-        return ;
+        return;
     }
     ctx->_finish_send_reply = true;
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
