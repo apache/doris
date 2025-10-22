@@ -36,6 +36,7 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
+import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -131,6 +132,9 @@ public abstract class ExternalCatalog
             USE_META_CACHE);
 
     protected static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = Runtime.getRuntime().availableProcessors();
+
+    public static final String TEST_CONNECTION = "test_connection";
+    public static final boolean DEFAULT_TEST_CONNECTION = false;
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -258,6 +262,17 @@ public abstract class ExternalCatalog
     // Will be called when creating catalog(not replaying).
     // Subclass can override this method to do some check when creating catalog.
     public void checkWhenCreating() throws DdlException {
+        boolean testConnection = Boolean.parseBoolean(
+                catalogProperty.getOrDefault(TEST_CONNECTION, String.valueOf(DEFAULT_TEST_CONNECTION)));
+
+        if (testConnection) {
+            CatalogConnectivityTestCoordinator testCoordinator = new CatalogConnectivityTestCoordinator(
+                    name,
+                    catalogProperty.getMetastoreProperties(),
+                    catalogProperty.getStoragePropertiesMap()
+            );
+            testCoordinator.runTests();
+        }
     }
 
     /**
