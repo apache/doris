@@ -154,22 +154,22 @@ suite("test_multi_pct_mtmv","mtmv") {
         alter table ${tableName1} drop partition p201702;
         """
 
-    order_qt_partitions_1 "select UnsyncTables from partitions('catalog'='internal','database'='${dbName}',"table"='${mvName}') order by PartitionId desc;"
+    order_qt_partitions_1 "select UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
 
     sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_partitions_2 "select UnsyncTables from partitions('catalog'='internal','database'='${dbName}',"table"='${mvName}') order by PartitionId desc;"
+    order_qt_partitions_2 "select UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
 
     sql """
         alter table ${tableName2} drop partition p201703;
         """
-    order_qt_partitions_3 "select UnsyncTables from partitions('catalog'='internal','database'='${dbName}',"table"='${mvName}') order by PartitionId desc;"
+    order_qt_partitions_3 "select UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
 
     sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_partitions_4 "select UnsyncTables from partitions('catalog'='internal','database'='${dbName}',"table"='${mvName}') order by PartitionId desc;"
+    order_qt_partitions_4 "select UnsyncTables from partitions('catalog'='internal','database'='${dbName}','table'='${mvName}') order by PartitionId desc;"
 }
