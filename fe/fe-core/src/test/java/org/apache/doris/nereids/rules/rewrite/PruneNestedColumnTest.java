@@ -274,8 +274,8 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     @Test
     public void testUnion() throws Throwable {
         assertColumn("select struct_element(s, 'city') from (select s from tbl union all select null)a",
-                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
-                ImmutableList.of(path("s")),
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
         );
 
@@ -289,8 +289,8 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     @Test
     public void testCteAndUnion() throws Throwable {
         assertColumn("with t as (select id, s from tbl) select struct_element(s, 'city') from (select * from t union all select 1, null) tmp",
-                "struct<city:text,data:array<map<int,struct<a:int,b:double>>>>",
-                ImmutableList.of(path("s")),
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
                 ImmutableList.of()
         );
 
@@ -352,6 +352,38 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                             Assertions.assertTrue(p.getProjects().size() == 2 && p.getProjects().get(0) instanceof SlotReference);
                             return true;
                         })
+                    )
+                );
+    }
+
+    @Test
+    public void testPushDownThroughPartitionTopN() {
+        PlanChecker.from(connectContext)
+                .analyze("select struct_element(s, 'city'), r from (select s, rank() over(partition by id) r from tbl t limit 10)a")
+                .rewrite()
+                .matches(
+                    logicalResultSink(
+                        logicalLimit(
+                            logicalLimit(
+                                logicalProject(
+                                    logicalWindow(
+                                        logicalPartitionTopN(
+                                            logicalProject(
+                                                    logicalOlapScan()
+                                            ).when(p -> {
+                                                Assertions.assertEquals(2, p.getProjects().size());
+                                                Assertions.assertTrue(p.getProjects().stream()
+                                                        .anyMatch(o -> o instanceof Alias && o.child(0) instanceof StructElement));
+                                                return true;
+                                            })
+                                        )
+                                    )
+                                ).when(p -> {
+                                    Assertions.assertTrue(p.getProjects().size() == 2 && p.getProjects().get(0) instanceof SlotReference);
+                                    return true;
+                                })
+                            )
+                        )
                     )
                 );
     }
