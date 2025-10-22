@@ -131,9 +131,6 @@ public:
     BlockFileCache(const std::string& cache_base_path, const FileCacheSettings& cache_settings);
 
     virtual ~BlockFileCache() {
-        _is_destructing = true;
-        std::unique_lock _destructing_lock(_destructing_mutex);
-        _cv.wait(_destructing_lock, [this] { return _async_fill_block_num == 0;});
         {
             std::lock_guard lock(_close_mtx);
             _close = true;
@@ -582,11 +579,6 @@ private:
     std::shared_ptr<bvar::LatencyRecorder> _lru_dump_latency_us;
     std::mutex _dump_lru_queues_mtx;
     moodycamel::ConcurrentQueue<FileBlockSPtr> _need_update_lru_blocks;
-
-    bool _is_destructing {false};
-    std::atomic<int> _async_fill_block_num {0};
-    std::mutex _destructing_mutex;
-    std::condition_variable _cv;
 };
 
 } // namespace doris::io

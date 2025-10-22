@@ -286,7 +286,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                     empty_start, Slice(buffer.get(), buffer_size), &buffer_size, io_ctx));
         }
         // fill cache synchronously
-        if (!config::enable_file_cache_fill_async) {
+        if (!config::enable_file_cache_fill_async || _is_doris_table) {
             for (auto& block : empty_blocks) {
                 if (block->state() == FileBlock::State::SKIP_CACHE) {
                     continue;
@@ -341,7 +341,6 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                     }
                     size_t block_size = block->range().size();
                     stats.bytes_write_into_file_cache += block_size;
-                    block->_mgr->_async_fill_block_num.fetch_add(1);
                 }
             }
         }
@@ -434,20 +433,17 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     }
     g_read_cache_indirect_bytes << indirect_read_bytes;
     g_read_cache_indirect_total_bytes << *bytes_read;
-    if (config::enable_file_cache_fill_async &&
+    if (config::enable_file_cache_fill_async && !_is_doris_table &&
         old_buffer_size + buffer_size <= config::file_cache_fill_buffer_max_size) {
         BlockFileCache::file_cache_fill_buffer_size_sptr.get()->fetch_sub(buffer_size);
         /*
          * Capturing variable holder is necessary to ensure its destructor is called after the async
          * file_cache_fill thread completes
          */
-        auto self = shared_from_this();
-        auto task = [this, _self = std::move(self), empty_start, buffer_size, _empty_blocks = std::move(empty_blocks),
-                     _buffer = std::move(buffer_moved), _holder = std::move(holder)]() {
+        auto task = [this, _holder = std::move(holder), _empty_blocks = std::move(empty_blocks),
+                     _buffer = std::move(buffer_moved), empty_start]() {
             // variable _holder must be visited
-            (void)_self;
             (void)_holder;
-            (void)buffer_size;
 
             for (auto& block : _empty_blocks) {
                 if (block->state() == FileBlock::State::SKIP_CACHE) {
@@ -464,10 +460,6 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                             << "Write data to file cache failed. err=" << st.msg();
                 } else {
                     _insert_file_reader(block);
-                }
-                block->_mgr->_async_fill_block_num.fetch_sub(1);
-                if (block->_mgr->_is_destructing && block->_mgr->_async_fill_block_num == 0) {
-                    block->_mgr->_cv.notify_one();
                 }
             }
         };
