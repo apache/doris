@@ -1177,6 +1177,9 @@ DEFINE_Int32(inverted_index_query_cache_shards, "256");
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
 
+// condition cache limit
+DEFINE_Int16(condition_cache_limit, "512");
+
 // inverted index
 DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.

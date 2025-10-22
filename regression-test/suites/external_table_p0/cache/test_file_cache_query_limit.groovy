@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.suite.ClusterOptions
 import org.codehaus.groovy.runtime.dgmimpl.arrays.LongArrayGetAtMetaMethod
 
 import java.util.concurrent.TimeUnit;
