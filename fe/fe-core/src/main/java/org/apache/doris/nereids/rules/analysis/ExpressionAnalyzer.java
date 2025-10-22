@@ -347,6 +347,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             if (!(slot instanceof SlotReference) || (((SlotReference) slot).isVisible()) || showHidden) {
                 showSlots.add(slot);
             }
+            if (slot.getDataType() instanceof NestedColumnPrunable) {
+                context.cascadesContext.getStatementContext().setHasNestedColumns(true);
+            }
         }
         ImmutableList<Slot> slots = showSlots.build();
         switch (qualifier.size()) {
