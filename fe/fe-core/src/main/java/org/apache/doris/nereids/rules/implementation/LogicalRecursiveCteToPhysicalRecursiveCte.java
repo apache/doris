@@ -28,7 +28,8 @@ public class LogicalRecursiveCteToPhysicalRecursiveCte extends OneImplementation
     @Override
     public Rule build() {
         return logicalRecursiveCte().then(recursiveCte ->
-            new PhysicalRecursiveCte(recursiveCte.isUnionAll(),
+            new PhysicalRecursiveCte(recursiveCte.getCteName(),
+                    recursiveCte.isUnionAll(),
                     recursiveCte.getOutputs(),
                     recursiveCte.getRegularChildrenOutputs(),
                     recursiveCte.getLogicalProperties(),
