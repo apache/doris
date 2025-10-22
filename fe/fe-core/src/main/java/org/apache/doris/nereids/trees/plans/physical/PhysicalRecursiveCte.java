@@ -49,38 +49,39 @@ import java.util.Set;
  * PhysicalRecursiveCte is basically like PhysicalUnion
  */
 public class PhysicalRecursiveCte extends AbstractPhysicalPlan implements RecursiveCte {
-
-    protected final List<NamedExpression> outputs;
-    protected final List<List<SlotReference>> regularChildrenOutputs;
+    private final String cteName;
+    private final List<NamedExpression> outputs;
+    private final List<List<SlotReference>> regularChildrenOutputs;
     private final boolean isUnionAll;
 
     /** PhysicalRecursiveCte */
-    public PhysicalRecursiveCte(boolean isUnionAll,
+    public PhysicalRecursiveCte(String cteName, boolean isUnionAll,
             List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs,
             LogicalProperties logicalProperties,
             List<Plan> children) {
-        this(isUnionAll, outputs, childrenOutputs, Optional.empty(), logicalProperties, children);
+        this(cteName, isUnionAll, outputs, childrenOutputs, Optional.empty(), logicalProperties, children);
     }
 
     /** PhysicalRecursiveCte */
-    public PhysicalRecursiveCte(boolean isUnionAll,
+    public PhysicalRecursiveCte(String cteName, boolean isUnionAll,
             List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
             List<Plan> children) {
-        this(isUnionAll, outputs, childrenOutputs, groupExpression, logicalProperties,
+        this(cteName, isUnionAll, outputs, childrenOutputs, groupExpression, logicalProperties,
                 PhysicalProperties.ANY, null, children);
     }
 
     /** PhysicalRecursiveCte */
-    public PhysicalRecursiveCte(boolean isUnionAll, List<NamedExpression> outputs,
+    public PhysicalRecursiveCte(String cteName, boolean isUnionAll, List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics, List<Plan> children) {
         super(PlanType.PHYSICAL_RECURSIVE_CTE, groupExpression, logicalProperties, physicalProperties,
                 statistics, children.toArray(new Plan[0]));
+        this.cteName = cteName;
         this.isUnionAll = isUnionAll;
         this.outputs = ImmutableList.copyOf(outputs);
         this.regularChildrenOutputs = ImmutableList.copyOf(childrenOutputs);
@@ -122,13 +123,13 @@ public class PhysicalRecursiveCte extends AbstractPhysicalPlan implements Recurs
             return false;
         }
         PhysicalRecursiveCte that = (PhysicalRecursiveCte) o;
-        return isUnionAll == that.isUnionAll && Objects.equals(outputs, that.outputs) && Objects.equals(
-                regularChildrenOutputs, that.regularChildrenOutputs);
+        return cteName.equals(that.cteName) && isUnionAll == that.isUnionAll && Objects.equals(outputs, that.outputs)
+                && Objects.equals(regularChildrenOutputs, that.regularChildrenOutputs);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(isUnionAll, outputs, regularChildrenOutputs);
+        return Objects.hash(cteName, isUnionAll, outputs, regularChildrenOutputs);
     }
 
     @Override
@@ -145,6 +146,7 @@ public class PhysicalRecursiveCte extends AbstractPhysicalPlan implements Recurs
     public String toString() {
         return Utils.toSqlString("PhysicalRecursiveCte" + "[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "stats", statistics,
+                "cteName", cteName,
                 "isUnionAll", isUnionAll,
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs);
@@ -166,33 +168,33 @@ public class PhysicalRecursiveCte extends AbstractPhysicalPlan implements Recurs
 
     @Override
     public PhysicalRecursiveCte withChildren(List<Plan> children) {
-        return new PhysicalRecursiveCte(isUnionAll, outputs, regularChildrenOutputs, groupExpression,
+        return new PhysicalRecursiveCte(cteName, isUnionAll, outputs, regularChildrenOutputs, groupExpression,
                 getLogicalProperties(), children);
     }
 
     @Override
     public PhysicalRecursiveCte withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalRecursiveCte(isUnionAll, outputs, regularChildrenOutputs,
+        return new PhysicalRecursiveCte(cteName, isUnionAll, outputs, regularChildrenOutputs,
                 groupExpression, getLogicalProperties(), children);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalRecursiveCte(isUnionAll, outputs, regularChildrenOutputs,
+        return new PhysicalRecursiveCte(cteName, isUnionAll, outputs, regularChildrenOutputs,
                 groupExpression, logicalProperties.get(), children);
     }
 
     @Override
     public PhysicalRecursiveCte withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalRecursiveCte(isUnionAll, outputs, regularChildrenOutputs,
+        return new PhysicalRecursiveCte(cteName, isUnionAll, outputs, regularChildrenOutputs,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics, children);
     }
 
     @Override
     public PhysicalRecursiveCte resetLogicalProperties() {
-        return new PhysicalRecursiveCte(isUnionAll, outputs, regularChildrenOutputs,
+        return new PhysicalRecursiveCte(cteName, isUnionAll, outputs, regularChildrenOutputs,
                 Optional.empty(), null, physicalProperties, statistics, children);
     }
 

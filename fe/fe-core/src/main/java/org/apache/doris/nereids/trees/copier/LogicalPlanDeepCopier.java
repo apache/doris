@@ -369,7 +369,8 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                         .map(o -> (SlotReference) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                         .collect(ImmutableList.toImmutableList()))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalRecursiveCte(recursiveCte.isUnionAll(), outputs, childrenOutputs, children);
+        return new LogicalRecursiveCte(recursiveCte.getCteName(), recursiveCte.isUnionAll(), outputs,
+                childrenOutputs, children);
     }
 
     @Override

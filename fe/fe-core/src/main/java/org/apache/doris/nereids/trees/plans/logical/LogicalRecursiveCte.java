@@ -48,29 +48,31 @@ import java.util.Optional;
  * LogicalRecursiveCte is basically like LogicalUnion
  */
 public class LogicalRecursiveCte extends AbstractLogicalPlan implements RecursiveCte, OutputPrunable {
-    protected final List<NamedExpression> outputs;
-    protected final List<List<SlotReference>> regularChildrenOutputs;
+    private final String cteName;
+    private final List<NamedExpression> outputs;
+    private final List<List<SlotReference>> regularChildrenOutputs;
     private final boolean isUnionAll;
 
     /** LogicalRecursiveCte */
-    public LogicalRecursiveCte(boolean isUnionAll, List<Plan> children) {
-        this(isUnionAll, ImmutableList.of(), ImmutableList.of(), children);
+    public LogicalRecursiveCte(String cteName, boolean isUnionAll, List<Plan> children) {
+        this(cteName, isUnionAll, ImmutableList.of(), ImmutableList.of(), children);
     }
 
     /** LogicalRecursiveCte */
-    public LogicalRecursiveCte(boolean isUnionAll, List<NamedExpression> outputs,
+    public LogicalRecursiveCte(String cteName, boolean isUnionAll, List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs, List<Plan> children) {
-        this(isUnionAll, outputs, childrenOutputs, Optional.empty(),
+        this(cteName, isUnionAll, outputs, childrenOutputs, Optional.empty(),
                 Optional.empty(),
                 children);
     }
 
     /** LogicalRecursiveCte */
-    public LogicalRecursiveCte(boolean isUnionAll, List<NamedExpression> outputs,
+    public LogicalRecursiveCte(String cteName, boolean isUnionAll, List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Plan> children) {
         super(PlanType.LOGICAL_RECURSIVE_CTE, groupExpression, logicalProperties, children);
+        this.cteName = cteName;
         this.isUnionAll = isUnionAll;
         this.outputs = ImmutableList.copyOf(outputs);
         this.regularChildrenOutputs = ImmutableList.copyOf(childrenOutputs);
@@ -79,6 +81,10 @@ public class LogicalRecursiveCte extends AbstractLogicalPlan implements Recursiv
     @Override
     public boolean isUnionAll() {
         return isUnionAll;
+    }
+
+    public String getCteName() {
+        return cteName;
     }
 
     @Override
@@ -164,6 +170,7 @@ public class LogicalRecursiveCte extends AbstractLogicalPlan implements Recursiv
     @Override
     public String toString() {
         return Utils.toSqlStringSkipNull("LogicalRecursiveCte",
+                "cteName", cteName,
                 "isUnionAll", isUnionAll,
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs,
@@ -179,13 +186,13 @@ public class LogicalRecursiveCte extends AbstractLogicalPlan implements Recursiv
             return false;
         }
         LogicalRecursiveCte that = (LogicalRecursiveCte) o;
-        return isUnionAll == that.isUnionAll && Objects.equals(outputs, that.outputs)
+        return cteName.equals(that.cteName) && isUnionAll == that.isUnionAll && Objects.equals(outputs, that.outputs)
                 && Objects.equals(regularChildrenOutputs, that.regularChildrenOutputs);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(isUnionAll, outputs, regularChildrenOutputs);
+        return Objects.hash(cteName, isUnionAll, outputs, regularChildrenOutputs);
     }
 
     @Override
@@ -207,7 +214,7 @@ public class LogicalRecursiveCte extends AbstractLogicalPlan implements Recursiv
 
     @Override
     public LogicalRecursiveCte withChildren(List<Plan> children) {
-        return new LogicalRecursiveCte(isUnionAll, outputs, regularChildrenOutputs, children);
+        return new LogicalRecursiveCte(cteName, isUnionAll, outputs, regularChildrenOutputs, children);
     }
 
     public LogicalRecursiveCte withChildrenAndTheirOutputs(List<Plan> children,
@@ -215,31 +222,31 @@ public class LogicalRecursiveCte extends AbstractLogicalPlan implements Recursiv
         Preconditions.checkArgument(children.size() == childrenOutputs.size(),
                 "children size %s is not equals with children outputs size %s",
                 children.size(), childrenOutputs.size());
-        return new LogicalRecursiveCte(isUnionAll, outputs, childrenOutputs, children);
+        return new LogicalRecursiveCte(cteName, isUnionAll, outputs, childrenOutputs, children);
     }
 
     @Override
     public LogicalRecursiveCte withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalRecursiveCte(isUnionAll, outputs, regularChildrenOutputs,
+        return new LogicalRecursiveCte(cteName, isUnionAll, outputs, regularChildrenOutputs,
                 groupExpression, Optional.of(getLogicalProperties()), children);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalRecursiveCte(isUnionAll, outputs, regularChildrenOutputs,
+        return new LogicalRecursiveCte(cteName, isUnionAll, outputs, regularChildrenOutputs,
                 groupExpression, logicalProperties, children);
     }
 
     public LogicalRecursiveCte withNewOutputs(List<NamedExpression> newOutputs) {
-        return new LogicalRecursiveCte(isUnionAll, newOutputs, regularChildrenOutputs,
+        return new LogicalRecursiveCte(cteName, isUnionAll, newOutputs, regularChildrenOutputs,
                 Optional.empty(), Optional.empty(), children);
     }
 
     public LogicalRecursiveCte withNewOutputsAndChildren(List<NamedExpression> newOutputs,
                                                          List<Plan> children,
                                                          List<List<SlotReference>> childrenOutputs) {
-        return new LogicalRecursiveCte(isUnionAll, newOutputs, childrenOutputs,
+        return new LogicalRecursiveCte(cteName, isUnionAll, newOutputs, childrenOutputs,
                 Optional.empty(), Optional.empty(), children);
     }
 

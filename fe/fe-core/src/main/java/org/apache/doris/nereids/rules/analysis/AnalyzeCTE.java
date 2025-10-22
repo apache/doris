@@ -196,7 +196,7 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
 
         // create LogicalRecursiveCte
         LogicalUnion logicalUnion = (LogicalUnion) parsedCtePlan;
-        LogicalRecursiveCte analyzedCtePlan = new LogicalRecursiveCte(
+        LogicalRecursiveCte analyzedCtePlan = new LogicalRecursiveCte(aliasQuery.getAlias(),
                 logicalUnion.getQualifier() == SetOperation.Qualifier.ALL,
                 ImmutableList.of(analyzedAnchorChild, analyzedRecursiveChild));
         List<List<NamedExpression>> childrenProjections = analyzedCtePlan.collectChildrenProjections();
@@ -222,7 +222,6 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         analyzedCtePlan = analyzedCtePlan.withNewOutputs(newOutputs);
 
         CTEId cteId = StatementScopeIdGenerator.newCTEId();
-        cascadesContext.getStatementContext().addRecursiveCteIds(cteId);
         LogicalSubQueryAlias<Plan> logicalSubQueryAlias = aliasQuery.withChildren(ImmutableList.of(analyzedCtePlan));
         outerCteCtx = new CTEContext(cteId, logicalSubQueryAlias, outerCteCtx);
         outerCteCtx.setAnalyzedPlan(logicalSubQueryAlias);
