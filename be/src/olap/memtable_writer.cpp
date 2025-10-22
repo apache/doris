@@ -108,7 +108,7 @@ Status MemTableWriter::write(const vectorized::Block* block,
     DBUG_EXECUTE_IF("MemTableWriter.too_many_raws",
                     { raw_rows = std::numeric_limits<int32_t>::max(); });
     if (raw_rows + row_idxs.size() > std::numeric_limits<int32_t>::max()) {
-        RETURN_IF_ERROR(_flush_memtable());
+        RETURN_IF_ERROR(_flush_memtable(FlushReason::ROWS_OVERFLOW));
     }
 
     _total_received_rows += row_idxs.size();
@@ -135,15 +135,14 @@ Status MemTableWriter::write(const vectorized::Block* block,
         _mem_table->shrink_memtable_by_agg();
     }
     if (UNLIKELY(_mem_table->need_flush())) {
-        // (Refrain) flush reason: mem tablet写满了
-        RETURN_IF_ERROR(_flush_memtable());
+        RETURN_IF_ERROR(_flush_memtable(FlushReason::MEMTABLE_FULL));
     }
 
     return Status::OK();
 }
 
-Status MemTableWriter::_flush_memtable() {
-    auto s = _flush_memtable_async();
+Status MemTableWriter::_flush_memtable(FlushReason reason) {
+    auto s = _flush_memtable_async(reason);
     _reset_mem_table();
     if (UNLIKELY(!s.ok())) {
         return s;
@@ -151,7 +150,7 @@ Status MemTableWriter::_flush_memtable() {
     return Status::OK();
 }
 
-Status MemTableWriter::_flush_memtable_async() {
+Status MemTableWriter::_flush_memtable_async(FlushReason reason) {
     DCHECK(_flush_token != nullptr);
     std::shared_ptr<MemTable> memtable;
     {
@@ -164,10 +163,10 @@ Status MemTableWriter::_flush_memtable_async() {
         memtable->update_mem_type(MemType::WRITE_FINISHED);
         _freezed_mem_tables.push_back(memtable);
     }
-    return _flush_token->submit(memtable);
+    return _flush_token->submit(memtable, reason);
 }
 
-Status MemTableWriter::flush_async() {
+Status MemTableWriter::flush_async(FlushReason reason) {
     std::lock_guard<std::mutex> l(_lock);
     // Three calling paths:
     // 1. call by local, from `VTabletWriterV2::_write_memtable`.
@@ -189,7 +188,7 @@ Status MemTableWriter::flush_async() {
     VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
                 << PrettyPrinter::print_bytes(_mem_table->memory_usage())
                 << ", tablet: " << _req.tablet_id << ", load id: " << print_id(_req.load_id);
-    auto s = _flush_memtable_async();
+    auto s = _flush_memtable_async(reason);
     _reset_mem_table();
     return s;
 }

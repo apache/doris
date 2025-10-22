@@ -37,6 +37,7 @@
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "olap/delta_writer_v2.h"
+#include "olap/memtable.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -560,8 +561,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
     }
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
-        // (Refrain) 内存超限下刷
-        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush(
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush(FlushReason::SYS_MEMORY_INSUFFICIENT,
                 [state = _state]() { return state->is_cancelled(); });
         if (_state->is_cancelled()) {
             return _state->cancel_reason();

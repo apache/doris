@@ -46,6 +46,26 @@ struct FlushStatistic {
     std::atomic_uint64_t flush_size_bytes = 0;
     std::atomic_uint64_t flush_disk_size_bytes = 0;
     std::atomic_uint64_t flush_wait_time_ns = 0;
+
+    // 0 : flush_by_memtable_full
+    // 1 : flush_by_load_memory_exceed
+    // 2 : flush_by_sys_memory_insufficient
+    // 3 : flush_by_rows_overflow
+    // 4 : MAX_REASON (use less)
+    std::vector<std::atomic_uint64_t> flush_reason_cnt;
+
+    FlushStatistic() : flush_reason_cnt(static_cast<size_t>(FlushReason::MAX_REASON)) {
+        for (auto & cnt : flush_reason_cnt) {
+            cnt.store(0);
+        }
+    }
+
+    void inc_flush_reason(FlushReason reason) {
+        auto idx = static_cast<size_t>(reason);
+        if (idx < flush_reason_cnt.size()) {
+            flush_reason_cnt[idx]++;
+        }
+    }
 };
 
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
@@ -64,7 +84,7 @@ public:
     FlushToken(ThreadPool* thread_pool, std::shared_ptr<WorkloadGroup> wg_sptr)
             : _flush_status(Status::OK()), _thread_pool(thread_pool), _wg_wptr(wg_sptr) {}
 
-    Status submit(std::shared_ptr<MemTable> mem_table);
+    Status submit(std::shared_ptr<MemTable> mem_table, FlushReason reason);
 
     // error has happens, so we cancel this token
     // And remove all tasks in the queue.

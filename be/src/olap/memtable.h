@@ -57,7 +57,7 @@ enum class FlushReason {
     LOAD_MEMORY_EXCEED = 1,
     SYS_MEMORY_INSUFFICIENT = 2,
     ROWS_OVERFLOW = 3,
-    MANUAL = 4,
+    MAX_REASON = 4
 };
 
 // row pos in _input_mutable_block

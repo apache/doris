@@ -119,7 +119,7 @@ int64_t MemTableMemoryLimiter::_need_flush() {
     return need_flush - _queue_mem_usage - _flush_mem_usage;
 }
 
-void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_check) {
+void MemTableMemoryLimiter::handle_memtable_flush(FlushReason reason, std::function<bool()> cancel_check) {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
     do {
@@ -166,7 +166,7 @@ void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_c
                                        ->process_memory_detail_str();
                 LOG_LONG_STRING(INFO, log_str);
             }
-            _flush_active_memtables(need_flush);
+            _flush_active_memtables(need_flush, reason);
         }
     } while (_hard_limit_reached() && !_load_usage_low());
     g_memtable_memory_limit_waiting_threads << -1;
@@ -186,7 +186,7 @@ void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_c
     }
 }
 
-int64_t MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
+int64_t MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush, FlushReason reason) {
     if (need_flush <= 0) {
         return 0;
     }
@@ -224,8 +224,7 @@ int64_t MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
             // if the memtable writer just got flushed, don't flush it again
             continue;
         }
-        // (Refrain) flush reason : 看起来是内存超限
-        Status st = w->flush_async();
+        Status st = w->flush_async(reason);
         if (!st.ok()) {
             auto err_msg = fmt::format(
                     "tablet writer failed to reduce mem consumption by flushing memtable, "

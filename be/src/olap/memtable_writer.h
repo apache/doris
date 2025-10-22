@@ -88,7 +88,7 @@ public:
 
     // Submit current memtable to flush queue, and return without waiting.
     // This is currently for reducing mem consumption of this memtable writer.
-    Status flush_async();
+    Status flush_async(FlushReason reason);
 
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
@@ -110,9 +110,9 @@ public:
     }
 
 private:
-    Status _flush_memtable();
+    Status _flush_memtable(FlushReason reason);
     // push a full memtable to flush executor
-    Status _flush_memtable_async();
+    Status _flush_memtable_async(FlushReason reason);
 
     void _reset_mem_table();
 
