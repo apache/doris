@@ -26,43 +26,43 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <tparquet::Type::type type>
-struct PhysicalTypeTraits {};
-
-
-template <>
-struct PhysicalTypeTraits<tparquet::Type::INT32> {
-    using CppType = int32_t;
-};
-
-template <>
-struct PhysicalTypeTraits<tparquet::Type::INT64> {
-    using CppType = int64_t;
-};
-
-template <>
-struct PhysicalTypeTraits<tparquet::Type::INT96> {
-    using CppType = ParquetInt96;
-};
-
-template <>
-struct PhysicalTypeTraits<tparquet::Type::FLOAT> {
-    using CppType = float;
-};
-
-template <>
-struct PhysicalTypeTraits<tparquet::Type::DOUBLE> {
-    using CppType = double;
-};
-
-template <>
-struct PhysicalTypeTraits<tparquet::Type::FIXED_LEN_BYTE_ARRAY> {
-    using CppType = Slice;
-};
-
-template<tparquet::Type::type PhysicalType>
+template <tparquet::Type::type PhysicalType>
 class FixLengthDictDecoder final : public BaseDictDecoder {
+    template <tparquet::Type::type type>
+    struct PhysicalTypeTraits {};
+
+    template <>
+    struct PhysicalTypeTraits<tparquet::Type::INT32> {
+        using CppType = int32_t;
+    };
+
+    template <>
+    struct PhysicalTypeTraits<tparquet::Type::INT64> {
+        using CppType = int64_t;
+    };
+
+    template <>
+    struct PhysicalTypeTraits<tparquet::Type::INT96> {
+        using CppType = ParquetInt96;
+    };
+
+    template <>
+    struct PhysicalTypeTraits<tparquet::Type::FLOAT> {
+        using CppType = float;
+    };
+
+    template <>
+    struct PhysicalTypeTraits<tparquet::Type::DOUBLE> {
+        using CppType = double;
+    };
+
+    template <>
+    struct PhysicalTypeTraits<tparquet::Type::FIXED_LEN_BYTE_ARRAY> {
+        using CppType = Slice;
+    };
+
 public:
+    using cppType = PhysicalTypeTraits<PhysicalType>::CppType;
     FixLengthDictDecoder() = default;
     ~FixLengthDictDecoder() override = default;
 
@@ -121,10 +121,8 @@ protected:
                 for (size_t i = 0; i < run_length; ++i) {
                     if constexpr (PhysicalType == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
                         auto& slice = _dict_items[_indexes[dict_index++]];
-                        memcpy(raw_data + data_index, slice.get_data(),
-                               _type_length);
+                        memcpy(raw_data + data_index, slice.get_data(), _type_length);
                     } else {
-                        using cppType = PhysicalTypeTraits<PhysicalType>::CppType;
                         *(cppType*)(raw_data + data_index) = _dict_items[_indexes[dict_index++]];
                     }
                     data_index += _type_length;
@@ -161,10 +159,9 @@ protected:
         _dict_items.resize(num_values);
         for (size_t i = 0; i < num_values; ++i) {
             if constexpr (PhysicalType == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-                _dict_items[i] = Slice{dict_item_address, (size_t)_type_length};
+                _dict_items[i] = Slice {dict_item_address, (size_t)_type_length};
             } else {
-                using cppType = typename PhysicalTypeTraits<PhysicalType>::CppType;
-                _dict_items[i] = * (cppType*) dict_item_address;
+                _dict_items[i] = *((cppType*)dict_item_address);
             }
             dict_item_address += _type_length;
         }
@@ -175,7 +172,7 @@ protected:
         size_t dict_items_size = _dict_items.size();
         std::vector<StringRef> dict_values;
         dict_values.reserve(dict_items_size);
-        char* dict_item_address = (char*)_dict.get();
+        auto* dict_item_address = (const char*)_dict.get();
         for (size_t i = 0; i < dict_items_size; ++i) {
             dict_values.emplace_back(dict_item_address, _type_length);
             dict_item_address += _type_length;
@@ -189,7 +186,7 @@ protected:
         std::vector<StringRef> dict_values;
         dict_values.reserve(dict_column->size());
         const auto& data = dict_column->get_data();
-        char* dict_item_address = (char*)_dict.get();
+        auto* dict_item_address = (const char*)_dict.get();
 
         for (size_t i = 0; i < dict_column->size(); ++i) {
             dict_values.emplace_back(dict_item_address + data[i] * _type_length, _type_length);
