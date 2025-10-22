@@ -46,6 +46,8 @@
 #include "vec/core/block.h"
 
 namespace doris {
+bvar::Adder<uint64_t> g_flush_cuz_rowscnt_oveflow("flush_cuz_rowscnt_oveflow");
+
 using namespace ErrorCode;
 
 MemTableWriter::MemTableWriter(const WriteRequest& req) : _req(req) {}
@@ -108,7 +110,8 @@ Status MemTableWriter::write(const vectorized::Block* block,
     DBUG_EXECUTE_IF("MemTableWriter.too_many_raws",
                     { raw_rows = std::numeric_limits<int32_t>::max(); });
     if (raw_rows + row_idxs.size() > std::numeric_limits<int32_t>::max()) {
-        RETURN_IF_ERROR(_flush_memtable(FlushReason::ROWS_OVERFLOW));
+        g_flush_cuz_rowscnt_oveflow << 1;
+        RETURN_IF_ERROR(_flush_memtable());
     }
 
     _total_received_rows += row_idxs.size();
@@ -135,14 +138,14 @@ Status MemTableWriter::write(const vectorized::Block* block,
         _mem_table->shrink_memtable_by_agg();
     }
     if (UNLIKELY(_mem_table->need_flush())) {
-        RETURN_IF_ERROR(_flush_memtable(FlushReason::MEMTABLE_FULL));
+        RETURN_IF_ERROR(_flush_memtable());
     }
 
     return Status::OK();
 }
 
-Status MemTableWriter::_flush_memtable(FlushReason reason) {
-    auto s = _flush_memtable_async(reason);
+Status MemTableWriter::_flush_memtable() {
+    auto s = _flush_memtable_async();
     _reset_mem_table();
     if (UNLIKELY(!s.ok())) {
         return s;
@@ -150,7 +153,7 @@ Status MemTableWriter::_flush_memtable(FlushReason reason) {
     return Status::OK();
 }
 
-Status MemTableWriter::_flush_memtable_async(FlushReason reason) {
+Status MemTableWriter::_flush_memtable_async() {
     DCHECK(_flush_token != nullptr);
     std::shared_ptr<MemTable> memtable;
     {
@@ -163,10 +166,10 @@ Status MemTableWriter::_flush_memtable_async(FlushReason reason) {
         memtable->update_mem_type(MemType::WRITE_FINISHED);
         _freezed_mem_tables.push_back(memtable);
     }
-    return _flush_token->submit(memtable, reason);
+    return _flush_token->submit(memtable);
 }
 
-Status MemTableWriter::flush_async(FlushReason reason) {
+Status MemTableWriter::flush_async() {
     std::lock_guard<std::mutex> l(_lock);
     // Three calling paths:
     // 1. call by local, from `VTabletWriterV2::_write_memtable`.
@@ -188,7 +191,7 @@ Status MemTableWriter::flush_async(FlushReason reason) {
     VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
                 << PrettyPrinter::print_bytes(_mem_table->memory_usage())
                 << ", tablet: " << _req.tablet_id << ", load id: " << print_id(_req.load_id);
-    auto s = _flush_memtable_async(reason);
+    auto s = _flush_memtable_async();
     _reset_mem_table();
     return s;
 }

@@ -37,7 +37,6 @@
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "olap/delta_writer_v2.h"
-#include "olap/memtable.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"

@@ -22,7 +22,6 @@
 #include <functional>
 
 #include "common/status.h"
-#include "olap/memtable.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/workload_group/workload_group.h"
 #include "util/countdown_latch.h"
@@ -62,8 +61,8 @@ private:
     bool _soft_limit_reached();
     bool _hard_limit_reached();
     bool _load_usage_low();
-    int64_t _need_flush(FlushReason &reason);
-    int64_t _flush_active_memtables(int64_t need_flush, FlushReason reason);
+    int64_t _need_flush();
+    int64_t _flush_active_memtables(int64_t need_flush);
     void _refresh_mem_tracker();
     std::mutex _lock;
     std::condition_variable _hard_limit_end_cond;

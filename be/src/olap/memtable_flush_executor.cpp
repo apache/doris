@@ -84,9 +84,7 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
     return os;
 }
 
-Status FlushToken::submit(std::shared_ptr<MemTable> mem_table, FlushReason reason) {
-    _stats.inc_flush_reason(reason);
-
+Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
     {
         std::shared_lock rdlk(_flush_status_lock);
         DBUG_EXECUTE_IF("FlushToken.submit_flush_error", {
