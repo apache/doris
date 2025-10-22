@@ -91,7 +91,7 @@ static bvar::LatencyRecorder g_remote_fetch_tablet_rowsets_latency("remote_fetch
         if (skip_by_option && !options.enable_fetch_rowsets_from_peers) {
             return version_path;
         }
-        if (tablet_id != -1 && (tablet_id == _tablet_meta->tablet_id()) || tablet_id == -2) {
+        if ((tablet_id != -1 && (tablet_id == _tablet_meta->tablet_id())) || tablet_id == -2) {
             return ResultError(Status::Error<VERSION_ALREADY_MERGED>("version already merged"));
         }
     });
