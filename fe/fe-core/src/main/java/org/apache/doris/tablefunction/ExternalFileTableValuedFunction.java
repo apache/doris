@@ -185,20 +185,20 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
         if (fileFormatProperties instanceof CsvFileFormatProperties
-                || fileFormatProperties instanceof TextFileFormatProperties) {
+            || fileFormatProperties instanceof TextFileFormatProperties) {
             FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(copiedProps,
-                    CsvFileFormatProperties.PROP_CSV_SCHEMA, ""));
+                CsvFileFormatProperties.PROP_CSV_SCHEMA, ""));
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get csv schema: {}", csvSchema);
             }
         }
 
         pathPartitionKeys = Optional.ofNullable(
-                        getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_PATH_PARTITION_KEYS, null))
-                .map(str -> Arrays.stream(str.split(","))
-                        .map(String::trim)
-                        .collect(Collectors.toList()))
-                .orElse(Lists.newArrayList());
+                getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_PATH_PARTITION_KEYS, null))
+            .map(str -> Arrays.stream(str.split(","))
+                .map(String::trim)
+                .collect(Collectors.toList()))
+            .orElse(Lists.newArrayList());
         this.processedParams = new HashMap<>(copiedProps);
         return copiedProps;
     }
@@ -266,7 +266,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             // and we fill a dummy col for this table.
             if (request != null) {
                 Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
-                        .fetchTableStructureAsync(address, request);
+                    .fetchTableStructureAsync(address, request);
 
                 result = future.get();
                 TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
@@ -276,8 +276,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                         errMsg = result.getStatus().getErrorMsgsList().get(0);
                     } else {
                         errMsg = "fetchTableStructureAsync failed. backend address: "
-                                + NetUtils
-                                .getHostPortInAccessibleFormat(address.getHostname(), address.getPort());
+                            + NetUtils
+                            .getHostPortInAccessibleFormat(address.getHostname(), address.getPort());
                     }
                     throw new AnalysisException(errMsg);
                 }
@@ -327,7 +327,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
      * Convert PTypeDesc into doris column type
      *
      * @param typeNodes list PTypeNodes in PTypeDesc
-     * @param start the start index of typeNode to parse
+     * @param start     the start index of typeNode to parse
      * @return column type and the number of parsed PTypeNodes
      */
     private Pair<Type, Integer> getColumnType(List<PTypeNode> typeNodes, int start) {
@@ -358,14 +358,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 } else {
                     fieldLowerNames.add(fieldName);
                     fields.add(new StructField(fieldName, fieldType.key(), structField.getComment(),
-                            structField.getContainsNull()));
+                        structField.getContainsNull()));
                 }
                 parsedNodes += fieldType.value();
             }
             type = new StructType(fields);
         } else {
             type = ScalarType.createType(PrimitiveType.fromThrift(tPrimitiveType),
-                    columnType.getLen(), columnType.getPrecision(), columnType.getScale());
+                columnType.getLen(), columnType.getPrecision(), columnType.getScale());
             parsedNodes = 1;
         }
         return Pair.of(type, parsedNodes);
@@ -418,10 +418,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         if (getTFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(
-                    storageProperties.getBackendConfigProperties());
+                storageProperties.getBackendConfigProperties());
             String fsName = storageProperties.getBackendConfigProperties().get(HdfsResource.HADOOP_FS_NAME);
             tHdfsParams.setFsName(fsName);
             fileScanRangeParams.setHdfsParams(tHdfsParams);
+        }
+
+        if (getTFileType() == TFileType.FILE_HTTP) {
+           if(fileStatuses.isEmpty()) {
+               String uri = getFilePath();
+               fileStatuses.add(new TBrokerFileStatus(uri, false, -1, false));
+           }
         }
 
         // get first file, used to parse table schema
@@ -447,7 +454,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileRangeDesc.setLoadId(ctx.queryId());
         fileRangeDesc.setFileType(getTFileType());
         fileRangeDesc.setCompressType(Util.getOrInferCompressType(
-                fileFormatProperties.getCompressionType(), firstFile.getPath()));
+            fileFormatProperties.getCompressionType(), firstFile.getPath()));
         fileRangeDesc.setPath(firstFile.getPath());
         fileRangeDesc.setStartOffset(0);
         fileRangeDesc.setSize(firstFile.getSize());
@@ -458,7 +465,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRange.addToRanges(fileRangeDesc);
         fileScanRange.setParams(fileScanRangeParams);
         return InternalService.PFetchTableSchemaRequest.newBuilder()
-                .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
+            .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
     }
 
     private boolean isFileContentEmpty(TBrokerFileStatus fileStatus) {
@@ -466,7 +473,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             return true;
         }
         if (Util.isCsvFormat(fileFormatProperties.getFileFormatType())
-                || fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_JSON) {
+            || fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_JSON) {
             int magicNumberBytes = 0;
             switch (fileFormatProperties.getCompressionType()) {
                 case GZ:
@@ -503,9 +510,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     public void checkAuth(ConnectContext ctx) {
         if (resourceName.isPresent()) {
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkResourcePriv(ctx, resourceName.get(), PrivPredicate.USAGE)) {
+                .checkResourcePriv(ctx, resourceName.get(), PrivPredicate.USAGE)) {
                 String message = ErrorCode.ERR_RESOURCE_ACCESS_DENIED_ERROR.formatErrorMsg(
-                        PrivPredicate.USAGE.getPrivs().toString(), resourceName.get());
+                    PrivPredicate.USAGE.getPrivs().toString(), resourceName.get());
                 throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
             }
         }

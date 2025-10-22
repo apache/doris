@@ -17,6 +17,7 @@
 
 package org.apache.doris.fs;
 
+import com.amazonaws.services.dynamodbv2.xspec.S;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 
@@ -76,7 +77,8 @@ public enum SchemaTypeMapper {
     WASBS("wasbs", StorageProperties.Type.AZURE, FileSystemType.S3, TFileType.FILE_S3),
     AZURE("azure", StorageProperties.Type.AZURE, FileSystemType.S3, TFileType.FILE_S3),
     HDFS("hdfs", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
-    LOCAL("local", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS);
+    LOCAL("local", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
+    HTTP("http",StorageProperties.Type.HTTP, FileSystemType.HTTP, TFileType.FILE_HTTP);
     //LAKEFS("lakefs", StorageProperties.Type.LAKEFS),
     //GCS("gs", StorageProperties.Type.S3),
     //BOS("bos", StorageProperties.Type.BOS),

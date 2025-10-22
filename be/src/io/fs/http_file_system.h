@@ -33,7 +33,7 @@
 namespace doris::io {
 class HttpFileSystem final : public RemoteFileSystem {
 public:
-    static Result<std::shared_ptr<HttpFileSystem>> create(std::string id, const std::string& url);
+    static Result<std::shared_ptr<HttpFileSystem>> create(std::string id, const std::string& uri);
     ~HttpFileSystem() override = default;
 
 protected:

@@ -64,6 +64,9 @@ inline std::ostream& operator<<(std::ostream& ostr, FileSystemType type) {
     case FileSystemType::BROKER:
         ostr << "BROKER";
         return ostr;
+    case FileSystemType::HTTP:
+        ostr << "HTTP";
+        return ostr;
     default:
         ostr << "UNKNOWN";
         return ostr;

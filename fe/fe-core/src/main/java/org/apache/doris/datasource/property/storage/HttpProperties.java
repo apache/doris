@@ -19,7 +19,6 @@ package org.apache.doris.datasource.property.storage;
 
 import com.baidubce.services.cdn.model.OriginPeer;
 import com.uber.m3.util.ImmutableSet;
-import jdk.jpackage.internal.Log;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.parser.Origin;
 import org.apache.hadoop.conf.Configuration;

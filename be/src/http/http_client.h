@@ -188,8 +188,6 @@ public:
         curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
     }
 
-    Status read_range(const std::string& url, size_t offset, size_t length, char* buffer);
-
 private:
     const char* _to_errmsg(CURLcode code) const;
     const char* _get_url() const;
