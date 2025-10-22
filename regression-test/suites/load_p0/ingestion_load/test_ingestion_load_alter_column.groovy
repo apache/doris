@@ -162,7 +162,7 @@ suite('test_ingestion_load_alter_column', 'p0,external') {
                 )
                 """
 
-            label = "test_ingestion_load_alter_column_1"
+            def label = "test_ingestion_load_alter_column_1"
 
             testIngestLoadJob.call(tableName1, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet', {
                 sql "alter table ${tableName1} drop column c_datetimev2"
@@ -194,7 +194,7 @@ suite('test_ingestion_load_alter_column', 'p0,external') {
                 )
                 """
 
-            def label = "test_ingestion_load_alter_column_2"
+            label = "test_ingestion_load_alter_column_2"
 
             testIngestLoadJob.call(tableName2, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet', {
                 sql "alter table ${tableName2} add column c_string string null"
