@@ -507,16 +507,15 @@ void MemTable::_aggregate() {
                 _stat.merged_rows++;
                 _aggregate_two_row_in_block<has_skip_bitmap_col>(mutable_block, cur_row, prev_row);
                 // Clean up aggregation state of the merged row to avoid memory leak
-                if constexpr (!is_final) {
+                if (cur_row) {
                     _clear_row_agg(cur_row);
                 }
             } else {
                 prev_row = cur_row;
                 if (!temp_row_in_blocks.empty()) {
-                    // 上一批_row_in_blocks中的row合并到了temp_row_in_blocks，调用
-                    // finalize将聚合结果写入到_output_mutable_block中
-                    _finalize_one_row<is_final>(temp_row_in_blocks.back().get(), block_data,
-                                                row_pos);
+                    // The rows from the previous batch of _row_in_blocks have been merged into temp_row_in_blocks,
+                    // now call finalize to write the aggregation results into _output_mutable_block.
+                    _finalize_one_row<is_final>(temp_row_in_blocks.back().get(), block_data, row_pos);
                 }
                 temp_row_in_blocks.push_back(cur_row_ptr);
                 row_pos++;
