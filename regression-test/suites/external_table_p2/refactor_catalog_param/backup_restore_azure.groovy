@@ -18,7 +18,7 @@ import org.awaitility.Awaitility;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static groovy.test.GroovyAssert.shouldFail
 
-suite("refactor_storage_backup_restore_azure", "p0,external") {
+suite("refactor_storage_backup_restore_azure", "p2,external,new_catalog_property") {
     
 
 
@@ -171,15 +171,15 @@ suite("refactor_storage_backup_restore_azure", "p0,external") {
     
     def s3repoName3 = "azure_repo_3_"+System.currentTimeMillis()
     createRepository("${s3repoName3}", "azure.endpoint", abfsEndpoint,  "azure.account_name", abfsAzureAccountName, "azure.account_key", abfsAzureAccountKey,"abfs://${abfsContainer}@${abfsAzureAccountName}.dfs.core.windows.net/${repoPrefix}/test_" + System.currentTimeMillis())
-    def dbName3 = currentDBName + "azure_3"+System.currentTimeMillis()
+    def dbName3 = currentDBName + "azure_3"
     createDBAndTbl("${dbName3}")
-    backupAndRestore("${s3repoName3}", dbNamee, s3table, "backup_${s3repoName3}_test")
+    backupAndRestore("${s3repoName3}", dbName3, s3table, "backup_${s3repoName3}_test")
     
     def s3repoName4 = "azure_repo_4_"+System.currentTimeMillis()
     createRepository("${s3repoName4}", "azure.endpoint", abfsEndpoint,  "azure.account_name", abfsAzureAccountName, "azure.account_key", abfsAzureAccountKey,"https://${abfsAzureAccountName}.blob.core.windows.net/${abfsContainer}/${repoPrefix}/test_" + System.currentTimeMillis())
     def dbName4 = currentDBName + "azure_4"
     createDBAndTbl("${dbName4}")
-    backupAndRestore("${s3repoName4}", dbName2, s3table, "backup_${s3repoName4}_test")
+    backupAndRestore("${s3repoName4}", dbName4, s3table, "backup_${s3repoName4}_test")
 
 
 }
