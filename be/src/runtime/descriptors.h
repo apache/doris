@@ -100,6 +100,10 @@ public:
         return virtual_column_expr;
     }
 
+    void set_is_predicate(bool is_predicate) { _is_predicate = is_predicate; }
+
+    bool is_predicate() const { return _is_predicate; }
+
 private:
     friend class DescriptorTbl;
     friend class TupleDescriptor;
@@ -140,6 +144,8 @@ private:
     const std::string _col_default_value;
 
     std::shared_ptr<doris::TExpr> virtual_column_expr = nullptr;
+
+    bool _is_predicate = false;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);
