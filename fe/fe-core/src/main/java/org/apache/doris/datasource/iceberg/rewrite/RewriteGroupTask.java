@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -162,7 +163,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         // Step 1: Create stmt executor
         StmtExecutor executor = new StmtExecutor(taskConnectContext, taskParsedStmt);
 
-        // Step 2: Create insert executor, not to begin a transaction
+        // Step 2: Create insert executor, but not to begin a transaction
         AbstractInsertExecutor insertExecutor = taskLogicalPlan.initPlan(taskConnectContext, executor, false);
         Preconditions.checkState(insertExecutor instanceof IcebergRewriteExecutor,
                 "Expected IcebergRewriteExecutor, got: " + insertExecutor.getClass());
@@ -222,8 +223,6 @@ public class RewriteGroupTask implements TransientTaskExecutor {
                 Optional.empty() // branchName
         );
         insertCommand.setRewriteOperation(true);
-
-        LOG.debug("[Rewrite Task] taskId: {} created independent InsertIntoTableCommand", taskId);
         return insertCommand;
     }
 
@@ -251,6 +250,12 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         taskContext.setQueryId(queryId);
         taskContext.setThreadLocalInfo();
         taskContext.setStartTime();
+
+        // Initialize StatementContext for this task
+        StatementContext statementContext = new StatementContext();
+        statementContext.setConnectContext(taskContext);
+        taskContext.setStatementContext(statementContext);
+
         return taskContext;
     }
 
