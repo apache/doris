@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
+import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 
 import com.google.common.collect.ImmutableList;
 
