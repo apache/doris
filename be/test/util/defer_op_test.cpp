@@ -19,8 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include "common/logging.h"
-
 namespace doris {
 
 TEST(DeferOpTest, ThrowEscapesWhenNotUnwinding) {

@@ -17,10 +17,10 @@
 
 #pragma once
 
-#include <functional>
-#include <exception> // for std::uncaught_exceptions
-#include "common/logging.h"
+#include <exception>
 #include <utility>
+
+#include "common/logging.h"
 
 namespace doris {
 
@@ -60,7 +60,7 @@ public:
                     throw;
                 } catch (const std::exception& e) {
                     LOG(WARNING) << "Exception swallowed in Defer destructor during unwind: "
-                               << e.what();
+                                 << e.what();
                 } catch (...) {
                     LOG(WARNING) << "Unknown exception swallowed in Defer destructor during unwind";
                 }
