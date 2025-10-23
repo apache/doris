@@ -673,7 +673,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         Cloud.GetStreamingTaskCommitAttachResponse response;
         try {
             response = MetaServiceProxy.getInstance().getStreamingTaskCommitAttach(builder.build());
-            log.info("replay progress {}", response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 log.warn("failed to get streaming task commit attach, response: {}", response);
                 if (response.getStatus().getCode() == Cloud.MetaServiceCode.STREAMING_JOB_PROGRESS_NOT_FOUND) {
