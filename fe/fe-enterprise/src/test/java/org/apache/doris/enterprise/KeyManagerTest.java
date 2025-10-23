@@ -153,6 +153,7 @@ public class KeyManagerTest {
             EncryptionKey masterKey0 = keyManagerStore.getMasterKeys().get(0);
             Assert.assertTrue(masterKey0.ciphertext.endsWith("Mg=="));
             Assert.assertArrayEquals("1".getBytes(StandardCharsets.UTF_8), masterKey0.plaintext);
+            Assert.assertEquals("new_key_id", masterKey0.parentId);
             Assert.assertNotEquals(0, masterKey0.mtime);
         } catch (Exception e) {
             e.printStackTrace();

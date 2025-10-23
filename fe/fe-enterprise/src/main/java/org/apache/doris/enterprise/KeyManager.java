@@ -333,6 +333,7 @@ public class KeyManager extends MasterDaemon implements KeyManagerInterface {
                 byte[] newCiphertext = rootKeyProvider.encrypt(masterKey.plaintext);
                 masterKey.ciphertext = Base64.getEncoder().encodeToString(newCiphertext);
                 masterKey.mtime = System.currentTimeMillis();
+                masterKey.parentId = newRootKeyInfo.cmkId;
                 opInfo.addMasterKey(masterKey);
 
                 if (DebugPointUtil.isEnable("KeyManager.stopAfterOneMasterKeyChanged")) {
