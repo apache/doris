@@ -35,6 +35,8 @@ import java.util.Optional;
  */
 public class UnboundIcebergTableSink<CHILD_TYPE extends Plan> extends UnboundBaseExternalTableSink<CHILD_TYPE> {
 
+    private final boolean isRewrite;
+
     public UnboundIcebergTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
                                    List<String> partitions, CHILD_TYPE child) {
         this(nameParts, colNames, hints, partitions, DMLCommandType.NONE,
@@ -52,8 +54,29 @@ public class UnboundIcebergTableSink<CHILD_TYPE extends Plan> extends UnboundBas
                                    Optional<GroupExpression> groupExpression,
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child) {
+        this(nameParts, colNames, hints, partitions, dmlCommandType, false,
+                groupExpression, logicalProperties, child);
+    }
+
+    /**
+     * constructor with isRewrite flag
+     */
+    public UnboundIcebergTableSink(List<String> nameParts,
+            List<String> colNames,
+            List<String> hints,
+            List<String> partitions,
+            DMLCommandType dmlCommandType,
+            boolean isRewrite,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties,
+            CHILD_TYPE child) {
         super(nameParts, PlanType.LOGICAL_UNBOUND_ICEBERG_TABLE_SINK, ImmutableList.of(), groupExpression,
                 logicalProperties, colNames, dmlCommandType, child, hints, partitions);
+        this.isRewrite = isRewrite;
+    }
+
+    public boolean isRewrite() {
+        return isRewrite;
     }
 
     @Override
@@ -61,7 +84,7 @@ public class UnboundIcebergTableSink<CHILD_TYPE extends Plan> extends UnboundBas
         Preconditions.checkArgument(children.size() == 1,
                 "UnboundIcebergTableSink only accepts one child");
         return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
-                dmlCommandType, groupExpression, Optional.empty(), children.get(0));
+                dmlCommandType, isRewrite, groupExpression, Optional.empty(), children.get(0));
     }
 
     @Override
@@ -72,13 +95,13 @@ public class UnboundIcebergTableSink<CHILD_TYPE extends Plan> extends UnboundBas
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
-                dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
+                dmlCommandType, isRewrite, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
-                dmlCommandType, groupExpression, logicalProperties, children.get(0));
+                dmlCommandType, isRewrite, groupExpression, logicalProperties, children.get(0));
     }
 }

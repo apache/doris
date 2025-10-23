@@ -610,6 +610,7 @@ public class BindSink implements AnalysisRuleFactory {
                         .map(NamedExpression.class::cast)
                         .collect(ImmutableList.toImmutableList()),
                 sink.getDMLCommandType(),
+                sink.isRewrite(),
                 Optional.empty(),
                 Optional.empty(),
                 child);

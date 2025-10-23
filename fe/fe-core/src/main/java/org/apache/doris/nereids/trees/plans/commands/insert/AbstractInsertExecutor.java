@@ -262,4 +262,8 @@ public abstract class AbstractInsertExecutor {
     public boolean isEmptyInsert() {
         return emptyInsert;
     }
+
+    public long getLoadedRows() {
+        return loadedRows;
+    }
 }

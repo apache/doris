@@ -47,6 +47,7 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
     private final IcebergExternalDatabase database;
     private final IcebergExternalTable targetTable;
     private final DMLCommandType dmlCommandType;
+    private final boolean isRewrite;
 
     /**
      * constructor
@@ -59,10 +60,27 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
                                    Optional<GroupExpression> groupExpression,
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child) {
+        this(database, targetTable, cols, outputExprs, dmlCommandType, false,
+                groupExpression, logicalProperties, child);
+    }
+
+    /**
+     * constructor with isRewrite flag
+     */
+    public LogicalIcebergTableSink(IcebergExternalDatabase database,
+                                   IcebergExternalTable targetTable,
+                                   List<Column> cols,
+                                   List<NamedExpression> outputExprs,
+                                   DMLCommandType dmlCommandType,
+                                   boolean isRewrite,
+                                   Optional<GroupExpression> groupExpression,
+                                   Optional<LogicalProperties> logicalProperties,
+                                   CHILD_TYPE child) {
         super(PlanType.LOGICAL_ICEBERG_TABLE_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalIcebergTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalIcebergTableSink");
         this.dmlCommandType = dmlCommandType;
+        this.isRewrite = isRewrite;
     }
 
     public Plan withChildAndUpdateOutput(Plan child) {
@@ -70,19 +88,19 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
         return new LogicalIcebergTableSink<>(database, targetTable, cols, output,
-                dmlCommandType, Optional.empty(), Optional.empty(), child);
+                dmlCommandType, isRewrite, Optional.empty(), Optional.empty(), child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalIcebergTableSink only accepts one child");
         return new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
-                dmlCommandType, Optional.empty(), Optional.empty(), children.get(0));
+                dmlCommandType, isRewrite, Optional.empty(), Optional.empty(), children.get(0));
     }
 
     public LogicalIcebergTableSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
         return new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
-                dmlCommandType, Optional.empty(), Optional.empty(), child());
+                dmlCommandType, isRewrite, Optional.empty(), Optional.empty(), child());
     }
 
     public IcebergExternalDatabase getDatabase() {
@@ -95,6 +113,10 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
 
     public DMLCommandType getDmlCommandType() {
         return dmlCommandType;
+    }
+
+    public boolean isRewrite() {
+        return isRewrite;
     }
 
     @Override
@@ -110,13 +132,14 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
         }
         LogicalIcebergTableSink<?> that = (LogicalIcebergTableSink<?>) o;
         return dmlCommandType == that.dmlCommandType
+                && isRewrite == that.isRewrite
                 && Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable) && Objects.equals(cols, that.cols);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), database, targetTable, cols, dmlCommandType);
+        return Objects.hash(super.hashCode(), database, targetTable, cols, dmlCommandType, isRewrite);
     }
 
     @Override
@@ -126,7 +149,8 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
                 "database", database.getFullName(),
                 "targetTable", targetTable.getName(),
                 "cols", cols,
-                "dmlCommandType", dmlCommandType
+                "dmlCommandType", dmlCommandType,
+                "isRewrite", isRewrite
         );
     }
 
@@ -138,13 +162,13 @@ public class LogicalIcebergTableSink<CHILD_TYPE extends Plan> extends LogicalTab
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
-                dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
+                dmlCommandType, isRewrite, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalIcebergTableSink<>(database, targetTable, cols, outputExprs,
-                dmlCommandType, groupExpression, logicalProperties, children.get(0));
+                dmlCommandType, isRewrite, groupExpression, logicalProperties, children.get(0));
     }
 }

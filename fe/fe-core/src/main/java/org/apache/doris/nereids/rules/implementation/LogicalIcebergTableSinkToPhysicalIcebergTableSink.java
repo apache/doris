@@ -38,6 +38,7 @@ public class LogicalIcebergTableSinkToPhysicalIcebergTableSink extends OneImplem
                     sink.getTargetTable(),
                     sink.getCols(),
                     sink.getOutputExprs(),
+                    sink.isRewrite(),
                     Optional.empty(),
                     sink.getLogicalProperties(),
                     null,
