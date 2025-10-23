@@ -187,6 +187,14 @@ public:
 
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                    uint32_t result, size_t input_rows_count, bool dry_run = false) const {
+        for (const auto& arg : arguments) {
+            if (block.get_by_position(arg).column->size() != input_rows_count) {
+                return Status::InternalError(
+                        "Function {} got argument column of invalid size. "
+                        "input_rows_count {}, column {}",
+                        get_name(), input_rows_count, block.get_by_position(arg).column->size());
+            }
+        }
         try {
             return prepare(context, block, arguments, result)
                     ->execute(context, block, arguments, result, input_rows_count, dry_run);
