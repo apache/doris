@@ -508,4 +508,119 @@ TEST_F(BufferedReaderTest, test_range_cache_file_reader) {
     }
 }
 
+TEST_F(BufferedReaderTest, test_large_gap_amplification) {
+    // Test case to verify read amplification behavior with large gaps between ranges
+    // This tests the issue where 8MB merge window includes too many large gaps,
+    // resulting in severe read amplification
+    size_t kb = 1024;
+    io::FileReaderSPtr offset_reader = std::make_shared<MockOffsetFileReader>(20 * 1024 * kb);
+    std::vector<io::PrefetchRange> random_access_ranges;
+
+    // Simulate sparse ranges with large gaps:
+    // Range0: [0KB, 100KB)       - 100KB data
+    // Gap0:   [100KB, 1500KB)    - 1.4MB gap
+    // Range1: [1500KB, 1600KB)   - 100KB data
+    // Gap1:   [1600KB, 3000KB)   - 1.4MB gap
+    // Range2: [3000KB, 3100KB)   - 100KB data
+    // Gap2:   [3100KB, 4500KB)   - 1.4MB gap
+    // Range3: [4500KB, 4600KB)   - 100KB data
+    random_access_ranges.emplace_back(0, 100 * kb);           // 100KB
+    random_access_ranges.emplace_back(1500 * kb, 1600 * kb);  // 100KB, gap=1.4MB
+    random_access_ranges.emplace_back(3000 * kb, 3100 * kb);  // 100KB, gap=1.4MB
+    random_access_ranges.emplace_back(4500 * kb, 4600 * kb);  // 100KB, gap=1.4MB
+
+    // Test with 8MB merge window (default)
+    io::MergeRangeFileReader merge_reader_8mb(nullptr, offset_reader, random_access_ranges,
+                                               8 * 1024 * kb);
+    char data[100 * kb];
+    size_t bytes_read = 0;
+
+    // Read first range - this should trigger merge logic
+    static_cast<void>(merge_reader_8mb.read_at(0, Slice(data, 100 * kb), &bytes_read, nullptr));
+    EXPECT_EQ(bytes_read, 100 * kb);
+
+    auto stats_8mb = merge_reader_8mb.statistics();
+    double amplify_8mb =
+            (double)stats_8mb.merged_bytes / (double)std::max(stats_8mb.request_bytes, 1L);
+
+    LOG(INFO) << "8MB window - request_bytes: " << stats_8mb.request_bytes
+              << ", merged_bytes: " << stats_8mb.merged_bytes
+              << ", amplification ratio: " << amplify_8mb;
+
+    // Test with 64KB merge window
+    io::MergeRangeFileReader merge_reader_64kb(nullptr, offset_reader, random_access_ranges,
+                                                64 * kb);
+    bytes_read = 0;
+
+    static_cast<void>(merge_reader_64kb.read_at(0, Slice(data, 100 * kb), &bytes_read, nullptr));
+    EXPECT_EQ(bytes_read, 100 * kb);
+
+    auto stats_64kb = merge_reader_64kb.statistics();
+    double amplify_64kb =
+            (double)stats_64kb.merged_bytes / (double)std::max(stats_64kb.request_bytes, 1L);
+
+    LOG(INFO) << "64KB window - request_bytes: " << stats_64kb.request_bytes
+              << ", merged_bytes: " << stats_64kb.merged_bytes
+              << ", amplification ratio: " << amplify_64kb;
+
+    // Assertions: 64KB window should have much lower amplification
+    EXPECT_LT(amplify_64kb, amplify_8mb)
+            << "64KB window should have lower amplification than 8MB window";
+
+    // 64KB window should have reasonable amplification (< 20%)
+    EXPECT_LT(amplify_64kb, 1.2)
+            << "64KB window amplification should be less than 1.2x (20% overhead)";
+
+    // 8MB window will likely have severe amplification due to including large gaps
+    // This demonstrates the problem - with large gaps, 8MB window is too aggressive
+    LOG(INFO) << "Amplification comparison - 8MB: " << amplify_8mb << "x, 64KB: " << amplify_64kb
+              << "x";
+}
+
+TEST_F(BufferedReaderTest, test_dense_ranges_amplification) {
+    // Test case for dense ranges (the intended use case for large merge windows)
+    // This verifies that 8MB window works well when ranges are close together
+    size_t kb = 1024;
+    io::FileReaderSPtr offset_reader = std::make_shared<MockOffsetFileReader>(10 * 1024 * kb);
+    std::vector<io::PrefetchRange> random_access_ranges;
+
+    // Dense ranges with small gaps (typical for column data in same row group):
+    // Multiple 50KB columns with 10KB gaps
+    for (size_t i = 0; i < 10; ++i) {
+        size_t start = i * 60 * kb;              // 60KB spacing (50KB data + 10KB gap)
+        size_t end = start + 50 * kb;            // 50KB data
+        random_access_ranges.emplace_back(start, end);
+    }
+    // Total data: 500KB, Total gaps: 90KB (10KB * 9)
+
+    // Test with 8MB merge window
+    io::MergeRangeFileReader merge_reader_8mb(nullptr, offset_reader, random_access_ranges,
+                                               8 * 1024 * kb);
+    char data[50 * kb];
+    size_t bytes_read = 0;
+
+    // Read first column
+    static_cast<void>(merge_reader_8mb.read_at(0, Slice(data, 50 * kb), &bytes_read, nullptr));
+    EXPECT_EQ(bytes_read, 50 * kb);
+
+    auto stats_8mb = merge_reader_8mb.statistics();
+    double amplify_8mb =
+            (double)stats_8mb.merged_bytes / (double)std::max(stats_8mb.request_bytes, 1L);
+
+    LOG(INFO) << "Dense ranges 8MB window - request_bytes: " << stats_8mb.request_bytes
+              << ", merged_bytes: " << stats_8mb.merged_bytes
+              << ", amplification ratio: " << amplify_8mb;
+
+    // For dense ranges, some amplification is acceptable and beneficial
+    // Total merged should be around 590KB (500KB data + 90KB gaps)
+    // Request is 50KB, so amplification ~= 11.8x
+    // But this is good! Because we avoid 9 additional I/O operations
+    EXPECT_LT(stats_8mb.merged_bytes, 700 * kb)
+            << "Should merge all dense ranges within reasonable size";
+    EXPECT_GT(stats_8mb.merged_bytes, 400 * kb)
+            << "Should merge multiple ranges to reduce I/O count";
+
+    LOG(INFO) << "Dense ranges are effectively merged with 8MB window";
+}
+
 } // end namespace doris
