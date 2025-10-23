@@ -89,12 +89,11 @@ public class RewriteDataFileExecutor {
     /**
      * Execute rewrite for multiple groups concurrently
      */
-    public RewriteResult executeGroupsConcurrently(List<RewriteDataGroup> groups) throws UserException {
+    public RewriteResult executeGroupsConcurrently(List<RewriteDataGroup> groups, long targetFileSizeBytes)
+            throws UserException {
         if (!initialized) {
             throw new UserException("Executor not initialized. Call initialize() first.");
         }
-
-        LOG.info("Starting concurrent rewrite with {} groups", groups.size());
 
         // Begin transaction
         long transactionId = dorisTable.getCatalog().getTransactionManager().begin();
@@ -107,7 +106,7 @@ public class RewriteDataFileExecutor {
         for (RewriteDataGroup group : groups) {
             transaction.updateRewriteFiles(Lists.newArrayList(group.getDataFiles()));
             RewriteGroupTask task = new RewriteGroupTask(group, transactionId, logicalPlan, parsedStmt, connectContext,
-                    null); // Callback will be set after creating the collector
+                    targetFileSizeBytes, null); // Callback will be set after creating the collector
             tasks.add(task);
         }
 
@@ -118,6 +117,7 @@ public class RewriteDataFileExecutor {
         for (int i = 0; i < groups.size(); i++) {
             RewriteDataGroup group = groups.get(i);
             RewriteGroupTask task = new RewriteGroupTask(group, transactionId, logicalPlan, parsedStmt, connectContext,
+                    targetFileSizeBytes,
                     new RewriteGroupTask.RewriteResultCallback() {
                         @Override
                         public void onTaskCompleted(Long taskId) {
@@ -214,7 +214,7 @@ public class RewriteDataFileExecutor {
             throws UserException {
         LOG.info("Waiting for {} rewrite tasks to complete using notification mechanism", totalTasks);
 
-        int maxWaitTime = 300; // 5 minutes
+        int maxWaitTime = connectContext.getSessionVariable().getInsertTimeoutS();
 
         try {
             boolean completed = collector.await(maxWaitTime, TimeUnit.SECONDS);
@@ -271,12 +271,6 @@ public class RewriteDataFileExecutor {
                 // Cancel all other tasks immediately when first failure occurs
                 LOG.warn("Task {} failed, cancelling all other tasks", taskId);
                 cancelAllOtherTasks(taskId);
-
-                // Count down remaining tasks to unblock waiting thread
-                int remaining = expectedTasks - completedTasks.get() - failedTasks.get();
-                for (int i = 0; i < remaining; i++) {
-                    completionLatch.countDown();
-                }
             }
             LOG.error("Task {} failed ({}/{}): {}", taskId, failed, expectedTasks, error.getMessage());
             completionLatch.countDown();
