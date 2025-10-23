@@ -322,21 +322,26 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                     Set<PartitionItem> partitionHasDataItems = new HashSet<>();
                     MTMVRelatedTableIf targetTable = (MTMVRelatedTableIf) table;
                     for (String partitionName : filterTableEntry.getValue()) {
-                        Partition partition = targetTable.getPartition(partitionName);
-                        if (partition == null) {
-                            // partition maybe deleted, skip it
-                            continue;
-                        }
-                        if (targetTable instanceof OlapTable && !((OlapTable) targetTable).selectNonEmptyPartitionIds(
-                                Lists.newArrayList(partition.getId())).isEmpty()) {
-                            // Add filter only when partition has data when olap table
-                            partitionHasDataItems.add(
-                                    ((OlapTable) targetTable).getPartitionInfo().getItem(partition.getId()));
+                        if (targetTable instanceof OlapTable) {
+                            Partition partition = targetTable.getPartition(partitionName);
+                            if (partition == null) {
+                                // partition maybe deleted, skip it
+                                continue;
+                            }
+                            if (!((OlapTable) targetTable).selectNonEmptyPartitionIds(
+                                    Lists.newArrayList(partition.getId())).isEmpty()) {
+                                // Add filter only when partition has data when olap table
+                                partitionHasDataItems.add(
+                                        ((OlapTable) targetTable).getPartitionInfo().getItem(partition.getId()));
+                            }
                         }
                         if (targetTable instanceof ExternalTable) {
+                            PartitionItem partitionItem = ((ExternalTable) targetTable).getNameToPartitionItems(
+                                    MvccUtil.getSnapshotFromContext(targetTable)).get(partitionName);
                             // Add filter only when partition has data when external table
-                            partitionHasDataItems.add(((ExternalTable) targetTable).getNameToPartitionItems(
-                                    MvccUtil.getSnapshotFromContext(targetTable)).get(partitionName));
+                            if (partitionItem != null) {
+                                partitionHasDataItems.add(partitionItem);
+                            }
                         }
                     }
                     if (partitionHasDataItems.isEmpty()) {
