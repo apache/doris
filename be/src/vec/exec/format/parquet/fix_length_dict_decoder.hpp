@@ -26,41 +26,41 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+template <tparquet::Type::type type>
+struct PhysicalTypeTraits {};
+
+template <>
+struct PhysicalTypeTraits<tparquet::Type::INT32> {
+    using CppType = int32_t;
+};
+
+template <>
+struct PhysicalTypeTraits<tparquet::Type::INT64> {
+    using CppType = int64_t;
+};
+
+template <>
+struct PhysicalTypeTraits<tparquet::Type::INT96> {
+    using CppType = ParquetInt96;
+};
+
+template <>
+struct PhysicalTypeTraits<tparquet::Type::FLOAT> {
+    using CppType = float;
+};
+
+template <>
+struct PhysicalTypeTraits<tparquet::Type::DOUBLE> {
+    using CppType = double;
+};
+
+template <>
+struct PhysicalTypeTraits<tparquet::Type::FIXED_LEN_BYTE_ARRAY> {
+    using CppType = Slice;
+};
+
 template <tparquet::Type::type PhysicalType>
 class FixLengthDictDecoder final : public BaseDictDecoder {
-    template <tparquet::Type::type type>
-    struct PhysicalTypeTraits {};
-
-    template <>
-    struct PhysicalTypeTraits<tparquet::Type::INT32> {
-        using CppType = int32_t;
-    };
-
-    template <>
-    struct PhysicalTypeTraits<tparquet::Type::INT64> {
-        using CppType = int64_t;
-    };
-
-    template <>
-    struct PhysicalTypeTraits<tparquet::Type::INT96> {
-        using CppType = ParquetInt96;
-    };
-
-    template <>
-    struct PhysicalTypeTraits<tparquet::Type::FLOAT> {
-        using CppType = float;
-    };
-
-    template <>
-    struct PhysicalTypeTraits<tparquet::Type::DOUBLE> {
-        using CppType = double;
-    };
-
-    template <>
-    struct PhysicalTypeTraits<tparquet::Type::FIXED_LEN_BYTE_ARRAY> {
-        using CppType = Slice;
-    };
-
 public:
     using cppType = PhysicalTypeTraits<PhysicalType>::CppType;
     FixLengthDictDecoder() = default;
