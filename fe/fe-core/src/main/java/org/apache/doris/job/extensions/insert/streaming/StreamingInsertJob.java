@@ -448,10 +448,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             response = MetaServiceProxy.getInstance().resetStreamingJobOffset(builder.build());
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                log.warn("failed to reset streaming job {} cloud offset, response: {}",
-                        getJobId().toString(), response);
+                log.warn("failed to reset streaming job cloud offset, response: {}", response);
                 if (response.getStatus().getCode() == Cloud.MetaServiceCode.ROUTINE_LOAD_PROGRESS_NOT_FOUND) {
-                    log.warn("not found streaming job {} progress, response: {}", getJobId().toString(), response);
+                    log.warn("not found streaming job offset, response: {}", response);
                     return;
                 } else {
                     throw new JobException(response.getStatus().getMsg());
