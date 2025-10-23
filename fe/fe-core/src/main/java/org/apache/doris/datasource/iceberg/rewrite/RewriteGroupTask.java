@@ -209,8 +209,9 @@ public class RewriteGroupTask implements TransientTaskExecutor {
                 ImmutableList.of(), // hints
                 ImmutableList.of(), // partitions
                 DMLCommandType.INSERT,
-                Optional.empty(), // labelName
-                Optional.empty(), // branchName
+                true, // isRewrite - disable shuffle since all files belong to the same partition
+                Optional.empty(), // groupExpression
+                Optional.empty(), // logicalProperties
                 sourceRelation);
 
         // Create InsertIntoTableCommand for rewrite operation

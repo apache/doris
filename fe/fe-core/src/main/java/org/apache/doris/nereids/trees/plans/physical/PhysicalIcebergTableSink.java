@@ -40,6 +40,8 @@ import java.util.stream.Collectors;
 /** physical iceberg sink */
 public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
 
+    private final boolean isRewrite;
+
     /**
      * constructor
      */
@@ -50,7 +52,22 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
                                     CHILD_TYPE child) {
-        this(database, targetTable, cols, outputExprs, groupExpression, logicalProperties,
+        this(database, targetTable, cols, outputExprs, false, groupExpression, logicalProperties,
+                PhysicalProperties.GATHER, null, child);
+    }
+
+    /**
+     * constructor with isRewrite flag
+     */
+    public PhysicalIcebergTableSink(IcebergExternalDatabase database,
+                                    IcebergExternalTable targetTable,
+                                    List<Column> cols,
+                                    List<NamedExpression> outputExprs,
+                                    boolean isRewrite,
+                                    Optional<GroupExpression> groupExpression,
+                                    LogicalProperties logicalProperties,
+                                    CHILD_TYPE child) {
+        this(database, targetTable, cols, outputExprs, isRewrite, groupExpression, logicalProperties,
                 PhysicalProperties.GATHER, null, child);
     }
 
@@ -61,6 +78,7 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
                                     IcebergExternalTable targetTable,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
+                                    boolean isRewrite,
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
                                     PhysicalProperties physicalProperties,
@@ -68,13 +86,14 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
                                     CHILD_TYPE child) {
         super(PlanType.PHYSICAL_ICEBERG_TABLE_SINK, database, targetTable, cols, outputExprs, groupExpression,
                 logicalProperties, physicalProperties, statistics, child);
+        this.isRewrite = isRewrite;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
-                cols, outputExprs, groupExpression,
+                cols, outputExprs, isRewrite, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
@@ -87,7 +106,7 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
-                groupExpression, getLogicalProperties(), child());
+                isRewrite, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
@@ -95,14 +114,14 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
-                groupExpression, logicalProperties.get(), children.get(0));
+                isRewrite, groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+                isRewrite, groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
     }
 
     /**
@@ -110,6 +129,12 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
      */
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
+        // For rewrite operations, always use RANDOM distribution to avoid unnecessary shuffle
+        // since all files in a RewriteDataGroup belong to the same partition already
+        if (isRewrite) {
+            return PhysicalProperties.SINK_RANDOM_PARTITIONED;
+        }
+        
         Set<String> partitionNames = targetTable.getPartitionNames();
         if (!partitionNames.isEmpty()) {
             List<Integer> columnIdx = new ArrayList<>();
