@@ -19,9 +19,7 @@ package org.apache.doris.datasource.iceberg.rewrite;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -31,11 +29,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergRewriteExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
-import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.Coordinator;
-import org.apache.doris.qe.CoordinatorContext;
-import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
@@ -45,7 +39,6 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -57,7 +50,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Independent task executor for processing a single rewrite group.
  */
-@Slf4j
 public class RewriteGroupTask implements TransientTaskExecutor {
     private static final Logger LOG = LogManager.getLogger(RewriteGroupTask.class);
 
@@ -109,8 +101,12 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         }
 
         try {
-            // Step 1: Create a new ConnectContext for this task
+            // Step 1: Create and customize a new ConnectContext for this task
             ConnectContext taskConnectContext = buildConnectContext();
+            // Set target file size for Iceberg write
+            taskConnectContext.getSessionVariable().setIcebergWriteTargetFileSizeBytes(targetFileSizeBytes);
+            // Custom file scan tasks for rewrite operations
+            taskConnectContext.getStatementContext().setIcebergRewriteFileScanTasks(group.getTasks());
 
             // Step 2: Build logical plan for this task
             InsertIntoTableCommand taskLogicalPlan = buildRewriteLogicalPlan();
@@ -167,16 +163,14 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         AbstractInsertExecutor insertExecutor = taskLogicalPlan.initPlan(taskConnectContext, executor, false);
         Preconditions.checkState(insertExecutor instanceof IcebergRewriteExecutor,
                 "Expected IcebergRewriteExecutor, got: " + insertExecutor.getClass());
-        IcebergRewriteExecutor rewriteExecutor = (IcebergRewriteExecutor) insertExecutor;
 
-        // Step 3: Customize insert executor for rewrite
-        customizeInsertExecutorForRewrite(rewriteExecutor, group);
-
-        // Step 4: Set transaction id for updating CommitData
+        // Step 3: Set transaction id for updating CommitData
         insertExecutor.getCoordinator().setTxnId(transactionId);
 
-        // Step 5: Execute insert operation
+        // Step 4: Execute insert operation
         insertExecutor.executeSingleInsert(executor, System.currentTimeMillis());
+
+        LOG.debug("[Rewrite Task] taskId: {} completed execution successfully", taskId);
     }
 
     /**
@@ -235,9 +229,6 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         // Clone session variables from parent
         taskContext.setSessionVariable(VariableMgr.cloneSessionVariable(connectContext.getSessionVariable()));
 
-        // Set target file size for Iceberg write
-        taskContext.getSessionVariable().setIcebergWriteTargetFileSizeBytes(targetFileSizeBytes);
-
         // Set env and basic identities
         taskContext.setEnv(Env.getCurrentEnv());
         taskContext.setDatabase(connectContext.getDatabase());
@@ -257,36 +248,6 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         taskContext.setStatementContext(statementContext);
 
         return taskContext;
-    }
-
-    /**
-     * Customize insert executor for Iceberg file rewrite
-     */
-    private void customizeInsertExecutorForRewrite(
-            IcebergRewriteExecutor insertExecutor,
-            RewriteDataGroup group) throws UserException {
-
-        LOG.debug("Customizing insert executor for rewrite with {} tasks", group.getTaskCount());
-
-        // Get the coordinator from the insert executor
-        Coordinator coordinator = insertExecutor.getCoordinator();
-        if (coordinator == null) {
-            throw new UserException("No coordinator found in insert executor");
-        }
-
-        // Access coordinator context to get scan nodes
-        Preconditions.checkState(coordinator instanceof NereidsCoordinator,
-                "Expected NereidsCoordinator, got: " + coordinator.getClass());
-        NereidsCoordinator nereidsCoordinator = (NereidsCoordinator) coordinator;
-        CoordinatorContext context = nereidsCoordinator.getCoordinatorContext();
-        Preconditions.checkState(context != null && context.scanNodes != null && context.scanNodes.size() == 1,
-                "No scan nodes found in coordinator context");
-
-        // Find and customize IcebergScanNode
-        ScanNode scanNode = context.scanNodes.get(0);
-        Preconditions.checkState(scanNode instanceof IcebergScanNode,
-                "Expected IcebergScanNode, got: " + scanNode.getClass());
-        ((IcebergScanNode) scanNode).resetFileScanTasks(group.getTasks());
     }
 
     /**
