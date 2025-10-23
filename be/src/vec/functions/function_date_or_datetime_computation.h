@@ -58,6 +58,7 @@
 #include "vec/functions/datetime_errors.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/functions/function_needs_to_handle_null.h"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
@@ -1416,7 +1417,7 @@ public:
         return std::make_shared<DataTypeInt64>();
     }
 
-    static void execute(const std::vector<ColumnsWithConstAndNullMap>& cols_info,
+    static void execute(const std::vector<ColumnWithConstAndNullMap>& cols_info,
                         ColumnInt64::MutablePtr& res_col, PaddedPODArray<UInt8>& res_null_map_data,
                         size_t input_rows_count) {
         const auto& left_data =
@@ -1445,7 +1446,7 @@ public:
         return std::make_shared<DataTypeInt64>();
     }
 
-    static void execute(const std::vector<ColumnsWithConstAndNullMap>& cols_info,
+    static void execute(const std::vector<ColumnWithConstAndNullMap>& cols_info,
                         ColumnInt64::MutablePtr& res_col, PaddedPODArray<UInt8>& res_null_map_data,
                         size_t input_rows_count) {
         const auto& left_data =

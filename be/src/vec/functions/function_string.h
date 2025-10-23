@@ -68,6 +68,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/functions/function_needs_to_handle_null.h"
 #include "vec/utils/template_helpers.hpp"
 
 #ifndef USE_LIBCPP
@@ -5017,7 +5018,7 @@ public:
     }
 
     static bool is_return_nullable(bool has_nullable,
-                                   const std::vector<ColumnsWithConstAndNullMap>& cols_info) {
+                                   const std::vector<ColumnWithConstAndNullMap>& cols_info) {
         return cols_info[0].null_map != nullptr;
     }
 
@@ -5032,7 +5033,7 @@ public:
         return false;
     }
 
-    static void execute(const std::vector<ColumnsWithConstAndNullMap>& column_infos,
+    static void execute(const std::vector<ColumnWithConstAndNullMap>& column_infos,
                         ColumnString::MutablePtr& res_col, PaddedPODArray<UInt8>& res_null_map_data,
                         size_t input_rows_count) {
         static constexpr char SEPARATOR = ',';
