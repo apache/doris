@@ -947,7 +947,6 @@ class ChildOutputPropertyDeriverTest {
         PhysicalProperties phyProp2 = ChildOutputPropertyDeriver.computeProjectOutputProperties(projects2, hashC1);
         Assertions.assertEquals(DistributionSpecAny.INSTANCE, phyProp2.getDistributionSpec());
 
-
         List<NamedExpression> projects3 = new ArrayList<>();
         projects3.add(new Alias(new Abs(c1)));
         projects3.add(c1);

@@ -319,6 +319,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         return new PhysicalProperties(leftOutputProperty.getDistributionSpec());
     }
 
+    /**
+     * Derive output properties for physical project.
+     */
     public static PhysicalProperties computeProjectOutputProperties(
             List<NamedExpression> projects,
             PhysicalProperties childProperties) {
@@ -350,7 +353,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             }
 
             DistributionSpecHash childDistributionSpecHash = (DistributionSpecHash) childDistributionSpec;
-            if (!projections.isEmpty() && projections.entrySet().stream().allMatch(kv -> kv.getKey().equals(kv.getValue()))) {
+            if (!projections.isEmpty() && projections.entrySet().stream()
+                    .allMatch(kv -> kv.getKey().equals(kv.getValue()))) {
                 return childProperties;
             }
             DistributionSpec defaultAnySpec = childDistributionSpecHash.getShuffleType() == ShuffleType.NATURAL
