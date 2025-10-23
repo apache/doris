@@ -43,6 +43,19 @@ suite("dist_expr_list") {
         notContains "distribute expr lists: a"
     }
     /*
+    after ProjectAggregateExpressionsForCse, a#6 is not output slot of scanNode, and hence it should not be distr expr.
+
+    expect explain string
+    |   1:VAGGREGATE (update serialize)(114)                                                                                                                                   |
+    |   |  output: partial_max(CASE WHEN (abs(b) > 10) THEN (cast(a as BIGINT) + 1) WHEN (abs(b) < 10) THEN (cast(a as BIGINT) + 2) ELSE NULL END[#8])[#9]                     |
+    |   |  group by:                                                                                                                                                           |
+    |   |  sortByGroupKey:false                                                                                                                                                |
+    |   |  cardinality=1                                                                                                                                                       |
+    |   |  distribute expr lists:                                                                                                                                              |
+    |   |                                                                                                                                                                      |
+    |   0:VOlapScanNode(95)                              
+
+
     the bad case: distribute expr lists: a[#6] 
     explain string
     |   1:VAGGREGATE (update serialize)(114)                                                                                                                                   |
@@ -50,7 +63,7 @@ suite("dist_expr_list") {
     |   |  group by:                                                                                                                                                           |
     |   |  sortByGroupKey:false                                                                                                                                                |
     |   |  cardinality=1                                                                                                                                                       |
-    |   |  distribute expr lists: a[#6]     <== after ProjectAggregateExpressionsForCse, a#6 is not output slot of scanNode, and hence it should not be distr expr.                                                                                                                                  |
+    |   |  distribute expr lists: a[#6]     <==                                                                                                                                   |
     |   |                                                                                                                                                                      |
     |   0:VOlapScanNode(95)
     |      TABLE: rqg.agg_cse_shuffle(agg_cse_shuffle), PREAGGREGATION: ON                                                                                                     |
