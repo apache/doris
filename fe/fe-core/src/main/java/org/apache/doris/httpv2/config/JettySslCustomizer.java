@@ -25,6 +25,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
+import org.eclipse.jetty.server.SecureRequestCustomizer;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.SslConnectionFactory;
@@ -78,6 +79,15 @@ public class JettySslCustomizer implements WebServerFactoryCustomizer<JettyServl
             HttpConfiguration httpConfig = new HttpConfiguration();
             httpConfig.setSecureScheme("https");
             httpConfig.setSecurePort(Config.http_port);
+
+            // SecureRequestCustomizer enables Jetty to recognize requests as secure HTTPS connections.
+            // It also injects TLS-related details (such as certificates and cipher suites) into the request attributes.
+            // Without it, the application layer treats the request as plain HTTP —
+            // meaning request.isSecure() returns false and the scheme is reported as http.
+            // This causes StreamLoad to repeatedly attempt to redirect an HTTPS request back to HTTPS
+            // (essentially redirecting to itself), forming an infinite loop.
+            // The intended behavior is only to redirect HTTP requests to HTTPS.
+            httpConfig.addCustomizer(new SecureRequestCustomizer());
 
             // Create SSL connection factory
             SslConnectionFactory sslConnectionFactory = new SslConnectionFactory(
