@@ -40,9 +40,8 @@ bvar::Status<int64_t> g_memtable_flush_memory("mm_limiter_mem_flush", 0);
 bvar::Status<int64_t> g_memtable_load_memory("mm_limiter_mem_load", 0);
 bvar::Status<int64_t> g_load_hard_mem_limit("mm_limiter_limit_hard", 0);
 bvar::Status<int64_t> g_load_soft_mem_limit("mm_limiter_limit_soft", 0);
-bvar::Adder<uint64_t> g_flush_cuz_load_mem_exceed_soft_limit("flush_cuz_load_mem_exceed");
-bvar::Adder<uint64_t> g_flush_cuz_sys_mem_exceed_soft_limit("flush_cuz_sys_mem_exceed");
-bvar::Adder<uint64_t> g_flush_cuz_proc_mem_exceed_soft_limit("flush_cuz_sys_mem_exceed");
+bvar::Adder<uint64_t> g_flush_cuz_load_mem_exceed_hard_limit("flush_cuz_hard_limit");
+bvar::Adder<uint64_t> g_flush_cuz_sys_mem_exceed_soft_limit("flush_cuz_soft_limit");
 bvar::Adder<int> g_memtable_memory_limit_flush_memtable_count("mm_limiter_flush_memtable_count");
 bvar::LatencyRecorder g_memtable_memory_limit_flush_size_bytes("mm_limiter_flush_size_bytes");
 
@@ -119,20 +118,6 @@ int64_t MemTableMemoryLimiter::_need_flush() {
     int64_t limit2 = _sys_avail_mem_less_than_warning_water_mark();
     int64_t limit3 = _process_used_mem_more_than_soft_mem_limit();
     int64_t need_flush = std::max({limit1, limit2, limit3});
-
-    // limit1: Import memory exceeds soft limit
-    // limit2: System available memory is insufficient
-    // limit3: Process memory exceeds soft limit
-    if (need_flush == limit1) {
-        g_flush_cuz_load_mem_exceed_soft_limit << 1;
-    } else if (need_flush == limit2) {
-        g_flush_cuz_sys_mem_exceed_soft_limit << 1;
-    } else if (need_flush == limit3) {
-        g_flush_cuz_proc_mem_exceed_soft_limit << 1;
-    } else {
-        // will not approach here
-    }
-
     return need_flush - _queue_mem_usage - _flush_mem_usage;
 }
 
@@ -182,6 +167,13 @@ void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_c
                                        ->memory_profile()
                                        ->process_memory_detail_str();
                 LOG_LONG_STRING(INFO, log_str);
+            }
+            if (limit == Limit::HARD) {
+                g_flush_cuz_load_mem_exceed_hard_limit << 1;
+            } else if (limit == Limit::SOFT) {
+                g_flush_cuz_sys_mem_exceed_soft_limit << 1;
+            } else {
+                // will not reach here
             }
             _flush_active_memtables(need_flush);
         }
