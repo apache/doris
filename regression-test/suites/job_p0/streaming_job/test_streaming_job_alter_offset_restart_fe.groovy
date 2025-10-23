@@ -27,7 +27,6 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
 
     def options = new ClusterOptions()
     options.setFeNum(1)
-    options.cloudMode = true
     
     docker(options) {
         sql """drop table if exists `${tableName}` force"""
@@ -51,7 +50,7 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
         sql """
            CREATE JOB ${jobName}  
            PROPERTIES (
-            'init_offset' = '{"fileName":"regression/load/data/example_0.csv"}'
+            'offset' = '{"fileName":"regression/load/data/example_0.csv"}'
            ) 
            ON STREAMING DO INSERT INTO ${tableName} 
            SELECT * FROM S3
@@ -86,14 +85,13 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
             throw ex;
         }
 
-        def jobInfo = sql """
+         def jobInfo = sql """
             select currentOffset, endoffset, loadStatistic from jobs("type"="insert") where Name='${jobName}'
         """
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
         assert jobInfo.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
         assert jobInfo.get(0).get(2) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":0,\"fileSize\":0}"
-
 
         sql """
             PAUSE JOB where jobname =  '${jobName}'
@@ -103,26 +101,26 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
         sql """
         ALTER JOB ${jobName} 
         PROPERTIES (
-            'init_offset' = '{"fileName":"regression/load/data/anoexist1234.csv"}'
+            'offset' = '{"fileName":"regression/load/data/anoexist1234.csv"}'
         )
         """
 
         jobInfo = sql """
-        select currentOffset, endoffset, loadStatistic, properties from jobs("type"="insert") where Name='${jobName}'
+        select currentOffset, loadStatistic, properties from jobs("type"="insert") where Name='${jobName}'
         """
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/anoexist1234.csv\"}";
-        assert jobInfo.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(2) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":0,\"fileSize\":0}"
-        assert jobInfo.get(0).get(3) == "{\"init_offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
+        assert jobInfo.get(0).get(1) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":0,\"fileSize\":0}"
+        assert jobInfo.get(0).get(2) == "{\"offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
 
         // Restart FE
         cluster.restartFrontends()
         sleep(30000)
         context.reconnectFe()
 
+        // check is it consistent after restart
         def jobStatus = sql """
-            select status from jobs("type"="insert") where Name='${jobName}'
+            select status, SucceedTaskCount from jobs("type"="insert") where Name='${jobName}'
         """
         log.info("jobstatus: " + jobStatus)
         assert jobStatus.get(0).get(0) == "PAUSED"
@@ -132,7 +130,7 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/anoexist1234.csv\"}";
         assert jobInfo.get(0).get(1) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":0,\"fileSize\":0}"
-        assert jobInfo.get(0).get(2) == "{\"init_offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
+        assert jobInfo.get(0).get(2) == "{\"offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
 
         // resume to check whether consumption will resume
         sql """
@@ -163,8 +161,8 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
         assert jobInfo.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(2) == "{\"scannedRows\":20,\"loadBytes\":425,\"fileNumber\":0,\"fileSize\":0}"
-        assert jobInfo.get(0).get(3) == "{\"init_offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
+        assert jobInfo.get(0).get(2) == "{\"scannedRows\":30,\"loadBytes\":643,\"fileNumber\":0,\"fileSize\":0}"
+        assert jobInfo.get(0).get(3) == "{\"offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
 
         sql """ DROP JOB IF EXISTS where jobname =  '${jobName}' """
         sql """drop table if exists `${tableName}` force"""

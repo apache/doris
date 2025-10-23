@@ -992,8 +992,8 @@ void MetaServiceImpl::reset_streaming_job_offset(::google::protobuf::RpcControll
         
         txn->put(streaming_job_key_str, new_job_val);
         LOG(INFO) << "reset offset, put streaming_job_key key=" << hex(streaming_job_key_str)
-                  << " old meta: " << streaming_job_val
-                  << " new meta: " << new_job_val;
+                  << " prev job val: " << prev_job_info.ShortDebugString()
+                  << " new job val: " << new_job_info.ShortDebugString();
 
     }
 

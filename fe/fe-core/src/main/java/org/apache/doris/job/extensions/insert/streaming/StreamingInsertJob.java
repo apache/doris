@@ -375,6 +375,17 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
     }
 
+    private void updateCloudJobStatisticAndOffset(StreamingTaskTxnCommitAttachment attachment) {
+        if (this.jobStatistic == null) {
+            this.jobStatistic = new StreamingJobStatistic();
+        }
+        this.jobStatistic.setScannedRows(attachment.getScannedRows());
+        this.jobStatistic.setLoadBytes(attachment.getLoadBytes());
+        this.jobStatistic.setFileNumber(attachment.getNumFiles());
+        this.jobStatistic.setFileSize(attachment.getFileBytes());
+        offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
+    }
+
     @Override
     public void onRegister() throws JobException {
         Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(this);
@@ -395,11 +406,18 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         setJobStatus(replayJob.getJobStatus());
         try {
             modifyPropertiesInternal(replayJob.getProperties());
+            // When the pause state is restarted, it also needs to be updated
+            if (Config.isCloudMode()) {
+                replayOnCloudMode();
+            }
         } catch (Exception e) {
             // should not happen
             log.error("replay modify streaming insert job properties failed, job id: {}", getJobId(), e);
         }
         setExecuteSql(replayJob.getExecuteSql());
+        setSucceedTaskCount(replayJob.getSucceedTaskCount());
+        setFailedTaskCount(replayJob.getFailedTaskCount());
+        setCanceledTaskCount(replayJob.getCanceledTaskCount());
     }
 
     /**
@@ -419,6 +437,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     private void resetCloudProgress(Offset offset) throws JobException {
+        resetDbId();
         Cloud.ResetStreamingJobOffsetRequest.Builder builder = Cloud.ResetStreamingJobOffsetRequest.newBuilder();
         builder.setCloudUniqueId(Config.cloud_unique_id);
         builder.setDbId(dbId);
@@ -655,6 +674,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         Cloud.GetStreamingTaskCommitAttachResponse response;
         try {
             response = MetaServiceProxy.getInstance().getStreamingTaskCommitAttach(builder.build());
+            log.info("replay progress {}", response);
             if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 log.warn("failed to get streaming task commit attach, response: {}", response);
                 if (response.getStatus().getCode() == Cloud.MetaServiceCode.STREAMING_JOB_PROGRESS_NOT_FOUND) {
@@ -671,7 +691,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
         StreamingTaskTxnCommitAttachment commitAttach =
                 new StreamingTaskTxnCommitAttachment(response.getCommitAttach());
-        updateJobStatisticAndOffset(commitAttach);
+        updateCloudJobStatisticAndOffset(commitAttach);
     }
 
     @Override
