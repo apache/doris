@@ -42,7 +42,7 @@ suite("azure_blob_all_test", "p2,external,new_catalog_property") {
         create catalog ${iceberg_fs_catalog_name} properties(
         'type'='iceberg',
         'iceberg.catalog.type'='hadoop',
-        'warehouse'='${protocol}://${abfsContainer}@${abfsAzureAccountName}.${hdfsLocationType}.core.windows.net/regression/azure/${protocol}/iceberg_fs_warehouse/',
+        'warehouse'='${protocol}://${abfsContainer}@${abfsAzureAccountName}.${hdfsLocationType}.core.windows.net/regression/external/azure/${protocol}/iceberg_fs_warehouse/',
         ${storage_props}
         );
         """

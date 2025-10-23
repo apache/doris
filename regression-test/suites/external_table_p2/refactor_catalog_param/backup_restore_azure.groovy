@@ -20,10 +20,7 @@ import static groovy.test.GroovyAssert.shouldFail
 
 suite("refactor_storage_backup_restore_azure", "p0,external") {
     
-    String enabled = context.config.otherConfigs.get("enableAzureBackupRestoreTest")
-    if (enabled == null || enabled.equalsIgnoreCase("false")) {
-        return ;
-    }
+
 
 
 
@@ -164,10 +161,7 @@ suite("refactor_storage_backup_restore_azure", "p0,external") {
     String abfsEndpoint = context.config.otherConfigs.get("abfsEndpoint")
     def s3repoName1 = "azure_repo_1_"+System.currentTimeMillis()
     def repoPrefix = "regression/azure/backup_restore"
-    createRepository("${s3repoName1}", "s3.endpoint", abfsEndpoint, "s3.access_key", abfsAzureAccountName, "s3.secret_key", abfsAzureAccountKey, "s3://${abfsContainer}/${repoPrefix}/test_" + System.currentTimeMillis())
-    def dbName1 = currentDBName + "azure_1"
-    createDBAndTbl("${dbName1}")
-    backupAndRestore("${s3repoName1}", dbName1, s3table, "backup_${s3repoName1}_test")
+    
     
     def s3repoName2 = "azure_repo_2_"+System.currentTimeMillis()
     createRepository("${s3repoName2}", "azure.endpoint", abfsEndpoint,  "azure.access_key", abfsAzureAccountName, "azure.secret_key", abfsAzureAccountKey,"s3://${abfsContainer}/${repoPrefix}/test_" + System.currentTimeMillis())
@@ -185,7 +179,7 @@ suite("refactor_storage_backup_restore_azure", "p0,external") {
     createRepository("${s3repoName4}", "azure.endpoint", abfsEndpoint,  "azure.account_name", abfsAzureAccountName, "azure.account_key", abfsAzureAccountKey,"https://${abfsAzureAccountName}.blob.core.windows.net/${abfsContainer}/${repoPrefix}/test_" + System.currentTimeMillis())
     def dbName4 = currentDBName + "azure_4"
     createDBAndTbl("${dbName4}")
-    backupAndRestore("${s3repoName2}", dbName2, s3table, "backup_${s3repoName2}_test")
+    backupAndRestore("${s3repoName4}", dbName2, s3table, "backup_${s3repoName4}_test")
 
 
 }

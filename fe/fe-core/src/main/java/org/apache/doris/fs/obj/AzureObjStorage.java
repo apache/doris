@@ -23,6 +23,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.storage.AzureProperties;
+import org.apache.doris.datasource.property.storage.AzurePropertyUtils;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import com.azure.core.http.rest.PagedIterable;
@@ -120,6 +121,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public Status headObject(String remotePath) {
         try {
+            AzurePropertyUtils.validateAndNormalizeUri(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.getBucket()).getBlobClient(uri.getKey());
             if (LOG.isDebugEnabled()) {
