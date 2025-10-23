@@ -32,7 +32,7 @@ public:
     EncryptedFileWriter(FileWriterPtr inner,
                         const std::shared_ptr<const EncryptionInfo>& encryption_info)
             : _writer_inner(std::move(inner)), _encryption_info(encryption_info) {}
-    ~EncryptedFileWriter() override;
+    ~EncryptedFileWriter() override = default;
 
     Status close(bool non_block = false) override;
 
@@ -47,7 +47,6 @@ public:
     //FileCacheAllocatorBuilder* cache_builder() const override;
 
 private:
-    std::atomic_bool _is_footer_written {false};
     DorisCallOnce<Status> _write_footer_once;
     FileWriterPtr _writer_inner;
     std::shared_ptr<const EncryptionInfo> _encryption_info;

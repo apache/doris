@@ -90,16 +90,6 @@ Status encrypt_ctr(const std::shared_ptr<const EncryptionInfo>& info, size_t off
     return Status::OK();
 }
 
-EncryptedFileWriter::~EncryptedFileWriter() {
-    if (!_is_footer_written) [[unlikely]] {
-        LOG(WARNING) << "encrypted file writer leaked, try to close when destructed";
-        auto st = close();
-        if (!st) [[unlikely]] {
-            LOG(WARNING) << "failed to close encrypted file writer, st=" << st;
-        }
-    }
-}
-
 Status EncryptedFileWriter::close(bool non_block) {
     auto write_footer = [this]() -> Status {
         uint8_t version_buf[sizeof(uint8_t)];
@@ -137,13 +127,12 @@ Status EncryptedFileWriter::close(bool non_block) {
         footer.emplace_back(magic_code_buf, sizeof(uint64_t));
 
         RETURN_IF_ERROR(_writer_inner->appendv(footer.data(), footer.size()));
-        _is_footer_written = true;
         return Status::OK();
     };
 
     RETURN_IF_ERROR(_write_footer_once.call(std::move(write_footer)));
 
-    return _writer_inner->close(false);
+    return _writer_inner->close(non_block);
 }
 
 const Path& EncryptedFileWriter::path() const {
