@@ -1952,47 +1952,47 @@ build_pugixml() {
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
-        jindofs
-        odbc
-        openssl
-        libevent
-        zlib
-        lz4
-        bzip
-        lzo2
-        zstd
-        boost # must before thrift
-        abseil
-        gflags
-        gtest
-        glog
-        protobuf # after gtest
-        rapidjson
-        snappy
-        gperftools
-        curl
-        re2
-        hyperscan
-        thrift
-        leveldb
-        brpc
-        jemalloc_doris
-        rocksdb
-        krb5 # before cyrus_sasl
-        cyrus_sasl
-        librdkafka
-        flatbuffers
-        orc
-        cares
-        grpc # after cares, protobuf
-        arrow
-        s2
-        bitshuffle
-        croaringbitmap
-        fmt
-        parallel_hashmap
-        pdqsort
-        libdivide
+        #jindofs
+        #odbc
+        #openssl
+        #libevent
+        #zlib
+        #lz4
+        #bzip
+        #lzo2
+        #zstd
+        #boost # must before thrift
+        #abseil
+        #gflags
+        #gtest
+        #glog
+        #protobuf # after gtest
+        #rapidjson
+        #snappy
+        #gperftools
+        #curl
+        #re2
+        #hyperscan
+        #thrift
+        #leveldb
+        #brpc
+        #jemalloc_doris
+        #rocksdb
+        #krb5 # before cyrus_sasl
+        #cyrus_sasl
+        #librdkafka
+        #flatbuffers
+        #orc
+        #cares
+        #grpc # after cares, protobuf
+        #arrow
+        #s2
+        #bitshuffle
+        #croaringbitmap
+        #fmt
+        #parallel_hashmap
+        #pdqsort
+        #libdivide
         cctz
         tsan_header
         mysql
