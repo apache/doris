@@ -1182,8 +1182,10 @@ void report_tablet_callback(StorageEngine& engine, const ClusterInfo* cluster_in
         }
     }
 
-    if (report_version < s_report_version || UNLIKELY(config::enable_debug_points &&
-                 DebugPoints::instance()->is_enable("WorkPoolReportTablet.report_tablet_callback.skip"))) {
+    if (report_version < s_report_version ||
+        UNLIKELY(config::enable_debug_points &&
+                 DebugPoints::instance()->is_enable(
+                         "WorkPoolReportTablet.report_tablet_callback.skip"))) {
         // TODO llj This can only reduce the possibility for report error, but can't avoid it.
         // If FE create a tablet in FE meta and send CREATE task to this BE, the tablet may not be included in this
         // report, and the report version has a small probability that it has not been updated in time. When FE
@@ -1271,8 +1273,10 @@ void report_tablet_callback(CloudStorageEngine& engine, const ClusterInfo* clust
         }
     }
 
-    if (report_version < s_report_version || UNLIKELY(config::enable_debug_points &&
-               DebugPoints::instance()->is_enable("WorkPoolCloudReportTablet.report_tablet_callback.skip"))) {
+    if (report_version < s_report_version ||
+        UNLIKELY(config::enable_debug_points &&
+                 DebugPoints::instance()->is_enable(
+                         "WorkPoolCloudReportTablet.report_tablet_callback.skip"))) {
         LOG(WARNING) << "report version " << report_version << " change to " << s_report_version;
         DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
         int64_t current_time = time(nullptr);

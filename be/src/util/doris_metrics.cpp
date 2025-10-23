@@ -250,7 +250,8 @@ DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(runtime_filter_consumer_timeout_num, Met
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(get_remote_tablet_slow_time_ms, MetricUnit::MILLISECONDS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(get_remote_tablet_slow_cnt, MetricUnit::NOUNIT);
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_report_continuous_failure_duration_s, MetricUnit::SECONDS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_report_continuous_failure_duration_s,
+                                   MetricUnit::SECONDS);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_load_costs_ms, MetricUnit::MILLISECONDS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_load_cnt, MetricUnit::NOUNIT);
