@@ -349,7 +349,7 @@ EncodingTypePB EncodingInfoResolver::get_default_encoding(FieldType type,
     };
 
     // Static array of hooks for default encoding transformations
-    static const std::array<EncodingTransform, 2> hooks = {
+    static const std::vector<EncodingTransform> hooks = {
             // Hook 1: Binary types - PLAIN_ENCODING -> PLAIN_ENCODING_V2
             // Applies when: type is binary, encoding is PLAIN_ENCODING, and config enables v2
             EncodingTransform {

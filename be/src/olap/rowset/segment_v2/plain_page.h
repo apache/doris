@@ -206,7 +206,6 @@ public:
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
         if (*n == 0 || _cur_idx >= _num_elems) [[unlikely]] {
-            *n = 0;
             return Status::OK();
         }
 
@@ -225,7 +224,6 @@ public:
                           vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
         if (*n == 0) [[unlikely]] {
-            *n = 0;
             return Status::OK();
         }
 
