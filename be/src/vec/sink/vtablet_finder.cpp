@@ -86,50 +86,76 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
 
     if (_find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_ROW) {
         _vpartition->find_tablets(block, qualified_rows, partitions, tablet_index);
-    } else {
-        // For random distribution: use buffer to cache tablet selection per partition
+    } else if (_find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_SINK) {
+        // For load_to_single_tablet mode: use buffer to cache tablet selection
         _vpartition->find_tablets(block, qualified_rows, partitions, tablet_index,
                                   &_partition_to_tablet_map);
-
-        if (_find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
-            // Handle tablet switching for random distribution
-            // Count rows per partition in this batch
-            std::unordered_map<VOlapTablePartition*, int64_t> partition_row_counts;
-            for (size_t i = 0; i < qualified_rows.size(); ++i) {
-                auto* partition = partitions[qualified_rows[i]];
-                if (partition != nullptr) {
-                    partition_row_counts[partition]++;
-                }
+    } else {
+        // FIND_TABLET_EVERY_BATCH: For random distribution with tablet switching
+        // Reset rows_in_batch for all partitions at the start of each batch
+        for (auto row_index : qualified_rows) {
+            auto* partition = partitions[row_index];
+            if (partition != nullptr) {
+                partition->rows_in_batch = 0;
             }
-
-            // Update partition state and switch tablets if needed
-            for (const auto& [partition, tablet_idx] : _partition_to_tablet_map) {
-                // Skip hash distribution partitions (load_tablet_idx == -1)
-                if (partition->load_tablet_idx == -1) {
-                    continue;
-                }
-
-                int64_t rows_in_batch = partition_row_counts[partition];
-                partition->current_tablet_rows += rows_in_batch;
-
-                // Check if we need to switch to next tablet
-                if (partition->switching_threshold > 0 &&
-                    partition->current_tablet_rows >= partition->switching_threshold) {
-                    // Switch to next tablet in round-robin fashion
-                    partition->load_tablet_idx =
-                            (partition->load_tablet_idx + 1) % partition->num_buckets;
-                    partition->current_tablet_rows = 0;
-
-                    LOG(INFO) << "Switched tablet for partition " << partition->id
-                              << " to tablet_idx=" << partition->load_tablet_idx;
-                } else if (partition->switching_threshold == 0) {
-                    // Legacy behavior when threshold not set: increment each batch
-                    partition->load_tablet_idx =
-                            (partition->load_tablet_idx + 1) % partition->num_buckets;
-                }
-            }
-            _partition_to_tablet_map.clear();
         }
+
+        // Process each row and handle tablet switching within the batch
+        for (auto row_index : qualified_rows) {
+            auto* partition = partitions[row_index];
+
+            if (partition == nullptr) {
+                continue;
+            }
+
+            // For partitions without switching threshold or with load_tablet_idx == -1,
+            // use legacy behavior with buffer
+            if (partition->switching_threshold == 0 || partition->load_tablet_idx == -1) {
+                if (auto it = _partition_to_tablet_map.find(partition);
+                    it != _partition_to_tablet_map.end()) {
+                    tablet_index[row_index] = cast_set<uint32_t>(it->second);
+                } else {
+                    // First time seeing this partition in this batch
+                    int64_t tablet_idx;
+                    if (partition->load_tablet_idx == -1) {
+                        // Random selection for uninitialized partitions
+                        tablet_idx = butil::fast_rand() % partition->num_buckets;
+                    } else {
+                        tablet_idx = partition->load_tablet_idx % partition->num_buckets;
+                    }
+                    _partition_to_tablet_map[partition] = tablet_idx;
+                    tablet_index[row_index] = cast_set<uint32_t>(tablet_idx);
+                }
+                continue;
+            }
+
+            // For random distribution with switching threshold > 0
+            partition->rows_in_batch++;
+
+            // Check if we need to switch to next tablet before processing this row
+            if (partition->current_tablet_rows >= partition->switching_threshold) {
+                // Switch to next tablet in round-robin fashion
+                partition->load_tablet_idx =
+                        (partition->load_tablet_idx + 1) % partition->num_buckets;
+                partition->current_tablet_rows = 0;
+            }
+
+            // Use current tablet index for this row
+            tablet_index[row_index] =
+                    cast_set<uint32_t>(partition->load_tablet_idx % partition->num_buckets);
+
+            // Increment the current tablet row counter
+            partition->current_tablet_rows++;
+        }
+
+        // Legacy behavior: switch tablet for next batch if threshold is 0
+        for (const auto& [partition, tablet_idx] : _partition_to_tablet_map) {
+            if (partition->load_tablet_idx != -1 && partition->switching_threshold == 0) {
+                partition->load_tablet_idx =
+                        (partition->load_tablet_idx + 1) % partition->num_buckets;
+            }
+        }
+        _partition_to_tablet_map.clear();
     }
 
     return Status::OK();

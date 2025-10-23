@@ -170,6 +170,8 @@ struct VOlapTablePartition {
     // for random tablet switching optimization (local state per load job)
     int64_t current_tablet_rows = 0;
     int64_t switching_threshold = 0;
+    // rows accumulated in current batch (reset at each find_tablets call)
+    int64_t rows_in_batch = 0;
 
     VOlapTablePartition(vectorized::Block* partition_block)
             // the default value of partition bound is -1.
