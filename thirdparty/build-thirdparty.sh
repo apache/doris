@@ -1344,6 +1344,7 @@ build_cctz() {
 
     rm -rf CMakeCache.txt CMakeFiles/
 
+    # -Wno-elaborated-enum-base to make C++20 on MacOS happy
     "${CMAKE_CMD}" -G "${GENERATOR}" \
     -DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS -Wno-elaborated-enum-base" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_TESTING=OFF ..
@@ -1953,47 +1954,47 @@ build_pugixml() {
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
-        #jindofs
-        #odbc
-        #openssl
-        #libevent
-        #zlib
-        #lz4
-        #bzip
-        #lzo2
-        #zstd
-        #boost # must before thrift
-        #abseil
-        #gflags
-        #gtest
-        #glog
-        #protobuf # after gtest
-        #rapidjson
-        #snappy
-        #gperftools
-        #curl
-        #re2
-        #hyperscan
-        #thrift
-        #leveldb
-        #brpc
-        #jemalloc_doris
-        #rocksdb
-        #krb5 # before cyrus_sasl
-        #cyrus_sasl
-        #librdkafka
-        #flatbuffers
-        #orc
-        #cares
-        #grpc # after cares, protobuf
-        #arrow
-        #s2
-        #bitshuffle
-        #croaringbitmap
-        #fmt
-        #parallel_hashmap
-        #pdqsort
-        #libdivide
+        jindofs
+        odbc
+        openssl
+        libevent
+        zlib
+        lz4
+        bzip
+        lzo2
+        zstd
+        boost # must before thrift
+        abseil
+        gflags
+        gtest
+        glog
+        protobuf # after gtest
+        rapidjson
+        snappy
+        gperftools
+        curl
+        re2
+        hyperscan
+        thrift
+        leveldb
+        brpc
+        jemalloc_doris
+        rocksdb
+        krb5 # before cyrus_sasl
+        cyrus_sasl
+        librdkafka
+        flatbuffers
+        orc
+        cares
+        grpc # after cares, protobuf
+        arrow
+        s2
+        bitshuffle
+        croaringbitmap
+        fmt
+        parallel_hashmap
+        pdqsort
+        libdivide
         cctz
         tsan_header
         mysql
