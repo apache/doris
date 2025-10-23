@@ -188,10 +188,6 @@ public class AzureProperties extends StorageProperties {
             }
         });
         setAzureAccountKeys(hadoopStorageConfig, accountName, accountKey);
-        // Azure does not require any special Hadoop configuration for S3 compatibility.
-        // The properties are already set in the getBackendConfigProperties method.
-        // This method will be removed in the future when FileIO is fully implemented.
-        hadoopStorageConfig = new Configuration();
     }
 
     @Override
