@@ -6,6 +6,7 @@ This file contains version of the third-party dependency libraries in the build-
 
 - Modified: gtest 1.11.0 -> 1.12.1
 - Modified: zstd 1.5.5 -> 1.5.7
+- Modified: cctz 2.3 -> 2.5
 - Added: hadoop-libs 3.4.2.1
 
 ## 20250720
