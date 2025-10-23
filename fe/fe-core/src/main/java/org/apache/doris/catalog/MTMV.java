@@ -336,7 +336,7 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public Set<TableNameInfo> getDataChangeStillRewrittenTables() {
+    public Set<TableNameInfo> getQueryRewriteConsistencyRelaxedTables() {
         Set<TableNameInfo> res = Sets.newHashSet();
         readMvLock();
         try {
