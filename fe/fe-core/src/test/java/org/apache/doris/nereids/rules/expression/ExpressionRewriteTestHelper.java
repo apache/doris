@@ -55,10 +55,11 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
     protected static final NereidsParser PARSER = new NereidsParser();
     protected ExpressionRuleExecutor executor;
 
+    protected CascadesContext cascadesContext;
     protected ExpressionRewriteContext context;
 
     public ExpressionRewriteTestHelper() {
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
+        cascadesContext = MemoTestUtils.createCascadesContext(
                 new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
         context = new ExpressionRewriteContext(cascadesContext);
     }

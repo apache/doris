@@ -472,6 +472,9 @@ Status VExprContext::evaluate_ann_range_search(
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
+uint64_t VExprContext::get_digest(uint64_t seed) const {
+    return _root->get_digest(seed);
+}
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
