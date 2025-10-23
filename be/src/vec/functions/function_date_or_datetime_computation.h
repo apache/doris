@@ -36,6 +36,7 @@
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/binary_cast.hpp"
+#include "util/string_parser.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -619,34 +620,63 @@ public:
                 if constexpr (Transform::IntervalPRealType == TYPE_STRING) {
                     StringRef time_str = nest_col1_const->get_data_at(0).trim();
                     // string format: "d h:m:s"
-                    try {
-                        // find space
-                        size_t spacePos = time_str.find_first_of(' ');
+                    StringParser::ParseResult success;
 
-                        // day
-                        int days = std::stoi(time_str.substring(0, spacePos).to_string());
-
-                        // hour:minute:second
-                        StringRef time_hour_str = time_str.substring(spacePos + 1);
-                        size_t colon1 = time_hour_str.find_first_of(':');
-
-                        StringRef time_minute_str = time_hour_str.substring(colon1 + 1);
-                        size_t colon2 = time_minute_str.find_first_of(':');
-
-                        int hours = std::stoi(time_hour_str.substring(0, colon1).to_string());
-                        int minutes =
-                                std::stoi(time_hour_str.substring(colon1 + 1, colon2 - colon1 - 1)
-                                                  .to_string());
-                        int seconds = std::stoi(time_minute_str.substring(colon2 + 1).to_string());
-
-                        int delta = days * 24 * 3600 + hours * 3600 + minutes * 60 + seconds;
-
-                        Op::vector_constant(sources->get_data(), res_col->get_data(), delta,
-                                            nullmap0, nullmap1);
-                    } catch (const std::exception& e) {
-                        return Status::InvalidArgument("failed to parse argument: {} error: {}",
-                                                       time_str.to_string(), e.what());
+                    size_t space_pos = time_str.find_first_of(' ');
+                    // day
+                    std::string days_sub = time_str.substring(0, space_pos).to_string();
+                    int days = StringParser::string_to_int_internal<int32_t, true>(
+                            days_sub.data(), days_sub.size(), &success);
+                    if (success != StringParser::PARSE_SUCCESS) {
+                        return Status::InvalidArgument("Invalid days format in '{}'",
+                                                       time_str.to_string());
                     }
+
+                    // hour:minute:second
+                    StringRef time_hour_str = time_str.substring(space_pos + 1);
+                    size_t colon1 = time_hour_str.find_first_of(':');
+                    if (colon1 == std::string::npos) {
+                        return Status::InvalidArgument("Invalid time format, missing ':' in '{}'",
+                                                       time_str.to_string());
+                    }
+
+                    size_t colon2_rel = time_hour_str.substring(colon1 + 1).find_first_of(':');
+                    size_t colon2 = (colon2_rel != std::string::npos) ? colon1 + 1 + colon2_rel
+                                                                      : std::string::npos;
+                    if (colon2 == std::string::npos) {
+                        return Status::InvalidArgument("Invalid time format, missing ':' in '{}'",
+                                                       time_str.to_string());
+                    }
+
+                    std::string hours_sub = time_hour_str.substring(0, colon1).to_string();
+                    int hours = StringParser::string_to_int_internal<int32_t, true>(
+                            hours_sub.data(), hours_sub.size(), &success);
+                    if (success != StringParser::PARSE_SUCCESS) {
+                        return Status::InvalidArgument("Invalid hours format in '{}'",
+                                                       time_str.to_string());
+                    }
+
+                    std::string minutes_sub =
+                            time_hour_str.substring(colon1 + 1, colon2 - colon1 - 1).to_string();
+                    int minutes = StringParser::string_to_int_internal<int32_t, true>(
+                            minutes_sub.data(), minutes_sub.size(), &success);
+                    if (success != StringParser::PARSE_SUCCESS || minutes >= 60) {
+                        return Status::InvalidArgument("Invalid minutes format in '{}'",
+                                                       time_str.to_string());
+                    }
+
+                    std::string seconds_sub = time_hour_str.substring(colon2 + 1).to_string();
+                    int seconds = StringParser::string_to_int_internal<int32_t, true>(
+                            seconds_sub.data(), seconds_sub.size(), &success);
+                    if (success != StringParser::PARSE_SUCCESS || seconds >= 60) {
+                        return Status::InvalidArgument("Invalid seconds format in '{}'",
+                                                       time_str.to_string());
+                    }
+
+                    int delta = days * 24 * 3600 + hours * 3600 + minutes * 60 + seconds;
+
+                    Op::vector_constant(sources->get_data(), res_col->get_data(), delta, nullmap0,
+                                        nullmap1);
                 } else {
                     const auto col1_inside_const = assert_cast<const IntervalColumnType&>(
                             nest_col1_const->get_data_column());
