@@ -5835,7 +5835,6 @@ TEST_F(BlockFileCacheTest, populate_empty_cache_with_ttl) {
     int64_t cur_time = UnixSeconds();
     context.expiration_time = cur_time + 120;
     auto key1 = io::BlockFileCache::hash("key1");
-    auto key1 = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     int i = 0;
