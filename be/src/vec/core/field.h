@@ -368,6 +368,8 @@ public:
             return get<UInt64>() <=> rhs.get<UInt64>();
         case PrimitiveType::TYPE_DATEV2:
             return get<UInt32>() <=> rhs.get<UInt32>();
+        case PrimitiveType::TYPE_TIMESTAMPTZ:
+            return get<UInt64>() <=> rhs.get<UInt64>();
         case PrimitiveType::TYPE_DATE:
         case PrimitiveType::TYPE_DATETIME:
         case PrimitiveType::TYPE_BIGINT:
