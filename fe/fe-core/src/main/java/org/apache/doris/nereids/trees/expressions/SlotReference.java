@@ -59,6 +59,8 @@ public class SlotReference extends Slot {
     private final Column oneLevelColumn;
     private final Optional<TColumnAccessPaths> allAccessPaths;
     private final Optional<TColumnAccessPaths> predicateAccessPaths;
+    private final Optional<TColumnAccessPaths> displayAllAccessPaths;
+    private final Optional<TColumnAccessPaths> displayPredicateAccessPaths;
 
     public SlotReference(String name, DataType dataType) {
         this(StatementScopeIdGenerator.newExprId(), name, dataType, true, ImmutableList.of(),
@@ -100,7 +102,8 @@ public class SlotReference extends Slot {
             @Nullable TableIf oneLevelTable, Column oneLevelColumn,
             List<String> subPath, Optional<Pair<Integer, Integer>> indexInSql) {
         this(exprId, name, dataType, nullable, qualifier, originalTable, originalColumn, oneLevelTable,
-                oneLevelColumn, subPath, indexInSql, Optional.empty(), Optional.empty());
+                oneLevelColumn, subPath, indexInSql, Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty());
     }
 
     /**
@@ -118,7 +121,9 @@ public class SlotReference extends Slot {
             List<String> qualifier, @Nullable TableIf originalTable, @Nullable Column originalColumn,
             @Nullable TableIf oneLevelTable, Column oneLevelColumn,
             List<String> subPath, Optional<Pair<Integer, Integer>> indexInSql,
-            Optional<TColumnAccessPaths> allAccessPaths, Optional<TColumnAccessPaths> predicateAccessPaths) {
+            Optional<TColumnAccessPaths> allAccessPaths, Optional<TColumnAccessPaths> predicateAccessPaths,
+            Optional<TColumnAccessPaths> displayAllAccessPaths,
+            Optional<TColumnAccessPaths> displayPredicateAccessPaths) {
         super(indexInSql);
         this.exprId = exprId;
         this.name = name;
@@ -133,6 +138,8 @@ public class SlotReference extends Slot {
         this.subPath = Objects.requireNonNull(subPath, "subPath can not be null");
         this.allAccessPaths = allAccessPaths;
         this.predicateAccessPaths = predicateAccessPaths;
+        this.displayAllAccessPaths = displayAllAccessPaths;
+        this.displayPredicateAccessPaths = displayPredicateAccessPaths;
     }
 
     public static SlotReference of(String name, DataType type) {
@@ -360,7 +367,17 @@ public class SlotReference extends Slot {
     public SlotReference withAccessPaths(TColumnAccessPaths allAccessPaths, TColumnAccessPaths predicateAccessPaths) {
         return new SlotReference(exprId, name, dataType, nullable, qualifier,
                 originalTable, originalColumn, oneLevelTable, oneLevelColumn,
-                subPath, indexInSqlString, Optional.of(allAccessPaths), Optional.of(predicateAccessPaths));
+                subPath, indexInSqlString, Optional.of(allAccessPaths), Optional.of(predicateAccessPaths),
+                Optional.of(allAccessPaths), Optional.of(predicateAccessPaths));
+    }
+
+    public SlotReference withAccessPaths(
+            TColumnAccessPaths allAccessPaths, TColumnAccessPaths predicateAccessPaths,
+            TColumnAccessPaths displayAllAccessPaths, TColumnAccessPaths displayPredicateAccessPaths) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifier,
+                originalTable, originalColumn, oneLevelTable, oneLevelColumn,
+                subPath, indexInSqlString, Optional.of(allAccessPaths), Optional.of(predicateAccessPaths),
+                Optional.of(displayAllAccessPaths), Optional.of(displayPredicateAccessPaths));
     }
 
     public Optional<TColumnAccessPaths> getAllAccessPaths() {
@@ -369,5 +386,13 @@ public class SlotReference extends Slot {
 
     public Optional<TColumnAccessPaths> getPredicateAccessPaths() {
         return predicateAccessPaths;
+    }
+
+    public Optional<TColumnAccessPaths> getDisplayAllAccessPaths() {
+        return displayAllAccessPaths;
+    }
+
+    public Optional<TColumnAccessPaths> getDisplayPredicateAccessPaths() {
+        return displayPredicateAccessPaths;
     }
 }

@@ -78,6 +78,8 @@ public class SlotDescriptor {
     private Expr virtualColumn = null;
     private TColumnAccessPaths allAccessPaths;
     private TColumnAccessPaths predicateAccessPaths;
+    private TColumnAccessPaths displayAllAccessPaths;
+    private TColumnAccessPaths displayPredicateAccessPaths;
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent) {
 
@@ -146,6 +148,22 @@ public class SlotDescriptor {
 
     public void setPredicateAccessPaths(TColumnAccessPaths predicateAccessPaths) {
         this.predicateAccessPaths = predicateAccessPaths;
+    }
+
+    public TColumnAccessPaths getDisplayAllAccessPaths() {
+        return displayAllAccessPaths;
+    }
+
+    public void setDisplayAllAccessPaths(TColumnAccessPaths displayAllAccessPaths) {
+        this.displayAllAccessPaths = displayAllAccessPaths;
+    }
+
+    public TColumnAccessPaths getDisplayPredicateAccessPaths() {
+        return displayPredicateAccessPaths;
+    }
+
+    public void setDisplayPredicateAccessPaths(TColumnAccessPaths displayPredicateAccessPaths) {
+        this.displayPredicateAccessPaths = displayPredicateAccessPaths;
     }
 
     public TupleDescriptor getParent() {

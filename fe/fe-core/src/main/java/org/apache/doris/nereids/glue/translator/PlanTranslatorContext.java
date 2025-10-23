@@ -340,6 +340,8 @@ public class PlanTranslatorContext {
         if (slotReference.getAllAccessPaths().isPresent()) {
             slotDescriptor.setAllAccessPaths(slotReference.getAllAccessPaths().get());
             slotDescriptor.setPredicateAccessPaths(slotReference.getPredicateAccessPaths().get());
+            slotDescriptor.setDisplayAllAccessPaths(slotReference.getDisplayAllAccessPaths().get());
+            slotDescriptor.setDisplayPredicateAccessPaths(slotReference.getDisplayPredicateAccessPaths().get());
         }
         return slotDescriptor;
     }
