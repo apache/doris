@@ -176,6 +176,7 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
         parse_physical_field(t_schema, false, child);
 
         node_field->name = t_schema.name;
+        node_field->lower_case_name = to_lower(t_schema.name);
         node_field->data_type = std::make_shared<DataTypeArray>(make_nullable(child->data_type));
         _next_schema_pos = curr_pos + 1;
         node_field->field_id = t_schema.__isset.field_id ? t_schema.field_id : -1;
@@ -193,8 +194,10 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
 void FieldDescriptor::parse_physical_field(const tparquet::SchemaElement& physical_schema,
                                            bool is_nullable, FieldSchema* physical_field) {
     physical_field->name = physical_schema.name;
+    physical_field->lower_case_name = to_lower(physical_field->name);
     physical_field->parquet_schema = physical_schema;
     physical_field->physical_type = physical_schema.type;
+    physical_field->column_id = UNASSIGNED_COLUMN_ID; // Initialize column_id
     _physical_fields.push_back(physical_field);
     physical_field->physical_column_index = cast_set<int>(_physical_fields.size() - 1);
     auto type = get_doris_type(physical_schema, is_nullable);
@@ -393,6 +396,8 @@ Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElem
         RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos, struct_field));
 
         group_field->name = group_schema.name;
+        group_field->lower_case_name = to_lower(group_field->name);
+        group_field->column_id = UNASSIGNED_COLUMN_ID; // Initialize column_id
         group_field->data_type =
                 std::make_shared<DataTypeArray>(make_nullable(struct_field->data_type));
         group_field->field_id = group_schema.__isset.field_id ? group_schema.field_id : -1;
@@ -461,6 +466,8 @@ Status FieldDescriptor::parse_list_field(const std::vector<tparquet::SchemaEleme
     }
 
     list_field->name = first_level.name;
+    list_field->lower_case_name = to_lower(first_level.name);
+    list_field->column_id = UNASSIGNED_COLUMN_ID; // Initialize column_id
     list_field->data_type =
             std::make_shared<DataTypeArray>(make_nullable(list_field->children[0].data_type));
     if (is_optional) {
@@ -519,21 +526,24 @@ Status FieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElemen
     map_field->repetition_level++;
     map_field->definition_level++;
 
-    map_field->children.resize(1);
+    // Directly create key and value children instead of intermediate key_value node
+    map_field->children.resize(2);
     // map is a repeated node, we should set the `repeated_parent_def_level` of its children as `definition_level`
     set_child_node_level(map_field, map_field->definition_level);
-    auto map_kv_field = &map_field->children[0];
-    // produce MAP<STRUCT<KEY, VALUE>>
-    RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos + 1, map_kv_field));
+
+    auto key_field = &map_field->children[0];
+    auto value_field = &map_field->children[1];
+
+    // Parse key and value fields directly from the key_value group's children
+    _next_schema_pos = curr_pos + 2; // Skip key_value group, go directly to key
+    RETURN_IF_ERROR(parse_node_field(t_schemas, _next_schema_pos, key_field));
+    RETURN_IF_ERROR(parse_node_field(t_schemas, _next_schema_pos, value_field));
 
     map_field->name = map_schema.name;
-    map_field->data_type = std::make_shared<DataTypeMap>(
-            make_nullable(assert_cast<const DataTypeStruct*>(
-                                  remove_nullable(map_kv_field->data_type).get())
-                                  ->get_element(0)),
-            make_nullable(assert_cast<const DataTypeStruct*>(
-                                  remove_nullable(map_kv_field->data_type).get())
-                                  ->get_element(1)));
+    map_field->lower_case_name = to_lower(map_field->name);
+    map_field->column_id = UNASSIGNED_COLUMN_ID; // Initialize column_id
+    map_field->data_type = std::make_shared<DataTypeMap>(make_nullable(key_field->data_type),
+                                                         make_nullable(value_field->data_type));
     if (is_optional) {
         map_field->data_type = make_nullable(map_field->data_type);
     }
@@ -558,6 +568,8 @@ Status FieldDescriptor::parse_struct_field(const std::vector<tparquet::SchemaEle
         RETURN_IF_ERROR(parse_node_field(t_schemas, _next_schema_pos, &struct_field->children[i]));
     }
     struct_field->name = struct_schema.name;
+    struct_field->lower_case_name = to_lower(struct_field->name);
+    struct_field->column_id = UNASSIGNED_COLUMN_ID; // Initialize column_id
 
     struct_field->field_id = struct_schema.__isset.field_id ? struct_schema.field_id : -1;
     DataTypes res_data_types;
@@ -610,6 +622,74 @@ std::string FieldDescriptor::debug_string() const {
     ss << "]";
     return ss.str();
 }
+
+void FieldDescriptor::assign_ids() {
+    // 按照 ORC 的逻辑：从 1 开始分配 ID，类似于 ORC 的 assignIds
+    uint64_t next_id = 1;
+    for (auto& field : _fields) {
+        field.assign_ids(next_id);
+    }
+    // 设置最大 column ID，类似于 ORC 的 maximumColumnId = current - 1
+    // _max_column_id = next_id - 1;
+}
+
+const FieldSchema* FieldDescriptor::find_column_by_id(uint64_t column_id) const {
+    for (const auto& field : _fields) {
+        if (auto result = field.find_column_by_id(column_id)) {
+            return result;
+        }
+    }
+    return nullptr;
+}
+
+void FieldSchema::assign_ids(uint64_t& next_id) {
+    column_id = next_id++;
+
+    // Recursively assign IDs to children
+    for (auto& child : children) {
+        child.assign_ids(next_id);
+    }
+
+    // Set max_column_id similar to ORC's maximumColumnId logic
+    max_column_id = next_id - 1;
+}
+
+const FieldSchema* FieldSchema::find_column_by_id(uint64_t target_id) const {
+    if (column_id == target_id) {
+        return this;
+    }
+
+    // Search recursively in children
+    for (const auto& child : children) {
+        if (auto result = child.find_column_by_id(target_id)) {
+            return result;
+        }
+    }
+
+    return nullptr;
+}
+
+uint64_t FieldSchema::get_column_id() const {
+    return column_id;
+}
+
+void FieldSchema::set_column_id(uint64_t id) {
+    column_id = id;
+}
+
+void FieldSchema::collect_column_ids(std::vector<uint64_t>& ids) const {
+    ids.push_back(column_id);
+
+    // Recursively collect IDs from children
+    for (const auto& child : children) {
+        child.collect_column_ids(ids);
+    }
+}
+
+uint64_t FieldSchema::get_max_column_id() const {
+    return max_column_id;
+}
+
 #include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

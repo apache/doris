@@ -63,11 +63,11 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _is_materialized(tdesc.isMaterialized && tdesc.need_materialize),
           _is_key(tdesc.is_key),
           _column_paths(tdesc.column_paths),
-          _all_access_paths(tdesc.__isset.all_access_paths ? tdesc.all_access_paths
-                                                           : TColumnAccessPaths {}),
-          _predicate_access_paths(tdesc.__isset.predicate_access_paths
-                                          ? tdesc.predicate_access_paths
-                                          : TColumnAccessPaths {}),
+          _all_column_access_paths(tdesc.__isset.all_access_paths ? tdesc.all_access_paths
+                                                                  : TColumnAccessPaths {}),
+          _predicate_column_access_paths(tdesc.__isset.predicate_access_paths
+                                                 ? tdesc.predicate_access_paths
+                                                 : TColumnAccessPaths {}),
           _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false),
           _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {
     if (tdesc.__isset.virtual_column_expr) {
@@ -625,6 +625,53 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
 
         (*tbl)->_tbl_desc_map[static_cast<int32_t>(tdesc.id)] = desc;
     }
+
+    // for (auto& tdesc : thrift_tbl.slotDescriptors) {
+    //     // HACK: Temporary workaround to set all_column_access_paths for "profile" column
+    //     if (tdesc.colName == "profile" && !tdesc.__isset.all_column_access_paths) {
+    //         TColumnAccessPaths access_paths;
+    //         access_paths.__set_type(doris::TAccessPathType::NAME);
+    //         std::vector<TColumnNameAccessPath> paths;
+    //         // address.coordinates.lat
+    //         TColumnNameAccessPath path1;
+    //         path1.__set_path({"address", "coordinates", "lat"});
+    //         paths.push_back(path1);
+    //         // address.coordinates.lng
+    //         TColumnNameAccessPath path2;
+    //         path2.__set_path({"address", "coordinates", "lng"});
+    //         paths.push_back(path2);
+    //         // contact.email
+    //         TColumnNameAccessPath path3;
+    //         path3.__set_path({"contact", "email"});
+    //         paths.push_back(path3);
+    //         // hobbies[].element.level
+    //         TColumnNameAccessPath path4;
+    //         path4.__set_path({"hobbies", "*", "level"});
+    //         paths.push_back(path4);
+    //         access_paths.__set_name_access_paths(paths);
+    //         const_cast<TSlotDescriptor&>(tdesc).__set_all_column_access_paths(access_paths);
+    //     }
+
+    //     if (tdesc.colName == "profile" && !tdesc.__isset.predicate_column_access_paths) {
+    //         TColumnAccessPaths access_paths;
+    //         access_paths.__set_type(doris::TAccessPathType::NAME);
+    //         std::vector<TColumnNameAccessPath> paths;
+    //         // address.coordinates.lat
+    //         TColumnNameAccessPath path1;
+    //         path1.__set_path({"address", "coordinates", "lat"});
+    //         paths.push_back(path1);
+    //         // address.coordinates.lng
+    //         TColumnNameAccessPath path2;
+    //         path2.__set_path({"address", "coordinates", "lng"});
+    //         paths.push_back(path2);
+    //         // hobbies[].element.level
+    //         TColumnNameAccessPath path4;
+    //         path4.__set_path({"hobbies", "*", "level"});
+    //         paths.push_back(path4);
+    //         access_paths.__set_name_access_paths(paths);
+    //         const_cast<TSlotDescriptor&>(tdesc).__set_predicate_column_access_paths(access_paths);
+    //     }
+    // }
 
     for (const auto& tdesc : thrift_tbl.tupleDescriptors) {
         TupleDescriptor* desc = pool->add(new TupleDescriptor(tdesc));

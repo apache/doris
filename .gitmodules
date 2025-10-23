@@ -20,7 +20,7 @@
 [submodule "contrib/apache-orc"]
 	path = contrib/apache-orc
 	url = https://github.com/apache/doris-thirdparty.git
-	branch = orc
+	branch = cq_nested_column_prune_external_table
 [submodule "doris-faiss"]
 	path = contrib/faiss
 	url = https://github.com/apache/doris-thirdparty.git

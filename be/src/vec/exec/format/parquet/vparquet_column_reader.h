@@ -116,6 +116,10 @@ public:
         }
     };
 
+    enum class ReadingFlag { FILTER_PARENT, FILTER_CHILD, NON_FILTER, SKIP_READING };
+    void set_reading_flag(ReadingFlag flag) { _reading_flag = flag; }
+    ReadingFlag get_reading_flag() const { return _reading_flag; }
+
     ParquetColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                         io::IOContext* io_ctx)
             : _row_ranges(row_ranges), _ctz(ctz), _io_ctx(io_ctx) {}
@@ -138,7 +142,9 @@ public:
                          const tparquet::RowGroup& row_group,
                          const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                          io::IOContext* io_ctx, std::unique_ptr<ParquetColumnReader>& reader,
-                         size_t max_buf_size, const tparquet::OffsetIndex* offset_index = nullptr);
+                         size_t max_buf_size, const tparquet::OffsetIndex* offset_index = nullptr,
+                         const std::set<uint64_t>& column_ids = {},
+                         const std::set<uint64_t>& filter_column_ids = {});
     void set_nested_column() { _nested_column = true; }
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
@@ -146,6 +152,8 @@ public:
     virtual void close() = 0;
 
     virtual void reset_filter_map_index() = 0;
+
+    FieldSchema* get_field_schema() const { return _field_schema; }
 
 protected:
     void _generate_read_ranges(int64_t start_index, int64_t end_index,
@@ -162,6 +170,8 @@ protected:
     int64_t _decode_null_map_time = 0;
 
     size_t _filter_map_index = 0;
+    std::set<uint64_t> _filter_column_ids;
+    ReadingFlag _reading_flag {ReadingFlag::NON_FILTER};
 };
 
 class ScalarColumnReader : public ParquetColumnReader {
@@ -274,8 +284,12 @@ public:
     void close() override {}
 
     void reset_filter_map_index() override {
-        _key_reader->reset_filter_map_index();
-        _value_reader->reset_filter_map_index();
+        if (_key_reader != nullptr) {
+            _key_reader->reset_filter_map_index();
+        }
+        if (_value_reader != nullptr) {
+            _value_reader->reset_filter_map_index();
+        }
     }
 
 private:
@@ -346,6 +360,79 @@ private:
     std::vector<std::string> _read_column_names;
     //Need to use vector instead of set,see `get_rep_level()` for the reason.
 };
+
+// A special reader that skips actual reading but provides empty data with correct structure
+// This is used when a column is not needed but its structure is required (e.g., for map keys)
+class SkipReadingReader : public ParquetColumnReader {
+public:
+    SkipReadingReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
+                      io::IOContext* io_ctx, FieldSchema* field_schema)
+            : ParquetColumnReader(row_ranges, ctz, io_ctx) {
+        _field_schema = field_schema; // Use inherited member from base class
+        std::cout << "[ParquetReader] Created SkipReadingReader for field: " << _field_schema->name
+                  << std::endl;
+    }
+
+    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
+                            const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
+                            FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
+                            bool is_dict_filter) override {
+        std::cout << "[ParquetReader] SkipReadingReader::read_column_data for field: "
+                  << _field_schema->name << ", batch_size: " << batch_size << std::endl;
+
+        // Simulate reading without actually reading data
+        // Fill with default/null values based on column type
+        MutableColumnPtr data_column = doris_column->assume_mutable();
+
+        if (doris_column->is_nullable()) {
+            auto* nullable_column = static_cast<vectorized::ColumnNullable*>(data_column.get());
+            nullable_column->insert_many_defaults(batch_size);
+        } else {
+            // For non-nullable columns, insert appropriate default values
+            for (size_t i = 0; i < batch_size; ++i) {
+                data_column->insert_default();
+            }
+        }
+
+        *read_rows = batch_size;
+        *eof = false; // We can always provide more empty data
+
+        std::cout << "[ParquetReader] SkipReadingReader generated " << batch_size
+                  << " default values for field: " << _field_schema->name << std::endl;
+
+        return Status::OK();
+    }
+
+    static std::unique_ptr<SkipReadingReader> create_unique(const std::vector<RowRange>& row_ranges,
+                                                            cctz::time_zone* ctz,
+                                                            io::IOContext* io_ctx,
+                                                            FieldSchema* field_schema) {
+        return std::make_unique<SkipReadingReader>(row_ranges, ctz, io_ctx, field_schema);
+    }
+
+    // Override methods to return empty levels for skip reading
+    const std::vector<level_t>& get_rep_level() const override {
+        static std::vector<level_t> empty_levels;
+        return empty_levels;
+    }
+
+    const std::vector<level_t>& get_def_level() const override {
+        static std::vector<level_t> empty_levels;
+        return empty_levels;
+    }
+
+    // Implement required pure virtual methods from base class
+    Statistics statistics() override {
+        return Statistics(); // Return empty statistics
+    }
+
+    void close() override {
+        // Nothing to close for skip reading
+    }
+
+    void reset_filter_map_index() override { _filter_map_index = 0; }
+};
+
 #include "common/compile_check_end.h"
 
 }; // namespace doris::vectorized

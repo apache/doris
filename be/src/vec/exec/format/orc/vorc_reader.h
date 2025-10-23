@@ -112,6 +112,12 @@ struct LazyReadContext {
     std::unordered_map<std::string, VExprContextSPtr> predicate_missing_columns;
     // lazy read missing columns or all missing columns
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+
+    std::vector<std::string> partial_predicate_columns;
+
+    // Record the number of rows filled in filter phase for lazy materialization
+    // This is used to check if a column was already processed in filter phase
+    size_t filter_phase_rows = 0;
 };
 
 class OrcReader : public GenericReader {
@@ -158,7 +164,9 @@ public:
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
             std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr =
-                    TableSchemaChangeHelper::ConstNode::get_instance());
+                    TableSchemaChangeHelper::ConstNode::get_instance(),
+            const std::set<uint64_t>& column_ids = {},
+            const std::set<uint64_t>& filter_column_ids = {});
 
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
@@ -195,7 +203,8 @@ public:
             std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
             bool* is_stripe_filtered);
 
-    static DataTypePtr convert_to_doris_type(const orc::Type* orc_type);
+    DataTypePtr convert_to_doris_type(const orc::Type* orc_type);
+
     static std::string get_field_name_lower_case(const orc::Type* orc_type, int pos);
 
     void set_row_id_column_iterator(
@@ -630,7 +639,8 @@ private:
     size_t _batch_size;
     int64_t _range_start_offset;
     int64_t _range_size;
-    const std::string& _ctz;
+    // const std::string& _ctz;
+    std::string _ctz;
 
     int32_t _offset_days = 0;
     cctz::time_zone _time_zone;
@@ -653,6 +663,12 @@ private:
     // file column name to orc type
     std::unordered_map<std::string, const orc::Type*> _type_map;
 
+    // Optimized type conversion support
+    // column ID to file original type mapping for handling partial column selection
+    std::unordered_map<uint64_t, const orc::Type*> _column_id_to_file_type;
+    // Keep reference to file root type for complete type information
+    const orc::Type* _file_root_type = nullptr;
+
     std::unique_ptr<ORCFileInputStream> _file_input_stream;
     Statistics _statistics;
     OrcProfile _orc_profile;
@@ -673,6 +689,8 @@ private:
     std::vector<DecimalScaleParams> _decimal_scale_params;
     size_t _decimal_scale_params_index;
 
+    std::set<uint64_t> _column_ids;
+    std::set<uint64_t> _filter_column_ids;
     const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     bool _is_acid = false;
     std::unique_ptr<IColumn::Filter> _filter;

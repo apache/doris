@@ -36,8 +36,13 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+
+// Constant for unassigned column IDs
+constexpr uint64_t UNASSIGNED_COLUMN_ID = UINT64_MAX;
+
 struct FieldSchema {
     std::string name;
+    std::string lower_case_name; // for hms column name case insensitive match
     // the referenced parquet schema element
     tparquet::SchemaElement parquet_schema;
 
@@ -56,12 +61,23 @@ struct FieldSchema {
     //For UInt8 -> Int16,UInt16 -> Int32,UInt32 -> Int64,UInt64 -> Int128.
     bool is_type_compatibility = false;
 
-    FieldSchema() : data_type(std::make_shared<DataTypeNothing>()) {}
+    FieldSchema()
+            : data_type(std::make_shared<DataTypeNothing>()), column_id(UNASSIGNED_COLUMN_ID) {}
     ~FieldSchema() = default;
     FieldSchema(const FieldSchema& fieldSchema) = default;
     std::string debug_string() const;
 
     int32_t field_id = -1;
+    uint64_t column_id = UNASSIGNED_COLUMN_ID;
+    uint64_t max_column_id = 0; // Maximum column ID for this field and its children
+
+    // Column ID assignment and lookup methods
+    void assign_ids(uint64_t& next_id);
+    const FieldSchema* find_column_by_id(uint64_t target_id) const;
+    uint64_t get_column_id() const;
+    void set_column_id(uint64_t id);
+    void collect_column_ids(std::vector<uint64_t>& ids) const;
+    uint64_t get_max_column_id() const;
 };
 
 class FieldDescriptor {
@@ -101,6 +117,10 @@ private:
     std::pair<DataTypePtr, bool> get_doris_type(const tparquet::SchemaElement& physical_schema,
                                                 bool nullable);
 
+    // ColumnId assignment utilities
+    void assign_column_ids();
+    void assign_column_ids_recursive(FieldSchema& field, int32_t& next_id);
+
 public:
     FieldDescriptor() = default;
     ~FieldDescriptor() = default;
@@ -133,6 +153,23 @@ public:
     int32_t size() const { return cast_set<int32_t>(_fields.size()); }
 
     const std::vector<FieldSchema>& get_fields_schema() const { return _fields; }
+
+    // Column ID assignment and lookup methods (uint64_t based)
+    void assign_ids();
+    const FieldSchema* find_column_by_id(uint64_t column_id) const;
+
+    // Legacy columnId related methods (int32_t based)
+    // int32_t get_max_column_id() const;
+    // const FieldSchema* find_field_by_column_id(int32_t column_id) const;
+    // void traverse_fields(std::function<void(const FieldSchema&)> visitor) const;
+
+private:
+    // Helper methods for columnId operations
+    // const FieldSchema* find_field_by_column_id_recursive(const FieldSchema& field,
+    //                                                      int32_t column_id) const;
+    // void traverse_fields_recursive(const FieldSchema& field,
+    //                                std::function<void(const FieldSchema&)> visitor) const;
+    // int32_t get_max_column_id_recursive(const FieldSchema& field, int32_t current_max) const;
 };
 #include "common/compile_check_end.h"
 

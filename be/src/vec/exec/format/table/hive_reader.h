@@ -66,6 +66,13 @@ public:
             const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
+
+private:
+    static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
+                                             const TupleDescriptor* tuple_descriptor);
+
+    static ColumnIdResult _create_column_ids_by_top_level_col_index(
+            const orc::Type* orc_type, const TupleDescriptor* tuple_descriptor);
 };
 
 class HiveParquetReader final : public HiveReader {
@@ -88,6 +95,16 @@ public:
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
+
+private:
+    static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
+                                             const TupleDescriptor* tuple_descriptor);
+
+    static ColumnIdResult _create_column_ids_by_top_level_col_index(
+            const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor);
+
+    //     static ColumnIdResult _create_column_ids_by_index(
+    //             const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor);
 };
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

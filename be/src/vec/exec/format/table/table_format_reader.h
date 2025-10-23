@@ -388,5 +388,17 @@ public:
     };
 };
 
+struct ColumnIdResult {
+    std::set<uint64_t> column_ids;
+    std::set<uint64_t> filter_column_ids;
+    // std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node; // Added table info node
+
+    ColumnIdResult() = default; // Add default constructor
+
+    ColumnIdResult(std::set<uint64_t> column_ids_, std::set<uint64_t> filter_column_ids_)
+            : column_ids(std::move(column_ids_)),
+              filter_column_ids(std::move(filter_column_ids_)) {}
+};
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

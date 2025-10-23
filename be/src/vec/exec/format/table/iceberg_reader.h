@@ -188,6 +188,12 @@ protected:
     }
 
 private:
+    // static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
+    //                                   const TupleDescriptor* tuple_descriptor);
+
+    static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
+                                             const TupleDescriptor* tuple_descriptor);
+
     Status _read_position_delete_file(const TFileRangeDesc* delete_range,
                                       DeleteFile* position_delete) final;
 };
@@ -226,6 +232,13 @@ protected:
                                         READ_DELETE_FILE_BATCH_SIZE, _state->timezone(), _io_ctx,
                                         _meta_cache);
     }
+
+private:
+    // static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
+    //                                   const TupleDescriptor* tuple_descriptor);
+
+    static ColumnIdResult _create_column_ids(const orc::Type* orc_type,
+                                             const TupleDescriptor* tuple_descriptor);
 
 private:
     static const std::string ICEBERG_ORC_ATTRIBUTE;
