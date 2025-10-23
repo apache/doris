@@ -191,7 +191,6 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
             // Create executor and execute groups concurrently
             RewriteDataFileExecutor executor = new RewriteDataFileExecutor(
                     (IcebergExternalTable) table, connectContext);
-            executor.initialize();
             long targetFileSizeBytes = namedArguments.getLong(TARGET_FILE_SIZE_BYTES);
             RewriteResult totalResult = executor.executeGroupsConcurrently(groupsList, targetFileSizeBytes);
             return totalResult.toStringList();

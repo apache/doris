@@ -17,51 +17,31 @@
 
 package org.apache.doris.datasource.iceberg.rewrite;
 
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
-import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
-import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
-import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Executes INSERT-SELECT statements for Iceberg data file rewriting.
- *
- * Execution Flow:
- * 1. initialize() - Build rewrite logical plan
- * 2. executeGroup() - Execute rewrite for each file group
- * 3. Collect execution statistics and return results
  */
 public class RewriteDataFileExecutor {
     private static final Logger LOG = LogManager.getLogger(RewriteDataFileExecutor.class);
 
     private final IcebergExternalTable dorisTable;
     private final ConnectContext connectContext;
-
-    // Pre-prepared execution context
-    private boolean initialized = false;
-    private InsertIntoTableCommand logicalPlan;
-    private StatementBase parsedStmt;
 
     public RewriteDataFileExecutor(IcebergExternalTable dorisTable,
             ConnectContext connectContext) {
@@ -70,53 +50,32 @@ public class RewriteDataFileExecutor {
     }
 
     /**
-     * Initialize the executor with manually constructed logical plan
-     */
-    public void initialize() {
-        if (initialized) {
-            return;
-        }
-        this.logicalPlan = buildRewriteLogicalPlan();
-
-        LogicalPlanAdapter adapter = new LogicalPlanAdapter(logicalPlan, connectContext.getStatementContext());
-        adapter.setOrigStmt(new OriginStatement(logicalPlan.toString(), 0));
-        this.parsedStmt = adapter;
-        this.initialized = true;
-
-        LOG.debug("Initialized executor with manually constructed logical plan");
-    }
-
-    /**
      * Execute rewrite for multiple groups concurrently
      */
     public RewriteResult executeGroupsConcurrently(List<RewriteDataGroup> groups, long targetFileSizeBytes)
             throws UserException {
-        if (!initialized) {
-            throw new UserException("Executor not initialized. Call initialize() first.");
-        }
-
         // Begin transaction
         long transactionId = dorisTable.getCatalog().getTransactionManager().begin();
         IcebergTransaction transaction = (IcebergTransaction) dorisTable.getCatalog().getTransactionManager()
                 .getTransaction(transactionId);
         transaction.beginRewrite(dorisTable);
 
-        // Create and submit tasks
-        List<RewriteGroupTask> tasks = Lists.newArrayList();
+        // Register files to delete
         for (RewriteDataGroup group : groups) {
             transaction.updateRewriteFiles(Lists.newArrayList(group.getDataFiles()));
-            RewriteGroupTask task = new RewriteGroupTask(group, transactionId, logicalPlan, parsedStmt, connectContext,
-                    targetFileSizeBytes, null); // Callback will be set after creating the collector
-            tasks.add(task);
         }
 
-        // Create result collector with tasks list for cancellation support
+        // Create result collector and tasks
+        List<RewriteGroupTask> tasks = Lists.newArrayList();
         RewriteResultCollector resultCollector = new RewriteResultCollector(groups.size(), tasks);
 
-        // Update tasks with the result collector callback
-        for (int i = 0; i < groups.size(); i++) {
-            RewriteDataGroup group = groups.get(i);
-            RewriteGroupTask task = new RewriteGroupTask(group, transactionId, logicalPlan, parsedStmt, connectContext,
+        // Create tasks with callbacks
+        for (RewriteDataGroup group : groups) {
+            RewriteGroupTask task = new RewriteGroupTask(
+                    group,
+                    transactionId,
+                    dorisTable,
+                    connectContext,
                     targetFileSizeBytes,
                     new RewriteGroupTask.RewriteResultCallback() {
                         @Override
@@ -129,7 +88,7 @@ public class RewriteDataFileExecutor {
                             resultCollector.onTaskFailed(taskId, error);
                         }
                     });
-            tasks.set(i, task);
+            tasks.add(task);
         }
 
         // Submit tasks to TransientTaskManager
@@ -159,52 +118,6 @@ public class RewriteDataFileExecutor {
 
         return new RewriteResult(rewrittenDataFilesCount, addedDataFilesCount,
                 rewrittenBytesCount, removedDeleteFilesCount);
-    }
-
-    /**
-     * Build logical plan for rewrite operation (INSERT INTO ... SELECT ...)
-     */
-    private InsertIntoTableCommand buildRewriteLogicalPlan() {
-        // Build table name parts
-        List<String> tableNameParts = ImmutableList.of(
-                dorisTable.getCatalog().getName(),
-                dorisTable.getDbName(),
-                dorisTable.getName());
-
-        // Create UnboundRelation for SELECT part (source table)
-        UnboundRelation sourceRelation = new UnboundRelation(
-                StatementScopeIdGenerator.newRelationId(),
-                tableNameParts,
-                ImmutableList.of(), // partitions
-                false, // isTemporary
-                ImmutableList.of(), // tabletIds
-                ImmutableList.of(), // hints
-                Optional.empty(), // orderKeys
-                Optional.empty() // limit
-        );
-
-        // Create UnboundIcebergTableSink for INSERT part (target table)
-        UnboundIcebergTableSink<?> tableSink = new UnboundIcebergTableSink<>(
-                tableNameParts,
-                ImmutableList.of(), // colNames (empty means all columns)
-                ImmutableList.of(), // hints
-                ImmutableList.of(), // partitions
-                DMLCommandType.INSERT,
-                Optional.empty(), // labelName
-                Optional.empty(), // branchName
-                sourceRelation);
-
-        // Create InsertIntoTableCommand for rewrite operation
-        InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(
-                tableSink,
-                Optional.empty(), // labelName
-                Optional.empty(), // insertCtx
-                Optional.empty(), // cte
-                true, // needNormalizePlan
-                Optional.empty() // branchName
-        );
-        insertCommand.setRewriteOperation(true);
-        return insertCommand;
     }
 
     /**
