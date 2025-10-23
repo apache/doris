@@ -121,7 +121,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public Status headObject(String remotePath) {
         try {
-            AzurePropertyUtils.validateAndNormalizeUri(remotePath);
+            remotePath = AzurePropertyUtils.validateAndNormalizeUri(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.getBucket()).getBlobClient(uri.getKey());
             if (LOG.isDebugEnabled()) {
@@ -146,6 +146,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public Status getObject(String remoteFilePath, File localFile) {
         try {
+            remoteFilePath = AzurePropertyUtils.validateAndNormalizeUri(remoteFilePath);
             S3URI uri = S3URI.create(remoteFilePath, isUsePathStyle, forceParsingByStandardUri);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.getBucket()).getBlobClient(uri.getKey());
             BlobProperties properties = blobClient.downloadToFile(localFile.getAbsolutePath());
@@ -166,6 +167,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public Status putObject(String remotePath, @Nullable InputStream content, long contentLength) {
         try {
+            remotePath = AzurePropertyUtils.validateAndNormalizeUri(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.getBucket()).getBlobClient(uri.getKey());
             blobClient.upload(content, contentLength);
@@ -183,6 +185,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public Status deleteObject(String remotePath) {
         try {
+            remotePath = AzurePropertyUtils.validateAndNormalizeUri(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.getBucket()).getBlobClient(uri.getKey());
             blobClient.delete();
@@ -206,6 +209,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public Status deleteObjects(String remotePath) {
         try {
+            remotePath = AzurePropertyUtils.validateAndNormalizeUri(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             BlobContainerClient blobClient = getClient().getBlobContainerClient(uri.getBucket());
             String containerUrl = blobClient.getBlobContainerUrl();
@@ -287,6 +291,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public RemoteObjects listObjects(String remotePath, String continuationToken) throws DdlException {
         try {
+            remotePath = AzurePropertyUtils.validateAndNormalizeUri(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             ListBlobsOptions options = new ListBlobsOptions().setPrefix(uri.getKey());
             PagedIterable<BlobItem> pagedBlobs = getClient().getBlobContainerClient(uri.getBucket())
@@ -322,6 +327,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
     public Status listDirectories(String remotePath, Set<String> result) {
         try {
+            remotePath = AzurePropertyUtils.validateAndNormalizeUri(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             String bucket = uri.getBucket();
             String key = uri.getKey();
@@ -349,6 +355,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         long startTime = System.nanoTime();
         Status st = Status.OK;
         try {
+            remotePath = AzurePropertyUtils.validateAndNormalizeUri(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             String globPath = S3Util.extendGlobs(uri.getKey());
             String bucket = uri.getBucket();
@@ -431,6 +438,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
     public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
         try {
+            remotePath = AzurePropertyUtils.validateAndNormalizeUri(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             String bucket = uri.getBucket();
             String key = uri.getKey();
@@ -484,6 +492,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
 
         try {
+            remotePath = AzurePropertyUtils.validateAndNormalizeUri(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             blockBlobClient = getClient().getBlobContainerClient(uri.getBucket())
                     .getBlobClient(uri.getKey()).getBlockBlobClient();
