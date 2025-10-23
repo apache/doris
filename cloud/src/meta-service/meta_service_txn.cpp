@@ -903,9 +903,9 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
 }
 
 void MetaServiceImpl::reset_streaming_job_offset(::google::protobuf::RpcController* controller,
-                                                   const ResetStreamingJobOffsetRequest* request,
-                                                   ResetStreamingJobOffsetResponse* response,
-                                                   ::google::protobuf::Closure* done) {
+                                                 const ResetStreamingJobOffsetRequest* request,
+                                                 ResetStreamingJobOffsetResponse* response,
+                                                 ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(reset_streaming_job_offset, get, put, del);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
@@ -950,7 +950,7 @@ void MetaServiceImpl::reset_streaming_job_offset(::google::protobuf::RpcControll
                 prev_existed = false;
             } else {
                 code = cast_as<ErrCategory::READ>(err);
-                ss << "failed to get streaming job progress, db_id=" << db_id 
+                ss << "failed to get streaming job progress, db_id=" << db_id
                    << " job_id=" << job_id << " err=" << err;
                 msg = ss.str();
                 return;
@@ -969,11 +969,11 @@ void MetaServiceImpl::reset_streaming_job_offset(::google::protobuf::RpcControll
 
         std::string new_job_val;
         StreamingTaskCommitAttachmentPB new_job_info;
-        
+
         // Set the new offset
         new_job_info.set_offset(request->offset());
         new_job_info.set_job_id(job_id);
-        
+
         // Preserve existing statistics if they exist
         if (prev_existed) {
             new_job_info.set_scanned_rows(prev_job_info.scanned_rows());
@@ -989,19 +989,18 @@ void MetaServiceImpl::reset_streaming_job_offset(::google::protobuf::RpcControll
             msg = ss.str();
             return;
         }
-        
+
         txn->put(streaming_job_key_str, new_job_val);
         LOG(INFO) << "reset offset, put streaming_job_key key=" << hex(streaming_job_key_str)
                   << " prev job val: " << prev_job_info.ShortDebugString()
                   << " new job val: " << new_job_info.ShortDebugString();
-
     }
 
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to commit streaming job offset, db_id=" << db_id 
-           << " job_id=" << job_id << " err=" << err;
+        ss << "failed to commit streaming job offset, db_id=" << db_id << " job_id=" << job_id
+           << " err=" << err;
         msg = ss.str();
         return;
     }

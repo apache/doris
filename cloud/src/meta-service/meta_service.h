@@ -341,8 +341,9 @@ public:
                               ::google::protobuf::Closure* done) override;
 
     void reset_streaming_job_offset(::google::protobuf::RpcController* controller,
-                           const ResetStreamingJobOffsetRequest* request, ResetStreamingJobOffsetResponse* response,
-                           ::google::protobuf::Closure* done) override;
+                                    const ResetStreamingJobOffsetRequest* request,
+                                    ResetStreamingJobOffsetResponse* response,
+                                    ::google::protobuf::Closure* done) override;
 
     void reset_rl_progress(::google::protobuf::RpcController* controller,
                            const ResetRLProgressRequest* request, ResetRLProgressResponse* response,
@@ -870,9 +871,11 @@ public:
     }
 
     void reset_streaming_job_offset(::google::protobuf::RpcController* controller,
-                           const ResetStreamingJobOffsetRequest* request, ResetStreamingJobOffsetResponse* response,
-                           ::google::protobuf::Closure* done) override {
-        call_impl(&cloud::MetaService::reset_streaming_job_offset, controller, request, response, done);
+                                    const ResetStreamingJobOffsetRequest* request,
+                                    ResetStreamingJobOffsetResponse* response,
+                                    ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::reset_streaming_job_offset, controller, request, response,
+                  done);
     }
 
     void reset_rl_progress(::google::protobuf::RpcController* controller,
