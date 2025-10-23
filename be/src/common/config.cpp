@@ -1019,6 +1019,7 @@ DEFINE_mInt32(remove_unused_remote_files_interval_sec, "21600"); // 6h
 DEFINE_mInt32(confirm_unused_remote_files_interval_sec, "60");
 DEFINE_Int32(cold_data_compaction_thread_num, "2");
 DEFINE_mInt32(cold_data_compaction_interval_sec, "1800");
+DEFINE_mInt32(cold_data_compaction_score_threshold, "100");
 
 DEFINE_String(tmp_file_dir, "tmp");
 
@@ -1619,6 +1620,11 @@ DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config)
     return config == "v1" || config == "v2";
 });
 
+DEFINE_mString(binary_plain_encoding_default_impl, "v1");
+DEFINE_Validator(binary_plain_encoding_default_impl, [](const std::string& config) -> bool {
+    return config == "v1" || config == "v2";
+});
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
@@ -2072,6 +2078,8 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
             ((distribution(*generator) % 2) == 0) ? "5" : "10";
+    fuzzy_field_and_value["binary_plain_encoding_default_impl"] =
+            ((distribution(*generator) % 2) == 0) ? "v1" : "v2";
 
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =
