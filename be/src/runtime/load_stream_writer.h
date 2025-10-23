@@ -38,6 +38,7 @@ class SlotDescriptor;
 class OlapTableSchemaParam;
 class RowsetWriter;
 class RuntimeProfile;
+class DataDir;
 struct SegmentStatistics;
 using SegmentStatisticsSharedPtr = std::shared_ptr<SegmentStatistics>;
 class BaseRowsetBuilder;
@@ -89,6 +90,7 @@ private:
     std::vector<io::FileWriterPtr> _segment_file_writers;
     std::vector<io::FileWriterPtr> _inverted_file_writers;
     std::shared_ptr<ResourceContext> _resource_ctx;
+    DataDir* _data_dir = nullptr;
 };
 
 using LoadStreamWriterSharedPtr = std::shared_ptr<LoadStreamWriter>;
