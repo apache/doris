@@ -133,6 +133,7 @@ jobs:
           export JAVA_HOME="$(find /usr/lib/jvm/java-8-openjdk* -maxdepth 0)"
           export DORIS_TOOLCHAIN=gcc
           export CMAKE_POLICY_VERSION_MINIMUM=3.10
+          export CUSTOM_CMAKE="/usr/local/bin/cmake"
 
           cd thirdparty
           ./build-thirdparty.sh -j "$(nproc)"
@@ -192,6 +193,7 @@ jobs:
         run: |
           export MACOSX_DEPLOYMENT_TARGET=12.0
           export CMAKE_POLICY_VERSION_MINIMUM=3.10
+          export CUSTOM_CMAKE="/usr/local/bin/cmake"
 
           cd thirdparty
           ./build-thirdparty.sh -j "$(nproc)"
@@ -251,6 +253,7 @@ jobs:
         run: |
           export MACOSX_DEPLOYMENT_TARGET=12.0
           export CMAKE_POLICY_VERSION_MINIMUM=3.10
+          export CUSTOM_CMAKE="/usr/local/bin/cmake"
 
           cd thirdparty
           ./build-thirdparty.sh -j "$(nproc)"
