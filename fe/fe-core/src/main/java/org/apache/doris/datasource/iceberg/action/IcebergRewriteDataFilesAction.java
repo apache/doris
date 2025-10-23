@@ -192,7 +192,8 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
             RewriteDataFileExecutor executor = new RewriteDataFileExecutor(
                     (IcebergExternalTable) table, connectContext);
             executor.initialize();
-            RewriteResult totalResult = executor.executeGroupsConcurrently(groupsList);
+            long targetFileSizeBytes = namedArguments.getLong(TARGET_FILE_SIZE_BYTES);
+            RewriteResult totalResult = executor.executeGroupsConcurrently(groupsList, targetFileSizeBytes);
             return totalResult.toStringList();
         } catch (Exception e) {
             LOG.error("Failed to rewrite data files for table: " + table.getName(), e);

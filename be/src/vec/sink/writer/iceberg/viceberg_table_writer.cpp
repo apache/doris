@@ -48,6 +48,14 @@ Status VIcebergTableWriter::init_properties(ObjectPool* pool) {
 Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
 
+    // Get target file size from query options
+    // If value is 0 or not set, use config::iceberg_sink_max_file_size
+    _target_file_size_bytes = config::iceberg_sink_max_file_size;
+    if (state->query_options().__isset.iceberg_write_target_file_size_bytes &&
+        state->query_options().iceberg_write_target_file_size_bytes > 0) {
+        _target_file_size_bytes = state->query_options().iceberg_write_target_file_size_bytes;
+    }
+
     // add all counter
     _written_rows_counter = ADD_COUNTER(_operator_profile, "WrittenRows", TUnit::UNIT);
     _send_data_timer = ADD_TIMER(_operator_profile, "SendDataTime");
@@ -135,7 +143,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, vectorized::Block& block)
                 _partitions_to_writers.insert({"", writer});
                 RETURN_IF_ERROR(writer->open(_state, _operator_profile));
             } else {
-                if (writer_iter->second->written_len() > config::iceberg_sink_max_file_size) {
+                if (writer_iter->second->written_len() > _target_file_size_bytes) {
                     std::string file_name(writer_iter->second->file_name());
                     int file_name_index = writer_iter->second->file_name_index();
                     {
@@ -214,7 +222,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, vectorized::Block& block)
                 RETURN_IF_ERROR(create_and_open_writer(partition_name, i, nullptr, 0, writer));
             } else {
                 std::shared_ptr<VIcebergPartitionWriter> writer;
-                if (writer_iter->second->written_len() > config::iceberg_sink_max_file_size) {
+                if (writer_iter->second->written_len() > _target_file_size_bytes) {
                     std::string file_name(writer_iter->second->file_name());
                     int file_name_index = writer_iter->second->file_name_index();
                     {

@@ -55,6 +55,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
     private final InsertIntoTableCommand preparedPlan;
     private final StatementBase parsedStmt;
     private final ConnectContext connectContext;
+    private final long targetFileSizeBytes;
     private final RewriteResultCallback resultCallback;
     private final Long taskId;
     private final AtomicBoolean isCanceled;
@@ -65,12 +66,14 @@ public class RewriteGroupTask implements TransientTaskExecutor {
             InsertIntoTableCommand preparedPlan,
             StatementBase parsedStmt,
             ConnectContext connectContext,
+            long targetFileSizeBytes,
             RewriteResultCallback resultCallback) {
         this.group = group;
         this.transactionId = transactionId;
         this.preparedPlan = preparedPlan;
         this.parsedStmt = parsedStmt;
         this.connectContext = connectContext;
+        this.targetFileSizeBytes = targetFileSizeBytes;
         this.resultCallback = resultCallback;
         this.taskId = UUID.randomUUID().getMostSignificantBits();
         this.isCanceled = new AtomicBoolean(false);
@@ -165,6 +168,11 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         ConnectContext taskContext = new ConnectContext();
         // clone session variables from parent
         taskContext.setSessionVariable(VariableMgr.cloneSessionVariable(connectContext.getSessionVariable()));
+        
+        // Set target file size for Iceberg write
+        // Store it in session variable for the write executor to use
+        taskContext.getSessionVariable().setIcebergWriteTargetFileSizeBytes(targetFileSizeBytes);
+        
         // set env and basic identities
         taskContext.setEnv(Env.getCurrentEnv());
         taskContext.setDatabase(connectContext.getDatabase());

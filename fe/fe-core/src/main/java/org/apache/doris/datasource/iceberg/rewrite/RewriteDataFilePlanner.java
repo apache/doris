@@ -188,14 +188,14 @@ public class RewriteDataFilePlanner {
      * Check if group has enough input files
      */
     private boolean enoughInputFiles(RewriteDataGroup group) {
-        return group.getTaskCount() >= parameters.getMinInputFiles();
+        return group.getTaskCount() > 1 && group.getTaskCount() >= parameters.getMinInputFiles();
     }
 
     /**
      * Check if group has enough content
      */
     private boolean enoughContent(RewriteDataGroup group) {
-        return group.getTotalSize() > parameters.getTargetFileSizeBytes();
+        return group.getTaskCount() > 1 && group.getTotalSize() > parameters.getTargetFileSizeBytes();
     }
 
     /**
