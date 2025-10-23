@@ -17,7 +17,7 @@
 
 import java.text.SimpleDateFormat
 
-suite("test_date_add_with_other_timeunit") {
+suite("test_dateadd_with_other_timeunit") {
     def tableName = "test_date_add_with_other_timeunit"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
