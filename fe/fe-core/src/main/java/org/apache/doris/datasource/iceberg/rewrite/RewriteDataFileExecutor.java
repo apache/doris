@@ -40,6 +40,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -100,13 +102,21 @@ public class RewriteDataFileExecutor {
                 .getTransaction(transactionId);
         transaction.beginRewrite(dorisTable);
 
-        // Create result collector
-        RewriteResultCollector resultCollector = new RewriteResultCollector(groups.size());
-
         // Create and submit tasks
-        List<TransientTaskExecutor> tasks = Lists.newArrayList();
+        List<RewriteGroupTask> tasks = Lists.newArrayList();
         for (RewriteDataGroup group : groups) {
             transaction.updateRewriteFiles(Lists.newArrayList(group.getDataFiles()));
+            RewriteGroupTask task = new RewriteGroupTask(group, transactionId, logicalPlan, parsedStmt, connectContext,
+                    null); // Callback will be set after creating the collector
+            tasks.add(task);
+        }
+
+        // Create result collector with tasks list for cancellation support
+        RewriteResultCollector resultCollector = new RewriteResultCollector(groups.size(), tasks);
+
+        // Update tasks with the result collector callback
+        for (int i = 0; i < groups.size(); i++) {
+            RewriteDataGroup group = groups.get(i);
             RewriteGroupTask task = new RewriteGroupTask(group, transactionId, logicalPlan, parsedStmt, connectContext,
                     new RewriteGroupTask.RewriteResultCallback() {
                         @Override
@@ -119,7 +129,7 @@ public class RewriteDataFileExecutor {
                             resultCollector.onTaskFailed(taskId, error);
                         }
                     });
-            tasks.add(task);
+            tasks.set(i, task);
         }
 
         // Submit tasks to TransientTaskManager
@@ -198,37 +208,36 @@ public class RewriteDataFileExecutor {
     }
 
     /**
-     * Wait for all tasks to complete
+     * Wait for all tasks to complete using notification mechanism
      */
     private void waitForTasksCompletion(RewriteResultCollector collector, int totalTasks)
             throws UserException {
-        LOG.info("Waiting for {} rewrite tasks to complete", totalTasks);
+        LOG.info("Waiting for {} rewrite tasks to complete using notification mechanism", totalTasks);
 
         int maxWaitTime = 300; // 5 minutes
-        int waitInterval = 1000; // 1 second
-        int waited = 0;
 
-        while (!collector.isAllCompleted() && waited < maxWaitTime * 1000) {
-            try {
-                Thread.sleep(waitInterval);
-                waited += waitInterval;
+        try {
+            boolean completed = collector.await(maxWaitTime, TimeUnit.SECONDS);
 
-                LOG.debug("Waiting for tasks completion: {}ms elapsed", waited);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new UserException("Wait for tasks completion was interrupted");
+            if (!completed) {
+                LOG.error("Rewrite tasks did not complete within timeout of {} seconds", maxWaitTime);
+                throw new UserException("Rewrite tasks did not complete within timeout");
             }
-        }
 
-        if (!collector.isAllCompleted()) {
-            throw new UserException("Rewrite tasks did not complete within timeout");
-        }
+            // Check if any task failed
+            if (collector.getFirstError() != null) {
+                LOG.error("Rewrite tasks failed: {}", collector.getFirstError().getMessage());
+                throw new UserException("Some rewrite tasks failed: " + collector.getFirstError().getMessage(),
+                        collector.getFirstError());
+            }
 
-        if (collector.getFirstError() != null) {
-            throw new UserException("Some rewrite tasks failed: " + collector.getFirstError().getMessage());
-        }
+            LOG.info("All {} rewrite tasks completed successfully", totalTasks);
 
-        LOG.info("All rewrite tasks completed");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.error("Wait for tasks completion was interrupted", e);
+            throw new UserException("Wait for tasks completion was interrupted", e);
+        }
     }
 
     /**
@@ -239,26 +248,55 @@ public class RewriteDataFileExecutor {
         private final AtomicInteger completedTasks = new AtomicInteger(0);
         private final AtomicInteger failedTasks = new AtomicInteger(0);
         private volatile Exception firstError = null;
+        private final CountDownLatch completionLatch;
+        private final List<RewriteGroupTask> allTasks;
 
-        public RewriteResultCollector(int expectedTasks) {
+        public RewriteResultCollector(int expectedTasks, List<RewriteGroupTask> tasks) {
             this.expectedTasks = expectedTasks;
+            this.completionLatch = new CountDownLatch(expectedTasks);
+            this.allTasks = tasks;
         }
 
         public synchronized void onTaskCompleted(Long taskId) {
             int completed = completedTasks.incrementAndGet();
             LOG.info("Task {} completed ({}/{})", taskId, completed, expectedTasks);
+            completionLatch.countDown();
         }
 
         public synchronized void onTaskFailed(Long taskId, Exception error) {
             int failed = failedTasks.incrementAndGet();
             if (firstError == null) {
                 firstError = error;
+
+                // Cancel all other tasks immediately when first failure occurs
+                LOG.warn("Task {} failed, cancelling all other tasks", taskId);
+                cancelAllOtherTasks(taskId);
+
+                // Count down remaining tasks to unblock waiting thread
+                int remaining = expectedTasks - completedTasks.get() - failedTasks.get();
+                for (int i = 0; i < remaining; i++) {
+                    completionLatch.countDown();
+                }
             }
             LOG.error("Task {} failed ({}/{}): {}", taskId, failed, expectedTasks, error.getMessage());
+            completionLatch.countDown();
         }
 
-        public boolean isAllCompleted() {
-            return completedTasks.get() + failedTasks.get() >= expectedTasks;
+        private void cancelAllOtherTasks(Long failedTaskId) {
+            for (RewriteGroupTask task : allTasks) {
+                if (!task.getId().equals(failedTaskId)) {
+                    try {
+                        task.cancel();
+                        LOG.info("Cancelled task {}", task.getId());
+                    } catch (Exception e) {
+                        LOG.warn("Failed to cancel task {}: {}", task.getId(), e.getMessage());
+                    }
+                }
+            }
+        }
+
+        public boolean await(long timeout, TimeUnit unit) throws InterruptedException {
+            return completionLatch.await(timeout, unit);
         }
 
         public Exception getFirstError() {
