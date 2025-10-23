@@ -81,18 +81,18 @@ public:
                                                                bool vertical) override;
 
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-                              const CaptureRsReaderOptions& opts) override;
-    Status capture_rs_readers_internal(const Version& spec_version,
-                                       std::vector<RowSetSplits>* rs_splits);
+                              const CaptureRowsetOps& opts) override;
 
-    // Capture rowset readers with cache preference optimization.
+    [[nodiscard]] Result<std::vector<Version>> capture_consistent_versions_unlocked(
+            const Version& version_range, const CaptureRowsetOps& options) const override;
+
+    // Capture versions with cache preference optimization.
     // This method prioritizes using cached/warmed-up rowsets when building version paths,
     // avoiding cold data reads when possible. It uses capture_consistent_versions_prefer_cache
     // to find a consistent version path that prefers already warmed-up rowsets.
-    Status capture_rs_readers_prefer_cache(const Version& spec_version,
-                                           std::vector<RowSetSplits>* rs_splits);
+    Result<std::vector<Version>> capture_versions_prefer_cache(const Version& spec_version) const;
 
-    // Capture rowset readers with query freshness tolerance.
+    // Capture versions with query freshness tolerance.
     // This method finds a consistent version path where all rowsets are warmed up,
     // but allows fallback to normal capture if there are newer rowsets that should be
     // visible (based on freshness tolerance) but haven't been warmed up yet.
@@ -102,16 +102,12 @@ public:
     // data hasn't been warmed up yet. This can cause different tablets in the same query
     // to read from different versions, potentially leading to inconsistent query results.
     //
-    // @param query_freshness_tolerance_ms: Time tolerance in milliseconds. Rowsets that
+    // @param options.query_freshness_tolerance_ms: Time tolerance in milliseconds. Rowsets that
     //        became visible within this time range (after current_time - query_freshness_tolerance_ms)
     //        can be skipped if not warmed up. However, if older rowsets (before this time point)
     //        are not warmed up, the method will fallback to normal capture.
-    Status capture_rs_readers_with_freshness_tolerance(const Version& spec_version,
-                                                       std::vector<RowSetSplits>* rs_splits,
-                                                       int64_t query_freshness_tolerance_ms);
-
-    Status capture_consistent_rowsets_unlocked(
-            const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const override;
+    Result<std::vector<Version>> capture_versions_with_freshness_tolerance(
+            const Version& spec_version, const CaptureRowsetOps& options) const;
 
     size_t tablet_footprint() override {
         return _approximate_data_size.load(std::memory_order_relaxed);
@@ -352,7 +348,7 @@ public:
 
     void add_warmed_up_rowset(const RowsetId& rowset_id);
 
-    std::string rowset_warmup_digest() {
+    std::string rowset_warmup_digest() const {
         std::string res;
         auto add_log = [&](const RowsetSharedPtr& rs) {
             auto tmp = fmt::format("{}{}", rs->rowset_id().to_string(), rs->version().to_string());
@@ -382,7 +378,7 @@ private:
             std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
 
     // used by capture_rs_reader_xxx functions
-    bool rowset_is_warmed_up_unlocked(int64_t start_version, int64_t end_version);
+    bool rowset_is_warmed_up_unlocked(int64_t start_version, int64_t end_version) const;
 
     CloudStorageEngine& _engine;
 
