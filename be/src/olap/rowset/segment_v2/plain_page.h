@@ -25,6 +25,7 @@
 #include "olap/types.h"
 #include "util/coding.h"
 #include "util/faststring.h"
+#include "vec/common/unaligned.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -33,7 +34,7 @@ namespace segment_v2 {
 static const size_t PLAIN_PAGE_HEADER_SIZE = sizeof(uint32_t);
 
 template <FieldType Type>
-class PlainPageBuilder : public PageBuilderHelper<PlainPageBuilder<Type> > {
+class PlainPageBuilder : public PageBuilderHelper<PlainPageBuilder<Type>> {
 public:
     using Self = PlainPageBuilder<Type>;
     friend class PageBuilderHelper<Self>;
@@ -228,16 +229,20 @@ public:
         }
 
         auto total = *n;
-        size_t read_count = 0;
+        auto read_count = 0;
+        _buffer.resize(total);
         for (size_t i = 0; i < total; ++i) {
             ordinal_t ord = rowids[i] - page_first_ordinal;
             if (UNLIKELY(ord >= _num_elems)) {
                 break;
             }
 
-            const void* src_data = &_data[PLAIN_PAGE_HEADER_SIZE + ord * SIZE_OF_TYPE];
-            dst->insert_data((const char*)src_data, SIZE_OF_TYPE);
-            read_count++;
+            _buffer[read_count++] =
+                    unaligned_load<CppType>(&_data[PLAIN_PAGE_HEADER_SIZE + ord * SIZE_OF_TYPE]);
+        }
+
+        if (LIKELY(read_count > 0)) {
+            dst->insert_many_fix_len_data((char*)_buffer.data(), read_count);
         }
 
         *n = read_count;
@@ -262,6 +267,8 @@ private:
     uint32_t _cur_idx;
     typedef typename TypeTraits<Type>::CppType CppType;
     enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
+
+    std::vector<std::conditional_t<std::is_same_v<CppType, bool>, uint8_t, CppType>> _buffer;
 };
 
 } // namespace segment_v2
