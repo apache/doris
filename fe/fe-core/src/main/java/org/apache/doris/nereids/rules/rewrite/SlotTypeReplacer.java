@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.analysis.AccessPathInfo;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -53,8 +55,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.MoreFieldsThread;
+import org.apache.doris.thrift.TAccessPathType;
+import org.apache.doris.thrift.TColumnAccessPaths;
+import org.apache.doris.thrift.TColumnNameAccessPath;
 
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -64,11 +72,13 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 
 /** SlotTypeReplacer */
@@ -362,7 +372,31 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
     public Plan visitLogicalFileScan(LogicalFileScan fileScan, Void context) {
         Pair<Boolean, List<Slot>> replaced = replaceExpressions(fileScan.getOutput(), false, true);
         if (replaced.first) {
-            return fileScan.withCachedOutput(replaced.second);
+            List<Slot> replaceSlots = new ArrayList<>(replaced.second);
+            if (fileScan.getTable() instanceof IcebergExternalTable) {
+                for (int i = 0; i < replaceSlots.size(); i++) {
+                    Slot slot = replaceSlots.get(i);
+                    if (!(slot instanceof SlotReference)) {
+                        continue;
+                    }
+                    SlotReference slotReference = (SlotReference) slot;
+                    Optional<TColumnAccessPaths> allAccessPaths = slotReference.getAllAccessPaths();
+                    if (!allAccessPaths.isPresent() || !slotReference.getOriginalColumn().isPresent()) {
+                        continue;
+                    }
+                    TColumnAccessPaths allAccessPathsWithId
+                            = replaceIcebergAccessPathToId(allAccessPaths.get(), slotReference);
+                    TColumnAccessPaths predicateAccessPathsWithId = replaceIcebergAccessPathToId(
+                            slotReference.getPredicateAccessPaths().get(), slotReference);
+                    replaceSlots.set(i, ((SlotReference) slot).withAccessPaths(
+                            allAccessPathsWithId,
+                            predicateAccessPathsWithId,
+                            allAccessPaths.get(),
+                            slotReference.getPredicateAccessPaths().get()
+                    ));
+                }
+            }
+            return fileScan.withCachedOutput(replaceSlots);
         }
         return fileScan;
     }
@@ -537,5 +571,56 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
         }
 
         return e.withChildren(newChildren);
+    }
+
+    private TColumnAccessPaths replaceIcebergAccessPathToId(
+            TColumnAccessPaths originAccessPaths, SlotReference slotReference) {
+        Column column = slotReference.getOriginalColumn().get();
+        List<TColumnNameAccessPath> replacedAllAccessPaths = new ArrayList<>();
+        for (TColumnNameAccessPath nameAccessPath : originAccessPaths.name_access_paths) {
+            List<String> icebergColumnAccessPath = new ArrayList<>(nameAccessPath.path);
+            replaceIcebergAccessPathToId(
+                    icebergColumnAccessPath, 0, slotReference.getDataType(), column
+            );
+            replacedAllAccessPaths.add(new TColumnNameAccessPath(icebergColumnAccessPath));
+        }
+        TColumnAccessPaths accessPathWithId = new TColumnAccessPaths(TAccessPathType.NAME);
+        accessPathWithId.name_access_paths = replacedAllAccessPaths;
+        return accessPathWithId;
+    }
+
+    private void replaceIcebergAccessPathToId(List<String> originPath, int index, DataType type, Column column) {
+        if (index >= originPath.size()) {
+            return;
+        }
+        if (index == 0) {
+            originPath.set(index, String.valueOf(column.getUniqueId()));
+            replaceIcebergAccessPathToId(originPath, index + 1, type, column);
+        } else {
+            String fieldName = originPath.get(index);
+            if (type instanceof ArrayType) {
+                // skip replace *
+                replaceIcebergAccessPathToId(
+                        originPath, index + 1, ((ArrayType) type).getItemType(), column.getChildren().get(0)
+                );
+            } else if (type instanceof MapType) {
+                if (fieldName.equals("*") || fieldName.equals("VALUES")) {
+                    replaceIcebergAccessPathToId(
+                            originPath, index + 1, ((MapType) type).getValueType(), column.getChildren().get(1)
+                    );
+                }
+            } else if (type instanceof StructType) {
+                for (Column child : column.getChildren()) {
+                    if (child.getName().equals(fieldName)) {
+                        originPath.set(index, String.valueOf(child.getUniqueId()));
+                        DataType childType = ((StructType) type).getNameToFields().get(fieldName).getDataType();
+                        replaceIcebergAccessPathToId(originPath, index + 1, childType, child);
+                        break;
+                    }
+                }
+            } else {
+                originPath.set(index, String.valueOf(column.getUniqueId()));
+            }
+        }
     }
 }
