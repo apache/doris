@@ -865,6 +865,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 selectedPartitionIds, false, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, replaceSlotMap, tableSample, directMvScan, colToSubPathsMap, selectedTabletIds,
-                operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit, annOrderKeys, annLimit);
+                operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit, annOrderKeys, annLimit,
+                tableAlias);
     }
 }

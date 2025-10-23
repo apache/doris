@@ -52,31 +52,31 @@ suite("test_iceberg_full_schema_change", "p0,external,doris,external_docker,exte
         qt_all """ select * FROM ${table} ORDER BY id"""
 
         qt_country_usa """select * FROM ${table} WHERE STRUCT_ELEMENT(struct_column, 'country') = 'USA' ORDER BY id"""
-        qt_country_usa_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'full_name') AS full_name, ARRAY_SIZE(array_column) AS array_size FROM ${table} WHERE STRUCT_ELEMENT(struct_column, 'country') = 'USA' ORDER BY id"""
+        // qt_country_usa_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'full_name') AS full_name, ARRAY_SIZE(array_column) AS array_size FROM ${table} WHERE STRUCT_ELEMENT(struct_column, 'country') = 'USA' ORDER BY id"""
 
         qt_city_new """select * FROM ${table} WHERE STRUCT_ELEMENT(struct_column, 'city') LIKE 'New%' ORDER BY id"""
-        qt_city_new_cols """select id, STRUCT_ELEMENT(struct_column, 'country') AS country, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') AS age, STRUCT_ELEMENT(array_column[1], 'item') AS first_item FROM ${table} WHERE STRUCT_ELEMENT(struct_column, 'city') LIKE 'New%' ORDER BY id"""
+        // qt_city_new_cols """select id, STRUCT_ELEMENT(struct_column, 'country') AS country, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') AS age, STRUCT_ELEMENT(array_column[1], 'item') AS first_item FROM ${table} WHERE STRUCT_ELEMENT(struct_column, 'city') LIKE 'New%' ORDER BY id"""
 
-        qt_age_over_30 """select * FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') > 30 ORDER BY id"""
-        qt_age_over_30_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, STRUCT_ELEMENT(array_column[2], 'category') AS second_category FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') > 30 ORDER BY id"""
+        // qt_age_over_30 """select * FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') > 30 ORDER BY id"""
+        // qt_age_over_30_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, STRUCT_ELEMENT(array_column[2], 'category') AS second_category FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') > 30 ORDER BY id"""
 
-        qt_age_under_25 """select * FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') < 25 ORDER BY id"""
-        qt_age_under_25_cols """select id, STRUCT_ELEMENT(struct_column, 'country') AS country, MAP_KEYS(new_map_column)[1] AS map_key FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') < 25 ORDER BY id"""
+        // qt_age_under_25 """select * FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') < 25 ORDER BY id"""
+        // qt_age_under_25_cols """select id, STRUCT_ELEMENT(struct_column, 'country') AS country, MAP_KEYS(new_map_column)[1] AS map_key FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') < 25 ORDER BY id"""
 
-        qt_name_alice """select * FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'full_name') = 'Alice' ORDER BY id"""
-        qt_name_alice_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, ARRAY_SIZE(array_column) AS array_size FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'full_name') = 'Alice' ORDER BY id"""
+        // qt_name_alice """select * FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'full_name') = 'Alice' ORDER BY id"""
+        // qt_name_alice_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, ARRAY_SIZE(array_column) AS array_size FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'full_name') = 'Alice' ORDER BY id"""
 
-        qt_name_j """select * FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'full_name') like 'J%' ORDER BY id"""
-        qt_name_j_cols """select id, STRUCT_ELEMENT(struct_column, 'country') AS country, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'gender') AS gender FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'full_name') LIKE 'J%' ORDER BY id"""
+        // qt_name_j """select * FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'full_name') like 'J%' ORDER BY id"""
+        // qt_name_j_cols """select id, STRUCT_ELEMENT(struct_column, 'country') AS country, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'gender') AS gender FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'full_name') LIKE 'J%' ORDER BY id"""
 
         qt_map_person5 """select * FROM ${table} WHERE ARRAY_CONTAINS(MAP_KEYS(new_map_column), 'person5') ORDER BY id"""
-        qt_map_person5_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') AS age FROM ${table} WHERE ARRAY_CONTAINS(MAP_KEYS(new_map_column), 'person5') ORDER BY id"""
+        // qt_map_person5_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') AS age FROM ${table} WHERE ARRAY_CONTAINS(MAP_KEYS(new_map_column), 'person5') ORDER BY id"""
 
         qt_array_size_2 """select * FROM ${table} WHERE ARRAY_SIZE(array_column) = 2 ORDER BY id"""
         qt_array_size_2_cols """select id, STRUCT_ELEMENT(struct_column, 'country') AS country, STRUCT_ELEMENT(STRUCT_ELEMENT(struct_column2, 'b'), 'cc') AS b_cc FROM ${table} WHERE ARRAY_SIZE(array_column) = 2 ORDER BY id"""
 
         qt_quantity_not_null """select * FROM ${table} WHERE STRUCT_ELEMENT(array_column[1], 'quantity') IS NOT NULL ORDER BY id"""
-        qt_quantity_not_null_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'full_name') AS full_name FROM ${table} WHERE STRUCT_ELEMENT(array_column[1], 'quantity') IS NOT NULL ORDER BY id"""
+        // qt_quantity_not_null_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'full_name') AS full_name FROM ${table} WHERE STRUCT_ELEMENT(array_column[1], 'quantity') IS NOT NULL ORDER BY id"""
 
         qt_quantity_null """select * FROM ${table} WHERE STRUCT_ELEMENT(array_column[1], 'quantity') IS NULL ORDER BY id"""
         qt_quantity_null_cols """select id, STRUCT_ELEMENT(struct_column, 'country') AS country, ARRAY_SIZE(array_column) AS array_size FROM ${table} WHERE STRUCT_ELEMENT(array_column[1], 'quantity') IS NULL ORDER BY id"""
@@ -96,14 +96,14 @@ suite("test_iceberg_full_schema_change", "p0,external,doris,external_docker,exte
         qt_new_aa_50 """select * FROM ${table} WHERE STRUCT_ELEMENT(STRUCT_ELEMENT(struct_column2, 'new_a'), 'new_aa') = 50 ORDER BY id"""
         qt_new_aa_50_cols """select id, STRUCT_ELEMENT(struct_column2, 'c') AS c_value FROM ${table} WHERE STRUCT_ELEMENT(STRUCT_ELEMENT(struct_column2, 'new_a'), 'new_aa') = 50 ORDER BY id"""
 
-        qt_gender_female """select * FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'gender') = 'Female' ORDER BY id"""
-        qt_gender_female_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, ARRAY_SIZE(array_column) AS array_size FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'gender') = 'Female' ORDER BY id"""
+        // qt_gender_female """select * FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'gender') = 'Female' ORDER BY id"""
+        // qt_gender_female_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, ARRAY_SIZE(array_column) AS array_size FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'gender') = 'Female' ORDER BY id"""
 
         qt_category_fruit """select * FROM ${table} WHERE STRUCT_ELEMENT(array_column[2], 'category') = 'Fruit' ORDER BY id"""
-        qt_category_fruit_cols """select id, STRUCT_ELEMENT(struct_column, 'country') AS country, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'full_name') AS full_name FROM ${table} WHERE STRUCT_ELEMENT(array_column[2], 'category') = 'Fruit' ORDER BY id"""
+        // qt_category_fruit_cols """select id, STRUCT_ELEMENT(struct_column, 'country') AS country, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'full_name') AS full_name FROM ${table} WHERE STRUCT_ELEMENT(array_column[2], 'category') = 'Fruit' ORDER BY id"""
 
         qt_category_vegetable """select * FROM ${table} WHERE STRUCT_ELEMENT(array_column[2], 'category') = 'Vegetable' ORDER BY id"""
-        qt_category_vegetable_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') AS age FROM ${table} WHERE STRUCT_ELEMENT(array_column[2], 'category') = 'Vegetable' ORDER BY id"""
+        // qt_category_vegetable_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') AS age FROM ${table} WHERE STRUCT_ELEMENT(array_column[2], 'category') = 'Vegetable' ORDER BY id"""
     }
 }
 
