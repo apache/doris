@@ -510,8 +510,9 @@ int MysqlRowBuffer<is_binary_format>::push_ipv6(const IPv6Value& ipv6_val) {
 
 template <bool is_binary_format>
 int MysqlRowBuffer<is_binary_format>::push_timestamptz(const TimestampTzValue& tz,
-                                                       const cctz::time_zone& local_time_zone) {
-    auto tz_str = tz.to_string(local_time_zone);
+                                                       const cctz::time_zone& local_time_zone,
+                                                       int scale) {
+    auto tz_str = tz.to_string(local_time_zone, scale);
     return push_string(tz_str.c_str(), tz_str.length());
 }
 

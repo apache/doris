@@ -495,7 +495,7 @@ Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
         TimestampTzValue tz_value(data[col_index]);
         DCHECK(options.timezone != nullptr);
-        buf_ret = result.push_timestamptz(tz_value, *options.timezone);
+        buf_ret = result.push_timestamptz(tz_value, *options.timezone, get_scale());
     }
     if (UNLIKELY(buf_ret != 0)) {
         return Status::InternalError("pack mysql buffer failed.");

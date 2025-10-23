@@ -768,6 +768,7 @@ public class ScalarType extends Type {
             case DECIMAL128:
             case DECIMAL256:
             case DATETIMEV2:
+            case TIMESTAMPTZ:
             case TIMEV2: {
                 if (precision < scale) {
                     throw new IllegalArgumentException(
