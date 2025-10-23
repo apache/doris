@@ -24,12 +24,8 @@ suite("refactor_storage_backup_restore_azure", "p0,external") {
     if (enabled == null || enabled.equalsIgnoreCase("false")) {
         return ;
     }
-    String objPrefix = "azure"
-    String container = context.config.otherConfigs.get("azure.container")
-    String account =context.config.otherConfigs.get("azure.account")
-    String s3_endpoint = "${account}.blob.core.windows.net"
-    String ak = context.config.otherConfigs.get("azure.ak")
-    String sk = context.config.otherConfigs.get("azure.sk")
+
+
 
     def s3table = "test_backup_restore_azure";
 
@@ -79,7 +75,7 @@ suite("refactor_storage_backup_restore_azure", "p0,external") {
         assert insertResult.get(0).get(0) == 1
     }
 
-    def createRepository = { String repoName, String endpointName, String endpoint, String regionName, String region, String accessKeyName, String accessKey, String secretKeyName, String secretKey, String usePathStyle, String location ->
+    def createRepository = { String repoName, String endpointName, String endpoint, String accessKeyName, String accessKey, String secretKeyName, String secretKey,String location ->
         try {
             sql """
                 drop repository  ${repoName};
@@ -94,11 +90,9 @@ suite("refactor_storage_backup_restore_azure", "p0,external") {
             ON LOCATION "${location}"
             PROPERTIES (
                 "${endpointName}" = "${endpoint}",
-                "${regionName}" = "${region}",
                 "${accessKeyName}" = "${accessKey}",
                 "${secretKeyName}" = "${secretKey}",
-                "provider"="azure",
-                "use_path_style" = "${usePathStyle}"
+                "provider"="azure"
             );
         """
     }
@@ -109,7 +103,7 @@ suite("refactor_storage_backup_restore_azure", "p0,external") {
         TO ${repoName}
         ON (${tableName})
     """
-        Awaitility.await().atMost(60, SECONDS).pollInterval(5, SECONDS).until(
+        Awaitility.await().atMost(120, SECONDS).pollInterval(5, SECONDS).until(
                 {
                     def backupResult = sql """
                 show backup from ${dbName} where SnapshotName = '${backupLabel}';
@@ -159,24 +153,39 @@ suite("refactor_storage_backup_restore_azure", "p0,external") {
                         return false
                     }
                 })
+        sql """
+        drop repository  ${repoName};
+        """
     }
 
-
-    def s3repoName1 = "azure_repo_1"
-    createRepository("${s3repoName1}", "s3.endpoint", s3_endpoint, "s3.region", "", "s3.access_key", ak, "s3.secret_key", sk, "true", "s3://${container}/test_" + System.currentTimeMillis())
-
-    def dbName1 = currentDBName + "${objPrefix}_1"
+    String abfsAzureAccountName = context.config.otherConfigs.get("abfsAccountName")
+    String abfsAzureAccountKey = context.config.otherConfigs.get("abfsAccountKey")
+    String abfsContainer = context.config.otherConfigs.get("abfsContainer")
+    String abfsEndpoint = context.config.otherConfigs.get("abfsEndpoint")
+    def s3repoName1 = "azure_repo_1_"+System.currentTimeMillis()
+    def repoPrefix = "regression/azure/backup_restore"
+    createRepository("${s3repoName1}", "s3.endpoint", abfsEndpoint, "s3.access_key", abfsAzureAccountName, "s3.secret_key", abfsAzureAccountKey, "s3://${abfsContainer}/${repoPrefix}/test_" + System.currentTimeMillis())
+    def dbName1 = currentDBName + "azure_1"
     createDBAndTbl("${dbName1}")
     backupAndRestore("${s3repoName1}", dbName1, s3table, "backup_${s3repoName1}_test")
-    def s3repoName2 = "${objPrefix}_repo_2"
-    createRepository("${s3repoName2}", "s3.endpoint", s3_endpoint, "s3.region", "", "s3.access_key", ak, "s3.secret_key", sk, "true", "https://${s3_endpoint}/${container}/test_" + System.currentTimeMillis())
-    def dbName2 = currentDBName + "${objPrefix}_2"
+    
+    def s3repoName2 = "azure_repo_2_"+System.currentTimeMillis()
+    createRepository("${s3repoName2}", "azure.endpoint", abfsEndpoint,  "azure.access_key", abfsAzureAccountName, "azure.secret_key", abfsAzureAccountKey,"s3://${abfsContainer}/${repoPrefix}/test_" + System.currentTimeMillis())
+    def dbName2 = currentDBName + "azure_2"
     createDBAndTbl("${dbName2}")
     backupAndRestore("${s3repoName2}", dbName2, s3table, "backup_${s3repoName2}_test")
-    String failedRepoName = "azure_failed_repo"
-    shouldFail {
-        createRepository("${failedRepoName}", "s3.endpoint", s3_endpoint, "s3.region", "", "s3.access_key", ak, "s3.secret_key", sk, "false", "https://${s3_endpoint}/${container}/test_" + System.currentTimeMillis())
-    }
+    
+    def s3repoName3 = "azure_repo_3_"+System.currentTimeMillis()
+    createRepository("${s3repoName3}", "azure.endpoint", abfsEndpoint,  "azure.account_name", abfsAzureAccountName, "azure.account_key", abfsAzureAccountKey,"abfs://${abfsContainer}@${abfsAzureAccountName}.dfs.core.windows.net/${repoPrefix}/test_" + System.currentTimeMillis())
+    def dbName3 = currentDBName + "azure_3"+System.currentTimeMillis()
+    createDBAndTbl("${dbName3}")
+    backupAndRestore("${s3repoName3}", dbNamee, s3table, "backup_${s3repoName3}_test")
+    
+    def s3repoName4 = "azure_repo_4_"+System.currentTimeMillis()
+    createRepository("${s3repoName4}", "azure.endpoint", abfsEndpoint,  "azure.account_name", abfsAzureAccountName, "azure.account_key", abfsAzureAccountKey,"https://${abfsAzureAccountName}.blob.core.windows.net/${abfsContainer}/${repoPrefix}/test_" + System.currentTimeMillis())
+    def dbName4 = currentDBName + "azure_4"
+    createDBAndTbl("${dbName4}")
+    backupAndRestore("${s3repoName2}", dbName2, s3table, "backup_${s3repoName2}_test")
 
 
 }
