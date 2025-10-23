@@ -22,13 +22,14 @@
 #include <cstdint>
 
 #include "data_type_number_serde.h"
+#include "vec/core/types.h"
 #include "vec/runtime/time_value.h"
 
 namespace doris::vectorized {
 class DataTypeTimeStampTzSerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_TIMESTAMPTZ> {
 public:
-    DataTypeTimeStampTzSerDe(int nesting_level = 1)
-            : DataTypeNumberSerDe<PrimitiveType::TYPE_TIMESTAMPTZ>(nesting_level) {};
+    DataTypeTimeStampTzSerDe(const UInt32 scale, int nesting_level = 1)
+            : DataTypeNumberSerDe<PrimitiveType::TYPE_TIMESTAMPTZ>(nesting_level), _scale(scale) {};
 
     // Currently DataTypeTimeStampTzSerDe only supports from_string interface and MySQL output interface
     // Other interfaces are in DataTypeNumberSerDe, and an error will be reported when called.
@@ -44,5 +45,9 @@ public:
     Status from_string_strict_mode_batch(
             const ColumnString& str, IColumn& column, const FormatOptions& options,
             const NullMap::value_type* null_map = nullptr) const override;
+    int get_scale() const override { return _scale; }
+
+private:
+    const UInt32 _scale = 6;
 };
 } // namespace doris::vectorized

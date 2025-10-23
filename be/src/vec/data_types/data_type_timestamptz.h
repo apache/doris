@@ -37,6 +37,7 @@ namespace doris::vectorized {
 class DataTypeTimeStampTz final : public DataTypeNumberBase<PrimitiveType::TYPE_TIMESTAMPTZ> {
 public:
     DataTypeTimeStampTz() = default;
+    DataTypeTimeStampTz(UInt32 scale) : _scale(scale) {}
     bool equals(const IDataType& rhs) const override {
         return rhs.get_primitive_type() == PrimitiveType::TYPE_TIMESTAMPTZ;
     }
@@ -46,13 +47,23 @@ public:
     MutableColumnPtr create_column() const override { return ColumnType::create(); }
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeTimeStampTzSerDe>(nesting_level);
+        return std::make_shared<DataTypeTimeStampTzSerDe>(_scale, nesting_level);
     };
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_TIMESTAMPTZ; }
     const std::string get_family_name() const override { return "TimeStampTz"; }
     std::string do_get_name() const override { return "TimeStampTz"; }
 
+    void to_pb_column_meta(PColumnMeta* col_meta) const override {
+        DataTypeNumberBase<PrimitiveType::TYPE_TIMESTAMPTZ>::to_pb_column_meta(col_meta);
+        col_meta->mutable_decimal_param()->set_scale(_scale);
+    }
+
+    UInt32 get_scale() const override { return 0; }
+
     /// TODO: The function here is used for literals, which has not been implemented yet. It will be added in the future.
     Field get_field(const TExprNode& node) const override { return Field {}; }
+
+private:
+    const UInt32 _scale = 6; // Default precision is 6
 };
 } // namespace doris::vectorized

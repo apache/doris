@@ -83,7 +83,8 @@ public:
     int push_decimal(const DecimalV2Value& data, int round_scale);
     int push_ipv4(const IPv4Value& ipv4_val);
     int push_ipv6(const IPv6Value& ipv6_val);
-    int push_timestamptz(const TimestampTzValue& tz, const cctz::time_zone& local_time_zone);
+    int push_timestamptz(const TimestampTzValue& tz, const cctz::time_zone& local_time_zone,
+                         int scale);
     int push_string(const char* str, int64_t length);
     int push_null();
 
