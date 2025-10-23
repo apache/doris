@@ -47,111 +47,90 @@ suite("hive_partition_prune") {
     explain {
         sql "select * from test_hive_partition where p=1 or p=2"
         contains("partition=2/6")
-        notContains("PREDICATES")
     }
 
     explain {
         sql "SELECT * FROM test_hive_partition WHERE p in (1,2) and p in (2,3,4)"
         contains("partition=1/6")
-        notContains("PREDICATES")
     }
 
     explain {
         sql "SELECT * FROM test_hive_partition WHERE (p=1 or p=2) and p in (3,5,2)"
         contains("partition=1/6")
-        notContains("PREDICATES")
     }
     explain {
         sql "SELECT * FROM test_hive_partition WHERE (p=1 xor p=2)"
         contains("partition=2/6")
-        notContains("PREDICATES")
     }
     explain {
         sql "SELECT * FROM test_hive_partition WHERE p in (1, 5,6)"
         contains("partition=2/6")
-        notContains("PREDICATES")
     }
     explain {
         sql "SELECT * FROM test_hive_partition WHERE p not in (15,6,1, '2021-01-02 00:00:00')"
         contains("partition=0/6")
-        notContains("PREDICATES")
     }
     explain {
         sql "SELECT * FROM test_hive_partition WHERE p not in (1, 5,6,null)"
         contains("partition=0/6")
-        notContains("PREDICATES")
     }
     explain {
         sql "select * from test_hive_partition where !(p is not null)"
         contains("partition=1/6")
-        notContains("PREDICATES")
     }
     explain {
         sql "select * from test_hive_partition where p is null"
         contains("partition=1/6")
-        notContains("PREDICATES")
     }
     explain {
         sql "select * from test_hive_partition where p is not null"
         contains("partition=5/6")
-        notContains("PREDICATES")
     }
     explain {
         sql "select * from test_hive_partition where not p is null"
         contains("partition=5/6")
-        notContains("PREDICATES")
     }
     explain {
         sql "select * from test_hive_partition where !(p is null)"
         contains("partition=5/6")
-        notContains("PREDICATES")
     }
 
     explain {
         sql "select * from test_hive_partition where p <=> null"
         contains("partition=1/6")
-        notContains("PREDICATES")
     }
     explain {
         sql "select * from test_hive_partition where !(p <=> null)"
         contains("partition=5/6")
-        notContains("PREDICATES")
     }
 
     explain {
         sql "SELECT * FROM test_hive_partition WHERE p<1"
         contains("partition=0/6")
-        notContains("PREDICATES")
     }
     explain {
         sql "SELECT * FROM test_hive_partition WHERE p<=2"
         contains("partition=2/6")
-        notContains("PREDICATES")
     }
     explain {
         sql "SELECT * FROM test_hive_partition WHERE p>2"
         contains("partition=3/6")
-        notContains("PREDICATES")
     }
     explain {
         sql "SELECT * FROM test_hive_partition WHERE p>=3"
         contains("partition=3/6")
-        notContains("PREDICATES")
     }
     explain {
         sql "SELECT * FROM test_hive_partition WHERE p=4"
         contains("partition=1/6")
-        notContains("PREDICATES")
     }
     explain {
         sql "SELECT * FROM test_hive_partition WHERE p<=>5"
         contains("partition=1/6")
-        notContains("PREDICATES")
     }
     explain {
         sql "SELECT * FROM test_hive_partition WHERE p!=5 and p!=6"
         contains("partition=4/6")
-        notContains("PREDICATES")
     }
     sql "drop table if exists test_hive_partition "
 }
