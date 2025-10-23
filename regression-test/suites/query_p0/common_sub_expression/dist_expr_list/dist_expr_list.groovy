@@ -21,12 +21,13 @@
 
 suite("dist_expr_list") {
     sql """
+    drop table if exists agg_cse_shuffle;
     create table agg_cse_shuffle(
-        a int, b int
+        a int, b int, c int
     )distributed by hash(a) buckets 3
     properties("replication_num" = "1")
     ;
-    insert into agg_cse_shuffle values (1, 2), (3, 4);
+    insert into agg_cse_shuffle values (1, 2, 3), (3, 4, 5);
     """
 
     explain {
@@ -37,8 +38,9 @@ suite("dist_expr_list") {
                     when (abs(b) < 10) then a+2
                     else NULL
                 end
-            )
-            from agg_cse_shuffle;
+            ) x
+            from agg_cse_shuffle
+            where c > 0;
             """
         notContains "distribute expr lists: a"
     }
