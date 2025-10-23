@@ -82,8 +82,10 @@ public:
     bool is_key() const { return _is_key; }
     const std::vector<std::string>& column_paths() const { return _column_paths; };
 
-    const TColumnAccessPaths& all_access_paths() const { return _all_access_paths; }
-    const TColumnAccessPaths& predicate_access_paths() const { return _predicate_access_paths; }
+    const TColumnAccessPaths& all_column_access_paths() const { return _all_column_access_paths; }
+    const TColumnAccessPaths& predicate_column_access_paths() const {
+        return _predicate_column_access_paths;
+    }
 
     bool is_auto_increment() const { return _is_auto_increment; }
 
@@ -97,6 +99,10 @@ public:
         // virtual_column_expr need do prepare.
         return virtual_column_expr;
     }
+
+    void set_is_predicate(bool is_predicate) { _is_predicate = is_predicate; }
+
+    bool is_predicate() const { return _is_predicate; }
 
 private:
     friend class DescriptorTbl;
@@ -131,13 +137,15 @@ private:
     const bool _is_key;
     const std::vector<std::string> _column_paths;
 
-    const TColumnAccessPaths _all_access_paths;
-    const TColumnAccessPaths _predicate_access_paths;
+    const TColumnAccessPaths _all_column_access_paths;
+    const TColumnAccessPaths _predicate_column_access_paths;
 
     const bool _is_auto_increment;
     const std::string _col_default_value;
 
     std::shared_ptr<doris::TExpr> virtual_column_expr = nullptr;
+
+    bool _is_predicate = false;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);

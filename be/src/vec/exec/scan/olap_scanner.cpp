@@ -546,14 +546,14 @@ Status OlapScanner::_init_return_columns() {
         }
 
         const auto& column = tablet_schema->column(index);
-        if (!slot->all_access_paths().name_access_paths.empty()) {
+        if (!slot->all_column_access_paths().name_access_paths.empty()) {
             _tablet_reader_params.all_access_paths.insert(
-                    {column.unique_id(), slot->all_access_paths()});
+                    {column.unique_id(), slot->all_column_access_paths()});
         }
 
-        if (!slot->predicate_access_paths().name_access_paths.empty()) {
+        if (!slot->predicate_column_access_paths().name_access_paths.empty()) {
             _tablet_reader_params.predicate_access_paths.insert(
-                    {column.unique_id(), slot->predicate_access_paths()});
+                    {column.unique_id(), slot->predicate_column_access_paths()});
         }
 
         _return_columns.push_back(index);

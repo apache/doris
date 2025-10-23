@@ -82,7 +82,9 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
                                const int32_t row_group_id, const tparquet::RowGroup& row_group,
                                const cctz::time_zone* ctz, io::IOContext* io_ctx,
                                const PositionDeleteContext& position_delete_ctx,
-                               const LazyReadContext& lazy_read_ctx, RuntimeState* state)
+                               const LazyReadContext& lazy_read_ctx, RuntimeState* state,
+                               const std::set<uint64_t>& column_ids,
+                               const std::set<uint64_t>& filter_column_ids)
         : _file_reader(file_reader),
           _read_table_columns(read_columns),
           _row_group_id(row_group_id),
@@ -93,7 +95,9 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
           _position_delete_ctx(position_delete_ctx),
           _lazy_read_ctx(lazy_read_ctx),
           _state(state),
-          _obj_pool(new ObjectPool()) {}
+          _obj_pool(new ObjectPool()),
+          _column_ids(column_ids),
+          _filter_column_ids(filter_column_ids) {}
 
 RowGroupReader::~RowGroupReader() {
     _column_readers.clear();
@@ -130,9 +134,9 @@ Status RowGroupReader::init(
         const tparquet::OffsetIndex* offset_index =
                 col_offsets.find(physical_index) != col_offsets.end() ? &col_offsets[physical_index]
                                                                       : nullptr;
-        RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
-                                                    _read_ranges, _ctz, _io_ctx, reader,
-                                                    max_buf_size, offset_index));
+        RETURN_IF_ERROR(ParquetColumnReader::create(
+                _file_reader, field, _row_group_meta, _read_ranges, _ctz, _io_ctx, reader,
+                max_buf_size, offset_index, _column_ids, _filter_column_ids));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
@@ -320,8 +324,8 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         return _do_lazy_read(block, batch_size, read_rows, batch_eof);
     } else {
         FilterMap filter_map;
-        RETURN_IF_ERROR(_read_column_data(block, _lazy_read_ctx.all_read_columns, batch_size,
-                                          read_rows, batch_eof, filter_map));
+        RETURN_IF_ERROR((_read_column_data(block, _lazy_read_ctx.all_read_columns, batch_size,
+                                           read_rows, batch_eof, filter_map)));
         RETURN_IF_ERROR(
                 _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
@@ -1110,6 +1114,7 @@ ParquetColumnReader::Statistics RowGroupReader::statistics() {
     }
     return st;
 }
+
 #include "common/compile_check_end.h"
 
 } // namespace doris::vectorized
