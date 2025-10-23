@@ -76,6 +76,10 @@ public class PushDownNestedColumn implements RewriteRuleFactory {
     }
 
     private <C extends LogicalPlan> Plan defaultPushDown(MatchingContext<LogicalProject<C>> ctx) {
+        if (!ctx.connectContext.getSessionVariable().enablePruneNestedColumns) {
+            return ctx.root;
+        }
+
         LogicalProject<C> project = ctx.root;
         C child = project.child();
         PushdownProjectHelper pushdownProjectHelper
@@ -95,6 +99,9 @@ public class PushDownNestedColumn implements RewriteRuleFactory {
     }
 
     private Plan pushThroughUnion(MatchingContext<LogicalProject<LogicalUnion>> ctx) {
+        if (!ctx.connectContext.getSessionVariable().enablePruneNestedColumns) {
+            return ctx.root;
+        }
         LogicalProject<LogicalUnion> project = ctx.root;
         LogicalUnion union = project.child();
         PushdownProjectHelper pushdownProjectHelper
