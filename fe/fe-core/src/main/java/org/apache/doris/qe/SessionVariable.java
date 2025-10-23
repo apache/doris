@@ -751,7 +751,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
                                                             "default_variant_max_sparse_column_statistics_size";
 
-    public static final String MERGE_IO_READ_SLICE_SIZE = "merge_io_read_slice_size";
+    public static final String MERGE_IO_READ_SLICE_SIZE_BYTES = "merge_io_read_slice_size_bytes";
 
     public static final String ENABLE_PREFER_CACHED_ROWSET = "enable_prefer_cached_rowset";
     public static final String QUERY_FRESHNESS_TOLERANCE_MS = "query_freshness_tolerance_ms";
@@ -2271,9 +2271,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = QUERY_FRESHNESS_TOLERANCE_MS, needForward = false)
     public long queryFreshnessToleranceMs = -1;
 
-    @VariableMgr.VarAttr(name = MERGE_IO_READ_SLICE_SIZE, description = {"调整 READ_SLICE_SIZE 大小，降低 Merge IO 读放大影响",
+    @VariableMgr.VarAttr(name = MERGE_IO_READ_SLICE_SIZE_BYTES, description = {
+            "调整 READ_SLICE_SIZE 大小，降低 Merge IO 读放大影响",
             "Make the READ_SLICE_SIZE variable configurable to reduce the impact caused by read amplification."})
-    public int mergeReadSliceSize = 8388608;
+    public int mergeReadSliceSizeBytes = 8388608;
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
@@ -4371,7 +4372,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setNewIsIpAddressInRange(newIsIpAddressInRange);
         tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
-        tResult.setMergeReadSliceSize(mergeReadSliceSize);
+        tResult.setMergeReadSliceSize(mergeReadSliceSizeBytes);
         return tResult;
     }
 
