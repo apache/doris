@@ -677,12 +677,16 @@ Status VOlapTablePartitionParam::generate_partition_from(const TOlapTablePartiti
 
     // Initialize for random distribution
     // For hash distribution, distributed_columns is not empty, so load_tablet_idx stays at -1
-    // For random distribution with load_to_single_tablet = true, FE sets load_tablet_idx
+    // For random distribution, FE always sets load_tablet_idx
     if (t_part.__isset.load_tablet_idx) {
         part_result->load_tablet_idx = t_part.load_tablet_idx;
-    } else if (_t_param.distributed_columns.empty() && _random_bucket_switching_threshold > 0) {
-        // For random distribution with bucket switching: initialize with random tablet
+    } else if (_t_param.distributed_columns.empty()) {
+        // Fallback: initialize with random tablet if FE didn't set it
         part_result->load_tablet_idx = butil::fast_rand() % t_part.num_buckets;
+    }
+
+    // Set switching threshold for random distribution if specified
+    if (_t_param.distributed_columns.empty() && _random_bucket_switching_threshold > 0) {
         part_result->switching_threshold = _random_bucket_switching_threshold;
         part_result->current_tablet_rows = 0;
     }
