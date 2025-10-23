@@ -132,7 +132,7 @@ public class StorageBackend implements ParseNode {
         GFS("Tencent Goose File System"),
         JFS("Juicefs"),
         STREAM("Stream load pipe"),
-        AZURE("MicroSoft Azure Blob");
+        AZURE("MicroSoft Azure Blob"),
         HTTP("HTTP");
 
         @SerializedName("desc")
