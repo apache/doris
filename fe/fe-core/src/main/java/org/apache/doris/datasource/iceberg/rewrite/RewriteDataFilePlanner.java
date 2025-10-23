@@ -19,7 +19,6 @@ package org.apache.doris.datasource.iceberg.rewrite;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.Iterables;
@@ -81,12 +80,6 @@ public class RewriteDataFilePlanner {
         try {
             // Create table scan with optional filters
             TableScan tableScan = icebergTable.newScan();
-
-            // Apply partition filters if specified
-            if (parameters.hasPartitionFilter()) {
-                // TODO: Convert partition filter to Iceberg expression
-                LOG.info("Partition filtering is specified but not yet implemented");
-            }
 
             // Apply WHERE condition if specified
             if (parameters.hasWhereCondition()) {
@@ -225,7 +218,6 @@ public class RewriteDataFilePlanner {
         private final int deleteFileThreshold;
         private final double deleteRatioThreshold;
 
-        private final Optional<PartitionNamesInfo> partitionFilter;
         private final Optional<Expression> whereCondition;
 
         public Parameters(
@@ -238,7 +230,6 @@ public class RewriteDataFilePlanner {
                 int deleteFileThreshold,
                 double deleteRatioThreshold,
                 long outputSpecId,
-                Optional<PartitionNamesInfo> partitionFilter,
                 Optional<Expression> whereCondition) {
             this.targetFileSizeBytes = targetFileSizeBytes;
             this.minFileSizeBytes = minFileSizeBytes;
@@ -248,7 +239,6 @@ public class RewriteDataFilePlanner {
             this.maxFileGroupSizeBytes = maxFileGroupSizeBytes;
             this.deleteFileThreshold = deleteFileThreshold;
             this.deleteRatioThreshold = deleteRatioThreshold;
-            this.partitionFilter = partitionFilter;
             this.whereCondition = whereCondition;
         }
 
@@ -284,14 +274,6 @@ public class RewriteDataFilePlanner {
             return deleteRatioThreshold;
         }
 
-        public boolean hasPartitionFilter() {
-            return partitionFilter.isPresent();
-        }
-
-        public Optional<PartitionNamesInfo> getPartitionFilter() {
-            return partitionFilter;
-        }
-
         public boolean hasWhereCondition() {
             return whereCondition.isPresent();
         }
@@ -311,7 +293,6 @@ public class RewriteDataFilePlanner {
                     + ", maxFileGroupSizeBytes=" + maxFileGroupSizeBytes
                     + ", deleteFileThreshold=" + deleteFileThreshold
                     + ", deleteRatioThreshold=" + deleteRatioThreshold
-                    + ", hasPartitionFilter=" + hasPartitionFilter()
                     + ", hasWhereCondition=" + hasWhereCondition()
                     + '}';
         }

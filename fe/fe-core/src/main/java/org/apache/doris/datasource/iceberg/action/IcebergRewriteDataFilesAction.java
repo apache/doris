@@ -161,6 +161,7 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
         if (this.maxFileSizeBytes == 0) {
             this.maxFileSizeBytes = (long) (targetFileSizeBytes * 1.8);
         }
+        validateNoPartitions();
     }
 
     @Override
@@ -210,11 +211,8 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
                 namedArguments.getInt(DELETE_FILE_THRESHOLD),
                 namedArguments.getDouble(DELETE_RATIO_THRESHOLD),
                 namedArguments.getLong(OUTPUT_SPEC_ID),
-                partitionNamesInfo,
                 whereCondition);
     }
-
-
 
     @Override
     public String getDescription() {
