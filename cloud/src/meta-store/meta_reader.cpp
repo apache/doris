@@ -1110,6 +1110,42 @@ int MetaReader::count_snapshot_references(Transaction* txn, Versionstamp snapsho
     return count;
 }
 
+TxnErrorCode MetaReader::find_derived_instance_ids(Transaction* txn, Versionstamp snapshot_version,
+                                                   std::vector<std::string>* out, bool snapshot) {
+    // Key format: ${prefix} + ${10-byte-versionstamp} + ${derived_instance_id}
+    std::string snapshot_ref_key_start =
+            versioned::snapshot_reference_key_prefix(instance_id_, snapshot_version);
+    std::string snapshot_ref_key_end = snapshot_ref_key_start + '\xFF';
+
+    std::unique_ptr<RangeGetIterator> it;
+    TxnErrorCode err = txn->get(snapshot_ref_key_start, snapshot_ref_key_end, &it, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to get snapshot references, snapshot_version="
+                     << snapshot_version.to_string() << " err=" << err;
+        return err;
+    }
+
+    // Parse instance IDs from keys
+    std::unordered_set<std::string> unique_ids;
+    while (it->has_next()) {
+        auto [key, value] = it->next();
+
+        // Decode the snapshot reference key to extract ref_instance_id
+        std::string ref_instance_id;
+        if (versioned::decode_snapshot_ref_key(key, nullptr, nullptr, &ref_instance_id) == 0 &&
+            !ref_instance_id.empty()) {
+            unique_ids.insert(std::move(ref_instance_id));
+        } else {
+            LOG(WARNING) << "failed to decode snapshot reference key, key=" << hex(key);
+        }
+    }
+
+    // Convert set to vector
+    out->assign(unique_ids.begin(), unique_ids.end());
+
+    return TxnErrorCode::TXN_OK;
+}
+
 TxnErrorCode MetaReader::get_load_rowset_metas(
         int64_t tablet_id, std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas,
         bool snapshot) {
