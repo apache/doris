@@ -828,57 +828,6 @@ std::string snapshot_reference_key_prefix(std::string_view instance_id, Versions
     return out;
 }
 
-int decode_snapshot_ref_key(std::string_view key, std::string* instance_id, Versionstamp* timestamp,
-                            std::string* ref_instance_id) {
-    // Key format: 0x03 + encode_bytes("snapshot") + encode_bytes(instance_id) +
-    //             encode_bytes("reference") + encode_versionstamp(timestamp) + encode_bytes(ref_instance_id)
-
-    if (key.empty() || key[0] != CLOUD_VERSIONED_KEY_SPACE03) {
-        return -1;
-    }
-    key.remove_prefix(1);
-
-    // Decode "snapshot"
-    std::string snapshot_prefix;
-    if (decode_bytes(&key, &snapshot_prefix) != 0 || snapshot_prefix != SNAPSHOT_KEY_PREFIX) {
-        return -1;
-    }
-
-    // Decode instance_id
-    if (instance_id && decode_bytes(&key, instance_id) != 0) {
-        return -1;
-    } else if (!instance_id) {
-        std::string dummy;
-        if (decode_bytes(&key, &dummy) != 0) {
-            return -1;
-        }
-    }
-
-    // Decode "reference"
-    std::string reference_infix;
-    if (decode_bytes(&key, &reference_infix) != 0 ||
-        reference_infix != SNAPSHOT_REFERENCE_KEY_INFIX) {
-        return -1;
-    }
-
-    // Decode versionstamp (10 bytes)
-    if (timestamp && decode_versionstamp(&key, timestamp) != 0) {
-        return -1;
-    } else if (!timestamp) {
-        Versionstamp dummy;
-        if (decode_versionstamp(&key, &dummy) != 0) {
-            return -1;
-        }
-    }
-
-    // Decode ref_instance_id
-    if (ref_instance_id && decode_bytes(&key, ref_instance_id) != 0) {
-        return -1;
-    }
-
-    return 0;
-}
-
 //==============================================================================
 // Log keys
 //==============================================================================
@@ -970,6 +919,57 @@ bool decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, i
         *table_id = std::get<int64_t>(std::get<0>(out[4]));
         *partition_id = std::get<int64_t>(std::get<0>(out[5]));
     } catch (const std::bad_variant_access& e) {
+        return false;
+    }
+
+    return true;
+}
+
+bool decode_snapshot_ref_key(std::string_view* in, std::string* instance_id,
+                             Versionstamp* timestamp, std::string* ref_instance_id) {
+    // Key format: 0x03 + encode_bytes("snapshot") + encode_bytes(instance_id) +
+    //             encode_bytes("reference") + encode_versionstamp(timestamp) + encode_bytes(ref_instance_id)
+
+    if (in->empty() || (*in)[0] != CLOUD_VERSIONED_KEY_SPACE03) {
+        return false;
+    }
+    in->remove_prefix(1);
+
+    // Decode "snapshot"
+    std::string snapshot_prefix;
+    if (decode_bytes(in, &snapshot_prefix) != 0 || snapshot_prefix != SNAPSHOT_KEY_PREFIX) {
+        return false;
+    }
+
+    // Decode instance_id
+    if (instance_id && decode_bytes(in, instance_id) != 0) {
+        return false;
+    } else if (!instance_id) {
+        std::string dummy;
+        if (decode_bytes(in, &dummy) != 0) {
+            return false;
+        }
+    }
+
+    // Decode "reference"
+    std::string reference_infix;
+    if (decode_bytes(in, &reference_infix) != 0 ||
+        reference_infix != SNAPSHOT_REFERENCE_KEY_INFIX) {
+        return false;
+    }
+
+    // Decode versionstamp (10 bytes)
+    if (timestamp && decode_versionstamp(in, timestamp) != 0) {
+        return false;
+    } else if (!timestamp) {
+        Versionstamp dummy;
+        if (decode_versionstamp(in, &dummy) != 0) {
+            return false;
+        }
+    }
+
+    // Decode ref_instance_id
+    if (ref_instance_id && decode_bytes(in, ref_instance_id) != 0) {
         return false;
     }
 

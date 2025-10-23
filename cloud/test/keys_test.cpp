@@ -2394,9 +2394,10 @@ TEST(KeysTest, DecodeSnapshotRefKeyTest) {
         Versionstamp dec_timestamp;
         std::string dec_ref_instance_id;
 
-        int ret = decode_snapshot_ref_key(encoded_key, &dec_instance_id, &dec_timestamp,
-                                          &dec_ref_instance_id);
-        ASSERT_EQ(ret, 0);
+        std::string_view key_view = encoded_key;
+        bool ret = decode_snapshot_ref_key(&key_view, &dec_instance_id, &dec_timestamp,
+                                           &dec_ref_instance_id);
+        ASSERT_TRUE(ret);
         EXPECT_EQ(dec_instance_id, instance_id);
         EXPECT_EQ(dec_timestamp, timestamp);
         EXPECT_EQ(dec_ref_instance_id, ref_instance_id);
@@ -2405,8 +2406,9 @@ TEST(KeysTest, DecodeSnapshotRefKeyTest) {
     // Test decode_snapshot_ref_key - decode only ref_instance_id (nullptr for others)
     {
         std::string dec_ref_instance_id;
-        int ret = decode_snapshot_ref_key(encoded_key, nullptr, nullptr, &dec_ref_instance_id);
-        ASSERT_EQ(ret, 0);
+        std::string_view key_view = encoded_key;
+        bool ret = decode_snapshot_ref_key(&key_view, nullptr, nullptr, &dec_ref_instance_id);
+        ASSERT_TRUE(ret);
         EXPECT_EQ(dec_ref_instance_id, ref_instance_id);
     }
 
@@ -2414,8 +2416,9 @@ TEST(KeysTest, DecodeSnapshotRefKeyTest) {
     {
         std::string dec_instance_id;
         Versionstamp dec_timestamp;
-        int ret = decode_snapshot_ref_key(encoded_key, &dec_instance_id, &dec_timestamp, nullptr);
-        ASSERT_EQ(ret, 0);
+        std::string_view key_view = encoded_key;
+        bool ret = decode_snapshot_ref_key(&key_view, &dec_instance_id, &dec_timestamp, nullptr);
+        ASSERT_TRUE(ret);
         EXPECT_EQ(dec_instance_id, instance_id);
         EXPECT_EQ(dec_timestamp, timestamp);
     }
@@ -2423,16 +2426,18 @@ TEST(KeysTest, DecodeSnapshotRefKeyTest) {
     // Test with invalid key - empty
     {
         std::string dec_ref_instance_id;
-        int ret = decode_snapshot_ref_key("", nullptr, nullptr, &dec_ref_instance_id);
-        ASSERT_EQ(ret, -1);
+        std::string_view key_view = "";
+        bool ret = decode_snapshot_ref_key(&key_view, nullptr, nullptr, &dec_ref_instance_id);
+        ASSERT_FALSE(ret);
     }
 
     // Test with invalid key - wrong prefix
     {
         std::string invalid_key = "invalid_key";
         std::string dec_ref_instance_id;
-        int ret = decode_snapshot_ref_key(invalid_key, nullptr, nullptr, &dec_ref_instance_id);
-        ASSERT_EQ(ret, -1);
+        std::string_view key_view = invalid_key;
+        bool ret = decode_snapshot_ref_key(&key_view, nullptr, nullptr, &dec_ref_instance_id);
+        ASSERT_FALSE(ret);
     }
 
     // Test with multiple ref_instance_ids to ensure uniqueness
@@ -2450,9 +2455,12 @@ TEST(KeysTest, DecodeSnapshotRefKeyTest) {
         std::string encoded3 = snapshot_reference_key(key3);
 
         std::string dec_ref1, dec_ref2, dec_ref3;
-        ASSERT_EQ(decode_snapshot_ref_key(encoded1, nullptr, nullptr, &dec_ref1), 0);
-        ASSERT_EQ(decode_snapshot_ref_key(encoded2, nullptr, nullptr, &dec_ref2), 0);
-        ASSERT_EQ(decode_snapshot_ref_key(encoded3, nullptr, nullptr, &dec_ref3), 0);
+        std::string_view key_view1 = encoded1;
+        std::string_view key_view2 = encoded2;
+        std::string_view key_view3 = encoded3;
+        ASSERT_TRUE(decode_snapshot_ref_key(&key_view1, nullptr, nullptr, &dec_ref1));
+        ASSERT_TRUE(decode_snapshot_ref_key(&key_view2, nullptr, nullptr, &dec_ref2));
+        ASSERT_TRUE(decode_snapshot_ref_key(&key_view3, nullptr, nullptr, &dec_ref3));
 
         EXPECT_EQ(dec_ref1, ref_id1);
         EXPECT_EQ(dec_ref2, ref_id2);

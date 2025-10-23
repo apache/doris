@@ -1132,7 +1132,8 @@ TxnErrorCode MetaReader::find_derived_instance_ids(Transaction* txn, Versionstam
 
         // Decode the snapshot reference key to extract ref_instance_id
         std::string ref_instance_id;
-        if (versioned::decode_snapshot_ref_key(key, nullptr, nullptr, &ref_instance_id) == 0 &&
+        std::string_view key_view = key;
+        if (versioned::decode_snapshot_ref_key(&key_view, nullptr, nullptr, &ref_instance_id) &&
             !ref_instance_id.empty()) {
             unique_ids.insert(std::move(ref_instance_id));
         } else {
