@@ -142,7 +142,7 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
             String valueInMs = entry.getValue();
             String valueInFe = propertiesInFe.get(key);
 
-            if (valueInFe.equalsIgnoreCase(valueInMs)) {
+            if (valueInFe != null && valueInFe.equalsIgnoreCase(valueInMs)) {
                 continue;
             }
             changedProperties.put(key, valueInMs);

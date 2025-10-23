@@ -463,10 +463,25 @@ public class CloudTabletRebalancer extends MasterDaemon {
     public void checkInflightWarmUpCacheAsync() {
         Map<Long, List<InfightTask>> beToInfightTasks = new HashMap<Long, List<InfightTask>>();
 
+        Set<InfightTablet> invalidTasks = new HashSet<>();
         for (Map.Entry<InfightTablet, InfightTask> entry : tabletToInfightTask.entrySet()) {
+            String clusterId = entry.getKey().getClusterId();
+            BalanceTypeEnum balanceTypeEnum = getCurrentBalanceType(clusterId);
+            if (balanceTypeEnum == BalanceTypeEnum.WITHOUT_WARMUP) {
+                // no need check warmup cache async
+                invalidTasks.add(entry.getKey());
+                continue;
+            }
             beToInfightTasks.putIfAbsent(entry.getValue().destBe, new ArrayList<>());
             beToInfightTasks.get(entry.getValue().destBe).add(entry.getValue());
         }
+        invalidTasks.forEach(key -> {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("remove inflight warmup task tablet {} cluster {} no need warmup",
+                        key.getTabletId(), key.getClusterId());
+            }
+            tabletToInfightTask.remove(key);
+        });
 
         List<UpdateCloudReplicaInfo> infos = new ArrayList<>();
         long needRehashDeadTime = System.currentTimeMillis() - Config.rehash_tablet_after_be_dead_seconds * 1000L;
@@ -902,17 +917,19 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
         boolean shouldUpdateMapping = false;
         BalanceTypeEnum currentBalanceType = getCurrentBalanceType(clusterId);
-        int currentTaskTimeout = getCurrentTaskTimeout(clusterId);
-        LOG.debug("cluster id {}, balance type {}, tabletId {}, task timeout {}s",
-                clusterId, currentBalanceType, tabletId, currentTaskTimeout);
+        LOG.debug("cluster id {}, balance type {}, tabletId {}, ", clusterId, currentBalanceType, tabletId);
 
         switch (currentBalanceType) {
             case ASYNC_WARMUP: {
+                int currentTaskTimeout = getCurrentTaskTimeout(clusterId);
                 boolean timeExceeded = System.currentTimeMillis() / 1000 - task.startTimestamp > currentTaskTimeout;
+                LOG.debug("tablet {}-{} warmup cache isDone {} timeExceeded {}",
+                        clusterId, tabletId, isDone, timeExceeded);
                 if (isDone || timeExceeded) {
                     if (!isDone) {
                         // timeout but not done, not normal, info log
-                        LOG.info("{}-{} warmup cache timeout, forced to change the mapping", clusterId, tabletId);
+                        LOG.info("{}-{} warmup cache timeout {}, forced to change the mapping",
+                                clusterId, tabletId, currentTaskTimeout);
                     } else {
                         // done, normal
                         LOG.debug("{}-{} warmup cache done, change the mapping", clusterId, tabletId);

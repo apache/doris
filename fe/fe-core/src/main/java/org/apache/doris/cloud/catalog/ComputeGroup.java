@@ -18,6 +18,7 @@
 package org.apache.doris.cloud.catalog;
 
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.collect.ImmutableSet;
@@ -45,13 +46,16 @@ public class ComputeGroup {
 
     private static final Map<String, String> ALL_PROPERTIES_DEFAULT_VALUE_MAP = Maps.newHashMap();
 
-    public static final int DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT = 300;
-    public static final BalanceTypeEnum DEFAULT_COMPUTE_GROUP_BALANCE_ENUM = BalanceTypeEnum.ASYNC_WARMUP;
+    public static final int DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT = Config.cloud_pre_heating_time_limit_sec;
+    public static final BalanceTypeEnum DEFAULT_COMPUTE_GROUP_BALANCE_ENUM
+            = BalanceTypeEnum.fromString(Config.cloud_warm_up_for_rebalance_type);
 
     static {
-        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(BALANCE_TYPE, BalanceTypeEnum.ASYNC_WARMUP.getValue());
-        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(BALANCE_WARM_UP_TASK_TIMEOUT,
-                String.valueOf(DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT));
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(BALANCE_TYPE, DEFAULT_COMPUTE_GROUP_BALANCE_ENUM.getValue());
+        if (BalanceTypeEnum.ASYNC_WARMUP.getValue().equals(Config.cloud_warm_up_for_rebalance_type)) {
+            ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(BALANCE_WARM_UP_TASK_TIMEOUT,
+                    String.valueOf(DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT));
+        }
     }
 
     private enum PolicyTypeEnum {
