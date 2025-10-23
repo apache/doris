@@ -178,6 +178,11 @@ suite("test_cast_timestamptz") {
     select id, str, cast(str as timestamptz) as ts from test_cast_timestamptzdb order by id;
     """
 
+
+    qt_sql """
+        select cast("2020-01-01 00:00:00.123456 +03:00" as timestamptz(4));
+    """
+
     sql """
         set time_zone = default;
     """

@@ -48,7 +48,7 @@ bool TimestampTzValue::from_string(const StringRef& str, const cctz::time_zone* 
     }
 }
 
-std::string TimestampTzValue::to_string(const cctz::time_zone& tz) const {
+std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) const {
     cctz::civil_second utc_cs(_utc_dt.year(), _utc_dt.month(), _utc_dt.day(), _utc_dt.hour(),
                               _utc_dt.minute(), _utc_dt.second());
 
@@ -65,10 +65,24 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz) const {
     /// TODO: We could directly use datetime's to_string here. In the future,
     /// when we support a function like 'show datetime with timezone',
     /// we can reuse this implementation.
-    return fmt::format("{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d} {:c}{:02d}:{:02d}",
-                       civ.year(), civ.month(), civ.day(), civ.hour(), civ.minute(), civ.second(),
-                       _utc_dt.microsecond(), (offset_hours >= 0 ? '+' : '-'),
-                       std::abs(offset_hours), offset_mins);
+
+    DateV2Value<DateTimeV2ValueType> tmp_dt;
+    tmp_dt.unchecked_set_time((uint16_t)civ.year(), (uint8_t)civ.month(), (uint8_t)civ.day(),
+                              (uint8_t)civ.hour(), (uint8_t)civ.minute(), (uint8_t)civ.second(),
+                              _utc_dt.microsecond());
+
+    char buffer[64];
+
+    int len = tmp_dt.to_buffer(buffer, scale);
+    // timezone +03:00
+    buffer[len++] = ' ';
+    buffer[len++] = (offset_hours >= 0 ? '+' : '-');
+    buffer[len++] = static_cast<char>('0' + std::abs(offset_hours) / 10);
+    buffer[len++] = '0' + std::abs(offset_hours) % 10;
+    buffer[len++] = ':';
+    buffer[len++] = static_cast<char>('0' + offset_mins / 10);
+    buffer[len++] = '0' + offset_mins % 10;
+    return std::string(buffer, len);
 }
 
 bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& dt,

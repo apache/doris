@@ -53,7 +53,7 @@ public:
     underlying_value value() const { return _utc_dt.to_date_int_val(); }
 
     // Outputs a string representation with timezone information in the format +03:00
-    std::string to_string(const cctz::time_zone& local_time_zone) const;
+    std::string to_string(const cctz::time_zone& local_time_zone, int scale = 6) const;
 
     // Parses a string, CastParameters can control whether strict mode is used
     bool from_string(const StringRef& str, const cctz::time_zone* local_time_zone,
