@@ -348,7 +348,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         Status st = Status.OK;
         try {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
-            String globPath = uri.getKey();
+            String globPath = S3Util.extendGlobs(uri.getKey());
             String bucket = uri.getBucket();
             if (LOG.isDebugEnabled()) {
                 LOG.debug("try to glob list for azure, remote path {}, orig {}", globPath, remotePath);
