@@ -27,6 +27,8 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
 
     def options = new ClusterOptions()
     options.setFeNum(1)
+    // run in cloud and not cloud
+    options.cloudMode = null
     
     docker(options) {
         sql """drop table if exists `${tableName}` force"""
