@@ -1081,10 +1081,6 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             continue;
         }
         auto slot_id = _colname_to_slot_id->at(read_table_col);
-        if (!_push_down_simple_expr.contains(slot_id)) {
-            continue;
-        }
-        const auto& push_down_expr = _push_down_simple_expr[slot_id];
 
         int parquet_col_id =
                 _file_metadata->schema().get_column(read_file_col)->physical_column_index;
@@ -1093,6 +1089,19 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             continue;
         }
         auto& chunk = row_group.columns[parquet_col_id];
+
+        if (chunk.offset_index_length == 0) {
+            continue;
+        }
+        tparquet::OffsetIndex offset_index;
+        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
+        _col_offsets[parquet_col_id] = offset_index;
+
+        if (!_push_down_simple_expr.contains(slot_id)) {
+            continue;
+        }
+        const auto& push_down_expr = _push_down_simple_expr[slot_id];
+
         if (chunk.column_index_offset == 0 && chunk.column_index_length == 0) {
             continue;
         }
@@ -1132,8 +1141,6 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         if (skipped_page_range.empty()) {
             continue;
         }
-        tparquet::OffsetIndex offset_index;
-        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
         for (int page_id : skipped_page_range) {
             RowRange skipped_row_range;
             RETURN_IF_ERROR(page_index.create_skipped_row_range(offset_index, row_group.num_rows,
@@ -1141,7 +1148,6 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             // use the union row range
             skipped_row_ranges.emplace_back(skipped_row_range);
         }
-        _col_offsets[parquet_col_id] = offset_index;
     }
     if (skipped_row_ranges.empty()) {
         read_whole_row_group();
