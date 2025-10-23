@@ -540,7 +540,7 @@ private:
 };
 
 // Helper struct to store information about const+nullable columns
-struct CNColumnInfoHelper {
+struct ColumnsWithConstAndNullMap {
     const IColumn* nested_col = nullptr;
     const NullMap* null_map = nullptr;
     bool is_const = false;
@@ -549,12 +549,33 @@ struct CNColumnInfoHelper {
 };
 
 // For functions that need to handle const+nullable column combinations
-template <typename Derived, PrimitiveType ResultPrimitiveType>
-class ConstNullableFunctionHelper : public IFunction {
+// means that functioin `use_default_implementation_for_nulls()` returns false
+template <typename Impl, PrimitiveType ResultPrimitiveType>
+class FunctionNeedsToHandleNull : public IFunction {
 public:
     using ResultColumnType = PrimitiveTypeTraits<ResultPrimitiveType>::ColumnType;
 
+    static constexpr auto name = Impl::name;
+    String get_name() const override { return name; }
+
+    static std::shared_ptr<IFunction> create() {
+        return std::make_shared<FunctionNeedsToHandleNull>();
+    }
+
+    size_t get_number_of_arguments() const override { return Impl::get_number_of_arguments(); }
+
+    bool is_variadic() const override {
+        if constexpr (requires { Impl::is_variadic(); }) {
+            return Impl::is_variadic();
+        }
+        return false;
+    }
+
     bool use_default_implementation_for_nulls() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return Impl::get_return_type_impl(arguments);
+    }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
@@ -566,7 +587,7 @@ public:
 
         const size_t arg_size = arguments.size();
 
-        std::vector<CNColumnInfoHelper> columns_info;
+        std::vector<ColumnsWithConstAndNullMap> columns_info;
         columns_info.resize(arg_size);
         bool has_nullable = false;
         collect_columns_info(columns_info, block, arguments, has_nullable);
@@ -582,7 +603,7 @@ public:
             }
         }
 
-        vector_execute(columns_info, res_col, null_map_data, input_rows_count);
+        Impl::execute(columns_info, res_col, null_map_data, input_rows_count);
 
         if (is_return_nullable(has_nullable, columns_info)) {
             block.replace_by_position(
@@ -595,27 +616,31 @@ public:
     }
 
 private:
-    // The specific execution logic that the subclass needs to implement
-    virtual void vector_execute(const std::vector<CNColumnInfoHelper>& columns_info,
-                                ResultColumnType::MutablePtr& res_col,
-                                PaddedPODArray<UInt8>& res_null_map_data,
-                                size_t input_rows_count) const = 0;
-
     // Handle a NULL literal
     // Default behavior is fill result with all NULLs
     // return true when the res_col is ready to be written back to the block without further processing
-    virtual bool execute_const_null(typename ResultColumnType::MutablePtr& res_col,
-                                    PaddedPODArray<UInt8>& res_null_map_data,
-                                    size_t input_rows_count, size_t null_index) const {
+    bool execute_const_null(typename ResultColumnType::MutablePtr& res_col,
+                            PaddedPODArray<UInt8>& res_null_map_data, size_t input_rows_count,
+                            size_t null_index) const {
+        if constexpr (requires {
+                          Impl::execute_const_null(res_col, res_null_map_data, input_rows_count,
+                                                   null_index);
+                      }) {
+            return Impl::execute_const_null(res_col, res_null_map_data, input_rows_count,
+                                            null_index);
+        }
+
         res_col->insert_many_defaults(input_rows_count);
         res_null_map_data.assign(input_rows_count, (UInt8)1);
+
         return true;
     }
 
     // Collect the required information for each column into columns_info
     // Including whether it is a constant column, nested column and null map(if exists).
-    void collect_columns_info(std::vector<CNColumnInfoHelper>& columns_info, const Block& block,
-                              const ColumnNumbers& arguments, bool& has_nullable) const {
+    void collect_columns_info(std::vector<ColumnsWithConstAndNullMap>& columns_info,
+                              const Block& block, const ColumnNumbers& arguments,
+                              bool& has_nullable) const {
         for (size_t i = 0; i < arguments.size(); ++i) {
             ColumnPtr col_ptr;
             const auto& col_with_type = block.get_by_position(arguments[i]);
@@ -634,8 +659,11 @@ private:
 
     // Determine if the return type should be wrapped in nullable
     // Default behavior is return nullable if any argument is nullable
-    virtual bool is_return_nullable(bool has_nullable,
-                                    const std::vector<CNColumnInfoHelper>& cols_info) const {
+    bool is_return_nullable(bool has_nullable,
+                            const std::vector<ColumnsWithConstAndNullMap>& cols_info) const {
+        if constexpr (requires { Impl::is_return_nullable(has_nullable, cols_info); }) {
+            return Impl::is_return_nullable(has_nullable, cols_info);
+        }
         return has_nullable;
     }
 };

@@ -1379,7 +1379,7 @@ private:
 };
 
 class PeriodHelper {
-protected:
+public:
     // For two digit year, 70-99 -> 1970-1999, 00-69 -> 2000-2069
     // this rule is same as MySQL
     static constexpr int YY_PART_YEAR = 70;
@@ -1408,21 +1408,17 @@ protected:
     }
 };
 
-template <typename Impl>
-class FunctionPeriodUnion : public ConstNullableFunctionHelper<FunctionPeriodUnion<Impl>,
-                                                               PrimitiveType::TYPE_BIGINT> {
+class PeriodAddImpl {
 public:
-    static constexpr auto name = Impl::name;
-    static FunctionPtr create() { return std::make_shared<FunctionPeriodUnion>(); }
-    String get_name() const override { return name; }
-    size_t get_number_of_arguments() const override { return 2; }
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+    static constexpr auto name = "period_add";
+    static size_t get_number_of_arguments() { return 2; }
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         return std::make_shared<DataTypeInt64>();
     }
 
-    void vector_execute(const std::vector<CNColumnInfoHelper>& cols_info,
+    static void execute(const std::vector<ColumnsWithConstAndNullMap>& cols_info,
                         ColumnInt64::MutablePtr& res_col, PaddedPODArray<UInt8>& res_null_map_data,
-                        size_t input_rows_count) const override {
+                        size_t input_rows_count) {
         const auto& left_data =
                 assert_cast<const ColumnInt64*>(cols_info[0].nested_col)->get_data();
         const auto& right_data =
@@ -1434,32 +1430,40 @@ public:
                 continue;
             }
 
-            if (cols_info[0].is_const) {
-                Impl::execute(left_data[0], right_data[i], res_col);
-            } else if (cols_info[1].is_const) {
-                Impl::execute(left_data[i], right_data[0], res_col);
-            } else {
-                Impl::execute(left_data[i], right_data[i], res_col);
-            }
+            int64_t period = left_data[index_check_const(i, cols_info[0].is_const)];
+            int64_t months = right_data[index_check_const(i, cols_info[1].is_const)];
+            res_col->insert_value(PeriodHelper::convert_month_to_period(
+                    PeriodHelper::check_and_convert_period_to_month(period) + months));
         }
     }
 };
-
-class PeriodAddImpl : public PeriodHelper {
-public:
-    static constexpr auto name = "period_add";
-    static void execute(int64_t period, int64_t months, ColumnInt64::MutablePtr& res_col) {
-        res_col->insert_value(
-                convert_month_to_period(check_and_convert_period_to_month(period) + months));
-    }
-};
-
-class PeriodDiffImpl : public PeriodHelper {
+class PeriodDiffImpl {
 public:
     static constexpr auto name = "period_diff";
-    static void execute(int64_t period1, int64_t period2, ColumnInt64::MutablePtr& res_col) {
-        res_col->insert_value(check_and_convert_period_to_month(period1) -
-                              check_and_convert_period_to_month(period2));
+    static size_t get_number_of_arguments() { return 2; }
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    static void execute(const std::vector<ColumnsWithConstAndNullMap>& cols_info,
+                        ColumnInt64::MutablePtr& res_col, PaddedPODArray<UInt8>& res_null_map_data,
+                        size_t input_rows_count) {
+        const auto& left_data =
+                assert_cast<const ColumnInt64*>(cols_info[0].nested_col)->get_data();
+        const auto& right_data =
+                assert_cast<const ColumnInt64*>(cols_info[1].nested_col)->get_data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (cols_info[0].is_null_at(i) || cols_info[1].is_null_at(i)) {
+                res_col->insert_default();
+                res_null_map_data[i] = 1;
+                continue;
+            }
+
+            int64_t period1 = left_data[index_check_const(i, cols_info[0].is_const)];
+            int64_t period2 = right_data[index_check_const(i, cols_info[1].is_const)];
+            res_col->insert_value(PeriodHelper::check_and_convert_period_to_month(period1) -
+                                  PeriodHelper::check_and_convert_period_to_month(period2));
+        }
     }
 };
 

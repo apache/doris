@@ -5003,29 +5003,27 @@ private:
     }
 };
 
-class FunctionMakeSet
-        : public ConstNullableFunctionHelper<FunctionMakeSet, PrimitiveType::TYPE_STRING> {
+class MakeSetImpl {
 public:
     static constexpr auto name = "make_set";
-    static FunctionPtr create() { return std::make_shared<FunctionMakeSet>(); }
-    String get_name() const override { return name; }
-    size_t get_number_of_arguments() const override { return 0; }
-    bool is_variadic() const override { return true; }
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+
+    static size_t get_number_of_arguments() { return 0; }
+    static bool is_variadic() { return true; }
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         if (arguments[0].get()->is_nullable()) {
             return make_nullable(std::make_shared<DataTypeString>());
         }
         return std::make_shared<DataTypeString>();
     }
 
-    bool is_return_nullable(bool has_nullable,
-                            const std::vector<CNColumnInfoHelper>& cols_info) const override {
+    static bool is_return_nullable(bool has_nullable,
+                                   const std::vector<ColumnsWithConstAndNullMap>& cols_info) {
         return cols_info[0].null_map != nullptr;
     }
 
-    bool execute_const_null(ColumnString::MutablePtr& res_col,
-                            PaddedPODArray<UInt8>& res_null_map_data, size_t input_rows_count,
-                            size_t null_index) const override {
+    static bool execute_const_null(ColumnString::MutablePtr& res_col,
+                                   PaddedPODArray<UInt8>& res_null_map_data,
+                                   size_t input_rows_count, size_t null_index) {
         if (null_index == 1) {
             res_col->insert_many_defaults(input_rows_count);
             res_null_map_data.assign(input_rows_count, (UInt8)1);
@@ -5034,9 +5032,9 @@ public:
         return false;
     }
 
-    void vector_execute(const std::vector<CNColumnInfoHelper>& column_infos,
+    static void execute(const std::vector<ColumnsWithConstAndNullMap>& column_infos,
                         ColumnString::MutablePtr& res_col, PaddedPODArray<UInt8>& res_null_map_data,
-                        size_t input_rows_count) const override {
+                        size_t input_rows_count) {
         static constexpr char SEPARATOR = ',';
         const auto& bit_data =
                 assert_cast<const ColumnInt64&>(*column_infos[0].nested_col).get_data();
@@ -5057,9 +5055,9 @@ public:
             ColumnString::Chars data;
             while (col_pos != 0 && col_pos < column_infos.size() && bit != 0) {
                 if (!column_infos[col_pos].is_null_at(row)) {
-                    /* Here insert `str,` directly to support the case below: 
-                     * SELECT MAKE_SET(3, '', 'a'); 
-                     * the exception result should be ',a' 
+                    /* Here insert `str,` directly to support the case below:
+                     * SELECT MAKE_SET(3, '', 'a');
+                     * the exception result should be ',a'.
                      */
                     auto s_ref = str_cols[col_pos]->get_data_at(
                             column_infos[col_pos].is_const ? 0 : row);
