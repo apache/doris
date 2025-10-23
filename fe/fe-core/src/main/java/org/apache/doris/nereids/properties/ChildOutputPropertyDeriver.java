@@ -343,6 +343,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                                         .map(NamedExpression::getExprId)
                                         .collect(Collectors.toSet()));
                     }
+                } else {
+                    // namedExpression is slot
+                    projections.put(namedExpression.getExprId(), namedExpression.getExprId());
                 }
             }
 

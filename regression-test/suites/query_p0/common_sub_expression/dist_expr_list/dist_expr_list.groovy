@@ -76,4 +76,31 @@ suite("dist_expr_list") {
     |      intermediate projections: a[#0], b[#1], abs(b[#1]), CAST(a[#0] AS bigint)                                                                                           |
     |      intermediate tuple id: 1                                                                 
     */
+
+    explain {
+        sql """
+            select max(
+                case 
+                    when (abs(b) > 10) then a+1
+                    when (abs(b) < 10) then a+2
+                    else NULL
+                end
+            ),
+            max(a)
+            from agg_cse_shuffle;
+            """
+        contains "distribute expr lists: a"
+    /*
+        expect explain string
+        |   1:VAGGREGATE (update serialize)(100)                                                                                                                                                              |
+        |   |  output: partial_max(CASE WHEN (abs(b) > 10) THEN (cast(a as BIGINT) + 1) WHEN (abs(b) < 10) THEN (cast(a as BIGINT) + 2) ELSE NULL END[#8])[#9], partial_max(a[#6])[#10]                       |
+        |   |  group by:                                                                                                                                                                                      |
+        |   |  sortByGroupKey:false                                                                                                                                                                           |
+        |   |  cardinality=1                                                                                                                                                                                  |
+        |   |  distribute expr lists: a[#6]                                                                                                                                                                   |
+        |   |  tuple ids: 3                                                                                                                                                                                   |
+        |   |                                                                                                                                                                                                 |
+        |   0:VOlapScanNode(81)     
+    */
+    }
 }
