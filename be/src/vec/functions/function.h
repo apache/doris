@@ -540,7 +540,7 @@ private:
 };
 
 // Helper struct to store information about const+nullable columns
-struct ColumnsWithConstAndNullMap {
+struct ColumnWithConstAndNullMap {
     const IColumn* nested_col = nullptr;
     const NullMap* null_map = nullptr;
     bool is_const = false;
