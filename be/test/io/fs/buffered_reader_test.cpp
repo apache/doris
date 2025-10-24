@@ -24,6 +24,7 @@
 
 #include <memory>
 #include <ostream>
+#include <vector>
 
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -532,11 +533,12 @@ TEST_F(BufferedReaderTest, test_large_gap_amplification) {
     // Test with 8MB merge window (default)
     io::MergeRangeFileReader merge_reader_8mb(nullptr, offset_reader, random_access_ranges,
                                                8 * 1024 * kb);
-    char data[100 * kb];
+    std::vector<char> data(100 * kb);
     size_t bytes_read = 0;
 
     // Read first range - this should trigger merge logic
-    static_cast<void>(merge_reader_8mb.read_at(0, Slice(data, 100 * kb), &bytes_read, nullptr));
+    static_cast<void>(
+            merge_reader_8mb.read_at(0, Slice(data.data(), 100 * kb), &bytes_read, nullptr));
     EXPECT_EQ(bytes_read, 100 * kb);
 
     auto stats_8mb = merge_reader_8mb.statistics();
@@ -552,7 +554,8 @@ TEST_F(BufferedReaderTest, test_large_gap_amplification) {
                                                 64 * kb);
     bytes_read = 0;
 
-    static_cast<void>(merge_reader_64kb.read_at(0, Slice(data, 100 * kb), &bytes_read, nullptr));
+    static_cast<void>(
+            merge_reader_64kb.read_at(0, Slice(data.data(), 100 * kb), &bytes_read, nullptr));
     EXPECT_EQ(bytes_read, 100 * kb);
 
     auto stats_64kb = merge_reader_64kb.statistics();
@@ -596,11 +599,12 @@ TEST_F(BufferedReaderTest, test_dense_ranges_amplification) {
     // Test with 8MB merge window
     io::MergeRangeFileReader merge_reader_8mb(nullptr, offset_reader, random_access_ranges,
                                                8 * 1024 * kb);
-    char data[50 * kb];
+    std::vector<char> data(50 * kb);
     size_t bytes_read = 0;
 
     // Read first column
-    static_cast<void>(merge_reader_8mb.read_at(0, Slice(data, 50 * kb), &bytes_read, nullptr));
+    static_cast<void>(
+            merge_reader_8mb.read_at(0, Slice(data.data(), 50 * kb), &bytes_read, nullptr));
     EXPECT_EQ(bytes_read, 50 * kb);
 
     auto stats_8mb = merge_reader_8mb.statistics();
