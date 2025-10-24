@@ -250,6 +250,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             if (isFinalStatus()) {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
             }
+            log.info("Streaming insert job {} update status to {}", getJobId(), getJobStatus());
         } finally {
             lock.writeLock().unlock();
         }
@@ -315,6 +316,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     public void clearRunningStreamTask() {
         if (runningStreamTask != null) {
+            log.info("clear running streaming insert task for job {}, task {} ",
+                    getJobId(), runningStreamTask.getTaskId());
             runningStreamTask.closeOrReleaseResources();
             runningStreamTask = null;
         }
@@ -565,6 +568,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         writeLock();
         try {
             ArrayList<Long> taskIds = new ArrayList<>();
+            log.info("prepare to commit streaming insert job {}, running task is {}",
+                    getJobId(),
+                    runningStreamTask == null ? "null" : runningStreamTask.getTaskId());
             taskIds.add(runningStreamTask.getTaskId());
             // todo: Check whether the taskid of runningtask is consistent with the taskid associated with txn
 
