@@ -42,6 +42,9 @@ public class SlotDescriptor {
     private Type type;
     private Column column;  // underlying column, if there is one
 
+    // used in explain verbose, caption is column name or alias name
+    private String caption;
+
     // for SlotRef.toSql() in the absence of a path
     private String label;
     // for variant column's sub column lables
@@ -148,6 +151,7 @@ public class SlotDescriptor {
     public void setColumn(Column column) {
         this.column = column;
         this.type = column.getType();
+        this.caption = column.getName();
     }
 
     public void setSrcColumn(Column column) {
@@ -338,11 +342,42 @@ public class SlotDescriptor {
         return tSlotDescriptor;
     }
 
+    private String normalizeCaption(String caption) {
+        int maxLength = 15;
+        if (caption == null || caption.length() <= maxLength) {
+            return caption;
+        }
+
+        String normalized = caption.replaceAll("\\s+", " ");
+
+        if (normalized.length() <= maxLength) {
+            return normalized;
+        }
+
+        int lastHashIndex = normalized.lastIndexOf('#');
+
+        if (lastHashIndex == -1) {
+            return normalized.substring(0, maxLength);
+        }
+
+        String suffixWithHash = normalized.substring(lastHashIndex);
+        int prefixLength = maxLength - suffixWithHash.length();
+
+        if (prefixLength <= 0) {
+            return suffixWithHash;
+        }
+
+        return normalized.substring(0, prefixLength) + suffixWithHash;
+    }
+
+    public void setCaptionAndNormalize(String caption) {
+        this.caption = normalizeCaption(caption);
+    }
+
     public String debugString() {
-        String colStr = (column == null ? "null" : column.getName());
         String typeStr = (type == null ? "null" : type.toString());
         String parentTupleId = (parent == null) ? "null" : parent.getId().toString();
-        return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", colStr)
+        return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", caption)
                 .add("type", typeStr).add("materialized", isMaterialized).add("byteSize", byteSize)
                 .add("byteOffset", byteOffset).add("slotIdx", slotIdx).add("nullable", getIsNullable())
                 .add("isAutoIncrement", isAutoInc).add("subColPath", subColPath)
@@ -358,7 +393,7 @@ public class SlotDescriptor {
         return new StringBuilder()
                 .append(prefix).append("SlotDescriptor{")
                 .append("id=").append(id)
-                .append(", col=").append(column == null ? "null" : column.getName())
+                .append(", col=").append(caption)
                 .append(", colUniqueId=").append(column == null ? "null" : column.getUniqueId())
                 .append(", type=").append(type == null ? "null" : type.toSql())
                 .append(", nullable=").append(isNullable)

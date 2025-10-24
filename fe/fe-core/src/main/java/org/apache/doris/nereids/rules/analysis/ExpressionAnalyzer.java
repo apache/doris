@@ -93,6 +93,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -170,13 +171,22 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 cascadesContext, false, false);
         return analyzer.analyze(
                 expression,
-                cascadesContext == null ? null : new ExpressionRewriteContext(cascadesContext)
+                cascadesContext == null ? null : new ExpressionRewriteContext(plan, cascadesContext)
         );
     }
 
+    /** analyze */
     public Expression analyze(Expression expression) {
         CascadesContext cascadesContext = getCascadesContext();
-        return analyze(expression, cascadesContext == null ? null : new ExpressionRewriteContext(cascadesContext));
+        ExpressionRewriteContext rewriteContext;
+        if (cascadesContext == null) {
+            rewriteContext = null;
+        } else if (currentPlan == null) {
+            rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        } else {
+            rewriteContext = new ExpressionRewriteContext(currentPlan, cascadesContext);
+        }
+        return analyze(expression, rewriteContext);
     }
 
     /** analyze */
@@ -404,6 +414,19 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     newChildrenBuilder.add(unboundFunction.child(i));
                 }
                 unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
+            } else if (StringUtils.isEmpty(unboundFunction.getDbName())
+                    && "get_format".equalsIgnoreCase(unboundFunction.getName())
+                    && unboundFunction.arity() == 2
+                    && unboundFunction.child(0) instanceof UnboundSlot) {
+                SlotReference slotReference = new SlotReference(new ExprId(-1),
+                        ((UnboundSlot) unboundFunction.child(0)).getName(),
+                        StringType.INSTANCE, false, ImmutableList.of());
+                ImmutableList.Builder<Expression> newChildrenBuilder = ImmutableList.builder();
+                newChildrenBuilder.add(slotReference);
+                for (int i = 1; i < unboundFunction.arity(); i++) {
+                    newChildrenBuilder.add(unboundFunction.child(i));
+                }
+                unboundFunction = unboundFunction.withChildren(newChildrenBuilder.build());
             }
             unboundFunction = (UnboundFunction) super.visit(unboundFunction, context);
         }
@@ -438,6 +461,14 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     return TypeCoercionUtils.processBinaryArithmetic((BinaryArithmetic) ret);
                 } else if (ret instanceof BitNot) {
                     return TypeCoercionUtils.processBitNot((BitNot) ret);
+                } else {
+                    return ret;
+                }
+            }
+            if (GetFormatFunctionBinder.isGetFormatFunction(unboundFunction.getName())) {
+                Expression ret = GetFormatFunctionBinder.INSTANCE.bind(unboundFunction);
+                if (ret instanceof BoundFunction) {
+                    return TypeCoercionUtils.processBoundFunction((BoundFunction) ret);
                 } else {
                     return ret;
                 }
@@ -590,7 +621,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 newChild = child;
             }
             if (newChild.getDataType().isNullType()) {
-                newChild = new NullLiteral(BooleanType.INSTANCE);
+                newChild = NullLiteral.BOOLEAN_INSTANCE;
             } else {
                 newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
             }
@@ -618,7 +649,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 newChild = child;
             }
             if (newChild.getDataType().isNullType()) {
-                newChild = new NullLiteral(BooleanType.INSTANCE);
+                newChild = NullLiteral.BOOLEAN_INSTANCE;
             } else {
                 newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
             }

@@ -94,6 +94,16 @@ class ClusterOptions {
     String tdeAk = "";
     String tdeSk = "";
 
+    // Use external meta service cluster (shared MS/FDB)
+    // Specify the cluster name that provides MS/FDB services
+    // When set, this cluster will not create its own MS/FDB/Recycler
+    // Example: externalMsCluster = "shared-meta" (Cloud mode only)
+    String externalMsCluster = null
+
+    // Specify the instance id.
+    // When not set, "default_instance_id" will be used. (Cloud mode only)
+    String instanceId = null;
+
     void enableDebugPoints() {
         feConfigs.add('enable_debug_points=true')
         beConfigs.add('enable_debug_points=true')
@@ -380,6 +390,14 @@ class SuiteCluster {
             cmd += options.tdeSk
         }
 
+        if (options.externalMsCluster != null && options.externalMsCluster != "") {
+            cmd += ['--external-ms', options.externalMsCluster]
+        }
+
+        if (options.instanceId != null && options.instanceId != "") {
+            cmd += ['--instance-id', options.instanceId]
+        }
+
         cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]
 
         sqlModeNodeMgr = options.sqlModeNodeMgr
@@ -390,6 +408,31 @@ class SuiteCluster {
         Thread.sleep(5000)
 
         running = true
+    }
+
+    String getJdbcUrl(boolean connectToFollower) {
+        def user = config.jdbcUser
+        def password = config.jdbcPassword
+        Frontend fe = null
+        for (def i=0; (fe == null || !fe.alive) && i<30; i++) {
+            if (connectToFollower) {
+                fe = getOneFollowerFe()
+            } else {
+                fe = getMasterFe()
+            }
+            Thread.sleep(1000)
+        }
+
+        if (fe == null) {
+            throw new Exception('No available frontend found in cluster: ' + name)
+        }
+
+        logger.info("get fe host {} , queryPort {}", fe.host, fe.queryPort)
+
+        jdbcUrl = String.format(
+                "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+                fe.host, fe.queryPort)
+        return jdbcUrl
     }
 
     void injectDebugPoints(NodeType type, Map<String, Map<String, String>> injectPoints) {

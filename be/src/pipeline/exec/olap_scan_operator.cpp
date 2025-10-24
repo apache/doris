@@ -340,6 +340,10 @@ Status OlapScanLocalState::_init_profile() {
     _variant_subtree_sparse_iter_count =
             ADD_COUNTER(_segment_profile, "VariantSubtreeSparseIterCount", TUnit::UNIT);
 
+    _condition_cache_hit_segment_counter =
+            ADD_COUNTER(_segment_profile, "ConditionCacheSegmentHit", TUnit::UNIT);
+    _condition_cache_filtered_rows_counter =
+            ADD_COUNTER(_segment_profile, "ConditionCacheFilteredRows", TUnit::UNIT);
     return Status::OK();
 }
 
@@ -499,7 +503,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
             // TODO: Use optimize_index_scan_parallelism for ann range search in the future.
             // Currently, ann topn is enough
             if (_ann_topn_runtime != nullptr) {
-                scanner_builder.set_optimize_index_scan_parallelism(true);
+                scanner_builder.set_scan_parallelism_by_segment(true);
             }
         }
 
@@ -715,16 +719,15 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
         }
     }
 
-    CaptureRsReaderOptions opts {
-            .skip_missing_version = _state->skip_missing_version(),
-            .enable_prefer_cached_rowset =
-                    config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
-            .query_freshness_tolerance_ms =
-                    config::is_cloud_mode() ? _state->query_freshness_tolerance_ms() : -1,
-    };
     for (size_t i = 0; i < _scan_ranges.size(); i++) {
-        RETURN_IF_ERROR(_tablets[i].tablet->capture_rs_readers({0, _tablets[i].version},
-                                                               &_read_sources[i].rs_splits, opts));
+        _read_sources[i] = DORIS_TRY(_tablets[i].tablet->capture_read_source(
+                {0, _tablets[i].version},
+                {.skip_missing_versions = _state->skip_missing_version(),
+                 .enable_fetch_rowsets_from_peers = config::enable_fetch_rowsets_from_peer_replicas,
+                 .enable_prefer_cached_rowset =
+                         config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
+                 .query_freshness_tolerance_ms =
+                         config::is_cloud_mode() ? _state->query_freshness_tolerance_ms() : -1}));
         if (!PipelineXLocalState<>::_state->skip_delete_predicate()) {
             _read_sources[i].fill_delete_predicates();
         }
