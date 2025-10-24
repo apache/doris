@@ -37,6 +37,7 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time.h"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/functions/cast/cast_to_datetimev2_impl.hpp"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -141,10 +142,9 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count,
                         const NullMap::value_type* null_map = nullptr) const override {
-        constexpr bool Nullable =
-                std::is_same_v<FromDataType, ToDataType> &&
-                (IsTimeV2Type<FromDataType> || IsDateTimeV2Type<FromDataType>)&&CastMode ==
-                        CastModeType::NonStrictMode;
+        constexpr bool Nullable = std::is_same_v<FromDataType, ToDataType> &&
+                                  (IsTimeV2Type<FromDataType> || IsDateTimeV2Type<FromDataType>) &&
+                                  CastMode == CastModeType::NonStrictMode;
 
         const auto* col_from = check_and_get_column<typename FromDataType::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
