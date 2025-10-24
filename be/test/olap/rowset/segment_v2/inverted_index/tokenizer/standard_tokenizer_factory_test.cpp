@@ -22,13 +22,13 @@
 namespace doris::segment_v2::inverted_index {
 
 TokenStreamPtr create_standard_tokenizer(const std::string& text, Settings settings = Settings()) {
-    static lucene::util::SStringReader<char> reader;
-    reader.init(text.data(), text.size(), false);
+    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(text.data(), text.size(), false);
 
     StandardTokenizerFactory factory;
     factory.initialize(settings);
     auto tokenizer = factory.create();
-    tokenizer->set_reader(&reader);
+    tokenizer->set_reader(reader);
     tokenizer->reset();
     return tokenizer;
 }

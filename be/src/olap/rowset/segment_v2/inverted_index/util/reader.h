@@ -20,29 +20,10 @@
 #include <memory>
 
 #include "CLucene.h"
-#include "CLucene/debug/error.h"
-#include "unicode/brkiter.h"
-#include "unicode/rbbi.h"
-#include "unicode/ubrk.h"
-#include "unicode/uchar.h"
-#include "unicode/uniset.h"
-#include "unicode/unistr.h"
-#include "unicode/uscript.h"
-#include "unicode/utext.h"
-#include "unicode/utf8.h"
+#include "CLucene/util/CLStreams.h"
 
-namespace doris::segment_v2 {
+namespace doris::segment_v2::inverted_index {
 
-using BreakIteratorPtr = std::unique_ptr<icu::BreakIterator>;
+using ReaderPtr = std::shared_ptr<lucene::util::Reader>;
 
-struct UTextDeleter {
-    void operator()(UText* utext) const {
-        if (utext != nullptr) {
-            utext_close(utext);
-        }
-    }
-};
-
-using UTextPtr = std::unique_ptr<UText, UTextDeleter>;
-
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index

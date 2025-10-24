@@ -17,34 +17,34 @@
 
 #pragma once
 
-#include <unicode/utext.h>
-
-#include "CLucene.h"
-#include "CLucene/analysis/AnalysisHeader.h"
-#include "composite_break_iterator.h"
-#include "default_icu_tokenizer_config.h"
-#include "icu_common.h"
+#include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer.h"
 
 using namespace lucene::analysis;
 
-namespace doris::segment_v2 {
+namespace doris::segment_v2::inverted_index {
 
-class ICUTokenizer : public Tokenizer {
+class BasicTokenizer : public DorisTokenizer {
 public:
-    ICUTokenizer();
-    ICUTokenizer(bool lowercase, bool ownReader);
-    ~ICUTokenizer() override = default;
+    BasicTokenizer() = default;
+    BasicTokenizer(bool own_reader);
+    ~BasicTokenizer() override = default;
 
-    void initialize(const std::string& dictPath);
+    void initialize(const std::string& extra_chars = "");
+
     Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
+    void reset() override;
 
 private:
-    std::string utf8Str_;
-    icu::UnicodeString buffer_;
+    template <bool HasExtraChars>
+    void cut();
 
-    ICUTokenizerConfigPtr config_;
-    CompositeBreakIteratorPtr breaker_;
+    int32_t _buffer_index = 0;
+    int32_t _data_len = 0;
+    std::string _buffer;
+    std::vector<std::string_view> _tokens_text;
+
+    std::array<bool, 128> _extra_char_set {};
+    bool _has_extra_chars = false;
 };
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index

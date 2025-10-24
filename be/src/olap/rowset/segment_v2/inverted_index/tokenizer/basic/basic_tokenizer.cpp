@@ -19,7 +19,7 @@
 
 #include <unicode/unistr.h>
 
-namespace doris::segment_v2 {
+namespace doris::segment_v2::inverted_index {
 #include "common/compile_check_begin.h"
 
 #define IS_IN_RANGE(c, start, end) ((uint32_t)((c) - (start)) <= ((end) - (start)))
@@ -29,14 +29,19 @@ namespace doris::segment_v2 {
      IS_IN_RANGE(c, 0x20000, 0x2A6DF) || IS_IN_RANGE(c, 0x2A700, 0x2EBEF) || \
      IS_IN_RANGE(c, 0x30000, 0x3134A))
 
-BasicTokenizer::BasicTokenizer() {
-    this->lowercase = false;
-    this->ownReader = false;
+BasicTokenizer::BasicTokenizer(bool own_reader) {
+    this->ownReader = own_reader;
 }
 
-BasicTokenizer::BasicTokenizer(bool lower_case, bool own_reader) : BasicTokenizer() {
-    this->lowercase = lower_case;
-    this->ownReader = own_reader;
+void BasicTokenizer::initialize(const std::string& extra_chars) {
+    _extra_char_set.fill(false);
+    _has_extra_chars = !extra_chars.empty();
+
+    for (uint8_t c : extra_chars) {
+        if (c < 128) {
+            _extra_char_set[c] = true;
+        }
+    }
 }
 
 Token* BasicTokenizer::next(Token* token) {
@@ -50,21 +55,28 @@ Token* BasicTokenizer::next(Token* token) {
     return token;
 }
 
-void BasicTokenizer::reset(lucene::util::Reader* reader) {
+void BasicTokenizer::reset() {
+    DorisTokenizer::reset();
+
     _buffer_index = 0;
     _data_len = 0;
     _tokens_text.clear();
 
-    _buffer.resize(reader->size());
-    size_t numRead = reader->readCopy(_buffer.data(), 0, static_cast<int32_t>(_buffer.size()));
+    _buffer.resize(_in->size());
+    size_t numRead = _in->readCopy(_buffer.data(), 0, static_cast<int32_t>(_buffer.size()));
     (void)numRead;
     assert(_buffer.size() == numRead);
 
-    cut();
+    if (_has_extra_chars) {
+        cut<true>();
+    } else {
+        cut<false>();
+    }
 
     _data_len = static_cast<int32_t>(_tokens_text.size());
 }
 
+template <bool HasExtraChars>
 void BasicTokenizer::cut() {
     auto* s = (uint8_t*)_buffer.data();
     auto length = static_cast<int32_t>(_buffer.size());
@@ -101,9 +113,16 @@ void BasicTokenizer::cut() {
                 const int32_t len = i - prev_i;
                 _tokens_text.emplace_back(reinterpret_cast<const char*>(s + prev_i), len);
             }
+
+            if constexpr (HasExtraChars) {
+                if (c < 128 && _extra_char_set[c]) {
+                    const int32_t len = i - prev_i;
+                    _tokens_text.emplace_back(reinterpret_cast<const char*>(s + prev_i), len);
+                }
+            }
         }
     }
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index
