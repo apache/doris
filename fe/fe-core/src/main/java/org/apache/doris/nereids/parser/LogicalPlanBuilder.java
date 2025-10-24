@@ -3180,34 +3180,38 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             WindowSpecContext windowContext, IdentifierContext hintContext) {
         List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
         if (!unboundStars.isEmpty()) {
-            if (dbName == null && functionName.equalsIgnoreCase("count")) {
+            if (dbName != null
+                    || (!functionName.equalsIgnoreCase("count")
+                    && !functionName.equalsIgnoreCase("json_object"))) {
+                throw new ParseException("'*' can only be used in conjunction with"
+                        + " COUNT or JSON_OBJECT: " + functionName, ctx);
+            }
+            if (functionName.equalsIgnoreCase("count")) {
                 if (unboundStars.size() > 1) {
                     throw new ParseException(
                             "'*' can only be used once in conjunction with COUNT: " + functionName, ctx);
                 }
                 if (!unboundStars.get(0).getQualifier().isEmpty()) {
-                    throw new ParseException("'*' can not has qualifier: " + unboundStars.size(), ctx);
+                    throw new ParseException("'*' can not has qualifier with COUNT: " + unboundStars.size(), ctx);
                 }
                 if (windowContext != null) {
                     return withWindowSpec(windowContext, new Count());
                 }
                 return new Count();
             }
-            throw new ParseException("'*' can only be used in conjunction with COUNT: " + functionName, ctx);
-        } else {
-            boolean isSkew = hintContext != null && hintContext.getText().equalsIgnoreCase("skew");
-            UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params, isSkew);
-            if (windowContext != null) {
-                if (isDistinct
-                        && !("count".equalsIgnoreCase(functionName))
-                        && !("sum".equalsIgnoreCase(functionName))
-                        && !("group_concat".equalsIgnoreCase(functionName))) {
-                    throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
-                }
-                return withWindowSpec(windowContext, function);
-            }
-            return function;
         }
+        boolean isSkew = hintContext != null && hintContext.getText().equalsIgnoreCase("skew");
+        UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params, isSkew);
+        if (windowContext != null) {
+            if (isDistinct
+                    && !("count".equalsIgnoreCase(functionName))
+                    && !("sum".equalsIgnoreCase(functionName))
+                    && !("group_concat".equalsIgnoreCase(functionName))) {
+                throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
+            }
+            return withWindowSpec(windowContext, function);
+        }
+        return function;
     }
 
     /**
