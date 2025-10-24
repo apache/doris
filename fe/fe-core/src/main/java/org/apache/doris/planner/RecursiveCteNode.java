@@ -31,13 +31,14 @@ import com.google.common.collect.Lists;
 import java.util.List;
 
 public class RecursiveCteNode extends PlanNode {
-
+    private String cteName;
     private boolean isUnionAll;
     private List<List<Expr>> materializedResultExprLists = Lists.newArrayList();
     private TRecCTENode tRecCTENode;
 
-    public RecursiveCteNode(PlanNodeId id, TupleId tupleId, boolean isUnionAll) {
+    public RecursiveCteNode(PlanNodeId id, TupleId tupleId, String cteName, boolean isUnionAll) {
         super(id, tupleId.asList(), "RECURSIVE_CTE", StatisticalType.RECURSIVE_CTE_NODE);
+        this.cteName = cteName;
         this.isUnionAll = isUnionAll;
     }
 
@@ -66,7 +67,7 @@ public class RecursiveCteNode extends PlanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(prefix).append("Recursive Cte: ").append("\n");
+        output.append(prefix).append("Recursive Cte: ").append(cteName).append("\n");
         output.append(prefix).append("isUnionAll: ").append(isUnionAll).append("\n");
         if (!conjuncts.isEmpty()) {
             Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
@@ -78,6 +79,7 @@ public class RecursiveCteNode extends PlanNode {
     @Override
     public String toString() {
         return MoreObjects.toStringHelper(this)
+                .add("name", cteName)
                 .add("id", getId().asInt())
                 .add("tid", tupleIds.get(0).asInt())
                 .add("isUnionAll", isUnionAll).toString();

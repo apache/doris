@@ -191,8 +191,8 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
                         recursiveChildOutputs.get(i).getDataType(), anchorChildOutputTypes.get(i)));
             }
         }
-        analyzedRecursiveChild = new LogicalRecursiveCteRecursiveChild<>(forceOutputNullable(analyzedRecursiveChild,
-                ImmutableList.of()));
+        analyzedRecursiveChild = new LogicalRecursiveCteRecursiveChild<>(aliasQuery.getAlias(),
+                forceOutputNullable(analyzedRecursiveChild, ImmutableList.of()));
 
         // create LogicalRecursiveCte
         LogicalUnion logicalUnion = (LogicalUnion) parsedCtePlan;

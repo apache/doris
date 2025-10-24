@@ -52,15 +52,12 @@ import java.util.Set;
  * and put all of them to the top of plan depends on dependency tree of them.
  */
 public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implements CustomRewriter {
+    // all cte used by recursive cte's recursive child should be inline
     private Set<LogicalCTEConsumer> mustInlineCteConsumers = new HashSet<>();
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        List<LogicalRecursiveCteRecursiveChild> recursiveCteRecursiveChildList =
-                plan.collectToList(LogicalRecursiveCteRecursiveChild.class::isInstance);
-        for (LogicalRecursiveCteRecursiveChild recursiveChild : recursiveCteRecursiveChildList) {
-            mustInlineCteConsumers.addAll(recursiveChild.collect(LogicalCTEConsumer.class::isInstance));
-        }
+        collectMustInlineCteConsumers(plan, false, mustInlineCteConsumers);
 
         Plan root = plan.accept(this, null);
         // collect cte id to consumer
@@ -130,5 +127,20 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
             return new LogicalProject<>(projects, inlinedPlan);
         }
         return cteConsumer;
+    }
+
+    private void collectMustInlineCteConsumers(Plan planNode, boolean needCollect,
+            Set<LogicalCTEConsumer> cteConsumers) {
+        if (planNode instanceof LogicalCTEConsumer) {
+            if (needCollect) {
+                cteConsumers.add((LogicalCTEConsumer) planNode);
+            }
+        } else if (planNode instanceof LogicalRecursiveCteRecursiveChild) {
+            collectMustInlineCteConsumers(planNode.child(0), true, cteConsumers);
+        } else {
+            for (Plan child : planNode.children()) {
+                collectMustInlineCteConsumers(child, needCollect, cteConsumers);
+            }
+        }
     }
 }

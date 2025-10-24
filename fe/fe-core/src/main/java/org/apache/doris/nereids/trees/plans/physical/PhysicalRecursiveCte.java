@@ -92,6 +92,10 @@ public class PhysicalRecursiveCte extends AbstractPhysicalPlan implements Recurs
         return isUnionAll;
     }
 
+    public String getCteName() {
+        return cteName;
+    }
+
     @Override
     public List<SlotReference> getRegularChildOutput(int i) {
         return regularChildrenOutputs.get(i);

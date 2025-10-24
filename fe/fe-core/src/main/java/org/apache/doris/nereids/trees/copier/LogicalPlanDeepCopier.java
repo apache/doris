@@ -377,7 +377,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
     public Plan visitLogicalRecursiveCteRecursiveChild(LogicalRecursiveCteRecursiveChild<? extends Plan> recursiveChild,
             DeepCopierContext context) {
         Plan child = recursiveChild.child().accept(this, context);
-        return new LogicalRecursiveCteRecursiveChild<>(child);
+        return new LogicalRecursiveCteRecursiveChild<>(recursiveChild.getCteName(), child);
     }
 
     @Override
