@@ -889,48 +889,5 @@ inline bool CastToDateOrDatetime::from_string_non_strict_mode_impl(
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-function-size)
 
-// return true if success, false if overflow
-inline bool transform_date_scale(UInt32 to_scale, UInt32 from_scale,
-                          PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType& to_value,
-                          const PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType& from_value) {
-    if (to_scale >= from_scale) {
-        // nothing to do, just copy
-        to_value = from_value;
-    } else {
-        DateV2Value<DateTimeV2ValueType> dtmv2 =
-                binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(from_value);
-        // e.g. scale reduce to 4, means we need to round the last 2 digits
-        // 999956: 56 > 100/2, then round up to 1000000
-        uint32_t microseconds = dtmv2.microsecond();
-        DCHECK(to_scale <= 6) << "to_scale should be in range [0, 6], but got " << to_scale;
-        uint32_t divisor = (uint32_t)common::exp10_i64(6 - to_scale);
-        uint32_t remainder = microseconds % divisor;
-
-        if (remainder >= divisor / 2) { // need to round up
-            // do rounding up
-            uint32_t rounded_microseconds = ((microseconds / divisor) + 1) * divisor;
-            // need carry on
-            if (rounded_microseconds >= 1000000) {
-                DCHECK(rounded_microseconds == 1000000);
-                dtmv2.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
-
-                bool overflow = !dtmv2.date_add_interval<TimeUnit::SECOND>(
-                        TimeInterval {TimeUnit::SECOND, 1, false});
-                if (overflow) {
-                    return false;
-                }
-            } else {
-                static_cast<void>(dtmv2.set_time_unit<TimeUnit::MICROSECOND>(rounded_microseconds));
-            }
-        } else {
-            // Round down (truncate) as before
-            static_cast<void>(
-                    dtmv2.set_time_unit<TimeUnit::MICROSECOND>((microseconds / divisor) * divisor));
-        }
-        to_value = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dtmv2);
-    }
-    return true;
-}
-
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
