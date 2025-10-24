@@ -74,7 +74,22 @@ PROPERTIES (
         throw new Exception("File flink-doris-syncdb.jar download failed.")
     }
 
-    def run_cmd = "java -cp flink-doris-syncdb.jar org.apache.doris.DatabaseFullSync $context.config.feHttpAddress regression_test_flink_connector_p0 $context.config.feHttpUser"
+    def systemJavaPath = ["bash", "-c", "which java"].execute().text.trim()
+    logger.info("System java path: ${systemJavaPath}")
+
+    def runtimeJavaHome = System.getProperty("java.home")
+    logger.info("Runtime java home: ${runtimeJavaHome}")
+    def javaPath = "${runtimeJavaHome}/bin/java"
+
+    def javaVersion = System.getProperty("java.version")
+    logger.info("Runtime java version: ${javaVersion}")
+
+    def addOpens = ""
+    if (javaVersion.startsWith("17")) {
+        addOpens = "--add-opens=java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED"
+    }
+
+    def run_cmd = "${javaPath} ${addOpens} -cp flink-doris-syncdb.jar org.apache.doris.DatabaseFullSync $context.config.feHttpAddress regression_test_flink_connector_p0 $context.config.feHttpUser"
     logger.info("run_cmd : $run_cmd")
     def run_flink_jar = run_cmd.execute().getText()
     logger.info("result: $run_flink_jar")
@@ -85,7 +100,7 @@ PROPERTIES (
                 logger.info("retry $tableName1  count: $resultTbl1")
                 def resultTbl2 = sql """ select count(1) from $tableName2"""
                 logger.info("retry $tableName2 count: $resultTbl2")
-                resultTbl1.size() >= 1 && resultTbl2.size >=1
+                resultTbl1.size() >= 1 && resultTbl2.size() >=1
             })
 
     qt_select """ select * from $tableName1 order by id"""

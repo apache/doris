@@ -36,6 +36,7 @@ Usage: $0 <shell_options> <framework_options>
      -s                                run a specified suite
      -g                                run a specified group
      -d                                run a specified directory
+     -f                                run a specified file (only when the file name equals the suite name; will be converted to -d and -s automatically)
      -h                                **print all framework options usage**
      -xs                               exclude the specified suite
      -xg                               exclude the specified group
@@ -51,18 +52,20 @@ Usage: $0 <shell_options> <framework_options>
      -times                            rum tests {times} times
 
   Eg.
-    $0                                        build regression test framework and run all suite which in default group
-    $0 --run test_select                      run a suite which named as test_select
-    $0 --compile                              only compile regression framework
-    $0 --run -s test_select                   run a suite which named as test_select
-    $0 --run test_select -genOut              generate output file for test_select if not exist
-    $0 --run -g default                       run all suite in the group which named as default
-    $0 --run -d demo,correctness/tmp          run all suite in the directories which named as demo and correctness/tmp
-    $0 --run -d regression-test/suites/demo   specify the suite directories path from repo root
-    $0 --clean                                clean output of regression test framework
-    $0 --clean --run test_select              clean output and build regression test framework and run a suite which named as test_select
-    $0 --run -h                               print framework options
-    $0 --teamcity --run test_select           print teamcity service messages and build regression test framework and run test_select
+    $0                                                                       build regression test framework and run all suite which in default group
+    $0 --run test_select                                                     run a suite which named as test_select
+    $0 --compile                                                             only compile regression framework
+    $0 --run -s test_select                                                  run a suite which named as test_select
+    $0 --run test_select -genOut                                             generate output file for test_select if not exist
+    $0 --run -g default                                                      run all suite in the group which named as default
+    $0 --run -d demo,correctness/tmp                                         run all suite in the directories which named as demo and correctness/tmp
+    $0 --run -d regression-test/suites/demo                                  specify the suite directories path from repo root
+    $0 --run -f regression-test/suites/demo/case.groovy                      run a specific .groovy test file (converted to -d and -s automatically)
+    $0 --run -f regression-test/suites/demo/case.sql                         run a specific .sql test file (converted to -d and -s automatically)
+    $0 --clean                                                               clean output of regression test framework
+    $0 --clean --run test_select                                             clean output and build regression test framework and run a suite which named as test_select
+    $0 --run -h                                                              print framework options
+    $0 --teamcity --run test_select                                          print teamcity service messages and build regression test framework and run test_select
 
 Log path: \${DORIS_HOME}/output/regression-test/log
 Default config file: \${DORIS_HOME}/regression-test/conf/regression-conf.groovy
@@ -205,6 +208,49 @@ fi
 export JAVA="${JAVA_HOME}/bin/java"
 
 REGRESSION_OPTIONS_PREFIX=''
+
+# Parse -f/--file option and convert to -d and -s
+FILE_PATH=""
+NEW_ARGS=()
+SKIP_NEXT=0
+
+for arg in "$@"; do
+    if [[ ${SKIP_NEXT} -eq 1 ]]; then
+        FILE_PATH="${arg}"
+        SKIP_NEXT=0
+        continue
+    fi
+    
+    if [[ "${arg}" == "-f" ]] || [[ "${arg}" == "--file" ]]; then
+        SKIP_NEXT=1
+        continue
+    fi
+    
+    NEW_ARGS+=("${arg}")
+done
+
+# If -f option is provided, extract directory and suite name
+if [[ -n "${FILE_PATH}" ]]; then
+    # Extract directory (parent path)
+    # e.g., "regression-test/suites/shape_check/tpch_sf1000/shape/q1.groovy" -> "regression-test/suites/shape_check/tpch_sf1000/shape"
+    FILE_DIR=$(dirname "${FILE_PATH}")
+    
+    # Extract suite name (filename without .groovy or .sql extension)
+    # e.g., "q1.groovy" -> "q1" or "q01.sql" -> "q01"
+    FILE_NAME=$(basename "${FILE_PATH}")
+    # Remove .groovy extension if exists
+    SUITE_NAME="${FILE_NAME%.groovy}"
+    # Remove .sql extension if exists
+    SUITE_NAME="${SUITE_NAME%.sql}"
+    
+    echo "Converted -f ${FILE_PATH} to -d ${FILE_DIR} -s ${SUITE_NAME}"
+    
+    # Add -d and -s to arguments
+    NEW_ARGS+=("-d" "${FILE_DIR}" "-s" "${SUITE_NAME}")
+fi
+
+# Reset positional parameters
+set -- "${NEW_ARGS[@]}"
 
 # contains framework options and not start with -
 # it should be suite name

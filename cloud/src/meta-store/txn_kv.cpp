@@ -187,29 +187,36 @@ TxnErrorCode FdbTxnKv::get_partition_boundaries(std::vector<std::string>* bounda
     RangeGetOptions opts;
     opts.snapshot = true;
     std::unique_ptr<RangeGetIterator> iter;
-    do {
+    int num_iterations = 0;
+    int num_kvs = 0;
+    while (iter == nullptr /* may be not init */ || iter->more()) {
         code = txn->get(begin_key, end_key, &iter, opts);
         if (code != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to get fdb boundaries")
+                    .tag("code", code)
+                    .tag("begin_key", hex(begin_key))
+                    .tag("end_key", hex(end_key))
+                    .tag("num_iterations", num_iterations)
+                    .tag("num_kvs", num_kvs);
             if (code == TxnErrorCode::TXN_TOO_OLD) {
                 code = create_txn_with_system_access(&txn);
                 if (code == TxnErrorCode::TXN_OK) {
                     continue;
                 }
             }
-            LOG_WARNING("failed to get fdb boundaries")
-                    .tag("code", code)
-                    .tag("begin_key", hex(begin_key))
-                    .tag("end_key", hex(end_key));
+            LOG_WARNING("failed to recreate txn when get fdb boundaries").tag("code", code);
             return code;
         }
 
         while (iter->has_next()) {
             auto&& [key, value] = iter->next();
             boundaries->emplace_back(key);
+            ++num_kvs;
         }
 
         begin_key = iter->next_begin_key();
-    } while (iter->more());
+        ++num_iterations;
+    }
 
     return TxnErrorCode::TXN_OK;
 }
@@ -232,6 +239,9 @@ TxnErrorCode Transaction::batch_scan(
 } // namespace doris::cloud
 
 namespace doris::cloud::fdb {
+
+// https://apple.github.io/foundationdb/known-limitations.html#design-limitations
+constexpr size_t FDB_VALUE_BYTES_LIMIT = 100'000; // 100 KB
 
 // Ref https://apple.github.io/foundationdb/api-error-codes.html#developer-guide-error-codes.
 constexpr fdb_error_t FDB_ERROR_CODE_TIMED_OUT = 1004;
@@ -437,6 +447,13 @@ void Transaction::put(std::string_view key, std::string_view val) {
     ++num_put_keys_;
     put_bytes_ += key.size() + val.size();
     approximate_bytes_ += key.size() * 3 + val.size(); // See fdbclient/ReadYourWrites.actor.cpp
+
+    if (val.size() > FDB_VALUE_BYTES_LIMIT) {
+        LOG_WARNING("txn put with large value")
+                .tag("key", hex(key))
+                .tag("value", hex(val.substr(0, 64)) + "...")
+                .tag("value_size", val.size());
+    }
 }
 
 // return 0 for success otherwise error
@@ -579,6 +596,13 @@ void Transaction::atomic_set_ver_key(std::string_view key_prefix, std::string_vi
     ++num_put_keys_;
     put_bytes_ += key.size() + val.size();
     approximate_bytes_ += key.size() * 3 + val.size();
+
+    if (val.size() > FDB_VALUE_BYTES_LIMIT) {
+        LOG_WARNING("atomic_set_ver_key with large value")
+                .tag("key", hex(key_prefix))
+                .tag("value", hex(val.substr(0, 64)) + "...")
+                .tag("value_size", val.size());
+    }
 }
 
 bool Transaction::atomic_set_ver_key(std::string_view key, uint32_t offset, std::string_view val) {
@@ -601,6 +625,14 @@ bool Transaction::atomic_set_ver_key(std::string_view key, uint32_t offset, std:
     ++num_put_keys_;
     put_bytes_ += key_buf.size() + val.size();
     approximate_bytes_ += key_buf.size() * 3 + val.size();
+
+    if (val.size() > FDB_VALUE_BYTES_LIMIT) {
+        LOG_WARNING("atomic_set_ver_key with large value")
+                .tag("key", hex(key))
+                .tag("value", hex(val.substr(0, 64)) + "...")
+                .tag("value_size", val.size());
+    }
+
     return true;
 }
 
@@ -621,6 +653,13 @@ void Transaction::atomic_set_ver_value(std::string_view key, std::string_view va
     ++num_put_keys_;
     put_bytes_ += key.size() + val.size();
     approximate_bytes_ += key.size() * 3 + val.size();
+
+    if (val.size() > FDB_VALUE_BYTES_LIMIT) {
+        LOG_WARNING("atomic_set_ver_value with large value")
+                .tag("key", hex(key))
+                .tag("value", hex(val.substr(0, 64)) + "...")
+                .tag("value_size", val.size());
+    }
 }
 
 void Transaction::atomic_add(std::string_view key, int64_t to_add) {

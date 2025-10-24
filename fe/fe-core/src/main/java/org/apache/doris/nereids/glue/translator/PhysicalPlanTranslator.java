@@ -119,6 +119,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
@@ -180,6 +181,7 @@ import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.AssertNumRowsNode;
 import org.apache.doris.planner.BackendPartitionedSchemaScanNode;
+import org.apache.doris.planner.BlackholeSink;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataStreamSink;
@@ -442,6 +444,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      * ******************************************************************************************** */
 
     @Override
+    public PlanFragment visitPhysicalBlackholeSink(PhysicalBlackholeSink<? extends Plan> physicalBlackholeSink,
+            PlanTranslatorContext context) {
+        PlanFragment planFragment = physicalBlackholeSink.child().accept(this, context);
+        BlackholeSink blackholeSink = new BlackholeSink(planFragment.getPlanRoot().getId());
+        planFragment.setSink(blackholeSink);
+        return planFragment;
+    }
+
+    @Override
     public PlanFragment visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink,
             PlanTranslatorContext context) {
         PlanFragment planFragment = physicalResultSink.child().accept(this, context);
@@ -604,7 +615,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         // TODO: should not call legacy planner analyze in Nereids
         try {
-            outFile.analyze(outputExprs, labels);
+            outFile.analyze(outputExprs, labels, true);
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }

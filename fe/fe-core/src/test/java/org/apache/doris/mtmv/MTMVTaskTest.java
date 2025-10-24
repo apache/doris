@@ -17,11 +17,11 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
@@ -44,7 +44,8 @@ public class MTMVTaskTest {
     private String poneName = "p1";
     private String ptwoName = "p2";
     private List<String> allPartitionNames = Lists.newArrayList(poneName, ptwoName);
-    private MTMVRelation relation = new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet());
+    private MTMVRelation relation = new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet(),
+            Sets.newHashSet(), Sets.newHashSet());
 
     @Mocked
     private MTMV mtmv;
@@ -83,7 +84,7 @@ public class MTMVTaskTest {
                 // minTimes = 0;
                 // result = poneId;
 
-                mtmvPartitionUtil.isMTMVSync((MTMVRefreshContext) any, (Set<BaseTableInfo>) any, (Set<TableName>) any);
+                mtmvPartitionUtil.isMTMVSync((MTMVRefreshContext) any, (Set<BaseTableInfo>) any, (Set<TableNameInfo>) any);
                 minTimes = 0;
                 result = true;
 
@@ -141,7 +142,7 @@ public class MTMVTaskTest {
     public void testCalculateNeedRefreshPartitionsSystemNotSyncComplete() throws AnalysisException {
         new Expectations() {
             {
-                mtmvPartitionUtil.isMTMVSync((MTMVRefreshContext) any, (Set<BaseTableInfo>) any, (Set<TableName>) any);
+                mtmvPartitionUtil.isMTMVSync((MTMVRefreshContext) any, (Set<BaseTableInfo>) any, (Set<TableNameInfo>) any);
                 minTimes = 0;
                 result = false;
             }
@@ -157,7 +158,7 @@ public class MTMVTaskTest {
         new Expectations() {
             {
                 mtmvPartitionUtil
-                        .isMTMVSync((MTMVRefreshContext) any, (Set<BaseTableInfo>) any, (Set<TableName>) any);
+                        .isMTMVSync((MTMVRefreshContext) any, (Set<BaseTableInfo>) any, (Set<TableNameInfo>) any);
                 minTimes = 0;
                 result = false;
 

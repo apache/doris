@@ -38,7 +38,6 @@
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "olap/bloom_filter_predicate.h"
 #include "olap/collection_similarity.h"
@@ -55,6 +54,7 @@
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_reader_cache.h"
+#include "olap/rowset/segment_v2/condition_cache.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
@@ -102,7 +102,6 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/array/function_array_index.h"
-#include "vec/json/path_in_data.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -111,6 +110,53 @@ namespace segment_v2 {
 #include "common/compile_check_begin.h"
 
 SegmentIterator::~SegmentIterator() = default;
+
+void SegmentIterator::_init_row_bitmap_by_condition_cache() {
+    // Only dispose need column predicate and expr cal in condition cache
+    if (!_col_predicates.empty() ||
+        (_enable_common_expr_pushdown && !_remaining_conjunct_roots.empty())) {
+        if (_opts.condition_cache_digest) {
+            auto* condition_cache = ConditionCache::instance();
+            ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
+                                               _opts.condition_cache_digest);
+
+            // Increment search count when digest != 0
+            DorisMetrics::instance()->condition_cache_search_count->increment(1);
+
+            ConditionCacheHandle handle;
+            _find_condition_cache = condition_cache->lookup(cache_key, &handle);
+
+            // Increment hit count if cache lookup is successful
+            if (_find_condition_cache) {
+                DorisMetrics::instance()->condition_cache_hit_count->increment(1);
+            }
+
+            auto num_rows = _segment->num_rows();
+            if (_find_condition_cache) {
+                const auto& filter_result = *(handle.get_filter_result());
+                int64_t filtered_blocks = 0;
+                for (int i = 0; i < filter_result.size(); i++) {
+                    if (!filter_result[i]) {
+                        _row_bitmap.removeRange(
+                                i * CONDITION_CACHE_OFFSET,
+                                i * CONDITION_CACHE_OFFSET + CONDITION_CACHE_OFFSET);
+                        filtered_blocks++;
+                    }
+                }
+                // Record condition_cache hit segment number
+                _opts.stats->condition_cache_hit_seg_nums++;
+                // Record rows filtered by condition cache hit
+                _opts.stats->condition_cache_filtered_rows +=
+                        filtered_blocks * SegmentIterator::CONDITION_CACHE_OFFSET;
+            } else {
+                _condition_cache = std::make_shared<std::vector<bool>>(
+                        num_rows / CONDITION_CACHE_OFFSET + 1, false);
+            }
+        }
+    } else {
+        _opts.condition_cache_digest = 0;
+    }
+}
 
 // A fast range iterator for roaring bitmap. Output ranges use closed-open form, like [from, to).
 // Example:
@@ -403,6 +449,8 @@ Status SegmentIterator::_lazy_init(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_opts.stats->block_init_ns);
     DorisMetrics::instance()->segment_read_total->increment(1);
     _row_bitmap.addRange(0, _segment->num_rows());
+    _init_row_bitmap_by_condition_cache();
+
     // z-order can not use prefix index
     if (_segment->_tablet_schema->sort_type() != SortType::ZORDER &&
         _segment->_tablet_schema->cluster_key_uids().empty()) {
@@ -605,10 +653,16 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     {
         if (_opts.runtime_state &&
             _opts.runtime_state->query_options().enable_inverted_index_query &&
-            has_index_in_iterators()) {
+            (has_index_in_iterators() || !_common_expr_ctxs_push_down.empty())) {
             SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
             size_t input_rows = _row_bitmap.cardinality();
-            RETURN_IF_ERROR(_apply_inverted_index());
+            // Only apply column-level inverted index if we have iterators
+            if (has_index_in_iterators()) {
+                RETURN_IF_ERROR(_apply_inverted_index());
+            }
+            // Always apply expr-level index (e.g., search expressions) if we have common_expr_pushdown
+            // This allows search expressions with variant subcolumns to be evaluated even when
+            // the segment doesn't have all subcolumns
             RETURN_IF_ERROR(_apply_index_expr());
             for (auto it = _common_expr_ctxs_push_down.begin();
                  it != _common_expr_ctxs_push_down.end();) {
@@ -630,6 +684,8 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                     ++it;
                 }
             }
+            _opts.condition_cache_digest =
+                    _common_expr_ctxs_push_down.empty() ? 0 : _opts.condition_cache_digest;
             _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
             for (auto cid : _schema->column_ids()) {
                 bool result_true = _check_all_conditions_passed_inverted_index_for_column(cid);
@@ -1761,7 +1817,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                     _lazy_materialization_read = true;
                 }
                 if (_is_common_expr_column[cid]) {
-                    _non_predicate_column_ids.push_back(cid);
+                    _common_expr_column_ids.push_back(cid);
                 } else {
                     _non_predicate_columns.push_back(cid);
                 }
@@ -1790,7 +1846,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                                _short_cir_pred_column_ids.end());
             pred_id_set.insert(_vec_pred_column_ids.begin(), _vec_pred_column_ids.end());
 
-            DCHECK(_non_predicate_column_ids.empty());
+            DCHECK(_common_expr_column_ids.empty());
             // _non_predicate_column_ids must be empty. Otherwise _lazy_materialization_read must not false.
             for (int i = 0; i < _schema->num_column_ids(); i++) {
                 auto cid = _schema->column_id(i);
@@ -1825,7 +1881,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             "_schema_block_id_map: [{}]",
             _lazy_materialization_read, _col_predicates.size(),
             fmt::join(_predicate_column_ids, ","), fmt::join(_non_predicate_columns, ","),
-            fmt::join(_non_predicate_column_ids, ","), fmt::join(_columns_to_filter, ","),
+            fmt::join(_common_expr_column_ids, ","), fmt::join(_columns_to_filter, ","),
             fmt::join(_schema_block_id_map, ","));
     return Status::OK();
 }
@@ -2272,11 +2328,22 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
 Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                 std::vector<rowid_t>& rowid_vector,
                                                 uint16_t* sel_rowid_idx, size_t select_size,
-                                                vectorized::MutableColumns* mutable_columns) {
+                                                vectorized::MutableColumns* mutable_columns,
+                                                bool init_condition_cache) {
     SCOPED_RAW_TIMER(&_opts.stats->lazy_read_ns);
     std::vector<rowid_t> rowids(select_size);
-    for (size_t i = 0; i < select_size; ++i) {
-        rowids[i] = rowid_vector[sel_rowid_idx[i]];
+
+    if (init_condition_cache) {
+        DCHECK(_condition_cache);
+        auto& condition_cache = *_condition_cache;
+        for (size_t i = 0; i < select_size; ++i) {
+            rowids[i] = rowid_vector[sel_rowid_idx[i]];
+            condition_cache[rowids[i] / SegmentIterator::CONDITION_CACHE_OFFSET] = true;
+        }
+    } else {
+        for (size_t i = 0; i < select_size; ++i) {
+            rowids[i] = rowid_vector[sel_rowid_idx[i]];
+        }
     }
 
     for (auto cid : read_column_ids) {
@@ -2320,7 +2387,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         RETURN_IF_CATCH_EXCEPTION({
             auto res = _next_batch_internal(block);
 
-            if (res.is<END_OF_FILE>() && block->rows() == 0) {
+            if (res.is<END_OF_FILE>()) {
                 // Since we have a type check at the caller.
                 // So a replacement of nothing column with real column is needed.
                 const auto& idx_to_datatype = _opts.vir_col_idx_to_type;
@@ -2328,6 +2395,13 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                     size_t idx = pair.second;
                     auto type = idx_to_datatype.find(idx)->second;
                     block->replace_by_position(idx, type->create_column());
+                }
+
+                if (_opts.condition_cache_digest && !_find_condition_cache) {
+                    auto* condition_cache = ConditionCache::instance();
+                    ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
+                                                       _opts.condition_cache_digest);
+                    condition_cache->insert(cache_key, std::move(_condition_cache));
                 }
                 return res;
             }
@@ -2468,13 +2542,13 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 // step 3.2: read remaining expr column and evaluate it.
                 if (_is_need_expr_eval) {
                     // The predicate column contains the remaining expr column, no need second read.
-                    if (_non_predicate_column_ids.size() > 0) {
+                    if (_common_expr_column_ids.size() > 0) {
                         SCOPED_RAW_TIMER(&_opts.stats->non_predicate_read_ns);
                         RETURN_IF_ERROR(_read_columns_by_rowids(
-                                _non_predicate_column_ids, _block_rowids, _sel_rowid_idx.data(),
+                                _common_expr_column_ids, _block_rowids, _sel_rowid_idx.data(),
                                 _selected_size, &_current_return_columns));
-                        _replace_version_col_if_needed(_non_predicate_column_ids, _selected_size);
-                        RETURN_IF_ERROR(_process_columns(_non_predicate_column_ids, block));
+                        _replace_version_col_if_needed(_common_expr_column_ids, _selected_size);
+                        RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
                     }
 
                     DCHECK(block->columns() > _schema_block_id_map[*_common_expr_columns.begin()]);
@@ -2484,7 +2558,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             } else {
                 _fill_column_nothing();
                 if (_is_need_expr_eval) {
-                    RETURN_IF_ERROR(_process_columns(_non_predicate_column_ids, block));
+                    RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
                 }
             }
         } else if (_is_need_expr_eval) {
@@ -2498,11 +2572,22 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         }
 
         // step4: read non_predicate column
-        if (_selected_size > 0 && !_non_predicate_columns.empty()) {
-            RETURN_IF_ERROR(_read_columns_by_rowids(_non_predicate_columns, _block_rowids,
-                                                    _sel_rowid_idx.data(), _selected_size,
-                                                    &_current_return_columns));
-            _replace_version_col_if_needed(_non_predicate_columns, _selected_size);
+        if (_selected_size > 0) {
+            if (!_non_predicate_columns.empty()) {
+                RETURN_IF_ERROR(_read_columns_by_rowids(
+                        _non_predicate_columns, _block_rowids, _sel_rowid_idx.data(),
+                        _selected_size, &_current_return_columns,
+                        _opts.condition_cache_digest && !_find_condition_cache));
+                _replace_version_col_if_needed(_non_predicate_columns, _selected_size);
+            } else {
+                if (_opts.condition_cache_digest && !_find_condition_cache) {
+                    auto& condition_cache = *_condition_cache;
+                    for (size_t i = 0; i < _selected_size; ++i) {
+                        auto rowid = _block_rowids[_sel_rowid_idx[i]];
+                        condition_cache[rowid / SegmentIterator::CONDITION_CACHE_OFFSET] = true;
+                    }
+                }
+            }
         }
     }
 

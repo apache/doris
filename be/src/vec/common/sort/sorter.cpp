@@ -139,6 +139,19 @@ Status Sorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectorized:
 
 Status Sorter::partial_sort(Block& src_block, Block& dest_block, bool reversed) {
     size_t num_cols = src_block.columns();
+    RETURN_IF_ERROR(_prepare_sort_columns(src_block, dest_block, reversed));
+    {
+        SCOPED_TIMER(_partial_sort_timer);
+        uint64_t limit = reversed ? 0 : (_offset + _limit);
+        sort_block(_materialize_sort_exprs ? dest_block : src_block, dest_block, _sort_description,
+                   limit);
+    }
+
+    src_block.clear_column_data(num_cols);
+    return Status::OK();
+}
+
+Status Sorter::_prepare_sort_columns(Block& src_block, Block& dest_block, bool reversed) {
     if (_materialize_sort_exprs) {
         auto output_tuple_expr_ctxs = _vsort_exec_exprs.sort_tuple_slot_expr_ctxs();
         std::vector<int> valid_column_ids(output_tuple_expr_ctxs.size());
@@ -169,14 +182,6 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block, bool reversed) 
             _sort_description[i].direction *= -1;
         }
     }
-
-    {
-        SCOPED_TIMER(_partial_sort_timer);
-        uint64_t limit = reversed ? 0 : (_offset + _limit);
-        sort_block(*result_block, dest_block, _sort_description, limit);
-    }
-
-    src_block.clear_column_data(num_cols);
     return Status::OK();
 }
 

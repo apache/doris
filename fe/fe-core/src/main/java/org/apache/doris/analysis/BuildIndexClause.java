@@ -28,6 +28,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
 
 import com.google.common.collect.Maps;
 
@@ -36,7 +37,7 @@ import java.util.Map;
 
 public class BuildIndexClause extends AlterTableClause {
     // in which table the index on, only used when alter = false
-    private TableName tableName;
+    private TableNameInfo tableName;
     // index definition class
     private IndexDef indexDef;
     // when alter = true, clause like: alter table add index xxxx
@@ -47,7 +48,8 @@ public class BuildIndexClause extends AlterTableClause {
     private String indexName;
     private PartitionNamesInfo partitionNames;
 
-    public BuildIndexClause(TableName tableName, String indexName, PartitionNamesInfo partitionNames, boolean alter) {
+    public BuildIndexClause(TableNameInfo tableName, String indexName, PartitionNamesInfo partitionNames,
+                            boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.tableName = tableName;
         this.indexName = indexName;
@@ -56,7 +58,7 @@ public class BuildIndexClause extends AlterTableClause {
     }
 
     // for nereids
-    public BuildIndexClause(TableName tableName, IndexDef indexDef, Index index, boolean alter) {
+    public BuildIndexClause(TableNameInfo tableName, IndexDef indexDef, Index index, boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.tableName = tableName;
         this.indexDef = indexDef;
@@ -81,7 +83,7 @@ public class BuildIndexClause extends AlterTableClause {
         return alter;
     }
 
-    public TableName getTableName() {
+    public TableNameInfo getTableNameInfo() {
         return tableName;
     }
 

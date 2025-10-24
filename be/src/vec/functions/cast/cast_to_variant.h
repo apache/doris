@@ -70,8 +70,7 @@ struct CastFromVariant {
                         {0}, 1, input_rows_count);
             }
         } else {
-            if (variant.empty()) {
-                // TODO not found root cause, a tmp fix
+            if (variant.only_have_default_values()) {
                 col_to->assume_mutable()->insert_many_defaults(input_rows_count);
                 col_to = make_nullable(col_to, true);
             } else if (is_string_type(data_type_to->get_primitive_type())) {

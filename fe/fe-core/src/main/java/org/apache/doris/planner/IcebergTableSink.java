@@ -148,9 +148,10 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         tSink.setHadoopConfig(props);
 
         // location
-        LocationPath locationPath = LocationPath.of(IcebergUtils.dataLocation(icebergTable), storagePropertiesMap);
+        String originalLocation = IcebergUtils.dataLocation(icebergTable);
+        LocationPath locationPath = LocationPath.of(originalLocation, storagePropertiesMap);
         tSink.setOutputPath(locationPath.toStorageLocation().toString());
-        tSink.setOriginalOutputPath(locationPath.getPath().toString());
+        tSink.setOriginalOutputPath(originalLocation);
         TFileType fileType = locationPath.getTFileTypeForBE();
         tSink.setFileType(fileType);
         if (fileType.equals(TFileType.FILE_BROKER)) {

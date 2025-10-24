@@ -49,6 +49,57 @@ suite("test_math_function") {
 
     qt_select_atan""" select atan(cast('nan' as double)), atan(cast('inf' as double)), atan(cast('-inf' as double)), atan(cast('0.0' as double)), atan(cast('-0.0' as double)), atan(cast('1.0' as double)), atan(cast('-1.0' as double)), atan(cast('1e308' as double)), atan(cast('-1e308' as double)) """
 
+    def mathFuncTestTable = "math_function_test_table";
+
+    sql """ DROP TABLE IF EXISTS ${mathFuncTestTable}; """
+
+    sql """
+        CREATE TABLE IF NOT EXISTS ${mathFuncTestTable} (
+            id INT,
+            single_val DOUBLE,
+            y_val DOUBLE,
+            x_val DOUBLE
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        )
+    """
+
+    sql """
+        INSERT INTO ${mathFuncTestTable} VALUES
+        (1, 0.0, 0.0, 1.0),
+        (2, 1.0, 1.0, 1.0),
+        (3, -1.0, -1.0, 1.0),
+        (4, 0.5, 1.0, 2.0),
+        (5, -0.5, -1.0, 2.0),
+        (6, 1.732050808, 3.0, 1.732050808),
+        (7, cast('nan' as double), cast('nan' as double), 1.0),
+        (8, cast('inf' as double), cast('inf' as double), 1.0),
+        (9, cast('-inf' as double), cast('-inf' as double), 1.0),
+        (10, 0.0, 0.0, 0.0),
+        (11, 1.0, 1.0, 0.0),
+        (12, -1.0, -1.0, 0.0),
+        (13, 0.0, 0.0, -1.0),
+        (14, 1.0, 1.0, -1.0),
+        (15, -1.0, -1.0, -1.0),
+        (16, cast('inf' as double), cast('inf' as double), cast('inf' as double)),
+        (17, cast('-inf' as double), cast('-inf' as double), cast('inf' as double)),
+        (18, cast('inf' as double), cast('inf' as double), cast('-inf' as double)),
+        (19, cast('-inf' as double), cast('-inf' as double), cast('-inf' as double)),
+        (20, 1.0, 1.0, cast('inf' as double)),
+        (21, -1.0, -1.0, cast('inf' as double)),
+        (22, 1.0, 1.0, cast('-inf' as double)),
+        (23, -1.0, -1.0, cast('-inf' as double)),
+        (24, -0.0, -0.0, 1.0),
+        (25, -0.0, -0.0, -1.0),
+        (26, -0.0, -0.0, 0.0),
+        (27, -0.0, -0.0, -0.0),
+        (28, 1e308, 1e308, 1.0),
+        (29, -1e308, -1e308, 1.0);
+    """
+
     testFoldConst""" 
         select
             atan2(cast('nan' as double), cast('1.0' as double)),
@@ -121,6 +172,94 @@ suite("test_math_function") {
             atan2(cast('-1.0' as double), cast('inf' as double))
     """
 
+    qt_select_atan_with_two_args""" 
+        select
+            atan(cast('nan' as double), cast('1.0' as double)),
+            atan(cast('1.0' as double), cast('nan' as double)),
+
+            atan(cast('0.0' as double),  cast('1.0' as double)),
+            atan(cast('-0.0' as double), cast('1.0' as double)),
+            atan(cast('0.0' as double),  cast('0.0' as double)),
+            atan(cast('-0.0' as double), cast('0.0' as double)),
+
+            atan(cast('0.0' as double),  cast('-1.0' as double)),
+            atan(cast('-0.0' as double), cast('-1.0' as double)),
+            atan(cast('0.0' as double),  cast('-0.0' as double)),
+            atan(cast('-0.0' as double), cast('-0.0' as double)),
+
+            atan(cast('1.0' as double),  cast('0.0' as double)),
+            atan(cast('1.0' as double),  cast('-0.0' as double)),
+            atan(cast('-1.0' as double), cast('0.0' as double)),
+            atan(cast('-1.0' as double), cast('-0.0' as double)),
+
+            atan(cast('inf' as double),  cast('1.0' as double)),
+            atan(cast('-inf' as double), cast('1.0' as double)),
+
+            atan(cast('inf' as double),  cast('-inf' as double)),
+            atan(cast('-inf' as double), cast('-inf' as double)),
+
+            atan(cast('inf' as double),  cast('inf' as double)),
+            atan(cast('-inf' as double), cast('inf' as double)),
+
+            atan(cast('1.0' as double),  cast('-inf' as double)),
+            atan(cast('-1.0' as double), cast('-inf' as double)),
+
+            atan(cast('1.0' as double),  cast('inf' as double)),
+            atan(cast('-1.0' as double), cast('inf' as double))
+    """
+
+    qt_select_atan_single_param_from_table """
+        SELECT atan(single_val) FROM ${mathFuncTestTable} ORDER BY id;
+    """
+
+    qt_select_atan_two_params_from_table """
+        SELECT atan(y_val, x_val) FROM ${mathFuncTestTable} ORDER BY id;
+    """
+
+    qt_select_atan_with_first_const """
+        SELECT atan(cast('1.0' as double), x_val) FROM ${mathFuncTestTable} ORDER BY id;
+    """
+
+    qt_select_atan_with_second_const """
+        SELECT atan(y_val, cast('1.0' as double)) FROM ${mathFuncTestTable} ORDER BY id;
+    """
+
+    testFoldConst""" 
+        select
+            atan(cast('nan' as double), cast('1.0' as double)),
+            atan(cast('1.0' as double), cast('nan' as double)),
+
+            atan(cast('0.0' as double),  cast('1.0' as double)),
+            atan(cast('-0.0' as double), cast('1.0' as double)),
+            atan(cast('0.0' as double),  cast('0.0' as double)),
+            atan(cast('-0.0' as double), cast('0.0' as double)),
+
+            atan(cast('0.0' as double),  cast('-1.0' as double)),
+            atan(cast('-0.0' as double), cast('-1.0' as double)),
+            atan(cast('0.0' as double),  cast('-0.0' as double)),
+            atan(cast('-0.0' as double), cast('-0.0' as double)),
+
+            atan(cast('1.0' as double),  cast('0.0' as double)),
+            atan(cast('1.0' as double),  cast('-0.0' as double)),
+            atan(cast('-1.0' as double), cast('0.0' as double)),
+            atan(cast('-1.0' as double), cast('-0.0' as double)),
+
+            atan(cast('inf' as double),  cast('1.0' as double)),
+            atan(cast('-inf' as double), cast('1.0' as double)),
+
+            atan(cast('inf' as double),  cast('-inf' as double)),
+            atan(cast('-inf' as double), cast('-inf' as double)),
+
+            atan(cast('inf' as double),  cast('inf' as double)),
+            atan(cast('-inf' as double), cast('inf' as double)),
+
+            atan(cast('1.0' as double),  cast('-inf' as double)),
+            atan(cast('-1.0' as double), cast('-inf' as double)),
+
+            atan(cast('1.0' as double),  cast('inf' as double)),
+            atan(cast('-1.0' as double), cast('inf' as double))
+    """
+
     testFoldConst""" select cbrt(cast('nan' as double)), cbrt(cast('inf' as double)), cbrt(cast('-inf' as double)) """
     qt_select_cbrt""" select cbrt(cast('nan' as double)), cbrt(cast('inf' as double)), cbrt(cast('-inf' as double)) """
 
@@ -154,4 +293,7 @@ suite("test_math_function") {
     testFoldConst""" select tanh(cast('nan' as double)), tanh(cast('inf' as double)), tanh(cast('-inf' as double)) """
     qt_select_tanh""" select tanh(cast('nan' as double)), tanh(cast('inf' as double)), tanh(cast('-inf' as double)) """
 
+    sql """
+        DROP TABLE IF EXISTS ${mathFuncTestTable};
+    """
 }

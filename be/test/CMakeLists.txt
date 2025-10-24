@@ -45,7 +45,6 @@ list(REMOVE_ITEM UT_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/agent/heartbeat_server_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/common/config_validator_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/http/metrics_action_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/binary_dict_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/binary_plain_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/binary_prefix_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/bitshuffle_page_test.cpp

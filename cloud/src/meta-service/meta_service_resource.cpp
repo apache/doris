@@ -198,16 +198,16 @@ static int decrypt_and_update_ak_sk(ObjectStoreInfoPB& obj_info, MetaServiceCode
 
 // Asynchronously notify refresh instance in background thread
 static void async_notify_refresh_instance(
-        std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+        std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id, bool include_self,
         std::function<void(const KVStats&)> stats_handler = nullptr) {
-    auto f = new std::function<void()>(
-            [instance_id, txn_kv = std::move(txn_kv), stats_handler = std::move(stats_handler)] {
-                KVStats stats;
-                notify_refresh_instance(txn_kv, instance_id, &stats);
-                if (stats_handler) {
-                    stats_handler(stats);
-                }
-            });
+    auto f = new std::function<void()>([instance_id, include_self, txn_kv = std::move(txn_kv),
+                                        stats_handler = std::move(stats_handler)] {
+        KVStats stats;
+        notify_refresh_instance(txn_kv, instance_id, &stats, include_self);
+        if (stats_handler) {
+            stats_handler(stats);
+        }
+    });
     bthread_t bid;
     if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
         LOG(WARNING) << "notify refresh instance inplace, instance_id=" << instance_id;
@@ -1813,7 +1813,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
     }
 
     async_notify_refresh_instance(
-            txn_kv_, request->instance_id(),
+            txn_kv_, request->instance_id(), /*include_self=*/true,
             [instance_id = request->instance_id()](const KVStats& stats) {
                 if (config::use_detailed_metrics && !instance_id.empty()) {
                     g_bvar_rpc_kv_create_instance_get_bytes.put({instance_id}, stats.get_bytes);
@@ -2190,7 +2190,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
 
     if (request->op() == AlterInstanceRequest::REFRESH) return;
 
-    async_notify_refresh_instance(txn_kv_, request->instance_id());
+    async_notify_refresh_instance(txn_kv_, request->instance_id(), /*include_self=*/false);
 }
 
 void MetaServiceImpl::get_instance(google::protobuf::RpcController* controller,
@@ -2822,7 +2822,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     if (code != MetaServiceCode::OK) return;
 
     async_notify_refresh_instance(
-            txn_kv_, request->instance_id(),
+            txn_kv_, request->instance_id(), /*include_self=*/false,
             [instance_id = request->instance_id()](const KVStats& stats) {
                 if (config::use_detailed_metrics && !instance_id.empty()) {
                     g_bvar_rpc_kv_alter_cluster_get_bytes.put({instance_id}, stats.get_bytes);
@@ -4308,8 +4308,8 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
 }
 
 void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
-                             KVStats* stats) {
-    LOG(INFO) << "begin notify_refresh_instance";
+                             KVStats* stats, bool include_self) {
+    LOG(INFO) << "begin notify_refresh_instance, include_self=" << include_self;
     TEST_SYNC_POINT_RETURN_WITH_VOID("notify_refresh_instance_return");
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -4354,7 +4354,7 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
         } else {
             endpoint = fmt::format("{}:{}", e.ip(), e.port());
         }
-        if (endpoint == self_endpoint) continue;
+        if (endpoint == self_endpoint && !include_self) continue;
 
         // Prepare stub
         std::shared_ptr<MetaService_Stub> stub;

@@ -25,10 +25,10 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
@@ -486,7 +486,7 @@ public class RangePartitionInfoTest {
         partitionColumns.add(k1);
 
         ArrayList<Expr> params = new ArrayList<>();
-        SlotRef s1 = new SlotRef(new TableName("tbl"), "k1");
+        SlotRef s1 = new SlotRef(new TableNameInfo("tbl"), "k1");
         params.add(s1);
         params.add(new StringLiteral("day"));
 

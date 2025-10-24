@@ -50,7 +50,7 @@ void bit_pack(const T* input, uint8_t in_num, int bit_width, uint8_t* output) {
 }
 
 static void BM_BitPack(benchmark::State& state) {
-    int w = state.range(0);
+    int w = (int)state.range(0);
     int n = 255;
 
     std::default_random_engine e;
@@ -67,7 +67,7 @@ static void BM_BitPack(benchmark::State& state) {
     for (auto _ : state) {
         benchmark::DoNotOptimize(test_data.data());
         benchmark::DoNotOptimize(output.data());
-        bit_pack(test_data.data(), n, w, output.data());
+        bit_pack(test_data.data(), (uint8_t)n, w, output.data());
         benchmark::ClobberMemory();
     }
 
@@ -75,7 +75,7 @@ static void BM_BitPack(benchmark::State& state) {
 }
 
 static void BM_BitPackOptimized(benchmark::State& state) {
-    int w = state.range(0);
+    int w = (int)state.range(0);
     int n = 255;
 
     std::default_random_engine e;
@@ -94,7 +94,7 @@ static void BM_BitPackOptimized(benchmark::State& state) {
     for (auto _ : state) {
         benchmark::DoNotOptimize(test_data.data());
         benchmark::DoNotOptimize(output.data());
-        forEncoder.bit_pack(test_data.data(), n, w, output.data());
+        forEncoder.bit_pack(test_data.data(), (uint8_t)n, w, output.data());
         benchmark::ClobberMemory();
     }
 

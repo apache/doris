@@ -53,7 +53,6 @@ statementBase
     | supportedDmlStatement             #supportedDmlStatementAlias
     | supportedCreateStatement          #supportedCreateStatementAlias
     | supportedAlterStatement           #supportedAlterStatementAlias
-    | supportedOptimizeStatement        #supportedOptimizeStatementAlias
     | materializedViewStatement         #materializedViewStatementAlias
     | supportedJobStatement             #supportedJobStatementAlias
     | constraintStatement               #constraintStatementAlias
@@ -145,6 +144,10 @@ supportedDmlStatement
         partitionSpec? tableAlias
         (USING relations)?
         whereClause?                                                   #delete
+    | explain? cte? MERGE INTO targetTable=multipartIdentifier
+        (AS? identifier)? USING srcRelation=relationPrimary
+        ON expression
+        (mergeMatchedClause | mergeNotMatchedClause)+                   #mergeInto
     | LOAD LABEL lableName=multipartIdentifier
         LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
         (withRemoteStorageSystem)?
@@ -162,6 +165,16 @@ supportedDmlStatement
                 FROM stageAndPattern whereClause? RIGHT_PAREN))
             properties=propertyClause?                                 #copyInto
     | TRUNCATE TABLE multipartIdentifier specifiedPartition?  FORCE?   #truncateTable
+    ;
+
+mergeMatchedClause
+    : WHEN MATCHED (AND casePredicate=expression)? THEN
+        (UPDATE SET updateAssignmentSeq | DELETE)
+    ;
+
+mergeNotMatchedClause
+    : WHEN NOT MATCHED (AND casePredicate=expression)? THEN
+        INSERT cols=identifierList? VALUES rowConstructor
     ;
 
 supportedCreateStatement
@@ -243,6 +256,8 @@ supportedCreateStatement
         name=identifier properties=propertyClause?                                  #createIndexTokenizer
     | CREATE INVERTED INDEX TOKEN_FILTER (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                                  #createIndexTokenFilter
+    | CREATE INVERTED INDEX CHAR_FILTER (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                                  #createIndexCharFilter
     ;
 
 dictionaryColumnDefs:
@@ -273,6 +288,8 @@ supportedAlterStatement
         properties=propertyClause                                                           #alterStoragePolicy
     | ALTER TABLE tableName=multipartIdentifier
         alterTableClause (COMMA alterTableClause)*                                          #alterTable
+    | ALTER TABLE tableName=multipartIdentifier EXECUTE actionName=identifier
+        LEFT_PAREN propertyItemList? RIGHT_PAREN partitionSpec? (WHERE whereExpression=booleanExpression)?  #alterTableExecute
     | ALTER TABLE tableName=multipartIdentifier ADD ROLLUP
         addRollupClause (COMMA addRollupClause)*                                            #alterTableAddRollup
     | ALTER TABLE tableName=multipartIdentifier DROP ROLLUP
@@ -294,13 +311,6 @@ supportedAlterStatement
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
     | ALTER USER (IF EXISTS)? grantUserIdentify
         passwordOption (COMMENT STRING_LITERAL)?                                            #alterUser
-    ;
-
-supportedOptimizeStatement
-    : OPTIMIZE TABLE tableName=multipartIdentifier
-        (partitionSpec)?
-        (WHERE booleanExpression)?
-        properties=propertyClause                                                       #optimizeTable
     ;
 
 supportedDropStatement
@@ -331,6 +341,7 @@ supportedDropStatement
     | DROP INVERTED INDEX ANALYZER (IF EXISTS)? name=identifier                 #dropIndexAnalyzer
     | DROP INVERTED INDEX TOKENIZER (IF EXISTS)? name=identifier                #dropIndexTokenizer
     | DROP INVERTED INDEX TOKEN_FILTER (IF EXISTS)? name=identifier             #dropIndexTokenFilter
+    | DROP INVERTED INDEX CHAR_FILTER (IF EXISTS)? name=identifier              #dropIndexCharFilter
     ;
 
 supportedShowStatement
@@ -469,6 +480,7 @@ supportedLoadStatement
     | SHOW INVERTED INDEX ANALYZER                                                  #showIndexAnalyzer
     | SHOW INVERTED INDEX TOKENIZER                                                 #showIndexTokenizer
     | SHOW INVERTED INDEX TOKEN_FILTER                                              #showIndexTokenFilter
+    | SHOW INVERTED INDEX CHAR_FILTER                                               #showIndexCharFilter
     ;
 
 supportedKillStatement
@@ -489,6 +501,8 @@ supportedOtherStatement
         ((CLUSTER | COMPUTE GROUP) source=identifier |
             (warmUpItem (AND warmUpItem)*)) FORCE?
             properties=propertyClause?                                              #warmUpCluster
+    | explain? WARM UP SELECT namedExpressionSeq
+      FROM warmUpSingleTableRef whereClause?                                        #warmUpSelect
     | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
@@ -497,6 +511,10 @@ supportedOtherStatement
 
  warmUpItem
     : TABLE tableName=multipartIdentifier (PARTITION partitionName=identifier)?
+    ;
+
+warmUpSingleTableRef
+    : multipartIdentifier tableAlias?
     ;
 
 lockTable
@@ -608,6 +626,7 @@ supportedAdminStatement
     | ADMIN SET AUTO CLUSTER SNAPSHOT propertyClause?                               #adminSetAutoClusterSnapshot
     | ADMIN DROP CLUSTER SNAPSHOT WHERE (key=identifier) EQ (value=STRING_LITERAL)  #adminDropClusterSnapshot
     | ADMIN SET CLUSTER SNAPSHOT FEATURE (ON | OFF)                                 #adminSetClusterSnapshotFeatureSwitch
+    | ADMIN ROTATE TDE ROOT KEY properties=propertyClause?                          #adminRotateTdeRootKey
     ;
 
 supportedRecoverStatement
@@ -1600,6 +1619,8 @@ primaryExpression
         (ORDER BY sortItem (COMMA sortItem)*)?
         (SEPARATOR sep=expression)? RIGHT_PAREN
         (OVER windowSpec)?                                                                     #groupConcat
+    | GET_FORMAT LEFT_PAREN
+        expression COMMA expression RIGHT_PAREN                                         #getFormatFunction
     | TRIM LEFT_PAREN
         ((BOTH | LEADING | TRAILING) expression? | expression) FROM expression RIGHT_PAREN     #trim
     | (SUBSTR | SUBSTRING | MID) LEFT_PAREN
@@ -1993,6 +2014,7 @@ nonReserved
     | FRONTENDS
     | FUNCTION
     | GENERATED
+    | GET_FORMAT
     | GENERIC
     | GLOBAL
     | GRAPH
@@ -2046,6 +2068,7 @@ nonReserved
     | LOGICAL
     | MANUAL
     | MAP
+    | MATCHED
     | MATCH_ALL
     | MATCH_ANY
     | MATCH_PHRASE
@@ -2142,6 +2165,7 @@ nonReserved
     | ROLLBACK
     | ROLLUP
     | ROOT
+    | ROTATE
     | ROUTINE
     | S3
     | SAMPLE
@@ -2180,6 +2204,7 @@ nonReserved
     | TAG
     | TASK
     | TASKS
+    | TDE
     | TEMPORARY
     | TEXT
     | THAN

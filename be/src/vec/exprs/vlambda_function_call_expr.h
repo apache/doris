@@ -86,6 +86,8 @@ public:
         return out.str();
     }
 
+    uint64_t get_digest(uint64_t seed) const override { return 0; }
+
 private:
     std::string _expr_name;
     LambdaFunctionPtr _lambda_function;

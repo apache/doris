@@ -40,8 +40,8 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((c.c_current_addr_sk = ca.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer] apply RFs: RF0
+------------------------------------PhysicalOlapScan[customer(c)] apply RFs: RF0
 ----------------------------------PhysicalProject
 ------------------------------------filter(ca_county IN ('Cochran County', 'Kandiyohi County', 'Marquette County', 'Storey County', 'Warren County'))
---------------------------------------PhysicalOlapScan[customer_address]
+--------------------------------------PhysicalOlapScan[customer_address(ca)]
 

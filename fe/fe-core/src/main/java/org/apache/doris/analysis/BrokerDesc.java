@@ -91,7 +91,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
                 // Create primary storage properties from the given configuration
                 this.storageProperties = StorageProperties.createPrimary(this.properties);
                 // Override the storage type based on property configuration
-                this.storageType = StorageBackend.StorageType.valueOf(storageProperties.getStorageName());
+                this.storageType = StorageBackend.StorageType.valueOfIgnoreCase(storageProperties.getStorageName());
             } catch (StoragePropertiesException e) {
                 // Currently ignored: these properties might be broker-specific.
                 // Just keep the storage type as BROKER, and try to create BrokerProperties

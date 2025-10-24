@@ -95,7 +95,7 @@ public:
             auto iter = get_set_func()->begin();
             while (iter->has_next()) {
                 DCHECK(iter->get_value() != nullptr);
-                auto* value = const_cast<void*>(iter->get_value());
+                const void* value = iter->get_value();
 
                 TExprNode node = create_texpr_node_from(value, slot_data_type->get_primitive_type(),
                                                         slot_data_type->get_precision(),
@@ -106,6 +106,8 @@ public:
         }
         return true;
     }
+
+    uint64_t get_digest(uint64_t seed) const override { return 0; }
 
 private:
     Status _do_execute(VExprContext* context, Block* block, int* result_column_id,

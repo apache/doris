@@ -65,7 +65,7 @@ int main(int argc, char** argv) {
 
 namespace doris::cloud {
 void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
-                             KVStats* stats);
+                             KVStats* stats, bool include_self);
 } // namespace doris::cloud
 
 TEST(MetaServerTest, FQDNRefreshInstance) {
@@ -142,7 +142,7 @@ TEST(MetaServerTest, FQDNRefreshInstance) {
 
     // Refresh instance with FQDN endpoint.
     config::hostname = "";
-    notify_refresh_instance(txn_kv, "fqdn_instance_id", nullptr);
+    notify_refresh_instance(txn_kv, "fqdn_instance_id", nullptr, false);
 
     bool refreshed = false;
     for (size_t i = 0; i < 100; ++i) {
@@ -150,7 +150,7 @@ TEST(MetaServerTest, FQDNRefreshInstance) {
             refreshed = true;
             break;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
     EXPECT_TRUE(refreshed);

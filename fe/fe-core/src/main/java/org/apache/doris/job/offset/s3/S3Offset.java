@@ -44,6 +44,11 @@ public class S3Offset implements Offset {
     }
 
     @Override
+    public boolean isValidOffset() {
+        return StringUtils.isNotBlank(endFile);
+    }
+
+    @Override
     public String toString() {
         return "{\"endFile\": \"" + endFile + "\" }";
     }

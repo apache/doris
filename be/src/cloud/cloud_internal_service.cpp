@@ -20,6 +20,7 @@
 #include <bthread/countdown_event.h>
 
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
@@ -95,28 +96,60 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
                          << " err msg: " << st.to_string();
         }
         auto rowsets = tablet->get_snapshot_rowset();
-        std::for_each(rowsets.cbegin(), rowsets.cend(), [&](const RowsetSharedPtr& rowset) {
-            std::string rowset_id = rowset->rowset_id().to_string();
-            for (int32_t segment_id = 0; segment_id < rowset->num_segments(); segment_id++) {
-                std::string file_name = fmt::format("{}_{}.dat", rowset_id, segment_id);
-                auto cache_key = io::BlockFileCache::hash(file_name);
-                auto* cache = io::FileCacheFactory::instance()->get_by_path(cache_key);
 
-                auto segments_meta = cache->get_hot_blocks_meta(cache_key);
-                for (const auto& tuple : segments_meta) {
-                    FileCacheBlockMeta* meta = response->add_file_cache_block_metas();
-                    meta->set_tablet_id(tablet_id);
-                    meta->set_rowset_id(rowset_id);
-                    meta->set_segment_id(segment_id);
-                    meta->set_file_name(file_name);
-                    meta->set_file_size(rowset->rowset_meta()->segment_file_size(segment_id));
-                    meta->set_offset(std::get<0>(tuple));
-                    meta->set_size(std::get<1>(tuple));
-                    meta->set_cache_type(cache_type_to_pb(std::get<2>(tuple)));
-                    meta->set_expiration_time(std::get<3>(tuple));
-                }
+        auto add_meta = [&](PGetFileCacheMetaResponse* resp, int64_t tablet_id,
+                            const std::string& rowset_id, int32_t segment_id,
+                            const std::string& file_name,
+                            const std::tuple<int64_t, int64_t, io::FileCacheType, int64_t>& tuple,
+                            const RowsetSharedPtr& rowset, bool is_index) {
+            FileCacheBlockMeta* meta = resp->add_file_cache_block_metas();
+            meta->set_tablet_id(tablet_id);
+            meta->set_rowset_id(rowset_id);
+            meta->set_segment_id(segment_id);
+            meta->set_file_name(file_name);
+
+            if (!is_index) {
+                // .dat
+                meta->set_file_size(rowset->rowset_meta()->segment_file_size(segment_id));
+                meta->set_file_type(doris::FileType::SEGMENT_FILE);
+            } else {
+                // .idx
+                const auto& idx_file_info =
+                        rowset->rowset_meta()->inverted_index_file_info(segment_id);
+                meta->set_file_size(idx_file_info.has_index_size() ? idx_file_info.index_size()
+                                                                   : -1);
+                meta->set_file_type(doris::FileType::INVERTED_INDEX_FILE);
             }
-        });
+
+            meta->set_offset(std::get<0>(tuple));
+            meta->set_size(std::get<1>(tuple));
+            meta->set_cache_type(cache_type_to_pb(std::get<2>(tuple)));
+            meta->set_expiration_time(std::get<3>(tuple));
+        };
+
+        auto process_file_for_segment = [&](PGetFileCacheMetaResponse* resp,
+                                            const RowsetSharedPtr& rowset, int64_t tablet_id,
+                                            const std::string& rowset_id, int32_t segment_id,
+                                            bool is_inedex) {
+            const char* extension = is_inedex ? ".idx" : ".dat";
+            std::string file_name = fmt::format("{}_{}{}", rowset_id, segment_id, extension);
+            auto cache_key = io::BlockFileCache::hash(file_name);
+            auto* cache = io::FileCacheFactory::instance()->get_by_path(cache_key);
+            if (!cache) return;
+            auto segments_meta = cache->get_hot_blocks_meta(cache_key);
+            for (const auto& tuple : segments_meta) {
+                add_meta(resp, tablet_id, rowset_id, segment_id, file_name, tuple, rowset,
+                         is_inedex);
+            }
+        };
+
+        for (const RowsetSharedPtr& rowset : rowsets) {
+            std::string rowset_id = rowset->rowset_id().to_string();
+            for (int32_t segment_id = 0; segment_id < rowset->num_segments(); ++segment_id) {
+                process_file_for_segment(response, rowset, tablet_id, rowset_id, segment_id, false);
+                process_file_for_segment(response, rowset, tablet_id, rowset_id, segment_id, true);
+            }
+        }
     }
     VLOG_DEBUG << "warm up get meta request=" << request->DebugString()
                << ", response=" << response->DebugString();
@@ -228,7 +261,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             expiration_time = 0;
         }
 
-        if (!tablet->add_rowset_warmup_state(rs_meta, WarmUpState::TRIGGERED_BY_JOB)) {
+        if (!tablet->add_rowset_warmup_state(rs_meta, WarmUpTriggerSource::EVENT_DRIVEN)) {
             LOG(INFO) << "found duplicate warmup task for rowset " << rowset_id.to_string()
                       << ", skip it";
             continue;
@@ -279,8 +312,9 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                     LOG(WARNING) << "download segment failed, tablet_id: " << tablet_id
                                  << " rowset_id: " << rowset_id.to_string() << ", error: " << st;
                 }
-                if (tablet->complete_rowset_segment_warmup(rowset_id, st, 1, 0) ==
-                    WarmUpState::DONE) {
+                if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
+                                                           rowset_id, st, 1, 0)
+                            .trigger_source == WarmUpTriggerSource::EVENT_DRIVEN) {
                     VLOG_DEBUG << "warmup rowset " << version.to_string() << "("
                                << rowset_id.to_string() << ") completed";
                 }
@@ -352,8 +386,9 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                         LOG(WARNING) << "download inverted index failed, tablet_id: " << tablet_id
                                      << " rowset_id: " << rowset_id << ", error: " << st;
                     }
-                    if (tablet->complete_rowset_segment_warmup(rowset_id, st, 0, 1) ==
-                        WarmUpState::DONE) {
+                    if (tablet->complete_rowset_segment_warmup(WarmUpTriggerSource::EVENT_DRIVEN,
+                                                               rowset_id, st, 0, 1)
+                                .trigger_source == WarmUpTriggerSource::EVENT_DRIVEN) {
                         VLOG_DEBUG << "warmup rowset " << version.to_string() << "("
                                    << rowset_id.to_string() << ") completed";
                     }
@@ -373,7 +408,8 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                 };
                 g_file_cache_event_driven_warm_up_submitted_index_num << 1;
                 g_file_cache_event_driven_warm_up_submitted_index_size << idx_size;
-                tablet->update_rowset_warmup_state_inverted_idx_num(rowset_id, 1);
+                tablet->update_rowset_warmup_state_inverted_idx_num(
+                        WarmUpTriggerSource::EVENT_DRIVEN, rowset_id, 1);
                 if (wait) {
                     wait->add_count();
                 }

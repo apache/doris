@@ -341,7 +341,7 @@ Status VCollectIterator::_topn_next(Block* block) {
                         DCHECK(block->get_by_position(k).type->equals(
                                 *mutable_block.get_datatype_by_position(k)));
                         res = block->get_by_position(k).column->compare_at(
-                                k, last_row_pos, *(mutable_block.get_column_by_position(k)), -1);
+                                j, last_row_pos, *(mutable_block.get_column_by_position(k)), -1);
                         if (res) {
                             break;
                         }

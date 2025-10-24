@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -632,8 +633,14 @@ public class MaterializedViewUtils {
                         table.getName()));
                 return null;
             }
-            Set<Column> partitionColumnSet = new HashSet<>(
-                    relatedTable.getPartitionColumns(MvccUtil.getSnapshotFromContext(relatedTable)));
+            Set<String> partitionColumnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+            try {
+                partitionColumnSet.addAll(relatedTable.getPartitionColumnNames(
+                        MvccUtil.getSnapshotFromContext(relatedTable)));
+            } catch (DdlException e) {
+                context.addFailReason(e.getMessage());
+                return null;
+            }
             Column mvReferenceColumn = contextPartitionColumn.getOriginalColumn().get();
             Expr definExpr = mvReferenceColumn.getDefineExpr();
             if (definExpr instanceof SlotRef) {
@@ -642,7 +649,7 @@ public class MaterializedViewUtils {
                     mvReferenceColumn = referenceRollupColumn;
                 }
             }
-            if (partitionColumnSet.contains(mvReferenceColumn)
+            if (partitionColumnSet.contains(mvReferenceColumn.getName())
                     && (!mvReferenceColumn.isAllowNull() || relatedTable.isPartitionColumnAllowNull())) {
                 context.addTableColumn(table, mvReferenceColumn);
             } else {

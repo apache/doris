@@ -104,7 +104,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             RoutineLoadTaskInfo routineLoadTaskInfo = needScheduleTasksQueue.take();
             // try to delay scheduling tasks that are perceived as Eof to MaxBatchInterval
             // to avoid to much small transaction
-            if (routineLoadTaskInfo.getIsEof()) {
+            if (routineLoadTaskInfo.needDedalySchedule()) {
                 RoutineLoadJob routineLoadJob = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
                 if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime()
                         < routineLoadJob.getMaxBatchIntervalS() * 1000) {
@@ -258,7 +258,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         }
 
         // for other errors (network issues, BE restart, etc.), reschedule immediately
-        RoutineLoadTaskInfo newTask = routineLoadJob.unprotectRenewTask(routineLoadTaskInfo);
+        RoutineLoadTaskInfo newTask = routineLoadJob.unprotectRenewTask(routineLoadTaskInfo, false);
         addTaskInQueue(newTask);
     }
 

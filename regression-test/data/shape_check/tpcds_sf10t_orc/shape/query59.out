@@ -35,8 +35,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------PhysicalOlapScan[store]
 ----------------------PhysicalProject
 ------------------------filter((d.d_month_seq <= 1228) and (d.d_month_seq >= 1217))
---------------------------PhysicalOlapScan[date_dim]
+--------------------------PhysicalOlapScan[date_dim(d)]
 --------------PhysicalProject
 ----------------filter((d.d_month_seq <= 1216) and (d.d_month_seq >= 1205))
-------------------PhysicalOlapScan[date_dim]
+------------------PhysicalOlapScan[date_dim(d)]
 

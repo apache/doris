@@ -34,6 +34,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
 
@@ -118,9 +119,12 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public String getShowMaxOffset() {
-        Map<String, String> res = new HashMap<>();
-        res.put("endFile", maxEndFile);
-        return new Gson().toJson(res);
+        if (maxEndFile != null) {
+            Map<String, String> res = new HashMap<>();
+            res.put("endFile", maxEndFile);
+            return new Gson().toJson(res);
+        }
+        return null;
     }
 
     @Override
@@ -139,8 +143,10 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             }
             return plan;
         });
-        return new InsertIntoTableCommand((LogicalPlan) rewritePlan, Optional.empty(), Optional.empty(),
-                Optional.empty(), true, Optional.empty());
+        InsertIntoTableCommand insertIntoTableCommand = new InsertIntoTableCommand((LogicalPlan) rewritePlan,
+                Optional.empty(), Optional.empty(), Optional.empty(), true, Optional.empty());
+        insertIntoTableCommand.setJobId(originCommand.getJobId());
+        return insertIntoTableCommand;
     }
 
     @Override
@@ -162,8 +168,6 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             GlobListResult globListResult = fileSystem.globListWithLimit(filePath, objects, startFile, 1, 1);
             if (globListResult != null && !objects.isEmpty() && StringUtils.isNotEmpty(globListResult.getMaxFile())) {
                 maxEndFile = globListResult.getMaxFile();
-            } else {
-                maxEndFile = startFile;
             }
         } catch (Exception e) {
             throw e;
@@ -172,10 +176,11 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public boolean hasMoreDataToConsume() {
-        if (currentOffset == null) {
+        if (currentOffset == null || currentOffset.endFile == null) {
             return true;
         }
-        if (currentOffset.endFile.compareTo(maxEndFile) < 0) {
+
+        if (maxEndFile != null && currentOffset.endFile.compareTo(maxEndFile) < 0) {
             return true;
         }
         return false;
@@ -184,5 +189,30 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public Offset deserializeOffset(String offset) {
         return GsonUtils.GSON.fromJson(offset, S3Offset.class);
+    }
+
+    /**
+     * {"fileName": 1.csv} => S3Offset(endFile=1.csv)
+     */
+    @Override
+    public Offset deserializeOffsetProperty(String offset) {
+        if (StringUtils.isBlank(offset)) {
+            return null;
+        }
+        Map<String, String> offsetMap =
+                GsonUtils.GSON.fromJson(offset, new TypeToken<HashMap<String, String>>() {}.getType());
+
+        if (offsetMap == null || offsetMap.isEmpty()) {
+            return null;
+        }
+
+        String fileName = offsetMap.get("fileName");
+        if (StringUtils.isBlank(fileName)) {
+            return null;
+        }
+
+        S3Offset s3Offset = new S3Offset();
+        s3Offset.setEndFile(fileName);
+        return s3Offset;
     }
 }

@@ -381,6 +381,9 @@ public class PublishVersionDaemon extends MasterDaemon {
                 Map<Long, Long> backendPartitionVersions = partitionVisibleVersions.entrySet().stream()
                         .filter(entry -> partitionIds.contains(entry.getKey()))
                         .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                if (backendPartitionVersions.isEmpty()) {
+                    return;
+                }
                 UpdateVisibleVersionTask task = new UpdateVisibleVersionTask(backendId, backendPartitionVersions,
                         createTime);
                 batchTask.addTask(task);

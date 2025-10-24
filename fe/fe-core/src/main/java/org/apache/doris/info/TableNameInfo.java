@@ -20,7 +20,6 @@
 
 package org.apache.doris.info;
 
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -150,6 +149,9 @@ public class TableNameInfo {
         this.tbl = tableName;
     }
 
+    public void analyze() throws AnalysisException {
+    }
+
     /**
      * analyze tableNameInfo
      * @param ctx ctx
@@ -221,14 +223,6 @@ public class TableNameInfo {
         return tbl;
     }
 
-    /**
-     * transferToTableName
-     * @return TableName
-     */
-    public TableName transferToTableName() {
-        return new TableName(ctl, db, tbl);
-    }
-
     public String getTableAlias() {
         return toString();
     }
@@ -250,15 +244,15 @@ public class TableNameInfo {
      * equals
      */
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
+    public boolean equals(Object other) {
+        if (this == other) {
             return true;
         }
-        if (o == null || getClass() != o.getClass()) {
+        if (other == null || getClass() != other.getClass()) {
             return false;
         }
-        TableNameInfo that = (TableNameInfo) o;
-        return tbl.equals(that.tbl) && db.equals(that.db) && ctl.equals(that.ctl);
+        TableNameInfo that = (TableNameInfo) other;
+        return toString().equals(that.toString());
     }
 
     /**

@@ -330,7 +330,7 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
     if (_type_info == nullptr) {
         return Status::NotSupported("unsupported typeinfo, type={}", meta->type());
     }
-    RETURN_IF_ERROR(EncodingInfo::get(_type_info.get(), meta->encoding(), &_encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(_type_info->type(), meta->encoding(), &_encoding_info));
 
     for (int i = 0; i < meta->indexes_size(); i++) {
         const auto& index_meta = meta->indexes(i);
@@ -1364,11 +1364,10 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
                     DCHECK_EQ(this_run, num_rows);
                 } else {
                     *has_null = true;
-                    const auto* null_col =
+                    auto* null_col =
                             vectorized::check_and_get_column<vectorized::ColumnNullable>(dst.get());
                     if (null_col != nullptr) {
-                        const_cast<vectorized::ColumnNullable*>(null_col)->insert_many_defaults(
-                                this_run);
+                        null_col->insert_many_defaults(this_run);
                     } else {
                         return Status::InternalError("unexpected column type in column reader");
                     }
@@ -1426,15 +1425,14 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                 auto origin_index = _page.data_decoder->current_index();
                 if (this_read_count > 0) {
                     if (is_null) {
-                        const auto* null_col =
+                        auto* null_col =
                                 vectorized::check_and_get_column<vectorized::ColumnNullable>(
                                         dst.get());
                         if (UNLIKELY(null_col == nullptr)) {
                             return Status::InternalError("unexpected column type in column reader");
                         }
 
-                        const_cast<vectorized::ColumnNullable*>(null_col)->insert_many_defaults(
-                                this_read_count);
+                        null_col->insert_many_defaults(this_read_count);
                     } else {
                         size_t read_count = this_read_count;
 
@@ -1509,7 +1507,8 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
                 CHECK_NOTNULL(_dict_decoder);
             }
 
-            dict_page_decoder->set_dict_decoder(_dict_decoder.get(), _dict_word_info.get());
+            dict_page_decoder->set_dict_decoder(cast_set<uint32_t>(_dict_decoder->count()),
+                                                _dict_word_info.get());
         }
     }
     return Status::OK();
@@ -1523,16 +1522,14 @@ Status FileColumnIterator::_read_dict_data() {
     _opts.type = INDEX_PAGE;
     RETURN_IF_ERROR(_reader->read_page(_opts, _reader->get_dict_page_pointer(), &_dict_page_handle,
                                        &dict_data, &dict_footer, _compress_codec));
-    // ignore dict_footer.dict_page_footer().encoding() due to only
-    // PLAIN_ENCODING is supported for dict page right now
-    _dict_decoder =
-            std::make_unique<BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>>(dict_data);
+    const EncodingInfo* encoding_info;
+    RETURN_IF_ERROR(EncodingInfo::get(_reader->get_meta_type(),
+                                      dict_footer.dict_page_footer().encoding(), &encoding_info));
+    RETURN_IF_ERROR(encoding_info->create_page_decoder(dict_data, {}, _dict_decoder));
     RETURN_IF_ERROR(_dict_decoder->init());
 
-    auto* pd_decoder =
-            (BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>*)_dict_decoder.get();
-    _dict_word_info.reset(new StringRef[pd_decoder->_num_elems]);
-    RETURN_IF_ERROR(pd_decoder->get_dict_word_info(_dict_word_info.get()));
+    _dict_word_info.reset(new StringRef[_dict_decoder->count()]);
+    RETURN_IF_ERROR(_dict_decoder->get_dict_word_info(_dict_word_info.get()));
     return Status::OK();
 }
 

@@ -98,4 +98,11 @@ public class WhenClause extends Expression implements BinaryExpression, ExpectsI
     public String toString() {
         return " WHEN " + left().toString() + " THEN " + right().toString();
     }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(" WHEN ").append(left().toDigest()).append(" THEN ").append(right().toDigest());
+        return sb.toString();
+    }
 }

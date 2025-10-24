@@ -109,7 +109,7 @@ suite("test_bloom_filter_hit") {
 
         check { profileString, exception ->
             log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  15.0K  (15000)"))
+            validateBloomFilterFiltered(profileString)
         }
     }
 

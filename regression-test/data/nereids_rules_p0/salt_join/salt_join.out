@@ -730,8 +730,8 @@ SyntaxError:
 -- !equal_inner_only_null_shape --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.b = t2.b)) otherCondition=()
-----PhysicalOlapScan[test_null_safe3]
-----PhysicalOlapScan[test_null_safe4]
+----PhysicalOlapScan[test_null_safe3(t1)]
+----PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle]_1
@@ -741,8 +741,8 @@ SyntaxError:
 -- !equal_left_only_null_shape --
 PhysicalResultSink
 --hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b = t2.b)) otherCondition=()
-----PhysicalOlapScan[test_null_safe3]
-----PhysicalOlapScan[test_null_safe4]
+----PhysicalOlapScan[test_null_safe3(t1)]
+----PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
@@ -752,8 +752,8 @@ SyntaxError:
 -- !equal_right_only_null_shape --
 PhysicalResultSink
 --hashJoin[RIGHT_OUTER_JOIN] hashCondition=((r2$c$1 = r1$c$2) and (t1.b = t2.b)) otherCondition=()
-----PhysicalOlapScan[test_null_safe3]
-----PhysicalOlapScan[test_null_safe4]
+----PhysicalOlapScan[test_null_safe3(t1)]
+----PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
@@ -763,11 +763,11 @@ SyntaxError:
 -- !equal_inner_no_null_shape --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b = t2.b)) otherCondition=()
-----PhysicalOlapScan[test_null_safe3]
+----PhysicalOlapScan[test_null_safe3(t1)]
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$5 = t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe4]
+------PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
@@ -777,11 +777,11 @@ SyntaxError:
 -- !equal_left_no_null_shape --
 PhysicalResultSink
 --hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b = t2.b)) otherCondition=()
-----PhysicalOlapScan[test_null_safe3]
+----PhysicalOlapScan[test_null_safe3(t1)]
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$5 = t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe4]
+------PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
@@ -794,8 +794,8 @@ PhysicalResultSink
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$4 = t1.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe3]
-----PhysicalOlapScan[test_null_safe4]
+------PhysicalOlapScan[test_null_safe3(t1)]
+----PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
@@ -805,11 +805,11 @@ SyntaxError:
 -- !equal_inner_other_and_null_shape --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b = t2.b)) otherCondition=()
-----PhysicalOlapScan[test_null_safe3]
+----PhysicalOlapScan[test_null_safe3(t1)]
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$5 = t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe4]
+------PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
@@ -819,11 +819,11 @@ SyntaxError:
 -- !equal_left_other_and_null_shape --
 PhysicalResultSink
 --hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b = t2.b)) otherCondition=()
-----PhysicalOlapScan[test_null_safe3]
+----PhysicalOlapScan[test_null_safe3(t1)]
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$5 = t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe4]
+------PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
@@ -836,8 +836,8 @@ PhysicalResultSink
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$4 = t1.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe3]
-----PhysicalOlapScan[test_null_safe4]
+------PhysicalOlapScan[test_null_safe3(t1)]
+----PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
@@ -847,11 +847,11 @@ SyntaxError:
 -- !null_safe_equal_inner_only_null_shape --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b <=> t2.b)) otherCondition=()
-----PhysicalOlapScan[test_null_safe3]
+----PhysicalOlapScan[test_null_safe3(t1)]
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$4 <=> t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe4]
+------PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
@@ -861,11 +861,11 @@ SyntaxError:
 -- !null_safe_equal_left_only_null_shape --
 PhysicalResultSink
 --hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b <=> t2.b)) otherCondition=()
-----PhysicalOlapScan[test_null_safe3]
+----PhysicalOlapScan[test_null_safe3(t1)]
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$4 <=> t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe4]
+------PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
@@ -878,8 +878,8 @@ PhysicalResultSink
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$3 <=> t1.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe3]
-----PhysicalOlapScan[test_null_safe4]
+------PhysicalOlapScan[test_null_safe3(t1)]
+----PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
@@ -889,11 +889,11 @@ SyntaxError:
 -- !null_safe_equal_inner_no_null_shape --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b <=> t2.b)) otherCondition=()
-----PhysicalOlapScan[test_null_safe3]
+----PhysicalOlapScan[test_null_safe3(t1)]
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$5 = t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe4]
+------PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
@@ -903,11 +903,11 @@ SyntaxError:
 -- !null_safe_equal_left_no_null_shape --
 PhysicalResultSink
 --hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b <=> t2.b)) otherCondition=()
-----PhysicalOlapScan[test_null_safe3]
+----PhysicalOlapScan[test_null_safe3(t1)]
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$5 = t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe4]
+------PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
@@ -920,8 +920,8 @@ PhysicalResultSink
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$4 = t1.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe3]
-----PhysicalOlapScan[test_null_safe4]
+------PhysicalOlapScan[test_null_safe3(t1)]
+----PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
@@ -931,11 +931,11 @@ SyntaxError:
 -- !null_safe_equal_inner_other_and_null_shape --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b <=> t2.b)) otherCondition=()
-----PhysicalOlapScan[test_null_safe3]
+----PhysicalOlapScan[test_null_safe3(t1)]
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$6 <=> t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe4]
+------PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
@@ -945,11 +945,11 @@ SyntaxError:
 -- !null_safe_equal_left_other_and_null_shape --
 PhysicalResultSink
 --hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1$c$1 = r2$c$2) and (t1.b <=> t2.b)) otherCondition=()
-----PhysicalOlapScan[test_null_safe3]
+----PhysicalOlapScan[test_null_safe3(t1)]
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$6 <=> t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe4]
+------PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
@@ -962,8 +962,8 @@ PhysicalResultSink
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue$c$5 <=> t1.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe3]
-----PhysicalOlapScan[test_null_safe4]
+------PhysicalOlapScan[test_null_safe3(t1)]
+----PhysicalOlapScan[test_null_safe4(t2)]
 
 Hint log:
 Used: [shuffle_skew]_1
