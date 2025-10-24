@@ -647,8 +647,10 @@ public:
     bool operator>(const DateV2Value<T>& other) const;
 
     const char* month_name() const;
+    const char* month_name_with_locale(const char* const* month_names) const;
 
     const char* day_name() const;
+    const char* day_name_with_locale(const char* const* day_names) const;
 
     VecDateTimeValue& operator+=(int64_t count) {
         bool is_neg = false;
@@ -1175,8 +1177,10 @@ public:
     DateV2Value<T>& operator=(const DateV2Value<T>& other) = default;
 
     const char* month_name() const;
+    const char* month_name_with_locale(const char* const* month_names) const;
 
     const char* day_name() const;
+    const char* day_name_with_locale(const char* const* day_names) const;
 
     DateV2Value<T>& operator+=(int64_t count) {
         bool is_neg = false;
