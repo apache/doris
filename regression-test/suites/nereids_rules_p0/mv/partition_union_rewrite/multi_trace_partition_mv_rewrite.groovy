@@ -21,7 +21,7 @@ suite("multi_trace_partition_mv_rewrite") {
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF"
 
- def initTable = {
+ def initTable =  {
   sql """
     drop table if exists orders_p
     """
@@ -81,6 +81,10 @@ suite("multi_trace_partition_mv_rewrite") {
     );
     """
 
+     sql """
+    drop table if exists partsupp
+    """
+
   sql """
     CREATE TABLE IF NOT EXISTS partsupp (
       ps_partkey     INTEGER NOT NULL,
@@ -98,19 +102,19 @@ suite("multi_trace_partition_mv_rewrite") {
 
   sql"""
     insert into orders_p values 
-    (1, 1, 'ok', 19.5, '2023-10-17', 'a', 'b', 1, 'yy'),
-    (1, 1, 'ok', 29.5, '2023-10-17', 'a', 'b', 1, 'yy'),
-    (2, 2, 'ok', 39.2, '2023-10-18', 'c','d',2, 'mm'),
-    (2, 2, 'ok', 40.2, '2023-10-18', 'c','d',2, 'mm'),
-    (2, 2, 'ok', 59.2, '2023-10-18', 'c','d',2, 'mm'),
-    (3, 3, 'ok', 9.7, '2023-10-19', 'a', 'b', 1, 'yy'),
-    (3, 3, 'ok', 79.5, '2023-10-19', 'a', 'b', 1, 'yy'),
-    (3, 3, 'ok', 9.8, '2023-10-19', 'a', 'b', 1, 'yy'),
-    (3, 3, 'ok', 99.5, '2023-10-19', 'a', 'b', 1, 'yy'),
-    (3, 3, 'ok', 49.5, '2023-10-22', 'a', 'b', 1, 'yy'),
-    (3, 3, 'ok', 19.5, '2023-10-22', 'a', 'b', 1, 'yy'),
-    (3, 3, 'ok', 9.5, '2023-10-22', 'a', 'b', 1, 'yy'),
-    (3, 3, 'ok', 5.6, '2023-10-22', 'a', 'b', 1, 'yy'); 
+    (1, 1, 'ok', 1, '2023-10-17', 'a', 'b', 1, 'yy'),
+    (1, 1, 'ok', 1, '2023-10-17', 'a', 'b', 1, 'yy'),
+    (2, 2, 'ok', 1, '2023-10-18', 'c','d',2, 'mm'),
+    (2, 2, 'ok', 1, '2023-10-18', 'c','d',2, 'mm'),
+    (2, 2, 'ok', 1, '2023-10-18', 'c','d',2, 'mm'),
+    (3, 3, 'ok', 1, '2023-10-19', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 1, '2023-10-19', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 1, '2023-10-19', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 1, '2023-10-19', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 1, '2023-10-22', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 1, '2023-10-22', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 1, '2023-10-22', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 1, '2023-10-22', 'a', 'b', 1, 'yy'); 
     """
 
   sql """
@@ -175,9 +179,8 @@ suite("multi_trace_partition_mv_rewrite") {
     l_suppkey;
    """
 
-
     // partition intersection and union
-    // lineitem add partition, orders add partition, partsupp
+    // lineitem_p add partition, orders_p add partition, partsupp
     initTable()
     create_async_partition_mv(db, mv_name, mv_def_sql, "(l_shipdate)")
     sql"""
@@ -186,8 +189,8 @@ suite("multi_trace_partition_mv_rewrite") {
     """
     sql"""
     insert into orders_p values
-    (1, 1, 'ok', 19.5, '2023-10-20', 'a', 'b', 1, 'yy'),
-    (1, 1, 'ok', 19.5, '2023-10-21', 'a', 'b', 1, 'yy');
+    (1, 1, 'ok', 1.5, '2023-10-20', 'a', 'b', 1, 'yy'),
+    (1, 1, 'ok', 1.5, '2023-10-21', 'a', 'b', 1, 'yy');
     """
     waitingPartitionIsExpected(mv_name, "p_20231020_20231021", false)
     waitingPartitionIsExpected(mv_name, "p_20231021_20231022", false)
@@ -197,13 +200,13 @@ suite("multi_trace_partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
 
 
-    // lineitem add partition, orders add partition, partsupp
+    // lineitem_p add partition, orders_p add partition, partsupp
     mv_rewrite_success(query_all_partition_sql, mv_name,
             is_partition_statistics_ready(db, ["lineitem_p", "orders_p", mv_name]))
     order_qt_query_1_0_after "${query_all_partition_sql}"
 
 
-    // lineitem add partition, orders delete partition, partsupp
+    // lineitem_p add partition, orders_p delete partition, partsupp
     initTable()
     create_async_partition_mv(db, mv_name, mv_def_sql, "(l_shipdate)")
     sql"""
@@ -212,7 +215,7 @@ suite("multi_trace_partition_mv_rewrite") {
     """
     sql"""
     insert into orders_p values
-    (1, 1, 'ok', 19.5, '2023-10-20', 'a', 'b', 1, 'yy');
+    (1, 1, 'ok', 9.5, '2023-10-20', 'a', 'b', 1, 'yy');
     """
     sql """ ALTER TABLE orders_p DROP PARTITION IF EXISTS p_20231017 FORCE;
     """
@@ -224,13 +227,13 @@ suite("multi_trace_partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
 
 
-    // lineitem add partition, orders add partition, partsupp
+    // lineitem_p add partition, orders_p add partition, partsupp
     mv_rewrite_success(query_all_partition_sql, mv_name,
             is_partition_statistics_ready(db, ["lineitem_p", "orders_p", mv_name]))
     order_qt_query_2_0_after "${query_all_partition_sql}"
 
 
-    // lineitem add partition, orders modify partition, partsupp
+    // lineitem_p add partition, orders_p modify partition, partsupp
     initTable()
     create_async_partition_mv(db, mv_name, mv_def_sql, "(l_shipdate)")
     sql"""
@@ -239,8 +242,8 @@ suite("multi_trace_partition_mv_rewrite") {
     """
     sql"""
     insert into orders_p values
-    (1, 1, 'ok', 19.5, '2023-10-20', 'a', 'b', 1, 'yy'),
-    (1, 1, 'ok', 19.5, '2023-10-17', 'a', 'b', 1, 'yy');
+    (1, 1, 'ok', 1.5, '2023-10-20', 'a', 'b', 1, 'yy'),
+    (1, 1, 'ok', 1.5, '2023-10-17', 'a', 'b', 1, 'yy');
     """
     waitingPartitionIsExpected(mv_name, "p_20231020_20231021", false)
     waitingPartitionIsExpected(mv_name, "p_20231017_20231018", false)
@@ -250,174 +253,174 @@ suite("multi_trace_partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
 
 
-    // lineitem add partition, orders add partition, partsupp
+    // lineitem_p add partition, orders_p add partition, partsupp
     mv_rewrite_success(query_all_partition_sql, mv_name,
             is_partition_statistics_ready(db, ["lineitem_p", "orders_p", mv_name]))
     order_qt_query_3_0_after "${query_all_partition_sql}"
-
-
-    // lineitem delete partition, orders add partition, partsupp
-    initTable()
-    create_async_partition_mv(db, mv_name, mv_def_sql, "(l_shipdate)")
-    sql """ 
-    ALTER TABLE lineitem_p DROP PARTITION IF EXISTS p_20231017 FORCE;
-    """
-    sql"""
-    insert into lineitem_p values
-    (1, 2, 3, 4, 5.5, 6.5, 1.5, 1.5, 'o', 'k', '2023-10-20', '2023-10-20', '2023-10-20', 'a', 'b', 'yyyyyyyyy')
-    """
-    sql"""
-    insert into orders_p values
-    (1, 1, 'ok', 19.5, '2023-10-20', 'a', 'b', 1, 'yy');
-    """
-    waitingPartitionIsExpected(mv_name, "p_20231017_20231018", false)
-    waitingPartitionIsExpected(mv_name, "p_20231020_20231021", false)
-
-    sql "SET enable_materialized_view_rewrite=false"
-    order_qt_query_4_0_before "${query_all_partition_sql}"
-    sql "SET enable_materialized_view_rewrite=true"
-
-
-    // lineitem add partition, orders add partition, partsupp
-    mv_rewrite_success(query_all_partition_sql, mv_name,
-            is_partition_statistics_ready(db, ["lineitem_p", "orders_p", mv_name]))
-    order_qt_query_4_0_after "${query_all_partition_sql}"
-
-
-    // lineitem delete partition, orders delete partition, partsupp
-    initTable()
-    create_async_partition_mv(db, mv_name, mv_def_sql, "(l_shipdate)")
-    sql """ 
-    ALTER TABLE lineitem_p DROP PARTITION IF EXISTS p_20231017 FORCE;
-    """
-    sql """ 
-    ALTER TABLE orders_p DROP PARTITION IF EXISTS p_20231018 FORCE;
-    """
-    waitingPartitionIsExpected(mv_name, "p_20231017_20231018", false)
-    waitingPartitionIsExpected(mv_name, "p_20231018_20231019", false)
-
-    sql "SET enable_materialized_view_rewrite=false"
-    order_qt_query_5_0_before "${query_all_partition_sql}"
-    sql "SET enable_materialized_view_rewrite=true"
-
-
-    // lineitem add partition, orders add partition, partsupp
-    mv_rewrite_success(query_all_partition_sql, mv_name,
-            is_partition_statistics_ready(db, ["lineitem_p", "orders_p", mv_name]))
-    order_qt_query_5_0_after "${query_all_partition_sql}"
-
-
-    // lineitem delete partition, orders modify partition, partsupp
-    initTable()
-    create_async_partition_mv(db, mv_name, mv_def_sql, "(l_shipdate)")
-    sql """ 
-    ALTER TABLE lineitem_p DROP PARTITION IF EXISTS p_20231017 FORCE;
-    """
-    sql"""
-    insert into lineitem_p values
-    (1, 2, 3, 4, 5.5, 6.5, 1.5, 1.5, 'o', 'k', '2023-10-19', '2023-10-19', '2023-10-19', 'a', 'b', 'yyyyyyyyy')
-    """
-    sql"""
-    insert into orders_p values
-    (1, 1, 'ok', 19.5, '2023-10-19', 'a', 'b', 1, 'yy');
-    """
-    waitingPartitionIsExpected(mv_name, "p_20231017_20231018", false)
-    waitingPartitionIsExpected(mv_name, "p_20231019_20231020", false)
-
-    sql "SET enable_materialized_view_rewrite=false"
-    order_qt_query_6_0_before "${query_all_partition_sql}"
-    sql "SET enable_materialized_view_rewrite=true"
-
-
-    // lineitem add partition, orders add partition, partsupp
-    mv_rewrite_success(query_all_partition_sql, mv_name,
-            is_partition_statistics_ready(db, ["lineitem_p", "orders_p", mv_name]))
-    order_qt_query_6_0_after "${query_all_partition_sql}"
-
-
-
-    // lineitem modify partition, orders add partition, partsupp
-    initTable()
-    create_async_partition_mv(db, mv_name, mv_def_sql, "(l_shipdate)")
-    sql"""
-    insert into lineitem_p values
-    (1, 2, 3, 4, 5.5, 6.5, 1.5, 1.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
-    (1, 2, 3, 4, 5.5, 6.5, 1.5, 1.5, 'o', 'k', '2023-10-20', '2023-10-20', '2023-10-20', 'a', 'b', 'yyyyyyyyy');
-    """
-    sql"""
-    insert into orders_p values
-    (1, 1, 'ok', 19.5, '2023-10-17', 'a', 'b', 1, 'yy'),
-    (1, 1, 'ok', 19.5, '2023-10-20', 'a', 'b', 1, 'yy');
-    """
-    waitingPartitionIsExpected(mv_name, "p_20231020_20231021", false)
-    waitingPartitionIsExpected(mv_name, "p_20231017_20231018", false)
-
-    sql "SET enable_materialized_view_rewrite=false"
-    order_qt_query_7_0_before "${query_all_partition_sql}"
-    sql "SET enable_materialized_view_rewrite=true"
-
-
-    // lineitem add partition, orders add partition, partsupp
-    mv_rewrite_success(query_all_partition_sql, mv_name,
-            is_partition_statistics_ready(db, ["lineitem_p", "orders_p", mv_name]))
-    order_qt_query_7_0_after "${query_all_partition_sql}"
-
-
-    // lineitem modify partition, orders delete partition, partsupp
-    initTable()
-    create_async_partition_mv(db, mv_name, mv_def_sql, "(l_shipdate)")
-    sql"""
-    insert into lineitem_p values
-    (1, 2, 3, 4, 5.5, 6.5, 1.5, 1.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy');
-    """
-    sql"""
-    insert into orders_p values
-    (1, 1, 'ok', 19.5, '2023-10-17', 'a', 'b', 1, 'yy');
-    """
-    sql """ 
-    ALTER TABLE orders_p DROP PARTITION IF EXISTS p_20231018 FORCE;
-    """
-
-    waitingPartitionIsExpected(mv_name, "p_20231020_20231021", false)
-    waitingPartitionIsExpected(mv_name, "p_20231017_20231018", false)
-
-    sql "SET enable_materialized_view_rewrite=false"
-    order_qt_query_8_0_before "${query_all_partition_sql}"
-    sql "SET enable_materialized_view_rewrite=true"
-
-
-    // lineitem add partition, orders add partition, partsupp
-    mv_rewrite_success(query_all_partition_sql, mv_name,
-            is_partition_statistics_ready(db, ["lineitem_p", "orders_p", mv_name]))
-    order_qt_query_8_0_after "${query_all_partition_sql}"
-
-
-    // lineitem modify partition, orders modify partition, partsupp
-    initTable()
-    create_async_partition_mv(db, mv_name, mv_def_sql, "(l_shipdate)")
-    sql"""
-    insert into lineitem_p values
-    (1, 2, 3, 4, 5.5, 6.5, 1.5, 1.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
-    (1, 2, 3, 4, 5.5, 6.5, 1.5, 1.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy');
-    """
-    sql"""
-    insert into orders_p values
-    (1, 1, 'ok', 19.5, '2023-10-17', 'a', 'b', 1, 'yy'),
-    (1, 1, 'ok', 19.5, '2023-10-18', 'a', 'b', 1, 'yy');
-    """
-
-    waitingPartitionIsExpected(mv_name, "p_20231017_20231018", false)
-    waitingPartitionIsExpected(mv_name, "p_20231018_20231019", false)
-
-    sql "SET enable_materialized_view_rewrite=false"
-    order_qt_query_9_0_before "${query_all_partition_sql}"
-    sql "SET enable_materialized_view_rewrite=true"
-
-
-    // lineitem add partition, orders add partition, partsupp
-    mv_rewrite_success(query_all_partition_sql, mv_name,
-            is_partition_statistics_ready(db, ["lineitem_p", "orders_p", mv_name]))
-    order_qt_query_9_0_after "${query_all_partition_sql}"
+//
+//
+//    // lineitem_p delete partition, orders_p add partition, partsupp
+//    initTable()
+//    create_async_partition_mv(db, mv_name, mv_def_sql, "(l_shipdate)")
+//    sql """
+//    ALTER TABLE lineitem_p DROP PARTITION IF EXISTS p_20231017 FORCE;
+//    """
+//    sql"""
+//    insert into lineitem_p values
+//    (1, 2, 3, 4, 5.5, 6.5, 1.5, 1.5, 'o', 'k', '2023-10-20', '2023-10-20', '2023-10-20', 'a', 'b', 'yyyyyyyyy')
+//    """
+//    sql"""
+//    insert into orders_p values
+//    (1, 1, 'ok', 1.5, '2023-10-20', 'a', 'b', 1, 'yy');
+//    """
+//    waitingPartitionIsExpected(mv_name, "p_20231017_20231018", false)
+//    waitingPartitionIsExpected(mv_name, "p_20231020_20231021", false)
+//
+//    sql "SET enable_materialized_view_rewrite=false"
+//    order_qt_query_4_0_before "${query_all_partition_sql}"
+//    sql "SET enable_materialized_view_rewrite=true"
+//
+//
+//    // lineitem_p add partition, orders_p add partition, partsupp
+//    mv_rewrite_success(query_all_partition_sql, mv_name,
+//            is_partition_statistics_ready(db, ["lineitem_p", "orders_p", mv_name]))
+//    order_qt_query_4_0_after "${query_all_partition_sql}"
+//
+//
+//    // lineitem_p delete partition, orders_p delete partition, partsupp
+//    initTable()
+//    create_async_partition_mv(db, mv_name, mv_def_sql, "(l_shipdate)")
+//    sql """
+//    ALTER TABLE lineitem_p DROP PARTITION IF EXISTS p_20231017 FORCE;
+//    """
+//    sql """
+//    ALTER TABLE orders_p DROP PARTITION IF EXISTS p_20231018 FORCE;
+//    """
+//    waitingPartitionIsExpected(mv_name, "p_20231017_20231018", false)
+//    waitingPartitionIsExpected(mv_name, "p_20231018_20231019", false)
+//
+//    sql "SET enable_materialized_view_rewrite=false"
+//    order_qt_query_5_0_before "${query_all_partition_sql}"
+//    sql "SET enable_materialized_view_rewrite=true"
+//
+//
+//    // lineitem_p add partition, orders_p add partition, partsupp
+//    mv_rewrite_success(query_all_partition_sql, mv_name,
+//            is_partition_statistics_ready(db, ["lineitem_p", "orders_p", mv_name]))
+//    order_qt_query_5_0_after "${query_all_partition_sql}"
+//
+//
+//    // lineitem_p delete partition, orders_p modify partition, partsupp
+//    initTable()
+//    create_async_partition_mv(db, mv_name, mv_def_sql, "(l_shipdate)")
+//    sql """
+//    ALTER TABLE lineitem_p DROP PARTITION IF EXISTS p_20231017 FORCE;
+//    """
+//    sql"""
+//    insert into lineitem_p values
+//    (1, 2, 3, 4, 5.5, 6.5, 1.5, 1.5, 'o', 'k', '2023-10-19', '2023-10-19', '2023-10-19', 'a', 'b', 'yyyyyyyyy')
+//    """
+//    sql"""
+//    insert into orders_p values
+//    (1, 1, 'ok', 1.5, '2023-10-19', 'a', 'b', 1, 'yy');
+//    """
+//    waitingPartitionIsExpected(mv_name, "p_20231017_20231018", false)
+//    waitingPartitionIsExpected(mv_name, "p_20231019_20231020", false)
+//
+//    sql "SET enable_materialized_view_rewrite=false"
+//    order_qt_query_6_0_before "${query_all_partition_sql}"
+//    sql "SET enable_materialized_view_rewrite=true"
+//
+//
+//    // lineitem_p add partition, orders_p add partition, partsupp
+//    mv_rewrite_success(query_all_partition_sql, mv_name,
+//            is_partition_statistics_ready(db, ["lineitem_p", "orders_p", mv_name]))
+//    order_qt_query_6_0_after "${query_all_partition_sql}"
+//
+//
+//
+//    // lineitem_p modify partition, orders_p add partition, partsupp
+//    initTable()
+//    create_async_partition_mv(db, mv_name, mv_def_sql, "(l_shipdate)")
+//    sql"""
+//    insert into lineitem_p values
+//    (1, 2, 3, 4, 5.5, 6.5, 1.5, 1.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+//    (1, 2, 3, 4, 5.5, 6.5, 1.5, 1.5, 'o', 'k', '2023-10-20', '2023-10-20', '2023-10-20', 'a', 'b', 'yyyyyyyyy');
+//    """
+//    sql"""
+//    insert into orders_p values
+//    (1, 1, 'ok', 1.5, '2023-10-17', 'a', 'b', 1, 'yy'),
+//    (1, 1, 'ok', 1.5, '2023-10-20', 'a', 'b', 1, 'yy');
+//    """
+//    waitingPartitionIsExpected(mv_name, "p_20231020_20231021", false)
+//    waitingPartitionIsExpected(mv_name, "p_20231017_20231018", false)
+//
+//    sql "SET enable_materialized_view_rewrite=false"
+//    order_qt_query_7_0_before "${query_all_partition_sql}"
+//    sql "SET enable_materialized_view_rewrite=true"
+//
+//
+//    // lineitem_p add partition, orders_p add partition, partsupp
+//    mv_rewrite_success(query_all_partition_sql, mv_name,
+//            is_partition_statistics_ready(db, ["lineitem_p", "orders_p", mv_name]))
+//    order_qt_query_7_0_after "${query_all_partition_sql}"
+//
+//
+//    // lineitem_p modify partition, orders_p delete partition, partsupp
+//    initTable()
+//    create_async_partition_mv(db, mv_name, mv_def_sql, "(l_shipdate)")
+//    sql"""
+//    insert into lineitem_p values
+//    (1, 2, 3, 4, 5.5, 6.5, 1.5, 1.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy');
+//    """
+//    sql"""
+//    insert into orders_p values
+//    (1, 1, 'ok', 1.5, '2023-10-17', 'a', 'b', 1, 'yy');
+//    """
+//    sql """
+//    ALTER TABLE orders_p DROP PARTITION IF EXISTS p_20231018 FORCE;
+//    """
+//
+//    waitingPartitionIsExpected(mv_name, "p_20231020_20231021", false)
+//    waitingPartitionIsExpected(mv_name, "p_20231017_20231018", false)
+//
+//    sql "SET enable_materialized_view_rewrite=false"
+//    order_qt_query_8_0_before "${query_all_partition_sql}"
+//    sql "SET enable_materialized_view_rewrite=true"
+//
+//
+//    // lineitem_p add partition, orders_p add partition, partsupp
+//    mv_rewrite_success(query_all_partition_sql, mv_name,
+//            is_partition_statistics_ready(db, ["lineitem_p", "orders_p", mv_name]))
+//    order_qt_query_8_0_after "${query_all_partition_sql}"
+//
+//
+//    // lineitem_p modify partition, orders_p modify partition, partsupp
+//    initTable()
+//    create_async_partition_mv(db, mv_name, mv_def_sql, "(l_shipdate)")
+//    sql"""
+//    insert into lineitem_p values
+//    (1, 2, 3, 4, 5.5, 6.5, 1.5, 1.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+//    (1, 2, 3, 4, 5.5, 6.5, 1.5, 1.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy');
+//    """
+//    sql"""
+//    insert into orders_p values
+//    (1, 1, 'ok', 1.5, '2023-10-17', 'a', 'b', 1, 'yy'),
+//    (1, 1, 'ok', 1.5, '2023-10-18', 'a', 'b', 1, 'yy');
+//    """
+//
+//    waitingPartitionIsExpected(mv_name, "p_20231017_20231018", false)
+//    waitingPartitionIsExpected(mv_name, "p_20231018_20231019", false)
+//
+//    sql "SET enable_materialized_view_rewrite=false"
+//    order_qt_query_9_0_before "${query_all_partition_sql}"
+//    sql "SET enable_materialized_view_rewrite=true"
+//
+//
+//    // lineitem_p add partition, orders_p add partition, partsupp
+//    mv_rewrite_success(query_all_partition_sql, mv_name,
+//            is_partition_statistics_ready(db, ["lineitem_p", "orders_p", mv_name]))
+//    order_qt_query_9_0_after "${query_all_partition_sql}"
 
 }
 

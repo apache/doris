@@ -136,7 +136,7 @@ public class PartitionIncrementMaintainer {
                                 .getPartitionExpression());
                 PartitionIncrementCheckContext childContext = new PartitionIncrementCheckContext(childMvPartitionSlot,
                         childPartitionExpression.orElse(null), context.getProducerCteIdToPlanMap(),
-                        context.getCascadesContext());
+                        children.get(i), context.getCascadesContext());
                 children.get(i).accept(this, childContext);
                 childrenContextList.add(childContext);
             }
@@ -412,10 +412,12 @@ public class PartitionIncrementMaintainer {
             Set<Expression> groupByExprSet = new HashSet<>(aggregate.getGroupByExpressions());
             if (groupByExprSet.isEmpty()) {
                 context.addFailReason("group by sets is empty, doesn't contain the target partition");
+                context.setFailFast(true);
                 context.collectFailedTableSet(aggregate);
                 return visit(aggregate, context);
             }
             if (!checkPartition(groupByExprSet, aggregate, context)) {
+                context.setFailFast(true);
                 context.collectFailedTableSet(aggregate);
             }
             return visit(aggregate, context);
@@ -427,12 +429,14 @@ public class PartitionIncrementMaintainer {
             if (windowExpressions.isEmpty()) {
                 context.addFailReason("window expression is empty, doesn't contain the target partition");
                 context.collectFailedTableSet(window);
+                context.setFailFast(true);
                 return visit(window, context);
             }
             for (NamedExpression namedExpression : windowExpressions) {
                 if (!checkWindowPartition(namedExpression, context)) {
                     context.addFailReason("window partition sets doesn't contain the target partition");
                     context.collectFailedTableSet(window);
+                    context.setFailFast(true);
                     break;
                 }
             }
@@ -525,20 +529,19 @@ public class PartitionIncrementMaintainer {
                 NamedExpression partitionNamedExpression = partitionExpressionEntry.getKey();
                 RelatedTableColumnInfo partitionTableColumnInfo = partitionExpressionEntry.getValue();
                 Optional<Expression> partitionExpressionOpt = partitionTableColumnInfo.getPartitionExpression();
-
+                Expression partitionExpressionActual = partitionExpressionOpt.orElseGet(
+                        () -> ExpressionUtils.shuttleExpressionWithLineage(partitionNamedExpression,
+                                context.getOriginalPlan(), new BitSet()));
+                // merge date_trunc
+                partitionExpressionActual = new ExpressionNormalization().rewrite(partitionExpressionActual,
+                        new ExpressionRewriteContext(context.getCascadesContext()));
                 OUTER_CHECK:
                 for (Expression projectSlotToCheck : expressionsToCheck) {
                     Expression expressionShuttledToCheck =
-                            ExpressionUtils.shuttleExpressionWithLineage(projectSlotToCheck, plan, new BitSet());
+                            ExpressionUtils.shuttleExpressionWithLineage(projectSlotToCheck,
+                                    context.getOriginalPlan(), new BitSet());
                     // merge date_trunc
                     expressionShuttledToCheck = new ExpressionNormalization().rewrite(expressionShuttledToCheck,
-                            new ExpressionRewriteContext(context.getCascadesContext()));
-
-                    Expression partitionExpressionActual = partitionExpressionOpt.orElseGet(
-                            () -> ExpressionUtils.shuttleExpressionWithLineage(partitionNamedExpression, plan,
-                                    new BitSet()));
-                    // merge date_trunc
-                    partitionExpressionActual = new ExpressionNormalization().rewrite(partitionExpressionActual,
                             new ExpressionRewriteContext(context.getCascadesContext()));
 
                     Set<SlotReference> expressionToCheckSlots =
@@ -672,14 +675,18 @@ public class PartitionIncrementMaintainer {
         // to check, this expends the partition slot to check
         private final Set<Set<Slot>> shuttledEqualSlotSet = new HashSet<>();
         private final Map<CTEId, Plan> producerCteIdToPlanMap;
+        private final Plan originalPlan;
+        private boolean failFast = false;
 
         public PartitionIncrementCheckContext(NamedExpression mvPartitionColumn,
                 Expression mvPartitionExpression, Map<CTEId, Plan> producerCteIdToPlanMap,
+                Plan originalPlan,
                 CascadesContext cascadesContext) {
             this.partitionAndRefExpressionMap.put(mvPartitionColumn, RelatedTableColumnInfo.of(
                     mvPartitionColumn, mvPartitionExpression, true, false));
             this.cascadesContext = cascadesContext;
             this.producerCteIdToPlanMap = producerCteIdToPlanMap;
+            this.originalPlan = originalPlan;
         }
 
         public Set<String> getFailReasons() {
@@ -712,6 +719,18 @@ public class PartitionIncrementMaintainer {
 
         public Map<CTEId, Plan> getProducerCteIdToPlanMap() {
             return producerCteIdToPlanMap;
+        }
+
+        public boolean isFailFast() {
+            return failFast;
+        }
+
+        public void setFailFast(boolean failFast) {
+            this.failFast = failFast;
+        }
+
+        public Plan getOriginalPlan() {
+            return originalPlan;
         }
 
         /**

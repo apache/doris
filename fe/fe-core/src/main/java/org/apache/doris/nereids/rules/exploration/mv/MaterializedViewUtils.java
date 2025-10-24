@@ -109,7 +109,7 @@ public class MaterializedViewUtils {
         // Check sql pattern
         Map<CTEId, Plan> producerCteIdToPlanMap = collectProducerCtePlans(materializedViewPlan);
         PartitionIncrementCheckContext checkContext = new PartitionIncrementCheckContext(
-                columnExpr, dateTrunc, producerCteIdToPlanMap, cascadesContext);
+                columnExpr, dateTrunc, producerCteIdToPlanMap, materializedViewPlan, cascadesContext);
         checkContext.getPartitionAndRefExpressionMap().put(columnExpr,
                 RelatedTableColumnInfo.of(columnExpr, null, true, false));
         materializedViewPlan.accept(PartitionIncrementChecker.INSTANCE, checkContext);
@@ -118,6 +118,10 @@ public class MaterializedViewUtils {
                         tableColumnInfo.isOriginalPartition() && tableColumnInfo.isFromTablePartitionColumn());
         if (checkedTableColumnInfos == null) {
             return RelatedTableInfo.failWith("multi partition column data types are different");
+        }
+        if (checkContext.isFailFast()) {
+            return RelatedTableInfo.failWith("partition column is not in group by or window partition by, "
+                    + checkContext.getFailReasons());
         }
         if (!checkedTableColumnInfos.isEmpty()) {
             return RelatedTableInfo.successWith(checkedTableColumnInfos);
@@ -157,7 +161,7 @@ public class MaterializedViewUtils {
         // Check sql pattern
         Map<CTEId, Plan> producerCteIdToPlanMap = collectProducerCtePlans(materializedViewPlan);
         PartitionIncrementCheckContext checkContext = new PartitionIncrementCheckContext(
-                columnExpr, dateTrunc, producerCteIdToPlanMap, cascadesContext);
+                columnExpr, dateTrunc, producerCteIdToPlanMap, materializedViewPlan, cascadesContext);
         checkContext.getPartitionAndRefExpressionMap().put(columnExpr,
                 RelatedTableColumnInfo.of(columnExpr, null, true, false));
         materializedViewPlan.accept(PartitionIncrementChecker.INSTANCE, checkContext);
@@ -171,6 +175,10 @@ public class MaterializedViewUtils {
                         RelatedTableColumnInfo::isFromTablePartitionColumn);
         if (checkedTableColumnInfos == null) {
             return RelatedTableInfo.failWith("multi partition column data types are different");
+        }
+        if (checkContext.isFailFast()) {
+            return RelatedTableInfo.failWith("partition column is not in group by or window partition by, "
+                    + checkContext.getFailReasons());
         }
         if (!checkedTableColumnInfos.isEmpty()) {
             return RelatedTableInfo.successWith(checkedTableColumnInfos);
