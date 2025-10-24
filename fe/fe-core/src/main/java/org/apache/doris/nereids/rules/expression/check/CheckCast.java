@@ -168,6 +168,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         // Timestamp with time zone
         allowedTypes = Sets.newHashSet();
         allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampTzType.class);
         allowToStringLikeType(allowedTypes);
         strictCastWhiteList.put(TimeStampTzType.class, allowedTypes);
 

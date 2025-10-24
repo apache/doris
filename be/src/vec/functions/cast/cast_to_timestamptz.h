@@ -23,8 +23,10 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_timestamptz.h"
+#include "vec/functions/cast/cast_to_datetimev2_impl.hpp"
 #include "vec/io/io_helper.h"
 #include "vec/runtime/timestamptz_value.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 
@@ -86,6 +88,9 @@ public:
         auto& col_to_data = col_to->get_data();
         const auto& local_time_zone = context->state()->timezone_obj();
 
+        const auto dt_scale = block.get_by_position(arguments[0]).type->get_scale();
+        const auto tz_scale = block.get_by_position(result).type->get_scale();
+
         for (int i = 0; i < input_rows_count; ++i) {
             if (null_map && null_map[i]) {
                 continue;
@@ -94,7 +99,7 @@ public:
             DateV2Value<DateTimeV2ValueType> from_dt {col_from[i]};
             TimestampTzValue tz_value;
 
-            if (!tz_value.from_datetime(from_dt, local_time_zone)) {
+            if (!tz_value.from_datetime(from_dt, local_time_zone, dt_scale, tz_scale)) {
                 return Status::InternalError(
                         "can not cast from  datetime : {} to timestamptz in timezone : {}",
                         from_dt.to_string(), context->state()->timezone());
@@ -124,14 +129,90 @@ public:
         auto& col_null_map = col_null->get_data();
         const auto& local_time_zone = context->state()->timezone_obj();
 
+        const auto dt_scale = block.get_by_position(arguments[0]).type->get_scale();
+        const auto tz_scale = block.get_by_position(result).type->get_scale();
+
         for (int i = 0; i < input_rows_count; ++i) {
             DateV2Value<DateTimeV2ValueType> from_dt {col_from[i]};
             TimestampTzValue tz_value {};
 
-            if (tz_value.from_datetime(from_dt, local_time_zone)) {
+            if (tz_value.from_datetime(from_dt, local_time_zone, dt_scale, tz_scale)) {
                 col_to_data[i] = tz_value.value();
             } else {
                 col_null_map[i] = true;
+            }
+        }
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(col_to), std::move(col_null));
+        return Status::OK();
+    }
+};
+
+template <>
+class CastToImpl<CastModeType::StrictMode, DataTypeTimeStampTz, DataTypeTimeStampTz>
+        : public CastToBase {
+public:
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
+        const auto& col_from =
+                assert_cast<const ColumnTimeStampTz&>(*block.get_by_position(arguments[0]).column)
+                        .get_data();
+
+        auto col_to = ColumnTimeStampTz::create(input_rows_count);
+        auto& col_to_data = col_to->get_data();
+        const auto& local_time_zone = context->state()->timezone_obj();
+
+        const auto from_scale = block.get_by_position(arguments[0]).type->get_scale();
+        const auto to_scale = block.get_by_position(result).type->get_scale();
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            if (null_map && null_map[i]) {
+                continue;
+            }
+
+            const auto& from_tz = col_from[i];
+            auto& to_tz = col_to_data[i];
+
+            if (!transform_date_scale(to_scale, from_scale, to_tz, from_tz)) {
+                return Status::InternalError(
+                        "can not cast from  timestamptz : {} to timestamptz in timezone : {}",
+                        TimestampTzValue {from_tz}.to_string(local_time_zone, from_scale),
+                        context->state()->timezone());
+            }
+        }
+        block.get_by_position(result).column = std::move(col_to);
+        return Status::OK();
+    }
+};
+
+template <>
+class CastToImpl<CastModeType::NonStrictMode, DataTypeTimeStampTz, DataTypeTimeStampTz>
+        : public CastToBase {
+public:
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type*) const override {
+        const auto& col_from =
+                assert_cast<const ColumnTimeStampTz&>(*block.get_by_position(arguments[0]).column)
+                        .get_data();
+
+        auto col_to = ColumnTimeStampTz::create(input_rows_count);
+        auto& col_to_data = col_to->get_data();
+        auto col_null = ColumnBool::create(input_rows_count, 0);
+        auto& col_null_map = col_null->get_data();
+
+        const auto from_scale = block.get_by_position(arguments[0]).type->get_scale();
+        const auto to_scale = block.get_by_position(result).type->get_scale();
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            const auto& from_tz = col_from[i];
+            auto& to_tz = col_to_data[i];
+
+            if (!transform_date_scale(to_scale, from_scale, to_tz, from_tz)) {
+                col_null_map[i] = true;
+                to_tz = MIN_DATETIME_V2;
             }
         }
 

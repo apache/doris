@@ -116,21 +116,21 @@ TEST(TimeStampTzValueTest, from_datetime) {
     {
         TimestampTzValue tz {};
         DateV2Value<DateTimeV2ValueType> dtv = make_datetime(2024, 1, 1, 12, 0, 0, 123456);
-        EXPECT_TRUE(tz.from_datetime(dtv, time_zone));
+        EXPECT_TRUE(tz.from_datetime(dtv, time_zone, 6, 6));
         EXPECT_EQ(tz.value(), make_datetime(2024, 1, 1, 4, 0, 0, 123456)) << tz._utc_dt.to_string();
     }
 
     {
         TimestampTzValue tz {};
         DateV2Value<DateTimeV2ValueType> dtv = make_datetime(1970, 1, 1, 0, 0, 0, 0);
-        EXPECT_TRUE(tz.from_datetime(dtv, time_zone));
+        EXPECT_TRUE(tz.from_datetime(dtv, time_zone, 6, 6));
         EXPECT_EQ(tz.value(), make_datetime(1969, 12, 31, 16, 0, 0, 0)) << tz._utc_dt.to_string();
     }
 
     {
         TimestampTzValue tz {};
         DateV2Value<DateTimeV2ValueType> dtv = make_datetime(2038, 1, 19, 3, 14, 7, 0);
-        EXPECT_TRUE(tz.from_datetime(dtv, time_zone));
+        EXPECT_TRUE(tz.from_datetime(dtv, time_zone, 6, 6));
         EXPECT_EQ(tz.value(), make_datetime(2038, 1, 18, 19, 14, 7, 0)) << tz._utc_dt.to_string();
     }
 }
@@ -146,7 +146,7 @@ TEST(TimeStampTzValueTest, to_datetime) {
         TimestampTzValue tz {};
         tz.from_string(StringRef {"2024-01-01 12:00:00"}, &time_zone, params);
         DateV2Value<DateTimeV2ValueType> res;
-        EXPECT_TRUE(tz.to_datetime(res, time_zone));
+        EXPECT_TRUE(tz.to_datetime(res, time_zone, 6, 6));
         EXPECT_EQ(res.to_date_int_val(), make_datetime(2024, 1, 1, 12, 0, 0, 0)) << res.to_string();
     }
 
@@ -154,7 +154,7 @@ TEST(TimeStampTzValueTest, to_datetime) {
         TimestampTzValue tz {};
         tz.from_string(StringRef {"2020-01-01 00:00:00 +03:00"}, &time_zone, params);
         DateV2Value<DateTimeV2ValueType> res;
-        EXPECT_TRUE(tz.to_datetime(res, time_zone));
+        EXPECT_TRUE(tz.to_datetime(res, time_zone, 6, 6));
         EXPECT_EQ(res.to_date_int_val(), make_datetime(2020, 1, 1, 5, 0, 0, 0)) << res.to_string();
     }
 
@@ -162,7 +162,7 @@ TEST(TimeStampTzValueTest, to_datetime) {
         TimestampTzValue tz {};
         tz.from_string(StringRef {"2020-01-01 00:00:00 -03:00"}, &time_zone, params);
         DateV2Value<DateTimeV2ValueType> res;
-        EXPECT_TRUE(tz.to_datetime(res, time_zone));
+        EXPECT_TRUE(tz.to_datetime(res, time_zone, 6, 6));
         EXPECT_EQ(res.to_date_int_val(), make_datetime(2020, 1, 1, 11, 0, 0, 0)) << res.to_string();
     }
 
@@ -170,7 +170,7 @@ TEST(TimeStampTzValueTest, to_datetime) {
         TimestampTzValue tz {};
         tz.from_string(StringRef {"2020-01-01 00:00:00 +08:00"}, &time_zone, params);
         DateV2Value<DateTimeV2ValueType> res;
-        EXPECT_TRUE(tz.to_datetime(res, time_zone));
+        EXPECT_TRUE(tz.to_datetime(res, time_zone, 6, 6));
         EXPECT_EQ(res.to_date_int_val(), make_datetime(2020, 1, 1, 0, 0, 0, 0)) << res.to_string();
     }
 
@@ -178,7 +178,7 @@ TEST(TimeStampTzValueTest, to_datetime) {
         TimestampTzValue tz {};
         tz.from_string(StringRef {"2020-01-01 00:00:00 -08:00"}, &time_zone, params);
         DateV2Value<DateTimeV2ValueType> res;
-        EXPECT_TRUE(tz.to_datetime(res, time_zone));
+        EXPECT_TRUE(tz.to_datetime(res, time_zone, 6, 6));
         EXPECT_EQ(res.to_date_int_val(), make_datetime(2020, 1, 1, 16, 0, 0, 0)) << res.to_string();
     }
 }
