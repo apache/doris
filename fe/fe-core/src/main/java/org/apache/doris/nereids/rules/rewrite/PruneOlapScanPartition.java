@@ -19,25 +19,34 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
+import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -49,65 +58,148 @@ import java.util.stream.Collectors;
  * Used to prune partition of olap scan, should execute after SwapProjectAndFilter, MergeConsecutiveFilters,
  * MergeConsecutiveProjects and all predicate push down related rules.
  */
-public class PruneOlapScanPartition extends OneRewriteRuleFactory {
+public class PruneOlapScanPartition implements RewriteRuleFactory {
 
     @Override
-    public Rule build() {
-        return logicalFilter(logicalOlapScan()).when(p -> !p.child().isPartitionPruned()).thenApply(ctx -> {
-            LogicalFilter<LogicalOlapScan> filter = ctx.root;
-            LogicalOlapScan scan = filter.child();
-            OlapTable table = scan.getTable();
-            Set<String> partitionColumnNameSet = Utils.execWithReturnVal(table::getPartitionColumnNames);
-            if (partitionColumnNameSet.isEmpty()) {
-                return null;
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+                logicalOlapScan()
+                    .when(scan -> !scan.isPartitionPruned()
+                            && !scan.getManuallySpecifiedTabletIds().isEmpty()
+                            && scan.getTable().isPartitionedTable()
+                    )
+                    .thenApply(ctx -> {
+                        // Case1: sql without filter condition, e.g. SELECT * FROM tbl (${tabletID})
+                        LogicalOlapScan scan = ctx.root;
+                        OlapTable table = scan.getTable();
+                        return prunePartition(scan, table, null, ctx).first;
+                    }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE),
+                logicalFilter(logicalOlapScan()
+                    .whenNot(LogicalOlapScan::isPartitionPruned))
+                    .thenApply(ctx -> {
+                        // Case2: sql with filter condition, e.g. SELECT * FROM tbl (${tabletID}) WHERE part_column='x'
+                        LogicalFilter<LogicalOlapScan> filter = ctx.root;
+                        LogicalOlapScan scan = filter.child();
+                        OlapTable table = scan.getTable();
+                        Pair<LogicalRelation, Optional<Expression>> prunedRes
+                                = prunePartition(scan, table, filter, ctx);
+                        LogicalRelation rewrittenLogicalRelation = prunedRes.first;
+                        if (rewrittenLogicalRelation == null) {
+                            return null;
+                        }
+                        if (rewrittenLogicalRelation instanceof LogicalEmptyRelation) {
+                            return rewrittenLogicalRelation;
+                        } else {
+                            return PartitionPruner.prunePredicate(ctx.statementContext.isSkipPrunePredicate(),
+                                    prunedRes.second, filter, rewrittenLogicalRelation);
+                        }
+                    }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE)
+        );
+    }
+
+    private Pair<LogicalRelation, Optional<Expression>> prunePartition(LogicalOlapScan scan,
+                                      OlapTable table,
+                                      LogicalFilter filter,
+                                      MatchingContext ctx) {
+        Pair<List<Long>, Optional<Expression>> prunedPartitionsByFilters =
+                prunePartitionByFilters(scan, table, filter, ctx);
+        List<Long> prunedPartitions = prunePartitionByTabletIds(scan, table, prunedPartitionsByFilters.first);
+        if (prunedPartitions == null) {
+            return Pair.of(null, Optional.empty());
+        }
+        if (prunedPartitions.isEmpty()) {
+            return Pair.of(new LogicalEmptyRelation(
+                ConnectContext.get().getStatementContext().getNextRelationId(),
+                ctx.root.getOutput()), Optional.empty());
+        }
+        return Pair.of(scan.withSelectedPartitionIds(prunedPartitions), prunedPartitionsByFilters.second);
+    }
+
+    private Pair<List<Long>, Optional<Expression>> prunePartitionByFilters(LogicalOlapScan scan,
+                                               OlapTable table,
+                                               LogicalFilter filter,
+                                               MatchingContext ctx) {
+        Set<String> partitionColumnNameSet = Utils.execWithReturnVal(table::getPartitionColumnNames);
+        if (partitionColumnNameSet.isEmpty()) {
+            return Pair.of(null, Optional.empty());
+        }
+        List<Slot> output = scan.getOutput();
+        PartitionInfo partitionInfo = table.getPartitionInfo();
+        List<Column> partitionColumns = partitionInfo.getPartitionColumns();
+        List<Slot> partitionSlots = new ArrayList<>(partitionColumns.size());
+        for (Column column : partitionColumns) {
+            Slot partitionSlot = null;
+            // loop search is faster than build a map
+            for (Slot slot : output) {
+                if (slot.getName().equalsIgnoreCase(column.getName())) {
+                    partitionSlot = slot;
+                    break;
+                }
             }
-            List<Slot> output = scan.getOutput();
-            PartitionInfo partitionInfo = table.getPartitionInfo();
-            List<Column> partitionColumns = partitionInfo.getPartitionColumns();
-            List<Slot> partitionSlots = new ArrayList<>(partitionColumns.size());
-            for (Column column : partitionColumns) {
-                Slot partitionSlot = null;
-                // loop search is faster than build a map
-                for (Slot slot : output) {
-                    if (slot.getName().equalsIgnoreCase(column.getName())) {
-                        partitionSlot = slot;
-                        break;
-                    }
-                }
-                if (partitionSlot == null) {
-                    return null;
-                } else {
-                    partitionSlots.add(partitionSlot);
-                }
-            }
-            NereidsSortedPartitionsCacheManager sortedPartitionsCacheManager = Env.getCurrentEnv()
-                    .getSortedPartitionsCacheManager();
-            List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
-            Map<Long, PartitionItem> idToPartitions;
-            Optional<SortedPartitionRanges<Long>> sortedPartitionRanges = Optional.empty();
-            if (manuallySpecifiedPartitions.isEmpty()) {
-                Optional<SortedPartitionRanges<?>> sortedPartitionRangesOpt
-                        = sortedPartitionsCacheManager.get(table, scan);
-                if (sortedPartitionRangesOpt.isPresent()) {
-                    sortedPartitionRanges = (Optional) sortedPartitionRangesOpt;
-                }
-                idToPartitions = partitionInfo.getIdToItem(false);
+            if (partitionSlot == null) {
+                return Pair.of(null, Optional.empty());
             } else {
-                Map<Long, PartitionItem> allPartitions = partitionInfo.getAllPartitions();
-                idToPartitions = allPartitions.keySet().stream()
-                        .filter(manuallySpecifiedPartitions::contains)
-                        .collect(Collectors.toMap(Function.identity(), allPartitions::get));
+                partitionSlots.add(partitionSlot);
             }
-            List<Long> prunedPartitions = PartitionPruner.prune(
+        }
+        NereidsSortedPartitionsCacheManager sortedPartitionsCacheManager = Env.getCurrentEnv()
+                .getSortedPartitionsCacheManager();
+        List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
+        Map<Long, PartitionItem> idToPartitions;
+        Optional<SortedPartitionRanges<Long>> sortedPartitionRanges = Optional.empty();
+        if (manuallySpecifiedPartitions.isEmpty()) {
+            Optional<SortedPartitionRanges<?>> sortedPartitionRangesOpt
+                    = sortedPartitionsCacheManager.get(table, scan);
+            if (sortedPartitionRangesOpt.isPresent()) {
+                sortedPartitionRanges = (Optional) sortedPartitionRangesOpt;
+            }
+            idToPartitions = partitionInfo.getIdToItem(false);
+        } else {
+            Map<Long, PartitionItem> allPartitions = partitionInfo.getAllPartitions();
+            idToPartitions = allPartitions.keySet().stream()
+                    .filter(manuallySpecifiedPartitions::contains)
+                    .collect(Collectors.toMap(Function.identity(), allPartitions::get));
+        }
+        if (filter != null) {
+            Pair<List<Long>, Optional<Expression>> prunedPartitions = PartitionPruner.prune(
                     partitionSlots, filter.getPredicate(), idToPartitions, ctx.cascadesContext,
                     PartitionTableType.OLAP, sortedPartitionRanges);
-            if (prunedPartitions.isEmpty()) {
-                return new LogicalEmptyRelation(
-                        ConnectContext.get().getStatementContext().getNextRelationId(),
-                        filter.getOutput());
+            return prunedPartitions;
+        } else if (!manuallySpecifiedPartitions.isEmpty()) {
+            return Pair.of(Utils.fastToImmutableList(idToPartitions.keySet()), Optional.empty());
+        } else {
+            return Pair.of(null, Optional.empty());
+        }
+    }
+
+    private List<Long> prunePartitionByTabletIds(LogicalOlapScan scan,
+                                                 OlapTable table,
+                                                 List<Long> prunedPartitionsByFilters) {
+        if (scan.getManuallySpecifiedTabletIds().size() == 0
+                || (prunedPartitionsByFilters != null && prunedPartitionsByFilters.isEmpty())) {
+            // `prunedPartitionsByFilters is not null and is empty` means empty partitions after pruner
+            return prunedPartitionsByFilters;
+        }
+
+        Set<Long> selectedPartitions = new LinkedHashSet<>();
+        if (prunedPartitionsByFilters != null) {
+            selectedPartitions.addAll(prunedPartitionsByFilters);
+        }
+
+        Set<Long> manuallySpecifiedTabletIds = ImmutableSet.copyOf(scan.getManuallySpecifiedTabletIds());
+        List<Long> selectPartitionIds = new ArrayList<>();
+        for (Partition partition : table.getPartitions()) {
+            if (!selectedPartitions.isEmpty() && !selectedPartitions.contains(partition.getId())) {
+                continue;
             }
-            LogicalOlapScan rewrittenScan = scan.withSelectedPartitionIds(prunedPartitions);
-            return filter.withChildren(ImmutableList.of(rewrittenScan));
-        }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE);
+            MaterializedIndex baseIndex = partition.getBaseIndex();
+            for (Tablet tablet : baseIndex.getTablets()) {
+                if (manuallySpecifiedTabletIds.contains(tablet.getId())) {
+                    selectPartitionIds.add(partition.getId());
+                    break;
+                }
+            }
+        }
+        return selectPartitionIds;
     }
 }

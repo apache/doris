@@ -237,6 +237,7 @@ public class StatementContext implements Closeable {
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
 
     private boolean prepareStage = false;
+    private boolean skipPrunePredicate = false;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -811,5 +812,13 @@ public class StatementContext implements Closeable {
 
     public boolean isPrepareStage() {
         return prepareStage;
+    }
+
+    public boolean isSkipPrunePredicate() {
+        return skipPrunePredicate;
+    }
+
+    public void setSkipPrunePredicate(boolean skipPrunePredicate) {
+        this.skipPrunePredicate = skipPrunePredicate;
     }
 }
