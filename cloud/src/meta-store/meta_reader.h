@@ -304,6 +304,11 @@ public:
     int count_snapshot_references(Transaction* txn, Versionstamp snapshot_version,
                                   bool snapshot = false);
 
+    // Find derived instance IDs that were cloned from a specific snapshot.
+    // Returns only instance IDs (without reading full InstanceInfoPB).
+    TxnErrorCode find_derived_instance_ids(Transaction* txn, Versionstamp snapshot_version,
+                                           std::vector<std::string>* out, bool snapshot = false);
+
     // Whether the table has no indexes.
     TxnErrorCode has_no_indexes(int64_t db_id, int64_t table_id, bool* no_indexes,
                                 bool snapshot = false);
