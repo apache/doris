@@ -118,6 +118,62 @@ private:
     io::Path _path = "/tmp/mock";
 };
 
+// MockFileReader with IO tracking capability
+class MockFileReaderWithIOTracking : public io::FileReader {
+public:
+    MockFileReaderWithIOTracking(size_t size) : _size(size), _io_count(0), _total_bytes_read(0) {};
+
+    ~MockFileReaderWithIOTracking() override = default;
+
+    Status close() override {
+        _closed = true;
+        return Status::OK();
+    }
+
+    const io::Path& path() const override { return _path; }
+
+    size_t size() const override { return _size; }
+
+    bool closed() const override { return _closed; }
+
+    // Get IO statistics
+    size_t get_io_count() const { return _io_count; }
+    size_t get_total_bytes_read() const { return _total_bytes_read; }
+    
+    void reset_stats() {
+        _io_count = 0;
+        _total_bytes_read = 0;
+    }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* io_ctx) override {
+        // Track each physical IO call
+        _io_count++;
+        
+        if (offset >= _size) {
+            *bytes_read = 0;
+            return Status::OK();
+        }
+        *bytes_read = std::min(_size - offset, result.size);
+        _total_bytes_read += *bytes_read;
+        
+        // Fill data with predictable pattern
+        for (size_t i = 0; i < *bytes_read; ++i) {
+            result.data[i] = (offset + i) % UCHAR_MAX;
+        }
+        
+        return Status::OK();
+    }
+
+private:
+    size_t _size;
+    bool _closed = false;
+    io::Path _path = "/tmp/mock_with_tracking";
+    size_t _io_count;          // Number of physical IO calls
+    size_t _total_bytes_read;  // Total bytes read from storage
+};
+
 class TestingRangeCacheFileReader : public io::FileReader {
 public:
     TestingRangeCacheFileReader(std::shared_ptr<io::FileReader> delegate) : _delegate(delegate) {};
@@ -697,6 +753,578 @@ TEST_F(BufferedReaderTest, test_dense_ranges_amplification) {
             << "Should merge multiple ranges to reduce I/O count";
 
     std::cout << "Dense ranges are effectively merged with 8MB window" << std::endl;
+}
+
+TEST_F(BufferedReaderTest, test_complete_read_process_with_io_tracking) {
+    // This test simulates a complete read process and verifies:
+    // 1. Number of physical IO operations
+    // 2. Total bytes read from storage
+    // 3. Cache hit behavior (subsequent reads don't trigger new IO)
+    // 4. Data correctness
+    
+    size_t kb = 1024;
+    
+    // Create a mock file reader with IO tracking
+    auto tracking_reader = std::make_shared<MockFileReaderWithIOTracking>(10 * 1024 * kb);
+    
+    // Setup scenario: 5 ranges, each 100KB, with 20KB gaps between them
+    // Range0: [0KB, 100KB)
+    // Gap0:   [100KB, 120KB)    20KB gap
+    // Range1: [120KB, 220KB)
+    // Gap1:   [220KB, 240KB)    20KB gap
+    // Range2: [240KB, 340KB)
+    // Gap2:   [340KB, 360KB)    20KB gap
+    // Range3: [360KB, 460KB)
+    // Gap3:   [460KB, 480KB)    20KB gap
+    // Range4: [480KB, 580KB)
+    //
+    // Total content: 500KB (5 * 100KB)
+    // Total gaps: 80KB (4 * 20KB)
+    // Total span: 580KB
+    // Gap/content ratio: 80/500 = 0.16 < 0.4 (should merge all)
+    
+    std::vector<io::PrefetchRange> random_access_ranges;
+    for (size_t i = 0; i < 5; ++i) {
+        size_t start = i * 120 * kb;      // 120KB spacing (100KB data + 20KB gap)
+        size_t end = start + 100 * kb;    // 100KB data
+        random_access_ranges.emplace_back(start, end);
+    }
+    
+    // Create MergeRangeFileReader with 8MB merge window
+    io::MergeRangeFileReader merge_reader(nullptr, tracking_reader, random_access_ranges, 
+                                          8 * 1024 * kb);
+    
+    std::cout << "\n========== Test: Complete Read Process with IO Tracking ==========" << std::endl;
+    std::cout << "Setup: 5 ranges × 100KB with 20KB gaps between them" << std::endl;
+    std::cout << "Expected: Single merge IO reading ~580KB (500KB data + 80KB gaps)" << std::endl;
+    std::cout << "=================================================================\n" << std::endl;
+    
+    // Phase 1: Read first range (should trigger merge IO for all ranges)
+    std::cout << "Phase 1: Reading first range [0KB, 100KB)..." << std::endl;
+    std::vector<char> data(100 * kb);
+    size_t bytes_read = 0;
+    
+    auto st = merge_reader.read_at(0, Slice(data.data(), 100 * kb), &bytes_read, nullptr);
+    ASSERT_TRUE(st.ok());
+    EXPECT_EQ(bytes_read, 100 * kb);
+    
+    // Verify data correctness for first range
+    for (size_t i = 0; i < bytes_read; ++i) {
+        EXPECT_EQ((uint8_t)data[i], (uint8_t)(i % UCHAR_MAX)) 
+            << "Data mismatch at offset " << i;
+    }
+    
+    size_t io_after_first_read = tracking_reader->get_io_count();
+    size_t bytes_after_first_read = tracking_reader->get_total_bytes_read();
+    
+    std::cout << "  -> Physical IO count: " << io_after_first_read << std::endl;
+    std::cout << "  -> Total bytes read from storage: " << bytes_after_first_read 
+              << " (" << bytes_after_first_read / kb << "KB)" << std::endl;
+    std::cout << "  -> User requested: " << bytes_read << " (" << bytes_read / kb << "KB)" << std::endl;
+    std::cout << "  -> Read amplification: " 
+              << (double)bytes_after_first_read / (double)bytes_read << "x" << std::endl;
+    
+    // Verify: Should have exactly 1 IO that read all merged ranges
+    EXPECT_EQ(io_after_first_read, 1) 
+        << "First read should trigger exactly 1 physical IO to merge all ranges";
+    
+    // Verify: Total bytes read should be around 580KB (500KB data + 80KB gaps)
+    EXPECT_GE(bytes_after_first_read, 500 * kb) 
+        << "Should read at least all content (500KB)";
+    EXPECT_LE(bytes_after_first_read, 600 * kb) 
+        << "Should not read more than reasonable merged size (580KB + buffer)";
+    
+    // Phase 2: Read remaining ranges (should hit cache, no new IO)
+    std::cout << "\nPhase 2: Reading remaining ranges from cache..." << std::endl;
+    
+    for (size_t range_idx = 1; range_idx < 5; ++range_idx) {
+        size_t start_offset = range_idx * 120 * kb;
+        bytes_read = 0;
+        
+        st = merge_reader.read_at(start_offset, Slice(data.data(), 100 * kb), 
+                                   &bytes_read, nullptr);
+        ASSERT_TRUE(st.ok()) << "Read failed for range " << range_idx;
+        EXPECT_EQ(bytes_read, 100 * kb) << "Read size mismatch for range " << range_idx;
+        
+        // Verify data correctness
+        for (size_t i = 0; i < bytes_read; ++i) {
+            EXPECT_EQ((uint8_t)data[i], (uint8_t)((start_offset + i) % UCHAR_MAX))
+                << "Data mismatch in range " << range_idx << " at offset " << i;
+        }
+        
+        std::cout << "  Range " << range_idx << " [" << start_offset / kb << "KB, "
+                  << (start_offset + 100 * kb) / kb << "KB): " 
+                  << bytes_read / kb << "KB read - ";
+        
+        // Check if new IO was triggered
+        size_t current_io_count = tracking_reader->get_io_count();
+        if (current_io_count == io_after_first_read) {
+            std::cout << "✓ Cache HIT (no new IO)" << std::endl;
+        } else {
+            std::cout << "✗ Cache MISS (new IO triggered)" << std::endl;
+        }
+    }
+    
+    // Phase 3: Verify final statistics
+    std::cout << "\nPhase 3: Final verification..." << std::endl;
+    
+    size_t final_io_count = tracking_reader->get_io_count();
+    size_t final_bytes_read = tracking_reader->get_total_bytes_read();
+    
+    std::cout << "  -> Final physical IO count: " << final_io_count << std::endl;
+    std::cout << "  -> Final total bytes read: " << final_bytes_read 
+              << " (" << final_bytes_read / kb << "KB)" << std::endl;
+    
+    // Verify: All reads should be served from cache after first merge IO
+    EXPECT_EQ(final_io_count, 1) 
+        << "All ranges should be cached after first read, no additional IO needed";
+    EXPECT_EQ(final_bytes_read, bytes_after_first_read) 
+        << "No additional bytes should be read from storage";
+    
+    // Phase 4: Verify MergeRangeFileReader statistics
+    std::cout << "\nPhase 4: MergeRangeFileReader statistics..." << std::endl;
+    
+    auto merge_stats = merge_reader.statistics();
+    std::cout << "  -> Request bytes (user requested): " << merge_stats.request_bytes 
+              << " (" << merge_stats.request_bytes / kb << "KB)" << std::endl;
+    std::cout << "  -> Merged bytes (actually read): " << merge_stats.merged_bytes 
+              << " (" << merge_stats.merged_bytes / kb << "KB)" << std::endl;
+    std::cout << "  -> Amplification ratio: " 
+              << (double)merge_stats.merged_bytes / (double)merge_stats.request_bytes << "x" 
+              << std::endl;
+    
+    // User requested total: 500KB (5 ranges × 100KB)
+    EXPECT_EQ(merge_stats.request_bytes, 500 * kb) 
+        << "User requested 500KB total (5 ranges)";
+    
+    // Merged bytes should match physical bytes read
+    EXPECT_EQ(merge_stats.merged_bytes, final_bytes_read) 
+        << "Merged bytes should match physical IO bytes";
+    
+    // Verify cache state is clean after all reads
+    EXPECT_EQ(merge_reader.buffer_remaining(), io::MergeRangeFileReader::TOTAL_BUFFER_SIZE)
+        << "All buffers should be released after reads complete";
+    
+    std::cout << "\n========== Test Summary ==========" << std::endl;
+    std::cout << "✓ Single merge IO successfully cached all 5 ranges" << std::endl;
+    std::cout << "✓ Read amplification: " 
+              << (double)final_bytes_read / (500.0 * kb) << "x (expected ~1.16x)" << std::endl;
+    std::cout << "✓ All subsequent reads served from cache (0 additional IO)" << std::endl;
+    std::cout << "✓ Data integrity verified for all ranges" << std::endl;
+    std::cout << "✓ Cache properly released after use" << std::endl;
+    std::cout << "==================================\n" << std::endl;
+}
+
+TEST_F(BufferedReaderTest, test_large_gap_scenario_with_tracking) {
+    // Scenario: Ranges with very large gaps (>512KB)
+    // Expected: Should reject merging due to max_single_gap limit
+    // Result: Multiple IOs, each for individual ranges, minimal amplification
+    
+    size_t kb = 1024;
+    auto tracking_reader = std::make_shared<MockFileReaderWithIOTracking>(10 * 1024 * kb);
+    
+    // Setup: 3 ranges with 600KB gaps between them
+    // Range0: [0KB, 100KB)
+    // Gap0:   [100KB, 700KB)    600KB gap (> 512KB limit)
+    // Range1: [700KB, 800KB)
+    // Gap1:   [800KB, 1400KB)   600KB gap (> 512KB limit)
+    // Range2: [1400KB, 1500KB)
+    std::vector<io::PrefetchRange> random_access_ranges;
+    random_access_ranges.emplace_back(0, 100 * kb);
+    random_access_ranges.emplace_back(700 * kb, 800 * kb);
+    random_access_ranges.emplace_back(1400 * kb, 1500 * kb);
+    
+    io::MergeRangeFileReader merge_reader(nullptr, tracking_reader, random_access_ranges,
+                                          8 * 1024 * kb);
+    
+    std::cout << "\n========== Test: Large Gap Scenario (>512KB gaps) ==========" << std::endl;
+    std::cout << "Setup: 3 ranges × 100KB with 600KB gaps (exceeds 512KB limit)" << std::endl;
+    std::cout << "Expected: Individual IOs for each range, amplification ~1.0x" << std::endl;
+    std::cout << "============================================================\n" << std::endl;
+    
+    std::vector<char> data(100 * kb);
+    size_t total_user_bytes = 0;
+    
+    // Read all three ranges
+    for (size_t i = 0; i < 3; ++i) {
+        size_t offset = random_access_ranges[i].start_offset;
+        size_t bytes_read = 0;
+        
+        auto st = merge_reader.read_at(offset, Slice(data.data(), 100 * kb), &bytes_read, nullptr);
+        ASSERT_TRUE(st.ok());
+        EXPECT_EQ(bytes_read, 100 * kb);
+        total_user_bytes += bytes_read;
+        
+        std::cout << "Range " << i << " [" << offset / kb << "KB, " 
+                  << (offset + 100 * kb) / kb << "KB): read " << bytes_read / kb << "KB" << std::endl;
+    }
+    
+    size_t final_io_count = tracking_reader->get_io_count();
+    size_t final_bytes_read = tracking_reader->get_total_bytes_read();
+    double amplification = (double)final_bytes_read / (double)total_user_bytes;
+    
+    std::cout << "\nResults:" << std::endl;
+    std::cout << "  -> Physical IO count: " << final_io_count << std::endl;
+    std::cout << "  -> Total bytes read: " << final_bytes_read << " (" << final_bytes_read / kb << "KB)" << std::endl;
+    std::cout << "  -> User requested: " << total_user_bytes << " (" << total_user_bytes / kb << "KB)" << std::endl;
+    std::cout << "  -> Amplification: " << amplification << "x" << std::endl;
+    
+    // Verify: Should have 3 separate IOs (one per range)
+    EXPECT_EQ(final_io_count, 3) << "Large gaps should prevent merging, resulting in 3 IOs";
+    
+    // Verify: Minimal amplification
+    EXPECT_LT(amplification, 1.1) << "Amplification should be minimal (~1.0x) with no merging";
+    
+    auto merge_stats = merge_reader.statistics();
+    EXPECT_EQ(merge_stats.request_bytes, 300 * kb);
+    
+    std::cout << "\n✓ Large gap rejection works correctly - prevents severe amplification" << std::endl;
+    std::cout << "========================================================\n" << std::endl;
+}
+
+TEST_F(BufferedReaderTest, test_sparse_gap_scenario_with_tracking) {
+    // Scenario: Medium-sized ranges with medium gaps (gap/content ratio ~0.625)
+    // Expected: Adaptive logic stops merging when ratio exceeds threshold
+    // Result: Partial merge, moderate amplification
+    
+    size_t kb = 1024;
+    auto tracking_reader = std::make_shared<MockFileReaderWithIOTracking>(20 * 1024 * kb);
+    
+    // Setup: 15 ranges × 80KB with 50KB gaps
+    // Gap/content ratio per step: 50/80 = 0.625 > 0.4 threshold
+    // Adaptive logic should stop after ~7 ranges (560KB content + 300KB gaps)
+    std::vector<io::PrefetchRange> random_access_ranges;
+    for (size_t i = 0; i < 15; ++i) {
+        size_t start = i * 130 * kb;      // 130KB spacing
+        size_t end = start + 80 * kb;     // 80KB data
+        random_access_ranges.emplace_back(start, end);
+    }
+    
+    io::MergeRangeFileReader merge_reader(nullptr, tracking_reader, random_access_ranges,
+                                          8 * 1024 * kb);
+    
+    std::cout << "\n========== Test: Sparse Gap Scenario (medium gaps) ==========" << std::endl;
+    std::cout << "Setup: 15 ranges × 80KB with 50KB gaps (ratio ~0.625 > 0.4)" << std::endl;
+    std::cout << "Expected: Partial merge (~7 ranges), then separate IOs" << std::endl;
+    std::cout << "=============================================================\n" << std::endl;
+    
+    std::vector<char> data(80 * kb);
+    
+    // Read all ranges sequentially
+    for (size_t i = 0; i < 15; ++i) {
+        size_t offset = random_access_ranges[i].start_offset;
+        size_t bytes_read = 0;
+        
+        size_t io_before = tracking_reader->get_io_count();
+        auto st = merge_reader.read_at(offset, Slice(data.data(), 80 * kb), &bytes_read, nullptr);
+        ASSERT_TRUE(st.ok());
+        EXPECT_EQ(bytes_read, 80 * kb);
+        size_t io_after = tracking_reader->get_io_count();
+        
+        if (i < 10) {  // Only log first 10 for brevity
+            if (io_after > io_before) {
+                std::cout << "Range " << i << " [" << offset / kb << "KB]: Cache MISS (new IO #" 
+                          << io_after << ")" << std::endl;
+            } else {
+                std::cout << "Range " << i << " [" << offset / kb << "KB]: Cache HIT" << std::endl;
+            }
+        }
+    }
+    
+    size_t final_io_count = tracking_reader->get_io_count();
+    size_t final_bytes_read = tracking_reader->get_total_bytes_read();
+    size_t total_user_bytes = 15 * 80 * kb; // 1200KB
+    double amplification = (double)final_bytes_read / (double)total_user_bytes;
+    
+    std::cout << "\nResults:" << std::endl;
+    std::cout << "  -> Physical IO count: " << final_io_count << std::endl;
+    std::cout << "  -> Total bytes read: " << final_bytes_read << " (" << final_bytes_read / kb << "KB)" << std::endl;
+    std::cout << "  -> User requested: " << total_user_bytes << " (" << total_user_bytes / kb << "KB)" << std::endl;
+    std::cout << "  -> Amplification: " << amplification << "x" << std::endl;
+    
+    // Verify: Should have multiple IOs (adaptive stops merging)
+    // First merge catches ~7 ranges, remaining 8 ranges need separate IOs
+    EXPECT_GT(final_io_count, 1) << "Should have multiple IOs due to adaptive stopping";
+    EXPECT_LT(final_io_count, 15) << "Some ranges should be merged";
+    
+    // Verify: Moderate amplification (better than merging all 15 ranges)
+    // Without adaptive logic, would merge all 15 ranges: (1200KB + 700KB) / 1200KB = 1.58x
+    EXPECT_LE(amplification, 1.6) << "Amplification should be moderate due to partial merging";
+    
+    auto merge_stats = merge_reader.statistics();
+    std::cout << "  -> Merge efficiency: " << (double)merge_stats.request_bytes / (double)merge_stats.merged_bytes 
+              << " (higher is better)" << std::endl;
+    
+    std::cout << "\n✓ Adaptive logic successfully prevents excessive amplification" << std::endl;
+    std::cout << "✓ Balanced trade-off: " << final_io_count << " IOs vs " << amplification << "x amplification" << std::endl;
+    std::cout << "=========================================================\n" << std::endl;
+}
+
+TEST_F(BufferedReaderTest, test_dense_gap_scenario_with_tracking) {
+    // Scenario: Large ranges with small gaps (gap/content ratio ~0.05)
+    // Expected: All ranges merged in single IO
+    // Result: Single IO, low amplification (~1.05x)
+    
+    size_t kb = 1024;
+    auto tracking_reader = std::make_shared<MockFileReaderWithIOTracking>(10 * 1024 * kb);
+    
+    // Setup: 10 ranges × 100KB with 5KB gaps
+    // Total content: 1000KB
+    // Total gaps: 45KB (9 gaps)
+    // Gap/content ratio: 45/1000 = 0.045 << 0.4 threshold
+    std::vector<io::PrefetchRange> random_access_ranges;
+    for (size_t i = 0; i < 10; ++i) {
+        size_t start = i * 105 * kb;      // 105KB spacing
+        size_t end = start + 100 * kb;    // 100KB data
+        random_access_ranges.emplace_back(start, end);
+    }
+    
+    io::MergeRangeFileReader merge_reader(nullptr, tracking_reader, random_access_ranges,
+                                          8 * 1024 * kb);
+    
+    std::cout << "\n========== Test: Dense Gap Scenario (small gaps) ==========" << std::endl;
+    std::cout << "Setup: 10 ranges × 100KB with 5KB gaps (ratio ~0.045 << 0.4)" << std::endl;
+    std::cout << "Expected: Single merge IO, minimal amplification ~1.05x" << std::endl;
+    std::cout << "==========================================================\n" << std::endl;
+    
+    std::vector<char> data(100 * kb);
+    
+    // Read all ranges
+    for (size_t i = 0; i < 10; ++i) {
+        size_t offset = random_access_ranges[i].start_offset;
+        size_t bytes_read = 0;
+        
+        size_t io_before = tracking_reader->get_io_count();
+        auto st = merge_reader.read_at(offset, Slice(data.data(), 100 * kb), &bytes_read, nullptr);
+        ASSERT_TRUE(st.ok());
+        EXPECT_EQ(bytes_read, 100 * kb);
+        size_t io_after = tracking_reader->get_io_count();
+        
+        if (i < 5) {  // Log first 5
+            if (io_after > io_before) {
+                std::cout << "Range " << i << " [" << offset / kb << "KB]: Triggered merge IO #" 
+                          << io_after << std::endl;
+            } else {
+                std::cout << "Range " << i << " [" << offset / kb << "KB]: Cache HIT" << std::endl;
+            }
+        }
+    }
+    
+    size_t final_io_count = tracking_reader->get_io_count();
+    size_t final_bytes_read = tracking_reader->get_total_bytes_read();
+    size_t total_user_bytes = 10 * 100 * kb; // 1000KB
+    double amplification = (double)final_bytes_read / (double)total_user_bytes;
+    
+    std::cout << "\nResults:" << std::endl;
+    std::cout << "  -> Physical IO count: " << final_io_count << std::endl;
+    std::cout << "  -> Total bytes read: " << final_bytes_read << " (" << final_bytes_read / kb << "KB)" << std::endl;
+    std::cout << "  -> User requested: " << total_user_bytes << " (" << total_user_bytes / kb << "KB)" << std::endl;
+    std::cout << "  -> Amplification: " << amplification << "x" << std::endl;
+    std::cout << "  -> Gap overhead: " << (final_bytes_read - total_user_bytes) / kb << "KB" << std::endl;
+    
+    // Verify: Should have exactly 1 IO (all ranges merged)
+    EXPECT_EQ(final_io_count, 1) << "Dense ranges should be fully merged in single IO";
+    
+    // Verify: Low amplification
+    EXPECT_LT(amplification, 1.1) << "Amplification should be minimal (~1.05x) for dense ranges";
+    EXPECT_GE(final_bytes_read, 1000 * kb) << "Should read at least all content";
+    EXPECT_LE(final_bytes_read, 1100 * kb) << "Should not read much more than content + gaps";
+    
+    auto merge_stats = merge_reader.statistics();
+    EXPECT_EQ(merge_stats.request_bytes, 1000 * kb);
+    
+    std::cout << "\n✓ Dense ranges optimally merged - single IO with minimal amplification" << std::endl;
+    std::cout << "✓ Ideal case: 10 ranges → 1 IO (10x fewer operations)" << std::endl;
+    std::cout << "======================================================\n" << std::endl;
+}
+
+TEST_F(BufferedReaderTest, test_mixed_density_scenario_with_tracking) {
+    // Scenario: Mixed pattern - dense at start, sparse at end
+    // Expected: Dense part merged, sparse part separated
+    // Result: Multiple IOs with different behaviors
+    
+    size_t kb = 1024;
+    auto tracking_reader = std::make_shared<MockFileReaderWithIOTracking>(20 * 1024 * kb);
+    
+    std::vector<io::PrefetchRange> random_access_ranges;
+    
+    // Part 1: Dense ranges (5 ranges × 100KB with 10KB gaps)
+    // Gap/content ratio: 10/100 = 0.1 < 0.4 (should merge)
+    for (size_t i = 0; i < 5; ++i) {
+        size_t start = i * 110 * kb;
+        size_t end = start + 100 * kb;
+        random_access_ranges.emplace_back(start, end);
+    }
+    
+    // Part 2: Sparse ranges (5 ranges × 50KB with 200KB gaps)
+    // Gap/content ratio: 200/50 = 4.0 >> 0.4 (should NOT merge)
+    size_t sparse_start = 1000 * kb;  // Start far away
+    for (size_t i = 0; i < 5; ++i) {
+        size_t start = sparse_start + i * 250 * kb;  // 250KB spacing
+        size_t end = start + 50 * kb;                 // 50KB data
+        random_access_ranges.emplace_back(start, end);
+    }
+    
+    io::MergeRangeFileReader merge_reader(nullptr, tracking_reader, random_access_ranges,
+                                          8 * 1024 * kb);
+    
+    std::cout << "\n========== Test: Mixed Density Scenario ==========" << std::endl;
+    std::cout << "Setup: Part 1: 5 dense ranges (10KB gaps), Part 2: 5 sparse ranges (200KB gaps)" << std::endl;
+    std::cout << "Expected: Dense part merged (1 IO), sparse part separate (5 IOs)" << std::endl;
+    std::cout << "================================================\n" << std::endl;
+    
+    std::vector<char> data(100 * kb);
+    size_t total_user_bytes = 0;
+    
+    std::cout << "Part 1: Reading dense ranges..." << std::endl;
+    for (size_t i = 0; i < 5; ++i) {
+        size_t offset = random_access_ranges[i].start_offset;
+        size_t bytes_read = 0;
+        
+        size_t io_before = tracking_reader->get_io_count();
+        auto st = merge_reader.read_at(offset, Slice(data.data(), 100 * kb), &bytes_read, nullptr);
+        ASSERT_TRUE(st.ok());
+        EXPECT_EQ(bytes_read, 100 * kb);
+        total_user_bytes += bytes_read;
+        size_t io_after = tracking_reader->get_io_count();
+        
+        if (io_after > io_before) {
+            std::cout << "  Range " << i << ": Triggered IO #" << io_after << std::endl;
+        } else {
+            std::cout << "  Range " << i << ": Cache HIT" << std::endl;
+        }
+    }
+    
+    size_t io_after_dense = tracking_reader->get_io_count();
+    std::cout << "Dense part IO count: " << io_after_dense << std::endl;
+    
+    std::cout << "\nPart 2: Reading sparse ranges..." << std::endl;
+    data.resize(50 * kb);
+    for (size_t i = 5; i < 10; ++i) {
+        size_t offset = random_access_ranges[i].start_offset;
+        size_t bytes_read = 0;
+        
+        size_t io_before = tracking_reader->get_io_count();
+        auto st = merge_reader.read_at(offset, Slice(data.data(), 50 * kb), &bytes_read, nullptr);
+        ASSERT_TRUE(st.ok());
+        EXPECT_EQ(bytes_read, 50 * kb);
+        total_user_bytes += bytes_read;
+        size_t io_after = tracking_reader->get_io_count();
+        
+        if (io_after > io_before) {
+            std::cout << "  Range " << i << ": Triggered IO #" << io_after << std::endl;
+        } else {
+            std::cout << "  Range " << i << ": Cache HIT" << std::endl;
+        }
+    }
+    
+    size_t final_io_count = tracking_reader->get_io_count();
+    size_t final_bytes_read = tracking_reader->get_total_bytes_read();
+    double amplification = (double)final_bytes_read / (double)total_user_bytes;
+    
+    std::cout << "\nResults:" << std::endl;
+    std::cout << "  -> Total physical IO count: " << final_io_count << std::endl;
+    std::cout << "  -> Dense part IOs: " << io_after_dense << std::endl;
+    std::cout << "  -> Sparse part IOs: " << (final_io_count - io_after_dense) << std::endl;
+    std::cout << "  -> Total bytes read: " << final_bytes_read << " (" << final_bytes_read / kb << "KB)" << std::endl;
+    std::cout << "  -> User requested: " << total_user_bytes << " (" << total_user_bytes / kb << "KB)" << std::endl;
+    std::cout << "  -> Overall amplification: " << amplification << "x" << std::endl;
+    
+    // Verify: Dense part should merge (1 IO), sparse part should not (5 IOs)
+    EXPECT_EQ(io_after_dense, 1) << "Dense ranges should merge into 1 IO";
+    EXPECT_GE(final_io_count, 6) << "Should have at least 6 IOs total (1 dense + 5 sparse)";
+    
+    // Verify: Overall moderate amplification
+    EXPECT_LT(amplification, 1.3) << "Overall amplification should be moderate";
+    
+    std::cout << "\n✓ Mixed scenario handled correctly - adaptive to different densities" << std::endl;
+    std::cout << "✓ Dense: " << io_after_dense << " IO, Sparse: " << (final_io_count - io_after_dense) << " IOs" << std::endl;
+    std::cout << "==============================================\n" << std::endl;
+}
+
+TEST_F(BufferedReaderTest, test_progressive_reading_scenario_with_tracking) {
+    // Scenario: Simulate real column reading pattern
+    // Read small chunks from each range progressively
+    // Expected: Efficient caching, minimal redundant IO
+    
+    size_t kb = 1024;
+    auto tracking_reader = std::make_shared<MockFileReaderWithIOTracking>(10 * 1024 * kb);
+    
+    // Setup: 8 ranges × 200KB with 15KB gaps (typical columnar format)
+    std::vector<io::PrefetchRange> random_access_ranges;
+    for (size_t i = 0; i < 8; ++i) {
+        size_t start = i * 215 * kb;      // 215KB spacing
+        size_t end = start + 200 * kb;    // 200KB data
+        random_access_ranges.emplace_back(start, end);
+    }
+    
+    io::MergeRangeFileReader merge_reader(nullptr, tracking_reader, random_access_ranges,
+                                          8 * 1024 * kb);
+    
+    std::cout << "\n========== Test: Progressive Reading Scenario ==========" << std::endl;
+    std::cout << "Setup: 8 ranges × 200KB with 15KB gaps (columnar pattern)" << std::endl;
+    std::cout << "Pattern: Read 50KB chunks progressively from each range" << std::endl;
+    std::cout << "======================================================\n" << std::endl;
+    
+    std::vector<char> data(50 * kb);
+    size_t total_user_bytes = 0;
+    
+    // Simulate progressive reading: 4 passes, each reading 50KB from each column
+    for (size_t pass = 0; pass < 4; ++pass) {
+        std::cout << "\nPass " << (pass + 1) << " (reading bytes " << (pass * 50) << "KB - " 
+                  << ((pass + 1) * 50) << "KB from each range):" << std::endl;
+        
+        size_t io_before_pass = tracking_reader->get_io_count();
+        
+        for (size_t col = 0; col < 8; ++col) {
+            size_t range_start = random_access_ranges[col].start_offset;
+            size_t read_offset = range_start + pass * 50 * kb;
+            size_t bytes_read = 0;
+            
+            auto st = merge_reader.read_at(read_offset, Slice(data.data(), 50 * kb), 
+                                           &bytes_read, nullptr);
+            ASSERT_TRUE(st.ok());
+            EXPECT_EQ(bytes_read, 50 * kb);
+            total_user_bytes += bytes_read;
+        }
+        
+        size_t io_after_pass = tracking_reader->get_io_count();
+        std::cout << "  IOs in this pass: " << (io_after_pass - io_before_pass) << std::endl;
+    }
+    
+    size_t final_io_count = tracking_reader->get_io_count();
+    size_t final_bytes_read = tracking_reader->get_total_bytes_read();
+    double amplification = (double)final_bytes_read / (double)total_user_bytes;
+    
+    std::cout << "\nFinal Results:" << std::endl;
+    std::cout << "  -> Total physical IO count: " << final_io_count << std::endl;
+    std::cout << "  -> Total bytes read: " << final_bytes_read << " (" << final_bytes_read / kb << "KB)" << std::endl;
+    std::cout << "  -> User requested: " << total_user_bytes << " (" << total_user_bytes / kb << "KB)" << std::endl;
+    std::cout << "  -> Amplification: " << amplification << "x" << std::endl;
+    std::cout << "  -> Average IO size: " << (final_bytes_read / final_io_count) / kb << "KB" << std::endl;
+    
+    // Verify: Should have minimal IOs (ideally 1 or 2)
+    EXPECT_LE(final_io_count, 3) << "Progressive reads should benefit from initial merge caching";
+    
+    // Verify: Low amplification
+    EXPECT_LT(amplification, 1.15) << "Amplification should be low for dense columnar data";
+    
+    // User read all data: 8 ranges × 200KB = 1600KB
+    EXPECT_EQ(total_user_bytes, 1600 * kb);
+    
+    auto merge_stats = merge_reader.statistics();
+    std::cout << "  -> IO efficiency: " << (double)total_user_bytes / (double)final_io_count / kb 
+              << "KB per IO" << std::endl;
+    
+    // Verify merge statistics
+    EXPECT_EQ(merge_stats.request_bytes, 1600 * kb) << "Request bytes should match total user bytes";
+    EXPECT_EQ(merge_stats.merged_bytes, final_bytes_read) << "Merged bytes should match physical IO bytes";
+    std::cout << "  -> Merge stats verified: request=" << merge_stats.request_bytes / kb 
+              << "KB, merged=" << merge_stats.merged_bytes / kb << "KB" << std::endl;
+    
+    std::cout << "\n✓ Progressive reading pattern handled efficiently" << std::endl;
+    std::cout << "✓ Cache reuse across multiple passes - excellent performance" << std::endl;
+    std::cout << "===================================================\n" << std::endl;
 }
 
 } // end namespace doris
