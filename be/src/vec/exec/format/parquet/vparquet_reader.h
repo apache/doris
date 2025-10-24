@@ -319,7 +319,8 @@ private:
 
     // for page index filter. slot id => expr
     std::map<int, std::vector<std::unique_ptr<ColumnPredicate>>> _push_down_simple_predicates;
-    std::map<int, std::unique_ptr<MutilColumnBlockPredicate>> _push_down_predicates;
+    std::vector<std::unique_ptr<MutilColumnBlockPredicate>> _push_down_predicates;
+    std::vector<std::unique_ptr<ColumnPredicate>> _useless_predicates;
     Arena _arena;
 };
 #include "common/compile_check_end.h"

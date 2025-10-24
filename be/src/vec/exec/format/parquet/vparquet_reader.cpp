@@ -460,17 +460,21 @@ Status ParquetReader::set_fill_columns(
         }
 
         if (check_expr_can_push_down(expr)) {
-            // for page index filter.
-            VSlotRef* slot_ref = static_cast<VSlotRef*>(expr->children()[0].get());
-            if (!_push_down_simple_predicates.contains(slot_ref->slot_id())) {
-                _push_down_simple_predicates.emplace(
-                        slot_ref->slot_id(), std::vector<std::unique_ptr<ColumnPredicate>> {});
-                _push_down_predicates.emplace(slot_ref->slot_id(),
-                                              AndBlockColumnPredicate::create_unique());
+            _push_down_predicates.push_back(AndBlockColumnPredicate::create_unique());
+            if (expr->node_type() != TExprNodeType::COMPOUND_PRED) {
+                // for page index filter.
+                VSlotRef* slot_ref = static_cast<VSlotRef*>(expr->children()[0].get());
+                if (!_push_down_simple_predicates.contains(slot_ref->slot_id())) {
+                    _push_down_simple_predicates.emplace(
+                            slot_ref->slot_id(), std::vector<std::unique_ptr<ColumnPredicate>> {});
+                }
+                RETURN_IF_ERROR(convert_predicates(
+                        {expr}, _push_down_simple_predicates[slot_ref->slot_id()],
+                        _push_down_predicates.back(), _arena));
+            } else {
+                RETURN_IF_ERROR(convert_predicates({expr}, _useless_predicates,
+                                                   _push_down_predicates.back(), _arena));
             }
-            RETURN_IF_ERROR(convert_predicates({expr},
-                                               _push_down_simple_predicates[slot_ref->slot_id()],
-                                               _push_down_predicates[slot_ref->slot_id()], _arena));
         }
     }
 
@@ -920,10 +924,11 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
         _col_offsets[parquet_col_id] = offset_index;
 
-        if (!_push_down_predicates.contains(slot_id) || !_push_down_predicates[slot_id]) {
+        if (!_push_down_simple_predicates.contains(slot_id) ||
+            _push_down_simple_predicates[slot_id].empty()) {
             continue;
         }
-        const auto& predicate = _push_down_predicates[slot_id];
+        const auto& predicates = _push_down_simple_predicates[slot_id];
 
         if (chunk.column_index_offset == 0 && chunk.column_index_length == 0) {
             continue;
@@ -940,36 +945,36 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         const std::vector<std::string>& encoded_max_vals = column_index.max_values;
         DCHECK_EQ(encoded_min_vals.size(), encoded_max_vals.size());
 
-        if (predicate) {
-            for (int page_id = 0; page_id < num_of_pages; page_id++) {
-                std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
-                        [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                            auto* slot = _tuple_descriptor->slots()[cid];
-                            if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
-                                return false;
-                            }
-                            if (!column_index.__isset.null_counts) {
-                                return false;
-                            }
+        for (int page_id = 0; page_id < num_of_pages; page_id++) {
+            std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                    [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+                        auto* slot = _tuple_descriptor->slots()[cid];
+                        if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                            return false;
+                        }
+                        if (!column_index.__isset.null_counts) {
+                            return false;
+                        }
 
-                            const auto& file_col_name =
-                                    _table_info_node_ptr->children_file_column_name(
-                                            slot->col_name());
-                            const FieldSchema* col_schema =
-                                    _file_metadata->schema().get_column(file_col_name);
-                            stat->col_schema = col_schema;
-                            stat->is_all_null = column_index.null_pages[page_id];
-                            stat->has_null = column_index.null_counts[page_id] > 0;
-                            stat->encoded_min_value = encoded_min_vals[page_id];
-                            stat->encoded_max_value = encoded_max_vals[page_id];
-                            return true;
-                        };
+                        const auto& file_col_name =
+                                _table_info_node_ptr->children_file_column_name(slot->col_name());
+                        const FieldSchema* col_schema =
+                                _file_metadata->schema().get_column(file_col_name);
+                        stat->col_schema = col_schema;
+                        stat->is_all_null = column_index.null_pages[page_id];
+                        stat->has_null = column_index.null_counts[page_id] > 0;
+                        stat->encoded_min_value = encoded_min_vals[page_id];
+                        stat->encoded_max_value = encoded_max_vals[page_id];
+                        return true;
+                    };
 
-                ParquetPredicate::ColumnStat stat;
-                stat.ctz = _ctz;
-                stat.get_stat_func = &get_stat_func;
+            ParquetPredicate::ColumnStat stat;
+            stat.ctz = _ctz;
+            stat.get_stat_func = &get_stat_func;
+            for (const auto& predicate : predicates) {
                 if (!predicate->evaluate_and(&stat)) {
                     skipped_page_range.emplace_back(page_id);
+                    break;
                 }
             }
         }
@@ -1059,11 +1064,7 @@ Status ParquetReader::_process_column_stat_filter(const tparquet::RowGroup& row_
         return Status::OK();
     }
 
-    for (const auto& [_, predicate] : _push_down_predicates) {
-        if (!predicate) {
-            continue;
-        }
-
+    for (const auto& predicate : _push_down_predicates) {
         std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
                 [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                     auto* slot = _tuple_descriptor->slots()[cid];
