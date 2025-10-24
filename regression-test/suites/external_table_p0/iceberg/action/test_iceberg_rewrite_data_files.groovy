@@ -393,8 +393,6 @@ suite("test_iceberg_rewrite_data_files", "p0,external,doris,external_docker,exte
     // Tests the rewrite operation targeting a specific partition
     // =====================================================================================
     logger.info("Starting specific partition rewrite test case")
-    // TODO: fix this test case
-    return
     
     def table_name_specific = "test_rewrite_specific_partition"
     
@@ -450,11 +448,10 @@ suite("test_iceberg_rewrite_data_files", "p0,external,doris,external_docker,exte
     // Execute rewrite only for NORTH region using WHERE clause
     def rewriteResultSpecific = sql """
         ALTER TABLE ${catalog_name}.${db_name}.${table_name_specific} 
-        WHERE region = 'NORTH'
         EXECUTE rewrite_data_files(
             "target-file-size-bytes" = "10485760",
             "min-input-files" = "2"
-        )
+        ) WHERE region = 'NORTH'
     """
     logger.info("Rewrite result for NORTH partition only: ${rewriteResultSpecific}")
     
