@@ -237,4 +237,52 @@ suite("test_limit_partition_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("p_20380101_20380103"))
     assertTrue(showPartitionsResult.toString().contains("p_20200101_20200103"))
     order_qt_date_range_all "SELECT * FROM ${mvName} order by k1,k2"
+
+    // with month format
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
+    sql """
+        CREATE TABLE `${tableName}` (
+            id  BIGINT,
+            dt  CHAR(6)
+        )
+        DUPLICATE KEY(id)
+        PARTITION BY LIST(dt)
+        (
+            PARTITION p202511 VALUES IN ("202311"),
+            PARTITION p202512 VALUES IN ("202312"),
+            PARTITION p203801 VALUES IN ("203801")
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES ("replication_num" = "1");
+        """
+    sql """
+        insert into ${tableName} values(11,"202311"),(12,"202312"),(13,"203801");
+        """
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`dt`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1',
+            'partition_sync_limit'='2',
+            'partition_sync_time_unit'='MONTH',
+            'partition_date_format'='%Y%m'
+            )
+            AS
+            SELECT * FROM ${tableName};
+    """
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    jobName = getJobName(dbName, mvName);
+    log.info(jobName)
+    waitingMTMVTaskFinished(jobName)
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(1, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_203801"))
+    order_qt_date_with_month "SELECT * FROM ${mvName} order by dt"
 }
