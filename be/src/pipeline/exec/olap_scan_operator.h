@@ -290,7 +290,7 @@ private:
     RuntimeProfile::Counter* _variant_subtree_sparse_iter_count = nullptr;
 
     std::vector<TabletWithVersion> _tablets;
-    std::vector<TabletReader::ReadSource> _read_sources;
+    std::vector<TabletReadSource> _read_sources;
 
     std::map<SlotId, vectorized::VExprContextSPtr> _slot_id_to_virtual_column_expr;
     std::map<SlotId, size_t> _slot_id_to_index_in_block;
