@@ -78,6 +78,10 @@ suite("consistency_relaxed_tables") {
     );
     """
 
+    sql """
+    drop table if exists partsupp
+    """
+
         sql """
     CREATE TABLE IF NOT EXISTS partsupp (
       ps_partkey     INTEGER NOT NULL,
@@ -222,5 +226,32 @@ suite("consistency_relaxed_tables") {
     sql """refresh materialized view ${another_mv_name} auto;"""
     sql """set enable_materialized_view_rewrite = false;"""
     order_qt_mv_2_after_insert "select * from ${another_mv_name}"
+
+
+
+    //  set consistency_relaxed_tables and dimension table has new data, rewrite in dml should not use the mv
+    def another_mv_name2 = "mv3"
+    create_async_partition_mv(db, another_mv_name2, mv_def_sql, "(l_shipdate)")
+
+    sql """ALTER MATERIALIZED VIEW ${another_mv_name2} set('async_mv.query_rewrite.consistency_relaxed_tables'='orders_p');"""
+    sql"""
+    insert into orders_p values
+    (1, 1, 'ok', 1, '2023-10-17', 'a', 'b', 1, 'yy'),
+    (1, 1, 'ok', 1, '2023-10-17', 'a', 'b', 1, 'yy'),
+    (2, 2, 'ok', 1, '2023-10-18', 'c','d',2, 'mm'),
+    (2, 2, 'ok', 1, '2023-10-18', 'c','d',2, 'mm'),
+    (2, 2, 'ok', 1, '2023-10-18', 'c','d',2, 'mm'),
+    (3, 3, 'ok', 1, '2023-10-19', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 1, '2023-10-19', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 1, '2023-10-19', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 1, '2023-10-19', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 1, '2023-10-22', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 1, '2023-10-22', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 1, '2023-10-22', 'a', 'b', 1, 'yy'),
+    (3, 3, 'ok', 1, '2023-10-22', 'a', 'b', 1, 'yy');
+    """
+    sql """refresh materialized view ${another_mv_name} auto;"""
+    sql """set enable_materialized_view_rewrite = false;"""
+    order_qt_mv_3_after_insert "select * from ${another_mv_name2}"
 
 }
