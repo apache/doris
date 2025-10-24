@@ -575,38 +575,38 @@ TEST_F(BufferedReaderTest, test_large_gap_amplification) {
               << ", merged_bytes: " << stats_8mb.merged_bytes
               << ", amplification ratio: " << amplify_8mb << std::endl;
 
-    // Test with 64KB merge window
-    io::MergeRangeFileReader merge_reader_64kb(nullptr, offset_reader, random_access_ranges,
-                                                64 * kb);
+    // Test with 128KB merge window (to read entire first 80KB range)
+    io::MergeRangeFileReader merge_reader_128kb(nullptr, offset_reader, random_access_ranges,
+                                                 128 * kb);
     bytes_read = 0;
 
     static_cast<void>(
-            merge_reader_64kb.read_at(0, Slice(data.data(), 80 * kb), &bytes_read, nullptr));
+            merge_reader_128kb.read_at(0, Slice(data.data(), 80 * kb), &bytes_read, nullptr));
     EXPECT_EQ(bytes_read, 80 * kb);
 
-    auto stats_64kb = merge_reader_64kb.statistics();
-    double amplify_64kb =
-            (double)stats_64kb.merged_bytes / (double)std::max(stats_64kb.request_bytes, 1L);
+    auto stats_128kb = merge_reader_128kb.statistics();
+    double amplify_128kb =
+            (double)stats_128kb.merged_bytes / (double)std::max(stats_128kb.request_bytes, 1L);
 
-    std::cout << "64KB window - request_bytes: " << stats_64kb.request_bytes
-              << ", merged_bytes: " << stats_64kb.merged_bytes
-              << ", amplification ratio: " << amplify_64kb << std::endl;
+    std::cout << "128KB window - request_bytes: " << stats_128kb.request_bytes
+              << ", merged_bytes: " << stats_128kb.merged_bytes
+              << ", amplification ratio: " << amplify_128kb << std::endl;
 
     // With adaptive logic (threshold=0.4, min_content=512KB):
     // - 8MB window: merges ~7 ranges (560KB) + 6 gaps (300KB) = 860KB, amplification ≈ 10.75x
-    // - 64KB window: reads only first range (80KB), amplification = 1.0x
-    // - Improvement: 10.75x vs original 47x (without any gaps being merged with 64KB window)
+    // - 128KB window: reads only first range (80KB), amplification = 1.0x
+    // - Improvement: 10.75x vs original 24x (all ranges merged)
     EXPECT_LT(amplify_8mb, 15.0)
-            << "8MB adaptive window should limit amplification to < 15x (vs 47x without adaptive)";
-    EXPECT_LT(amplify_64kb, 1.5)
-            << "64KB window reads only first range, minimal amplification";
+            << "8MB adaptive window should limit amplification to < 15x (vs 24x without adaptive)";
+    EXPECT_LT(amplify_128kb, 1.5)
+            << "128KB window reads only first range, minimal amplification";
     
     // Adaptive logic should provide significant improvement
     EXPECT_LT(amplify_8mb, 20.0) << "Adaptive logic should prevent severe amplification";
 
-    std::cout << "Amplification comparison - 8MB adaptive: " << amplify_8mb << "x, 64KB: "
-              << amplify_64kb << "x" << std::endl;
-    std::cout << "Adaptive logic reduces amplification from ~47x (all ranges) to ~" << amplify_8mb
+    std::cout << "Amplification comparison - 8MB adaptive: " << amplify_8mb << "x, 128KB: "
+              << amplify_128kb << "x" << std::endl;
+    std::cout << "Adaptive logic reduces amplification from ~24x (all ranges) to ~" << amplify_8mb
               << "x by stopping when gap ratio exceeds threshold after accumulating 512KB content."
               << std::endl;
 }
