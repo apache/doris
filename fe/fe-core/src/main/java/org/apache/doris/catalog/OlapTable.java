@@ -1683,6 +1683,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getBaseSchema().stream().anyMatch(column -> !column.isVisible());
     }
 
+    public boolean hasGeneratedColumn() {
+        return getBaseSchema().stream().anyMatch(Column::isGeneratedColumn);
+    }
+
     public Type getSequenceType() {
         if (getSequenceCol() == null) {
             return null;
