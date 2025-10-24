@@ -122,14 +122,14 @@ public:
                 }
                 case PrimitiveType::TYPE_BOOLEAN: { // boolean for AI_FILTER
 #ifdef BE_TEST
-                    string_result = "false";
+                    string_result = "0";
 #endif
-                    if (string_result != "true" && string_result != "false") {
+                    if (string_result != "1" && string_result != "0") {
                         return Status::RuntimeError("Failed to parse boolean value: " +
                                                     string_result);
                     }
                     assert_cast<ColumnUInt8&>(*col_result)
-                            .insert_value(static_cast<UInt8>(string_result == "true"));
+                            .insert_value(static_cast<UInt8>(string_result == "1"));
                     break;
                 }
                 case PrimitiveType::TYPE_FLOAT: { // float for AI_SIMILARITY
