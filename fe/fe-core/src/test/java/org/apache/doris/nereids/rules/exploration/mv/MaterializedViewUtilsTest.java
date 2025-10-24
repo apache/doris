@@ -712,6 +712,37 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
     }
 
     @Test
+    public void testPartitionDateTruncShouldTrack1() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT date_trunc(t1.L_SHIPDATE, 'day') as date_alias, t2.O_ORDERDATE, t1.L_QUANTITY, t2.O_ORDERSTATUS, "
+                                + "count(distinct case when t1.L_SUPPKEY > 0 then t2.O_ORDERSTATUS else null end) as cnt_1 "
+                                + "from "
+                                + "  (select * from "
+                                + "  lineitem "
+                                + "  where L_SHIPDATE in ('2017-01-30')) t1 "
+                                + "left join "
+                                + "  (select * from "
+                                + "  orders "
+                                + "  where O_ORDERDATE in ('2017-01-30')) t2 "
+                                + "on t1.L_ORDERKEY = t2.O_ORDERKEY "
+                                + "group by "
+                                + "t1.L_SHIPDATE, "
+                                + "t2.O_ORDERDATE, "
+                                + "t1.L_QUANTITY, "
+                                + "t2.O_ORDERSTATUS;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("date_alias", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem",
+                                    "L_SHIPDATE",
+                                    true);
+                        });
+    }
+
+    @Test
     public void testPartitionDateTruncShouldTrack() {
         PlanChecker.from(connectContext)
                 .checkExplain("SELECT date_trunc(t1.L_SHIPDATE, 'day') as date_alias, t2.O_ORDERDATE, t1.L_QUANTITY, t2.O_ORDERSTATUS, "
@@ -839,10 +870,9 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             RelatedTableInfo relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("upgrade_day", null,
                                             rewrittenPlan, nereidsPlanner.getCascadesContext());
-                            checkRelatedTableInfo(relatedTableInfo,
-                                    "test1",
-                                    "upgrade_day",
-                                    true);
+                            Assertions.assertTrue(relatedTableInfo.getFailReason().contains(
+                                    "partition column is not in group by or window partition by"));
+                            Assertions.assertFalse(relatedTableInfo.isPctPossible());
                         });
     }
 
