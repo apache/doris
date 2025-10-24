@@ -981,9 +981,10 @@ NO_TIMEZHONE_PART:
 // NOLINTEND(readability-function-size)
 
 // return true if success, false if overflow
-inline bool transform_date_scale(UInt32 to_scale, UInt32 from_scale,
-                          PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType& to_value,
-                          const PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType& from_value) {
+inline bool transform_date_scale(
+        UInt32 to_scale, UInt32 from_scale,
+        PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType& to_value,
+        const PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType& from_value) {
     if (to_scale >= from_scale) {
         // nothing to do, just copy
         to_value = from_value;
