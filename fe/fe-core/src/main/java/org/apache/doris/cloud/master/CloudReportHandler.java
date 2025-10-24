@@ -42,6 +42,10 @@ public class CloudReportHandler extends ReportHandler {
         long start = System.currentTimeMillis();
         LOG.info("backend[{}] have {} tablet(s), {} need deal tablet(s). report version: {}",
                 backendId, numTablets, backendTablets.size(), backendReportVersion);
+        if (!((CloudEnv) Env.getCurrentEnv()).isRebalancerInited()) {
+            LOG.warn("TabletRebalancer has not been initialized, so skip do report for {}", backendId);
+            return;
+        }
         // current be useful
         Set<Long> tabletIdsInFe = ((CloudEnv) Env.getCurrentEnv()).getCloudTabletRebalancer()
                 .getSnapshotTabletsInPrimaryAndSecondaryByBeId(backendId);
