@@ -71,6 +71,7 @@ public class StreamingInsertTask {
     private StreamingJobProperties jobProperties;
     private Map<String, String> originTvfProps;
     SourceOffsetProvider offsetProvider;
+    private int retryCount = 0;
 
     public StreamingInsertTask(long jobId,
                                long taskId,
@@ -93,22 +94,31 @@ public class StreamingInsertTask {
     }
 
     public void execute() throws JobException {
-        try {
-            before();
-            run();
-            onSuccess();
-        } catch (Exception e) {
-            if (TaskStatus.CANCELED.equals(status)) {
+        while (retryCount <= MAX_RETRY) {
+            try {
+                before();
+                run();
+                onSuccess();
                 return;
-            }
-            log.warn("execute task error, job id is {}, task id is {}", jobId, taskId, e);
-            onFail(e.getMessage());
-        } finally {
-            // The cancel logic will call the closeOrReleased Resources method by itself.
-            // If it is also called here,
-            // it may result in the inability to obtain relevant information when canceling the task
-            if (!TaskStatus.CANCELED.equals(status)) {
-                closeOrReleaseResources();
+            } catch (Exception e) {
+                if (TaskStatus.CANCELED.equals(status)) {
+                    return;
+                }
+                this.errMsg = e.getMessage();
+                retryCount++;
+                if (retryCount >= MAX_RETRY) {
+                    log.error("Task execution failed after {} retries.", MAX_RETRY, e);
+                    onFail(e.getMessage());
+                }
+                log.warn("execute streaming task error, job id is {}, task id is {}, retrying {}/{}: {}",
+                        jobId, taskId, retryCount, MAX_RETRY, e.getMessage());
+            } finally {
+                // The cancel logic will call the closeOrReleased Resources method by itself.
+                // If it is also called here,
+                // it may result in the inability to obtain relevant information when canceling the task
+                if (!TaskStatus.CANCELED.equals(status)) {
+                    closeOrReleaseResources();
+                }
             }
         }
     }
@@ -118,7 +128,7 @@ public class StreamingInsertTask {
         this.startTimeMs = System.currentTimeMillis();
 
         if (isCanceled.get()) {
-            throw new JobException("Streaming insert task has been canceled, task id: {}", getTaskId());
+            log.info("streaming insert task has been canceled, task id is {}", getTaskId());
         }
         ctx = InsertTask.makeConnectContext(userIdentity, currentDb);
         ctx.setSessionVariable(jobProperties.getSessionVariable());
@@ -135,42 +145,33 @@ public class StreamingInsertTask {
             throw new JobException("Can not get Parsed plan");
         }
         this.taskCommand = offsetProvider.rewriteTvfParams(baseCommand, runningOffset);
-        this.taskCommand.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
+        this.taskCommand.setLabelName(Optional.of(labelName));
         this.stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(taskCommand, ctx.getStatementContext()));
     }
 
     private void run() throws JobException {
-        String errMsg = null;
-        int retry = 0;
-        while (retry <= MAX_RETRY) {
-            try {
-                if (isCanceled.get()) {
-                    log.info("task has been canceled, task id is {}", getTaskId());
-                    return;
-                }
-                taskCommand.run(ctx, stmtExecutor);
-                if (ctx.getState().getStateType() == QueryState.MysqlStateType.OK) {
-                    return;
-                } else {
-                    errMsg = ctx.getState().getErrorMessage();
-                }
-                log.error(
-                        "streaming insert failed with {}, reason {}, to retry",
-                        taskCommand.getLabelName(),
-                        errMsg);
-                if (retry == MAX_RETRY) {
-                    errMsg = "reached max retry times, failed with " + errMsg;
-                }
-            } catch (Exception e) {
-                log.warn("execute insert task error, label is {},offset is {}", taskCommand.getLabelName(),
-                         runningOffset.toString(), e);
-                errMsg = Util.getRootCauseMessage(e);
-            }
-            retry++;
+        if (isCanceled.get()) {
+            log.info("task has been canceled, task id is {}", getTaskId());
+            return;
         }
-        log.error("streaming insert task failed, job id is {}, task id is {}, offset is {}, errMsg is {}",
-                getJobId(), getTaskId(), runningOffset.toString(), errMsg);
-        throw new JobException(errMsg);
+        log.info("start to run streaming insert task, label {}, offset is {}", labelName, runningOffset.toString());
+        String errMsg = null;
+        try {
+            taskCommand.run(ctx, stmtExecutor);
+            if (ctx.getState().getStateType() == QueryState.MysqlStateType.OK) {
+                return;
+            } else {
+                errMsg = ctx.getState().getErrorMessage();
+            }
+            log.error(
+                    "streaming insert failed with {}, reason {}, to retry",
+                    taskCommand.getLabelName(),
+                    errMsg);
+        } catch (Exception e) {
+            log.warn("execute insert task error, label is {},offset is {}", taskCommand.getLabelName(),
+                    runningOffset.toString(), e);
+            throw new JobException(Util.getRootCauseMessage(e));
+        }
     }
 
     public boolean onSuccess() throws JobException {
