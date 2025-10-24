@@ -39,7 +39,8 @@ public:
     DataTypeTimeStampTz() = default;
     DataTypeTimeStampTz(UInt32 scale) : _scale(scale) {}
     bool equals(const IDataType& rhs) const override {
-        return rhs.get_primitive_type() == PrimitiveType::TYPE_TIMESTAMPTZ;
+        return rhs.get_primitive_type() == PrimitiveType::TYPE_TIMESTAMPTZ &&
+               _scale == rhs.get_scale();
     }
     bool equals_ignore_precision(const IDataType& rhs) const override {
         return rhs.get_primitive_type() == PrimitiveType::TYPE_TIMESTAMPTZ;
@@ -50,15 +51,19 @@ public:
         return std::make_shared<DataTypeTimeStampTzSerDe>(_scale, nesting_level);
     };
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_TIMESTAMPTZ; }
-    const std::string get_family_name() const override { return "TimeStampTz"; }
-    std::string do_get_name() const override { return "TimeStampTz"; }
+    const std::string get_family_name() const override {
+        return "TimeStampTz(" + std::to_string(_scale) + ")";
+    }
+    std::string do_get_name() const override {
+        return "TimeStampTz(" + std::to_string(_scale) + ")";
+    }
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override {
         DataTypeNumberBase<PrimitiveType::TYPE_TIMESTAMPTZ>::to_pb_column_meta(col_meta);
         col_meta->mutable_decimal_param()->set_scale(_scale);
     }
 
-    UInt32 get_scale() const override { return 0; }
+    UInt32 get_scale() const override { return _scale; }
 
     /// TODO: The function here is used for literals, which has not been implemented yet. It will be added in the future.
     Field get_field(const TExprNode& node) const override { return Field {}; }

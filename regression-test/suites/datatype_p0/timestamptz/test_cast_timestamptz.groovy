@@ -56,6 +56,15 @@ suite("test_cast_timestamptz") {
         cast('invalid-string' as TIMESTAMPTZ) as ts_invalid_string;
     """
 
+
+    qt_sql """
+        select cast(cast("2020-01-01 00:00:00.1236" as datetime(4)) as timestamptz(3));
+    """
+
+    qt_sql """
+       select cast(cast("2020-01-01 00:00:00.1236 +03:00" as timestamptz(4)) as datetime(3));
+    """
+
     sql "set enable_strict_cast=true;"
     
  
@@ -119,6 +128,14 @@ suite("test_cast_timestamptz") {
         cast(cast('2020-12-31 23:59:59 +00:00' as TIMESTAMPTZ) as datetime ) as dt_zero_winter;
     """
 
+
+    qt_sql """
+        select cast(cast("2020-01-01 00:00:00.1236" as datetime(4)) as timestamptz(3));
+    """
+
+    qt_sql """
+       select cast(cast("2020-01-01 00:00:00.1236 +03:00" as timestamptz(4)) as datetime(3));
+    """
 
 
     // cast datetime to timestamptz

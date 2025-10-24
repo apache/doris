@@ -85,8 +85,16 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) co
     return std::string(buffer, len);
 }
 
-bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& dt,
-                                     const cctz::time_zone& local_time_zone) {
+bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& origin_dt,
+                                     const cctz::time_zone& local_time_zone, int dt_scale,
+                                     int tz_scale) {
+    PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType dt_value;
+
+    PROPAGATE_FALSE(vectorized::transform_date_scale(tz_scale, dt_scale, dt_value,
+                                                     origin_dt.to_date_int_val()));
+
+    DateV2Value<DateTimeV2ValueType> dt {dt_value};
+
     cctz::civil_second local_cs(dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(),
                                 dt.second());
     cctz::time_point<cctz::seconds> local_tp = cctz::convert(local_cs, local_time_zone);
@@ -102,16 +110,23 @@ bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& dt,
 }
 
 bool TimestampTzValue::to_datetime(DateV2Value<DateTimeV2ValueType>& dt,
-                                   const cctz::time_zone& local_time_zone) const {
-    cctz::civil_second utc_cs(_utc_dt.year(), _utc_dt.month(), _utc_dt.day(), _utc_dt.hour(),
-                              _utc_dt.minute(), _utc_dt.second());
+                                   const cctz::time_zone& local_time_zone, int dt_scale,
+                                   int tz_scale) const {
+    PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType dt_value;
+
+    PROPAGATE_FALSE(vectorized::transform_date_scale(dt_scale, tz_scale, dt_value,
+                                                     _utc_dt.to_date_int_val()));
+
+    dt = DateV2Value<DateTimeV2ValueType> {dt_value};
+
+    cctz::civil_second utc_cs(dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second());
 
     cctz::time_point<cctz::seconds> cur_tz_time = cctz::convert(utc_cs, cctz::utc_time_zone());
     auto local_cs = cctz::convert(cur_tz_time, local_time_zone);
     return dt.check_range_and_set_time((uint16_t)local_cs.year(), (uint8_t)local_cs.month(),
                                        (uint8_t)local_cs.day(), (uint8_t)local_cs.hour(),
                                        (uint8_t)local_cs.minute(), (uint8_t)local_cs.second(),
-                                       _utc_dt.microsecond());
+                                       dt.microsecond());
 }
 
 } // namespace doris
