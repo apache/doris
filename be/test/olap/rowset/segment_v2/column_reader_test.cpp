@@ -114,7 +114,7 @@ TEST_F(ColumnReaderTest, StructAccessPaths) {
     ASSERT_EQ(iterator->_sub_column_iterators[0]->_reading_flag,
               ColumnIterator::ReadingFlag::READING_FOR_PREDICATE);
     ASSERT_EQ(iterator->_sub_column_iterators[1]->_reading_flag,
-              ColumnIterator::ReadingFlag::NORMAL_READING);
+              ColumnIterator::ReadingFlag::NEED_TO_READ);
 }
 
 TEST_F(ColumnReaderTest, MultiAccessPaths) {
@@ -202,20 +202,19 @@ TEST_F(ColumnReaderTest, MultiAccessPaths) {
     auto st = iterator->set_access_paths(all_access_paths, predicate_access_paths);
 
     ASSERT_TRUE(st.ok()) << "failed to set access paths: " << st.to_string();
-    ASSERT_EQ(iterator->_reading_flag, ColumnIterator::ReadingFlag::NORMAL_READING);
+    ASSERT_EQ(iterator->_reading_flag, ColumnIterator::ReadingFlag::NEED_TO_READ);
 
     ASSERT_EQ(iterator->_sub_column_iterators[0]->_reading_flag,
               ColumnIterator::ReadingFlag::SKIP_READING);
     ASSERT_EQ(iterator->_sub_column_iterators[1]->_reading_flag,
-              ColumnIterator::ReadingFlag::NORMAL_READING);
+              ColumnIterator::ReadingFlag::NEED_TO_READ);
 
     auto* array_iter =
             static_cast<ArrayFileColumnIterator*>(iterator->_sub_column_iterators[1].get());
-    ASSERT_EQ(array_iter->_item_iterator->_reading_flag,
-              ColumnIterator::ReadingFlag::NORMAL_READING);
+    ASSERT_EQ(array_iter->_item_iterator->_reading_flag, ColumnIterator::ReadingFlag::NEED_TO_READ);
 
     auto* map_iter = static_cast<MapFileColumnIterator*>(array_iter->_item_iterator.get());
-    ASSERT_EQ(map_iter->_key_iterator->_reading_flag, ColumnIterator::ReadingFlag::NORMAL_READING);
+    ASSERT_EQ(map_iter->_key_iterator->_reading_flag, ColumnIterator::ReadingFlag::NEED_TO_READ);
     ASSERT_EQ(map_iter->_val_iterator->_reading_flag, ColumnIterator::ReadingFlag::SKIP_READING);
 }
 } // namespace doris::segment_v2

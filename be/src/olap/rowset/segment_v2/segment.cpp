@@ -789,6 +789,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                              << ", predicate_access_paths=" << ss2.str();
                 return st;
             }
+            (*iter)->remove_pruned_sub_iterators();
         }
     }
 

@@ -378,8 +378,35 @@ public:
 
     const std::string& column_name() const { return _column_name; }
 
-    enum class ReadingFlag { NORMAL_READING, READING_FOR_PREDICATE, SKIP_READING };
-    void set_reading_flag(ReadingFlag flag) { _reading_flag = flag; }
+    // Since there may be multiple paths with conflicts or overlaps,
+    // we need to define several reading flags:
+    //
+    // NORMAL_READING — Default value, indicating that the column should be read.
+    // SKIP_READING — The column should not be read.
+    // NEED_TO_READ — The column must be read.
+    // READING_FOR_PREDICATE — The column is required for predicate evaluation.
+    //
+    // For example, suppose there are two paths:
+    // - Path 1 specifies that column A needs to be read, so it is marked as NEED_TO_READ.
+    // - Path 2 specifies that the column should not be read, but since it is already marked as NEED_TO_READ,
+    //   it should not be changed to SKIP_READING.
+    enum class ReadingFlag : int {
+        NORMAL_READING,
+        SKIP_READING,
+        NEED_TO_READ,
+        READING_FOR_PREDICATE
+    };
+    void set_reading_flag(ReadingFlag flag) {
+        if (static_cast<int>(flag) > static_cast<int>(_reading_flag)) {
+            _reading_flag = flag;
+        }
+    }
+
+    ReadingFlag reading_flag() const { return _reading_flag; }
+
+    virtual void set_need_to_read() { set_reading_flag(ReadingFlag::NEED_TO_READ); }
+
+    virtual void remove_pruned_sub_iterators() {};
 
 protected:
     Result<TColumnAccessPaths> _get_sub_access_paths(const TColumnAccessPaths& access_paths);
@@ -526,6 +553,10 @@ public:
     Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                             const TColumnAccessPaths& predicate_access_paths) override;
 
+    void set_need_to_read() override;
+
+    void remove_pruned_sub_iterators() override;
+
 private:
     std::shared_ptr<ColumnReader> _map_reader = nullptr;
     ColumnIteratorUPtr _null_iterator;
@@ -558,6 +589,10 @@ public:
     Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                             const TColumnAccessPaths& predicate_access_paths) override;
 
+    void set_need_to_read() override;
+
+    void remove_pruned_sub_iterators() override;
+
 private:
     std::shared_ptr<ColumnReader> _struct_reader = nullptr;
     ColumnIteratorUPtr _null_iterator;
@@ -588,6 +623,9 @@ public:
 
     Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                             const TColumnAccessPaths& predicate_access_paths) override;
+    void set_need_to_read() override;
+
+    void remove_pruned_sub_iterators() override;
 
 private:
     std::shared_ptr<ColumnReader> _array_reader = nullptr;

@@ -42,6 +42,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "udf/udf.h"
 #include "util/debug_points.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
@@ -672,6 +673,14 @@ public:
         return 0;
     }
 
+    void add_pruned_columns_data_type(int32_t col_unique_id, vectorized::DataTypePtr data_type) {
+        _pruned_columns_data_type[col_unique_id] = std::move(data_type);
+    }
+
+    void clear_pruned_columns_data_type() { _pruned_columns_data_type.clear(); }
+
+    bool has_pruned_columns() const { return !_pruned_columns_data_type.empty(); }
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
@@ -742,6 +751,7 @@ private:
     bool _enable_variant_flatten_nested = false;
 
     std::map<size_t, int32_t> _vir_col_idx_to_unique_id;
+    std::map<int32_t, vectorized::DataTypePtr> _pruned_columns_data_type;
 
     // value: extracted path set and sparse path set
     std::unordered_map<int32_t, PathsSetInfo> _path_set_info_map;

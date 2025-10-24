@@ -258,7 +258,7 @@ Status OlapScanner::prepare() {
 
     // Add newly created tablet schema to schema cache if it does not have virtual columns.
     if (cached_schema == nullptr && !schema_key.empty() &&
-        tablet_schema->num_virtual_columns() == 0) {
+        tablet_schema->num_virtual_columns() == 0 && !tablet_schema->has_pruned_columns()) {
         SchemaCache::instance()->insert_schema(schema_key, tablet_schema);
     }
 
@@ -550,6 +550,11 @@ Status OlapScanner::_init_return_columns() {
         if (!slot->predicate_access_paths().name_access_paths.empty()) {
             _tablet_reader_params.predicate_access_paths.insert(
                     {column.unique_id(), slot->predicate_access_paths()});
+        }
+
+        if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_STRUCT &&
+            !slot->all_access_paths().name_access_paths.empty()) {
+            tablet_schema->add_pruned_columns_data_type(column.unique_id(), slot->type());
         }
 
         _return_columns.push_back(index);

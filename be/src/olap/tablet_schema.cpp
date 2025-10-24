@@ -1705,6 +1705,11 @@ vectorized::Block TabletSchema::create_block(
                             tablet_columns_need_convert_null->find(cid) !=
                                     tablet_columns_need_convert_null->end());
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col, is_nullable);
+        if (col.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+            if (_pruned_columns_data_type.contains(col.unique_id())) {
+                data_type = _pruned_columns_data_type.at(col.unique_id());
+            }
+        }
         if (_vir_col_idx_to_unique_id.contains(cid)) {
             block.insert({vectorized::ColumnNothing::create(0), data_type, col.name()});
             VLOG_DEBUG << fmt::format(
@@ -1724,7 +1729,13 @@ vectorized::Block TabletSchema::create_block(bool ignore_dropped_col) const {
         if (ignore_dropped_col && is_dropped_column(*col)) {
             continue;
         }
+
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(*col);
+        if (col->type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+            if (_pruned_columns_data_type.contains(col->unique_id())) {
+                data_type = _pruned_columns_data_type.at(col->unique_id());
+            }
+        }
         block.insert({data_type->create_column(), data_type, col->name()});
     }
     return block;
@@ -1735,6 +1746,11 @@ vectorized::Block TabletSchema::create_block_by_cids(const std::vector<uint32_t>
     for (const auto& cid : cids) {
         const auto& col = *_cols[cid];
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col);
+        if (col.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+            if (_pruned_columns_data_type.contains(col.unique_id())) {
+                data_type = _pruned_columns_data_type.at(col.unique_id());
+            }
+        }
         block.insert({data_type->create_column(), data_type, col.name()});
     }
     return block;

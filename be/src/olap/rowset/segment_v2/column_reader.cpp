@@ -938,30 +938,16 @@ Result<TColumnAccessPaths> ColumnIterator::_get_sub_access_paths(
         }
 
         if (name_path.path[0] != _column_name) {
-            if (typeid_cast<ArrayFileColumnIterator*>(this) != nullptr) {
-                if (name_path.path[0] != "*") {
-                    return ResultError(Status::InternalError(
-                            R"(Invalid access path for array column: expected name "{}", got "{}")",
-                            _column_name, name_path.path[0]));
-                }
-            } else if (typeid_cast<MapFileColumnIterator*>(this) != nullptr) {
-                if (name_path.path[0] != "KEYS" && name_path.path[0] != "VALUES" &&
-                    name_path.path[0] != "*") {
-                    return ResultError(Status::InternalError(
-                            R"(Invalid access path for map column: expected name "{}", got "{}")",
-                            _column_name, name_path.path[0]));
-                }
-            } else {
-                return ResultError(Status::InternalError(
-                        R"(Invalid access path for column: expected name "{}", got "{}")",
-                        _column_name, name_path.path[0]));
-            }
+            return ResultError(Status::InternalError(
+                    R"(Invalid access path for column: expected name "{}", got "{}")", _column_name,
+                    name_path.path[0]));
         }
 
         name_path.path.erase(name_path.path.begin());
         if (!name_path.path.empty()) {
             ++it;
         } else {
+            set_need_to_read();
             it = sub_access_paths.name_access_paths.erase(it);
         }
     }
@@ -1092,6 +1078,17 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     return Status::OK();
 }
 
+void MapFileColumnIterator::set_need_to_read() {
+    set_reading_flag(ReadingFlag::NEED_TO_READ);
+    _key_iterator->set_need_to_read();
+    _val_iterator->set_need_to_read();
+}
+
+void MapFileColumnIterator::remove_pruned_sub_iterators() {
+    _key_iterator->remove_pruned_sub_iterators();
+    _val_iterator->remove_pruned_sub_iterators();
+}
+
 Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_access_paths,
                                                const TColumnAccessPaths& predicate_access_paths) {
     if (all_access_paths.name_access_paths.empty()) {
@@ -1099,7 +1096,7 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
     }
 
     if (!predicate_access_paths.name_access_paths.empty()) {
-        _reading_flag = ReadingFlag::READING_FOR_PREDICATE;
+        set_reading_flag(ReadingFlag::READING_FOR_PREDICATE);
         LOG(INFO) << "Map column iterator set sub-column " << _column_name
                   << " to READING_FOR_PREDICATE";
     }
@@ -1116,31 +1113,40 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
     TColumnAccessPaths key_predicate_access_paths;
     TColumnAccessPaths val_predicate_access_paths;
 
-    for (const auto& paths : sub_all_access_paths.name_access_paths) {
+    for (auto paths : sub_all_access_paths.name_access_paths) {
         if (paths.path[0] == "*") {
+            paths.path[0] = _key_iterator->column_name();
             key_all_access_paths.name_access_paths.push_back(paths);
+            paths.path[0] = _val_iterator->column_name();
             val_all_access_paths.name_access_paths.push_back(paths);
         } else if (paths.path[0] == "KEYS") {
+            paths.path[0] = _key_iterator->column_name();
             key_all_access_paths.name_access_paths.push_back(paths);
         } else if (paths.path[0] == "VALUES") {
+            paths.path[0] = _val_iterator->column_name();
             val_all_access_paths.name_access_paths.push_back(paths);
         }
     }
     const auto need_read_keys = !key_all_access_paths.name_access_paths.empty();
     const auto need_read_values = !val_all_access_paths.name_access_paths.empty();
 
-    for (const auto& paths : sub_predicate_access_paths.name_access_paths) {
+    for (auto paths : sub_predicate_access_paths.name_access_paths) {
         if (paths.path[0] == "*") {
+            paths.path[0] = _key_iterator->column_name();
             key_predicate_access_paths.name_access_paths.push_back(paths);
+            paths.path[0] = _val_iterator->column_name();
             val_predicate_access_paths.name_access_paths.push_back(paths);
         } else if (paths.path[0] == "KEYS") {
+            paths.path[0] = _key_iterator->column_name();
             key_predicate_access_paths.name_access_paths.push_back(paths);
         } else if (paths.path[0] == "VALUES") {
+            paths.path[0] = _val_iterator->column_name();
             val_predicate_access_paths.name_access_paths.push_back(paths);
         }
     }
 
     if (need_read_keys) {
+        _key_iterator->set_reading_flag(ReadingFlag::NEED_TO_READ);
         RETURN_IF_ERROR(
                 _key_iterator->set_access_paths(key_all_access_paths, key_predicate_access_paths));
     } else {
@@ -1149,6 +1155,7 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
     }
 
     if (need_read_values) {
+        _val_iterator->set_reading_flag(ReadingFlag::NEED_TO_READ);
         RETURN_IF_ERROR(
                 _val_iterator->set_access_paths(val_all_access_paths, val_predicate_access_paths));
     } else {
@@ -1259,6 +1266,27 @@ Status StructFileColumnIterator::read_by_rowids(const rowid_t* rowids, const siz
     return Status::OK();
 }
 
+void StructFileColumnIterator::set_need_to_read() {
+    set_reading_flag(ReadingFlag::NEED_TO_READ);
+    for (auto& sub_iterator : _sub_column_iterators) {
+        sub_iterator->set_need_to_read();
+    }
+}
+
+void StructFileColumnIterator::remove_pruned_sub_iterators() {
+    for (auto it = _sub_column_iterators.begin(); it != _sub_column_iterators.end();) {
+        auto& sub_iterator = *it;
+        if (sub_iterator->reading_flag() == ReadingFlag::SKIP_READING) {
+            DLOG(INFO) << "Struct column iterator remove pruned sub-column "
+                       << sub_iterator->column_name();
+            it = _sub_column_iterators.erase(it);
+        } else {
+            sub_iterator->remove_pruned_sub_iterators();
+            ++it;
+        }
+    }
+}
+
 Status StructFileColumnIterator::set_access_paths(
         const TColumnAccessPaths& all_access_paths,
         const TColumnAccessPaths& predicate_access_paths) {
@@ -1267,7 +1295,7 @@ Status StructFileColumnIterator::set_access_paths(
     }
 
     if (!predicate_access_paths.name_access_paths.empty()) {
-        _reading_flag = ReadingFlag::READING_FOR_PREDICATE;
+        set_reading_flag(ReadingFlag::READING_FOR_PREDICATE);
         LOG(INFO) << "Struct column iterator set sub-column " << _column_name
                   << " to READING_FOR_PREDICATE";
     }
@@ -1278,7 +1306,7 @@ Status StructFileColumnIterator::set_access_paths(
     const auto no_predicate_sub_column = sub_predicate_access_paths.name_access_paths.empty();
 
     for (auto& sub_iterator : _sub_column_iterators) {
-        const auto& name = sub_iterator->column_name();
+        const auto name = sub_iterator->column_name();
         bool need_to_read = no_sub_column_to_skip;
         TColumnAccessPaths sub_all_access_paths_of_this;
         if (!need_to_read) {
@@ -1291,10 +1319,13 @@ Status StructFileColumnIterator::set_access_paths(
         }
 
         if (!need_to_read) {
+            set_reading_flag(ReadingFlag::SKIP_READING);
             sub_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
             LOG(INFO) << "Struct column iterator set sub-column " << name << " to SKIP_READING";
             continue;
         }
+        set_reading_flag(ReadingFlag::NEED_TO_READ);
+        sub_iterator->set_reading_flag(ReadingFlag::NEED_TO_READ);
 
         TColumnAccessPaths sub_predicate_access_paths_of_this;
 
@@ -1305,6 +1336,7 @@ Status StructFileColumnIterator::set_access_paths(
                 }
             }
         }
+
         RETURN_IF_ERROR(sub_iterator->set_access_paths(sub_all_access_paths_of_this,
                                                        sub_predicate_access_paths_of_this));
     }
@@ -1488,6 +1520,15 @@ Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size
     return Status::OK();
 }
 
+void ArrayFileColumnIterator::set_need_to_read() {
+    set_reading_flag(ReadingFlag::NEED_TO_READ);
+    _item_iterator->set_need_to_read();
+}
+
+void ArrayFileColumnIterator::remove_pruned_sub_iterators() {
+    _item_iterator->remove_pruned_sub_iterators();
+}
+
 Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_access_paths,
                                                  const TColumnAccessPaths& predicate_access_paths) {
     if (all_access_paths.name_access_paths.empty()) {
@@ -1495,7 +1536,7 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
     }
 
     if (!predicate_access_paths.name_access_paths.empty()) {
-        _reading_flag = ReadingFlag::READING_FOR_PREDICATE;
+        set_reading_flag(ReadingFlag::READING_FOR_PREDICATE);
         LOG(INFO) << "Array column iterator set sub-column " << _column_name
                   << " to READING_FOR_PREDICATE";
     }
@@ -1506,7 +1547,24 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
     const auto no_sub_column_to_skip = sub_all_access_paths.name_access_paths.empty();
     const auto no_predicate_sub_column = sub_predicate_access_paths.name_access_paths.empty();
 
+    if (!no_sub_column_to_skip) {
+        for (auto& path : sub_all_access_paths.name_access_paths) {
+            if (path.path[0] == "*") {
+                path.path[0] = _item_iterator->column_name();
+            }
+        }
+    }
+
+    if (!no_predicate_sub_column) {
+        for (auto& path : sub_predicate_access_paths.name_access_paths) {
+            if (path.path[0] == "*") {
+                path.path[0] = _item_iterator->column_name();
+            }
+        }
+    }
+
     if (!no_sub_column_to_skip || !no_predicate_sub_column) {
+        _item_iterator->set_reading_flag(ReadingFlag::NEED_TO_READ);
         RETURN_IF_ERROR(
                 _item_iterator->set_access_paths(sub_all_access_paths, sub_predicate_access_paths));
     }
