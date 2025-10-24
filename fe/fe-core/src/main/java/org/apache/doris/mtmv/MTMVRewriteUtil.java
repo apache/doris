@@ -19,9 +19,13 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -46,7 +50,7 @@ public class MTMVRewriteUtil {
      */
     public static Collection<Partition> getMTMVCanRewritePartitions(MTMV mtmv, ConnectContext ctx,
             long currentTimeMills, boolean forceConsistent,
-            Set<String> relatedPartitions) {
+            Map<List<String>, Set<String>> queryUsedPartitions) {
         List<Partition> res = Lists.newArrayList();
         Collection<Partition> allPartitions = mtmv.getPartitions();
         MTMVRelation mtmvRelation = mtmv.getRelation();
@@ -55,10 +59,6 @@ public class MTMVRewriteUtil {
         }
         // check mv is normal
         if (!mtmv.canBeCandidate()) {
-            return res;
-        }
-        // if relatedPartitions is empty but not null, which means query no partitions
-        if (relatedPartitions != null && relatedPartitions.size() == 0) {
             return res;
         }
         Set<String> mtmvNeedComparePartitions = null;
@@ -81,8 +81,13 @@ public class MTMVRewriteUtil {
                 }
             }
             if (mtmvNeedComparePartitions == null) {
-                mtmvNeedComparePartitions = getMtmvPartitionsByRelatedPartitions(mtmv, refreshContext,
-                        relatedPartitions);
+                try {
+                    mtmvNeedComparePartitions = getMtmvPartitionsByRelatedPartitions(mtmv, refreshContext,
+                            queryUsedPartitions);
+                } catch (AnalysisException e) {
+                    LOG.warn(e);
+                    return res;
+                }
             }
             // if the partition which query not used, should not compare partition version
             if (!mtmvNeedComparePartitions.contains(partition.getName())) {
@@ -103,25 +108,49 @@ public class MTMVRewriteUtil {
     }
 
     private static Set<String> getMtmvPartitionsByRelatedPartitions(MTMV mtmv, MTMVRefreshContext refreshContext,
-            Set<String> relatedPartitions) {
+            Map<List<String>, Set<String>> queryUsedPartitions) throws AnalysisException {
+        if (mtmv.getMvPartitionInfo().getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
+            return mtmv.getPartitionNames();
+        }
         // if relatedPartitions is null, which means QueryPartitionCollector visitLogicalCatalogRelation can not
         // get query used partitions, should get all mtmv partitions
-        if (relatedPartitions == null) {
+        if (queryUsedPartitions == null) {
             return mtmv.getPartitionNames();
         }
         Set<String> res = Sets.newHashSet();
-        Map<String, String> relatedToMv = getRelatedToMv(refreshContext.getPartitionMappings());
-        for (String relatedPartition : relatedPartitions) {
-            res.add(relatedToMv.get(relatedPartition));
+        Set<MTMVRelatedTableIf> pctTables = mtmv.getMvPartitionInfo().getPctTables();
+        Map<Pair<MTMVRelatedTableIf, String>, String> relatedToMv = getPctToMv(
+                refreshContext.getPartitionMappings());
+        for (Entry<List<String>, Set<String>> entry : queryUsedPartitions.entrySet()) {
+            TableIf tableIf = MTMVUtil.getTable(entry.getKey());
+            if (!pctTables.contains(tableIf)) {
+                continue;
+            }
+            if (entry.getValue() == null) {
+                return mtmv.getPartitionNames();
+            }
+            Set<String> pctPartitions = entry.getValue();
+            for (String pctPartition : pctPartitions) {
+                String mvPartition = relatedToMv.get(Pair.of(tableIf, pctPartition));
+                if (mvPartition != null) {
+                    res.add(mvPartition);
+                }
+            }
         }
         return res;
     }
 
-    private static Map<String, String> getRelatedToMv(Map<String, Set<String>> mvToRelated) {
-        Map<String, String> res = Maps.newHashMap();
-        for (Entry<String, Set<String>> entry : mvToRelated.entrySet()) {
-            for (String relatedPartition : entry.getValue()) {
-                res.put(relatedPartition, entry.getKey());
+    @VisibleForTesting
+    public static Map<Pair<MTMVRelatedTableIf, String>, String> getPctToMv(
+            Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings) {
+        Map<Pair<MTMVRelatedTableIf, String>, String> res = Maps.newHashMap();
+        for (Entry<String, Map<MTMVRelatedTableIf, Set<String>>> entry : partitionMappings.entrySet()) {
+            String mvPartitionName = entry.getKey();
+            for (Entry<MTMVRelatedTableIf, Set<String>> entry2 : entry.getValue().entrySet()) {
+                MTMVRelatedTableIf pctTable = entry2.getKey();
+                for (String pctPartitionName : entry2.getValue()) {
+                    res.put(Pair.of(pctTable, pctPartitionName), mvPartitionName);
+                }
             }
         }
         return res;
