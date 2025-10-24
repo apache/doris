@@ -445,6 +445,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<String> catalogNames = Lists.newArrayList();
         List<Long> dbIds = Lists.newArrayList();
         List<Long> catalogIds = Lists.newArrayList();
+        List<Long> createTimes = Lists.newArrayList();
+        List<String> createUsers = Lists.newArrayList();
 
         PatternMatcher matcher = null;
         if (params.isSetPattern()) {
@@ -483,6 +485,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 dbNames.add("NULL");
                 catalogIds.add(catalog.getId());
                 dbIds.add(-1L);
+                createTimes.add(0L);
+                createUsers.add("");
                 continue;
             }
             if (dbs.isEmpty()) {
@@ -509,6 +513,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 dbNames.add(getMysqlTableSchema(catalog.getName(), dbName));
                 catalogIds.add(catalog.getId());
                 dbIds.add(db.getId());
+                if (db instanceof Database) {
+                    Database internalDb = (Database) db;
+                    createTimes.add(internalDb.getCreateTime());
+                    String cu = internalDb.getCreateUser();
+                    createUsers.add(cu == null ? "" : cu);
+                } else {
+                    createTimes.add(0L);
+                    createUsers.add("");
+                }
             }
         }
 
@@ -516,6 +529,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setCatalogs(catalogNames);
         result.setCatalogIds(catalogIds);
         result.setDbIds(dbIds);
+        result.setCreateTimes(createTimes);
+        result.setCreateUsers(createUsers);
         return result;
     }
 
@@ -700,6 +715,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             status.setDataLength(table.getDataLength());
                             status.setAvgRowLength(table.getAvgRowLength());
                             status.setIndexLength(table.getIndexLength());
+                            if (table.getCreateUser() != null) {
+                                status.setCreateUser(table.getCreateUser());
+                            }
                             if (table instanceof View) {
                                 status.setDdlSql(((View) table).getInlineViewDef());
                             }
