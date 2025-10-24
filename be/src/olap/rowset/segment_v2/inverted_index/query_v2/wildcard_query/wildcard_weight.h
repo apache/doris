@@ -17,9 +17,9 @@
 
 #pragma once
 
-// be/src/olap/rowset/segment_v2/inverted_index/query_v2/wildcard_query/wildcard_weight.h
+#include <re2/re2.h>
 
-#pragma once
+#include <regex>
 
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/regexp_query/regexp_weight.h"
@@ -37,18 +37,18 @@ public:
 
     ~WildcardWeight() override = default;
 
-    ScorerPtr scorer(const QueryExecutionContext& context,
-                     const std::string& binding_key) override {
+    ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
         std::string regex_pattern = wildcard_to_regex(_pattern);
         auto regexp_weight = std::make_shared<RegexpWeight>(
-                context, std::move(_field), std::move(regex_pattern), _enable_scoring);
-        return regexp_weight->scorer(context, binding_key);
+                _context, std::move(_field), std::move(regex_pattern), _enable_scoring);
+        return regexp_weight->scorer(ctx, binding_key);
     }
 
 private:
     std::string wildcard_to_regex(const std::string& pattern) {
         std::string escaped = RE2::QuoteMeta(pattern);
-        return std::regex_replace(escaped, std::regex(R"(\\\*)"), ".*");
+        escaped = std::regex_replace(escaped, std::regex(R"(\\\*)"), ".*");
+        return "^" + escaped + "$";
     }
 
     IndexQueryContextPtr _context;

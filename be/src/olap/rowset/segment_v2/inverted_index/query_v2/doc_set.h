@@ -50,6 +50,16 @@ public:
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "size_hint() method not implemented in base DocSet class");
     }
+
+    virtual uint32_t freq() const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "freq() method not implemented in base DocSet class");
+    }
+
+    virtual uint32_t norm() const {
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "norm() method not implemented in base DocSet class");
+    }
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

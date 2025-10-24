@@ -44,9 +44,7 @@ public:
     Weight() = default;
     virtual ~Weight() = default;
 
-    virtual ScorerPtr scorer(const QueryExecutionContext& context) {
-        return scorer(context, {});
-    }
+    virtual ScorerPtr scorer(const QueryExecutionContext& context) { return scorer(context, {}); }
 
     virtual ScorerPtr scorer(const QueryExecutionContext& context, const std::string& binding_key) {
         (void)binding_key;

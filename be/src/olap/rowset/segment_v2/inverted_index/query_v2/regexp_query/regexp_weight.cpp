@@ -39,7 +39,7 @@ RegexpWeight::RegexpWeight(IndexQueryContextPtr context, std::wstring field, std
           _field(std::move(field)),
           _pattern(std::move(pattern)),
           _enable_scoring(enable_scoring) {
-    _max_expansions = _context->runtime_state->query_options().inverted_index_max_expansions;
+    // _max_expansions = _context->runtime_state->query_options().inverted_index_max_expansions;
 }
 
 ScorerPtr RegexpWeight::scorer(const QueryExecutionContext& context,
@@ -85,8 +85,11 @@ ScorerPtr RegexpWeight::scorer(const QueryExecutionContext& context,
         auto reader = lookup_reader(_field, context, binding_key);
         auto iter = make_term_doc_ptr(reader.get(), t.get(), _enable_scoring, _context->io_ctx);
         auto segment_postings = std::make_shared<SegmentPostings<TermDocsPtr>>(std::move(iter));
-        while (segment_postings->advance() != TERMINATED) {
-            doc_bitset->add(segment_postings->doc());
+
+        uint32_t doc = segment_postings->doc();
+        while (doc != TERMINATED) {
+            doc_bitset->add(doc);
+            doc = segment_postings->advance();
         }
     }
 
