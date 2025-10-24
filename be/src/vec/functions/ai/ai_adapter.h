@@ -691,6 +691,24 @@ protected:
     bool supports_dimension_param(const std::string& model_name) const override { return false; }
 };
 
+class LongCatAdapter : public OpenAIAdapter {
+public:
+    Status build_embedding_request(const std::vector<std::string>& inputs,
+                                   std::string& request_body) const override {
+        return Status::NotSupported("{} does not support the Embed feature.",
+                                    _config.provider_type);
+    }
+
+    Status parse_embedding_response(const std::string& response_body,
+                                    std::vector<std::vector<float>>& results) const override {
+        return Status::NotSupported("{} does not support the Embed feature.",
+                                    _config.provider_type);
+    }
+
+protected:
+    bool supports_dimension_param(const std::string& model_name) const override { return false; }
+};
+
 // Gemini's embedding format is different from VoyageAI, so it requires a separate adapter
 class GeminiAdapter : public AIAdapter {
 public:
@@ -1064,6 +1082,7 @@ public:
                             {"ZHIPU", []() { return std::make_shared<ZhipuAdapter>(); }},
                             {"QWEN", []() { return std::make_shared<QwenAdapter>(); }},
                             {"BAICHUAN", []() { return std::make_shared<BaichuanAdapter>(); }},
+                            {"LONGCAT", []() { return std::make_shared<LongCatAdapter>(); }},
                             {"ANTHROPIC", []() { return std::make_shared<AnthropicAdapter>(); }},
                             {"GEMINI", []() { return std::make_shared<GeminiAdapter>(); }},
                             {"VOYAGEAI", []() { return std::make_shared<VoyageAIAdapter>(); }},
