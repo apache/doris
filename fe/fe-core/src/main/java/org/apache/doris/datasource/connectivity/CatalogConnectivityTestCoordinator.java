@@ -178,15 +178,17 @@ public class CatalogConnectivityTestCoordinator {
 
     /**
      * Check if storage has credentials configured.
-     * Storage without credentials might use IAM roles, skip test.
+     * Check for access key, IAM role, or other authentication methods.
      */
     private boolean isConfiguredStorage(StorageProperties storage) {
-        // For S3/Minio: check access key
+        // For S3: check access key or IAM role
         if (storage instanceof S3Properties) {
             S3Properties s3 = (S3Properties) storage;
-            return StringUtils.isNotBlank(s3.getAccessKey());
+            return StringUtils.isNotBlank(s3.getAccessKey())
+                    || StringUtils.isNotBlank(s3.getS3IAMRole());
         }
 
+        // For Minio: check access key
         if (storage instanceof MinioProperties) {
             MinioProperties minio = (MinioProperties) storage;
             return StringUtils.isNotBlank(minio.getAccessKey());
