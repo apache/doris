@@ -552,6 +552,11 @@ namespace versioned {
 // Return true if decode successfully, otherwise false
 bool decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id,
                                          int64_t* partition_id);
+
+// Decode snapshot reference key
+// Return true if decode successfully, otherwise false
+bool decode_snapshot_ref_key(std::string_view* in, std::string* instance_id,
+                             Versionstamp* timestamp, std::string* ref_instance_id);
 } // namespace versioned
 
 // Decode stats tablet key

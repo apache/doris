@@ -72,9 +72,10 @@ public enum SchemaTypeMapper {
      * This implementation allows only "abfss" and "wasbs" schemes, which operate over HTTPS.
      * Insecure or deprecated schemes such as "abfs", "wasb", and "adl" are explicitly unsupported.
      * */
+    ABFS("abfs", StorageProperties.Type.AZURE, FileSystemType.S3, TFileType.FILE_S3),
     ABFSS("abfss", StorageProperties.Type.AZURE, FileSystemType.S3, TFileType.FILE_S3),
+    WASB("wasb", StorageProperties.Type.AZURE, FileSystemType.S3, TFileType.FILE_S3),
     WASBS("wasbs", StorageProperties.Type.AZURE, FileSystemType.S3, TFileType.FILE_S3),
-    AZURE("azure", StorageProperties.Type.AZURE, FileSystemType.S3, TFileType.FILE_S3),
     HDFS("hdfs", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS),
     LOCAL("local", StorageProperties.Type.HDFS, FileSystemType.HDFS, TFileType.FILE_HDFS);
     //LAKEFS("lakefs", StorageProperties.Type.LAKEFS),

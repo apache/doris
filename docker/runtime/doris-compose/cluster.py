@@ -440,6 +440,8 @@ class Node(object):
                 f"{port_name} = {port}"
                 for port_name, port in self.meta["ports"].items()
             ]
+        else:
+            cfg.append(f"priority_networks = {self.cluster.get_cidr()}")
         return cfg
 
     def docker_ports(self):
@@ -497,15 +499,47 @@ class Node(object):
             content["network_mode"] = "host"
         else:
             content["hostname"] = self.get_name()
-            content["networks"] = {
+
+            # Configure container networks: local cluster network + external MS network (if any)
+            networks = {
                 utils.with_doris_prefix(self.cluster.name): {
                     "ipv4_address": self.get_ip(),
                 }
             }
+
+            # If using external MS cluster, let the container join the external MS cluster network
+            if self.cluster.external_ms_cluster:
+                external_network_name = utils.get_network_name(self.cluster.external_ms_cluster)
+                networks[external_network_name] = {}
+                LOG.debug(f"Node {self.get_name()} joins external network: {external_network_name}")
+
+            content["networks"] = networks
+
             extra_hosts.extend([
                 "{}:{}".format(node.get_name(), node.get_ip())
                 for node in self.cluster.get_all_nodes()
             ])
+
+            # Add external MS cluster nodes to extra_hosts
+            if self.cluster.external_ms_cluster:
+                try:
+                    external_cluster = Cluster.load(self.cluster.external_ms_cluster)
+                    for ms_node in external_cluster.get_all_nodes(Node.TYPE_MS):
+                        extra_hosts.append(
+                            "{}:{}".format(ms_node.get_name(), ms_node.get_ip())
+                        )
+                    for fdb_node in external_cluster.get_all_nodes(Node.TYPE_FDB):
+                        extra_hosts.append(
+                            "{}:{}".format(fdb_node.get_name(), fdb_node.get_ip())
+                        )
+                    for recycle_node in external_cluster.get_all_nodes(Node.TYPE_RECYCLE):
+                        extra_hosts.append(
+                            "{}:{}".format(recycle_node.get_name(), recycle_node.get_ip())
+                        )
+                    LOG.debug(f"Added external MS cluster hosts for {self.get_name()}")
+                except Exception as e:
+                    LOG.warning(f"Failed to add external MS cluster hosts: {e}")
+
             content["ports"] = self.docker_ports()
         user_hosts = getattr(self.cluster, "extra_hosts", [])
         if user_hosts:
@@ -573,8 +607,14 @@ class FE(Node):
 
     def docker_env(self):
         envs = super().docker_env()
+        # Create instance when using external MS cluster, and pass cloud store config
+        if self.cluster.external_ms_cluster:
+            envs["AUTO_CREATE_INSTANCE"] = 1
+            for key, value in self.cluster.cloud_store_config.items():
+                envs[key] = value
         if self.cluster.is_cloud:
             envs["CLOUD_UNIQUE_ID"] = self.cloud_unique_id()
+            envs["INSTANCE_ID"] = self.cluster.instance_id
             if self.meta["is_cloud_follower"]:
                 envs["IS_FE_FOLLOWER"] = 1
         envs["MY_QUERY_PORT"] = self.meta["ports"]["query_port"]
@@ -592,7 +632,7 @@ class FE(Node):
         }
 
     def cloud_unique_id(self):
-        return "sql_server_{}".format(self.id)
+        return "{}_sql_server_{}".format(self.cluster.name, self.id)
 
     def start_script(self):
         return ["init_fe.sh"]
@@ -693,6 +733,7 @@ class BE(Node):
             "heartbeat_service_port"]
         if self.cluster.is_cloud:
             envs["CLOUD_UNIQUE_ID"] = self.cloud_unique_id()
+            envs["INSTANCE_ID"] = self.cluster.instance_id
             envs["REG_BE_TO_MS"] = 1 if self.cluster.reg_be else 0
             envs["CLUSTER_NAME"] = self.meta["cluster_name"]
         return envs
@@ -707,7 +748,7 @@ class BE(Node):
         }
 
     def cloud_unique_id(self):
-        return "compute_node_{}".format(self.id)
+        return "{}_compute_node_{}".format(self.cluster.name, self.id)
 
     def docker_home_dir(self):
         return os.path.join(DOCKER_DORIS_PATH, "be")
@@ -757,6 +798,7 @@ class MS(CLOUD):
 
     def docker_env(self):
         envs = super().docker_env()
+        envs["INSTANCE_ID"] = self.cluster.instance_id
         for key, value in self.cluster.cloud_store_config.items():
             envs[key] = value
         return envs
@@ -818,7 +860,8 @@ class Cluster(object):
                  be_config, ms_config, recycle_config, remote_master_fe,
                  local_network_ip, fe_follower, be_disks, be_cluster, reg_be,
                  extra_hosts, coverage_dir, cloud_store_config,
-                 sql_mode_node_mgr, be_metaservice_endpoint, be_cluster_id, tde_ak, tde_sk):
+                 sql_mode_node_mgr, be_metaservice_endpoint, be_cluster_id, tde_ak, tde_sk,
+                 external_ms_cluster, instance_id):
         self.name = name
         self.subnet = subnet
         self.image = image
@@ -837,6 +880,10 @@ class Cluster(object):
         self.extra_hosts = extra_hosts
         self.coverage_dir = coverage_dir
         self.cloud_store_config = cloud_store_config
+        self.external_ms_cluster = external_ms_cluster
+        self.instance_id = instance_id
+        if not self.instance_id:
+            self.instance_id = f"instance_{name}" if self.external_ms_cluster else "default_instance_id"
         self.groups = {
             node_type: Group(node_type)
             for node_type in Node.TYPE_ALL
@@ -855,7 +902,8 @@ class Cluster(object):
             ms_config, recycle_config, remote_master_fe, local_network_ip,
             fe_follower, be_disks, be_cluster, reg_be, extra_hosts,
             coverage_dir, cloud_store_config, sql_mode_node_mgr,
-            be_metaservice_endpoint, be_cluster_id, tde_ak, tde_sk):
+            be_metaservice_endpoint, be_cluster_id, tde_ak, tde_sk,
+            external_ms_cluster, instance_id):
         if not os.path.exists(LOCAL_DORIS_PATH):
             os.makedirs(LOCAL_DORIS_PATH, exist_ok=True)
             os.chmod(LOCAL_DORIS_PATH, 0o777)
@@ -870,7 +918,7 @@ class Cluster(object):
                               be_disks, be_cluster, reg_be, extra_hosts,
                               coverage_dir, cloud_store_config,
                               sql_mode_node_mgr, be_metaservice_endpoint,
-                              be_cluster_id, tde_ak, tde_sk)
+                              be_cluster_id, tde_ak, tde_sk, external_ms_cluster, instance_id)
             os.makedirs(cluster.get_path(), exist_ok=True)
             os.makedirs(get_status_path(name), exist_ok=True)
             cluster._save_meta()
@@ -996,19 +1044,31 @@ class Cluster(object):
         return node
 
     def get_fdb_cluster(self):
+        if self.external_ms_cluster:
+            external_cluster = Cluster.load(self.external_ms_cluster)
+            return external_cluster.get_fdb_cluster()
         fdb = self.get_node(Node.TYPE_FDB, 1)
         return "123456:123456@{}:{}".format(fdb.get_ip(),
                                             fdb.meta["ports"]["fdb_port"])
 
     def get_meta_server_addr(self):
+        if self.external_ms_cluster:
+            external_cluster = Cluster.load(self.external_ms_cluster)
+            return external_cluster.get_meta_server_addr()
         meta_server = self.get_node(Node.TYPE_MS, 1)
         return "{}:{}".format(meta_server.get_ip(),
                               meta_server.meta["ports"]["brpc_listen_port"])
 
     def get_recycle_addr(self):
+        if self.external_ms_cluster:
+            external_cluster = Cluster.load(self.external_ms_cluster)
+            return external_cluster.get_recycle_addr()
         recycler = self.get_node(Node.TYPE_RECYCLE, 1)
         return "{}:{}".format(recycler.get_ip(),
                               recycler.meta["ports"]["brpc_listen_port"])
+
+    def get_cidr(self):
+        return "{}.0.0/16".format(self.subnet)
 
     def remove(self, node_type, id):
         group = self.get_group(node_type)
@@ -1032,16 +1092,26 @@ class Cluster(object):
             "services": services,
         }
         if not self.is_host_network():
-            compose["networks"] = {
+            networks = {
                 utils.with_doris_prefix(self.name): {
                     "driver": "bridge",
                     "ipam": {
                         "config": [{
-                            "subnet": "{}.0.0/16".format(self.subnet),
+                            "subnet": self.get_cidr(),
                         }]
                     },
                 },
             }
+
+            # If using external MS cluster, declare the external network
+            if self.external_ms_cluster:
+                external_network_name = utils.get_network_name(self.external_ms_cluster)
+                networks[external_network_name] = {
+                    "external": True
+                }
+                LOG.debug(f"Added external network: {external_network_name}")
+
+            compose["networks"] = networks
 
         utils.write_compose_file(self.get_compose_file(), compose)
 

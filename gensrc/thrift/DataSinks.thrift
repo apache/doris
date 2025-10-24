@@ -45,8 +45,8 @@ enum TDataSinkType {
 }
 
 enum TResultSinkType {
-    MYSQL_PROTOCAL = 0,
-    ARROW_FLIGHT_PROTOCAL = 1,
+    MYSQL_PROTOCOL = 0,
+    ARROW_FLIGHT_PROTOCOL = 1,
     FILE = 2,    // deprecated, should not be used any more. FileResultSink is covered by TRESULT_FILE_SINK for concurrent purpose.
 }
 

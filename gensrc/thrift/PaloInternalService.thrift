@@ -489,6 +489,9 @@ struct TQueryGlobals {
   4: optional bool load_zero_tolerance = false
 
   5: optional i32 nano_seconds
+
+  // Locale name used for month/day names formatting, e.g. en_US
+  6: optional string lc_time_names
 }
 
 

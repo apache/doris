@@ -66,7 +66,7 @@ public:
         std::vector<OlapScanRange*> key_ranges;
         BaseTabletSPtr tablet;
         int64_t version;
-        TabletReader::ReadSource read_source;
+        TabletReadSource read_source;
         int64_t limit;
         bool aggregation;
     };

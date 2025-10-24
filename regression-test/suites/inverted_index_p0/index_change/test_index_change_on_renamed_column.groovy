@@ -97,7 +97,7 @@ suite("test_index_change_on_renamed_column") {
     String backend_id = tablets[0].BackendId
     String ip = backendId_to_backendIP.get(backend_id)
     String port = backendId_to_backendHttpPort.get(backend_id)
-    check_nested_index_file(ip, port, tablet_id, 3, 1, "V2")
+    check_nested_index_file(ip, port, tablet_id, 3, 1, "V3")
 
     // drop inverted index on renamed column
     sql """ alter table ${tableName} drop index idx_s; """

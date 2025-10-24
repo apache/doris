@@ -530,7 +530,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         Set<Expression> havingExprs = having.getConjuncts();
         ImmutableSet.Builder<Expression> analyzedHaving = ImmutableSet.builder();
-        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(having, cascadesContext);
         Map<Expression, Expression> bindUniqueIdReplaceMap
                 = getGroupByUniqueFuncReplaceMap(aggregate.getGroupByExpressions());
         for (Expression expression : havingExprs) {
@@ -669,7 +669,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         Scope leftScope = toScope(cascadesContext, using.left().getOutput(), using.left().getAsteriskOutput());
         Scope rightScope = toScope(cascadesContext, using.right().getOutput(), using.right().getAsteriskOutput());
-        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(using, cascadesContext);
 
         Builder<Expression> hashEqExprs = ImmutableList.builderWithExpectedSize(unboundHashJoinConjunct.size());
         List<Slot> rightConjunctsSlots = Lists.newArrayList();
@@ -1067,7 +1067,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         Map<Expression, Expression> bindUniqueIdReplaceMap
                 = getGroupByUniqueFuncReplaceMap(aggregate.getGroupByExpressions());
-        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(qualify, cascadesContext);
         for (Expression expression : qualify.getConjuncts()) {
             Expression boundExpr = qualifyAnalyzer.analyze(expression, rewriteContext);
             // logical plan builder no extract conjunction
@@ -1594,7 +1594,7 @@ public class BindExpression implements AnalysisRuleFactory {
             Plan currentPlan, CascadesContext cascadesContext, List<Plan> children) {
         Scope scope = toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(children),
                 PlanUtils.fastGetChildrenAsteriskOutputs(children));
-        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(currentPlan, cascadesContext);
         ExpressionAnalyzer expressionAnalyzer = new ExpressionAnalyzer(currentPlan,
                 scope, cascadesContext, true, true);
         return expr -> expressionAnalyzer.analyze(expr, rewriteContext);
@@ -1603,7 +1603,7 @@ public class BindExpression implements AnalysisRuleFactory {
     private SimpleExprAnalyzer buildCustomSlotBinderAnalyzer(
             Plan currentPlan, CascadesContext cascadesContext, Scope defaultScope,
             boolean enableExactMatch, boolean bindSlotInOuterScope, CustomSlotBinderAnalyzer customSlotBinder) {
-        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
+        ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(currentPlan, cascadesContext);
         ExpressionAnalyzer expressionAnalyzer = new ExpressionAnalyzer(currentPlan, defaultScope, cascadesContext,
                 enableExactMatch, bindSlotInOuterScope) {
             @Override

@@ -87,11 +87,9 @@ public class PaimonHMSMetaStoreProperties extends AbstractPaimonProperties {
 
     @Override
     public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+        buildCatalogOptions();
         Configuration conf = buildHiveConfiguration(storagePropertiesList);
-        buildCatalogOptions(storagePropertiesList);
-        for (Map.Entry<String, String> entry : conf) {
-            catalogOptions.set(entry.getKey(), entry.getValue());
-        }
+        appendUserHadoopConfig(conf);
         CatalogContext catalogContext = CatalogContext.create(catalogOptions, conf);
         try {
             return executionAuthenticator.execute(() -> CatalogFactory.createCatalog(catalogContext));

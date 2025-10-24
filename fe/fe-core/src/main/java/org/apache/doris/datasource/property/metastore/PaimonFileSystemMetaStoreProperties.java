@@ -38,19 +38,16 @@ public class PaimonFileSystemMetaStoreProperties extends AbstractPaimonPropertie
 
     @Override
     public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
-        buildCatalogOptions(storagePropertiesList);
+        buildCatalogOptions();
         Configuration conf = new Configuration();
         storagePropertiesList.forEach(storageProperties -> {
-            for (Map.Entry<String, String> entry : storageProperties.getHadoopStorageConfig()) {
-                catalogOptions.set(entry.getKey(), entry.getValue());
-            }
             conf.addResource(storageProperties.getHadoopStorageConfig());
             if (storageProperties.getType().equals(StorageProperties.Type.HDFS)) {
                 this.executionAuthenticator = new HadoopExecutionAuthenticator(((HdfsProperties) storageProperties)
                         .getHadoopAuthenticator());
             }
         });
-
+        appendUserHadoopConfig(conf);
         CatalogContext catalogContext = CatalogContext.create(catalogOptions, conf);
         try {
             return this.executionAuthenticator.execute(() -> CatalogFactory.createCatalog(catalogContext));

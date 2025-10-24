@@ -434,7 +434,7 @@ Status ScalarColumnWriter::init() {
     PageBuilder* page_builder = nullptr;
 
     RETURN_IF_ERROR(
-            EncodingInfo::get(get_field()->type_info(), _opts.meta->encoding(), &_encoding_info));
+            EncodingInfo::get(get_field()->type(), _opts.meta->encoding(), &_encoding_info));
     _opts.meta->set_encoding(_encoding_info->encoding());
     // create page builder
     PageBuilderOptions opts;
@@ -448,6 +448,11 @@ Status ScalarColumnWriter::init() {
     // should store more concrete encoding type instead of DEFAULT_ENCODING
     // because the default encoding of a data type can be changed in the future
     DCHECK_NE(_opts.meta->encoding(), DEFAULT_ENCODING);
+    VLOG_DEBUG << fmt::format(
+            "[verbose] scalar column writer init, column_id={}, type={}, encoding={}, "
+            "is_nullable={}",
+            _opts.meta->column_id(), get_field()->type(),
+            EncodingTypePB_Name(_opts.meta->encoding()), _opts.meta->is_nullable());
     _page_builder.reset(page_builder);
     // create ordinal builder
     _ordinal_index_builder = std::make_unique<OrdinalIndexWriter>();
@@ -629,11 +634,13 @@ Status ScalarColumnWriter::write_data() {
     if (_encoding_info->encoding() == DICT_ENCODING) {
         OwnedSlice dict_body;
         RETURN_IF_ERROR(_page_builder->get_dictionary_page(&dict_body));
+        EncodingTypePB dict_word_page_encoding;
+        RETURN_IF_ERROR(_page_builder->get_dictionary_page_encoding(&dict_word_page_encoding));
 
         PageFooterPB footer;
         footer.set_type(DICTIONARY_PAGE);
         footer.set_uncompressed_size(cast_set<uint32_t>(dict_body.slice().get_size()));
-        footer.mutable_dict_page_footer()->set_encoding(PLAIN_ENCODING);
+        footer.mutable_dict_page_footer()->set_encoding(dict_word_page_encoding);
         _total_uncompressed_data_pages_size += collect_uncompressed_bytes(footer);
 
         PagePointer dict_pp;
