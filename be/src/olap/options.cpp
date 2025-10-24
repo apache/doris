@@ -260,9 +260,11 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
         }
         if (config::enable_normal_queue_cold_hot_separation) {
             if (config::normal_queue_cold_percent <= 0)
-                return Status::InvalidArgument("The config normal_queue_cold_percent must be greater than 0.");
+                return Status::InvalidArgument(
+                        "The config normal_queue_cold_percent must be greater than 0.");
             if (config::normal_queue_cold_percent >= 100)
-                return Status::InvalidArgument("The config normal_queue_cold_percent must be less than 0.");
+                return Status::InvalidArgument(
+                        "The config normal_queue_cold_percent must be less than 0.");
         }
         // percent
         auto get_percent_value = [&](const std::string& key, size_t& percent) {

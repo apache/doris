@@ -357,9 +357,10 @@ private:
                                     size_t offset, size_t size, FileBlock::State state,
                                     std::lock_guard<std::mutex>& cache_lock);
 
-    virtual FileBlockCell* add_cell_directly(const UInt128Wrapper& hash, const CacheContext& context,
-                                    size_t offset, size_t size, FileBlock::State state,
-                                    std::lock_guard<std::mutex>& cache_lock);
+    virtual FileBlockCell* add_cell_directly(const UInt128Wrapper& hash,
+                                             const CacheContext& context, size_t offset,
+                                             size_t size, FileBlock::State state,
+                                             std::lock_guard<std::mutex>& cache_lock);
 
     Status initialize_unlocked(std::lock_guard<std::mutex>& cache_lock);
 

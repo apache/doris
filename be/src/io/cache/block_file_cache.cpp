@@ -115,8 +115,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                   "file_cache_evict_by_time_disposable_to_ttl");
     _evict_by_time_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::COLD_NORMAL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_time_disposable_to_cold_normal");
+            std::make_shared<bvar::Adder<size_t>>(
+                    _cache_base_path.c_str(), "file_cache_evict_by_time_disposable_to_cold_normal");
     _evict_by_time_metrics_matrix[FileCacheType::NORMAL][FileCacheType::DISPOSABLE] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                   "file_cache_evict_by_time_normal_to_disposable");
@@ -151,11 +151,11 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                   "file_cache_evict_by_time_ttl_to_index");
     _evict_by_time_metrics_matrix[FileCacheType::TTL][FileCacheType::COLD_NORMAL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_time_ttl_to_cold_normal");
+            std::make_shared<bvar::Adder<size_t>>(
+                    _cache_base_path.c_str(), "file_cache_evict_by_time_ttl_to_cold_normal");
     _evict_by_time_metrics_matrix[FileCacheType::COLD_NORMAL][FileCacheType::DISPOSABLE] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_time_cold_normal_to_disposable");
+            std::make_shared<bvar::Adder<size_t>>(
+                    _cache_base_path.c_str(), "file_cache_evict_by_time_cold_normal_to_disposable");
     _evict_by_time_metrics_matrix[FileCacheType::COLD_NORMAL][FileCacheType::NORMAL] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                   "file_cache_evict_by_time_cold_normal_to_normal");
@@ -190,8 +190,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                   "file_cache_evict_by_size_disposable_to_ttl");
     _evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::COLD_NORMAL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_size_disposable_to_cold_normal");
+            std::make_shared<bvar::Adder<size_t>>(
+                    _cache_base_path.c_str(), "file_cache_evict_by_size_disposable_to_cold_normal");
     _evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::DISPOSABLE] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                   "file_cache_evict_by_size_normal_to_disposable");
@@ -229,11 +229,11 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                   "file_cache_evict_by_size_ttl_to_cold_normal");
     _evict_by_size_metrics_matrix[FileCacheType::COLD_NORMAL][FileCacheType::DISPOSABLE] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_size_cold_normal_to_disposable");
+            std::make_shared<bvar::Adder<size_t>>(
+                    _cache_base_path.c_str(), "file_cache_evict_by_size_cold_normal_to_disposable");
     _evict_by_size_metrics_matrix[FileCacheType::COLD_NORMAL][FileCacheType::NORMAL] =
-            std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_size_cold_normal_to_cold_normal");
+            std::make_shared<bvar::Adder<size_t>>(
+                    _cache_base_path.c_str(), "file_cache_evict_by_size_cold_normal_to_cold_normal");
     _evict_by_size_metrics_matrix[FileCacheType::COLD_NORMAL][FileCacheType::INDEX] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                   "file_cache_evict_by_size_cold_normal_to_index");
@@ -331,8 +331,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                              24 * 60 * 60);
     _ttl_queue = LRUQueue(cache_settings.ttl_queue_size, cache_settings.ttl_queue_elements,
                           std::numeric_limits<int>::max());
-    _cold_normal_queue = LRUQueue(cache_settings.cold_query_queue_size, cache_settings.cold_query_queue_elements,
-                             24 * 60 * 60);
+    _cold_normal_queue = LRUQueue(cache_settings.cold_query_queue_size,
+                                  cache_settings.cold_query_queue_elements, 24 * 60 * 60);
 
     _lru_recorder = std::make_unique<LRUQueueRecorder>(this);
     _lru_dumper = std::make_unique<CacheLRUDumper>(this, _lru_recorder.get());
@@ -476,24 +476,22 @@ void BlockFileCache::use_cell(FileBlockCell& cell, FileBlocks* result, bool move
     if (cell.queue_iterator && move_iter_flag) {
         if (cell.file_block->cache_type() == FileCacheType::COLD_NORMAL) {
             queue.remove(*cell.queue_iterator, cache_lock);
-            _lru_recorder->record_queue_event(FileCacheType::COLD_NORMAL,
-                                              CacheLRULogType::REMOVE,
+            _lru_recorder->record_queue_event(FileCacheType::COLD_NORMAL, CacheLRULogType::REMOVE,
                                               cell.file_block->get_hash_value(),
                                               cell.file_block->offset(), cell.size());
             auto& normal_queue = get_queue(FileCacheType::NORMAL);
-            cell.queue_iterator = normal_queue.add(cell.file_block->_key.hash,
-                                                    cell.file_block->_key.offset, cell.size(),
-                                                    cache_lock);
+            cell.queue_iterator =
+                    normal_queue.add(cell.file_block->_key.hash, cell.file_block->_key.offset,
+                                     cell.size(), cache_lock);
             _lru_recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD,
                                               cell.file_block->get_hash_value(),
                                               cell.file_block->offset(), cell.size());
             cell.file_block->set_cache_type(FileCacheType::NORMAL);
-        }
-        else {
+        } else {
             queue.move_to_end(*cell.queue_iterator, cache_lock);
-            _lru_recorder->record_queue_event(cell.file_block->cache_type(),
-                                              CacheLRULogType::MOVETOBACK, cell.file_block->_key.hash,
-                                              cell.file_block->_key.offset, cell.size());
+            _lru_recorder->record_queue_event(
+                    cell.file_block->cache_type(), CacheLRULogType::MOVETOBACK,
+                    cell.file_block->_key.hash, cell.file_block->_key.offset, cell.size());
         }
     }
 
@@ -974,9 +972,9 @@ FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& hash, const CacheC
 }
 
 FileBlockCell* BlockFileCache::add_cell_directly(const UInt128Wrapper& hash,
-                                                                 const CacheContext& context, size_t offset,
-                                                                 size_t size, FileBlock::State state,
-                                                                 std::lock_guard<std::mutex>& cache_lock) {
+                                                 const CacheContext& context, size_t offset,
+                                                 size_t size, FileBlock::State state,
+                                                 std::lock_guard<std::mutex>& cache_lock) {
     /// Create a file block cell and put it in `files` map by [hash][offset].
     if (size == 0) {
         return nullptr; /// Empty files are not cached.
@@ -1402,7 +1400,8 @@ std::vector<FileCacheType> BlockFileCache::get_other_cache_type_without_ttl(
         FileCacheType cur_cache_type) {
     switch (cur_cache_type) {
     case FileCacheType::TTL:
-        return {FileCacheType::DISPOSABLE, FileCacheType::COLD_NORMAL, FileCacheType::NORMAL, FileCacheType::INDEX};
+        return {FileCacheType::DISPOSABLE, FileCacheType::COLD_NORMAL, FileCacheType::NORMAL,
+                FileCacheType::INDEX};
     case FileCacheType::INDEX:
         return {FileCacheType::DISPOSABLE, FileCacheType::COLD_NORMAL, FileCacheType::NORMAL};
     case FileCacheType::NORMAL:
@@ -1418,13 +1417,17 @@ std::vector<FileCacheType> BlockFileCache::get_other_cache_type_without_ttl(
 std::vector<FileCacheType> BlockFileCache::get_other_cache_type(FileCacheType cur_cache_type) {
     switch (cur_cache_type) {
     case FileCacheType::TTL:
-        return {FileCacheType::DISPOSABLE, FileCacheType::COLD_NORMAL, FileCacheType::NORMAL, FileCacheType::INDEX};
+        return {FileCacheType::DISPOSABLE, FileCacheType::COLD_NORMAL, FileCacheType::NORMAL,
+                FileCacheType::INDEX};
     case FileCacheType::INDEX:
-        return {FileCacheType::DISPOSABLE, FileCacheType::COLD_NORMAL, FileCacheType::NORMAL, FileCacheType::TTL};
+        return {FileCacheType::DISPOSABLE, FileCacheType::COLD_NORMAL, FileCacheType::NORMAL,
+                FileCacheType::TTL};
     case FileCacheType::NORMAL:
-        return {FileCacheType::DISPOSABLE, FileCacheType::COLD_NORMAL, FileCacheType::INDEX, FileCacheType::TTL};
+        return {FileCacheType::DISPOSABLE, FileCacheType::COLD_NORMAL, FileCacheType::INDEX,
+                FileCacheType::TTL};
     case FileCacheType::DISPOSABLE:
-        return {FileCacheType::COLD_NORMAL, FileCacheType::NORMAL, FileCacheType::INDEX, FileCacheType::TTL};
+        return {FileCacheType::COLD_NORMAL, FileCacheType::NORMAL, FileCacheType::INDEX,
+                FileCacheType::TTL};
     default:
         return {};
     }
@@ -1550,10 +1553,11 @@ bool BlockFileCache::try_reserve_from_other_queue(FileCacheType cur_cache_type, 
     size_t cur_queue_max_size = cur_queue.get_max_size();
     // Hit the soft limit by self, cannot remove from other queues
     if (_cur_cache_size + size > _capacity && cur_queue_size + size > cur_queue_max_size) {
-        if (config::enable_normal_queue_cold_hot_separation && cur_cache_type == FileCacheType::NORMAL) {
+        if (config::enable_normal_queue_cold_hot_separation &&
+            cur_cache_type == FileCacheType::NORMAL) {
             return try_reserve_from_other_queue_by_size(FileCacheType::NORMAL,
-                                                 {FileCacheType::COLD_NORMAL}, size, cache_lock,
-                                                 evict_in_advance);
+                                                        {FileCacheType::COLD_NORMAL}, size,
+                                                        cache_lock, evict_in_advance);
         }
         return false;
     }
@@ -2650,7 +2654,8 @@ std::map<std::string, double> BlockFileCache::get_stats() {
             (double)_cur_disposable_queue_element_count_metrics->get_value();
 
     stats["cold_normal_queue_max_size"] = (double)_cold_normal_queue.get_max_size();
-    stats["cold_normal_queue_curr_size"] = (double)_cur_cold_normal_queue_cache_size_metrics->get_value();
+    stats["cold_normal_queue_curr_size"] =
+            (double)_cur_cold_normal_queue_cache_size_metrics->get_value();
     stats["cold_normal_queue_max_elements"] = (double)_cold_normal_queue.get_max_element_size();
     stats["cold_normal_queue_curr_elements"] =
             (double)_cur_cold_normal_queue_element_count_metrics->get_value();
