@@ -72,7 +72,18 @@ public class RefreshManager {
     private void refreshCatalogInternal(CatalogIf catalog, boolean invalidCache) {
         String catalogName = catalog.getName();
         if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            ((ExternalCatalog) catalog).resetMetaToUninitialized(invalidCache);
+            ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
+            // First reset catalog metadata (this is synchronized and safe)
+            externalCatalog.resetMetaToUninitialized(false);
+            
+            // Then invalidate catalog cache outside of synchronized block to avoid deadlock.
+            // The deadlock can happen when:
+            // 1. This thread holds catalog lock and tries to acquire Caffeine cache lock
+            // 2. Query thread holds Caffeine cache lock and tries to acquire catalog lock (in makeSureInitialized)
+            if (invalidCache) {
+                externalCatalog.invalidateCatalogCacheOutsideLock();
+            }
+            
             LOG.info("refresh catalog {} with invalidCache {}", catalogName, invalidCache);
         }
     }

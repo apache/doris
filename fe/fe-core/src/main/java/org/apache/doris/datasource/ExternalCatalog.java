@@ -581,7 +581,18 @@ public abstract class ExternalCatalog
 
     public synchronized void resetMetaToUninitialized(boolean invalidCache) {
         this.initialized = false;
-        refreshOnlyCatalogCache(invalidCache);
+        // Only refresh meta cache (database level cache), do not invalidate catalog cache here
+        // to avoid deadlock when holding synchronized lock.
+        // The catalog cache invalidation should be done outside of synchronized block.
+        refreshMetaCacheOnly();
+    }
+
+    /**
+     * Invalidate catalog level cache. This method should be called outside of synchronized block
+     * to avoid potential deadlock with Caffeine cache operations.
+     */
+    public void invalidateCatalogCacheOutsideLock() {
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
     }
 
     // Only for hms event handling.
@@ -589,7 +600,11 @@ public abstract class ExternalCatalog
         refreshOnlyCatalogCache(true);
     }
 
-    private void refreshOnlyCatalogCache(boolean invalidCache) {
+    /**
+     * Refresh meta cache only (database level cache), without invalidating catalog level cache.
+     * This method is safe to call within synchronized block.
+     */
+    private void refreshMetaCacheOnly() {
         if (useMetaCache.isPresent()) {
             if (useMetaCache.get() && metaCache != null) {
                 metaCache.invalidateAll();
@@ -600,6 +615,10 @@ public abstract class ExternalCatalog
                 }
             }
         }
+    }
+
+    private void refreshOnlyCatalogCache(boolean invalidCache) {
+        refreshMetaCacheOnly();
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
         }
