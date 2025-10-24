@@ -118,9 +118,9 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
     
     // Adaptive parameters:
     // - max_single_gap: Maximum gap size to include (512KB by default)
-    // - adaptive_shrink_threshold: Shrink window if gap ratio becomes too high
+    // - adaptive_shrink_threshold: Stop merging if prospective gap ratio > threshold
     constexpr size_t max_single_gap = 512 * 1024; // 512KB
-    constexpr double adaptive_shrink_threshold = 0.5; // If gap/content > 50%, be more cautious
+    constexpr double adaptive_shrink_threshold = 0.4; // If gap/content would > 40%, stop merging
     
     while (merge_start < merge_end && merge_index < _random_access_ranges.size()) {
         size_t content_max = _remaining - content_size;
@@ -161,12 +161,13 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
                 break;
             }
             
-            // 3. Dynamic check: if current gap ratio is too high, shrink the effective window
-            if (content_size > 0 && hollow_size > 0) {
-                double current_gap_ratio = (double)hollow_size / (double)content_size;
-                if (current_gap_ratio > adaptive_shrink_threshold) {
-                    // Gap ratio is high, shrink window to avoid accumulating more gaps
-                    merge_end = std::min(merge_end, merge_start + SMALL_IO);
+            // 3. Dynamic check: if upcoming gap would push ratio too high, stop here
+            // Check BEFORE including the gap, not after
+            if (content_size > 0 && gap > 0) {
+                double prospective_gap_ratio = (double)(hollow_size + gap) / (double)content_size;
+                if (prospective_gap_ratio > adaptive_shrink_threshold) {
+                    // Including this gap would make ratio too high, stop merging
+                    break;
                 }
             }
             
