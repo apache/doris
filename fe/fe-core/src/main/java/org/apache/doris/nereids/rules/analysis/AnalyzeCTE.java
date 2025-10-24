@@ -174,8 +174,8 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         List<LogicalRecursiveCteScan> recursiveCteScanList = analyzedRecursiveChild
                 .collectToList(LogicalRecursiveCteScan.class::isInstance);
         if (recursiveCteScanList.size() > 1) {
-            throw new AnalysisException(String.format("can have only 1 recursive cte instance, but there is %d",
-                    recursiveCteScanList.size()));
+            throw new AnalysisException(String.format("recursive reference to query %s must not appear more than once",
+                    aliasQuery.getAlias()));
         }
         List<Slot> anchorChildOutputs = analyzedAnchorChild.getOutput();
         List<DataType> anchorChildOutputTypes = new ArrayList<>(anchorChildOutputs.size());
