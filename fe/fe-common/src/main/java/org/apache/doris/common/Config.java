@@ -3065,6 +3065,13 @@ public class Config extends ConfigBase {
             "Used to control the interval time of ProfileManager for profile garbage collection. "
     })
     public static int profile_manager_gc_interval_seconds = 1;
+
+    @ConfField(mutable = true, description = {
+            "用于控制 Profile 归档清理任务的执行间隔时间，单位为秒。每个周期内，将会清理过期的归档文件。",
+            "Used to control the interval time of profile archive cleanup task, in seconds. "
+                    + "In each cycle, the expired archive files will be cleaned."
+    })
+    public static int profile_archive_cleanup_interval_seconds = 6 * 3600; // 6 hours
     // Used to check compatibility when upgrading.
     @ConfField
     public static boolean enable_check_compatibility_mode = false;
@@ -3112,6 +3119,31 @@ public class Config extends ConfigBase {
             "Profile 在 query 完成后等待多久后才会被写入磁盘",
             "Profile will be spilled to storage after query has finished for this time"})
     public static int profile_waiting_time_for_spill_seconds = 10;
+
+    // Profile archive related configurations
+    @ConfField(mutable = true, description = {
+            "是否启用 Profile 归档功能，将超出内存限制的 Profile 移动到归档目录而不是删除",
+            "Whether to enable Profile archive feature, move profiles exceeding memory limit "
+                    + "to archive directory instead of deleting"})
+    public static boolean enable_profile_archive = true;
+
+    @ConfField(mutable = true, description = {
+            "归档 Profile 文件的保留时间（秒），超过此时间的归档文件将被清理，默认为7天",
+            "Retention time in seconds for archived profile files, "
+                    + "files older than this will be cleaned up, default is 7 days"})
+    public static int profile_archive_retention_seconds = 7 * 24 * 60 * 60; // 7 days in seconds
+
+    @ConfField(mutable = true, description = {
+            "归档 Profile 文件的最大总大小（字节），超过此大小将按清理最旧的归档文件",
+            "Maximum total size in bytes for archived profile files, "
+                    + "oldest files will be cleaned up when exceeded"})
+    public static long profile_archive_max_size_bytes = 10L * 1024 * 1024 * 1024; // 10GB
+
+    @ConfField(mutable = true, description = {
+            "归档 Profile 文件的最大数量，超过此数量将按时间顺序清理最旧的归档文件",
+            "Maximum number of archived profile files, "
+                    + "oldest files will be cleaned up by time order when exceeded"})
+    public static int max_archived_profile_num = 100000;
 
     @ConfField(mutable = true, description = {
             "是否通过检测协调者BE心跳来 abort 事务",
@@ -3632,7 +3664,7 @@ public class Config extends ConfigBase {
     public static long cloud_auto_snapshot_min_interval_seconds = 3600;
 
     @ConfField(mutable = true)
-    public static long multi_part_upload_part_size_in_bytes = 256 * 1024 * 1024L; // 256MB
+    public static long multi_part_upload_part_size_in_bytes = 512 * 1024 * 1024L; // 512MB
     @ConfField(mutable = true)
     public static int multi_part_upload_max_seconds = 3600; // 1 hour
     @ConfField(mutable = true)

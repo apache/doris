@@ -142,6 +142,9 @@ public class ProfileManager extends MasterDaemon {
     private final ExecutorService fetchRealTimeProfileExecutor;
     private final ExecutorService profileIOExecutor;
 
+    // Profile archiving manager
+    private ProfileArchiveManager archiveManager;
+
     public static ProfileManager getInstance() {
         if (INSTANCE == null) {
             synchronized (ProfileManager.class) {
@@ -167,6 +170,17 @@ public class ProfileManager extends MasterDaemon {
         int iothreads = Math.max(20, Runtime.getRuntime().availableProcessors());
         profileIOExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
             iothreads, 100, "profile-io-thread-pool", true);
+
+        // Initialize archive manager if archiving is enabled
+        if (Config.enable_profile_archive) {
+            try {
+                archiveManager = ProfileArchiveManager.getInstance(PROFILE_STORAGE_PATH);
+                LOG.info("Profile archive manager initialized successfully");
+            } catch (Exception e) {
+                LOG.error("Failed to initialize profile archive manager", e);
+                archiveManager = null;
+            }
+        }
     }
 
     private ProfileElement createElement(Profile profile) {
@@ -206,10 +220,11 @@ public class ProfileManager extends MasterDaemon {
             return;
         }
 
+        List<Profile> profilesToArchive = Lists.newArrayList();
         writeLock.lock();
         try {
             if (!queryIdToProfileMap.containsKey(profile.getId())) {
-                deleteOutdatedProfilesFromMemory(1);
+                profilesToArchive = deleteOutdatedProfilesFromMemory(1);
             }
 
             ProfileElement element = createElement(profile);
@@ -227,6 +242,13 @@ public class ProfileManager extends MasterDaemon {
             queryIdToProfileMap.put(key, element);
         } finally {
             writeLock.unlock();
+        }
+
+        // Archive collected profiles outside write lock to minimize lock hold time
+        if (Config.enable_profile_archive && archiveManager != null && !profilesToArchive.isEmpty()) {
+            for (Profile p : profilesToArchive) {
+                archiveManager.archiveProfile(p);
+            }
         }
     }
 
@@ -457,14 +479,27 @@ public class ProfileManager extends MasterDaemon {
         readLock.lock();
         try {
             ProfileElement element = queryIdToProfileMap.get(id);
-            if (element == null) {
-                return null;
+            if (element != null) {
+                return element.getProfileContent();
             }
-
-            return element.getProfileContent();
         } finally {
             readLock.unlock();
         }
+
+        // If not found in memory, try to retrieve from archive
+        if (archiveManager != null && Config.enable_profile_archive) {
+            try {
+                Profile archivedProfile = archiveManager.getArchivedProfile(id);
+                if (archivedProfile != null) {
+                    LOG.debug("Retrieved profile {} from archive", id);
+                    return archivedProfile.getProfileByLevel();
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to retrieve profile {} from archive: {}", id, e.getMessage());
+            }
+        }
+
+        return null;
     }
 
     public String getProfileBrief(String queryID) {
@@ -538,8 +573,23 @@ public class ProfileManager extends MasterDaemon {
         loadProfilesFromStorageIfFirstTime(false);
         writeProfileToStorage();
         deleteBrokenProfiles();
-        deleteOutdatedProfilesFromStorage();
         preventExecutionProfileLeakage();
+
+        if (Config.enable_profile_archive) {
+            try {
+                // Initialize archive manager if not already initialized
+                List<String> brokenFiles = archiveManager.loadArchiveIfNeeded();
+                deleteBrokenProfiles(brokenFiles);
+                // Perform archive cleanup
+                archiveManager.performArchiveCleanup();
+                // Archive outdated profiles
+                archiveOutdatedProfiles();
+            } catch (Exception e) {
+                LOG.warn("Failed to initialize or archive outdated profiles", e);
+            }
+        } else {
+            deleteOutdatedProfilesFromStorage();
+        }
     }
 
     // List PROFILE_STORAGE_PATH and return all dir names
@@ -762,9 +812,12 @@ public class ProfileManager extends MasterDaemon {
         return queryIdToBeRemoved;
     }
 
-    // We can not store all profiles on storage, because the storage space is limited
-    // So we need to remove the outdated profiles
-    protected void deleteOutdatedProfilesFromStorage() {
+    /**
+     * Process outdated profiles with custom action in parallel threads
+     * @param action the action to perform on each profile element
+     * @param actionName the name of the action for logging purposes
+     */
+    private void processOutdatedProfiles(java.util.function.Consumer<ProfileElement> action, String actionName) {
         if (!checkIfProfileLoaded()) {
             return;
         }
@@ -778,22 +831,39 @@ public class ProfileManager extends MasterDaemon {
                 readLock.unlock();
             }
 
-            List<Thread> iothreads = Lists.newArrayList();
-
-            for (ProfileElement profileElement : queryIdToBeRemoved) {
-                Thread thread = new Thread(() -> {
-                    profileElement.deleteFromStorage();
-                });
-                thread.start();
-                iothreads.add(thread);
+            if (queryIdToBeRemoved.isEmpty()) {
+                return;
             }
 
-            try {
-                for (Thread thread : iothreads) {
-                    thread.join();
+            LOG.info("Processing {} profiles for {} in batches", queryIdToBeRemoved.size(), actionName);
+
+            // Process profiles in batches to avoid creating too many threads
+            for (int i = 0; i < queryIdToBeRemoved.size(); i += BATCH_SIZE) {
+                int end = Math.min(i + BATCH_SIZE, queryIdToBeRemoved.size());
+                List<ProfileElement> batch = queryIdToBeRemoved.subList(i, end);
+
+                List<Thread> processingThreads = Lists.newArrayList();
+
+                // Create threads for current batch
+                for (ProfileElement profileElement : batch) {
+                    Thread thread = new Thread(() -> {
+                        action.accept(profileElement);
+                    });
+                    thread.start();
+                    processingThreads.add(thread);
                 }
-            } catch (InterruptedException e) {
-                LOG.error("Failed to remove outdated query profile", e);
+
+                // Wait for all threads in current batch to complete
+                try {
+                    for (Thread thread : processingThreads) {
+                        thread.join();
+                    }
+                } catch (InterruptedException e) {
+                    LOG.error("Failed to complete profile {} tasks for batch {} - {}", actionName, i, end, e);
+                }
+
+                LOG.info("Processed batch {} - {} of {} profiles for {}",
+                        i, end, queryIdToBeRemoved.size(), actionName);
             }
 
             writeLock.lock();
@@ -813,11 +883,44 @@ public class ProfileManager extends MasterDaemon {
                 for (ProfileElement profileElement : queryIdToBeRemoved) {
                     builder.append(profileElement.profile.getSummaryProfile().getProfileId()).append(",");
                 }
-                LOG.debug("Remove outdated profile: {}", builder.toString());
+                LOG.debug("Remove outdated profile ({}): {}", actionName, builder.toString());
             }
         } catch (Exception e) {
-            LOG.error("Failed to remove outdated query profile", e);
+            LOG.error("Failed to remove outdated query profile ({})", actionName, e);
         }
+    }
+
+    protected void deleteOutdatedProfilesFromStorage() {
+        processOutdatedProfiles(
+                profileElement -> profileElement.deleteFromStorage(),
+                "delete"
+        );
+    }
+
+
+    protected void archiveOutdatedProfiles() {
+        if (archiveManager == null || !Config.enable_profile_archive) {
+            return;
+        }
+
+        processOutdatedProfiles(
+                profileElement -> {
+                    // Archive profile synchronously
+                    try {
+                        String profileId = profileElement.profile.getSummaryProfile().getProfileId();
+                        boolean success = archiveManager.archiveProfile(profileElement.profile);
+                        if (!success) {
+                            LOG.warn("Archive profile {} returned false before deletion", profileId);
+                        } else {
+                            LOG.debug("Successfully archived profile {} before deletion", profileId);
+                        }
+                    } catch (Exception e) {
+                        LOG.warn("Failed to archive profile {}: {}",
+                                profileElement.profile.getSummaryProfile().getProfileId(), e.getMessage());
+                    }
+                },
+                "archive"
+        );
     }
 
     protected List<String> getBrokenProfiles() {
@@ -864,15 +967,13 @@ public class ProfileManager extends MasterDaemon {
         return brokenProfiles;
     }
 
-    protected void deleteBrokenProfiles() {
-        if (!checkIfProfileLoaded()) {
+    protected void deleteBrokenProfiles(List<String> brokenFiles) {
+        if (brokenFiles == null || brokenFiles.isEmpty()) {
             return;
         }
-
-        List<String> brokenProfiles = getBrokenProfiles();
         List<Future<?>> profileDeleteFutures = Lists.newArrayList();
 
-        for (String brokenProfile : brokenProfiles) {
+        for (String brokenProfile : brokenFiles) {
             Thread iothread = new Thread(() -> {
                 try {
                     File profileFile = new File(brokenProfile);
@@ -897,6 +998,15 @@ public class ProfileManager extends MasterDaemon {
                 LOG.error("Failed to remove broken profile", e);
             }
         }
+    }
+
+    protected void deleteBrokenProfiles() {
+        if (!checkIfProfileLoaded()) {
+            return;
+        }
+
+        List<String> brokenProfiles = getBrokenProfiles();
+        deleteBrokenProfiles(brokenProfiles);
     }
 
     // The init value of query finish time of profile is MAX_VALUE,
@@ -1016,13 +1126,14 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    protected void deleteOutdatedProfilesFromMemory(int numOfNewProfiles) {
+    protected List<Profile> deleteOutdatedProfilesFromMemory(int numOfNewProfiles) {
         StringBuilder stringBuilder = new StringBuilder();
+        List<Profile> profilesToArchive = Lists.newArrayList();
         writeLock.lock();
 
         try {
             if (this.queryIdToProfileMap.size() + numOfNewProfiles <= Config.max_query_profile_num) {
-                return;
+                return profilesToArchive;
             }
 
             // profile is ordered by query finish time
@@ -1034,6 +1145,12 @@ public class ProfileManager extends MasterDaemon {
                 ProfileElement profileElement = queueIdDeque.poll();
                 String profileId = profileElement.profile.getSummaryProfile().getProfileId();
                 stringBuilder.append(profileId).append(",");
+
+                // Collect profile for archiving outside the write lock
+                if (archiveManager != null && Config.enable_profile_archive) {
+                    profilesToArchive.add(profileElement.profile);
+                }
+
                 queryIdToProfileMap.remove(profileId);
                 for (ExecutionProfile executionProfile : profileElement.profile.getExecutionProfiles()) {
                     queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
@@ -1053,6 +1170,7 @@ public class ProfileManager extends MasterDaemon {
                         stringBuilder.toString(), profileNum);
             }
         }
+        return profilesToArchive;
     }
 
     protected String getDebugInfo() {
