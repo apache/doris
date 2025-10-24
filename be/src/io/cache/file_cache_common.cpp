@@ -139,7 +139,8 @@ FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cach
         size_t normal_queue_per_elements = settings.query_queue_elements / 100;
 
         settings.cold_query_queue_size = normal_queue_per_size * config::normal_queue_cold_percent;
-        settings.cold_query_queue_elements = normal_queue_per_elements * config::normal_queue_cold_percent;
+        settings.cold_query_queue_elements =
+                normal_queue_per_elements * config::normal_queue_cold_percent;
 
         settings.query_queue_size -= settings.cold_query_queue_size;
         settings.query_queue_elements -= settings.cold_query_queue_elements;
