@@ -247,7 +247,9 @@ public class FileGroupInfo {
                 context.params.setCompressType(compressType);
                 List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
                         context.fileGroup.getColumnNamesFromPath());
-                TFileRangeDesc rangeDesc = createFileRangeDesc(0, fileStatus, fileStatus.size, columnsFromPath);
+                List<String> columnsFromPathKeys = context.fileGroup.getColumnNamesFromPath();
+                TFileRangeDesc rangeDesc = createFileRangeDesc(0, fileStatus, fileStatus.size,
+                        columnsFromPath, columnsFromPathKeys);
                 locations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
             }
             scanRangeLocations.add(locations);
@@ -289,12 +291,13 @@ public class FileGroupInfo {
             context.params.setCompressType(compressType);
             List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
                     context.fileGroup.getColumnNamesFromPath());
+            List<String> columnsFromPathKeys = context.fileGroup.getColumnNamesFromPath();
             // Assign scan range locations only for broker load.
             // stream load has only one file, and no need to set multi scan ranges.
             if (tmpBytes > bytesPerInstance && jobType != JobType.STREAM_LOAD) {
                 long rangeBytes = bytesPerInstance - curInstanceBytes;
                 TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, rangeBytes,
-                        columnsFromPath);
+                        columnsFromPath, columnsFromPathKeys);
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                 curFileOffset += rangeBytes;
 
@@ -303,7 +306,8 @@ public class FileGroupInfo {
                 curLocations = newLocations(context.params, brokerDesc, backendPolicy);
                 curInstanceBytes = 0;
             } else {
-                TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, leftBytes, columnsFromPath);
+                TFileRangeDesc rangeDesc = createFileRangeDesc(curFileOffset, fileStatus, leftBytes, columnsFromPath,
+                        columnsFromPathKeys);
                 curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
                 curFileOffset = 0;
                 curInstanceBytes += leftBytes;
@@ -374,7 +378,7 @@ public class FileGroupInfo {
     }
 
     private TFileRangeDesc createFileRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus, long rangeBytes,
-            List<String> columnsFromPath) {
+            List<String> columnsFromPath, List<String> columnsFromPathKeys) {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
         if (jobType == JobType.BULK_LOAD) {
             rangeDesc.setPath(fileStatus.path);
@@ -382,6 +386,7 @@ public class FileGroupInfo {
             rangeDesc.setSize(rangeBytes);
             rangeDesc.setFileSize(fileStatus.size);
             rangeDesc.setColumnsFromPath(columnsFromPath);
+            rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
             if (getFileType() == TFileType.FILE_HDFS) {
                 URI fileUri = new Path(fileStatus.path).toUri();
                 rangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());
