@@ -21,6 +21,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "util/stack_util.h"
 
 namespace doris {
 
@@ -60,9 +61,12 @@ public:
                     throw;
                 } catch (const std::exception& e) {
                     LOG(WARNING) << "Exception swallowed in Defer destructor during unwind: "
-                                 << e.what();
+                                 << e.what() << ", stack trace:\n"
+                                 << get_stack_trace();
                 } catch (...) {
-                    LOG(WARNING) << "Unknown exception swallowed in Defer destructor during unwind";
+                    LOG(WARNING) << "Unknown exception swallowed in Defer destructor during unwind"
+                                 << ", stack trace:\n"
+                                 << get_stack_trace();
                 }
             }
         } else {
