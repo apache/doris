@@ -118,6 +118,13 @@ std::string DataTypeDecimal<T>::do_get_name() const {
 template <PrimitiveType T>
 bool DataTypeDecimal<T>::equals(const IDataType& rhs) const {
     if (auto* ptype = typeid_cast<const DataTypeDecimal<T>*>(&rhs)) {
+        if constexpr (T == TYPE_DECIMALV2) {
+            return precision == ptype->precision && scale == ptype->scale &&
+                   DataTypeDecimal<TYPE_DECIMALV2>::get_original_precision() ==
+                           ptype->DataTypeDecimal<TYPE_DECIMALV2>::get_original_precision() &&
+                   DataTypeDecimal<TYPE_DECIMALV2>::get_original_scale() ==
+                           ptype->DataTypeDecimal<TYPE_DECIMALV2>::get_original_scale();
+        }
         return precision == ptype->get_precision() && scale == ptype->get_scale();
     }
     return false;
