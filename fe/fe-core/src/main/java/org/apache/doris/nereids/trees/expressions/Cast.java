@@ -109,6 +109,9 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         } else if (childDataType.isDateTimeV2Type() && targetType.isTimeStampTzType()) {
             // Datetime to timestamptz is always nullable
             return true;
+        } else if (childDataType.isTimeStampTzType() && targetType.isTimeStampTzType()) {
+            // timestamptz to timestamptz is always nullable
+            return true;
         } else if (childDataType.isTimeType()) {
             // time to tinyint, smallint, int and time is always nullable.
             return targetType.isTinyIntType() || targetType.isSmallIntType() || targetType.isIntegerType()
