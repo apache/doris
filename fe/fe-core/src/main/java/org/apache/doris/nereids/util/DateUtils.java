@@ -399,8 +399,6 @@ public class DateUtils {
     public static int getDayOrDefault(final TemporalAccessor accessor) {
         if (accessor.isSupported(ChronoField.DAY_OF_MONTH)) {
             return accessor.get(ChronoField.DAY_OF_MONTH);
-        } else if (accessor.isSupported(ChronoField.DAY_OF_YEAR)) {
-            return accessor.get(ChronoField.DAY_OF_YEAR);
         } else {
             return 1;
         }
