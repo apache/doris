@@ -209,9 +209,9 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             .append(snapshot.get99thPercentile()).append("\n");
         sb.append(fullName).append("{quantile=\"0.999\"").append(delimiter).append(fullTag).append("} ")
             .append(snapshot.get999thPercentile()).append("\n");
-        sb.append(fullName).append("_sum {").append(fullTag).append("} ")
+        sb.append(fullName).append("_sum{").append(fullTag).append("} ")
                 .append(histogram.getCount() * snapshot.getMean()).append("\n");
-        sb.append(fullName).append("_count {").append(fullTag).append("} ")
+        sb.append(fullName).append("_count{").append(fullTag).append("} ")
                 .append(histogram.getCount()).append("\n");
     }
 

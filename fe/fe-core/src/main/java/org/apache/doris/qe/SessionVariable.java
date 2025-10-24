@@ -131,6 +131,29 @@ public class SessionVariable implements Serializable, Writable {
     public static final String NET_WRITE_TIMEOUT = "net_write_timeout";
     public static final String NET_READ_TIMEOUT = "net_read_timeout";
     public static final String TIME_ZONE = "time_zone";
+    public static final String LC_TIME_NAMES = "lc_time_names";
+    private static final ImmutableSet<String> SUPPORTED_LC_TIME_NAMES = ImmutableSet.of(
+            "ar_AE", "ar_BH", "ar_JO", "ar_SA", "ar_SY", "be_BY",
+            "bg_BG", "ca_ES", "cs_CZ", "da_DK", "de_AT", "de_DE",
+            "en_US", "es_ES", "et_EE", "eu_ES", "fi_FI", "fo_FO",
+            "fr_FR", "gl_ES", "gu_IN", "he_IL", "hi_IN", "hr_HR",
+            "hu_HU", "id_ID", "is_IS", "it_CH", "ja_JP", "ko_KR",
+            "lt_LT", "lv_LV", "mk_MK", "mn_MN", "ms_MY", "nb_NO",
+            "nl_NL", "pl_PL", "pt_BR", "pt_PT", "ro_RO", "ru_RU",
+            "ru_UA", "sk_SK", "sl_SI", "sq_AL", "sr_RS", "sv_SE",
+            "ta_IN", "te_IN", "th_TH", "tr_TR", "uk_UA", "ur_PK",
+            "vi_VN", "zh_CN", "zh_TW", "ar_DZ", "ar_EG", "ar_IN",
+            "ar_IQ", "ar_KW", "ar_LB", "ar_LY", "ar_MA", "ar_OM",
+            "ar_QA", "ar_SD", "ar_TN", "ar_YE", "de_BE", "de_CH",
+            "de_LU", "en_AU", "en_CA", "en_GB", "en_IN", "en_NZ",
+            "en_PH", "en_ZA", "en_ZW", "es_AR", "es_BO", "es_CL",
+            "es_CO", "es_CR", "es_DO", "es_EC", "es_GT", "es_HN",
+            "es_MX", "es_NI", "es_PA", "es_PE", "es_PR", "es_PY",
+            "es_SV", "es_US", "es_UY", "es_VE", "fr_BE", "fr_CA",
+            "fr_CH", "fr_LU", "it_IT", "nl_BE", "no_NO", "sv_FI",
+            "zh_HK", "el_GR", "rm_CH"
+    );
+
     public static final String SQL_SAFE_UPDATES = "sql_safe_updates";
     public static final String NET_BUFFER_LENGTH = "net_buffer_length";
     public static final String HAVE_QUERY_CACHE =  "have_query_cache";
@@ -168,6 +191,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String QUERY_CACHE_FORCE_REFRESH = "query_cache_force_refresh";
     public static final String QUERY_CACHE_ENTRY_MAX_BYTES = "query_cache_entry_max_bytes";
     public static final String QUERY_CACHE_ENTRY_MAX_ROWS = "query_cache_entry_max_rows";
+    public static final String ENABLE_CONDITION_CACHE = "enable_condition_cache";
 
     public static final String ENABLE_COST_BASED_JOIN_REORDER = "enable_cost_based_join_reorder";
 
@@ -389,6 +413,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DEFAULT_ORDER_BY_LIMIT = "default_order_by_limit";
 
     public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
+
+    public static final String SHUFFLED_AGG_NODE_IDS = "shuffled_agg_node_ids";
 
     public static final String ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES = "enable_fast_analyze_into_values";
 
@@ -612,6 +638,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
     public static final String LOW_MEMORY_MODE_BUFFER_LIMIT = "low_memory_mode_buffer_limit";
     public static final String DUMP_HEAP_PROFILE_WHEN_MEM_LIMIT_EXCEEDED = "dump_heap_profile_when_mem_limit_exceeded";
+
+    public static final String ENABLE_FUZZY_BLOCKABLE_TASK = "enable_fuzzy_blockable_task";
 
     public static final String GENERATE_STATS_FACTOR = "generate_stats_factor";
 
@@ -1124,6 +1152,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResult = true)
     public String timeZone = TimeUtils.getSystemTimeZone().getID();
 
+    @VariableMgr.VarAttr(name = LC_TIME_NAMES, needForward = true, affectQueryResult = true,
+            setter = "setLcTimeNames")
+    public String lcTimeNames = "en_US";
+
     @VariableMgr.VarAttr(name = PARALLEL_EXCHANGE_INSTANCE_NUM)
     public int exchangeInstanceParallel = 100;
 
@@ -1272,6 +1304,9 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttr(name = QUERY_CACHE_ENTRY_MAX_ROWS)
     private long queryCacheEntryMaxRows = 500000;
 
+    @VariableMgr.VarAttr(name = ENABLE_CONDITION_CACHE)
+    public boolean enableConditionCache = true;
+
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = true;
 
@@ -1337,10 +1372,11 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableVectorizedEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = false, needForward = true,
-            varType = VariableAnnotation.REMOVED)
+            varType = VariableAnnotation.REMOVED, setter = "setEnablePipelineEngine")
     private boolean enablePipelineEngine = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.REMOVED)
+    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.REMOVED,
+            setter = "setEnablePipelineXEngine")
     private boolean enablePipelineXEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_SHARED_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
@@ -1824,6 +1860,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SINGLE_REPLICA_INSERT,
             needForward = true, varType = VariableAnnotation.EXPERIMENTAL)
     public boolean enableSingleReplicaInsert = false;
+
+    @VariableMgr.VarAttr(name = SHUFFLED_AGG_NODE_IDS,
+            needForward = true, varType = VariableAnnotation.EXPERIMENTAL)
+    public String shuffledAggNodeIds = "";
 
     @VariableMgr.VarAttr(
             name = ENABLE_FAST_ANALYZE_INSERT_INTO_VALUES, fuzzy = true,
@@ -2624,6 +2664,36 @@ public class SessionVariable implements Serializable, Writable {
         return ids;
     }
 
+    public List<Integer> getShuffledAggNodeIds() {
+        List<Integer> ids = Lists.newLinkedList();
+        if (shuffledAggNodeIds.isEmpty()) {
+            return ImmutableList.of();
+        }
+        for (String v : shuffledAggNodeIds.split(",[\\s]*")) {
+            int res = -1;
+            if (!v.isEmpty()) {
+                boolean isNumber = true;
+                for (int i = 0; i < v.length(); ++i) {
+                    char c = v.charAt(i);
+                    if (c < '0' || c > '9') {
+                        isNumber = false;
+                        break;
+                    }
+                }
+                if (isNumber) {
+                    try {
+                        res = Integer.parseInt(v);
+                    } catch (Throwable t) {
+                        // ignore
+                    }
+                }
+
+            }
+            ids.add(res);
+        }
+        return ids;
+    }
+
     public void setIgnoreRuntimeFilterIds(String ignoreRuntimeFilterIds) {
         this.ignoreRuntimeFilterIds = ignoreRuntimeFilterIds;
     }
@@ -2794,6 +2864,10 @@ public class SessionVariable implements Serializable, Writable {
                             + "The default value is false."},
             needForward = true)
     public boolean dumpHeapProfileWhenMemLimitExceeded = false;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_FUZZY_BLOCKABLE_TASK, fuzzy = true)
+    public boolean enableFuzzyBlockableTask = false;
 
     @VariableMgr.VarAttr(name = USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS, needForward = true, description = {
             "在CTAS中，如果 CHAR / VARCHAR 列不来自于源表，是否是将这一列的长度设置为 MAX，即65533。默认为 true。",
@@ -3024,6 +3098,7 @@ public class SessionVariable implements Serializable, Writable {
     public void initFuzzyModeVariables() {
         Random random = new SecureRandom();
         this.feDebug = true;
+        this.enableConditionCache = Config.pull_request_id % 2 == 0;
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
@@ -3115,7 +3190,7 @@ public class SessionVariable implements Serializable, Writable {
                 this.batchSize = 1024;
                 this.enableFoldConstantByBe = false;
             }
-
+            this.enableFuzzyBlockableTask = random.nextBoolean();
         }
         this.runtimeFilterWaitInfinitely = random.nextBoolean();
 
@@ -3462,6 +3537,33 @@ public class SessionVariable implements Serializable, Writable {
         this.timeZone = timeZone;
     }
 
+    private static String standarlizeLcTimeNames(String value) {
+        if (value.isEmpty()) {
+            throw new InvalidParameterException("lc_time_names value is empty");
+        }
+        String[] segments = value.split("_");
+        if (segments.length != 2) {
+            throw new InvalidParameterException(
+                    "lc_time_names value must be in language_COUNTRY form: " + value);
+        }
+
+        return segments[0].toLowerCase() + "_" + segments[1].toUpperCase();
+    }
+
+    public void setLcTimeNames(String lcTimeNames) {
+        String standardLcTimeNames = standarlizeLcTimeNames(lcTimeNames);
+        if (!SUPPORTED_LC_TIME_NAMES.contains(standardLcTimeNames)) {
+            String supportedList = String.join(", ", SUPPORTED_LC_TIME_NAMES);
+            throw new InvalidParameterException("Unsupported lc_time_names value: " + lcTimeNames
+                + ". Supported values are: " + supportedList);
+        }
+        this.lcTimeNames = standardLcTimeNames;
+    }
+
+    public String getLcTimeNames() {
+        return lcTimeNames;
+    }
+
     public int getSqlSafeUpdates() {
         return sqlSafeUpdates;
     }
@@ -3544,6 +3646,36 @@ public class SessionVariable implements Serializable, Writable {
     public void setPipelineTaskNum(String value) throws Exception {
         int val = checkFieldValue(PARALLEL_PIPELINE_TASK_NUM, 0, value);
         this.parallelPipelineTaskNum = val;
+    }
+
+    public void setEnablePipelineEngine(String value) throws Exception {
+        if (value.equalsIgnoreCase("ON")
+                || value.equalsIgnoreCase("TRUE")
+                || value.equalsIgnoreCase("1")) {
+            this.enablePipelineEngine = true;
+        } else if (value.equalsIgnoreCase("OFF")
+                || value.equalsIgnoreCase("FALSE")
+                || value.equalsIgnoreCase("0")) {
+            throw new Exception(
+                    "You cannot disable pipeline engine, because it is the only execution engine now.");
+        } else {
+            throw new IllegalAccessException(value + " can not be parsed to boolean");
+        }
+    }
+
+    public void setEnablePipelineXEngine(String value) throws Exception {
+        if (value.equalsIgnoreCase("ON")
+                || value.equalsIgnoreCase("TRUE")
+                || value.equalsIgnoreCase("1")) {
+            this.enablePipelineXEngine = true;
+        } else if (value.equalsIgnoreCase("OFF")
+                || value.equalsIgnoreCase("FALSE")
+                || value.equalsIgnoreCase("0")) {
+            throw new Exception(
+                    "You cannot disable pipeline engine, because it is the only execution engine now.");
+        } else {
+            throw new IllegalAccessException(value + " can not be parsed to boolean");
+        }
     }
 
     public void setFragmentInstanceNum(String value) {}
@@ -4556,6 +4688,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setQueryTimeout(queryTimeoutS);
         tResult.setEnableProfile(enableProfile);
         tResult.setRpcVerboseProfileMaxInstanceCount(rpcVerboseProfileMaxInstanceCount);
+        tResult.setShuffledAggIds(getShuffledAggNodeIds());
         if (enableProfile) {
             // If enable profile == true, then also set report success to true
             // be need report success to start report thread. But it is very tricky
@@ -4574,6 +4707,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
         tResult.setPartitionTopnMaxPartitions(partitionTopNMaxPartitions);
         tResult.setPartitionTopnPrePartitionRows(partitionTopNPerPartitionRows);
+        if (enableConditionCache) {
+            tResult.setConditionCacheDigest(getAffectQueryResultVariableHashCode());
+        }
 
         if (maxScanKeyNum > 0) {
             tResult.setMaxScanKeyNum(maxScanKeyNum);
@@ -4593,6 +4729,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setRuntimeBloomFilterMinSize(runtimeBloomFilterMinSize);
         tResult.setRuntimeBloomFilterMaxSize(runtimeBloomFilterMaxSize);
         tResult.setRuntimeFilterWaitInfinitely(runtimeFilterWaitInfinitely);
+        tResult.setEnableFuzzyBlockableTask(enableFuzzyBlockableTask);
 
         if (cpuResourceLimit > 0) {
             TResourceLimit resourceLimit = new TResourceLimit();
@@ -4794,8 +4931,7 @@ public class SessionVariable implements Serializable, Writable {
                         field.set(this, root.get(attr.name()));
                         break;
                     case "double":
-                        // root.get(attr.name()) always return Double type, so need to convert it.
-                        field.set(this, Double.valueOf(root.get(attr.name()).toString()));
+                        field.set(this, root.get(attr.name()));
                         break;
                     case "String":
                         field.set(this, root.get(attr.name()));
@@ -4807,6 +4943,60 @@ public class SessionVariable implements Serializable, Writable {
             }
         } catch (Exception e) {
             throw new IOException("failed to read session variable: " + e.getMessage());
+        }
+    }
+
+    public void readFromMap(Map<String, String> sessionVarMap)  throws IOException {
+        try {
+            for (Field field : SessionVariable.class.getDeclaredFields()) {
+                VarAttr attr = field.getAnnotation(VarAttr.class);
+                if (attr == null) {
+                    continue;
+                }
+
+                if (!sessionVarMap.containsKey(attr.name())) {
+                    continue;
+                }
+
+                switch (field.getType().getSimpleName()) {
+                    case "boolean":
+                        String value = sessionVarMap.get(attr.name());
+                        if (value.equalsIgnoreCase("ON")
+                                || value.equalsIgnoreCase("TRUE")
+                                || value.equalsIgnoreCase("1")) {
+                            field.setBoolean(this, true);
+                        } else if (value.equalsIgnoreCase("OFF")
+                                || value.equalsIgnoreCase("FALSE")
+                                || value.equalsIgnoreCase("0")) {
+                            field.setBoolean(this, false);
+                        } else {
+                            throw new IllegalAccessException("Variable " + attr.name()
+                                    + " can't be set to the value of " + value);
+                        }
+                        break;
+                    case "int":
+                        field.set(this, Integer.valueOf(sessionVarMap.get(attr.name())));
+                        break;
+                    case "long":
+                        field.set(this, Long.valueOf(sessionVarMap.get(attr.name())));
+                        break;
+                    case "float":
+                        field.set(this, Float.valueOf(sessionVarMap.get(attr.name())));
+                        break;
+                    case "double":
+                        field.set(this, Double.valueOf(sessionVarMap.get(attr.name())));
+                        break;
+                    case "String":
+                        field.set(this, sessionVarMap.get(attr.name()));
+                        break;
+                    default:
+                        // Unsupported type variable.
+                        throw new IOException("invalid type: " + field.getType().getSimpleName());
+                }
+
+            }
+        } catch (Exception ex) {
+            throw new IOException("invalid session variable, " + ex.getMessage());
         }
     }
 
@@ -5497,6 +5687,20 @@ public class SessionVariable implements Serializable, Writable {
                 throw new IllegalStateException("Can not access SessionVariable." + name, t);
             }
         }
+    }
+
+    public int getAffectQueryResultVariableHashCode() {
+        int hash = 0;
+        for (Field affectQueryResultField : affectQueryResultFields) {
+            String name = affectQueryResultField.getName();
+            try {
+                Object value = affectQueryResultField.get(this);
+                hash = 31 * hash + (value != null ? value.hashCode() : 0);
+            } catch (Throwable t) {
+                throw new IllegalStateException("Can not access SessionVariable." + name, t);
+            }
+        }
+        return hash;
     }
 
     public static boolean isFeDebug() {

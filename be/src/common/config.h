@@ -711,6 +711,7 @@ DECLARE_mInt32(memory_gc_sleep_time_ms);
 
 // max write buffer size before flush, default 200MB
 DECLARE_mInt64(write_buffer_size);
+DECLARE_mBool(enable_adaptive_write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
 DECLARE_mInt64(write_buffer_size_for_agg);
 
@@ -1044,6 +1045,7 @@ DECLARE_mInt32(remove_unused_remote_files_interval_sec); // 6h
 DECLARE_mInt32(confirm_unused_remote_files_interval_sec);
 DECLARE_Int32(cold_data_compaction_thread_num);
 DECLARE_mInt32(cold_data_compaction_interval_sec);
+DECLARE_mInt32(cold_data_compaction_score_threshold);
 
 DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
@@ -1201,6 +1203,9 @@ DECLARE_Int32(inverted_index_query_cache_shards);
 
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
+
+// condition cache limit
+DECLARE_Int16(condition_cache_limit);
 
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
@@ -1556,6 +1561,9 @@ DECLARE_mBool(skip_loading_stale_rowset_meta);
 // Only works when starting BE with --console.
 DECLARE_Bool(enable_file_logger);
 
+// Enable partition column fallback when partition columns are missing from file
+DECLARE_Bool(enable_iceberg_partition_column_fallback);
+
 // The minimum row group size when exporting Parquet files.
 DECLARE_Int64(min_row_group_size);
 
@@ -1623,6 +1631,7 @@ DECLARE_mBool(enable_calc_delete_bitmap_between_segments_concurrently);
 
 DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
 
+DECLARE_mBool(enable_fetch_rowsets_from_peer_replicas);
 // the max length of segments key bounds, in bytes
 // ATTENTION: as long as this conf has ever been enabled, cluster downgrade and backup recovery will no longer be supported.
 DECLARE_mInt32(segments_key_bounds_truncation_threshold);
@@ -1639,7 +1648,8 @@ DECLARE_String(fuzzy_test_type);
 // The maximum csv line reader output buffer size
 DECLARE_mInt64(max_csv_line_reader_output_buffer_size);
 
-// Maximum number of OpenMP threads that can be used by each Doris thread
+// Maximum number of OpenMP threads available for concurrent index builds.
+// -1 means auto: use 80% of detected CPU cores.
 DECLARE_Int32(omp_threads_limit);
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DECLARE_mInt32(max_segment_partial_column_cache_size);
@@ -1652,6 +1662,10 @@ DECLARE_mBool(enable_wal_tde);
 DECLARE_mBool(print_stack_when_cache_miss);
 
 DECLARE_mBool(read_cluster_cache_opt_verbose_log);
+
+DECLARE_mString(aws_credentials_provider_version);
+
+DECLARE_mString(binary_plain_encoding_default_impl);
 
 #ifdef BE_TEST
 // test s3
