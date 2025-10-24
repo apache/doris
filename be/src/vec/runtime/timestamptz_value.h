@@ -61,11 +61,11 @@ public:
 
     // Converts from a datetime value
     bool from_datetime(const DateV2Value<DateTimeV2ValueType>& dt,
-                       const cctz::time_zone& local_time_zone);
+                       const cctz::time_zone& local_time_zone, int dt_scale, int tz_scale);
 
     // Converts to a datetime value
-    bool to_datetime(DateV2Value<DateTimeV2ValueType>& dt,
-                     const cctz::time_zone& local_time_zone) const;
+    bool to_datetime(DateV2Value<DateTimeV2ValueType>& dt, const cctz::time_zone& local_time_zone,
+                     int dt_scale, int tz_scale) const;
 
     // Default column value (since the default value 0 for UInt64 is not a valid datetime)
     static underlying_value default_column_value() { return MIN_DATETIME_V2; }
