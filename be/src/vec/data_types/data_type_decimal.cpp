@@ -111,7 +111,12 @@ DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
 template <PrimitiveType T>
 std::string DataTypeDecimal<T>::do_get_name() const {
     std::stringstream ss;
-    ss << "Decimal(" << precision << ", " << scale << ")";
+    if constexpr (T == TYPE_DECIMALV2) {
+        ss << "DecimalV2(" << DataTypeDecimal<TYPE_DECIMALV2>::get_original_precision() << ", "
+           << DataTypeDecimal<TYPE_DECIMALV2>::get_original_scale() << ")";
+    } else {
+        ss << "Decimal(" << precision << ", " << scale << ")";
+    }
     return ss.str();
 }
 
