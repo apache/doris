@@ -44,6 +44,12 @@
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv_error.h"
 
+namespace google {
+namespace glog_internal_namespace_ {
+void DumpStackTraceToString(std::string* stacktrace);
+}
+} // namespace google
+
 // =============================================================================
 //  FoundationDB implementation of TxnKv
 // =============================================================================
@@ -75,8 +81,9 @@ static void may_logging_single_version_reading(std::string_view key) {
     std::string_view tmp_key(key);
     std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
     tmp_key.remove_prefix(1); // Remove the space tag.
+    std::string msg;
     if (decode_key(&tmp_key, &out) != 0) {
-        LOG(WARNING) << "Read single version meta key: " << hex(key);
+        msg = fmt::format("Read single version meta key: {}", hex(key));
     } else {
         if (out.size() > 3) {
             auto& first = std::get<0>(out[0]);
@@ -104,8 +111,14 @@ static void may_logging_single_version_reading(std::string_view key) {
             value.push_back(' ');
         }
 
-        LOG(WARNING) << "Read single version meta key: \\x01 " << value << ", raw: " << hex(key);
+        msg = fmt::format("Read single version meta key: \\x01 {}, raw: {}", value, hex(key));
     }
+    std::string stack;
+    google::glog_internal_namespace_::DumpStackTraceToString(&stack);
+    if (stack.find("doris::cloud::put_schema_kv()") != std::string::npos) {
+        return;
+    }
+    LOG(WARNING) << msg << ", stack trace: " << stack;
 }
 
 static std::tuple<fdb_bool_t, int> apply_key_selector(RangeKeySelector selector) {
@@ -229,7 +242,6 @@ TxnErrorCode Transaction::batch_scan(
         std::vector<std::optional<std::pair<std::string, std::string>>>* res,
         const std::vector<std::string>& key_prefixs, const BatchGetOptions& opts) {
     std::vector<std::pair<std::string, std::string>> ranges;
-    ranges.reserve(key_prefixs.size());
     for (auto&& key_prefix : key_prefixs) {
         ranges.emplace_back(key_prefix, lexical_end(key_prefix));
     }
@@ -875,6 +887,94 @@ TxnErrorCode Transaction::get_conflicting_range(
     return TxnErrorCode::TXN_OK;
 }
 
+TxnErrorCode Transaction::get_read_conflict_range(
+        std::vector<std::pair<std::string, std::string>>* values) {
+    constexpr std::string_view start = "\xff\xff/transaction/read_conflict_range/";
+    constexpr std::string_view end = "\xff\xff/transaction/read_conflict_range/\xff";
+
+    int limit = 0;
+    int target_bytes = 0;
+    FDBStreamingMode mode = FDB_STREAMING_MODE_WANT_ALL;
+    int iteration = 0;
+    fdb_bool_t snapshot = 0;
+    fdb_bool_t reverse = 0;
+    FDBFuture* future = fdb_transaction_get_range(
+            txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)start.data(), start.size()),
+            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end.data(), end.size()), limit,
+            target_bytes, mode, iteration, snapshot, reverse);
+
+    DORIS_CLOUD_DEFER {
+        fdb_future_destroy(future);
+    };
+
+    RETURN_IF_ERROR(await_future(future));
+
+    FDBKeyValue const* out_kvs;
+    int out_kvs_count;
+    fdb_bool_t out_more;
+    do {
+        fdb_error_t err =
+                fdb_future_get_keyvalue_array(future, &out_kvs, &out_kvs_count, &out_more);
+        if (err) {
+            LOG(WARNING) << "get_conflicting_range get keyvalue array error: "
+                         << fdb_get_error(err);
+            return cast_as_txn_code(err);
+        }
+        for (int i = 0; i < out_kvs_count; i++) {
+            std::string_view key((char*)out_kvs[i].key, out_kvs[i].key_length);
+            std::string_view value((char*)out_kvs[i].value, out_kvs[i].value_length);
+            key.remove_prefix(start.size());
+            values->emplace_back(key, value);
+        }
+    } while (out_more);
+
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode Transaction::get_write_conflict_range(
+        std::vector<std::pair<std::string, std::string>>* values) {
+    constexpr std::string_view start = "\xff\xff/transaction/write_conflict_range/";
+    constexpr std::string_view end = "\xff\xff/transaction/write_conflict_range/\xff";
+
+    int limit = 0;
+    int target_bytes = 0;
+    FDBStreamingMode mode = FDB_STREAMING_MODE_WANT_ALL;
+    int iteration = 0;
+    fdb_bool_t snapshot = 0;
+    fdb_bool_t reverse = 0;
+    FDBFuture* future = fdb_transaction_get_range(
+            txn_, FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)start.data(), start.size()),
+            FDB_KEYSEL_FIRST_GREATER_OR_EQUAL((uint8_t*)end.data(), end.size()), limit,
+            target_bytes, mode, iteration, snapshot, reverse);
+
+    DORIS_CLOUD_DEFER {
+        fdb_future_destroy(future);
+    };
+
+    RETURN_IF_ERROR(await_future(future));
+
+    FDBKeyValue const* out_kvs;
+    int out_kvs_count;
+    fdb_bool_t out_more;
+    do {
+        fdb_error_t err =
+                fdb_future_get_keyvalue_array(future, &out_kvs, &out_kvs_count, &out_more);
+        if (err) {
+            LOG(WARNING) << "get_conflicting_range get keyvalue array error: "
+                         << fdb_get_error(err);
+            return cast_as_txn_code(err);
+        }
+        for (int i = 0; i < out_kvs_count; i++) {
+            std::string_view key((char*)out_kvs[i].key, out_kvs[i].key_length);
+            std::string_view value((char*)out_kvs[i].value, out_kvs[i].value_length);
+            key.remove_prefix(start.size());
+            values->emplace_back(key, value);
+        }
+    } while (out_more);
+
+    return TxnErrorCode::TXN_OK;
+}
+
 TxnErrorCode Transaction::report_conflicting_range() {
     if (!config::enable_logging_conflict_keys) {
         return TxnErrorCode::TXN_OK;
@@ -900,7 +1000,45 @@ TxnErrorCode Transaction::report_conflicting_range() {
         out += fmt::format("[{}, {}): {}", hex(start), hex(end), conflict_count);
     }
 
-    LOG(WARNING) << "conflicting key ranges: " << out;
+    key_values.clear();
+    RETURN_IF_ERROR(get_read_conflict_range(&key_values));
+    if (key_values.size() % 2 != 0) {
+        LOG(WARNING) << "the conflicting range is not well-formed, size=" << key_values.size();
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+    std::string read_conflict_range_out;
+    for (size_t i = 0; i < key_values.size(); i += 2) {
+        std::string_view start = key_values[i].first;
+        std::string_view end = key_values[i + 1].first;
+        std::string_view conflict_count = key_values[i].second;
+        if (!read_conflict_range_out.empty()) {
+            read_conflict_range_out += ", ";
+        }
+        read_conflict_range_out +=
+                fmt::format("[{}, {}): {}", hex(start), hex(end), conflict_count);
+    }
+
+    key_values.clear();
+    RETURN_IF_ERROR(get_write_conflict_range(&key_values));
+    if (key_values.size() % 2 != 0) {
+        LOG(WARNING) << "the conflicting range is not well-formed, size=" << key_values.size();
+        return TxnErrorCode::TXN_INVALID_DATA;
+    }
+    std::string write_conflict_range_out;
+    for (size_t i = 0; i < key_values.size(); i += 2) {
+        std::string_view start = key_values[i].first;
+        std::string_view end = key_values[i + 1].first;
+        std::string_view conflict_count = key_values[i].second;
+        if (!write_conflict_range_out.empty()) {
+            write_conflict_range_out += ", ";
+        }
+        write_conflict_range_out +=
+                fmt::format("[{}, {}): {}", hex(start), hex(end), conflict_count);
+    }
+
+    LOG(WARNING) << "conflicting key ranges: " << out
+                 << ", read conflict range: " << read_conflict_range_out
+                 << ", write conflict range: " << write_conflict_range_out;
 
     return TxnErrorCode::TXN_OK;
 }
