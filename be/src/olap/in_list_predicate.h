@@ -314,8 +314,10 @@ public:
         }
 
         if constexpr (PT == PredicateType::IN_LIST) {
-            return Compare::less_equal(min_value, _max_value) ||
-                   Compare::greater_equal(max_value, _min_value);
+            return (Compare::less_equal(min_value, _max_value) &&
+                    Compare::greater_equal(max_value, _min_value)) ||
+                   (Compare::greater_equal(max_value, _min_value) &&
+                    Compare::less_equal(min_value, _max_value));
         } else {
             return true;
         }

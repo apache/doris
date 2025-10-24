@@ -205,7 +205,7 @@ public:
             return Compare::less_equal(min_value, _value) &&
                    Compare::greater_equal(max_value, _value);
         } else if constexpr (PT == PredicateType::NE) {
-            return !Compare::equal(min_value, _value) || !Compare::greater_equal(max_value, _value);
+            return !Compare::equal(min_value, _value) || !Compare::equal(max_value, _value);
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
             return Compare::less_equal(min_value, _value);
         } else {
