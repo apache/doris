@@ -81,6 +81,26 @@ public class MCProperties extends BaseProperties {
     public static final String ACCOUNT_FORMAT_ID = "id";
     public static final String DEFAULT_ACCOUNT_FORMAT = ACCOUNT_FORMAT_NAME;
 
+    // In the previous MaxCompute architecture, and its mapping in Doris,
+    // the hierarchy was: project / database -> table / table.
+    // When creating a catalog, users needed to specify the property `mc.default.project`,
+    // which indicated the default project to access.
+    // In this structure, executing `SHOW DATABASES` would list other projects.
+    //
+    // After MaxCompute introduced the concept of schemas, the hierarchy changed to:
+    // project / catalog -> schema / database -> table / table.
+    // Here, the project is at a higher level, and `SHOW DATABASES` should now list
+    // all schemas under the current project.
+    // As a result, users need to create a separate catalog for each project,
+    // specifying a different `mc.default.project` property.
+    //
+    // To maintain compatibility with the old version,
+    // a variable is introduced:
+    // - When the property is true, the new architecture is used.
+    // - When the property is false, the old architecture is used.
+    public static final String ENABLE_NAMESPACE_SCHEMA = "mc.enable.namespace.schema";
+    public static final String DEFAULT_ENABLE_NAMESPACE_SCHEMA = "false";
+
     public static CloudCredential getCredential(Map<String, String> props) {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);
     }

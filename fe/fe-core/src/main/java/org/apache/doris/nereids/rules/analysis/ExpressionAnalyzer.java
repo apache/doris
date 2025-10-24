@@ -433,19 +433,33 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return unboundFunction;
     }
 
+    List<Object> constructUnboundFunctionArguments(UnboundFunction unboundFunction) {
+        ImmutableList.Builder<Object> argumentsBuilder
+                = ImmutableList.builderWithExpectedSize(unboundFunction.arity() + 1);
+        if (unboundFunction.isDistinct()) {
+            argumentsBuilder.add(unboundFunction.isDistinct());
+        }
+        for (Expression argument : unboundFunction.getArguments()) {
+            if (argument instanceof BoundStar) {
+                BoundStar boundStar = (BoundStar) argument;
+                for (Slot slot : boundStar.getSlots()) {
+                    argumentsBuilder.add(new StringLiteral(slot.getName()));
+                    argumentsBuilder.add(slot);
+                }
+            } else {
+                argumentsBuilder.add(argument);
+            }
+        }
+        return argumentsBuilder.build();
+    }
+
     @Override
     public Expression visitUnboundFunction(UnboundFunction unboundFunction, ExpressionRewriteContext context) {
         unboundFunction = preProcessUnboundFunction(unboundFunction, context);
 
         // bind function
         FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
-        List<Object> arguments = unboundFunction.isDistinct()
-                ? ImmutableList.builderWithExpectedSize(unboundFunction.arity() + 1)
-                .add(unboundFunction.isDistinct())
-                .addAll(unboundFunction.getArguments())
-                .build()
-                : (List) unboundFunction.getArguments();
-
+        List<Object> arguments = constructUnboundFunctionArguments(unboundFunction);
         String dbName = unboundFunction.getDbName();
         if (StringUtils.isEmpty(dbName)) {
             // we will change arithmetic function like add(), subtract(), bitnot()

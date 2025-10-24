@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.SchemaCacheValue;
 
 import com.aliyun.odps.Table;
+import com.aliyun.odps.table.TableIdentifier;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -31,15 +32,18 @@ import java.util.List;
 @Setter
 public class MaxComputeSchemaCacheValue extends SchemaCacheValue {
     private Table odpsTable;
+    private TableIdentifier tableIdentifier;
     private List<String> partitionColumnNames;
     private List<String> partitionSpecs;
     private List<Column> partitionColumns;
     private List<Type> partitionTypes;
 
-    public MaxComputeSchemaCacheValue(List<Column> schema, Table odpsTable, List<String> partitionColumnNames,
-            List<String> partitionSpecs, List<Column> partitionColumns, List<Type> partitionTypes) {
+    public MaxComputeSchemaCacheValue(List<Column> schema, Table odpsTable, TableIdentifier tableIdentifier,
+            List<String> partitionColumnNames, List<String> partitionSpecs, List<Column> partitionColumns,
+            List<Type> partitionTypes) {
         super(schema);
         this.odpsTable = odpsTable;
+        this.tableIdentifier = tableIdentifier;
         this.partitionSpecs = partitionSpecs;
         this.partitionColumnNames = partitionColumnNames;
         this.partitionColumns = partitionColumns;
