@@ -434,6 +434,9 @@ public class Profile {
     public void releaseMemory() {
         this.executionProfiles.clear();
         this.changedSessionVarCache = "";
+        this.physicalPlan = null;
+        this.rowsProducedMap = null;
+        this.physicalRelations = null;
     }
 
     public boolean shouldStoreToStorage() {
