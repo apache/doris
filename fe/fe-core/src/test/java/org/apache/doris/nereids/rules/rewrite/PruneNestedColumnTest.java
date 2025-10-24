@@ -39,7 +39,9 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.thrift.TAccessPathType;
-import org.apache.doris.thrift.TColumnNameAccessPath;
+import org.apache.doris.thrift.TColumnAccessPath;
+import org.apache.doris.thrift.TDataAccessPath;
+import org.apache.doris.thrift.TMetaAccessPath;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -413,8 +415,8 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     private void assertColumn(String sql, String expectType,
-            List<TColumnNameAccessPath> expectAllAccessPaths,
-            List<TColumnNameAccessPath> expectPredicateAccessPaths) throws Exception {
+            List<TColumnAccessPath> expectAllAccessPaths,
+            List<TColumnAccessPath> expectPredicateAccessPaths) throws Exception {
         Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(sql);
         PhysicalPlan physicalPlan = result.first;
         List<SlotDescriptor> slotDescriptors = result.second;
@@ -426,16 +428,14 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         Assertions.assertEquals(1, slotDescriptors.size());
         Assertions.assertEquals(expectType, slotDescriptors.get(0).getType().toString());
 
-        Assertions.assertEquals(TAccessPathType.NAME, slotDescriptors.get(0).getAllAccessPaths().type);
-        TreeSet<TColumnNameAccessPath> expectAllAccessPathSet = new TreeSet<>(expectAllAccessPaths);
-        TreeSet<TColumnNameAccessPath> actualAllAccessPaths
-                = new TreeSet<>(slotDescriptors.get(0).getAllAccessPaths().name_access_paths);
+        TreeSet<TColumnAccessPath> expectAllAccessPathSet = new TreeSet<>(expectAllAccessPaths);
+        TreeSet<TColumnAccessPath> actualAllAccessPaths
+                = new TreeSet<>(slotDescriptors.get(0).getAllAccessPaths());
         Assertions.assertEquals(expectAllAccessPathSet, actualAllAccessPaths);
 
-        Assertions.assertEquals(TAccessPathType.NAME, slotDescriptors.get(0).getPredicateAccessPaths().type);
-        TreeSet<TColumnNameAccessPath> expectPredicateAccessPathSet = new TreeSet<>(expectPredicateAccessPaths);
-        TreeSet<TColumnNameAccessPath> actualPredicateAccessPaths
-                = new TreeSet<>(slotDescriptors.get(0).getPredicateAccessPaths().name_access_paths);
+        TreeSet<TColumnAccessPath> expectPredicateAccessPathSet = new TreeSet<>(expectPredicateAccessPaths);
+        TreeSet<TColumnAccessPath> actualPredicateAccessPaths
+                = new TreeSet<>(slotDescriptors.get(0).getPredicateAccessPaths());
         Assertions.assertEquals(expectPredicateAccessPathSet, actualPredicateAccessPaths);
 
         Map<Integer, DataType> slotIdToDataTypes = new LinkedHashMap<>();
@@ -503,7 +503,15 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         return Pair.of(physicalPlan, complexSlots);
     }
 
-    private TColumnNameAccessPath path(String... path) {
-        return new TColumnNameAccessPath(ImmutableList.copyOf(path));
+    private TColumnAccessPath path(String... path) {
+        TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.DATA);
+        accessPath.data_access_path = new TDataAccessPath(ImmutableList.copyOf(path));
+        return accessPath;
+    }
+
+    private TColumnAccessPath metaPath(String... path) {
+        TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.META);
+        accessPath.meta_access_path = new TMetaAccessPath(ImmutableList.copyOf(path));
+        return accessPath;
     }
 }

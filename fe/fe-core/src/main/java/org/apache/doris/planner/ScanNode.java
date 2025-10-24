@@ -53,8 +53,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
-import org.apache.doris.thrift.TColumnAccessPaths;
-import org.apache.doris.thrift.TColumnNameAccessPath;
+import org.apache.doris.thrift.TAccessPathType;
+import org.apache.doris.thrift.TColumnAccessPath;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRange;
@@ -570,33 +570,45 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
             }
             String displayAllAccessPathsString = null;
             if (slot.getDisplayAllAccessPaths() != null
-                    && slot.getDisplayAllAccessPaths().name_access_paths != null
-                    && !slot.getDisplayAllAccessPaths().name_access_paths.isEmpty()) {
+                    && slot.getDisplayAllAccessPaths() != null
+                    && !slot.getDisplayAllAccessPaths().isEmpty()) {
                 if (this instanceof IcebergScanNode) {
                     displayAllAccessPathsString = mergeIcebergAccessPathsWithId(
                             slot.getAllAccessPaths(),
                             slot.getDisplayAllAccessPaths()
                     );
                 } else {
-                    displayAllAccessPathsString = slot.getDisplayAllAccessPaths().name_access_paths
+                    displayAllAccessPathsString = slot.getDisplayAllAccessPaths()
                             .stream()
-                            .map(a -> StringUtils.join(a.path, "."))
+                            .map(a -> {
+                                if (a.type == TAccessPathType.DATA) {
+                                    return StringUtils.join(a.data_access_path.path, ".");
+                                } else {
+                                    return StringUtils.join(a.meta_access_path.path, ".");
+                                }
+                            })
                             .collect(Collectors.joining(", "));
                 }
             }
             String displayPredicateAccessPathsString = null;
             if (slot.getDisplayPredicateAccessPaths() != null
-                    && slot.getDisplayPredicateAccessPaths().name_access_paths != null
-                    && !slot.getDisplayPredicateAccessPaths().name_access_paths.isEmpty()) {
+                    && slot.getDisplayPredicateAccessPaths() != null
+                    && !slot.getDisplayPredicateAccessPaths().isEmpty()) {
                 if (this instanceof IcebergScanNode) {
                     displayPredicateAccessPathsString = mergeIcebergAccessPathsWithId(
                             slot.getPredicateAccessPaths(),
                             slot.getDisplayPredicateAccessPaths()
                     );
                 } else {
-                    displayPredicateAccessPathsString = slot.getPredicateAccessPaths().name_access_paths
+                    displayPredicateAccessPathsString = slot.getPredicateAccessPaths()
                             .stream()
-                            .map(a -> StringUtils.join(a.path, "."))
+                            .map(a -> {
+                                if (a.type == TAccessPathType.DATA) {
+                                    return StringUtils.join(a.data_access_path.path, ".");
+                                } else {
+                                    return StringUtils.join(a.meta_access_path.path, ".");
+                                }
+                            })
                             .collect(Collectors.joining(", "));
                 }
             }
@@ -629,16 +641,20 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     }
 
     private String mergeIcebergAccessPathsWithId(
-            TColumnAccessPaths accessPaths, TColumnAccessPaths displayAccessPaths) {
+            List<TColumnAccessPath> accessPaths, List<TColumnAccessPath> displayAccessPaths) {
         List<String> mergeDisplayAccessPaths = Lists.newArrayList();
-        for (int i = 0; i < displayAccessPaths.name_access_paths.size(); i++) {
-            TColumnNameAccessPath nameAccessPath = displayAccessPaths.name_access_paths.get(i);
-            TColumnNameAccessPath idAccessPath = accessPaths.name_access_paths.get(i);
+        for (int i = 0; i < displayAccessPaths.size(); i++) {
+            TColumnAccessPath displayAccessPath = displayAccessPaths.get(i);
+            TColumnAccessPath idAccessPath = accessPaths.get(i);
+            List<String> nameAccessPathStrings = displayAccessPath.type == TAccessPathType.DATA
+                    ? displayAccessPath.data_access_path.path : displayAccessPath.meta_access_path.path;
+            List<String> idAccessPathStrings = idAccessPath.type == TAccessPathType.DATA
+                    ? idAccessPath.data_access_path.path : idAccessPath.meta_access_path.path;
 
             List<String> mergedPath = new ArrayList<>();
-            for (int j = 0; j < idAccessPath.path.size(); j++) {
-                String name = nameAccessPath.path.get(j);
-                String id = idAccessPath.path.get(j);
+            for (int j = 0; j < idAccessPathStrings.size(); j++) {
+                String name = nameAccessPathStrings.get(j);
+                String id = idAccessPathStrings.get(j);
                 if (name.equals(id)) {
                     mergedPath.add(name);
                 } else {

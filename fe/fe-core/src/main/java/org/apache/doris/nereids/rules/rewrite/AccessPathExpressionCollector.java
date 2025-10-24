@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisit
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.thrift.TAccessPathType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -102,7 +103,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             context.accessPathBuilder.addPrefix(slotReference.getName());
             ImmutableList<String> path = Utils.fastToImmutableList(context.accessPathBuilder.accessPath);
             int slotId = slotReference.getExprId().asInt();
-            slotToAccessPaths.put(slotId, new CollectAccessPathResult(path, context.bottomFilter));
+            slotToAccessPaths.put(slotId, new CollectAccessPathResult(path, context.bottomFilter, context.type));
         }
         return null;
     }
@@ -348,6 +349,15 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         return visit(arraySortBy, context);
     }
 
+    // @Override
+    // public Void visitIsNull(IsNull isNull, CollectorContext context) {
+    //     if (context.accessPathBuilder.isEmpty()) {
+    //         context.setType(TAccessPathType.META);
+    //         return continueCollectAccessPath(isNull.child(), context);
+    //     }
+    //     return visit(isNull, context);
+    // }
+
     private Void collectArrayPathInLambda(Lambda lambda, CollectorContext context) {
         List<Expression> arguments = lambda.getArguments();
         Map<String, Expression> nameToArray = Maps.newLinkedHashMap();
@@ -376,11 +386,21 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         private StatementContext statementContext;
         private AccessPathBuilder accessPathBuilder;
         private boolean bottomFilter;
+        private TAccessPathType type;
 
         public CollectorContext(StatementContext statementContext, boolean bottomFilter) {
             this.statementContext = statementContext;
             this.accessPathBuilder = new AccessPathBuilder();
             this.bottomFilter = bottomFilter;
+            this.type = TAccessPathType.DATA;
+        }
+
+        public TAccessPathType getType() {
+            return type;
+        }
+
+        public void setType(TAccessPathType type) {
+            this.type = type;
         }
     }
 
@@ -405,6 +425,10 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             return accessPath;
         }
 
+        public boolean isEmpty() {
+            return accessPath.isEmpty();
+        }
+
         @Override
         public String toString() {
             return String.join(".", accessPath);
@@ -415,10 +439,16 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     public static class CollectAccessPathResult {
         private final List<String> path;
         private final boolean isPredicate;
+        private final TAccessPathType type;
 
-        public CollectAccessPathResult(List<String> path, boolean isPredicate) {
+        public CollectAccessPathResult(List<String> path, boolean isPredicate, TAccessPathType type) {
             this.path = path;
             this.isPredicate = isPredicate;
+            this.type = type;
+        }
+
+        public TAccessPathType getType() {
+            return type;
         }
 
         public List<String> getPath() {

@@ -75,6 +75,10 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
         return nameToFields;
     }
 
+    public StructField getField(String name) {
+        return nameToFields.get(name.toLowerCase());
+    }
+
     @Override
     public DataType conversion() {
         return new StructType(fields.stream().map(StructField::conversion).collect(Collectors.toList()));

@@ -24,7 +24,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.thrift.TColumnAccessPaths;
+import org.apache.doris.thrift.TColumnAccessPath;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -57,10 +57,10 @@ public class SlotReference extends Slot {
     // that need return original table and name for view not its original table if u query a view
     private final TableIf oneLevelTable;
     private final Column oneLevelColumn;
-    private final Optional<TColumnAccessPaths> allAccessPaths;
-    private final Optional<TColumnAccessPaths> predicateAccessPaths;
-    private final Optional<TColumnAccessPaths> displayAllAccessPaths;
-    private final Optional<TColumnAccessPaths> displayPredicateAccessPaths;
+    private final Optional<List<TColumnAccessPath>> allAccessPaths;
+    private final Optional<List<TColumnAccessPath>> predicateAccessPaths;
+    private final Optional<List<TColumnAccessPath>> displayAllAccessPaths;
+    private final Optional<List<TColumnAccessPath>> displayPredicateAccessPaths;
 
     public SlotReference(String name, DataType dataType) {
         this(StatementScopeIdGenerator.newExprId(), name, dataType, true, ImmutableList.of(),
@@ -121,9 +121,9 @@ public class SlotReference extends Slot {
             List<String> qualifier, @Nullable TableIf originalTable, @Nullable Column originalColumn,
             @Nullable TableIf oneLevelTable, Column oneLevelColumn,
             List<String> subPath, Optional<Pair<Integer, Integer>> indexInSql,
-            Optional<TColumnAccessPaths> allAccessPaths, Optional<TColumnAccessPaths> predicateAccessPaths,
-            Optional<TColumnAccessPaths> displayAllAccessPaths,
-            Optional<TColumnAccessPaths> displayPredicateAccessPaths) {
+            Optional<List<TColumnAccessPath>> allAccessPaths, Optional<List<TColumnAccessPath>> predicateAccessPaths,
+            Optional<List<TColumnAccessPath>> displayAllAccessPaths,
+            Optional<List<TColumnAccessPath>> displayPredicateAccessPaths) {
         super(indexInSql);
         this.exprId = exprId;
         this.name = name;
@@ -364,7 +364,8 @@ public class SlotReference extends Slot {
         return originalColumn != null ? originalColumn.isAutoInc() : false;
     }
 
-    public SlotReference withAccessPaths(TColumnAccessPaths allAccessPaths, TColumnAccessPaths predicateAccessPaths) {
+    public SlotReference withAccessPaths(
+            List<TColumnAccessPath> allAccessPaths, List<TColumnAccessPath> predicateAccessPaths) {
         return new SlotReference(exprId, name, dataType, nullable, qualifier,
                 originalTable, originalColumn, oneLevelTable, oneLevelColumn,
                 subPath, indexInSqlString, Optional.of(allAccessPaths), Optional.of(predicateAccessPaths),
@@ -372,27 +373,27 @@ public class SlotReference extends Slot {
     }
 
     public SlotReference withAccessPaths(
-            TColumnAccessPaths allAccessPaths, TColumnAccessPaths predicateAccessPaths,
-            TColumnAccessPaths displayAllAccessPaths, TColumnAccessPaths displayPredicateAccessPaths) {
+            List<TColumnAccessPath> allAccessPaths, List<TColumnAccessPath> predicateAccessPaths,
+            List<TColumnAccessPath> displayAllAccessPaths, List<TColumnAccessPath> displayPredicateAccessPaths) {
         return new SlotReference(exprId, name, dataType, nullable, qualifier,
                 originalTable, originalColumn, oneLevelTable, oneLevelColumn,
                 subPath, indexInSqlString, Optional.of(allAccessPaths), Optional.of(predicateAccessPaths),
                 Optional.of(displayAllAccessPaths), Optional.of(displayPredicateAccessPaths));
     }
 
-    public Optional<TColumnAccessPaths> getAllAccessPaths() {
+    public Optional<List<TColumnAccessPath>> getAllAccessPaths() {
         return allAccessPaths;
     }
 
-    public Optional<TColumnAccessPaths> getPredicateAccessPaths() {
+    public Optional<List<TColumnAccessPath>> getPredicateAccessPaths() {
         return predicateAccessPaths;
     }
 
-    public Optional<TColumnAccessPaths> getDisplayAllAccessPaths() {
+    public Optional<List<TColumnAccessPath>> getDisplayAllAccessPaths() {
         return displayAllAccessPaths;
     }
 
-    public Optional<TColumnAccessPaths> getDisplayPredicateAccessPaths() {
+    public Optional<List<TColumnAccessPath>> getDisplayPredicateAccessPaths() {
         return displayPredicateAccessPaths;
     }
 }

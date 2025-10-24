@@ -28,11 +28,11 @@ enum TPatternType {
 }
 
 enum TAccessPathType {
-  NAME = 1,
-  // ICEBERG = 2 // implement in the future
+  DATA = 1,
+  META = 2 // use to prune `where s.data is not null` by only scan the meta of s.data
 }
 
-struct TColumnNameAccessPath {
+struct TDataAccessPath {
    // the specification of special path:
    //   <empty>: access the whole complex column
    //   *:
@@ -60,17 +60,14 @@ struct TColumnNameAccessPath {
    1: required list<string> path
 }
 
-/*
-// implement in the future
-struct TIcebergColumnAccessPath {
-   1: required list<i64> path
+struct TMetaAccessPath {
+  1: required list<string> path
 }
-*/
 
-struct TColumnAccessPaths {
+struct TColumnAccessPath {
   1: required TAccessPathType type
-  2: optional list<TColumnNameAccessPath> name_access_paths
-  // 3: optional list<TIcebergColumnAccessPath> iceberg_column_access_paths // implement in the future
+  2: optional TDataAccessPath data_access_path
+  3: optional TMetaAccessPath meta_access_path
 }
 
 struct TColumn {
@@ -123,8 +120,8 @@ struct TSlotDescriptor {
   16: optional string col_default_value
   17: optional Types.TPrimitiveType primitive_type = Types.TPrimitiveType.INVALID_TYPE
   18: optional Exprs.TExpr virtual_column_expr
-  19: optional TColumnAccessPaths all_access_paths
-  20: optional TColumnAccessPaths predicate_access_paths
+  19: optional list<TColumnAccessPath> all_access_paths
+  20: optional list<TColumnAccessPath> predicate_access_paths
 }
 
 struct TTupleDescriptor {

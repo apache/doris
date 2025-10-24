@@ -61,8 +61,9 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.thrift.TAccessPathType;
-import org.apache.doris.thrift.TColumnAccessPaths;
-import org.apache.doris.thrift.TColumnNameAccessPath;
+import org.apache.doris.thrift.TColumnAccessPath;
+import org.apache.doris.thrift.TDataAccessPath;
+import org.apache.doris.thrift.TMetaAccessPath;
 
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -380,13 +381,13 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
                         continue;
                     }
                     SlotReference slotReference = (SlotReference) slot;
-                    Optional<TColumnAccessPaths> allAccessPaths = slotReference.getAllAccessPaths();
+                    Optional<List<TColumnAccessPath>> allAccessPaths = slotReference.getAllAccessPaths();
                     if (!allAccessPaths.isPresent() || !slotReference.getOriginalColumn().isPresent()) {
                         continue;
                     }
-                    TColumnAccessPaths allAccessPathsWithId
+                    List<TColumnAccessPath> allAccessPathsWithId
                             = replaceIcebergAccessPathToId(allAccessPaths.get(), slotReference);
-                    TColumnAccessPaths predicateAccessPathsWithId = replaceIcebergAccessPathToId(
+                    List<TColumnAccessPath> predicateAccessPathsWithId = replaceIcebergAccessPathToId(
                             slotReference.getPredicateAccessPaths().get(), slotReference);
                     replaceSlots.set(i, ((SlotReference) slot).withAccessPaths(
                             allAccessPathsWithId,
@@ -573,20 +574,31 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
         return e.withChildren(newChildren);
     }
 
-    private TColumnAccessPaths replaceIcebergAccessPathToId(
-            TColumnAccessPaths originAccessPaths, SlotReference slotReference) {
+    private List<TColumnAccessPath> replaceIcebergAccessPathToId(
+            List<TColumnAccessPath> originAccessPaths, SlotReference slotReference) {
         Column column = slotReference.getOriginalColumn().get();
-        List<TColumnNameAccessPath> replacedAllAccessPaths = new ArrayList<>();
-        for (TColumnNameAccessPath nameAccessPath : originAccessPaths.name_access_paths) {
-            List<String> icebergColumnAccessPath = new ArrayList<>(nameAccessPath.path);
-            replaceIcebergAccessPathToId(
-                    icebergColumnAccessPath, 0, slotReference.getDataType(), column
-            );
-            replacedAllAccessPaths.add(new TColumnNameAccessPath(icebergColumnAccessPath));
+        List<TColumnAccessPath> replacedAccessPaths = new ArrayList<>();
+        for (TColumnAccessPath accessPath : originAccessPaths) {
+            List<String> icebergColumnAccessPath = new ArrayList<>();
+            if (accessPath.type == TAccessPathType.DATA) {
+                icebergColumnAccessPath.addAll(accessPath.data_access_path.path);
+                replaceIcebergAccessPathToId(
+                        icebergColumnAccessPath, 0, slotReference.getDataType(), column
+                );
+                TColumnAccessPath newAccessPath = new TColumnAccessPath(TAccessPathType.DATA);
+                newAccessPath.data_access_path = new TDataAccessPath(icebergColumnAccessPath);
+                replacedAccessPaths.add(newAccessPath);
+            } else {
+                icebergColumnAccessPath.addAll(accessPath.meta_access_path.path);
+                replaceIcebergAccessPathToId(
+                        icebergColumnAccessPath, 0, slotReference.getDataType(), column
+                );
+                TColumnAccessPath newAccessPath = new TColumnAccessPath(TAccessPathType.META);
+                newAccessPath.meta_access_path = new TMetaAccessPath(icebergColumnAccessPath);
+                replacedAccessPaths.add(newAccessPath);
+            }
         }
-        TColumnAccessPaths accessPathWithId = new TColumnAccessPaths(TAccessPathType.NAME);
-        accessPathWithId.name_access_paths = replacedAllAccessPaths;
-        return accessPathWithId;
+        return replacedAccessPaths;
     }
 
     private void replaceIcebergAccessPathToId(List<String> originPath, int index, DataType type, Column column) {

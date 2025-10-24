@@ -21,16 +21,18 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.thrift.TColumnAccessPaths;
+import org.apache.doris.thrift.TColumnAccessPath;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
+
+import java.util.List;
 
 /** AccessPathInfo */
 @Data
 @AllArgsConstructor
 public class AccessPathInfo {
     private DataType prunedType;
-    private TColumnAccessPaths allAccessPaths;
-    private TColumnAccessPaths predicateAccessPaths;
+    private List<TColumnAccessPath> allAccessPaths;
+    private List<TColumnAccessPath> predicateAccessPaths;
 }

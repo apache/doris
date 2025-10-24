@@ -24,7 +24,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.thrift.TColumnAccessPaths;
+import org.apache.doris.thrift.TColumnAccessPath;
 import org.apache.doris.thrift.TSlotDescriptor;
 
 import com.google.common.base.MoreObjects;
@@ -76,10 +76,10 @@ public class SlotDescriptor {
     private boolean needMaterialize = true;
     private boolean isAutoInc = false;
     private Expr virtualColumn = null;
-    private TColumnAccessPaths allAccessPaths;
-    private TColumnAccessPaths predicateAccessPaths;
-    private TColumnAccessPaths displayAllAccessPaths;
-    private TColumnAccessPaths displayPredicateAccessPaths;
+    private List<TColumnAccessPath> allAccessPaths;
+    private List<TColumnAccessPath> predicateAccessPaths;
+    private List<TColumnAccessPath> displayAllAccessPaths;
+    private List<TColumnAccessPath> displayPredicateAccessPaths;
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent) {
 
@@ -134,35 +134,35 @@ public class SlotDescriptor {
         return this.subColPath;
     }
 
-    public TColumnAccessPaths getAllAccessPaths() {
+    public List<TColumnAccessPath> getAllAccessPaths() {
         return allAccessPaths;
     }
 
-    public void setAllAccessPaths(TColumnAccessPaths allAccessPaths) {
+    public void setAllAccessPaths(List<TColumnAccessPath> allAccessPaths) {
         this.allAccessPaths = allAccessPaths;
     }
 
-    public TColumnAccessPaths getPredicateAccessPaths() {
+    public List<TColumnAccessPath> getPredicateAccessPaths() {
         return predicateAccessPaths;
     }
 
-    public void setPredicateAccessPaths(TColumnAccessPaths predicateAccessPaths) {
+    public void setPredicateAccessPaths(List<TColumnAccessPath> predicateAccessPaths) {
         this.predicateAccessPaths = predicateAccessPaths;
     }
 
-    public TColumnAccessPaths getDisplayAllAccessPaths() {
+    public List<TColumnAccessPath> getDisplayAllAccessPaths() {
         return displayAllAccessPaths;
     }
 
-    public void setDisplayAllAccessPaths(TColumnAccessPaths displayAllAccessPaths) {
+    public void setDisplayAllAccessPaths(List<TColumnAccessPath> displayAllAccessPaths) {
         this.displayAllAccessPaths = displayAllAccessPaths;
     }
 
-    public TColumnAccessPaths getDisplayPredicateAccessPaths() {
+    public List<TColumnAccessPath> getDisplayPredicateAccessPaths() {
         return displayPredicateAccessPaths;
     }
 
-    public void setDisplayPredicateAccessPaths(TColumnAccessPaths displayPredicateAccessPaths) {
+    public void setDisplayPredicateAccessPaths(List<TColumnAccessPath> displayPredicateAccessPaths) {
         this.displayPredicateAccessPaths = displayPredicateAccessPaths;
     }
 
