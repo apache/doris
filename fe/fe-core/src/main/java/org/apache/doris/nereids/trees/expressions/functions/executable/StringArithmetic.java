@@ -1242,4 +1242,56 @@ public class StringArithmetic {
 
         return new VarcharLiteral(result.toString());
     }
+
+    /**
+     * Executable arithmetic functions is_uuid
+     */
+    @ExecFunction(name = "is_uuid")
+    public static Expression isUuid(StringLikeLiteral first) {
+        String uuid = first.getValue();
+        return isUuidImpl(uuid);
+    }
+
+    private static boolean isHexChar(char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    }
+
+    private static Expression isUuidImpl(String uuid) {
+        int len = uuid.length();
+        int start = 0;
+        int end = len - 1;
+        switch (len) {
+            case 32:
+                for (int i = 0; i < len; i++) {
+                    if (!isHexChar(uuid.charAt(i))) {
+                        return BooleanLiteral.of(false);
+                    }
+                }
+                break;
+            case 38:
+                if (uuid.charAt(0) != '{' || uuid.charAt(end) != '}') {
+                    return BooleanLiteral.of(false);
+                }
+                start++;
+                end--;
+                // fall through to case 36
+            case 36:
+                for (int i = start; i <= end; i++) {
+                    char c = uuid.charAt(i);
+                    if (i == start + 8 || i == start + 13 || i == start + 18 || i == start + 23) {
+                        if (c != '-') {
+                            return BooleanLiteral.of(false);
+                        }
+                    } else {
+                        if (!isHexChar(c)) {
+                            return BooleanLiteral.of(false);
+                        }
+                    }
+                }
+                break;
+            default:
+                return BooleanLiteral.of(false);
+        }
+        return BooleanLiteral.of(true);
+    }
 }
