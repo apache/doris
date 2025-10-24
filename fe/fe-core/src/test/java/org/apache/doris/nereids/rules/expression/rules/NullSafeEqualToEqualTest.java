@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -26,9 +27,13 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
@@ -41,7 +46,7 @@ class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
         ));
         SlotReference slot = new SlotReference("a", StringType.INSTANCE, true);
         assertRewrite(new NullSafeEqual(slot, NullLiteral.INSTANCE), new IsNull(slot));
-        slot = new SlotReference("a", StringType.INSTANCE, false);
+        slot = new SlotReference("a", StringType.INSTANCE, true);
         assertRewrite(new NullSafeEqual(slot, NullLiteral.INSTANCE), new IsNull(slot));
     }
 
@@ -87,13 +92,13 @@ class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
 
     // "A<=>B" not changed
     @Test
-    void testNullSafeEqualNotChangedBothNullable() {
+    void testNullSafeEqualChangedBothNotNullable() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(NullSafeEqualToEqual.INSTANCE)
         ));
         SlotReference a = new SlotReference("a", StringType.INSTANCE, false);
         SlotReference b = new SlotReference("b", StringType.INSTANCE, false);
-        assertRewrite(new NullSafeEqual(a, b), new NullSafeEqual(a, b));
+        assertRewrite(new NullSafeEqual(a, b), new EqualTo(a, b));
     }
 
     // "1 <=> 0" to "1 = 0"
@@ -105,5 +110,48 @@ class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
         IntegerLiteral a = new IntegerLiteral(0);
         IntegerLiteral b = new IntegerLiteral(1);
         assertRewrite(new NullSafeEqual(a, b), new EqualTo(a, b));
+    }
+
+    @Test
+    void testInsideCondition() {
+        LogicalFilter<?> filter = new LogicalFilter<LogicalEmptyRelation>(ImmutableSet.of(),
+                new LogicalEmptyRelation(new RelationId(1), ImmutableList.of()));
+        ExpressionRewriteContext oldContext = context;
+        try {
+            context = new ExpressionRewriteContext(filter, cascadesContext);
+            executor = new ExpressionRuleExecutor(ImmutableList.of(
+                    bottomUp(NullSafeEqualToEqual.INSTANCE)
+            ));
+
+            assertRewriteAfterTypeCoercion("a <=> a", "TRUE");
+            assertRewriteAfterTypeCoercion("a <=> b", "a <=> b");
+            assertRewriteAfterTypeCoercion("a <=> count(b)", "a = count(b)");
+            assertRewriteAfterTypeCoercion("a <=> 3", "a = 3");
+            assertRewriteAfterTypeCoercion("count(a) <=> count(b)", "count(a) = count(b)");
+            assertRewriteAfterTypeCoercion("a <=> null", "a is null");
+            assertRewriteAfterTypeCoercion("null <=> 3", "FALSE");
+            assertRewriteAfterTypeCoercion("not(a <=> 3)", "not(a <=> 3)");
+            assertRewriteAfterTypeCoercion("if(a <=> 3, a <=> 4, a <=> 5)", "if(a = 3, a = 4, a = 5)");
+            assertRewriteAfterTypeCoercion("not(if(a <=> 3, a <=> 4, a <=> 5))", "not(if(a = 3, a <=> 4, a <=> 5))");
+        } finally {
+            context = oldContext;
+        }
+    }
+
+    @Test
+    void testNotInsideCondition() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(NullSafeEqualToEqual.INSTANCE)
+        ));
+
+        assertRewriteAfterTypeCoercion("a <=> 3", "a <=> 3");
+        assertRewriteAfterTypeCoercion("a <=> b", "a <=> b");
+        assertRewriteAfterTypeCoercion("a <=> count(b)", "a <=> count(b)");
+        assertRewriteAfterTypeCoercion("count(a) <=> count(b)", "count(a) = count(b)");
+        assertRewriteAfterTypeCoercion("a <=> null", "a is null");
+        assertRewriteAfterTypeCoercion("null <=> 3", "false");
+        assertRewriteAfterTypeCoercion("not(a <=> 3)", "not(a <=> 3)");
+        assertRewriteAfterTypeCoercion("if(a <=> 3, a <=> 4, a <=> 5)", "if(a = 3, a <=> 4, a <=> 5)");
+        assertRewriteAfterTypeCoercion("not(if(a <=> 3, a <=> 4, a <=> 5))", "not(if(a = 3, a <=> 4, a <=> 5))");
     }
 }

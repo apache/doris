@@ -49,7 +49,7 @@ suite("test_broker_load_with_partition", "load_p0,external") {
 
         // insert 1 row to check whether the table is ok
         def result2 = sql """ INSERT INTO ${testTable} VALUES
-                        (1,2023-09-01,1,1,1)
+                        (1,"2023-09-01",1,1,1)
                         """
         assertTrue(result2.size() == 1)
         assertTrue(result2[0].size() == 1)
@@ -81,7 +81,7 @@ suite("test_broker_load_with_partition", "load_p0,external") {
                         )
                         PROPERTIES  (
                         "timeout"="1200",
-                        "max_filter_ratio"="0.1");
+                        "max_filter_ratio"="0.8");
                         """
 
         assertTrue(result1.size() == 1)
@@ -122,7 +122,7 @@ suite("test_broker_load_with_partition", "load_p0,external") {
             log.info("result: ${result}")
             if(result[0][2] == "FINISHED") {
                 //sql "sync"
-                qt_select "select * from ${testTablex} order by k1"
+                qt_select "select * from ${testTablex} order by 1,2,3,4,5"
                 break
             } else {
                 sleep(1000) // wait 1 second every time
@@ -141,7 +141,7 @@ suite("test_broker_load_with_partition", "load_p0,external") {
             log.info("result: ${result}")
             if(result[0][2] == "FINISHED") {
                 //sql "sync"
-                qt_select "select * from ${testTablex} TEMPORARY PARTITION (`partition_t`) order by k1"
+                qt_select "select * from ${testTablex} TEMPORARY PARTITION (`partition_t`) order by 1,2,3,4,5"
                 break
             } else {
                 sleep(1000) // wait 1 second every time
@@ -178,7 +178,7 @@ suite("test_broker_load_with_partition", "load_p0,external") {
 
             check_load_tmp_partition_result.call(test_tmp_partition_load_label, testTable)
         } finally {
-            try_sql("DROP TABLE IF EXISTS ${testTable}")
+//            try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
     }
 }

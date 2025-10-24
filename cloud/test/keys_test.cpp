@@ -2375,3 +2375,95 @@ TEST(KeysTest, DecodeMetaTabletIdxKeyTest) {
     std::string_view invalid_sv(invalid_key);
     ASSERT_FALSE(decode_meta_tablet_idx_key(&invalid_sv, &dec_tablet_id));
 }
+
+TEST(KeysTest, DecodeSnapshotRefKeyTest) {
+    using namespace doris::cloud;
+    using namespace doris::cloud::versioned;
+
+    std::string instance_id = "test_instance_id";
+    Versionstamp timestamp(0x0102030405060708ULL, 0x090a);
+    std::string ref_instance_id = "derived_instance_id";
+
+    // Encode a snapshot reference key
+    SnapshotReferenceKeyInfo key_info {instance_id, timestamp, ref_instance_id};
+    std::string encoded_key = snapshot_reference_key(key_info);
+
+    // Test decode_snapshot_ref_key - decode all fields
+    {
+        std::string dec_instance_id;
+        Versionstamp dec_timestamp;
+        std::string dec_ref_instance_id;
+
+        std::string_view key_view = encoded_key;
+        bool ret = decode_snapshot_ref_key(&key_view, &dec_instance_id, &dec_timestamp,
+                                           &dec_ref_instance_id);
+        ASSERT_TRUE(ret);
+        EXPECT_EQ(dec_instance_id, instance_id);
+        EXPECT_EQ(dec_timestamp, timestamp);
+        EXPECT_EQ(dec_ref_instance_id, ref_instance_id);
+    }
+
+    // Test decode_snapshot_ref_key - decode only ref_instance_id (nullptr for others)
+    {
+        std::string dec_ref_instance_id;
+        std::string_view key_view = encoded_key;
+        bool ret = decode_snapshot_ref_key(&key_view, nullptr, nullptr, &dec_ref_instance_id);
+        ASSERT_TRUE(ret);
+        EXPECT_EQ(dec_ref_instance_id, ref_instance_id);
+    }
+
+    // Test decode_snapshot_ref_key - decode only instance_id and timestamp
+    {
+        std::string dec_instance_id;
+        Versionstamp dec_timestamp;
+        std::string_view key_view = encoded_key;
+        bool ret = decode_snapshot_ref_key(&key_view, &dec_instance_id, &dec_timestamp, nullptr);
+        ASSERT_TRUE(ret);
+        EXPECT_EQ(dec_instance_id, instance_id);
+        EXPECT_EQ(dec_timestamp, timestamp);
+    }
+
+    // Test with invalid key - empty
+    {
+        std::string dec_ref_instance_id;
+        std::string_view key_view = "";
+        bool ret = decode_snapshot_ref_key(&key_view, nullptr, nullptr, &dec_ref_instance_id);
+        ASSERT_FALSE(ret);
+    }
+
+    // Test with invalid key - wrong prefix
+    {
+        std::string invalid_key = "invalid_key";
+        std::string dec_ref_instance_id;
+        std::string_view key_view = invalid_key;
+        bool ret = decode_snapshot_ref_key(&key_view, nullptr, nullptr, &dec_ref_instance_id);
+        ASSERT_FALSE(ret);
+    }
+
+    // Test with multiple ref_instance_ids to ensure uniqueness
+    {
+        std::string ref_id1 = "ref_instance_1";
+        std::string ref_id2 = "ref_instance_2";
+        std::string ref_id3 = "ref_instance_3";
+
+        SnapshotReferenceKeyInfo key1 {instance_id, timestamp, ref_id1};
+        SnapshotReferenceKeyInfo key2 {instance_id, timestamp, ref_id2};
+        SnapshotReferenceKeyInfo key3 {instance_id, timestamp, ref_id3};
+
+        std::string encoded1 = snapshot_reference_key(key1);
+        std::string encoded2 = snapshot_reference_key(key2);
+        std::string encoded3 = snapshot_reference_key(key3);
+
+        std::string dec_ref1, dec_ref2, dec_ref3;
+        std::string_view key_view1 = encoded1;
+        std::string_view key_view2 = encoded2;
+        std::string_view key_view3 = encoded3;
+        ASSERT_TRUE(decode_snapshot_ref_key(&key_view1, nullptr, nullptr, &dec_ref1));
+        ASSERT_TRUE(decode_snapshot_ref_key(&key_view2, nullptr, nullptr, &dec_ref2));
+        ASSERT_TRUE(decode_snapshot_ref_key(&key_view3, nullptr, nullptr, &dec_ref3));
+
+        EXPECT_EQ(dec_ref1, ref_id1);
+        EXPECT_EQ(dec_ref2, ref_id2);
+        EXPECT_EQ(dec_ref3, ref_id3);
+    }
+}

@@ -115,7 +115,18 @@ start_cloud_fe() {
         return
     fi
 
-    wait_create_instance
+    # Support to create instance in FE startup.
+    AUTO_CREATE_INSTANCE=${AUTO_CREATE_INSTANCE:-"0"}
+    if [ "a$MY_ID" == "a1" ] && [ "a$AUTO_CREATE_INSTANCE" == "a1" ]; then
+        health_log "auto create instance is enabled, trying to create instance"
+        if [ -f $HAS_CREATE_INSTANCE_FILE ]; then
+            health_log "instance has been created before, skip create instance"
+        else
+            create_doris_instance
+        fi
+    else
+        wait_create_instance
+    fi
 
     action=add_cluster
     node_type=FE_MASTER
@@ -139,7 +150,7 @@ start_cloud_fe() {
     lock_cluster
 
     output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/${action}?token=greedisgood9999" \
-        -d '{"instance_id": "default_instance_id",
+        -d '{"instance_id": "'"${INSTANCE_ID}"'",
         "cluster": {
             "type": "SQL",
             "cluster_name": "RESERVED_CLUSTER_NAME_FOR_SQL_SERVER",
@@ -158,7 +169,7 @@ start_cloud_fe() {
     fi
 
     output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/get_cluster?token=greedisgood9999" \
-        -d '{"instance_id": "default_instance_id",
+        -d '{"instance_id": "'"${INSTANCE_ID}"'",
             "cloud_unique_id": "'"${CLOUD_UNIQUE_ID}"'",
             "cluster_name": "RESERVED_CLUSTER_NAME_FOR_SQL_SERVER",
             "cluster_id": "RESERVED_CLUSTER_ID_FOR_SQL_SERVER"}')
