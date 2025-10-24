@@ -425,6 +425,10 @@ class Suite implements GroovyInterceptable {
                     + "see example demo_p0/docker_action.groovy")
         }
 
+        if (context.isMultiDockerClusterRunning) {
+            throw new Exception("Nested dockers() calls are not supported")
+        }
+
         // Validate cluster configs
         Set<String> clusterNames = new HashSet<>()
         for (def entry : clusterConfigs.entrySet()) {
@@ -504,7 +508,19 @@ class Suite implements GroovyInterceptable {
             // Wait for BE to report
             Thread.sleep(5000)
 
-            actionSupplier.call(clusters)
+            Connection originConnection = context.threadLocalConn.get()
+            context.threadLocalConn.remove()
+            context.isMultiDockerClusterRunning = true
+            try {
+                actionSupplier.call(clusters)
+            } finally {
+                context.isMultiDockerClusterRunning = false
+                if (originConnection == null) {
+                    context.threadLocalConn.remove()
+                } else {
+                    context.threadLocalConn.set(originConnection)
+                }
+            }
         } finally {
             // Destroy clusters in reverse order
             if (!context.config.dockerEndNoKill) {
