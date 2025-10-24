@@ -31,8 +31,8 @@ public:
     ~PhraseQuery() override = default;
 
     WeightPtr weight(bool enable_scoring) override {
-        if (_terms.empty()) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Terms cannot be empty");
+        if (_terms.size() < 2) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Phrase query requires at least 2 terms");
         }
 
         SimilarityPtr bm25_similarity;

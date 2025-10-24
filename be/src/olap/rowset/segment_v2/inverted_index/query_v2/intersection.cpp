@@ -148,17 +148,28 @@ Intersection<TDocSet, TOtherDocSet>::docset_mut_specialized(size_t ord) {
 }
 
 template class Intersection<PositionPostingsWithOffsetPtr, PositionPostingsWithOffsetPtr>;
+template class Intersection<MockDocSetPtr, MockDocSetPtr>;
 
+// create
 template std::enable_if_t<
         std::is_same_v<PositionPostingsWithOffsetPtr, PositionPostingsWithOffsetPtr>,
         IntersectionPtr<PositionPostingsWithOffsetPtr, PositionPostingsWithOffsetPtr>>
 Intersection<PositionPostingsWithOffsetPtr, PositionPostingsWithOffsetPtr>::create<
         PositionPostingsWithOffsetPtr>(std::vector<PositionPostingsWithOffsetPtr>& docsets);
 
+template std::enable_if_t<std::is_same_v<MockDocSetPtr, MockDocSetPtr>,
+                          IntersectionPtr<MockDocSetPtr, MockDocSetPtr>>
+Intersection<MockDocSetPtr, MockDocSetPtr>::create<MockDocSetPtr>(
+        std::vector<MockDocSetPtr>& docsets);
+
+// docset_mut_specialized
 template std::enable_if_t<
         std::is_same_v<PositionPostingsWithOffsetPtr, PositionPostingsWithOffsetPtr>,
         PositionPostingsWithOffsetPtr&>
 Intersection<PositionPostingsWithOffsetPtr, PositionPostingsWithOffsetPtr>::docset_mut_specialized<
         PositionPostingsWithOffsetPtr>(size_t ord);
+
+template std::enable_if_t<std::is_same_v<MockDocSetPtr, MockDocSetPtr>, MockDocSetPtr&>
+Intersection<MockDocSetPtr, MockDocSetPtr>::docset_mut_specialized<MockDocSetPtr>(size_t ord);
 
 } // namespace doris::segment_v2::inverted_index::query_v2
