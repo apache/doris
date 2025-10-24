@@ -265,6 +265,191 @@ suite("doc_date_functions_test") {
     qt_dayname_1 """select dayname('2007-02-03 00:00:00')"""
     qt_dayname_2 """select dayname('2023-10-01')"""
     qt_dayname_3 """select dayname(NULL)"""
+
+    sql """SET lc_time_names='ZH_cn'"""
+    qt_dayname_zh_cn """SELECT DAYNAME('2023-10-01')"""
+    
+    sql """SET lc_time_names='zh_TW'"""
+    qt_dayname_zh_tw """SELECT DAYNAME('2024-03-15 14:30:25')"""
+    
+    sql """SET lc_time_names='zh_HK'"""
+    qt_dayname_zh_hk """SELECT DAYNAME('2022-12-25')"""
+    
+    sql """SET lc_time_names='fr_FR'"""
+    qt_dayname_fr_fr """SELECT DAYNAME('2023-07-14 09:15:30')"""
+    
+    sql """SET lc_time_names='fr_BE'"""
+    qt_dayname_fr_be """SELECT DAYNAME('2024-01-01')"""
+    
+    sql """SET lc_time_names='fr_CA'"""
+    qt_dayname_fr_ca """SELECT DAYNAME('2023-11-11 23:59:59')"""
+    
+    sql """SET lc_time_names='de_DE'"""
+    qt_dayname_de_de """SELECT DAYNAME('2024-02-29')"""
+    
+    sql """SET lc_time_names='DE_at'"""
+    qt_dayname_de_at """SELECT DAYNAME('2023-05-20 06:45:12')"""
+    
+    sql """SET lc_time_names='de_CH'"""
+    qt_dayname_de_ch """SELECT DAYNAME('2024-08-31')"""
+    
+    sql """SET lc_time_names='ja_JP'"""
+    qt_dayname_ja_jp """SELECT DAYNAME('2023-04-29 12:00:00')"""
+    
+    sql """SET lc_time_names='ko_KR'"""
+    qt_dayname_ko_kr """SELECT DAYNAME('2024-09-15')"""
+    
+    sql """SET lc_time_names='ES_es'"""
+    qt_dayname_es_es """SELECT DAYNAME('2023-12-31 18:30:45')"""
+    
+    sql """SET lc_time_names='es_MX'"""
+    qt_dayname_es_mx """SELECT DAYNAME('2024-05-05')"""
+    
+    sql """SET lc_time_names='es_AR'"""
+    qt_dayname_es_ar """SELECT DAYNAME('2023-06-21 03:15:22')"""
+    
+    sql """SET lc_time_names='RU_ru'"""
+    qt_dayname_ru_ru """SELECT DAYNAME('2024-07-04')"""
+    
+    sql """SET lc_time_names='ru_UA'"""
+    qt_dayname_ru_ua """SELECT DAYNAME('2023-02-14 16:45:33')"""
+    
+    sql """SET lc_time_names='it_IT'"""
+    qt_dayname_it_it """SELECT DAYNAME('2024-10-12')"""
+    
+    sql """SET lc_time_names='IT_ch'"""
+    qt_dayname_it_ch """SELECT DAYNAME('2023-03-08 21:20:15')"""
+    
+    sql """SET lc_time_names='ar_SA'"""
+    qt_dayname_ar_sa """SELECT DAYNAME('2024-04-15')"""
+    
+    sql """SET lc_time_names='ar_AE'"""
+    qt_dayname_ar_ae """SELECT DAYNAME('2023-08-25 11:30:40')"""
+    
+    sql """SET lc_time_names='AR_eg'"""
+    qt_dayname_ar_eg """SELECT DAYNAME('2024-01-20')"""
+    
+    sql """SET lc_time_names='en_US'"""
+    qt_dayname_en_us """SELECT DAYNAME('2023-09-11 07:45:55')"""
+    
+    sql """SET lc_time_names='en_GB'"""
+    qt_dayname_en_gb """SELECT DAYNAME('2024-06-30')"""
+    
+    sql """SET lc_time_names='En_Au'"""
+    qt_dayname_en_au """SELECT DAYNAME('2023-01-26 19:25:10')"""
+    
+    sql """SET lc_time_names='en_CA'"""
+    qt_dayname_en_ca """SELECT DAYNAME('2024-11-11')"""
+    
+    sql """SET lc_time_names='pt_BR'"""
+    qt_dayname_pt_br """SELECT DAYNAME('2023-09-07 14:15:28')"""
+    
+    sql """SET lc_time_names='pt_PT'"""
+    qt_dayname_pt_pt """SELECT DAYNAME('2024-12-08')"""
+    
+    sql """SET lc_time_names='nl_NL'"""
+    qt_dayname_nl_nl """SELECT DAYNAME('2023-04-27 10:30:45')"""
+    
+    sql """SET lc_time_names='NL_be'"""
+    qt_dayname_nl_be """SELECT DAYNAME('2024-03-21')"""
+    
+    sql """SET lc_time_names='sv_SE'"""
+    qt_dayname_sv_se """SELECT DAYNAME('2023-06-06 22:15:35')"""
+    
+    sql """SET lc_time_names='no_NO'"""
+    qt_dayname_no_no """SELECT DAYNAME('2024-05-17')"""
+    
+    sql """SET lc_time_names='da_DK'"""
+    qt_dayname_da_dk """SELECT DAYNAME('2023-12-03 08:20:17')"""
+    
+    sql """SET lc_time_names='fi_FI'"""
+    qt_dayname_fi_fi """SELECT DAYNAME('2024-01-15')"""
+    
+    sql """SET lc_time_names='pl_PL'"""
+    qt_dayname_pl_pl """SELECT DAYNAME('2023-11-30 13:45:22')"""
+    
+    sql """SET lc_time_names='cs_CZ'"""
+    qt_dayname_cs_cz """SELECT DAYNAME('2024-06-20')"""
+    
+    sql """SET lc_time_names='hu_HU'"""
+    qt_dayname_hu_hu """SELECT DAYNAME('2023-08-15 20:10:33')"""
+    
+    sql """SET lc_time_names='th_TH'"""
+    qt_dayname_th_th """SELECT DAYNAME('2024-09-22')"""
+    
+    sql """SET lc_time_names='vi_VN'"""
+    qt_dayname_vi_vn """SELECT DAYNAME('2023-05-01 15:35:44')"""
+    
+    sql """SET lc_time_names='tr_TR'"""
+    qt_dayname_tr_tr """SELECT DAYNAME('2024-02-14')"""
+    
+    sql """SET lc_time_names='el_GR'"""
+    qt_dayname_el_gr """SELECT DAYNAME('2023-10-28 04:25:56')"""
+    
+    sql """SET lc_time_names='he_IL'"""
+    qt_dayname_he_il """SELECT DAYNAME('2024-04-07')"""
+    
+    sql """SET lc_time_names='hi_IN'"""
+    qt_dayname_hi_in """SELECT DAYNAME('2023-07-20 17:55:11')"""
+    
+    sql """SET lc_time_names='id_ID'"""
+    qt_dayname_id_id """SELECT DAYNAME('2024-11-05')"""
+    
+    sql """SET lc_time_names='ms_MY'"""
+    qt_dayname_ms_my """SELECT DAYNAME('2023-03-18 12:40:28')"""
+
+    sql """SET lc_time_names='ar_AE'"""
+    testFoldConst("SELECT DAYNAME('2023-08-15 20:10:33');")
+    
+    sql """SET lc_time_names='zh_CN'"""
+    testFoldConst("SELECT DAYNAME('2024-09-22');")
+    
+    sql """SET lc_time_names='ja_JP'"""
+    testFoldConst("SELECT DAYNAME('2023-05-01 15:35:44');")
+    
+    sql """SET lc_time_names='ko_KR'"""
+    testFoldConst("SELECT DAYNAME('2024-02-14');")
+    
+    sql """SET lc_time_names='ru_RU'"""
+    testFoldConst("SELECT DAYNAME('2023-10-28 04:25:56');")
+    
+    sql """SET lc_time_names='de_DE'"""
+    testFoldConst("SELECT DAYNAME('2024-04-07');")
+    
+    sql """SET lc_time_names='fr_FR'"""
+    testFoldConst("SELECT DAYNAME('2023-07-20 17:55:11');")
+    
+    sql """SET lc_time_names='es_ES'"""
+    testFoldConst("SELECT DAYNAME('2024-11-05');")
+    
+    sql """SET lc_time_names='pt_BR'"""
+    testFoldConst("SELECT DAYNAME('2023-03-18 12:40:28');")
+    
+    sql """SET lc_time_names='it_IT'"""
+    testFoldConst("SELECT DAYNAME('2024-01-01');")
+    
+    sql """SET lc_time_names='nl_NL'"""
+    testFoldConst("SELECT DAYNAME('2023-12-31');")
+    
+    sql """SET lc_time_names='sv_SE'"""
+    testFoldConst("SELECT DAYNAME('2024-06-30 23:59:59');")
+    
+    sql """SET lc_time_names='pl_PL'"""
+    testFoldConst("SELECT DAYNAME('2023-02-28');")
+    
+    sql """SET lc_time_names='cs_CZ'"""
+    testFoldConst("SELECT DAYNAME('2024-02-29');")
+    
+    sql """SET lc_time_names='bg_BG'"""
+    testFoldConst("SELECT DAYNAME('1970-01-01');")
+    
+    sql """SET lc_time_names='uk_UA'"""
+    testFoldConst("SELECT DAYNAME('2038-01-19');")
+    
+    sql """SET lc_time_names='en_US'"""
+    testFoldConst("SELECT DAYNAME(NULL);")
+
+    sql """SET lc_time_names=default"""
     
     // 17. DAYOFWEEK function tests
     qt_dayofweek_1 """select dayofweek('2019-06-25')"""
@@ -542,6 +727,275 @@ suite("doc_date_functions_test") {
     qt_monthname_1 """SELECT MONTHNAME('2008-02-03')"""
     qt_monthname_2 """SELECT MONTHNAME('2023-07-13 22:28:18')"""
     qt_monthname_3 """SELECT MONTHNAME(NULL)"""
+    
+    sql """SET lc_time_names='zh_CN'"""
+    qt_monthname_zh_cn """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='zh_TW'"""
+    qt_monthname_zh_tw """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='zh_HK'"""
+    qt_monthname_zh_hk """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='FR_fr'"""
+    qt_monthname_fr_fr """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='fr_BE'"""
+    qt_monthname_fr_be """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='fr_CA'"""
+    qt_monthname_fr_ca """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='fr_CH'"""
+    qt_monthname_fr_ch """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='de_DE'"""
+    qt_monthname_de_de """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='de_AT'"""
+    qt_monthname_de_at """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='DE_ch'"""
+    qt_monthname_de_ch """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='JA_jp'"""
+    qt_monthname_ja_jp """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='Ko_KR'"""
+    qt_monthname_ko_kr """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='es_ES'"""
+    qt_monthname_es_es """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='es_MX'"""
+    qt_monthname_es_mx """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='Es_Ar'"""
+    qt_monthname_es_ar """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='es_CO'"""
+    qt_monthname_es_co """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='IT_it'"""
+    qt_monthname_it_it """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='it_CH'"""
+    qt_monthname_it_ch """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ru_RU'"""
+    qt_monthname_ru_ru """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='RU_ua'"""
+    qt_monthname_ru_ua """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ar_SA'"""
+    qt_monthname_ar_sa """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ar_AE'"""
+    qt_monthname_ar_ae """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='AR_eg'"""
+    qt_monthname_ar_eg """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ar_JO'"""
+    qt_monthname_ar_jo """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='en_US'"""
+    qt_monthname_en_us """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='en_GB'"""
+    qt_monthname_en_gb """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='En_Au'"""
+    qt_monthname_en_au """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='en_CA'"""
+    qt_monthname_en_ca """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='pt_BR'"""
+    qt_monthname_pt_br """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='pt_PT'"""
+    qt_monthname_pt_pt """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='nl_NL'"""
+    qt_monthname_nl_nl """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='NL_be'"""
+    qt_monthname_nl_be """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='sv_SE'"""
+    qt_monthname_sv_se """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='sv_FI'"""
+    qt_monthname_sv_fi """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='no_NO'"""
+    qt_monthname_no_no """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='nb_NO'"""
+    qt_monthname_nb_no """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='da_DK'"""
+    qt_monthname_da_dk """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='fi_FI'"""
+    qt_monthname_fi_fi """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='pl_PL'"""
+    qt_monthname_pl_pl """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='cs_CZ'"""
+    qt_monthname_cs_cz """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='sk_SK'"""
+    qt_monthname_sk_sk """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='hu_HU'"""
+    qt_monthname_hu_hu """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ro_RO'"""
+    qt_monthname_ro_ro """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='bg_BG'"""
+    qt_monthname_bg_bg """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='hr_HR'"""
+    qt_monthname_hr_hr """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='sl_SI'"""
+    qt_monthname_sl_si """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='sr_RS'"""
+    qt_monthname_sr_rs """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='mk_MK'"""
+    qt_monthname_mk_mk """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='sq_AL'"""
+    qt_monthname_sq_al """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='th_TH'"""
+    qt_monthname_th_th """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='vi_VN'"""
+    qt_monthname_vi_vn """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='tr_TR'"""
+    qt_monthname_tr_tr """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='el_GR'"""
+    qt_monthname_el_gr """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='he_IL'"""
+    qt_monthname_he_il """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='hi_IN'"""
+    qt_monthname_hi_in """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='gu_IN'"""
+    qt_monthname_gu_in """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ta_IN'"""
+    qt_monthname_ta_in """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='te_IN'"""
+    qt_monthname_te_in """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='id_ID'"""
+    qt_monthname_id_id """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ms_MY'"""
+    qt_monthname_ms_my """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='lt_LT'"""
+    qt_monthname_lt_lt """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='lv_LV'"""
+    qt_monthname_lv_lv """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='et_EE'"""
+    qt_monthname_et_ee """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='is_IS'"""
+    qt_monthname_is_is """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='fo_FO'"""
+    qt_monthname_fo_fo """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='be_BY'"""
+    qt_monthname_be_by """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='uk_UA'"""
+    qt_monthname_uk_ua """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='mn_MN'"""
+    qt_monthname_mn_mn """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ur_PK'"""
+    qt_monthname_ur_pk """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ca_ES'"""
+    qt_monthname_ca_es """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='eu_ES'"""
+    qt_monthname_eu_es """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='gl_ES'"""
+    qt_monthname_gl_es """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='rm_CH'"""
+    qt_monthname_rm_ch """SELECT MONTHNAME('2023-07-13')"""
+    
+    sql """SET lc_time_names='ar_AE'"""
+    testFoldConst("SELECT MONTHNAME('2023-01-15');")
+    
+    sql """SET lc_time_names='zh_CN'"""
+    testFoldConst("SELECT MONTHNAME('2023-02-20');")
+    
+    sql """SET lc_time_names='ja_JP'"""
+    testFoldConst("SELECT MONTHNAME('2023-03-25');")
+    
+    sql """SET lc_time_names='ko_KR'"""
+    testFoldConst("SELECT MONTHNAME('2023-04-10');")
+    
+    sql """SET lc_time_names='ru_RU'"""
+    testFoldConst("SELECT MONTHNAME('2023-05-18');")
+    
+    sql """SET lc_time_names='de_DE'"""
+    testFoldConst("SELECT MONTHNAME('2023-06-22');")
+    
+    sql """SET lc_time_names='fr_FR'"""
+    testFoldConst("SELECT MONTHNAME('2023-07-13');")
+    
+    sql """SET lc_time_names='es_ES'"""
+    testFoldConst("SELECT MONTHNAME('2023-08-05');")
+    
+    sql """SET lc_time_names='pt_BR'"""
+    testFoldConst("SELECT MONTHNAME('2023-09-30');")
+    
+    sql """SET lc_time_names='it_IT'"""
+    testFoldConst("SELECT MONTHNAME('2023-10-12');")
+    
+    sql """SET lc_time_names='nl_NL'"""
+    testFoldConst("SELECT MONTHNAME('2023-11-28');")
+    
+    sql """SET lc_time_names='sv_SE'"""
+    testFoldConst("SELECT MONTHNAME('2023-12-01');")
+    
+    sql """SET lc_time_names='pl_PL'"""
+    testFoldConst("SELECT MONTHNAME('2024-01-31');")
+    
+    sql """SET lc_time_names='cs_CZ'"""
+    testFoldConst("SELECT MONTHNAME('2024-02-29');")
+    
+    sql """SET lc_time_names='bg_BG'"""
+    testFoldConst("SELECT MONTHNAME('2024-03-15');")
+    
+    sql """SET lc_time_names='uk_UA'"""
+    testFoldConst("SELECT MONTHNAME('2024-04-01');")
+
+    sql """SET lc_time_names=default"""
     
     // 54. MONTHS_ADD function tests
     qt_months_add_1 """SELECT MONTHS_ADD('2020-01-31', 1)"""

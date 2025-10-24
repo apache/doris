@@ -175,9 +175,9 @@ suite("test_mor_table_with_format_v2", "inverted_index_format_v2") {
             String port = backendId_to_backendHttpPort.get(backend_id)
             // after compaction, there are 1 rwoset in local mode and 2 rowsets in cloud mode.
             if (isCloudMode()) {
-                check_nested_index_file(ip, port, tablet_id, 2, 3, "V2")
+                check_nested_index_file(ip, port, tablet_id, 2, 3, "V3")
             } else {
-                check_nested_index_file(ip, port, tablet_id, 1, 3, "V2")
+                check_nested_index_file(ip, port, tablet_id, 1, 3, "V3")
             }
         }
 
