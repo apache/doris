@@ -20,11 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionItem;
-<<<<<<< HEAD
-=======
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.profile.SummaryProfile;
->>>>>>> 877ec547792 (add code)
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndId;
@@ -147,19 +143,9 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
-<<<<<<< HEAD
-=======
-        long startAt = System.currentTimeMillis();
-        try {
-            return pruneInternal(partitionSlots, partitionPredicate, idToPartitions, cascadesContext,
-                    partitionTableType,
-                    sortedPartitionRanges);
-        } finally {
-            SummaryProfile profile = SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext());
-            if (profile != null) {
-                profile.addNereidsPartitiionPruneTime(System.currentTimeMillis() - startAt);
-            }
-        }
+        return pruneInternal(partitionSlots, partitionPredicate, idToPartitions, cascadesContext,
+                partitionTableType,
+                sortedPartitionRanges);
     }
 
     private static <K extends Comparable<K>> Pair<List<K>, Optional<Expression>> pruneInternal(
@@ -167,7 +153,6 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             Expression partitionPredicate,
             Map<K, PartitionItem> idToPartitions, CascadesContext cascadesContext,
             PartitionTableType partitionTableType, Optional<SortedPartitionRanges<K>> sortedPartitionRanges) {
->>>>>>> 877ec547792 (add code)
         partitionPredicate = PartitionPruneExpressionExtractor.extract(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
         Expression originalPartitionPredicate = partitionPredicate;
