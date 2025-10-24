@@ -38,7 +38,7 @@ suite("test_date_implicit_cast") {
         if (value.contains("col=k1, colUniqueId=0, type=datetimev2(4)")) {
             contain0 = true;
         }
-        if (value.contains("col=null, colUniqueId=null, type=datetimev2(4)")) {
+        if (value.contains("col=null, colUniqueId=null, type=text")) {
             contain1 = true;
         }
     }
@@ -61,7 +61,7 @@ suite("test_date_implicit_cast") {
         if (value.contains("col=k1, colUniqueId=0, type=datetimev2(4)")) {
             contain0 = true;
         }
-        if (value.contains("col=null, colUniqueId=null, type=datetimev2(5)")) {
+        if (value.contains("col=null, colUniqueId=null, type=text")) {
             contain1 = true;
         }
     }
@@ -80,7 +80,7 @@ suite("test_date_implicit_cast") {
         if (value.contains("col=k1, colUniqueId=0, type=datetimev2(6)")) {
             contain0 = true;
         }
-        if (value.contains("col=null, colUniqueId=null, type=datetimev2(6)")) {
+        if (value.contains("col=null, colUniqueId=null, type=text")) {
             contain1 = true;
         }
     }

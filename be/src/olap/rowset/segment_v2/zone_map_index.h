@@ -58,6 +58,12 @@ struct ZoneMap {
 
     bool pass_all = false;
 
+    bool has_positive_inf = false;
+
+    bool has_negative_inf = false;
+
+    bool has_nan = false;
+
     void to_proto(ZoneMapPB* dst, Field* field) const {
         if (pass_all) {
             dst->set_min("");
@@ -69,6 +75,9 @@ struct ZoneMap {
         dst->set_has_null(has_null);
         dst->set_has_not_null(has_not_null);
         dst->set_pass_all(pass_all);
+        dst->set_has_positive_inf(has_positive_inf);
+        dst->set_has_negative_inf(has_negative_inf);
+        dst->set_has_nan(has_nan);
     }
 };
 
@@ -128,6 +137,9 @@ private:
         zone_map->has_null = false;
         zone_map->has_not_null = false;
         zone_map->pass_all = false;
+        zone_map->has_positive_inf = false;
+        zone_map->has_negative_inf = false;
+        zone_map->has_nan = false;
     }
 
     Field* _field = nullptr;

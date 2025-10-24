@@ -26,8 +26,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/util.h"
-#include "meta-service/doris_txn.h"
-#include "meta-store/codec.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
@@ -1800,6 +1798,146 @@ TEST(MetaReaderTest, GetLoadRowsetMeta) {
     }
 }
 
+TEST(MetaReaderTest, GetCompactRowsetMeta) {
+    using doris::RowsetMetaCloudPB;
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "test_instance";
+    int64_t tablet_id = 5001;
+    int64_t version = 10;
+
+    {
+        // Test key not found when no rowset exists
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        RowsetMetaCloudPB rowset_meta;
+        TxnErrorCode err = meta_reader.get_compact_rowset_meta(tablet_id, version, &rowset_meta);
+        ASSERT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    // Create a load rowset
+    RowsetMetaCloudPB expected_rowset_meta;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string load_key =
+                versioned::meta_rowset_compact_key({instance_id, tablet_id, version});
+        expected_rowset_meta.set_rowset_id(0);
+        expected_rowset_meta.set_rowset_id_v2(fmt::format("test_compact_rowset_{}", version));
+        expected_rowset_meta.set_start_version(version);
+        expected_rowset_meta.set_end_version(version);
+        expected_rowset_meta.set_num_rows(1000);
+        expected_rowset_meta.set_tablet_id(tablet_id);
+
+        ASSERT_TRUE(versioned::document_put(txn.get(), load_key, std::move(expected_rowset_meta)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Test successful get with created transaction
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        RowsetMetaCloudPB rowset_meta;
+        TxnErrorCode err = meta_reader.get_compact_rowset_meta(tablet_id, version, &rowset_meta);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        // Verify fields match
+        ASSERT_EQ(rowset_meta.rowset_id_v2(), expected_rowset_meta.rowset_id_v2());
+        ASSERT_EQ(rowset_meta.start_version(), expected_rowset_meta.start_version());
+        ASSERT_EQ(rowset_meta.end_version(), expected_rowset_meta.end_version());
+        ASSERT_EQ(rowset_meta.num_rows(), expected_rowset_meta.num_rows());
+        ASSERT_EQ(rowset_meta.tablet_id(), expected_rowset_meta.tablet_id());
+    }
+
+    {
+        // Test successful get with provided transaction
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        RowsetMetaCloudPB rowset_meta;
+        TxnErrorCode err =
+                meta_reader.get_compact_rowset_meta(txn.get(), tablet_id, version, &rowset_meta);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        // Verify key fields match
+        ASSERT_EQ(rowset_meta.rowset_id_v2(), expected_rowset_meta.rowset_id_v2());
+        ASSERT_EQ(rowset_meta.start_version(), expected_rowset_meta.start_version());
+        ASSERT_EQ(rowset_meta.end_version(), expected_rowset_meta.end_version());
+        ASSERT_EQ(rowset_meta.tablet_id(), expected_rowset_meta.tablet_id());
+    }
+
+    // Test with snapshot version functionality
+    Versionstamp snapshot_version;
+    {
+        // Get current snapshot version
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        int64_t version_value = 0;
+        ASSERT_EQ(txn->get_read_version(&version_value), TxnErrorCode::TXN_OK);
+        snapshot_version = Versionstamp(version_value, 1);
+    }
+
+    // Update the rowset
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string load_key =
+                versioned::meta_rowset_compact_key({instance_id, tablet_id, version});
+        RowsetMetaCloudPB updated_rowset_meta = expected_rowset_meta;
+        updated_rowset_meta.set_num_rows(2000); // Update row count
+
+        ASSERT_TRUE(versioned::document_put(txn.get(), load_key, std::move(updated_rowset_meta)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Test reading with snapshot version - should get old data
+        MetaReader meta_reader(instance_id, txn_kv.get(), snapshot_version);
+        RowsetMetaCloudPB rowset_meta;
+        TxnErrorCode err = meta_reader.get_compact_rowset_meta(tablet_id, version, &rowset_meta);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        // Should get original values
+        ASSERT_EQ(rowset_meta.num_rows(), 1000);
+    }
+
+    {
+        // Test reading without snapshot - should get new data
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        RowsetMetaCloudPB rowset_meta;
+        TxnErrorCode err = meta_reader.get_compact_rowset_meta(tablet_id, version, &rowset_meta);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        // Should get updated values
+        ASSERT_EQ(rowset_meta.num_rows(), 2000);
+    }
+
+    {
+        // Test with snapshot flag
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        RowsetMetaCloudPB rowset_meta;
+        TxnErrorCode err =
+                meta_reader.get_compact_rowset_meta(tablet_id, version, &rowset_meta, true);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+        // Should get current values since snapshot flag is set but no snapshot version
+        ASSERT_EQ(rowset_meta.num_rows(), 2000);
+    }
+
+    {
+        // Test getting non-existent version
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        RowsetMetaCloudPB rowset_meta;
+        TxnErrorCode err =
+                meta_reader.get_compact_rowset_meta(tablet_id, version + 1, &rowset_meta);
+        ASSERT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+}
+
 TEST(MetaReaderTest, BatchGetTabletCompactStats) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
@@ -2048,5 +2186,449 @@ TEST(MetaReaderTest, BatchGetTabletCompactStats) {
                 meta_reader.get_tablet_compact_stats(tablet_ids, nullptr, &versionstamps);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         ASSERT_EQ(versionstamps.size(), tablet_ids.size());
+    }
+}
+
+TEST(MetaReaderTest, GetSnapshots) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "test_instance";
+
+    {
+        // Test empty result when no snapshots exist
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        std::vector<std::pair<SnapshotPB, Versionstamp>> snapshots;
+        TxnErrorCode err = meta_reader.get_snapshots(&snapshots);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(snapshots.empty());
+    }
+
+    // Create some snapshots
+    std::vector<Versionstamp> expected_versionstamps;
+    {
+        // Create multiple snapshots with different timestamps
+        for (int i = 1; i <= 3; ++i) {
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+            std::string snapshot_key = versioned::snapshot_full_key({instance_id});
+            SnapshotPB snapshot_pb;
+            snapshot_pb.set_label(fmt::format("snapshot_{}", i));
+            snapshot_pb.set_instance_id(instance_id);
+
+            std::string snapshot_value = snapshot_pb.SerializeAsString();
+            versioned_put(txn.get(), snapshot_key, snapshot_value);
+            ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        }
+    }
+
+    {
+        // Test getting snapshots with created transaction
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        std::vector<std::pair<SnapshotPB, Versionstamp>> snapshots;
+        TxnErrorCode err = meta_reader.get_snapshots(&snapshots);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(snapshots.size(), 3);
+
+        // Verify snapshots are returned (order may vary due to versionstamp ordering)
+        std::set<std::string> snapshot_ids;
+        for (const auto& [snapshot_pb, versionstamp] : snapshots) {
+            snapshot_ids.insert(snapshot_pb.label());
+            ASSERT_EQ(snapshot_pb.instance_id(), instance_id);
+        }
+        ASSERT_EQ(snapshot_ids.size(), 3);
+        ASSERT_TRUE(snapshot_ids.count("snapshot_1"));
+        ASSERT_TRUE(snapshot_ids.count("snapshot_2"));
+        ASSERT_TRUE(snapshot_ids.count("snapshot_3"));
+    }
+}
+
+TEST(MetaReaderTest, GetLoadRowsetMetas) {
+    using doris::RowsetMetaCloudPB;
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "test_instance";
+    int64_t tablet_id = 5001;
+
+    {
+        // Test with no rowset metas
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>> rowset_metas;
+        TxnErrorCode err = meta_reader.get_load_rowset_metas(tablet_id, &rowset_metas);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(rowset_metas.empty());
+    }
+
+    {
+        // Put some load rowset metas
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        for (int64_t version = 1; version <= 3; ++version) {
+            std::string load_rowset_key =
+                    versioned::meta_rowset_load_key({instance_id, tablet_id, version});
+            RowsetMetaCloudPB rowset_meta;
+            rowset_meta.set_rowset_id(1);
+            rowset_meta.set_rowset_id_v2("load_rowset_" + std::to_string(version));
+            rowset_meta.set_start_version(version);
+            rowset_meta.set_end_version(version);
+            rowset_meta.set_num_rows(100 * version);
+            rowset_meta.set_data_disk_size(1000 * version);
+
+            ASSERT_TRUE(
+                    versioned::document_put(txn.get(), load_rowset_key, std::move(rowset_meta)));
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Test getting load rowset metas
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>> rowset_metas;
+        TxnErrorCode err = meta_reader.get_load_rowset_metas(tablet_id, &rowset_metas);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(rowset_metas.size(), 3);
+
+        // Verify the rowset metas are correct
+        for (size_t i = 0; i < rowset_metas.size(); ++i) {
+            const auto& [rowset_meta, versionstamp] = rowset_metas[i];
+            int64_t expected_version = rowset_meta.start_version();
+            ASSERT_EQ(rowset_meta.rowset_id_v2(),
+                      "load_rowset_" + std::to_string(expected_version));
+            ASSERT_EQ(rowset_meta.start_version(), expected_version);
+            ASSERT_EQ(rowset_meta.end_version(), expected_version);
+            ASSERT_EQ(rowset_meta.num_rows(), 100 * expected_version);
+            ASSERT_EQ(rowset_meta.data_disk_size(), 1000 * expected_version);
+        }
+
+        // Check min_read_versionstamp is updated
+        ASSERT_NE(meta_reader.min_read_versionstamp(), Versionstamp::max());
+    }
+
+    {
+        // Test with transaction
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>> rowset_metas;
+        TxnErrorCode err = meta_reader.get_load_rowset_metas(txn.get(), tablet_id, &rowset_metas);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(rowset_metas.size(), 3);
+    }
+}
+
+TEST(MetaReaderTest, GetCompactRowsetMetas) {
+    using doris::RowsetMetaCloudPB;
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "test_instance";
+    int64_t tablet_id = 5002;
+
+    {
+        // Test with no rowset metas
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>> rowset_metas;
+        TxnErrorCode err = meta_reader.get_compact_rowset_metas(tablet_id, &rowset_metas);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(rowset_metas.empty());
+    }
+
+    {
+        // Put some compact rowset metas
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Create compact rowsets with different version ranges
+        std::vector<std::pair<int64_t, int64_t>> version_ranges = {{1, 3}, {4, 6}, {7, 9}};
+
+        for (size_t i = 0; i < version_ranges.size(); ++i) {
+            auto [start_version, end_version] = version_ranges[i];
+            std::string compact_rowset_key =
+                    versioned::meta_rowset_compact_key({instance_id, tablet_id, end_version});
+            RowsetMetaCloudPB rowset_meta;
+            rowset_meta.set_rowset_id(0);
+            rowset_meta.set_rowset_id_v2("compact_rowset_" + std::to_string(i + 1));
+            rowset_meta.set_start_version(start_version);
+            rowset_meta.set_end_version(end_version);
+            rowset_meta.set_num_rows(300 * (i + 1));
+            rowset_meta.set_data_disk_size(3000 * (i + 1));
+
+            ASSERT_TRUE(
+                    versioned::document_put(txn.get(), compact_rowset_key, std::move(rowset_meta)));
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Test getting compact rowset metas
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>> rowset_metas;
+        TxnErrorCode err = meta_reader.get_compact_rowset_metas(tablet_id, &rowset_metas);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(rowset_metas.size(), 3);
+
+        // Verify the rowset metas are correct
+        std::vector<std::pair<int64_t, int64_t>> expected_ranges = {{1, 3}, {4, 6}, {7, 9}};
+
+        // Sort by end_version for consistent comparison
+        std::sort(rowset_metas.begin(), rowset_metas.end(), [](const auto& a, const auto& b) {
+            return a.first.end_version() < b.first.end_version();
+        });
+
+        for (size_t i = 0; i < rowset_metas.size(); ++i) {
+            const auto& [rowset_meta, versionstamp] = rowset_metas[i];
+            auto [expected_start, expected_end] = expected_ranges[i];
+
+            ASSERT_EQ(rowset_meta.rowset_id_v2(), "compact_rowset_" + std::to_string(i + 1));
+            ASSERT_EQ(rowset_meta.start_version(), expected_start);
+            ASSERT_EQ(rowset_meta.end_version(), expected_end);
+            ASSERT_EQ(rowset_meta.num_rows(), 300 * (i + 1));
+            ASSERT_EQ(rowset_meta.data_disk_size(), 3000 * (i + 1));
+        }
+
+        // Check min_read_versionstamp is updated
+        ASSERT_NE(meta_reader.min_read_versionstamp(), Versionstamp::max());
+    }
+
+    {
+        // Test with transaction
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>> rowset_metas;
+        TxnErrorCode err =
+                meta_reader.get_compact_rowset_metas(txn.get(), tablet_id, &rowset_metas);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_EQ(rowset_metas.size(), 3);
+    }
+}
+
+TEST(MetaReaderTest, HasSnapshotReferences) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "test_instance";
+    Versionstamp snapshot_version(12345, 0);
+
+    {
+        // Test when no snapshot references exist - should return false
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool has_references = true; // Initialize to true to test the change
+        TxnErrorCode err = meta_reader.has_snapshot_references(snapshot_version, &has_references);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_FALSE(has_references);
+    }
+
+    {
+        // Create some snapshot reference entries with empty values as specified
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Add snapshot reference entries
+        std::string ref_key1 = versioned::snapshot_reference_key(
+                {instance_id, snapshot_version, "ref_instance_1"});
+        std::string ref_key2 = versioned::snapshot_reference_key(
+                {instance_id, snapshot_version, "ref_instance_2"});
+        std::string ref_key3 = versioned::snapshot_reference_key(
+                {instance_id, snapshot_version, "ref_instance_3"});
+
+        // Put empty values for snapshot_reference_key as specified in requirements
+        txn->put(ref_key1, "");
+        txn->put(ref_key2, "");
+        txn->put(ref_key3, "");
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Test when snapshot references exist - should return true
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool has_references = false; // Initialize to false to test the change
+        TxnErrorCode err = meta_reader.has_snapshot_references(snapshot_version, &has_references);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(has_references);
+    }
+
+    {
+        // Test with transaction parameter
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool has_references = false;
+        TxnErrorCode err =
+                meta_reader.has_snapshot_references(txn.get(), snapshot_version, &has_references);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(has_references);
+    }
+
+    {
+        // Test with different snapshot version that has no references
+        Versionstamp different_snapshot_version(54321, 0);
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool has_references = true;
+        TxnErrorCode err =
+                meta_reader.has_snapshot_references(different_snapshot_version, &has_references);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_FALSE(has_references);
+    }
+
+    {
+        // Test snapshot functionality
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool has_references = false;
+        TxnErrorCode err = meta_reader.has_snapshot_references(txn.get(), snapshot_version,
+                                                               &has_references, true);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(has_references);
+    }
+
+    {
+        // Test with a range of snapshot references
+        // Create additional references with different versions to test prefix matching
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        Versionstamp nearby_version1(12344, 0); // One less
+        Versionstamp nearby_version2(12346, 0); // One more
+
+        std::string ref_key_before =
+                versioned::snapshot_reference_key({instance_id, nearby_version1, "ref_before"});
+        std::string ref_key_after =
+                versioned::snapshot_reference_key({instance_id, nearby_version2, "ref_after"});
+
+        txn->put(ref_key_before, "");
+        txn->put(ref_key_after, "");
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Test that the method only finds references for the exact snapshot version
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool has_references = false;
+        TxnErrorCode err = meta_reader.has_snapshot_references(snapshot_version, &has_references);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(has_references); // Should still find the original references
+
+        // Test nearby versions
+        Versionstamp nearby_version1(12344, 0);
+        has_references = false;
+        err = meta_reader.has_snapshot_references(nearby_version1, &has_references);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(has_references); // Should find the reference for this version
+
+        Versionstamp nearby_version2(12346, 0);
+        has_references = false;
+        err = meta_reader.has_snapshot_references(nearby_version2, &has_references);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(has_references); // Should find the reference for this version
+
+        // Test a version with no references
+        Versionstamp no_ref_version(99999, 0);
+        has_references = true;
+        err = meta_reader.has_snapshot_references(no_ref_version, &has_references);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_FALSE(has_references); // Should not find any references
+    }
+}
+
+TEST(MetaReaderTest, HasNoIndexes) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string instance_id = "test_instance";
+    int64_t db_id = 1001;
+    int64_t table_id = 2001;
+
+    {
+        // Test when no indexes exist - should return true
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool no_indexes = false;
+        TxnErrorCode err = meta_reader.has_no_indexes(db_id, table_id, &no_indexes);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(no_indexes);
+    }
+
+    {
+        // Insert some index_inverted_key entries with empty values
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // Add index entries for the table
+        std::string index_key1 = versioned::index_inverted_key({instance_id, db_id, table_id, 1});
+        std::string index_key2 = versioned::index_inverted_key({instance_id, db_id, table_id, 2});
+        std::string index_key3 = versioned::index_inverted_key({instance_id, db_id, table_id, 3});
+
+        // Put empty values for index_inverted_key as specified in requirements
+        txn->put(index_key1, "");
+        txn->put(index_key2, "");
+        txn->put(index_key3, "");
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Test when indexes exist - should return false
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool no_indexes = true;
+        TxnErrorCode err = meta_reader.has_no_indexes(db_id, table_id, &no_indexes);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_FALSE(no_indexes);
+    }
+
+    {
+        // Test with transaction
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool no_indexes = true;
+        TxnErrorCode err = meta_reader.has_no_indexes(txn.get(), db_id, table_id, &no_indexes);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_FALSE(no_indexes);
+    }
+
+    {
+        // Test with different table_id that has no indexes
+        int64_t empty_table_id = 3001;
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool no_indexes = false;
+        TxnErrorCode err = meta_reader.has_no_indexes(db_id, empty_table_id, &no_indexes);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(no_indexes);
+    }
+
+    {
+        // Test with different db_id that has no indexes
+        int64_t empty_db_id = 2001;
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool no_indexes = false;
+        TxnErrorCode err = meta_reader.has_no_indexes(empty_db_id, table_id, &no_indexes);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(no_indexes);
+    }
+
+    {
+        // Test snapshot functionality
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        MetaReader meta_reader(instance_id, txn_kv.get());
+        bool no_indexes = true;
+        TxnErrorCode err =
+                meta_reader.has_no_indexes(txn.get(), db_id, table_id, &no_indexes, true);
+        ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+        ASSERT_FALSE(no_indexes);
     }
 }

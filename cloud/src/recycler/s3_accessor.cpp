@@ -292,7 +292,8 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::get_aws_credentia
             return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
         }
 
-        Aws::Client::ClientConfiguration clientConfiguration;
+        Aws::Client::ClientConfiguration clientConfiguration =
+                S3Environment::getClientConfiguration();
         if (_ca_cert_file_path.empty()) {
             _ca_cert_file_path =
                     get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
@@ -363,7 +364,7 @@ int S3Accessor::init() {
         uri_ = normalize_http_uri(uri_);
 
         // S3Conf::S3
-        Aws::Client::ClientConfiguration aws_config;
+        Aws::Client::ClientConfiguration aws_config = S3Environment::getClientConfiguration();
         aws_config.endpointOverride = conf_.endpoint;
         aws_config.region = conf_.region;
         // Aws::Http::CurlHandleContainer::AcquireCurlHandle() may be blocked if the connecitons are bottleneck
@@ -483,6 +484,23 @@ int S3Accessor::list_all(std::unique_ptr<ListIterator>* res) {
 int S3Accessor::exists(const std::string& path) {
     ObjectMeta obj_meta;
     return obj_client_->head_object({.bucket = conf_.bucket, .key = get_key(path)}, &obj_meta).ret;
+}
+
+int S3Accessor::abort_multipart_upload(const std::string& path, const std::string& upload_id) {
+    LOG_INFO("abort multipart upload").tag("uri", to_uri(path)).tag("upload_id", upload_id);
+    int ret = obj_client_
+                      ->abort_multipart_upload({.bucket = conf_.bucket, .key = get_key(path)},
+                                               upload_id)
+                      .ret;
+    static_assert(ObjectStorageResponse::OK == 0);
+    if (ret == ObjectStorageResponse::OK || ret == ObjectStorageResponse::NOT_FOUND) {
+        return 0;
+    }
+    LOG_WARNING("fail abort multipart upload")
+            .tag("uri", to_uri(path))
+            .tag("upload_id", upload_id)
+            .tag("ret", ret);
+    return ret;
 }
 
 int S3Accessor::get_life_cycle(int64_t* expiration_days) {

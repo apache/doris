@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.backup.BackupJobInfo;
+import org.apache.doris.backup.BackupMeta;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
@@ -30,10 +32,10 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
@@ -94,8 +96,8 @@ public class RestoreCommand extends Command implements ForwardWithSync {
     private final Map<String, String> properties;
     private final boolean isExclude;
     private long timeoutMs;
-    private byte[] meta = null;
-    private byte[] jobInfo = null;
+    private BackupMeta meta = null;
+    private BackupJobInfo jobInfo = null;
     private String storageVaultName = null;
 
     /**
@@ -410,19 +412,19 @@ public class RestoreCommand extends Command implements ForwardWithSync {
         return isLocal;
     }
 
-    public byte[] getMeta() {
+    public BackupMeta getMeta() {
         return meta;
     }
 
-    public void setMeta(byte[] meta) {
+    public void setMeta(BackupMeta meta) {
         this.meta = meta;
     }
 
-    public byte[] getJobInfo() {
+    public BackupJobInfo getJobInfo() {
         return jobInfo;
     }
 
-    public void setJobInfo(byte[] jobInfo) {
+    public void setJobInfo(BackupJobInfo jobInfo) {
         this.jobInfo = jobInfo;
     }
 

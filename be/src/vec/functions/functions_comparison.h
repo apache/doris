@@ -584,8 +584,8 @@ public:
 
         if (can_compare(left_type->get_primitive_type()) &&
             can_compare(right_type->get_primitive_type())) {
-            // check left type equals right type
-            if (!left_type->equals(*right_type)) {
+            // check left type equals right type TODO: remove this after FE is aware of scales difference
+            if (!left_type->equals_ignore_precision(*right_type)) {
                 return Status::RuntimeError("not same type in function {} , left : {} , right : {}",
                                             get_name(), left_type->get_name(),
                                             right_type->get_name());

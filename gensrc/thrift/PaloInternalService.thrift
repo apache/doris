@@ -404,6 +404,10 @@ struct TQueryOptions {
 
   171: optional bool optimize_index_scan_parallelism = false;
 
+  172: optional bool enable_prefer_cached_rowset
+  173: optional i64 query_freshness_tolerance_ms
+  174: optional i64 merge_read_slice_size = 8388608;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
@@ -459,33 +463,8 @@ struct TPlanFragmentExecParams {
   // a globally unique id assigned to this particular execution instance of
   // a TPlanFragment
   2: required Types.TUniqueId fragment_instance_id
-
-  // initial scan ranges for each scan node in TPlanFragment.plan_tree
-  3: required map<Types.TPlanNodeId, list<TScanRangeParams>> per_node_scan_ranges
-
-  // number of senders for ExchangeNodes contained in TPlanFragment.plan_tree;
-  // needed to create a DataStreamRecvr
-  4: required map<Types.TPlanNodeId, i32> per_exch_num_senders
-
-  // Output destinations, one per output partition.
-  // The partitioning of the output is specified by
-  // TPlanFragment.output_sink.output_partition.
-  // The number of output partitions is destinations.size().
-  5: list<DataSinks.TPlanFragmentDestination> destinations
-
-  // Debug options: perform some action in a particular phase of a particular node
-  // 6: optional Types.TPlanNodeId debug_node_id // Never used
-  // 7: optional PlanNodes.TExecNodePhase debug_phase // Never used
-  // 8: optional PlanNodes.TDebugAction debug_action // Never used
-
-  // Id of this fragment in its role as a sender.
-  9: optional i32 sender_id
-  10: optional i32 num_senders
-  11: optional bool send_query_statistics_with_every_batch
-  // Used to merge and send runtime filter
-  12: optional TRuntimeFilterParams runtime_filter_params //deprecated
-  13: optional bool group_commit // deprecated
-  14: optional list<i32> topn_filter_source_node_ids //deprecated
+  // all fields before 14 are deleted
+  // 14: optional list<i32> topn_filter_source_node_ids //deprecated
 }
 
 // Global query parameters assigned by the coordinator.
@@ -549,122 +528,6 @@ struct TPipelineWorkloadGroup {
   4: optional i64 version
 }
 
-// ExecPlanFragment
-struct TExecPlanFragmentParams {
-  1: required PaloInternalServiceVersion protocol_version
-
-  // required in V1
-  2: optional Planner.TPlanFragment fragment
-
-  // required in V1
-  // @Common components
-  3: optional Descriptors.TDescriptorTable desc_tbl
-
-  // required in V1
-  4: optional TPlanFragmentExecParams params
-
-  // Initiating coordinator.
-  // TODO: determine whether we can get this somehow via the Thrift rpc mechanism.
-  // required in V1
-  // @Common components
-  5: optional Types.TNetworkAddress coord
-
-  // backend number assigned by coord to identify backend
-  // required in V1
-  6: optional i32 backend_num
-
-  // Global query parameters assigned by coordinator.
-  // required in V1
-  // @Common components
-  7: optional TQueryGlobals query_globals
-
-  // options for the query
-  // required in V1
-  8: optional TQueryOptions query_options
-
-  // Whether reportd when the backend fails
-  // required in V1
-  9: optional bool is_report_success
-
-  // required in V1
-  // @Common components
-  // Deprecated
-  10: optional Types.TResourceInfo resource_info
-
-  // load job related
-  11: optional string import_label
-  12: optional string db_name
-  13: optional i64 load_job_id
-  14: optional TLoadErrorHubInfo load_error_hub_info
-
-  // The total number of fragments on same BE host
-  15: optional i32 fragment_num_on_host
-
-  // If true, all @Common components is unset and should be got from BE's cache
-  // If this field is unset or it set to false, all @Common components is set.
-  16: optional bool is_simplified_param = false;
-  17: optional TTxnParams txn_conf
-  18: optional i64 backend_id
-  19: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
-
-  // If it is true, after this fragment is prepared on the BE side,
-  // it will wait for the FE to send the "start execution" command before it is actually executed.
-  // Otherwise, the fragment will start executing directly on the BE side.
-  20: optional bool need_wait_execution_trigger = false;
-
-  // deprecated
-  21: optional bool build_hash_table_for_broadcast_join = false;
-
-  22: optional list<Types.TUniqueId> instances_sharing_hash_table;
-  23: optional string table_name;
-
-  // scan node id -> scan range params, only for external file scan
-  24: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
-
-  25: optional i64 wal_id
-
-  // num load stream for each sink backend
-  26: optional i32 load_stream_per_node
-
-  // total num of load streams the downstream backend will see
-  27: optional i32 total_load_streams
-
-  28: optional i32 num_local_sink
-
-  29: optional i64 content_length
-
-  30: optional list<TPipelineWorkloadGroup> workload_groups
-
-  31: optional bool is_nereids = true;
-
-  32: optional Types.TNetworkAddress current_connect_fe
-
-  // For cloud
-  1000: optional bool is_mow_table;
-}
-
-struct TExecPlanFragmentParamsList {
-    1: optional list<TExecPlanFragmentParams> paramsList;
-}
-
-struct TExecPlanFragmentResult {
-  // required in V1
-  1: optional Status.TStatus status
-}
-
-// CancelPlanFragment
-struct TCancelPlanFragmentParams {
-  1: required PaloInternalServiceVersion protocol_version
-
-  // required in V1
-  2: optional Types.TUniqueId fragment_instance_id
-}
-
-struct TCancelPlanFragmentResult {
-  // required in V1
-  1: optional Status.TStatus status
-}
-
 struct TFoldConstantParams {
   1: required map<string, map<string, Exprs.TExpr>> expr_map
   2: required TQueryGlobals query_globals
@@ -672,38 +535,6 @@ struct TFoldConstantParams {
   4: optional TQueryOptions query_options
   5: optional Types.TUniqueId query_id
   6: optional bool is_nereids
-}
-
-// TransmitData
-struct TTransmitDataParams {
-  1: required PaloInternalServiceVersion protocol_version
-
-  // required in V1
-  2: optional Types.TUniqueId dest_fragment_instance_id
-
-  // for debugging purposes; currently ignored
-  //3: optional Types.TUniqueId src_fragment_instance_id
-
-  // required in V1
-  4: optional Types.TPlanNodeId dest_node_id
-
-  // if set to true, indicates that no more row batches will be sent
-  // for this dest_node_id
-  6: optional bool eos
-
-  7: optional i32 be_number
-  8: optional i64 packet_seq
-
-  // Id of this fragment in its role as a sender.
-  9: optional i32 sender_id
-}
-
-struct TTransmitDataResult {
-  // required in V1
-  1: optional Status.TStatus status
-  2: optional i64 packet_seq
-  3: optional Types.TUniqueId dest_fragment_instance_id
-  4: optional Types.TPlanNodeId dest_node_id
 }
 
 struct TTabletWithPartition {
@@ -730,7 +561,7 @@ enum TCompoundType {
     NOT = 3,
 }
 
-struct TLLMResource {
+struct TAIResource {
   1: required string endpoint
   2: required string provider_type
   3: required string model_name
@@ -754,12 +585,6 @@ struct TCondition {
 
     // For cloud
     1000: optional TCompoundType compound_type = TCompoundType.UNKNOWN
-}
-
-struct TExportStatusResult {
-    1: required Status.TStatus status
-    2: required Types.TExportState state
-    3: optional list<string> files
 }
 
 struct TPipelineInstanceParams {
@@ -824,7 +649,7 @@ struct TPipelineFragmentParams {
   43: optional Types.TNetworkAddress current_connect_fe
   // Used by 2.1
   44: optional list<i32> topn_filter_source_node_ids
-  45: optional map<string, TLLMResource> llm_resources
+  45: optional map<string, TAIResource> ai_resources
 
   // For cloud
   1000: optional bool is_mow_table;

@@ -29,7 +29,6 @@ import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
-import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
 import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -1013,7 +1012,6 @@ public class Memo {
                 .filter(e -> e.stream().allMatch(PhysicalProperties.ANY::equals))
                 .findAny();
         if (any.isPresent()
-                && !(groupExpression.getPlan() instanceof RequirePropertiesSupplier)
                 && !(groupExpression.getPlan() instanceof SetOperation)) {
             res.clear();
             res.add(any.get());

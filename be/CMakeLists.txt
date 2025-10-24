@@ -143,6 +143,9 @@ message(STATUS "build fs benchmark tool: ${BUILD_FS_BENCHMARK}")
 option(BUILD_TASK_EXECUTOR_SIMULATOR "ON for building task executor simulator or OFF for not" OFF)
 message(STATUS "build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}")
 
+option(BUILD_FILE_CACHE_LRU_TOOL "ON for building file cache lru tool or OFF for not" OFF)
+message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
+
 set(CMAKE_SKIP_RPATH TRUE)
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_STATIC_RUNTIME ON)
@@ -321,9 +324,8 @@ if (COMPILER_CLANG)
                         -Wconversion)
     add_compile_options( -Wno-gnu-statement-expression
                         -Wno-implicit-float-conversion
-                        -Wno-implicit-int-conversion
                         -Wno-sign-conversion
-                        -Wno-shorten-64-to-32)
+                        )
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         add_definitions(-DUSE_LIBCPP)
@@ -370,10 +372,6 @@ SET(ARM_MARCH "${ARM_MARCH}")
 
 if (ENABLE_INJECTION_POINT)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_INJECTION_POINT")
-endif()
-
-if (ENABLE_CACHE_LOCK_DEBUG)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_CACHE_LOCK_DEBUG")
 endif()
 
 # Compile with jemalloc.
@@ -721,6 +719,12 @@ if (MAKE_TEST)
     add_definitions(-DBE_TEST)
     if (ARCH_ARM)
         add_compile_options(-ffp-contract=off)
+    endif()
+    if (COMPILER_CLANG)
+        add_compile_options(
+        -Wno-implicit-int-conversion
+        -Wno-shorten-64-to-32
+        )
     endif()
 endif ()
 

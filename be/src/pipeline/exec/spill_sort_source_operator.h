@@ -43,6 +43,8 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
+    bool is_blockable() const override;
+
     Status setup_in_memory_sort_op(RuntimeState* state);
 
     Status initiate_merge_sort_spill_streams(RuntimeState* state);

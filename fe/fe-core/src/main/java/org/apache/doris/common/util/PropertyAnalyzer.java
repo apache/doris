@@ -257,6 +257,9 @@ public class PropertyAnalyzer {
     public static final String SM4 = "SM4";
     public static final String PLAINTEXT = "PLAINTEXT";
 
+    public static final String PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
+            "variant_max_sparse_column_statistics_size";
+
     public enum RewriteType {
         PUT,      // always put property
         REPLACE,  // replace if exists property
@@ -1052,16 +1055,7 @@ public class PropertyAnalyzer {
         return goalSizeMbytes;
     }
 
-    // analyzeCompressionType will parse the compression type from properties
-    public static TCompressionType analyzeCompressionType(Map<String, String> properties) throws AnalysisException {
-        String compressionType = "";
-        if (properties != null && properties.containsKey(PROPERTIES_COMPRESSION)) {
-            compressionType = properties.get(PROPERTIES_COMPRESSION);
-            properties.remove(PROPERTIES_COMPRESSION);
-        } else {
-            return TCompressionType.LZ4F;
-        }
-
+    public static TCompressionType stringToCompressionType(String compressionType) throws AnalysisException {
         if (compressionType.equalsIgnoreCase("no_compression")) {
             return TCompressionType.NO_COMPRESSION;
         } else if (compressionType.equalsIgnoreCase("lz4")) {
@@ -1076,11 +1070,34 @@ public class PropertyAnalyzer {
             return TCompressionType.ZSTD;
         } else if (compressionType.equalsIgnoreCase("snappy")) {
             return TCompressionType.SNAPPY;
+        } else if (compressionType.equalsIgnoreCase("default_compression")
+                && !Config.default_compression_type.equalsIgnoreCase("default_compression")) {
+            return TCompressionType.valueOf(Config.default_compression_type);
         } else if (compressionType.equalsIgnoreCase("default_compression")) {
             return TCompressionType.LZ4F;
         } else {
             throw new AnalysisException("unknown compression type: " + compressionType);
         }
+    }
+
+    // analyzeCompressionType will parse the compression type from properties
+    public static TCompressionType getCompressionTypeFromProperties(Map<String, String> properties)
+            throws AnalysisException {
+        String compressionType = "";
+        if (properties != null && properties.containsKey(PROPERTIES_COMPRESSION)) {
+            compressionType = properties.get(PROPERTIES_COMPRESSION);
+        } else {
+            return stringToCompressionType(Config.default_compression_type);
+        }
+
+        return stringToCompressionType(compressionType);
+    }
+
+    // analyzeCompressionType will parse the compression type from properties
+    public static TCompressionType analyzeCompressionType(Map<String, String> properties) throws AnalysisException {
+        TCompressionType compressionType = getCompressionTypeFromProperties(properties);
+        properties.remove(PROPERTIES_COMPRESSION);
+        return compressionType;
     }
 
     public static long alignTo4K(long size) {
@@ -1875,18 +1892,41 @@ public class PropertyAnalyzer {
         return enableTypedPathsToSparse;
     }
 
+    public static int analyzeVariantMaxSparseColumnStatisticsSize(Map<String, String> properties, int defuatValue)
+                                                                                throws AnalysisException {
+        int maxSparseColumnStatisticsSize = defuatValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE)) {
+            String maxSparseColumnStatisticsSizeStr =
+                    properties.get(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
+            try {
+                maxSparseColumnStatisticsSize = Integer.parseInt(maxSparseColumnStatisticsSizeStr);
+                if (maxSparseColumnStatisticsSize < 0 || maxSparseColumnStatisticsSize > 50000) {
+                    throw new AnalysisException("variant_max_sparse_column_statistics_size must between 0 and 50000 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException("variant_max_sparse_column_statistics_size format error:" + e.getMessage());
+            }
+
+            properties.remove(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
+        }
+        return maxSparseColumnStatisticsSize;
+    }
+
     public static TEncryptionAlgorithm analyzeTDEAlgorithm(Map<String, String> properties) throws AnalysisException {
         String name;
+        //if (properties == null || !properties.containsKey(PROPERTIES_TDE_ALGORITHM)) {
+        //    name = Config.doris_tde_algorithm;
+        //} else if (!PLAINTEXT.equals(Config.doris_tde_algorithm)) {
+        //    throw new AnalysisException("Cannot create a table on encrypted FE,"
+        //            + " please set Config.doris_tde_algorithm to PLAINTEXT");
+        //} else {
+        //    name = properties.remove(PROPERTIES_TDE_ALGORITHM);
+        //}
+        //
         if (properties == null || !properties.containsKey(PROPERTIES_TDE_ALGORITHM)) {
-            if (Config.doris_tde_algorithm.isEmpty()) {
-                return TEncryptionAlgorithm.PLAINTEXT;
-            }
             name = Config.doris_tde_algorithm;
-        } else if (!PLAINTEXT.equals(Config.doris_tde_algorithm)) {
-            throw new AnalysisException("Cannot create a table on encrypted FE,"
-                    + " please set Config.doris_tde_algorithm to PLAINTEXT");
         } else {
-            name = properties.remove(PROPERTIES_TDE_ALGORITHM);
+            throw new AnalysisException("Do not support tde_algorithm property currently");
         }
 
         if (AES256.equalsIgnoreCase(name)) {

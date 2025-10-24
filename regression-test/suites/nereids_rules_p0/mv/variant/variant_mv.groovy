@@ -368,7 +368,7 @@ suite("variant_mv") {
     count(*),
     max(floor(cast(actor['id'] as int) + 100.5))
     FROM github_events1
-    where actor['id'] > 34259289 and cast(actor['id'] as int) + cast(repo['id'] as int) > 80000000
+    where cast(actor['id'] as int) > 34259289 and cast(actor['id'] as int) + cast(repo['id'] as int) > 80000000
     group by 
     id,
     type,

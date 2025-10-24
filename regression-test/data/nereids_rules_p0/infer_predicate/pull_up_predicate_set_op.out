@@ -146,21 +146,21 @@ PhysicalResultSink
 
 -- !union_all_const2_has_cast_to_null_different_type --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(a as DOUBLE) = expr_cast(a as DOUBLE)) and (t3.b = t.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((expr_cast(a as DECIMALV3(38, 6)) = expr_cast(a as DECIMALV3(38, 6))) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
 ----filter(b IN ('aa', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !union_all_const2_has_cast_to_null_different_type --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(a as DOUBLE) = expr_cast(a as DOUBLE)) and (t3.b = t.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((expr_cast(a as DECIMALV3(38, 6)) = expr_cast(a as DECIMALV3(38, 6))) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
 ----filter(b IN ('12', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !union_all_different_type_int_cast_to_char --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(a as DOUBLE) = expr_cast(a as DOUBLE)) and (t3.b = t.b)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((expr_cast(a as DECIMALV3(38, 6)) = expr_cast(a as DECIMALV3(38, 6))) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
 ----filter(b IN ('12', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
@@ -193,7 +193,7 @@ PhysicalResultSink
 --------PhysicalUnion
 ----------filter(a IN (1, 2) and b IN ('2d', '3'))
 ------------PhysicalOlapScan[test_pull_up_predicate_set_op1]
-----filter(a IN (1, 2) and b IN ('2d', '3'))
+----filter(a IN (1, 2))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !union_child_and_const_exprs_orpredicates --
@@ -379,7 +379,7 @@ PhysicalResultSink
 
 -- !union_all_const_date --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_datev2 as DATETIMEV2(0)) = expr_cast(b as DATETIMEV2(0))) and (expr_cast(d_smallint as INT) = t.a)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_datev2 as DATETIMEV2(6)) = expr_cast(b as DATETIMEV2(6))) and (expr_cast(d_smallint as INT) = t.a)) otherCondition=()
 ----PhysicalUnion
 ----filter(cast(d_smallint as INT) IN (12222222, 2))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op4]

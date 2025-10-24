@@ -574,22 +574,6 @@ public class ExpressionUtils {
         return result.build();
     }
 
-    private static class ExpressionReplacer
-            extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
-        public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
-
-        private ExpressionReplacer() {
-        }
-
-        @Override
-        public Expression visit(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
-            if (replaceMap.containsKey(expr)) {
-                return replaceMap.get(expr);
-            }
-            return super.visit(expr, replaceMap);
-        }
-    }
-
     /**
      * merge arguments into an expression array
      *
@@ -1253,5 +1237,19 @@ public class ExpressionUtils {
      */
     public static boolean hasNonWindowAggregateFunction(Expression expression) {
         return expression.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null);
+    }
+
+    /**
+     * check if the expressions contain a unique function which exists multiple times
+     */
+    public static boolean containUniqueFunctionExistMultiple(Collection<? extends Expression> expressions) {
+        Set<UniqueFunction> counterSet = Sets.newHashSet();
+        for (Expression expression : expressions) {
+            if (expression.anyMatch(
+                    expr -> expr instanceof UniqueFunction && !counterSet.add((UniqueFunction) expr))) {
+                return true;
+            }
+        }
+        return false;
     }
 }

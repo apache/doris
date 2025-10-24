@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <mutex>
 
@@ -161,6 +162,16 @@ public:
 
     void unregister_index_change_compaction(int64_t tablet_id, bool is_base_compact);
 
+    std::chrono::time_point<std::chrono::system_clock> startup_timepoint() const {
+        return _startup_timepoint;
+    }
+
+#ifdef BE_TEST
+    void set_startup_timepoint(const std::chrono::time_point<std::chrono::system_clock>& tp) {
+        _startup_timepoint = tp;
+    }
+#endif
+
 private:
     void _refresh_storage_vault_info_thread_callback();
     void _vacuum_stale_rowsets_thread_callback();
@@ -238,6 +249,8 @@ private:
 
     EngineOptions _options;
     std::mutex _store_lock;
+
+    std::chrono::time_point<std::chrono::system_clock> _startup_timepoint;
 };
 
 } // namespace doris

@@ -954,4 +954,8 @@ void ColumnArray::erase(size_t start, size_t length) {
     }
 }
 
+void ColumnArray::replace_float_special_values() {
+    get_data().replace_float_special_values();
+}
+
 } // namespace doris::vectorized

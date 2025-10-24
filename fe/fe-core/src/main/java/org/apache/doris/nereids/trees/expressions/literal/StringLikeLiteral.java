@@ -42,8 +42,8 @@ import java.util.regex.Pattern;
 public abstract class StringLikeLiteral extends Literal implements ComparableLiteral {
     public static final int CHINESE_CHAR_BYTE_LENGTH = 4;
     public static final String toDateStrictRegex
-            // <date> ::= (<year> "-" <month1> "-" <day1>) | (<year> <month2> <day2>)
-            = "((?:(?<year1>\\d{2}|\\d{4})-(?<month1>\\d{1,2})-(?<date1>\\d{1,2})"
+            // <date> ::= (<year> ("-" | "/") <month1> ("-" | "/") <day1>) | (<year> <month2> <day2>)
+            = "((?:(?<year1>\\d{2}|\\d{4})[-/](?<month1>\\d{1,2})[-/](?<date1>\\d{1,2})"
             + "|(?<year2>\\d{2}|\\d{4})(?<month2>\\d{2})(?<date2>\\d{2}))"
             + "(?:[T ]"
             // <time> ::= <hour1> (":" <minute1> (":" <second1> <fraction>?)?)?
@@ -60,7 +60,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             + "(?:\\s*(?<tz1>[+-]\\d{1,2}(?::?(?:00|30|45))?|(?i)([A-Za-z]+\\S*)))?)";
     public static final String toDateUnStrictRegex
             = "^\\s*((?<year>\\d{2}|\\d{4})[^a-zA-Z\\d](?<month>\\d{1,2})[^a-zA-Z\\d](?<date>\\d{1,2}))"
-            + "(?:[ T]"
+            + "(?:[ T:]"
             + "(?<hour>\\d{1,2})[^a-zA-Z\\d](?<minute>\\d{1,2})[^a-zA-Z\\d](?<"
             + "second>\\d{1,2})(?<fraction>\\.\\d*)?"
             + "(?:\\s*(?<tz>[+-]\\d{1,2}(?::?(?:00|30|45))?"

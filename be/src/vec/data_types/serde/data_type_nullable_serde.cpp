@@ -423,6 +423,20 @@ void DataTypeNullableSerDe::write_one_cell_to_binary(const IColumn& src_column,
     }
 }
 
+void DataTypeNullableSerDe::to_string(const IColumn& column, size_t row_num,
+                                      BufferWritable& bw) const {
+    const auto& col_null = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+    if (col_null.is_null_at(row_num)) {
+        if (_nesting_level > 1) {
+            bw.write("null", 4);
+        } else {
+            bw.write("NULL", 4);
+        }
+    } else {
+        nested_serde->to_string(col_null.get_nested_column(), row_num, bw);
+    }
+}
+
 // In non-strict mode, from string will handle errors by inserting a null value.
 Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
                                           const FormatOptions& options) const {

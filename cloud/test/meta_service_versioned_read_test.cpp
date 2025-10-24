@@ -408,18 +408,21 @@ TEST(MetaServiceVersionedReadTest, CommitTxnWithSubTxnTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         // std::cout << res.DebugString() << std::endl;
         ASSERT_EQ(res.table_ids().size(), 3);
-
-        ASSERT_EQ(res.table_ids()[0], t2);
-        ASSERT_EQ(res.partition_ids()[0], t2_p3);
-        ASSERT_EQ(res.versions()[0], 2);
-
-        ASSERT_EQ(res.table_ids()[1], t1);
-        ASSERT_EQ(res.partition_ids()[1], t1_p2);
-        ASSERT_EQ(res.versions()[1], 2);
-
-        ASSERT_EQ(res.table_ids()[2], t1);
-        ASSERT_EQ(res.partition_ids()[2], t1_p1) << res.ShortDebugString();
-        ASSERT_EQ(res.versions()[2], 3) << res.ShortDebugString();
+        for (int i = 0; i < 3; ++i) {
+            if (res.partition_ids(i) == t2_p3) {
+                ASSERT_EQ(res.table_ids(i), t2);
+                ASSERT_EQ(res.versions(i), 2);
+            } else if (res.partition_ids(i) == t1_p2) {
+                ASSERT_EQ(res.table_ids(i), t1);
+                ASSERT_EQ(res.versions(i), 2);
+            } else if (res.partition_ids(i) == t1_p1) {
+                ASSERT_EQ(res.table_ids(i), t1);
+                ASSERT_EQ(res.versions(i), 3);
+            } else {
+                ASSERT_TRUE(false) << "unknown partition: " << res.partition_ids(i)
+                                   << ", res=" << res.DebugString();
+            }
+        }
     }
 
     // doubly commit txn
@@ -876,8 +879,10 @@ TEST(MetaServiceVersionedReadTest, GetRowsetMetas) {
     // Test 1: Contains the first rowset
     {
         auto resp = get_rowsets(1, 10);
-        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK) << resp.status().DebugString();
         ASSERT_EQ(resp.rowset_meta_size(), 1);
+        EXPECT_TRUE(resp.has_partition_max_version());
+        EXPECT_EQ(resp.partition_max_version(), -1); // The first version is special
     }
 
     // Step 1: Insert loading rowsets with versions 2, 3, 4, 5, 6, 7, 8, 9, 10
@@ -890,8 +895,10 @@ TEST(MetaServiceVersionedReadTest, GetRowsetMetas) {
     // Test 2: Get all loading rowsets
     {
         auto resp = get_rowsets(1, 10);
-        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK) << resp.status().DebugString();
         ASSERT_EQ(resp.rowset_meta_size(), 10);
+        EXPECT_TRUE(resp.has_partition_max_version());
+        EXPECT_EQ(resp.partition_max_version(), 10);
 
         // Verify rowsets are sorted by version
         for (int i = 0; i < resp.rowset_meta_size(); ++i) {

@@ -19,7 +19,6 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
@@ -140,37 +139,6 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
             bulkLoadJob.setComment(command.getComment());
             bulkLoadJob.setJobProperties(command.getProperties());
             bulkLoadJob.checkAndSetDataSourceInfoByNereids(db, command.getDataDescriptions(), ctx);
-            // In the construction method, there may not be table information yet
-            bulkLoadJob.rebuildAuthorizationInfo();
-            return bulkLoadJob;
-        } catch (MetaNotFoundException e) {
-            throw new DdlException(e.getMessage());
-        }
-    }
-
-    public static BulkLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
-        // get db id
-        String dbName = stmt.getLabel().getDbName();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-
-        // create job
-        BulkLoadJob bulkLoadJob;
-        try {
-            switch (stmt.getEtlJobType()) {
-                case BROKER:
-                    bulkLoadJob = EnvFactory.getInstance().createBrokerLoadJob(db.getId(),
-                            stmt.getLabel().getLabelName(), stmt.getBrokerDesc(), stmt.getOrigStmt(),
-                            stmt.getUserInfo());
-                    break;
-                case DELETE:
-                case INSERT:
-                    throw new DdlException("LoadManager only support create broker load job from stmt.");
-                default:
-                    throw new DdlException("Unknown load job type.");
-            }
-            bulkLoadJob.setComment(stmt.getComment());
-            bulkLoadJob.setJobProperties(stmt.getProperties());
-            bulkLoadJob.checkAndSetDataSourceInfo((Database) db, stmt.getDataDescriptions());
             // In the construction method, there may not be table information yet
             bulkLoadJob.rebuildAuthorizationInfo();
             return bulkLoadJob;

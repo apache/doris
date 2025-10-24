@@ -26,10 +26,6 @@ include "PaloInternalService.thrift"
 include "DorisExternalService.thrift"
 include "FrontendService.thrift"
 
-struct TExportTaskRequest {
-    1: required PaloInternalService.TExecPlanFragmentParams params
-}
-
 struct TTabletStat {
     1: required i64 tablet_id
     // local data size = local inverted index file size + local segment file size
@@ -71,9 +67,9 @@ struct TRoutineLoadTask {
     10: optional i64 max_batch_rows
     11: optional i64 max_batch_size
     12: optional TKafkaLoadInfo kafka_load_info
-    13: optional PaloInternalService.TExecPlanFragmentParams params
+    // 13: optional PaloInternalService.TExecPlanFragmentParams params # deprecated
     14: optional PlanNodes.TFileFormatType format
-    15: optional PaloInternalService.TPipelineFragmentParams pipeline_params
+    15: optional PaloInternalService.TPipelineFragmentParams pipeline_params 
     16: optional bool is_multi_table
     17: optional bool memtable_on_sink_node;
     18: optional string qualified_user
@@ -117,6 +113,7 @@ struct TStreamLoadRecord {
     17: required i64 start_time
     18: required i64 finish_time
     19: optional string comment
+    20: optional string first_error_msg
 }
 
 struct TStreamLoadRecordResult {
@@ -373,16 +370,6 @@ struct TDictionaryStatusList {
 }
 
 service BackendService {
-    // Called by coord to start asynchronous execution of plan fragment in backend.
-    // Returns as soon as all incoming data streams have been set up.
-    PaloInternalService.TExecPlanFragmentResult exec_plan_fragment(1:PaloInternalService.TExecPlanFragmentParams params);
-
-    // Called by coord to cancel execution of a single plan fragment, which this
-    // coordinator initiated with a prior call to ExecPlanFragment.
-    // Cancellation is asynchronous.
-    PaloInternalService.TCancelPlanFragmentResult cancel_plan_fragment(
-        1:PaloInternalService.TCancelPlanFragmentParams params);
-
     AgentService.TAgentResult submit_tasks(1:list<AgentService.TAgentTaskRequest> tasks);
 
     AgentService.TAgentResult make_snapshot(1:AgentService.TSnapshotRequest snapshot_request);
@@ -390,12 +377,6 @@ service BackendService {
     AgentService.TAgentResult release_snapshot(1:string snapshot_path);
 
     AgentService.TAgentResult publish_cluster_state(1:AgentService.TAgentPublishRequest request);
-
-    Status.TStatus submit_export_task(1:TExportTaskRequest request);
-
-    PaloInternalService.TExportStatusResult get_export_status(1:Types.TUniqueId task_id);
-
-    Status.TStatus erase_export_task(1:Types.TUniqueId task_id);
 
     TTabletStatResult get_tablet_stat();
 

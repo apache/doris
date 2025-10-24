@@ -70,10 +70,10 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
     cases.expect_values = {"12",
                            " hello amory , cute amory ",
                            "-12345678",
-                           "[123, NULL, 12345678, 0]",
-                           "['hello amory', 'NULL', 'cute amory', 'NULL']",
-                           "{12345454342, amory cute, 0}",
-                           "{123:\"hello amory\", null:\"NULL\", 12345678:\"cute amory\", 0:null}"};
+                           "[123, null, 12345678, 0]",
+                           R"(["hello amory", "NULL", "cute amory", null])",
+                           "{12345454342, \"amory cute\", 0}",
+                           R"({123:"hello amory", null:"NULL", 12345678:"cute amory", 0:null})"};
 
     for (const auto id : type_ids) {
         const auto data_type = DataTypeFactory::instance().create_data_type(

@@ -101,7 +101,7 @@ public class BackupMeta implements Writable, GsonPostProcessable {
         return fromInputStream(new ByteArrayInputStream(bytes), metaVersion);
     }
 
-    protected static BackupMeta fromInputStream(InputStream stream, int metaVersion) throws IOException {
+    public static BackupMeta fromInputStream(InputStream stream, int metaVersion) throws IOException {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(metaVersion);
         metaContext.setThreadLocalInfo();

@@ -532,52 +532,9 @@ Status PInternalService::_exec_plan_fragment_impl(
                 "Have not receive the first heartbeat message from master, not ready to provide "
                 "service");
     }
-    if (version == PFragmentRequestVersion::VERSION_1) {
-        // VERSION_1 should be removed in v1.2
-        TExecPlanFragmentParams t_request;
-        {
-            const uint8_t* buf = (const uint8_t*)ser_request.data();
-            uint32_t len = ser_request.size();
-            RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
-        }
-        if (cb) {
-            return _exec_env->fragment_mgr()->exec_plan_fragment(
-                    t_request, QuerySource::INTERNAL_FRONTEND, cb);
-        } else {
-            return _exec_env->fragment_mgr()->exec_plan_fragment(t_request,
-                                                                 QuerySource::INTERNAL_FRONTEND);
-        }
-    } else if (version == PFragmentRequestVersion::VERSION_2) {
-        TExecPlanFragmentParamsList t_request;
-        {
-            const uint8_t* buf = (const uint8_t*)ser_request.data();
-            uint32_t len = ser_request.size();
-            RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
-        }
-        const auto& fragment_list = t_request.paramsList;
-        MonotonicStopWatch timer;
-        timer.start();
-
-        for (const TExecPlanFragmentParams& params : t_request.paramsList) {
-            if (cb) {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
-                        params, QuerySource::INTERNAL_FRONTEND, cb));
-            } else {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
-                        params, QuerySource::INTERNAL_FRONTEND));
-            }
-        }
-
-        timer.stop();
-        double cost_secs = static_cast<double>(timer.elapsed_time()) / 1000000000ULL;
-        if (cost_secs > 5) {
-            LOG_WARNING("Prepare {} fragments of query {} costs {} seconds, it costs too much",
-                        fragment_list.size(), print_id(fragment_list.front().params.query_id),
-                        cost_secs);
-        }
-
-        return Status::OK();
-    } else if (version == PFragmentRequestVersion::VERSION_3) {
+    CHECK(version == PFragmentRequestVersion::VERSION_3)
+            << "only support version 3, received " << version;
+    if (version == PFragmentRequestVersion::VERSION_3) {
         TPipelineFragmentParamsList t_request;
         {
             const uint8_t* buf = (const uint8_t*)ser_request.data();
@@ -999,6 +956,10 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
     bool ret = _heavy_work_pool.try_offer([request, result, done]() {
         VLOG_RPC << "test jdbc connection";
         brpc::ClosureGuard closure_guard(done);
+        std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+                MemTrackerLimiter::Type::OTHER,
+                fmt::format("InternalService::test_jdbc_connection"));
+        SCOPED_ATTACH_TASK(mem_tracker);
         TTableDescriptor table_desc;
         vectorized::JdbcConnectorParam jdbc_param;
         Status st = Status::OK();
@@ -2223,6 +2184,9 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                             if (!state->get_error_log_file_path().empty()) {
                                 response->set_error_url(
                                         to_load_error_http_path(state->get_error_log_file_path()));
+                            }
+                            if (!state->get_first_error_msg().empty()) {
+                                response->set_first_error_msg(state->get_first_error_msg());
                             }
                             _exec_env->new_load_stream_mgr()->remove(load_id);
                         });

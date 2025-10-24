@@ -25,7 +25,6 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.VariableExpr;
@@ -60,6 +59,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.executor.PlSqlOperation;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
@@ -110,7 +110,6 @@ import javax.annotation.Nullable;
 // Use `volatile` to make the reference change atomic.
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
-    protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
 
     private static final String SSL_PROTOCOL = "TLS";
 
@@ -330,11 +329,11 @@ public class ConnectContext {
     }
 
     public static ConnectContext get() {
-        return threadLocalInfo.get();
+        return MoreFieldsThread.getConnectContext();
     }
 
     public static void remove() {
-        threadLocalInfo.remove();
+        MoreFieldsThread.removeConnectContext();
     }
 
     public void setIsSend(boolean isSend) {
@@ -540,7 +539,7 @@ public class ConnectContext {
     }
 
     public void setThreadLocalInfo() {
-        threadLocalInfo.set(this);
+        MoreFieldsThread.setConnectContext(this);
     }
 
     public long getCurrentDbId() {
@@ -558,10 +557,6 @@ public class ConnectContext {
     public void setEnv(Env env) {
         this.env = env;
         defaultCatalog = env.getInternalCatalog().getName();
-    }
-
-    public void setUserVar(SetVar setVar) {
-        userVars.put(setVar.getVariable().toLowerCase(), setVar.getResult());
     }
 
     public void setUserVar(String name, LiteralExpr value) {
@@ -870,9 +865,24 @@ public class ConnectContext {
         }
     }
 
+    /**
+     * kill connection by other thread
+     */
+    protected void killConnection() {
+        isKilled = true;
+        // Close channel to break connection with client
+        closeChannel();
+        returnRows = 0;
+        deleteTempTable();
+        Env.getCurrentEnv().unregisterSessionInfo(this.sessionId);
+    }
+
+    /**
+     * kill connection by self
+     */
     public void cleanup() {
         closeChannel();
-        threadLocalInfo.remove();
+        MoreFieldsThread.removeConnectContext();
         returnRows = 0;
         deleteTempTable();
         Env.getCurrentEnv().unregisterSessionInfo(this.sessionId);
@@ -1024,16 +1034,10 @@ public class ConnectContext {
                 killConnection);
 
         if (killConnection) {
-            isKilled = true;
-            // Close channel to break connection with client
-            closeChannel();
+            killConnection();
         }
         // Now, cancel running query.
         cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by user from " + getRemoteHostPortString()));
-        // Clean up after cancelQuery to avoid needing session variables etc. inside cancelQuery
-        if (killConnection) {
-            cleanup();
-        }
     }
 
     // kill operation with no protect by timeout.
@@ -1042,9 +1046,7 @@ public class ConnectContext {
             LOG.warn("kill wait timeout connection, connection type: {}, connectionId: {}, remote: {}, "
                             + "wait timeout: {}",
                     getConnectType(), connectionId, getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
-            isKilled = true;
-            // Close channel to break connection with client
-            closeChannel();
+            killConnection();
         }
         // Now, cancel running query.
         // cancelQuery by time out
@@ -1056,10 +1058,6 @@ public class ConnectContext {
                     getConnectType(), connectionId);
             executorRef.cancel(new Status(TStatusCode.TIMEOUT,
                     "query is timeout, killed by timeout checker"));
-        }
-        // Clean up after cancelQuery to avoid needing session variables etc. inside cancelQuery
-        if (killConnection) {
-            cleanup();
         }
     }
 
@@ -1348,6 +1346,10 @@ public class ConnectContext {
         for (String cloudClusterName : cloudClusterNames) {
             if (Env.getCurrentEnv().getAccessManager().checkCloudPriv(getCurrentUserIdentity(),
                     cloudClusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+                if (((CloudSystemInfoService) Env.getCurrentSystemInfo()).isStandByComputeGroup(cloudClusterName)) {
+                    continue;
+                }
+
                 hasAuthCluster.add(cloudClusterName);
                 // find a cluster has more than one alive be
                 List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())

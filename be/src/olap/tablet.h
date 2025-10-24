@@ -34,6 +34,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/atomic_shared_ptr.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "olap/base_tablet.h"
@@ -196,9 +197,9 @@ public:
     Status capture_consistent_rowsets_unlocked(
             const Version& spec_version, std::vector<RowsetSharedPtr>* rowsets) const override;
 
-    // If skip_missing_version is true, skip versions if they are missing.
+    // If opts.skip_missing_version is true, skip versions if they are missing.
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-                              bool skip_missing_version) override;
+                              const CaptureRsReaderOptions& opts) override;
 
     // Find the missed versions until the spec_version.
     //
@@ -356,7 +357,7 @@ public:
     std::tuple<int64_t, int64_t> get_visible_version_and_time() const;
 
     void set_visible_version(const std::shared_ptr<const VersionWithTime>& visible_version) {
-        std::atomic_store_explicit(&_visible_version, visible_version, std::memory_order_relaxed);
+        _visible_version.store(visible_version);
     }
 
     bool should_fetch_from_peer();
@@ -644,7 +645,7 @@ private:
     int64_t _io_error_times = 0;
 
     // partition's visible version. it sync from fe, but not real-time.
-    std::atomic<std::shared_ptr<const VersionWithTime>> _visible_version;
+    atomic_shared_ptr<const VersionWithTime> _visible_version;
 
     std::atomic_bool _is_full_compaction_running = false;
 
@@ -734,7 +735,7 @@ inline Version Tablet::max_version() const {
 inline uint64_t Tablet::segment_count() const {
     std::shared_lock rdlock(_meta_lock);
     uint64_t segment_nums = 0;
-    for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
+    for (const auto& [_, rs_meta] : _tablet_meta->all_rs_metas()) {
         segment_nums += rs_meta->num_segments();
     }
     return segment_nums;

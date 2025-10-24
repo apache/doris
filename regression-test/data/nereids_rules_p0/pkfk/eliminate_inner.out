@@ -66,7 +66,7 @@ with_pk_col
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
 ----PhysicalOlapScan[pkt]
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
@@ -144,7 +144,7 @@ PhysicalResultSink
 --NestedLoopJoin[INNER_JOIN]
 ----filter((pkt.pk = 1))
 ------PhysicalOlapScan[pkt]
-----filter((cast(f as DOUBLE) = 1.0) and (fkt_not_null.fk = 1))
+----filter((cast(f as DECIMALV3(38, 6)) = 1.000000) and (fkt_not_null.fk = 1))
 ------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
@@ -155,9 +155,9 @@ pk with filter that not same as fk
 -- !shape --
 PhysicalResultSink
 --NestedLoopJoin[INNER_JOIN]
-----filter((cast(p as DOUBLE) = 1.0) and (pkt.pk = 1))
+----filter((cast(p as DECIMALV3(38, 6)) = 1.000000) and (pkt.pk = 1))
 ------PhysicalOlapScan[pkt]
-----filter((cast(f as DOUBLE) = 1.0) and (fkt_not_null.fk = 1))
+----filter((cast(f as DECIMALV3(38, 6)) = 1.000000) and (fkt_not_null.fk = 1))
 ------PhysicalOlapScan[fkt_not_null]
 
 -- !res --
@@ -226,7 +226,7 @@ with_pk_col
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
 ----PhysicalOlapScan[pkt]
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalOlapScan[fkt]
 
 -- !res --
@@ -300,7 +300,7 @@ PhysicalResultSink
 --NestedLoopJoin[INNER_JOIN]
 ----filter((pkt.pk = 1))
 ------PhysicalOlapScan[pkt]
-----filter((cast(f as DOUBLE) = 1.0) and (fkt.fk = 1))
+----filter((cast(f as DECIMALV3(38, 6)) = 1.000000) and (fkt.fk = 1))
 ------PhysicalOlapScan[fkt]
 
 -- !res --
@@ -311,9 +311,9 @@ pk with filter that not same as fk
 -- !shape --
 PhysicalResultSink
 --NestedLoopJoin[INNER_JOIN]
-----filter((cast(p as DOUBLE) = 1.0) and (pkt.pk = 1))
+----filter((cast(p as DECIMALV3(38, 6)) = 1.000000) and (pkt.pk = 1))
 ------PhysicalOlapScan[pkt]
-----filter((cast(f as DOUBLE) = 1.0) and (fkt.fk = 1))
+----filter((cast(f as DECIMALV3(38, 6)) = 1.000000) and (fkt.fk = 1))
 ------PhysicalOlapScan[fkt]
 
 -- !res --
@@ -325,7 +325,7 @@ multi_table_join_with_pk_predicate
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((fkt_not_null.fk = fkt_not_null2.fk)) otherCondition=()
 ----hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
-------filter((cast(p as DOUBLE) = 1.0))
+------filter((cast(p as DECIMALV3(38, 6)) = 1.000000))
 --------PhysicalOlapScan[pkt]
 ------PhysicalOlapScan[fkt_not_null]
 ----PhysicalOlapScan[fkt_not_null]
