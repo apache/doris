@@ -481,4 +481,75 @@ public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatc
         Assertions.assertTrue(exception.getMessage()
                 .contains("recursive reference to query xx must not appear within its non-recursive term"));
     }
+
+    @Test
+    public void testRecCteNoUnionException() {
+        String sql = new StringBuilder().append("with recursive t1 as (\n").append("    select 1 \n")
+                .append("        intersect\n").append("    select 2 from t1\n").append(")\n").append("select\n")
+                .append("    *\n").append("from\n").append("    t1").toString();
+        LogicalPlan unboundPlan = new NereidsParser().parseSingle(sql);
+        StatementContext statementContext = new StatementContext(connectContext,
+                new OriginStatement(sql, 0));
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
+                        ExplainCommand.ExplainLevel.ANALYZED_PLAN),
+                "Not throw expected exception.");
+        Assertions.assertTrue(exception.getMessage().contains("recursive cte must be union"));
+    }
+
+    @Test
+    public void testRecCteAnchorException() {
+        String sql = new StringBuilder().append("with recursive t1 as (\n").append("    select 1 from t1\n")
+                .append("        union\n").append("    select 2 from t1\n").append(")\n").append("select\n")
+                .append("    *\n").append("from\n").append("    t1;").toString();
+        LogicalPlan unboundPlan = new NereidsParser().parseSingle(sql);
+        StatementContext statementContext = new StatementContext(connectContext,
+                new OriginStatement(sql, 0));
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
+                        ExplainCommand.ExplainLevel.ANALYZED_PLAN),
+                "Not throw expected exception.");
+        Assertions.assertTrue(exception.getMessage()
+                .contains("recursive reference to query t1 must not appear within its non-recursive term"));
+    }
+
+    @Test
+    public void testRecCteMoreThanOnceException() {
+        String sql = new StringBuilder().append("with recursive t1 as (\n").append("    select 1\n")
+                .append("        union\n").append("    select 2 from t1 x, t1 y\n").append(")\n").append("select\n")
+                .append("    *\n").append("from\n").append("    t1").toString();
+        LogicalPlan unboundPlan = new NereidsParser().parseSingle(sql);
+        StatementContext statementContext = new StatementContext(connectContext,
+                new OriginStatement(sql, 0));
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
+                        ExplainCommand.ExplainLevel.ANALYZED_PLAN),
+                "Not throw expected exception.");
+        Assertions.assertTrue(
+                exception.getMessage().contains("recursive reference to query t1 must not appear more than once"));
+    }
+
+    @Test
+    public void testRecCteInSubqueryException() {
+        String sql = new StringBuilder().append("with recursive t1 as (\n").append("    select\n")
+                .append("        1 as c1,\n").append("        1 as c2\n").append("),\n").append("xx as (\n")
+                .append("    select\n").append("        2 as c1,\n").append("        2 as c2\n").append("    from\n")
+                .append("        t1\n").append("    union\n").append("    select\n").append("        3 as c1,\n")
+                .append("        3 as c2\n").append("    from\n")
+                .append("        t1 where t1.c1 in (select c1 from xx)\n").append(")\n").append("select\n")
+                .append("    *\n").append("from\n").append("    xx").toString();
+        LogicalPlan unboundPlan = new NereidsParser().parseSingle(sql);
+        StatementContext statementContext = new StatementContext(connectContext,
+                new OriginStatement(sql, 0));
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
+                        ExplainCommand.ExplainLevel.ANALYZED_PLAN),
+                "Not throw expected exception.");
+        Assertions.assertTrue(
+                exception.getMessage().contains("Table [xx] does not exist in database"));
+    }
 }
