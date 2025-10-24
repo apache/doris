@@ -1,4 +1,3 @@
-// be/src/olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_weight.h
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
