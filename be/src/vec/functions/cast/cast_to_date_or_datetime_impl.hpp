@@ -890,7 +890,7 @@ inline bool CastToDateOrDatetime::from_string_non_strict_mode_impl(
 // NOLINTEND(readability-function-size)
 
 // return true if success, false if overflow
-bool transform_date_scale(UInt32 to_scale, UInt32 from_scale,
+inline bool transform_date_scale(UInt32 to_scale, UInt32 from_scale,
                           PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType& to_value,
                           const PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType& from_value) {
     if (to_scale >= from_scale) {
