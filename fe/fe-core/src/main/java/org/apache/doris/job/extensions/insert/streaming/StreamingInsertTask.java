@@ -106,9 +106,10 @@ public class StreamingInsertTask {
                 }
                 this.errMsg = e.getMessage();
                 retryCount++;
-                if (retryCount >= MAX_RETRY) {
+                if (retryCount > MAX_RETRY) {
                     log.error("Task execution failed after {} retries.", MAX_RETRY, e);
                     onFail(e.getMessage());
+                    return;
                 }
                 log.warn("execute streaming task error, job id is {}, task id is {}, retrying {}/{}: {}",
                         jobId, taskId, retryCount, MAX_RETRY, e.getMessage());
@@ -163,10 +164,7 @@ public class StreamingInsertTask {
             } else {
                 errMsg = ctx.getState().getErrorMessage();
             }
-            log.error(
-                    "streaming insert failed with {}, reason {}, to retry",
-                    taskCommand.getLabelName(),
-                    errMsg);
+            throw new JobException(errMsg);
         } catch (Exception e) {
             log.warn("execute insert task error, label is {},offset is {}", taskCommand.getLabelName(),
                     runningOffset.toString(), e);
