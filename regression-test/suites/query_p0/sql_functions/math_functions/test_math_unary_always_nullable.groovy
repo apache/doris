@@ -70,6 +70,19 @@ suite("test_math_unary_alway_nullable") {
         select sqrt(-1.1), sqrt(-1.1) is NULL, number from numbers("number"="10")
     """
 
+    qt_factorial_1 """
+        select factorial(-1), factorial(-1) is null;
+    """
+    qt_factorial_2 """
+        select factorial(21), factorial(21) is null;
+    """
+    qt_factorial_3 """
+        select factorial(0), factorial(5), factorial(20);
+    """
+    qt_factorial_4 """
+        select factorial(-1), factorial(-1) is NULL, number from numbers("number"="10")
+    """
+
     sql "drop table if exists test_math_unary_alway_nullable"
 
     sql """

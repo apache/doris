@@ -388,6 +388,70 @@ double csc(double x) {
 }
 using FunctionCosec = FunctionMathUnary<UnaryFunctionPlain<CscName, csc>>;
 
+static const Int64 FACT_TABLE[] = {
+    1LL, 1LL, 2LL, 6LL, 24LL, 120LL, 720LL, 5040LL, 40320LL, 362880LL, 3628800LL,
+    39916800LL, 479001600LL, 6227020800LL, 87178291200LL, 1307674368000LL,
+    20922789888000LL, 355687428096000LL, 6402373705728000LL,
+    121645100408832000LL, 2432902008176640000LL
+};
+
+class FunctionFactorial : public IFunction {
+public:
+    static constexpr auto name = "factorial";
+    static FunctionPtr create() { return std::make_shared<FunctionFactorial>(); }
+
+private:
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeInt64>());
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        ColumnPtr int_col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        
+        const ColumnUInt8* input_null_map = nullptr;
+        if (int_col->is_nullable()) {
+            const auto& nullable_col = static_cast<const ColumnNullable&>(*int_col);
+            int_col = nullable_col.get_nested_column_ptr();
+            input_null_map = static_cast<const ColumnUInt8*>(nullable_col.get_null_map_column_ptr().get());
+        }
+
+        const auto* data_col = check_and_get_column<ColumnInt64>(int_col.get());
+
+        if (!data_col) {
+            return Status::InvalidArgument("Illegal column {} of argument of function {}",
+                                         block.get_by_position(arguments[0]).column->get_name(), get_name());
+        }
+
+        auto result_column = ColumnInt64::create(input_rows_count);
+        auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
+        
+        auto& result_data = result_column->get_data();
+        auto& result_null_map_data = result_null_map->get_data();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (input_null_map && input_null_map->get_data()[i]) {
+                result_null_map_data[i] = 1;
+                continue;
+            }
+            Int64 n = data_col->get_element(i);
+            if (n < 0 || n > 20) {
+                result_null_map_data[i] = 1;
+            } else {
+                result_data[i] = FACT_TABLE[n];
+            }
+        }
+        
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(result_column), std::move(result_null_map)));
+
+        return Status::OK();
+    }
+};
+
 template <typename A>
 struct RadiansImpl {
     static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
@@ -859,6 +923,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_alias("pow", "fpow");
     factory.register_function<FunctionExp>();
     factory.register_alias("exp", "dexp");
+    factory.register_function<FunctionFactorial>();
     factory.register_function<FunctionRadians>();
     factory.register_function<FunctionDegrees>();
     factory.register_function<FunctionBin>();
