@@ -17,8 +17,13 @@
 
 package org.apache.doris.job.offset;
 
+/**
+ *  Interface representing an offset in a data source.
+ */
 public interface Offset {
     String toSerializedJson();
 
     boolean isEmpty();
+
+    boolean isValidOffset();
 }
