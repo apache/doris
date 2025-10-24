@@ -104,9 +104,9 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         return Status::OK();
     }
 
-    // merge small IO
+    // merge small IO with adaptive window sizing
     size_t merge_start = offset + has_read;
-    const size_t merge_end = merge_start + _merged_read_slice_size;
+    size_t merge_end = merge_start + _merged_read_slice_size;
     // <slice_size, is_content>
     std::vector<std::pair<size_t, bool>> merged_slice;
     size_t content_size = 0;
@@ -115,6 +115,13 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         return Status::IOError("Fail to merge small IO");
     }
     int merge_index = range_index;
+    
+    // Adaptive parameters:
+    // - max_single_gap: Maximum gap size to include (512KB by default)
+    // - adaptive_shrink_threshold: Shrink window if gap ratio becomes too high
+    constexpr size_t max_single_gap = 512 * 1024; // 512KB
+    constexpr double adaptive_shrink_threshold = 0.5; // If gap/content > 50%, be more cautious
+    
     while (merge_start < merge_end && merge_index < _random_access_ranges.size()) {
         size_t content_max = _remaining - content_size;
         if (content_max == 0) {
@@ -142,10 +149,27 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         if (merge_index < _random_access_ranges.size() - 1 && merge_start < merge_end) {
             size_t gap = _random_access_ranges[merge_index + 1].start_offset -
                          _random_access_ranges[merge_index].end_offset;
-            if ((content_size + hollow_size) > SMALL_IO && gap >= SMALL_IO) {
-                // too large gap
+            
+            // Adaptive stopping conditions:
+            // 1. Single gap is too large (> max_single_gap)
+            if (gap >= max_single_gap) {
                 break;
             }
+            
+            // 2. Original condition: accumulated data > SMALL_IO and gap >= SMALL_IO
+            if ((content_size + hollow_size) > SMALL_IO && gap >= SMALL_IO) {
+                break;
+            }
+            
+            // 3. Dynamic check: if current gap ratio is too high, shrink the effective window
+            if (content_size > 0 && hollow_size > 0) {
+                double current_gap_ratio = (double)hollow_size / (double)content_size;
+                if (current_gap_ratio > adaptive_shrink_threshold) {
+                    // Gap ratio is high, shrink window to avoid accumulating more gaps
+                    merge_end = std::min(merge_end, merge_start + SMALL_IO);
+                }
+            }
+            
             if (gap < merge_end - merge_start && content_size < _remaining &&
                 !_range_cached_data[merge_index + 1].has_read) {
                 hollow_size += gap;
