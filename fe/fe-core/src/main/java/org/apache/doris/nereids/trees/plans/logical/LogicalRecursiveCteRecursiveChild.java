@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -35,24 +36,30 @@ import java.util.Optional;
  * LogicalRecursiveCteRecursiveChild is sentinel plan for must_shuffle
  */
 public class LogicalRecursiveCteRecursiveChild<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
+    private final String cteName;
 
-    public LogicalRecursiveCteRecursiveChild(CHILD_TYPE child) {
-        this(Optional.empty(), Optional.empty(), child);
+    public LogicalRecursiveCteRecursiveChild(String cteName, CHILD_TYPE child) {
+        this(cteName, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalRecursiveCteRecursiveChild(Optional<GroupExpression> groupExpression,
+    public LogicalRecursiveCteRecursiveChild(String cteName, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        this(groupExpression, logicalProperties, ImmutableList.of(child));
+        this(cteName, groupExpression, logicalProperties, ImmutableList.of(child));
     }
 
-    public LogicalRecursiveCteRecursiveChild(Optional<GroupExpression> groupExpression,
+    public LogicalRecursiveCteRecursiveChild(String cteName, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> child) {
         super(PlanType.LOGICAL_RECURSIVE_CTE_RECURSIVE_CHILD, groupExpression, logicalProperties, child);
+        this.cteName = cteName;
+    }
+
+    public String getCteName() {
+        return cteName;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new LogicalRecursiveCteRecursiveChild<>(Optional.empty(), Optional.empty(), children);
+        return new LogicalRecursiveCteRecursiveChild<>(cteName, Optional.empty(), Optional.empty(), children);
     }
 
     @Override
@@ -67,18 +74,20 @@ public class LogicalRecursiveCteRecursiveChild<CHILD_TYPE extends Plan> extends 
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalRecursiveCteRecursiveChild<>(groupExpression, Optional.of(getLogicalProperties()), children);
+        return new LogicalRecursiveCteRecursiveChild<>(cteName, groupExpression,
+                Optional.of(getLogicalProperties()), children);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalRecursiveCteRecursiveChild<>(groupExpression, logicalProperties, children);
+        return new LogicalRecursiveCteRecursiveChild<>(cteName, groupExpression, logicalProperties, children);
     }
 
     @Override
     public String toString() {
-        return "LogicalRecursiveCteRecursiveChild(MUST_SHUFFLE)";
+        return Utils.toSqlStringSkipNull("LogicalRecursiveCteRecursiveChild",
+                "cteName", cteName);
     }
 
     @Override

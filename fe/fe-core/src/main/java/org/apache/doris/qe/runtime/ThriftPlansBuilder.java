@@ -597,13 +597,10 @@ public class ThriftPlansBuilder {
 
     private static Set<Integer> setParamsForRecursiveCteNode(List<PipelineDistributedPlan> distributedPlans,
             List<RuntimeFilter> runtimeFilters) {
-        Set<RecursiveCteNode> recursiveCteNodesInRecursiveSide = new HashSet<>();
-        PlanNode rootPlan = distributedPlans.get(distributedPlans.size() - 1)
-                        .getFragmentJob().getFragment().getPlanRoot();
-        collectAllRecursiveCteNodesInRecursiveSide(rootPlan, false, recursiveCteNodesInRecursiveSide);
         Set<Integer> fragmentToNotifyClose = new HashSet<>();
         Map<PlanFragmentId, TRecCTETarget> fragmentIdToRecCteTargetMap = new TreeMap<>();
         Map<PlanFragmentId, Set<TNetworkAddress>> fragmentIdToNetworkAddressMap = new TreeMap<>();
+        // distributedPlans is ordered in bottom up way, so does the fragments
         for (PipelineDistributedPlan plan : distributedPlans) {
             List<AssignedJob> fragmentAssignedJobs = plan.getInstanceJobs();
             Set<TNetworkAddress> networkAddresses = new TreeSet<>();
@@ -633,6 +630,7 @@ public class ThriftPlansBuilder {
                         distributedPlanWorker.brpcPort()));
                 tRecCTETarget.setFragmentInstanceId(fragmentAssignedJobs.get(0).instanceId());
                 tRecCTETarget.setNodeId(recursiveCteScanNodes.get(0).getId().asInt());
+                // find all RecursiveCteScanNode and its fragment id
                 fragmentIdToRecCteTargetMap.put(planFragment.getFragmentId(), tRecCTETarget);
             }
 
@@ -648,15 +646,22 @@ public class ThriftPlansBuilder {
                 List<TRecCTETarget> targets = new ArrayList<>();
                 List<TRecCTEResetInfo> fragmentsToReset = new ArrayList<>();
                 // PhysicalPlanTranslator will swap recursiveCteNode's child fragment,
-                // so we get recursive one by 1st child
+                // so we get recursive one by 1st child and collect all child fragment of recursive side
                 List<PlanFragment> childFragments = new ArrayList<>();
                 planFragment.getChild(0).collectAll(PlanFragment.class::isInstance, childFragments);
                 for (PlanFragment child : childFragments) {
                     PlanFragmentId childFragmentId = child.getFragmentId();
+                    // the fragment need to be notified to close
                     fragmentToNotifyClose.add(childFragmentId.asInt());
                     TRecCTETarget tRecCTETarget = fragmentIdToRecCteTargetMap.getOrDefault(childFragmentId, null);
                     if (tRecCTETarget != null) {
+                        // one RecursiveCteNode can only have one corresponding RecursiveCteScanNode
                         targets.add(tRecCTETarget);
+                        // because we traverse the fragments in bottom-up way
+                        // we can safely remove accessed RecursiveCteScanNode
+                        // so the parent RecursiveCteNode won't see its grandson RecursiveCteScanNode
+                        // but can only see its child RecursiveCteScanNode
+                        fragmentIdToRecCteTargetMap.remove(childFragmentId);
                     }
                     Set<TNetworkAddress> tNetworkAddresses = fragmentIdToNetworkAddressMap.get(childFragmentId);
                     if (tNetworkAddresses == null) {
@@ -677,6 +682,7 @@ public class ThriftPlansBuilder {
                 for (List<Expr> exprList : materializedResultExprLists) {
                     texprLists.add(Expr.treesToThrift(exprList));
                 }
+                // the recursive side's rf need to be reset
                 List<Integer> runtimeFiltersToReset = new ArrayList<>(runtimeFilters.size());
                 for (RuntimeFilter rf : runtimeFilters) {
                     if (rf.hasRemoteTargets()
@@ -684,7 +690,13 @@ public class ThriftPlansBuilder {
                         runtimeFiltersToReset.add(rf.getFilterId().asInt());
                     }
                 }
+                // find recursiveCte used by other recursive cte
+                Set<RecursiveCteNode> recursiveCteNodesInRecursiveSide = new HashSet<>();
+                PlanNode rootPlan = distributedPlans.get(distributedPlans.size() - 1)
+                        .getFragmentJob().getFragment().getPlanRoot();
+                collectAllRecursiveCteNodesInRecursiveSide(rootPlan, false, recursiveCteNodesInRecursiveSide);
                 boolean isUsedByOtherRecCte = recursiveCteNodesInRecursiveSide.contains(recursiveCteNode);
+
                 TRecCTENode tRecCTENode = new TRecCTENode();
                 tRecCTENode.setIsUnionAll(recursiveCteNode.isUnionAll());
                 tRecCTENode.setTargets(targets);

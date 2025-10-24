@@ -29,6 +29,7 @@ public class LogicalRecursiveCteRecursiveChildToPhysicalRecursiveCteRecursiveChi
     @Override
     public Rule build() {
         return logicalRecursiveCteRecursiveChild().then(recursiveCte -> new PhysicalRecursiveCteRecursiveChild(
+                recursiveCte.getCteName(),
                 recursiveCte.getLogicalProperties(),
                 recursiveCte.child()))
                 .toRule(RuleType.LOGICAL_RECURSIVE_CTE_RECURSIVE_CHILD_TO_PHYSICAL_RECURSIVE_CTE_RECURSIVE_CHILD);

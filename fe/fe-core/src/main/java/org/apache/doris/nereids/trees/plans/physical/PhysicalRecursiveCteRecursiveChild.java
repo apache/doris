@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -38,31 +39,36 @@ import java.util.Optional;
  * PhysicalRecursiveCteRecursiveChild is sentinel plan for must_shuffle
  */
 public class PhysicalRecursiveCteRecursiveChild<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
-    public PhysicalRecursiveCteRecursiveChild(LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(Optional.empty(), logicalProperties, child);
+    private final String cteName;
+
+    public PhysicalRecursiveCteRecursiveChild(String cteName, LogicalProperties logicalProperties, CHILD_TYPE child) {
+        this(cteName, Optional.empty(), logicalProperties, child);
     }
 
-    public PhysicalRecursiveCteRecursiveChild(Optional<GroupExpression> groupExpression,
+    public PhysicalRecursiveCteRecursiveChild(String cteName, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(groupExpression, logicalProperties, PhysicalProperties.ANY, null, child);
+        this(cteName, groupExpression, logicalProperties, PhysicalProperties.ANY, null, child);
     }
 
-    public PhysicalRecursiveCteRecursiveChild(Optional<GroupExpression> groupExpression,
+    public PhysicalRecursiveCteRecursiveChild(String cteName, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties, Statistics statistics,
             CHILD_TYPE child) {
         super(PlanType.PHYSICAL_RECURSIVE_CTE_RECURSIVE_CHILD, groupExpression, logicalProperties, physicalProperties,
                 statistics, child);
+        this.cteName = cteName;
     }
 
     @Override
     public String toString() {
-        return "PhysicalRecursiveCteRecursiveChild(MUST_SHUFFLE)";
+        return Utils.toSqlStringSkipNull("PhysicalRecursiveCteRecursiveChild",
+                "cteName", cteName);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalRecursiveCteRecursiveChild<>(groupExpression, getLogicalProperties(), children.get(0));
+        return new PhysicalRecursiveCteRecursiveChild<>(cteName, groupExpression, getLogicalProperties(),
+                children.get(0));
     }
 
     @Override
@@ -77,14 +83,14 @@ public class PhysicalRecursiveCteRecursiveChild<CHILD_TYPE extends Plan> extends
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalRecursiveCteRecursiveChild<>(groupExpression, getLogicalProperties(), child());
+        return new PhysicalRecursiveCteRecursiveChild<>(cteName, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalRecursiveCteRecursiveChild<>(groupExpression, logicalProperties.get(), child());
+        return new PhysicalRecursiveCteRecursiveChild<>(cteName, groupExpression, logicalProperties.get(), child());
     }
 
     @Override
@@ -109,7 +115,7 @@ public class PhysicalRecursiveCteRecursiveChild<CHILD_TYPE extends Plan> extends
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalRecursiveCteRecursiveChild<>(groupExpression, getLogicalProperties(), physicalProperties,
-                statistics, child());
+        return new PhysicalRecursiveCteRecursiveChild<>(cteName, groupExpression, getLogicalProperties(),
+                physicalProperties, statistics, child());
     }
 }

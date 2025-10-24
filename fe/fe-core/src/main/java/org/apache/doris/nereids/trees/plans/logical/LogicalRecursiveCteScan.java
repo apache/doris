@@ -52,7 +52,7 @@ public class LogicalRecursiveCteScan extends LogicalCatalogRelation {
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalRecursiveCteScan",
-                "recursive cte name", table.getName());
+                "cteName", table.getName());
     }
 
     @Override
