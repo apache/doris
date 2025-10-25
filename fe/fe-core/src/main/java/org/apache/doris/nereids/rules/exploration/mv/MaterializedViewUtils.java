@@ -66,10 +66,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -110,7 +112,13 @@ public class MaterializedViewUtils {
      */
     public static RelatedTableInfo getRelatedTableInfo(String column, String timeUnit,
             Plan materializedViewPlan, CascadesContext cascadesContext) {
-
+        // remove sink
+        materializedViewPlan = materializedViewPlan.accept(new DefaultPlanRewriter<Void>() {
+            @Override
+            public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, Void context) {
+                return new LogicalProject<>(logicalSink.getOutputExprs(), logicalSink.child());
+            }
+        }, null);
         List<Slot> outputExpressions = materializedViewPlan.getOutput();
         NamedExpression columnExpr = null;
         // get column slot
@@ -760,7 +768,8 @@ public class MaterializedViewUtils {
             NamedExpression partitionColumn = context.getMvPartitionColumn();
 
             OUTER_CHECK: for (Expression projectSlot : expressionsToCheck) {
-                if (projectSlot.isColumnFromTable() && projectSlot.equals(partitionColumn.toSlot())) {
+                if (projectSlot.isColumnFromTable() && projectSlot.equals(partitionColumn.toSlot())
+                        && partitionColumn.isColumnFromTable()) {
                     continue;
                 }
                 // check the expression which use partition column

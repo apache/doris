@@ -427,6 +427,23 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                         });
     }
 
+    @Test
+    public void partitionContainCastTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select cast(l_shipdate as date) l_shipdate_d, l_orderkey\n"
+                                + "from lineitem\n",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("l_shipdate_d", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem",
+                                    "l_shipdate",
+                                    true);
+                        });
+    }
+
     // if select * used in partition table side, should get related table
     @Test
     public void getRelatedTableInfoLeftJoinSelectStarTest() {
