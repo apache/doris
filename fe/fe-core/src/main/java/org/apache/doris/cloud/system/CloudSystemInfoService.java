@@ -1658,4 +1658,48 @@ public class CloudSystemInfoService extends SystemInfoService {
             LOG.info("alter rename compute group, request: {}, response: {}", request, response);
         }
     }
+
+    public void alterComputeGroupProperties(String computeGroupName, Map<String, String> properties)
+            throws UserException {
+        String cloudInstanceId = ((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId();
+        if (Strings.isNullOrEmpty(cloudInstanceId)) {
+            throw new DdlException("unable to alter compute group properties due to empty cloud_instance_id");
+        }
+        String computeGroupId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                .getCloudClusterIdByName(computeGroupName);
+        if (Strings.isNullOrEmpty(computeGroupId)) {
+            LOG.info("alter compute group properties {} not found, unable to alter", computeGroupName);
+            throw new DdlException("compute group '" + computeGroupName + "' not found, unable to alter properties");
+        }
+
+        ClusterPB clusterPB = ClusterPB.newBuilder()
+                .setClusterId(computeGroupId)
+                .setClusterName(computeGroupName)
+                .setType(ClusterPB.Type.COMPUTE)
+                .putAllProperties(properties)
+                .build();
+
+        Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
+                .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
+                .setOp(Cloud.AlterClusterRequest.Operation.ALTER_PROPERTIES)
+                .setCluster(clusterPB)
+                .build();
+
+
+        Cloud.AlterClusterResponse response = null;
+        try {
+            response = MetaServiceProxy.getInstance().alterCluster(request);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("alter compute group properties not ok, response: {}", response);
+                throw new UserException("failed to alter compute group properties errorCode: "
+                    + response.getStatus().getCode()
+                    + " msg: " + response.getStatus().getMsg() + " may be you can try later");
+            }
+        } catch (RpcException e) {
+            LOG.warn("alter compute group properties rpc exception");
+            throw new UserException("failed to alter compute group properties", e);
+        } finally {
+            LOG.info("alter compute group properties, request: {}, response: {}", request, response);
+        }
+    }
 }
