@@ -369,6 +369,15 @@ struct TDictionaryStatusList {
     1: optional list<TDictionaryStatus> dictionary_status_list
 }
 
+struct TTestStorageConnectivityRequest {
+    1: optional Types.TStorageBackendType type;
+    2: optional map<string, string> properties;
+}
+
+struct TTestStorageConnectivityResponse {
+    1: optional Status.TStatus status;
+}
+
 service BackendService {
     AgentService.TAgentResult submit_tasks(1:list<AgentService.TAgentTaskRequest> tasks);
 
@@ -419,4 +428,7 @@ service BackendService {
 
     // if empty, return all dictionary status.
     TDictionaryStatusList get_dictionary_status(1:list<i64> dictionary_ids);
+
+    // Test storage connectivity (S3, HDFS, etc.)
+    TTestStorageConnectivityResponse test_storage_connectivity(1:TTestStorageConnectivityRequest request);
 }
