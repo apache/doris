@@ -133,5 +133,8 @@ DEFINE_mBool(enable_standby_passive_compaction, "true");
 
 DEFINE_mDouble(standby_compaction_version_ratio, "0.8");
 
+DEFINE_mBool(enable_cache_read_from_peer, "true");
+
+DEFINE_mInt64(cache_read_from_peer_expired_seconds, "-1");
 #include "common/compile_check_end.h"
 } // namespace doris::config
