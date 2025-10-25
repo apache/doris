@@ -51,13 +51,18 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
     auto kv_wrappers = get_element_wrappers(context, from_kv_types, to_kv_types);
     return [kv_wrappers, from_kv_types, to_kv_types](
                    FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   uint32_t result, size_t /*input_rows_count*/,
+                   uint32_t result, size_t input_rows_count,
                    const NullMap::value_type* null_map = nullptr) -> Status {
         auto& from_column = block.get_by_position(arguments.front()).column;
         const auto* from_col_map = check_and_get_column<ColumnMap>(from_column.get());
         if (!from_col_map) {
             return Status::RuntimeError("Illegal column {} for function CAST AS MAP",
                                         from_column->get_name());
+        }
+        if (from_col_map->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                from_col_map->size()));
         }
 
         Columns converted_columns(2);

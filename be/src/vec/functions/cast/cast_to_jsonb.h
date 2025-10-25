@@ -44,6 +44,11 @@ struct ConvertImplGenericFromJsonb {
 
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
+        if (col_from.size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from.size()));
+        }
         if (const ColumnString* col_from_string = check_and_get_column<ColumnString>(&col_from)) {
             auto col_to = data_type_to->create_column();
 
@@ -142,6 +147,11 @@ WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
 
         const auto& col_from_json =
                 assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
+        if (col_from_json.size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from_json.size()));
+        }
 
         auto column_to = make_nullable(data_type_to)->create_column();
         auto& column_to_nullable = assert_cast<ColumnNullable&>(*column_to);
@@ -205,6 +215,10 @@ struct ParseJsonbFromString {
         const auto& col_from =
                 assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
         const auto size = col_from.size();
+        if (size != input_rows_count) {
+            return Status::InternalError<true>(fmt::format(
+                    "Column row count mismatch: expected {}, got {}", input_rows_count, size));
+        }
 
         ColumnPtr column_result;
         if (context->enable_strict_mode()) {
@@ -234,6 +248,11 @@ WrapperType create_cast_to_jsonb_wrapper(const DataTypePtr& from_type, const Dat
         auto to_column = ColumnString::create();
         auto from_type_serde = block.get_by_position(arguments[0]).type->get_serde();
         auto from_column = block.get_by_position(arguments[0]).column;
+        if (from_column->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                from_column->size()));
+        }
         RETURN_IF_ERROR(
                 from_type_serde->serialize_column_to_jsonb_vector(*from_column, *to_column));
         block.get_by_position(result).column = std::move(to_column);

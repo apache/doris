@@ -56,6 +56,11 @@ public:
                                                      type_to_string(FromDataType::PType),
                                                      named_from.column->get_name()));
         }
+        if (col_from->size() != input_rows_count) {
+            return Status::InternalError<true>(
+                    fmt::format("Column row count mismatch: expected {}, got {}", input_rows_count,
+                                col_from->size()));
+        }
         const auto& from_decimal_type = assert_cast<const FromDataType&>(*named_from.type);
         UInt32 from_scale = from_decimal_type.get_scale();
 
