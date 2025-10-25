@@ -42,24 +42,28 @@ public:
     Status init() override {
         // Reserve enough space for the page, plus a bit of slop since
         // we often overrun the page by a few values.
-        RETURN_IF_CATCH_EXCEPTION(_buffer.reserve(_options.data_page_size + 1024));
+        RETURN_IF_CATCH_EXCEPTION(_buffer.reserve(_options.data_page_size));
         return reset();
     }
 
-    bool is_page_full() override { return _buffer.size() > _options.data_page_size; }
+    bool is_page_full() override { return _remain_element_capacity == 0; }
 
     Status add(const uint8_t* vals, size_t* count) override {
-        if (is_page_full()) {
+        if (is_page_full() || *count == 0) {
             *count = 0;
             return Status::OK();
         }
         size_t old_size = _buffer.size();
+        size_t to_add = std::min(_remain_element_capacity, *count);
         // This may need a large memory, should return error if could not allocated
         // successfully, to avoid BE OOM.
-        RETURN_IF_CATCH_EXCEPTION(_buffer.resize(old_size + *count * SIZE_OF_TYPE));
-        memcpy(&_buffer[old_size], vals, *count * SIZE_OF_TYPE);
-        _count += *count;
-        _raw_data_size += *count * SIZE_OF_TYPE;
+        RETURN_IF_CATCH_EXCEPTION(_buffer.resize(old_size + to_add * SIZE_OF_TYPE));
+        memcpy(&_buffer[old_size], vals, to_add * SIZE_OF_TYPE);
+        _count += to_add;
+        _raw_data_size += to_add * SIZE_OF_TYPE;
+
+        *count = to_add;
+        _remain_element_capacity -= to_add;
         return Status::OK();
     }
 
@@ -79,11 +83,12 @@ public:
 
     Status reset() override {
         RETURN_IF_CATCH_EXCEPTION({
-            _buffer.reserve(_options.data_page_size + 1024);
+            _buffer.reserve(_options.data_page_size);
             _count = 0;
             _raw_data_size = 0;
             _buffer.clear();
             _buffer.resize(PLAIN_PAGE_HEADER_SIZE);
+            _remain_element_capacity = _options.data_page_size / SIZE_OF_TYPE;
         });
         return Status::OK();
     }
@@ -116,6 +121,7 @@ private:
     faststring _buffer;
     PageBuilderOptions _options;
     size_t _count;
+    size_t _remain_element_capacity {0};
     uint64_t _raw_data_size = 0;
     typedef typename TypeTraits<Type>::CppType CppType;
     enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
