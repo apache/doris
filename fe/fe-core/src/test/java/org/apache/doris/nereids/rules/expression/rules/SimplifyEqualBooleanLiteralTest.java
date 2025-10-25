@@ -36,4 +36,16 @@ class SimplifyEqualBooleanLiteralTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("a > 1 = true", "a > 1");
         assertRewriteAfterTypeCoercion("Ba = true", "Ba = true");
     }
+
+    @Test
+    void testEqualToFalse() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(
+                        SimplifyEqualBooleanLiteral.INSTANCE
+                )
+        ));
+
+        assertRewriteAfterTypeCoercion("(a > 1) = false", "not(a > 1)");
+        assertRewriteAfterTypeCoercion("Ba = false", "Ba = false");
+    }
 }
