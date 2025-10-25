@@ -70,7 +70,7 @@ class VExprContext;
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-class ParquetReader : public GenericReader {
+class ParquetReader : public GenericReader, public ExprPushDownHelper {
     ENABLE_FACTORY_CREATOR(ParquetReader);
 
 public:
@@ -233,16 +233,8 @@ private:
 
     Status _set_read_one_line_impl() override { return Status::OK(); }
 
-    bool _expr_push_down(const VExprSPtr& expr,
-                         const std::function<bool(const FieldSchema*,
-                                                  ParquetPredicate::ColumnStat*)>& get_stat_func);
-    bool _simple_expr_push_down(
-            const VExprSPtr& expr, ParquetPredicate::OP op,
-            const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
-                    get_stat_func);
-    bool _check_expr_can_push_down(const VExprSPtr& expr);
-    bool _check_slot_can_push_down(const VExprSPtr& expr);
-    bool _check_other_children_is_literal(const VExprSPtr& expr);
+    bool _exists_in_file(const VSlotRef* slot) const override;
+    bool _type_matches(const VSlotRef*) const override;
 
     RuntimeProfile* _profile = nullptr;
     const TFileScanRangeParams& _scan_params;
@@ -324,11 +316,12 @@ private:
                                                                                            -1};
 
     bool _filter_groups;
-    // push down =, >, <, >=, <=, in
-    VExprSPtrs _push_down_exprs;
 
     // for page index filter. slot id => expr
-    std::map<int, VExprSPtrs> _push_down_simple_expr;
+    std::map<int, std::vector<std::unique_ptr<ColumnPredicate>>> _push_down_simple_predicates;
+    std::vector<std::unique_ptr<MutilColumnBlockPredicate>> _push_down_predicates;
+    std::vector<std::unique_ptr<ColumnPredicate>> _useless_predicates;
+    Arena _arena;
 };
 #include "common/compile_check_end.h"
 
