@@ -888,5 +888,6 @@ inline bool CastToDateOrDatetime::from_string_non_strict_mode_impl(
 
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-function-size)
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
