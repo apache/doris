@@ -188,39 +188,62 @@ suite("test_variant_predefine_types_with_indexes_profile", "p0,nonConcurrent"){
     qt_sql "select * from test_variant_predefine_types_with_indexes_profile order by id limit 10"
     qt_sql "select variant_type(var) from test_variant_predefine_types_with_indexes_profile where id = 1"
     accurateCheckIndexWithQueries()
-
-    sql """ alter table test_variant_predefine_types_with_indexes_profile set ("bloom_filter_columns" = "var"); """
+   
+     sql """
+        CREATE TABLE test_variant_predefine_types_with_bf_profile (
+        `id` bigint NOT NULL AUTO_INCREMENT,
+        `var`  variant <
+                'array_decimal_*':array<decimalv3 (26,9)>,
+                'array_ipv6_*':array<ipv6>,
+                'int_*':int,
+                'string_*':string,
+                'decimal_*':decimalv3(26,9),
+                'datetime_*':datetime,
+                'datetimev2_*':datetimev2(6),
+                'date_*':date,
+                'datev2_*':datev2,
+                'ipv4_*':ipv4,
+                'ipv6_*':ipv6,
+                'largeint_*':largeint,
+                'char_*': text,
+                properties("variant_max_subcolumns_count" = "2")
+            > NOT NULL,
+    ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")
+    """
+    sql """ alter table test_variant_predefine_types_with_bf_profile set ("bloom_filter_columns" = "var"); """
     waitForSchemaChangeDone {
-        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='test_variant_predefine_types_with_indexes_profile' ORDER BY createtime DESC LIMIT 1 """
+        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='test_variant_predefine_types_with_bf_profile' ORDER BY createtime DESC LIMIT 1 """
         time 600
     }
+    sql """ insert into test_variant_predefine_types_with_bf_profile select * from test_variant_predefine_types_with_indexes_profile """
+
     // accurateCheckIndexWithQueries()
     // sql "insert into test_variant_predefine_types_with_indexes_profile select * from test_variant_predefine_types_with_indexes_profile"
-    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where array_contains(cast(var['array_decimal_1'] as array<decimalv3 (26,9)>), 12345678901234567.123456789)")
+    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_bf_profile where array_contains(cast(var['array_decimal_1'] as array<decimalv3 (26,9)>), 12345678901234567.123456789)")
 
-    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where cast(var['int_1'] as int) = 42")
+    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_bf_profile where cast(var['int_1'] as int) = 42")
 
-    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where cast(var['int_nested.level1_num_1'] as int) = 1011111")
+    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_bf_profile where cast(var['int_nested.level1_num_1'] as int) = 1011111")
 
-    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where cast(var['int_nested']['level1_num_1'] as int) = 1011111")
+    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_bf_profile where cast(var['int_nested']['level1_num_1'] as int) = 1011111")
 
     // queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where var['string_1_nested']['metadata']['timestamp'] = '2023-10-27T12:00:00Z'")
 
-    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where cast(var['decimal_1'] as decimalv3(26,9)) = 12345.6789")
+    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_bf_profile where cast(var['decimal_1'] as decimalv3(26,9)) = 12345.6789")
 
-    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where cast(var['datetime_1'] as datetime) = '2023-10-27 10:30:00'")
+    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_bf_profile where cast(var['datetime_1'] as datetime) = '2023-10-27 10:30:00'")
 
-    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where cast(var['datetimev2_1'] as datetimev2(6)) = '2023-10-27 10:30:00.123456'")
+    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_bf_profile where cast(var['datetimev2_1'] as datetimev2(6)) = '2023-10-27 10:30:00.123456'")
 
     // queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where cast(var['date_1'] as date) = '2023-10-27'")
 
     //queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where cast(var['datev2_1'] as datev2) = '2023-10-28'")
 
-    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where cast(var['ipv4_1'] as ipv4) = '192.168.1.1'")
+    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_bf_profile where cast(var['ipv4_1'] as ipv4) = '192.168.1.1'")
 
-    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where cast(var['ipv6_1'] as ipv6) = '::1'")
+    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_bf_profile where cast(var['ipv6_1'] as ipv6) = '::1'")
 
-    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_indexes_profile where cast(var['largeint_1'] as largeint) = 12345678901234567890123456789012345678")
+    queryAndCheckWithBloomFilter("select count() from test_variant_predefine_types_with_bf_profile where cast(var['largeint_1'] as largeint) = 12345678901234567890123456789012345678")
 
     for (int i = 1; i < 10; i++) {
       sql """insert into test_variant_predefine_types_with_indexes_profile values (1, '{"a" : 123, "b" : 456, "d" : 789, "f" : "12345678901234567890123456789012345678", "int_1" : 123}')"""
