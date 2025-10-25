@@ -1257,25 +1257,28 @@ public class StringArithmetic {
     }
 
     private static Expression isUuidImpl(String uuid) {
+        final int uuid_without_dash_length = 32;
+        final int uuid_with_dash_length = 36;
+        final int uuid_with_braces_and_dash_length = 38;
         int len = uuid.length();
         int start = 0;
         int end = len - 1;
         switch (len) {
-            case 32:
+            case uuid_without_dash_length:
                 for (int i = 0; i < len; i++) {
                     if (!isHexChar(uuid.charAt(i))) {
                         return BooleanLiteral.of(false);
                     }
                 }
                 break;
-            case 38:
+            case uuid_with_braces_and_dash_length:
                 if (uuid.charAt(0) != '{' || uuid.charAt(end) != '}') {
                     return BooleanLiteral.of(false);
                 }
                 start++;
                 end--;
-                // fall through to case 36
-            case 36:
+                // fall through
+            case uuid_with_dash_length:
                 for (int i = start; i <= end; i++) {
                     char c = uuid.charAt(i);
                     if (i == start + 8 || i == start + 13 || i == start + 18 || i == start + 23) {

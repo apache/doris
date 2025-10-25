@@ -134,7 +134,7 @@ struct IsUuidImpl {
     static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     static constexpr size_t uuid_without_dash_length = 32;
     static constexpr size_t uuid_with_dash_length = 36;
-    static constexpr size_t uuid_with_braces_length = 38;
+    static constexpr size_t uuid_with_braces_and_dash_length = 38;
     static constexpr size_t dash_positions[4] = {8, 13, 18, 23};
 
     static bool is_uuid_with_dash(const char* src, const char* end) {
@@ -172,7 +172,7 @@ struct IsUuidImpl {
                 res[i] = is_valid;
             } else if (str_size == uuid_with_dash_length) {
                 res[i] = is_uuid_with_dash(source, source + str_size);
-            } else if (str_size == uuid_with_braces_length) {
+            } else if (str_size == uuid_with_braces_and_dash_length) {
                 if (source[0] != '{' || source[str_size - 1] != '}') {
                     res[i] = 0;
                     continue;
