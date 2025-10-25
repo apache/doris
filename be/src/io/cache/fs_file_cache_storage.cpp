@@ -672,8 +672,8 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
             }
             // if the file is tmp, it means it is the old file and it should be removed
             if (!args.is_tmp) {
-                _mgr->add_cell(args.hash, args.ctx, args.offset, args.size,
-                               FileBlock::State::DOWNLOADED, cache_lock);
+                _mgr->add_cell_directly(args.hash, args.ctx, args.offset, args.size,
+                                        FileBlock::State::DOWNLOADED, cache_lock);
                 return;
             }
             std::error_code ec;
@@ -887,8 +887,8 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
                 }
             } else {
                 context_original.cache_type = cache_type;
-                mgr->add_cell(key.hash, context_original, offset, size,
-                              FileBlock::State::DOWNLOADED, cache_lock);
+                mgr->add_cell_directly(key.hash, context_original, offset, size,
+                                       FileBlock::State::DOWNLOADED, cache_lock);
             }
         }
     }

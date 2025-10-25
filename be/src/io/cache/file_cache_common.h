@@ -41,6 +41,7 @@ enum FileCacheType {
     NORMAL = 1,
     DISPOSABLE = 0,
     TTL = 3,
+    COLD_NORMAL = 4,
 };
 std::string cache_type_to_surfix(FileCacheType type);
 FileCacheType surfix_to_cache_type(const std::string& str);
@@ -121,6 +122,8 @@ struct FileCacheSettings {
     size_t index_queue_elements {0};
     size_t query_queue_size {0};
     size_t query_queue_elements {0};
+    size_t cold_query_queue_size {0};
+    size_t cold_query_queue_elements {0};
     size_t ttl_queue_size {0};
     size_t ttl_queue_elements {0};
     size_t max_file_block_size {0};

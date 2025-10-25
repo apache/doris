@@ -36,6 +36,8 @@ std::string cache_type_to_surfix(FileCacheType type) {
         return "";
     case FileCacheType::TTL:
         return "_ttl";
+    case FileCacheType::COLD_NORMAL:
+        return "";
     }
     return "";
 }
@@ -61,6 +63,8 @@ FileCacheType string_to_cache_type(const std::string& str) {
         return FileCacheType::DISPOSABLE;
     } else if (str == "ttl") {
         return FileCacheType::TTL;
+    } else if (str == "cold_normal") {
+        return FileCacheType::COLD_NORMAL;
     }
     DCHECK(false) << "The string is " << str;
     return FileCacheType::NORMAL;
@@ -75,6 +79,8 @@ std::string cache_type_to_string(FileCacheType type) {
         return "normal";
     case FileCacheType::TTL:
         return "ttl";
+    case FileCacheType::COLD_NORMAL:
+        return "cold_normal";
     }
     DCHECK(false) << "unknown type: " << type;
     return "normal";
@@ -90,7 +96,9 @@ std::string FileCacheSettings::to_string() const {
        << ", index_queue_elements: " << index_queue_elements
        << ", ttl_queue_size: " << ttl_queue_size << ", ttl_queue_elements: " << ttl_queue_elements
        << ", query_queue_size: " << query_queue_size
-       << ", query_queue_elements: " << query_queue_elements << ", storage: " << storage;
+       << ", query_queue_elements: " << query_queue_elements
+       << ", cold_query_queue_size: " << cold_query_queue_size
+       << ", cold_query_queue_elements: " << cold_query_queue_elements << ", storage: " << storage;
     return ss.str();
 }
 
@@ -125,6 +133,19 @@ FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cach
     settings.query_queue_elements =
             std::max(settings.query_queue_size / settings.max_file_block_size,
                      REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
+
+    if (config::enable_normal_queue_cold_hot_separation) {
+        size_t normal_queue_per_size = settings.query_queue_size / 100;
+        size_t normal_queue_per_elements = settings.query_queue_elements / 100;
+
+        settings.cold_query_queue_size = normal_queue_per_size * config::normal_queue_cold_percent;
+        settings.cold_query_queue_elements =
+                normal_queue_per_elements * config::normal_queue_cold_percent;
+
+        settings.query_queue_size -= settings.cold_query_queue_size;
+        settings.query_queue_elements -= settings.cold_query_queue_elements;
+    }
+
     settings.storage = storage;
     return settings;
 }
