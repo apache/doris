@@ -140,20 +140,18 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
 
     ASSERT_EQ(schemaDescriptor.get_column_index("hobby"), 2);
     auto hobby = schemaDescriptor.get_column("hobby");
-    // should be parsed as ARRAY<MAP<STRUCT<STRING,STRING>>>
-    ASSERT_TRUE(hobby->children.size() == 1 && hobby->children[0].children.size() == 1 &&
-                hobby->children[0].children[0].children.size() == 2);
+    // should be parsed as ARRAY<MAP<KEY,VALUE>>
+    ASSERT_TRUE(hobby->children.size() == 1 && hobby->children[0].children.size() == 2);
     ASSERT_TRUE(hobby->data_type->get_primitive_type() == TYPE_ARRAY &&
-                hobby->children[0].data_type->get_primitive_type() == TYPE_MAP &&
-                hobby->children[0].children[0].data_type->get_primitive_type() == TYPE_STRUCT);
+                hobby->children[0].data_type->get_primitive_type() == TYPE_MAP);
     // hobby(opt) --- bag(rep) --- array_element(opt) --- map(rep)
     //                                                      \------- key(req)
     //                                                      \------- value(opt)
     // R=0,D=1        R=1,D=2          R=1,D=3             R=2,D=4
     //                                                       \------ R=2,D=4
     //                                                       \------ R=2,D=5
-    auto h_key = hobby->children[0].children[0].children[0];
-    auto h_value = hobby->children[0].children[0].children[1];
+    auto h_key = hobby->children[0];
+    auto h_value = hobby->children[1];
     ASSERT_TRUE(h_key.repetition_level == 2 && h_key.definition_level == 4);
     ASSERT_TRUE(h_value.repetition_level == 2 && h_value.definition_level == 5);
 

@@ -138,7 +138,9 @@ public:
                          const tparquet::RowGroup& row_group,
                          const std::vector<RowRange>& row_ranges, const cctz::time_zone* ctz,
                          io::IOContext* io_ctx, std::unique_ptr<ParquetColumnReader>& reader,
-                         size_t max_buf_size, const tparquet::OffsetIndex* offset_index = nullptr);
+                         size_t max_buf_size, const tparquet::OffsetIndex* offset_index = nullptr,
+                         const std::set<uint64_t>& column_ids = {},
+                         const std::set<uint64_t>& filter_column_ids = {});
     void set_nested_column() { _nested_column = true; }
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
@@ -146,6 +148,8 @@ public:
     virtual void close() = 0;
 
     virtual void reset_filter_map_index() = 0;
+
+    FieldSchema* get_field_schema() const { return _field_schema; }
 
 protected:
     void _generate_read_ranges(int64_t start_index, int64_t end_index,
@@ -162,6 +166,7 @@ protected:
     int64_t _decode_null_map_time = 0;
 
     size_t _filter_map_index = 0;
+    std::set<uint64_t> _filter_column_ids;
 };
 
 class ScalarColumnReader : public ParquetColumnReader {
@@ -346,6 +351,90 @@ private:
     std::vector<std::string> _read_column_names;
     //Need to use vector instead of set,see `get_rep_level()` for the reason.
 };
+
+// A special reader that skips actual reading but provides empty data with correct structure
+// This is used when a column is not needed but its structure is required (e.g., for map keys)
+class SkipReadingReader : public ParquetColumnReader {
+public:
+    SkipReadingReader(const std::vector<RowRange>& row_ranges, const cctz::time_zone* ctz,
+                      io::IOContext* io_ctx, FieldSchema* field_schema)
+            : ParquetColumnReader(row_ranges, ctz, io_ctx) {
+        _field_schema = field_schema; // Use inherited member from base class
+        VLOG_DEBUG << "[ParquetReader] Created SkipReadingReader for field: "
+                   << _field_schema->name;
+    }
+
+    Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
+                            const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node,
+                            FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,
+                            bool is_dict_filter) override {
+        VLOG_DEBUG << "[ParquetReader] SkipReadingReader::read_column_data for field: "
+                   << _field_schema->name << ", batch_size: " << batch_size;
+
+        // Simulate reading without actually reading data
+        // Fill with default/null values based on column type
+        MutableColumnPtr data_column = doris_column->assume_mutable();
+
+        if (doris_column->is_nullable()) {
+            auto* nullable_column = static_cast<vectorized::ColumnNullable*>(data_column.get());
+            nullable_column->insert_many_defaults(batch_size);
+        } else {
+            // For non-nullable columns, insert appropriate default values
+            for (size_t i = 0; i < batch_size; ++i) {
+                data_column->insert_default();
+            }
+        }
+
+        *read_rows = batch_size;
+        *eof = false; // We can always provide more empty data
+
+        VLOG_DEBUG << "[ParquetReader] SkipReadingReader generated " << batch_size
+                   << " default values for field: " << _field_schema->name;
+
+        return Status::OK();
+    }
+
+    static std::unique_ptr<SkipReadingReader> create_unique(const std::vector<RowRange>& row_ranges,
+                                                            cctz::time_zone* ctz,
+                                                            io::IOContext* io_ctx,
+                                                            FieldSchema* field_schema) {
+        return std::make_unique<SkipReadingReader>(row_ranges, ctz, io_ctx, field_schema);
+    }
+
+    // These methods should not be called for SkipReadingReader
+    // If they are called, it indicates a logic error in the code
+    const std::vector<level_t>& get_rep_level() const override {
+        LOG(FATAL) << "get_rep_level() should not be called on SkipReadingReader for field: "
+                   << _field_schema->name
+                   << ". This indicates the SkipReadingReader was incorrectly used as a reference "
+                      "column.";
+        // static std::vector<level_t> empty_levels;
+        // return empty_levels;
+        __builtin_unreachable();
+    }
+
+    const std::vector<level_t>& get_def_level() const override {
+        LOG(FATAL) << "get_def_level() should not be called on SkipReadingReader for field: "
+                   << _field_schema->name
+                   << ". This indicates the SkipReadingReader was incorrectly used as a reference "
+                      "column.";
+        // static std::vector<level_t> empty_levels;
+        // return empty_levels;
+        __builtin_unreachable();
+    }
+
+    // Implement required pure virtual methods from base class
+    Statistics statistics() override {
+        return Statistics(); // Return empty statistics
+    }
+
+    void close() override {
+        // Nothing to close for skip reading
+    }
+
+    void reset_filter_map_index() override { _filter_map_index = 0; }
+};
+
 #include "common/compile_check_end.h"
 
 }; // namespace doris::vectorized

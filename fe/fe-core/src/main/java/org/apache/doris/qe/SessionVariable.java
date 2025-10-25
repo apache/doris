@@ -408,6 +408,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_RUNTIME_FILTER_PARTITION_PRUNE =
             "enable_runtime_filter_partition_prune";
 
+    public static final String ENABLE_PRUNE_NESTED_COLUMN = "enable_prune_nested_column";
+
     static final String SESSION_CONTEXT = "session_context";
 
     public static final String DEFAULT_ORDER_BY_LIMIT = "default_order_by_limit";
@@ -1544,6 +1546,13 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL)
     public int topNLazyMaterializationThreshold = 1024;
+
+    @VariableMgr.VarAttr(name = ENABLE_PRUNE_NESTED_COLUMN, needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"是否裁剪map/struct类型", "Whether to prune the type of map/struct"}
+    )
+    public boolean enablePruneNestedColumns = true;
 
     public boolean enableTopnLazyMaterialization() {
         return ConnectContext.get() != null

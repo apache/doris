@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <iostream>
 #include <ostream>
 
 #include "common/config.h"
@@ -82,7 +83,9 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
                                const int32_t row_group_id, const tparquet::RowGroup& row_group,
                                const cctz::time_zone* ctz, io::IOContext* io_ctx,
                                const PositionDeleteContext& position_delete_ctx,
-                               const LazyReadContext& lazy_read_ctx, RuntimeState* state)
+                               const LazyReadContext& lazy_read_ctx, RuntimeState* state,
+                               const std::set<uint64_t>& column_ids,
+                               const std::set<uint64_t>& filter_column_ids)
         : _file_reader(file_reader),
           _read_table_columns(read_columns),
           _row_group_id(row_group_id),
@@ -93,7 +96,15 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
           _position_delete_ctx(position_delete_ctx),
           _lazy_read_ctx(lazy_read_ctx),
           _state(state),
-          _obj_pool(new ObjectPool()) {}
+          _obj_pool(new ObjectPool()),
+          _column_ids(column_ids),
+          _filter_column_ids(filter_column_ids) {
+    //std::cout << "[RowGroupReader] _column_ids: ";
+    //for (const auto& col_id : _column_ids) {
+    //    std::cout << col_id << " ";
+    //}
+    //std::cout << std::endl;
+}
 
 RowGroupReader::~RowGroupReader() {
     _column_readers.clear();
@@ -130,9 +141,9 @@ Status RowGroupReader::init(
         const tparquet::OffsetIndex* offset_index =
                 col_offsets.find(physical_index) != col_offsets.end() ? &col_offsets[physical_index]
                                                                       : nullptr;
-        RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
-                                                    _read_ranges, _ctz, _io_ctx, reader,
-                                                    max_buf_size, offset_index));
+        RETURN_IF_ERROR(ParquetColumnReader::create(
+                _file_reader, field, _row_group_meta, _read_ranges, _ctz, _io_ctx, reader,
+                max_buf_size, offset_index, _column_ids, _filter_column_ids));
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
@@ -320,8 +331,8 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         return _do_lazy_read(block, batch_size, read_rows, batch_eof);
     } else {
         FilterMap filter_map;
-        RETURN_IF_ERROR(_read_column_data(block, _lazy_read_ctx.all_read_columns, batch_size,
-                                          read_rows, batch_eof, filter_map));
+        RETURN_IF_ERROR((_read_column_data(block, _lazy_read_ctx.all_read_columns, batch_size,
+                                           read_rows, batch_eof, filter_map)));
         RETURN_IF_ERROR(
                 _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
@@ -427,9 +438,19 @@ Status RowGroupReader::_read_column_data(Block* block,
             RETURN_IF_ERROR(_column_readers[read_col_name]->read_column_data(
                     column_ptr, column_type, _table_info_node_ptr->get_children_node(read_col_name),
                     filter_map, batch_size - col_read_rows, &loop_rows, &col_eof, is_dict_filter));
+            // Debug: print loop_rows for this iteration
+            //std::cout << "[RowGroupReader] column '" << read_col_name << "' loop_rows=" << loop_rows
+            //          << " col_read_rows_so_far=" << col_read_rows << std::endl;
             col_read_rows += loop_rows;
         }
+        // Debug: print rows read for this column
+        //std::cout << "[RowGroupReader] column '" << read_col_name << "' read_rows=" << col_read_rows
+        //          << std::endl;
         if (batch_read_rows > 0 && batch_read_rows != col_read_rows) {
+            LOG(WARNING) << "[RowGroupReader] Mismatched read rows among parquet columns. "
+                            "previous_batch_read_rows="
+                         << batch_read_rows << ", current_column='" << read_col_name
+                         << "', current_col_read_rows=" << col_read_rows;
             return Status::Corruption("Can't read the same number of rows among parquet columns");
         }
         batch_read_rows = col_read_rows;
@@ -690,36 +711,40 @@ Status RowGroupReader::_fill_missing_columns(
         Block* block, size_t rows,
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
     for (auto& kv : missing_columns) {
-        if (kv.second == nullptr) {
-            // no default column, fill with null
-            auto mutable_column = block->get_by_name(kv.first).column->assume_mutable();
-            auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_column.get());
-            nullable_column->insert_many_defaults(rows);
-        } else {
-            // fill with default value
-            auto& ctx = kv.second;
-            auto origin_column_num = block->columns();
-            int result_column_id = -1;
-            // PT1 => dest primitive type
-            RETURN_IF_ERROR(ctx->execute(block, &result_column_id));
-            bool is_origin_column = result_column_id < origin_column_num;
-            if (!is_origin_column) {
-                // call resize because the first column of _src_block_ptr may not be filled by reader,
-                // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
-                // has only one row.
-                auto result_column_ptr = block->get_by_position(result_column_id).column;
-                auto mutable_column = result_column_ptr->assume_mutable();
-                mutable_column->resize(rows);
-                // result_column_ptr maybe a ColumnConst, convert it to a normal column
-                result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
-                auto origin_column_type = block->get_by_name(kv.first).type;
-                bool is_nullable = origin_column_type->is_nullable();
-                block->replace_by_position(
-                        block->get_position_by_name(kv.first),
-                        is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
-                block->erase(result_column_id);
-            }
-        }
+        // if (kv.second == nullptr) {
+        //     // no default column, fill with null
+        //     auto mutable_column = block->get_by_name(kv.first).column->assume_mutable();
+        //     auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_column.get());
+        //     nullable_column->insert_many_defaults(rows);
+        // } else {
+        //     // fill with default value
+        //     auto& ctx = kv.second;
+        //     auto origin_column_num = block->columns();
+        //     int result_column_id = -1;
+        //     // PT1 => dest primitive type
+        //     RETURN_IF_ERROR(ctx->execute(block, &result_column_id));
+        //     bool is_origin_column = result_column_id < origin_column_num;
+        //     if (!is_origin_column) {
+        //         // call resize because the first column of _src_block_ptr may not be filled by reader,
+        //         // so _src_block_ptr->rows() may return wrong result, cause the column created by `ctx->execute()`
+        //         // has only one row.
+        //         auto result_column_ptr = block->get_by_position(result_column_id).column;
+        //         auto mutable_column = result_column_ptr->assume_mutable();
+        //         mutable_column->resize(rows);
+        //         // result_column_ptr maybe a ColumnConst, convert it to a normal column
+        //         result_column_ptr = result_column_ptr->convert_to_full_column_if_const();
+        //         auto origin_column_type = block->get_by_name(kv.first).type;
+        //         bool is_nullable = origin_column_type->is_nullable();
+        //         block->replace_by_position(
+        //                 block->get_position_by_name(kv.first),
+        //                 is_nullable ? make_nullable(result_column_ptr) : result_column_ptr);
+        //         block->erase(result_column_id);
+        //     }
+        // }
+
+        auto mutable_column = block->get_by_name(kv.first).column->assume_mutable();
+        auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_column.get());
+        nullable_column->insert_many_defaults(rows);
     }
     return Status::OK();
 }
@@ -1110,6 +1135,7 @@ ParquetColumnReader::Statistics RowGroupReader::statistics() {
     }
     return st;
 }
+
 #include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

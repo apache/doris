@@ -22,7 +22,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.OrderKey;
-import org.apache.doris.nereids.rules.rewrite.ColumnPruning.PruneContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -87,7 +86,7 @@ import java.util.Set;
  * generating the slots for the required sub path on scan, union, and cte consumer.
  * Then, it replaces the element_at with the corresponding slot.
  */
-public class VariantSubPathPruning extends DefaultPlanRewriter<PruneContext> implements CustomRewriter {
+public class VariantSubPathPruning implements CustomRewriter {
     public static final Logger LOG = LogManager.getLogger(VariantSubPathPruning.class);
 
     @Override

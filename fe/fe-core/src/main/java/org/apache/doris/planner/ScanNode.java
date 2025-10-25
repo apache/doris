@@ -48,10 +48,13 @@ import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.SplitGenerator;
 import org.apache.doris.datasource.SplitSource;
+import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TColumnAccessPaths;
+import org.apache.doris.thrift.TColumnNameAccessPath;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRange;
@@ -66,6 +69,7 @@ import com.google.common.collect.RangeSet;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeRangeSet;
 import org.apache.commons.collections.map.CaseInsensitiveMap;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -555,6 +559,95 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                 .add("tblName", desc.getTable().getName())
                 .add("keyRanges", "")
                 .addValue(super.debugString()).toString();
+    }
+
+    protected void printNestedColumns(StringBuilder output, String prefix) {
+        boolean printNestedColumnsHeader = true;
+        for (SlotDescriptor slot : getTupleDesc().getSlots()) {
+            String prunedType = null;
+            if (!slot.getType().equals(slot.getColumn().getType())) {
+                prunedType = slot.getType().toString();
+            }
+            String displayAllAccessPathsString = null;
+            if (slot.getDisplayAllAccessPaths() != null
+                    && slot.getDisplayAllAccessPaths().name_access_paths != null
+                    && !slot.getDisplayAllAccessPaths().name_access_paths.isEmpty()) {
+                if (this instanceof IcebergScanNode) {
+                    displayAllAccessPathsString = mergeIcebergAccessPathsWithId(
+                            slot.getAllAccessPaths(),
+                            slot.getDisplayAllAccessPaths()
+                    );
+                } else {
+                    displayAllAccessPathsString = slot.getDisplayAllAccessPaths().name_access_paths
+                            .stream()
+                            .map(a -> StringUtils.join(a.path, "."))
+                            .collect(Collectors.joining(", "));
+                }
+            }
+            String displayPredicateAccessPathsString = null;
+            if (slot.getDisplayPredicateAccessPaths() != null
+                    && slot.getDisplayPredicateAccessPaths().name_access_paths != null
+                    && !slot.getDisplayPredicateAccessPaths().name_access_paths.isEmpty()) {
+                if (this instanceof IcebergScanNode) {
+                    displayPredicateAccessPathsString = mergeIcebergAccessPathsWithId(
+                            slot.getPredicateAccessPaths(),
+                            slot.getDisplayPredicateAccessPaths()
+                    );
+                } else {
+                    displayPredicateAccessPathsString = slot.getPredicateAccessPaths().name_access_paths
+                            .stream()
+                            .map(a -> StringUtils.join(a.path, "."))
+                            .collect(Collectors.joining(", "));
+                }
+            }
+
+
+            if (prunedType == null
+                    && displayAllAccessPathsString == null
+                    && displayPredicateAccessPathsString == null) {
+                continue;
+            }
+
+            if (printNestedColumnsHeader) {
+                output.append(prefix).append("nested columns:\n");
+                printNestedColumnsHeader = false;
+            }
+            output.append(prefix).append("  ").append(slot.getColumn().getName()).append(":\n");
+            output.append(prefix).append("    origin type: ").append(slot.getColumn().getType()).append("\n");
+            if (prunedType != null) {
+                output.append(prefix).append("    pruned type: ").append(prunedType).append("\n");
+            }
+            if (displayAllAccessPathsString != null) {
+                output.append(prefix).append("    all access paths: [")
+                        .append(displayAllAccessPathsString).append("]\n");
+            }
+            if (displayPredicateAccessPathsString != null) {
+                output.append(prefix).append("    predicate access paths: [")
+                        .append(displayPredicateAccessPathsString).append("]\n");
+            }
+        }
+    }
+
+    private String mergeIcebergAccessPathsWithId(
+            TColumnAccessPaths accessPaths, TColumnAccessPaths displayAccessPaths) {
+        List<String> mergeDisplayAccessPaths = Lists.newArrayList();
+        for (int i = 0; i < displayAccessPaths.name_access_paths.size(); i++) {
+            TColumnNameAccessPath nameAccessPath = displayAccessPaths.name_access_paths.get(i);
+            TColumnNameAccessPath idAccessPath = accessPaths.name_access_paths.get(i);
+
+            List<String> mergedPath = new ArrayList<>();
+            for (int j = 0; j < idAccessPath.path.size(); j++) {
+                String name = nameAccessPath.path.get(j);
+                String id = idAccessPath.path.get(j);
+                if (name.equals(id)) {
+                    mergedPath.add(name);
+                } else {
+                    mergedPath.add(name + "(" + id + ")");
+                }
+            }
+            mergeDisplayAccessPaths.add(StringUtils.join(mergedPath, "."));
+        }
+        return StringUtils.join(mergeDisplayAccessPaths, ", ");
     }
 
     public List<TupleId> getOutputTupleIds() {

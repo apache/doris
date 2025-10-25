@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <stddef.h>
@@ -145,6 +146,9 @@ public:
         std::vector<RowsetMetaSharedPtr> delete_predicates;
         // slots that cast may be eliminated in storage layer
         std::map<std::string, vectorized::DataTypePtr> target_cast_type_for_variants;
+
+        std::map<int32_t, TColumnAccessPaths> all_access_paths;
+        std::map<int32_t, TColumnAccessPaths> predicate_access_paths;
 
         std::vector<RowSetSplits> rs_splits;
         // For unique key table with merge-on-write

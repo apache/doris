@@ -108,45 +108,120 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                    const std::vector<RowRange>& row_ranges,
                                    const cctz::time_zone* ctz, io::IOContext* io_ctx,
                                    std::unique_ptr<ParquetColumnReader>& reader,
-                                   size_t max_buf_size, const tparquet::OffsetIndex* offset_index) {
+                                   size_t max_buf_size, const tparquet::OffsetIndex* offset_index,
+                                   const std::set<uint64_t>& column_ids,
+                                   const std::set<uint64_t>& filter_column_ids) {
+    // if (!column_ids.empty()) {
+    //     uint64_t field_column_id = field->get_column_id();
+    //     VLOG_DEBUG << "[ParquetReader] Checking column_id: " << field_column_id
+    //                << ", column_ids.size(): " << column_ids.size();
+    //     if (column_ids.find(field_column_id) == column_ids.end()) {
+    //         VLOG_DEBUG << "[ParquetReader] Setting skip_reading=true for column_id: "
+    //                    << field_column_id;
+    //         auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, ctz, io_ctx, field);
+    //         skip_reader->_filter_column_ids = filter_column_ids;
+    //         reader = std::move(skip_reader);
+    //         return Status::OK();
+    //     } else {
+    //         VLOG_DEBUG << "[ParquetReader] Column_id " << field_column_id
+    //                    << " found in column_ids, skip_reading=false";
+    //     }
+    // }
+
     if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
         std::unique_ptr<ParquetColumnReader> element_reader;
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
-                               element_reader, max_buf_size));
+                               element_reader, max_buf_size, nullptr, column_ids,
+                               filter_column_ids));
         element_reader->set_nested_column();
         auto array_reader = ArrayColumnReader::create_unique(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
+        array_reader->_filter_column_ids = filter_column_ids;
         reader.reset(array_reader.release());
     } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
         std::unique_ptr<ParquetColumnReader> key_reader;
         std::unique_ptr<ParquetColumnReader> value_reader;
-        RETURN_IF_ERROR(create(file, &field->children[0].children[0], row_group, row_ranges, ctz,
-                               io_ctx, key_reader, max_buf_size));
-        RETURN_IF_ERROR(create(file, &field->children[0].children[1], row_group, row_ranges, ctz,
-                               io_ctx, value_reader, max_buf_size));
-        key_reader->set_nested_column();
-        value_reader->set_nested_column();
+
+        if (column_ids.empty() ||
+            column_ids.find(field->children[0].get_column_id()) != column_ids.end()) {
+            // Create key reader
+            RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
+                                   key_reader, max_buf_size, nullptr, column_ids,
+                                   filter_column_ids));
+            key_reader->set_nested_column();
+        } else {
+            auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, ctz, io_ctx,
+                                                                   &field->children[0]);
+            key_reader = std::move(skip_reader);
+        }
+
+        if (column_ids.empty() ||
+            column_ids.find(field->children[1].get_column_id()) != column_ids.end()) {
+            // Create value reader
+            RETURN_IF_ERROR(create(file, &field->children[1], row_group, row_ranges, ctz, io_ctx,
+                                   value_reader, max_buf_size, nullptr, column_ids,
+                                   filter_column_ids));
+            value_reader->set_nested_column();
+        } else {
+            auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, ctz, io_ctx,
+                                                                   &field->children[0]);
+            value_reader = std::move(skip_reader);
+        }
+
         auto map_reader = MapColumnReader::create_unique(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(map_reader->init(std::move(key_reader), std::move(value_reader), field));
+        map_reader->_filter_column_ids = filter_column_ids;
         reader.reset(map_reader.release());
     } else if (field->data_type->get_primitive_type() == TYPE_STRUCT) {
         std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> child_readers;
         child_readers.reserve(field->children.size());
+        int non_skip_reader_idx = -1;
         for (int i = 0; i < field->children.size(); ++i) {
+            auto& child = field->children[i]; // 去掉 const，保证 &child 类型为 FieldSchema*
             std::unique_ptr<ParquetColumnReader> child_reader;
-            RETURN_IF_ERROR(create(file, &field->children[i], row_group, row_ranges, ctz, io_ctx,
-                                   child_reader, max_buf_size));
+            if (column_ids.empty() || column_ids.find(child.get_column_id()) != column_ids.end()) {
+                RETURN_IF_ERROR(create(file, &child, row_group, row_ranges, ctz, io_ctx,
+                                       child_reader, max_buf_size, nullptr, column_ids,
+                                       filter_column_ids));
+                child_reader->set_nested_column();
+                child_readers[child.name] = std::move(child_reader);
+                // 记录第一个非 SkippingReader
+                if (non_skip_reader_idx == -1) {
+                    non_skip_reader_idx = i;
+                }
+            } else {
+                // 不在 column_ids 的 child，创建 SkippingReader
+                auto skip_reader =
+                        std::make_unique<SkipReadingReader>(row_ranges, ctz, io_ctx, &child);
+                skip_reader->_filter_column_ids = filter_column_ids;
+                child_readers[child.name] = std::move(skip_reader);
+            }
+        }
+        // 如果所有都是 SkipReadingReader，则强制第一个 child 调用 create
+        if (non_skip_reader_idx == -1) {
+            // for (int i = 0; i < field->children.size(); ++i) {
+            // 只处理 SkipReadingReader（即刚才创建的）
+            // if (dynamic_cast<SkipReadingReader*>(child_readers[field->children[i].name].get()) != nullptr) {
+            std::unique_ptr<ParquetColumnReader> child_reader;
+            RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
+                                   child_reader, max_buf_size, nullptr, column_ids,
+                                   filter_column_ids));
             child_reader->set_nested_column();
-            child_readers[field->children[i].name] = std::move(child_reader);
+            child_readers[field->children[0].name] = std::move(child_reader);
+            // break;
+            // }
+            // }
         }
         auto struct_reader = StructColumnReader::create_unique(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(struct_reader->init(std::move(child_readers), field));
+        struct_reader->_filter_column_ids = filter_column_ids;
         reader.reset(struct_reader.release());
     } else {
         const tparquet::ColumnChunk& chunk = row_group.columns[field->physical_column_index];
         auto scalar_reader =
                 ScalarColumnReader::create_unique(row_ranges, chunk, offset_index, ctz, io_ctx);
         RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size));
+        scalar_reader->_filter_column_ids = filter_column_ids;
         reader.reset(scalar_reader.release());
     }
     return Status::OK();
@@ -640,7 +715,7 @@ Status ScalarColumnReader::read_column_data(
                 }
                 if (batch_size >= remaining_num_values &&
                     filter_map.can_filter_all(remaining_num_values, _filter_map_index)) {
-                    // We can skip the whole page if the remaining values is filtered by predicate columns
+                    // We can skip the whole page if the remaining values are filtered by predicate columns
                     _filter_map_index += remaining_num_values;
                     _current_row_index += _chunk_reader->remaining_num_values();
                     RETURN_IF_ERROR(_chunk_reader->skip_page());
@@ -798,7 +873,7 @@ Status MapColumnReader::read_column_data(
         value_rows += loop_rows;
     }
     DCHECK_EQ(key_rows, value_rows);
-    DCHECK_EQ(key_eof, value_eof);
+    // DCHECK_EQ(key_eof, value_eof);
     *read_rows = key_rows;
     *eof = key_eof;
 
@@ -851,6 +926,7 @@ Status StructColumnReader::read_column_data(
 
     int64_t not_missing_column_id = -1;
     std::vector<size_t> missing_column_idxs {};
+    std::vector<size_t> skip_reading_column_idxs {};
 
     _read_column_names.clear();
 
@@ -860,10 +936,29 @@ Status StructColumnReader::read_column_data(
         auto& doris_name = doris_struct_type->get_element_name(i);
         if (!root_node->children_column_exists(doris_name)) {
             missing_column_idxs.push_back(i);
+            VLOG_DEBUG << "[ParquetReader] Missing column in schema: column_idx[" << i
+                       << "], doris_name: " << doris_name << " (column not exists in root node)";
             continue;
         }
         auto file_name = root_node->children_file_column_name(doris_name);
+        //     if (_child_readers.find(file_name) == _child_readers.end()) {
+        //     missing_column_idxs.push_back(i);
+        //     continue;
+        // }
 
+        // Check if this is a SkipReadingReader - we should skip it when choosing reference column
+        // because SkipReadingReader doesn't know the actual data size in nested context
+        bool is_skip_reader =
+                dynamic_cast<SkipReadingReader*>(_child_readers[file_name].get()) != nullptr;
+
+        if (is_skip_reader) {
+            // Store SkipReadingReader columns to fill them later based on reference column size
+            skip_reading_column_idxs.push_back(i);
+            continue;
+        }
+
+        // Only add non-SkipReadingReader columns to _read_column_names
+        // This ensures get_rep_level() and get_def_level() return valid levels
         _read_column_names.emplace_back(file_name);
 
         size_t field_rows = 0;
@@ -875,6 +970,13 @@ Status StructColumnReader::read_column_data(
                     batch_size, &field_rows, &field_eof, is_dict_filter));
             *read_rows = field_rows;
             *eof = field_eof;
+            // Debug: print the first non-missing child column read info
+            //std::cout << "[ParquetReader] struct '" << _field_schema->name << "' first non-missing child='"
+            //          << file_name << "' doris_name='" << doris_name << "' field_rows=" << field_rows
+            //          << " field_eof=" << field_eof << " doris_field_size=" << doris_field->size()
+            //          << " child_rep_levels=" << _child_readers[file_name]->get_rep_level().size()
+            //          << " child_def_levels=" << _child_readers[file_name]->get_def_level().size()
+            //          << std::endl;
             /*
              * Considering the issue in the `_read_nested_column` function where data may span across pages, leading
              * to missing definition and repetition levels, when filling the null_map of the struct later, it is
@@ -891,6 +993,12 @@ Status StructColumnReader::read_column_data(
                         doris_field, doris_type, root_node->get_children_node(doris_name),
                         filter_map, *read_rows - field_rows, &loop_rows, &field_eof,
                         is_dict_filter));
+                // Debug: print each loop iteration for non-first child columns
+                //std::cout << "[ParquetReader] struct '" << _field_schema->name << "' non-first child='"
+                //          << file_name << "' doris_name='" << doris_name << "' loop_rows=" << loop_rows
+                //          << " field_rows=" << field_rows << " target_rows=" << *read_rows
+                //          << " field_eof=" << field_eof << " doris_field_size=" << doris_field->size()
+                //          << std::endl;
                 field_rows += loop_rows;
             }
             DCHECK_EQ(*read_rows, field_rows);
@@ -898,10 +1006,89 @@ Status StructColumnReader::read_column_data(
         }
     }
 
+    // After scanning children, print summary of missing/skip info
+    //std::cout << "[ParquetReader] struct '" << _field_schema->name << "' summary: not_missing_column_id="
+    //          << not_missing_column_id << " missing_columns_count=" << missing_column_idxs.size()
+    //          << " skip_reading_count=" << skip_reading_column_idxs.size() << std::endl;
+
+    int64_t missing_column_sz = -1;
+
     if (not_missing_column_id == -1) {
-        // TODO: support read struct which columns are all missing
-        return Status::Corruption("Not support read struct '{}' which columns are all missing",
-                                  _field_schema->name);
+        // All queried columns are missing in the file (e.g., all added after schema change)
+        // We need to pick a column from _field_schema that exists in the file to get RL/DL
+        //std::cout << "[ParquetReader] All queried columns missing for struct '" << _field_schema->name
+        //          << "', searching for reference column in _field_schema" << std::endl;
+
+        // Find a column from _field_schema children that exists in the file for RL/DL reference
+        std::string reference_file_column_name;
+        std::unique_ptr<ParquetColumnReader>* reference_reader = nullptr;
+
+        for (const auto& child : _field_schema->children) {
+            auto it = _child_readers.find(child.name);
+            if (it != _child_readers.end()) {
+                // Skip SkipReadingReader as they don't have valid RL/DL
+                bool is_skip_reader = dynamic_cast<SkipReadingReader*>(it->second.get()) != nullptr;
+                if (!is_skip_reader) {
+                    reference_file_column_name = child.name;
+                    reference_reader = &(it->second);
+                    //std::cout << "[ParquetReader] Found reference column: " << reference_file_column_name
+                    //          << " for struct '" << _field_schema->name << "'" << std::endl;
+                    break;
+                }
+            }
+        }
+
+        if (reference_reader != nullptr) {
+            // Read the reference column to get correct RL/DL information
+            // We need to find the FieldSchema for the reference column from _field_schema children
+            FieldSchema* ref_field_schema = nullptr;
+            for (auto& child : _field_schema->children) {
+                if (child.name == reference_file_column_name) {
+                    ref_field_schema = &child;
+                    break;
+                }
+            }
+
+            if (ref_field_schema == nullptr) {
+                return Status::InternalError(
+                        "Cannot find field schema for reference column '{}' in struct '{}'",
+                        reference_file_column_name, _field_schema->name);
+            }
+
+            // Create a temporary column to hold the data (we'll use its size for missing_column_sz)
+            ColumnPtr temp_column = ref_field_schema->data_type->create_column();
+            auto temp_type = ref_field_schema->data_type;
+
+            size_t field_rows = 0;
+            bool field_eof = false;
+
+            // Use root_node to get the correct child node for the reference column
+            // reference_file_column_name is the file column name, use get_children_node_by_file_column_name
+            auto ref_child_node =
+                    root_node->get_children_node_by_file_column_name(reference_file_column_name);
+
+            RETURN_IF_ERROR((*reference_reader)
+                                    ->read_column_data(temp_column, temp_type, ref_child_node,
+                                                       filter_map, batch_size, &field_rows,
+                                                       &field_eof, is_dict_filter));
+
+            *read_rows = field_rows;
+            *eof = field_eof;
+
+            // Store this reference column name for get_rep_level/get_def_level to use
+            _read_column_names.emplace_back(reference_file_column_name);
+
+            //std::cout << "[ParquetReader] Read " << field_rows << " rows from reference column '"
+            //          << reference_file_column_name << "', temp_column.size=" << temp_column->size()
+            //          << " for struct '" << _field_schema->name << "'" << std::endl;
+
+            missing_column_sz = temp_column->size();
+        } else {
+            return Status::Corruption(
+                    "Cannot read struct '{}': all queried columns are missing and no reference "
+                    "column found in file",
+                    _field_schema->name);
+        }
     }
 
     //  This missing_column_sz is not *read_rows. Because read_rows returns the number of rows.
@@ -912,8 +1099,26 @@ Status StructColumnReader::read_column_data(
     //      [{4,null},{5,null}]
     //  When you first read subcolumn a, you read 5 data items and the value of *read_rows is 2.
     //  You should insert 5 records into subcolumn b instead of 2.
-    auto missing_column_sz = doris_struct.get_column(not_missing_column_id).size();
-    // fill missing column with null or default value
+    if (missing_column_sz == -1) {
+        missing_column_sz = doris_struct.get_column(not_missing_column_id).size();
+    }
+
+    // Fill SkipReadingReader columns with the correct amount of data based on reference column
+    // Let SkipReadingReader handle the data filling through its read_column_data method
+    for (auto idx : skip_reading_column_idxs) {
+        auto& doris_field = doris_struct.get_column_ptr(idx);
+        auto& doris_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(idx));
+        auto& doris_name = const_cast<String&>(doris_struct_type->get_element_name(idx));
+        auto file_name = root_node->children_file_column_name(doris_name);
+
+        size_t field_rows = 0;
+        bool field_eof = false;
+        RETURN_IF_ERROR(_child_readers[file_name]->read_column_data(
+                doris_field, doris_type, root_node->get_children_node(doris_name), filter_map,
+                missing_column_sz, &field_rows, &field_eof, is_dict_filter));
+    }
+
+    // Fill truly missing columns (not in root_node) with null or default value
     for (auto idx : missing_column_idxs) {
         auto& doris_field = doris_struct.get_column_ptr(idx);
         auto& doris_type = doris_struct_type->get_element(idx);
@@ -924,10 +1129,11 @@ Status StructColumnReader::read_column_data(
     }
 
     if (null_map_ptr != nullptr) {
+        //std::cout << "[ParquetReader] struct '" << _field_schema->name << "' before fill_struct_null_map: rep_levels="
+        //          << this->get_rep_level().size() << " def_levels=" << this->get_def_level().size() << std::endl;
         fill_struct_null_map(_field_schema, *null_map_ptr, this->get_rep_level(),
                              this->get_def_level());
     }
-
     return Status::OK();
 }
 #include "common/compile_check_end.h"
