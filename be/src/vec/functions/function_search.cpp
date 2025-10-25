@@ -35,10 +35,13 @@
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/bitmap_query/bitmap_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/regexp_query/regexp_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/wildcard_query/wildcard_query.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
 #include "olap/rowset/segment_v2/inverted_index_iterator.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
@@ -417,7 +420,7 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
                 std::string child_binding_key;
                 RETURN_IF_ERROR(build_query_recursive(child_clause, context, resolver, &child_query,
                                                       &child_binding_key));
-                // Add all children including empty BitmapQuery
+                // Add all children including empty BitSetQuery
                 // BooleanQuery will handle the logic:
                 // - AND with empty bitmap → result is empty
                 // - OR with empty bitmap → empty bitmap is ignored by OR logic
@@ -460,9 +463,9 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
     // Check if binding is empty (variant subcolumn not found in this segment)
     if (binding.lucene_reader == nullptr) {
         VLOG_DEBUG << "build_leaf_query: Variant subcolumn '" << field_name
-                   << "' has no index in this segment, creating empty BitmapQuery (no matches)";
-        // Variant subcolumn doesn't exist - create empty BitmapQuery (no matches)
-        *out = std::make_shared<query_v2::BitmapQuery>(roaring::Roaring());
+                   << "' has no index in this segment, creating empty BitSetQuery (no matches)";
+        // Variant subcolumn doesn't exist - create empty BitSetQuery (no matches)
+        *out = std::make_shared<query_v2::BitSetQuery>(roaring::Roaring());
         if (binding_key) {
             binding_key->clear();
         }
@@ -523,8 +526,46 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
 
     if (category == FunctionSearch::ClauseTypeCategory::TOKENIZED) {
         if (clause_type == "PHRASE") {
-            VLOG_DEBUG << "search: PHRASE clause not implemented, fallback to TERM";
-            *out = make_term_query(value_wstr);
+            LOG(ERROR) << "phrase: " << StringHelper::to_string(value_wstr);
+            bool should_analyze = inverted_index::InvertedIndexAnalyzer::should_analyzer(
+                    binding.index_properties);
+            if (!should_analyze) {
+                VLOG_DEBUG << "search: PHRASE on non-tokenized field '" << field_name
+                           << "', falling back to TERM";
+                *out = make_term_query(value_wstr);
+                return Status::OK();
+            }
+
+            if (binding.index_properties.empty()) {
+                LOG(WARNING) << "search: analyzer required but index properties empty for PHRASE "
+                                "query on field '"
+                             << field_name << "'";
+                *out = make_term_query(value_wstr);
+                return Status::OK();
+            }
+
+            std::vector<TermInfo> term_infos =
+                    inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                            value, binding.index_properties);
+            if (term_infos.empty()) {
+                LOG(WARNING) << "search: No terms found after tokenization for PHRASE query, field="
+                             << field_name << ", value='" << value << "'";
+                return Status::OK();
+            }
+
+            if (term_infos.size() == 1) {
+                std::wstring term_wstr = StringHelper::to_wstring(term_infos[0].get_single_term());
+                *out = make_term_query(term_wstr);
+                return Status::OK();
+            }
+
+            std::vector<std::wstring> terms;
+            for (const auto& term_info : term_infos) {
+                terms.push_back(StringHelper::to_wstring(term_info.get_single_term()));
+            }
+            *out = std::make_shared<query_v2::PhraseQuery>(context, field_wstr, terms);
+            VLOG_DEBUG << "search: Built PhraseQuery for field=" << field_name << " with "
+                       << terms.size() << " terms";
             return Status::OK();
         }
         if (clause_type == "MATCH") {
@@ -594,8 +635,31 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
             return Status::OK();
         }
 
-        if (clause_type == "PREFIX" || clause_type == "WILDCARD" || clause_type == "REGEXP" ||
-            clause_type == "RANGE" || clause_type == "LIST") {
+        if (clause_type == "PREFIX") {
+            LOG(ERROR) << "prefix: " << value;
+            *out = std::make_shared<query_v2::WildcardQuery>(context, field_wstr, value);
+            VLOG_DEBUG << "search: PREFIX clause processed, field=" << field_name << ", pattern='"
+                       << value << "'";
+            return Status::OK();
+        }
+
+        if (clause_type == "WILDCARD") {
+            LOG(ERROR) << "wildcard: " << value;
+            *out = std::make_shared<query_v2::WildcardQuery>(context, field_wstr, value);
+            VLOG_DEBUG << "search: WILDCARD clause processed, field=" << field_name << ", pattern='"
+                       << value << "'";
+            return Status::OK();
+        }
+
+        if (clause_type == "REGEXP") {
+            LOG(ERROR) << "regexp: " << value;
+            *out = std::make_shared<query_v2::RegexpQuery>(context, field_wstr, value);
+            VLOG_DEBUG << "search: REGEXP clause processed, field=" << field_name << ", pattern='"
+                       << value << "'";
+            return Status::OK();
+        }
+
+        if (clause_type == "RANGE" || clause_type == "LIST") {
             VLOG_DEBUG << "search: clause type '" << clause_type
                        << "' not implemented, fallback to TERM";
         }
