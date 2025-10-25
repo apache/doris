@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "common/stopwatch.h"
+#include "cpp/stopwatch.h"
 
 #include <gtest/gtest.h>
 
 #include <chrono>
 #include <thread>
 
-using namespace doris::cloud;
+using namespace doris;
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

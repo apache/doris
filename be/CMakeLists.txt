@@ -528,6 +528,7 @@ set(DORIS_LINK_LIBS
     Cloud
     ${WL_END_GROUP}
     CommonCPP
+    CommonClient
 )
 
 set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
@@ -856,6 +857,7 @@ if (MAKE_TEST)
 endif ()
 
 add_subdirectory(${COMMON_SRC_DIR}/cpp ${BUILD_DIR}/src/common_cpp)
+add_subdirectory(${COMMON_SRC_DIR}/client ${BUILD_DIR}/src/common_client)
 
 if(NOT BUILD_BENCHMARK)
     # Install be

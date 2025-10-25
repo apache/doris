@@ -81,21 +81,21 @@ void test_s3_accessor(S3Accessor& accessor) {
     ASSERT_EQ(ret, 0);
     ASSERT_TRUE(iter);
     ASSERT_TRUE(iter->is_valid());
-    ASSERT_TRUE(iter->has_next());
+    ASSERT_TRUE(iter->has_next().status.code == TStatusCode::OK);
     ASSERT_EQ(iter->next()->path, file1);
-    ASSERT_FALSE(iter->has_next());
+    ASSERT_FALSE(iter->has_next().status.code == TStatusCode::OK);
 
     ret = accessor.list_directory("data/", &iter);
     ASSERT_EQ(ret, 0);
     ASSERT_TRUE(iter->is_valid());
-    ASSERT_TRUE(iter->has_next());
+    ASSERT_TRUE(iter->has_next().status.code == TStatusCode::OK);
     ASSERT_EQ(iter->next()->path, file1);
-    ASSERT_FALSE(iter->has_next());
+    ASSERT_FALSE(iter->has_next().status.code == TStatusCode::OK);
     ASSERT_FALSE(iter->next());
 
     ret = accessor.list_directory("data/100", &iter);
     ASSERT_EQ(ret, 0);
-    ASSERT_FALSE(iter->has_next());
+    ASSERT_FALSE(iter->has_next().status.code == TStatusCode::OK);
     ASSERT_FALSE(iter->next());
 
     ret = accessor.delete_file(file1);
@@ -106,7 +106,7 @@ void test_s3_accessor(S3Accessor& accessor) {
     ASSERT_NE(ret, 0);
     ret = accessor.list_all(&iter);
     ASSERT_EQ(ret, 0);
-    ASSERT_FALSE(iter->has_next());
+    ASSERT_FALSE(iter->has_next().status.code == TStatusCode::OK);
     ASSERT_FALSE(iter->next());
     ret = accessor.delete_file(file1);
     EXPECT_EQ(ret, 0);
@@ -195,7 +195,7 @@ void test_s3_accessor(S3Accessor& accessor) {
     ASSERT_EQ(ret, 0);
     ret = accessor.list_all(&iter);
     ASSERT_EQ(ret, 0);
-    ASSERT_FALSE(iter->has_next());
+    ASSERT_FALSE(iter->has_next().status.code == TStatusCode::OK);
     ASSERT_FALSE(iter->next());
 }
 
@@ -226,7 +226,7 @@ TEST_F(S3AccessorTest, s3) {
             },
             &guards.emplace_back());
     sp->set_call_back(
-            "S3ObjClient::delete_objects",
+            "S3ObjStorageClient::delete_objects",
             [](auto&& args) {
                 auto* delete_batch_size = try_any_cast<size_t*>(args[0]);
                 *delete_batch_size = 7;
@@ -268,7 +268,7 @@ TEST_F(S3AccessorTest, azure) {
             },
             &guards.emplace_back());
     sp->set_call_back(
-            "AzureObjClient::delete_objects",
+            "ObjStorageClient::delete_objects",
             [](auto&& args) {
                 auto* delete_batch_size = try_any_cast<size_t*>(args[0]);
                 *delete_batch_size = 7;
@@ -310,7 +310,7 @@ TEST_F(S3AccessorTest, gcs) {
             },
             &guards.emplace_back());
     sp->set_call_back(
-            "S3ObjClient::delete_objects",
+            "S3ObjStorageClient::delete_objects",
             [](auto&& args) {
                 auto* delete_batch_size = try_any_cast<size_t*>(args[0]);
                 *delete_batch_size = 7;
@@ -368,7 +368,7 @@ TEST_F(S3AccessorTest, path_style_test) {
     };
 
     int case_idx = 0;
-    sp->set_call_back("S3ObjClient::delete_object",
+    sp->set_call_back("S3ObjStorageClient::delete_object",
             [&case_idx, &inputs](auto&& args) {
                 auto* res = try_any_cast<Aws::S3::Model::DeleteObjectOutcome*>(args[0]);
                 EXPECT_EQ(std::get<2>(inputs[case_idx]), static_cast<int>(res->GetError().GetResponseCode())) << "<<<<<<<<<<<<<<<<<<<<< " << case_idx;
@@ -456,7 +456,7 @@ TEST_F(S3AccessorRoleTest, s3) {
             },
             &guards.emplace_back());
     sp->set_call_back(
-            "S3ObjClient::delete_objects",
+            "S3ObjStorageClient::delete_objects",
             [](auto&& args) {
                 auto* delete_batch_size = try_any_cast<size_t*>(args[0]);
                 *delete_batch_size = 7;

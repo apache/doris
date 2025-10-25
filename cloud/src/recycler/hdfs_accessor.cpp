@@ -18,11 +18,12 @@
 #include "recycler/hdfs_accessor.h"
 
 #include <bvar/latency_recorder.h>
+#include <client/obj_storage_client.h>
 #include <gen_cpp/cloud.pb.h>
 
-#include "common/stopwatch.h"
-#include "recycler/util.h"
-
+#include "client/client_bvar.h"
+#include "client/s3_common.h"
+#include "cpp/stopwatch.h"
 #ifdef USE_HADOOP_HDFS
 #include <hadoop_hdfs/hdfs.h> // IWYU pragma: export
 #else
@@ -234,9 +235,13 @@ public:
 
     bool is_valid() override { return is_valid_; }
 
-    bool has_next() override {
+    ObjectStorageResponse has_next() override {
         if (!is_valid_) {
-            return false;
+            return ObjectStorageResponse {
+                    .status = ObjectStorageStatus {TStatusCode::INTERNAL_ERROR,
+                                                   "Iterator is invalid"},
+                    .http_code = 0,
+                    .request_id = ""};
         }
 
         if (!has_init_) {
@@ -244,7 +249,11 @@ public:
             auto next_level_dir_entries = list_directory(dir_path_.c_str());
             if (!next_level_dir_entries) {
                 is_valid_ = false;
-                return false;
+                return ObjectStorageResponse {
+                        .status = ObjectStorageStatus {TStatusCode::INTERNAL_ERROR,
+                                                       "failed to list hdfs directory"},
+                        .http_code = 0,
+                        .request_id = ""};
             }
 
             if (!next_level_dir_entries->empty()) {
@@ -256,14 +265,18 @@ public:
             auto& dir_entries = level_dirs_.back();
             auto& entry = dir_entries.front();
             if (entry.mKind == kObjectKindFile) {
-                return true;
+                return ObjectStorageResponse::OK();
             }
 
             // entry is a dir
             auto next_level_dir_entries = list_directory(entry.mName);
             if (!next_level_dir_entries) {
                 is_valid_ = false;
-                return false;
+                return ObjectStorageResponse {
+                        .status = ObjectStorageStatus {TStatusCode::INTERNAL_ERROR,
+                                                       "failed to list hdfs directory"},
+                        .http_code = 0,
+                        .request_id = ""};
             }
 
             dir_entries.pop_front();
@@ -276,12 +289,16 @@ public:
             }
         }
 
-        return false;
+        return ObjectStorageResponse {
+                .status = ObjectStorageStatus {TStatusCode::NOT_FOUND, "No more results"},
+                .http_code = 404,
+                .request_id = ""};
     }
 
     std::optional<FileMeta> next() override {
         std::optional<FileMeta> res;
-        if (!has_next()) {
+        auto list_result = has_next();
+        if (list_result.status.code != TStatusCode::OK) {
             return res;
         }
 

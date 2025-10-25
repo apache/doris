@@ -94,25 +94,25 @@ TEST(HdfsAccessorTest, normal) {
     EXPECT_EQ(ret, 0);
     EXPECT_TRUE(iter);
     EXPECT_TRUE(iter->is_valid());
-    EXPECT_TRUE(iter->has_next());
+    EXPECT_TRUE(iter->has_next().status.code == TStatusCode::OK);
     EXPECT_EQ(iter->next()->path, file1);
-    EXPECT_FALSE(iter->has_next());
+    EXPECT_FALSE(iter->has_next().status.code == TStatusCode::OK);
     iter.reset();
     EXPECT_EQ(alloc_entries, 0);
 
     ret = accessor.list_directory("data/", &iter);
     EXPECT_EQ(ret, 0);
     EXPECT_TRUE(iter->is_valid());
-    EXPECT_TRUE(iter->has_next());
+    EXPECT_TRUE(iter->has_next().status.code == TStatusCode::OK);
     EXPECT_EQ(iter->next()->path, file1);
-    EXPECT_FALSE(iter->has_next());
+    EXPECT_FALSE(iter->has_next().status.code == TStatusCode::OK);
     EXPECT_FALSE(iter->next());
     iter.reset();
     EXPECT_EQ(alloc_entries, 0);
 
     ret = accessor.list_directory("data/100", &iter);
     EXPECT_EQ(ret, 0);
-    EXPECT_FALSE(iter->has_next());
+    EXPECT_FALSE(iter->has_next().status.code == TStatusCode::OK);
     EXPECT_FALSE(iter->next());
     iter.reset();
     EXPECT_EQ(alloc_entries, 0);
@@ -125,7 +125,7 @@ TEST(HdfsAccessorTest, normal) {
     EXPECT_NE(ret, 0);
     ret = accessor.list_all(&iter);
     EXPECT_EQ(ret, 0);
-    EXPECT_FALSE(iter->has_next());
+    EXPECT_FALSE(iter->has_next().status.code == TStatusCode::OK);
     EXPECT_FALSE(iter->next());
     iter.reset();
     EXPECT_EQ(alloc_entries, 0);
@@ -184,7 +184,7 @@ TEST(HdfsAccessorTest, normal) {
     EXPECT_EQ(ret, 0);
     ret = accessor.list_directory(to_delete_dir, &iter);
     EXPECT_EQ(ret, 0);
-    EXPECT_FALSE(iter->has_next());
+    EXPECT_FALSE(iter->has_next().status.code == TStatusCode::OK);
 
     files.erase(std::remove_if(files.begin(), files.end(),
                                [&](auto&& file) { return file.starts_with(to_delete_dir); }),
@@ -225,7 +225,7 @@ TEST(HdfsAccessorTest, normal) {
     EXPECT_EQ(ret, 0);
     ret = accessor.list_all(&iter);
     EXPECT_EQ(ret, 0);
-    EXPECT_FALSE(iter->has_next());
+    EXPECT_FALSE(iter->has_next().status.code == TStatusCode::OK);
     EXPECT_FALSE(iter->next());
 }
 

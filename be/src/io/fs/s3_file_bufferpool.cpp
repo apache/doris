@@ -22,6 +22,7 @@
 #include <chrono>
 #include <memory>
 
+#include "client/s3_common.h"
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
@@ -29,7 +30,6 @@
 #include "cpp/sync_point.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
-#include "io/fs/s3_common.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"

@@ -17,9 +17,11 @@
 
 #pragma once
 
+
 #include <chrono>
 
-namespace doris::cloud {
+#include "cpp/defer.h"
+namespace doris {
 
 class StopWatch {
 public:
@@ -76,4 +78,17 @@ private:
     bool running_ {false};
 };
 
-} // namespace doris::cloud
+static constexpr int S3_REQUEST_THRESHOLD_MS = 5000;
+
+// The time unit is ms
+#define SCOPED_BVAR_LATENCY(bvar_item)                                        \
+    StopWatch sw;                                                             \
+    DORIS_COMMON_DEFER {                                                      \
+        bvar_item << sw.elapsed_us();                                         \
+        if (sw.elapsed_us() > S3_REQUEST_THRESHOLD_MS) {                      \
+            LOG(INFO) << bvar_item << " record request threshold,"            \
+                      << " request cost=" << sw.elapsed_us() * 1000 << " ms"; \
+        }                                                                     \
+    }; // namespace doris
+
+} // namespace doris
