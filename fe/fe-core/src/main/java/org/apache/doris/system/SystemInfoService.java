@@ -998,17 +998,11 @@ public class SystemInfoService {
             }
 
             if (alterClause.isQueryDisabled() != null) {
-                if (!alterClause.isQueryDisabled().equals(be.isQueryDisabled())) {
-                    be.setQueryDisabled(alterClause.isQueryDisabled());
-                    shouldModify = true;
-                }
+                shouldModify = be.setQueryDisabled(alterClause.isQueryDisabled());
             }
 
             if (alterClause.isLoadDisabled() != null) {
-                if (!alterClause.isLoadDisabled().equals(be.isLoadDisabled())) {
-                    be.setLoadDisabled(alterClause.isLoadDisabled());
-                    shouldModify = true;
-                }
+                shouldModify = be.setLoadDisabled(alterClause.isLoadDisabled());
             }
 
             if (shouldModify) {
@@ -1052,17 +1046,11 @@ public class SystemInfoService {
             }
 
             if (op.isQueryDisabled() != null) {
-                if (!op.isQueryDisabled().equals(be.isQueryDisabled())) {
-                    be.setQueryDisabled(op.isQueryDisabled());
-                    shouldModify = true;
-                }
+                shouldModify = be.setQueryDisabled(op.isQueryDisabled());
             }
 
             if (op.isLoadDisabled() != null) {
-                if (!op.isLoadDisabled().equals(be.isLoadDisabled())) {
-                    be.setLoadDisabled(op.isLoadDisabled());
-                    shouldModify = true;
-                }
+                shouldModify = be.setLoadDisabled(op.isLoadDisabled());
             }
 
             if (shouldModify) {
