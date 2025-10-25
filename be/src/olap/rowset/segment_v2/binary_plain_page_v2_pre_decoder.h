@@ -137,12 +137,12 @@ struct BinaryPlainPageV2PreDecoder : public DataPagePreDecoder {
 
         // Step 2: Write offsets array
         for (uint32_t offset : offsets) {
-            put_fixed32_le(reinterpret_cast<uint8_t*>(output), offset);
+            encode_fixed32_le(reinterpret_cast<uint8_t*>(output), offset);
             output += sizeof(uint32_t);
         }
 
         // Step 3: Write num_elems
-        put_fixed32_le(reinterpret_cast<uint8_t*>(output), num_elems);
+        encode_fixed32_le(reinterpret_cast<uint8_t*>(output), num_elems);
         output += sizeof(uint32_t);
 
         // Step 4: Copy tail (footer and null map)
