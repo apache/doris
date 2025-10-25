@@ -421,7 +421,7 @@ EncodingInfo::EncodingInfo(TraitsClass traits)
     } else if (_encoding == PLAIN_ENCODING_V2) {
         // Only binary types (Slice) need the predecoder for PLAIN_ENCODING_V2
         // to convert varint-encoded lengths to offset array format
-        if (field_is_slice_type(_type)) {
+        if constexpr (std::is_same_v<typename TraitsClass::CppType, Slice>) {
             _data_page_pre_decoder = std::make_unique<BinaryPlainPageV2PreDecoder>();
         }
     }

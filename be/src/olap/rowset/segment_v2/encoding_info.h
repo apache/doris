@@ -127,6 +127,7 @@ struct TypeEncodingTraits {};
 template <FieldType field_type, EncodingTypePB encoding_type>
 struct EncodingTraits : TypeEncodingTraits<field_type, encoding_type,
                                            typename CppTypeTraits<field_type>::CppType> {
+    using CppType = typename CppTypeTraits<field_type>::CppType;
     static const FieldType type = field_type;
     static const EncodingTypePB encoding = encoding_type;
 };
