@@ -44,7 +44,8 @@ enum EncodingTypePB : int;
 class DataPagePreDecoder {
 public:
     virtual Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice, size_t size_of_tail,
-                          bool _use_cache, segment_v2::PageTypePB page_type) = 0;
+                          bool _use_cache, segment_v2::PageTypePB page_type,
+                          const std::string& file_path, size_t size_of_prefix = 0) = 0;
     virtual ~DataPagePreDecoder() = default;
 };
 
@@ -127,6 +128,7 @@ struct TypeEncodingTraits {};
 template <FieldType field_type, EncodingTypePB encoding_type>
 struct EncodingTraits : TypeEncodingTraits<field_type, encoding_type,
                                            typename CppTypeTraits<field_type>::CppType> {
+    using CppType = typename CppTypeTraits<field_type>::CppType;
     static const FieldType type = field_type;
     static const EncodingTypePB encoding = encoding_type;
 };
