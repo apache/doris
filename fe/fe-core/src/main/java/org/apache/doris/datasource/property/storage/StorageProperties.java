@@ -51,6 +51,7 @@ public abstract class StorageProperties extends ConnectionProperties {
     public static final String FS_LOCAL_SUPPORT = "fs.local.support";
     public static final String DEPRECATED_OSS_HDFS_SUPPORT = "oss.hdfs.enabled";
     protected static final String URI_KEY = "uri";
+    public static final String FS_HTTP_SUPPORT = "fs.http.support";
 
     public static final String FS_PROVIDER_KEY = "provider";
 
@@ -68,6 +69,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         AZURE,
         BROKER,
         LOCAL,
+        HTTP,
         UNKNOWN
     }
 
@@ -187,8 +189,10 @@ public abstract class StorageProperties extends ConnectionProperties {
                     props -> (isFsSupport(props, FS_BROKER_SUPPORT)
                             || BrokerProperties.guessIsMe(props)) ? new BrokerProperties(props) : null,
                     props -> (isFsSupport(props, FS_LOCAL_SUPPORT)
-                            || LocalProperties.guessIsMe(props)) ? new LocalProperties(props) : null
-            );
+                            || LocalProperties.guessIsMe(props)) ? new LocalProperties(props) : null,
+                    props -> (isFsSupport(props, FS_HTTP_SUPPORT)
+                            || HttpProperties.guessIsMe(props)) ? new HttpProperties(props) : null
+                            );
 
     protected StorageProperties(Type type, Map<String, String> origProps) {
         super(origProps);

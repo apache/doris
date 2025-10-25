@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
+import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 
 import com.google.common.collect.ImmutableList;
 
@@ -67,7 +68,8 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Tasks.class, "tasks"),
             tableValued(Query.class, "query"),
             tableValued(PartitionValues.class, "partition_values"),
-            tableValued(File.class, "file")
+            tableValued(File.class, "file"),
+            tableValued(Http.class, "http")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();
