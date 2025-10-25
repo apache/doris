@@ -110,7 +110,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private String tvfType;
     private Map<String, String> originTvfProps;
     @Getter
-    StreamingInsertTask runningStreamTask;
+    volatile StreamingInsertTask runningStreamTask;
     SourceOffsetProvider offsetProvider;
     @Setter
     @Getter
@@ -296,6 +296,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 offsetProvider, getCurrentDbName(), jobProperties, originTvfProps, getCreateUser());
         Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
         this.runningStreamTask.setStatus(TaskStatus.PENDING);
+        log.info("create new streaming insert task for job {}, task {} ",
+                getJobId(), runningStreamTask.getTaskId());
         return runningStreamTask;
     }
 
@@ -318,8 +320,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (runningStreamTask != null) {
             log.info("clear running streaming insert task for job {}, task {} ",
                     getJobId(), runningStreamTask.getTaskId());
+            log.info("running task {} is canceled {}",
+                    runningStreamTask.getTaskId(), runningStreamTask.getIsCanceled().get());
+            runningStreamTask.cancel(true);
             runningStreamTask.closeOrReleaseResources();
-            runningStreamTask = null;
+            // runningStreamTask = null;
         }
     }
 
@@ -359,6 +364,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
             StreamingInsertTask nextTask = createStreamingInsertTask();
             this.runningStreamTask = nextTask;
+            log.info("Streaming insert job {} create next streaming insert task {} after task {} success",
+                    getJobId(), nextTask.getTaskId(), task.getTaskId());
         } finally {
             writeUnlock();
         }
@@ -564,6 +571,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void beforeCommitted(TransactionState txnState) throws TransactionException {
+        log.info("beforeCommitted called for streaming insert job {}, task {}, iscanceled {} ",
+                getJobId(), runningStreamTask.getTaskId(), runningStreamTask.getIsCanceled().get());
+        if (runningStreamTask.getIsCanceled().get()) {
+            log.info("streaming insert job {} task {} is canceled, skip beforeCommitted",
+                    getJobId(), runningStreamTask.getTaskId());
+            return;
+        }
         boolean shouldReleaseLock = false;
         writeLock();
         try {

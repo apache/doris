@@ -68,6 +68,7 @@ public class StreamingInsertTask {
     private UserIdentity userIdentity;
     private ConnectContext ctx;
     private Offset runningOffset;
+    @Getter
     private AtomicBoolean isCanceled = new AtomicBoolean(false);
     private StreamingJobProperties jobProperties;
     private Map<String, String> originTvfProps;
@@ -153,6 +154,11 @@ public class StreamingInsertTask {
     }
 
     private void run() throws JobException {
+        StreamingInsertJob job =
+                (StreamingInsertJob) Env.getCurrentEnv().getJobManager().getJob(getJobId());
+        StreamingInsertTask runningStreamTask = job.getRunningStreamTask();
+        log.info("current running stream task id is {} for job id {}",
+                runningStreamTask == null ? -1 : runningStreamTask.getTaskId(), getJobId());
         if (isCanceled.get()) {
             log.info("task has been canceled, task id is {}", getTaskId());
             return;
@@ -220,6 +226,8 @@ public class StreamingInsertTask {
         }
         isCanceled.getAndSet(true);
         if (null != stmtExecutor) {
+            log.info("cancelling streaming insert task, job id is {}, task id is {}",
+                    getJobId(), getTaskId());
             stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "streaming insert task cancelled"),
                     needWaitCancelComplete);
         }

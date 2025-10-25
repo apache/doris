@@ -30,11 +30,13 @@ import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
+import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Arrays;
 import java.util.List;
 
+@Log4j2
 public class StreamingJobSchedulerTask extends AbstractTask {
     private static final long BACK_OFF_BASIC_TIME_SEC = 10L;
     private static final long MAX_BACK_OFF_TIME_SEC = 60 * 5;
@@ -108,6 +110,7 @@ public class StreamingJobSchedulerTask extends AbstractTask {
 
     @Override
     protected void executeCancelLogic(boolean needWaitCancelComplete) throws Exception {
+        log.info("cancelling streaming insert job scheduler task for job id {}", streamingInsertJob.getJobId());
         if (streamingInsertJob.getRunningStreamTask() != null) {
             streamingInsertJob.getRunningStreamTask().cancel(needWaitCancelComplete);
         }
