@@ -452,13 +452,19 @@ public class NereidsPlanner extends Planner {
             LOG.debug("Start pre rewrite plan by mv");
         }
         List<Plan> tmpPlansForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
+        Plan originalPlan = cascadesContext.getRewritePlan();
         List<Plan> plansWhichContainMv = new ArrayList<>();
+        // because tmpPlansForMvRewrite only one, so timeout is cumulative which is ok
         for (Plan planForRewrite : tmpPlansForMvRewrite) {
-            if (!planForRewrite.getLogicalProperties().equals(
-                    cascadesContext.getRewritePlan().getLogicalProperties())) {
-                continue;
-            }
+            SessionVariable sessionVariable = cascadesContext.getConnectContext()
+                    .getSessionVariable();
+            int timeoutSecond = sessionVariable.nereidsTimeoutSecond;
+            boolean enableTimeout = sessionVariable.enableNereidsTimeout;
             try {
+                // set mv rewrite timeout
+                sessionVariable.nereidsTimeoutSecond = PreMaterializedViewRewriter.convertMillisToCeilingSeconds(
+                                sessionVariable.materializedViewRewriteDurationThresholdMs);
+                sessionVariable.enableNereidsTimeout = true;
                 // pre rewrite
                 Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                         PreMaterializedViewRewriter::rewrite, planForRewrite, planForRewrite, true);
@@ -470,10 +476,19 @@ public class NereidsPlanner extends Planner {
                 if (ruleOptimizedPlan == null) {
                     continue;
                 }
-                plansWhichContainMv.add(ruleOptimizedPlan);
+                // after rbo, maybe the plan changed a lot, so we need to normalize it with original plan
+                Plan normalizedPlan = MaterializedViewUtils.normalizeSinkExpressions(
+                        ruleOptimizedPlan, originalPlan);
+                if (normalizedPlan != null) {
+                    plansWhichContainMv.add(normalizedPlan);
+                }
             } catch (Exception e) {
                 LOG.error("pre mv rewrite in rbo rewrite fail, query id is {}",
                         cascadesContext.getConnectContext().getQueryIdentifier(), e);
+
+            } finally {
+                sessionVariable.nereidsTimeoutSecond = timeoutSecond;
+                sessionVariable.enableNereidsTimeout = enableTimeout;
             }
         }
         // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
