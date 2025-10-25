@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include "runtime/primitive_type.h"
+#include "testutil/column_helper.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
@@ -69,9 +70,30 @@ public:
     }
 };
 
+class MockFunctionInputRowsCountNotMatch : public IFunction {
+public:
+    static constexpr auto name = "mock_function_input_rows_count_not_match";
+    static FunctionPtr create() { return std::make_shared<MockFunctionInputRowsCountNotMatch>(); }
+    String get_name() const override { return name; }
+    bool use_default_implementation_for_constants() const override { return false; }
+
+    bool is_variadic() const override { return true; }
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeFloat64>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "BEUT TEST: MockFunctionThrowException");
+    }
+};
+
 void register_function_throw_exception(SimpleFunctionFactory& factory) {
     factory.register_function<MockFunctionThrowException>();
     factory.register_function<MockFunctionThrowExceptionNotMatchReturnType>();
+    factory.register_function<MockFunctionInputRowsCountNotMatch>();
 }
 
 TEST(FunctionThrowExceptionTest, test_throw_exception) {
@@ -97,6 +119,20 @@ TEST(FunctionThrowExceptionTest, not_match_return_type) {
         EXPECT_EQ(e.code(), ErrorCode::INTERNAL_ERROR);
         std::cout << "Exception msg: " << e.to_string() << std::endl;
     }
+}
+
+TEST(FunctionThrowExceptionTest, input_rows_count_not_match) {
+    auto function = SimpleFunctionFactory::instance().get_function(
+            "mock_function_input_rows_count_not_match", {}, std::make_shared<DataTypeFloat64>(),
+            {false}, BeExecVersionManager::get_newest_version());
+
+    Block block = ColumnHelper::create_block<DataTypeFloat64>({1.0, 2.0, 3.0});
+    auto st = function->execute(nullptr, block, {0}, 0, 1);
+
+    EXPECT_EQ(st.code(), ErrorCode::INTERNAL_ERROR);
+    EXPECT_EQ(st.msg(),
+              "Function mock_function_input_rows_count_not_match got argument column of invalid "
+              "size. input_rows_count 1, column 3");
 }
 
 } // namespace doris::vectorized
