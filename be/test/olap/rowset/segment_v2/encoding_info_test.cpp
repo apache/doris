@@ -109,13 +109,15 @@ TEST_F(EncodingInfoTest, test_use_plain_binary_v2_config) {
     const auto* bigint_type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BIGINT>();
 
     config::binary_plain_encoding_default_impl = "v1";
+    auto expected_encoding =
+            (config::integer_type_default_use_plain_encoding) ? PLAIN_ENCODING : BIT_SHUFFLE;
     EncodingTypePB encoding_type =
             EncodingInfo::get_default_encoding(bigint_type_info->type(), false);
-    EXPECT_EQ(BIT_SHUFFLE, encoding_type);
+    EXPECT_EQ(expected_encoding, encoding_type);
 
     config::binary_plain_encoding_default_impl = "v2";
     encoding_type = EncodingInfo::get_default_encoding(bigint_type_info->type(), false);
-    EXPECT_EQ(BIT_SHUFFLE, encoding_type); // Should remain BIT_SHUFFLE
+    EXPECT_EQ(expected_encoding, encoding_type); // Should remain BIT_SHUFFLE
 
     // Reset to default
     config::binary_plain_encoding_default_impl = "v1";

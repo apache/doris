@@ -19,6 +19,7 @@
 
 #include <gen_cpp/segment_v2.pb.h>
 
+#include <array>
 #include <iterator>
 #include <type_traits>
 #include <unordered_map>
@@ -315,6 +316,80 @@ EncodingInfoResolver::~EncodingInfoResolver() {
         delete it.second;
     }
     _encoding_map.clear();
+}
+
+namespace {
+bool is_integer_type(FieldType type) {
+    return type == FieldType::OLAP_FIELD_TYPE_TINYINT ||
+           type == FieldType::OLAP_FIELD_TYPE_SMALLINT || type == FieldType::OLAP_FIELD_TYPE_INT ||
+           type == FieldType::OLAP_FIELD_TYPE_BIGINT || type == FieldType::OLAP_FIELD_TYPE_LARGEINT;
+}
+
+bool is_binary_type(FieldType type) {
+    return type == FieldType::OLAP_FIELD_TYPE_CHAR || type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+           type == FieldType::OLAP_FIELD_TYPE_STRING || type == FieldType::OLAP_FIELD_TYPE_JSONB ||
+           type == FieldType::OLAP_FIELD_TYPE_VARIANT || type == FieldType::OLAP_FIELD_TYPE_HLL ||
+           type == FieldType::OLAP_FIELD_TYPE_BITMAP ||
+           type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE ||
+           type == FieldType::OLAP_FIELD_TYPE_AGG_STATE;
+}
+} // namespace
+
+EncodingTypePB EncodingInfoResolver::get_default_encoding(FieldType type,
+                                                          bool optimize_value_seek) const {
+    // Predicate for default encoding transformation
+    // Parameters: (type, current_default_encoding, optimize_value_seek)
+    // Returns: true if the transformation should be applied
+    using Predicate = std::function<bool(FieldType, EncodingTypePB, bool)>;
+
+    // Hook for transforming default encoding: predicate -> target encoding
+    struct EncodingTransform {
+        Predicate predicate;
+        EncodingTypePB target_encoding;
+    };
+
+    // Static array of hooks for default encoding transformations
+    static const std::vector<EncodingTransform> hooks = {
+            // Hook 1: Binary types - PLAIN_ENCODING -> PLAIN_ENCODING_V2
+            // Applies when: type is binary, encoding is PLAIN_ENCODING, and config enables v2
+            EncodingTransform {
+                    .predicate =
+                            [](FieldType type, EncodingTypePB encoding, bool optimize_value_seek) {
+                                return encoding == PLAIN_ENCODING && is_binary_type(type) &&
+                                       config::binary_plain_encoding_default_impl == "v2";
+                            },
+                    .target_encoding = PLAIN_ENCODING_V2},
+
+            // Hook 2: Integer types - any encoding -> PLAIN_ENCODING
+            // Applies when: type is integer and config enables plain encoding for integers
+            EncodingTransform {
+                    .predicate =
+                            [](FieldType type, EncodingTypePB encoding, bool optimize_value_seek) {
+                                return is_integer_type(type) &&
+                                       config::integer_type_default_use_plain_encoding;
+                            },
+                    .target_encoding = PLAIN_ENCODING}};
+
+    auto& encoding_map =
+            optimize_value_seek ? _value_seek_encoding_map : _default_encoding_type_map;
+    auto it = encoding_map.find(type);
+    if (it != encoding_map.end()) {
+        EncodingTypePB encoding = it->second;
+
+        // Apply hooks in order to transform the default encoding
+        for (const auto& hook : hooks) {
+            if (hook.predicate(type, encoding, optimize_value_seek)) {
+                // Verify target encoding is available for this type
+                if (_encoding_map.contains(std::make_pair(type, hook.target_encoding))) {
+                    encoding = hook.target_encoding;
+                    break; // Apply only the first matching hook
+                }
+            }
+        }
+
+        return encoding;
+    }
+    return UNKNOWN_ENCODING;
 }
 
 Status EncodingInfoResolver::get(FieldType data_type, EncodingTypePB encoding_type,

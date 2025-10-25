@@ -25,6 +25,7 @@
 #include "olap/types.h"
 #include "util/coding.h"
 #include "util/faststring.h"
+#include "vec/common/unaligned.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -33,7 +34,7 @@ namespace segment_v2 {
 static const size_t PLAIN_PAGE_HEADER_SIZE = sizeof(uint32_t);
 
 template <FieldType Type>
-class PlainPageBuilder : public PageBuilderHelper<PlainPageBuilder<Type> > {
+class PlainPageBuilder : public PageBuilderHelper<PlainPageBuilder<Type>> {
 public:
     using Self = PlainPageBuilder<Type>;
     friend class PageBuilderHelper<Self>;
@@ -204,7 +205,48 @@ public:
     }
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
-        return Status::NotSupported("plain page not implement vec op now");
+        DCHECK(_parsed);
+        if (*n == 0 || _cur_idx >= _num_elems) [[unlikely]] {
+            return Status::OK();
+        }
+
+        size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
+        const void* src_data = &_data[PLAIN_PAGE_HEADER_SIZE + _cur_idx * SIZE_OF_TYPE];
+
+        dst->insert_many_fix_len_data((const char*)src_data, max_fetch);
+
+        *n = max_fetch;
+        _cur_idx += max_fetch;
+
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
+                          vectorized::MutableColumnPtr& dst) override {
+        DCHECK(_parsed);
+        if (*n == 0) [[unlikely]] {
+            return Status::OK();
+        }
+
+        auto total = *n;
+        auto read_count = 0;
+        _buffer.resize(total);
+        for (size_t i = 0; i < total; ++i) {
+            ordinal_t ord = rowids[i] - page_first_ordinal;
+            if (UNLIKELY(ord >= _num_elems)) {
+                break;
+            }
+
+            _buffer[read_count++] =
+                    unaligned_load<CppType>(&_data[PLAIN_PAGE_HEADER_SIZE + ord * SIZE_OF_TYPE]);
+        }
+
+        if (LIKELY(read_count > 0)) {
+            dst->insert_many_fix_len_data((char*)_buffer.data(), read_count);
+        }
+
+        *n = read_count;
+        return Status::OK();
     }
 
     size_t count() const override {
@@ -225,6 +267,8 @@ private:
     uint32_t _cur_idx;
     typedef typename TypeTraits<Type>::CppType CppType;
     enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
+
+    std::vector<std::conditional_t<std::is_same_v<CppType, bool>, uint8_t, CppType>> _buffer;
 };
 
 } // namespace segment_v2

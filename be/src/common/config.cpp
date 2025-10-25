@@ -1626,6 +1626,8 @@ DEFINE_Validator(binary_plain_encoding_default_impl, [](const std::string& confi
     return config == "v1" || config == "v2";
 });
 
+DEFINE_mBool(integer_type_default_use_plain_encoding, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
