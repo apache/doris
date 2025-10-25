@@ -340,7 +340,7 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
     _tablet_reader_params.score_runtime = _score_runtime;
     _tablet_reader_params.output_columns =
-            ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
+            ((pipeline::OlapScanLocalState*)_local_state)->_output_column_ids;
     _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
     for (const auto& ele :
          ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants) {

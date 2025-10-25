@@ -371,6 +371,10 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
 
     if (opts.output_columns != nullptr) {
         _output_columns = *(opts.output_columns);
+        if (VLOG_DEBUG_IS_ON) {
+            VLOG_DEBUG << fmt::format("SegmentIterator output columns: {}",
+                                      fmt::join(_output_columns, ","));
+        }
     }
 
     _storage_name_and_type.resize(_schema->columns().size());
@@ -751,6 +755,8 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 "Ann topn can not be evaluated by ann index, has_ann_index: {}, "
                 "has_common_expr_push_down: {}, has_column_predicate: {}",
                 has_ann_index, has_common_expr_push_down, has_column_predicate);
+        // Disable index-only scan on ann indexed column.
+        _need_read_data_indices[src_cid] = true;
         return Status::OK();
     }
 
@@ -762,11 +768,15 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
         if (_ann_topn_runtime->is_asc()) {
             VLOG_DEBUG << fmt::format(
                     "Asc topn for inner product can not be evaluated by ann index");
+            // Disable index-only scan on ann indexed column.
+            _need_read_data_indices[src_cid] = true;
             return Status::OK();
         }
     } else {
         if (!_ann_topn_runtime->is_asc()) {
             VLOG_DEBUG << fmt::format("Desc topn for l2/cosine can not be evaluated by ann index");
+            // Disable index-only scan on ann indexed column.
+            _need_read_data_indices[src_cid] = true;
             return Status::OK();
         }
     }
@@ -777,6 +787,8 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 "ann index",
                 metric_to_string(_ann_topn_runtime->get_metric_type()),
                 metric_to_string(ann_index_reader->get_metric_type()));
+        // Disable index-only scan on ann indexed column.
+        _need_read_data_indices[src_cid] = true;
         return Status::OK();
     }
 
@@ -788,6 +800,8 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 "to "
                 "filter",
                 pre_size, rows_of_segment);
+        // Disable index-only scan on ann indexed column.
+        _need_read_data_indices[src_cid] = true;
         return Status::OK();
     }
     vectorized::IColumn::MutablePtr result_column;
@@ -821,6 +835,10 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     // reference count of result_column should be 1, so move will not issue any data copy.
     virtual_column_iter->prepare_materialization(std::move(result_column),
                                                  std::move(result_row_ids));
+
+    _need_read_data_indices[src_cid] = false;
+    VLOG_DEBUG << fmt::format(
+            "Enable ANN index-only scan for src column cid {} (skip reading data pages)", src_cid);
 
     return Status::OK();
 }
@@ -1853,14 +1871,6 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                 if (pred_id_set.find(cid) != pred_id_set.end()) {
                     _predicate_column_ids.push_back(cid);
                 }
-                // In the past, if schema columns > pred columns, the _lazy_materialization_read maybe == false, but
-                // we make sure using _lazy_materialization_read= true now, so these logic may never happens. I comment
-                // these lines and we could delete them in the future to make the code more clear.
-                // else if (non_pred_set.find(cid) != non_pred_set.end()) {
-                //    _predicate_column_ids.push_back(cid);
-                //    // when _lazy_materialization_read = false, non-predicate column should also be filtered by sel idx, so we regard it as pred columns
-                //    _is_pred_column[cid] = true;
-                // }
             }
         } else if (_is_need_expr_eval) {
             DCHECK(!_is_need_vec_eval && !_is_need_short_eval);
@@ -2074,8 +2084,9 @@ Status SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
             if (column_in_block_is_nothing || column_is_normal) {
                 block->replace_by_position(loc, std::move(_current_return_columns[cid]));
                 VLOG_DEBUG << fmt::format(
-                        "Output non-predicate column, cid: {}, loc: {}, col_name: {}", cid, loc,
-                        _schema->column(cid)->name());
+                        "Output non-predicate column, cid: {}, loc: {}, col_name: {}, rows {}", cid,
+                        loc, _schema->column(cid)->name(),
+                        block->get_by_position(loc).column->size());
             }
             // Means virtual column in block has been materialized(maybe by common expr).
             // so do nothing here.
@@ -2118,6 +2129,8 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
 
     for (auto cid : _predicate_column_ids) {
         auto& column = _current_return_columns[cid];
+        VLOG_DEBUG << fmt::format("Reading column {}, col_name {}", cid,
+                                  _schema->column(cid)->name());
         if (!_virtual_column_exprs.contains(cid)) {
             if (_no_need_read_key_data(cid, column, nrows_read)) {
                 VLOG_DEBUG << fmt::format("Column {} no need to read.", cid);
