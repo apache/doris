@@ -1852,9 +1852,10 @@ std::pair<MetaServiceCode, std::string> handle_snapshot_switch(const std::string
             LOG(INFO) << "Set default snapshot_interval_seconds to "
                       << config::snapshot_min_interval_seconds << " for instance " << instance_id;
         }
-        if (!instance->has_max_reserved_snapshot() || instance->max_reserved_snapshot() == 0) {
-            instance->set_max_reserved_snapshot(1);
-            LOG(INFO) << "Set default max_reserved_snapshots to 1 for instance " << instance_id;
+        if (!instance->has_max_reserved_snapshot()) {
+            instance->set_max_reserved_snapshot(0);
+            // Disable auto snapshot by default
+            LOG(INFO) << "Set default max_reserved_snapshots to 0 for instance " << instance_id;
         }
     } else {
         instance->set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
