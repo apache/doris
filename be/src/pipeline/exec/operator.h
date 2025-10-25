@@ -669,7 +669,7 @@ public:
 
     [[nodiscard]] bool is_sink() const override { return true; }
 
-    static Status close(RuntimeState* state, Status exec_status) {
+    Status close(RuntimeState* state, Status exec_status) {
         auto result = state->get_sink_local_state_result();
         if (!result) {
             return result.error();
@@ -1135,6 +1135,7 @@ public:
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* block, bool eos);
+    std::string debug_string(int indentation_level) const override;
 
     std::vector<Dependency*> dependencies() const override {
         return {_async_writer_dependency.get()};
