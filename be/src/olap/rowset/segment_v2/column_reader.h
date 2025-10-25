@@ -182,7 +182,7 @@ public:
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                      PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                     BlockCompressionCodec* codec) const;
+                     BlockCompressionCodec* codec, bool is_dict_page = false) const;
 
     bool is_nullable() const { return _meta_is_nullable; }
 
