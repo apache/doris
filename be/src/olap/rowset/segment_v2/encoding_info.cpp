@@ -30,6 +30,7 @@
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/binary_plain_page_v2.h"
+#include "olap/rowset/segment_v2/binary_plain_page_v2_pre_decoder.h"
 #include "olap/rowset/segment_v2/binary_prefix_page.h"
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/bitshuffle_page_pre_decoder.h"
@@ -417,6 +418,12 @@ EncodingInfo::EncodingInfo(TraitsClass traits)
         _data_page_pre_decoder = std::make_unique<BitShufflePagePreDecoder<false>>();
     } else if (_encoding == DICT_ENCODING) {
         _data_page_pre_decoder = std::make_unique<BitShufflePagePreDecoder<true>>();
+    } else if (_encoding == PLAIN_ENCODING_V2) {
+        // Only binary types (Slice) need the predecoder for PLAIN_ENCODING_V2
+        // to convert varint-encoded lengths to offset array format
+        if (field_is_slice_type(_type)) {
+            _data_page_pre_decoder = std::make_unique<BinaryPlainPageV2PreDecoder>();
+        }
     }
 }
 
