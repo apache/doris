@@ -35,6 +35,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
@@ -51,15 +52,31 @@ import java.util.concurrent.ExecutorService;
 
 public class IcebergMetadataCache {
     private static final Logger LOG = LogManager.getLogger(IcebergMetadataCache.class);
+    private final ExecutorService executor;
+    private final IcebergExternalCatalog catalog;
+    private LoadingCache<IcebergMetadataCacheKey, List<Snapshot>> snapshotListCache;
+    private LoadingCache<IcebergMetadataCacheKey, Table> tableCache;
+    private LoadingCache<IcebergMetadataCacheKey, IcebergSnapshotCacheValue> snapshotCache;
+    private LoadingCache<IcebergMetadataCacheKey, View> viewCache;
 
-    private final LoadingCache<IcebergMetadataCacheKey, List<Snapshot>> snapshotListCache;
-    private final LoadingCache<IcebergMetadataCacheKey, Table> tableCache;
-    private final LoadingCache<IcebergMetadataCacheKey, IcebergSnapshotCacheValue> snapshotCache;
-    private final LoadingCache<IcebergMetadataCacheKey, View> viewCache;
+    public IcebergMetadataCache(IcebergExternalCatalog catalog, ExecutorService executor) {
+        this.executor = executor;
+        this.catalog = catalog;
+        init();
+    }
 
-    public IcebergMetadataCache(ExecutorService executor) {
+    public void init() {
+        long tableMetaCacheTtlSecond = NumberUtils.toLong(
+                catalog.getProperties().get(IcebergExternalCatalog.TABLE_META_CACHE_TTL_SECOND),
+                ExternalCatalog.CACHE_NO_TTL);
+
+        long snapshotMetaCacheTtlSecond = NumberUtils.toLong(
+                catalog.getProperties().get(IcebergExternalCatalog.SNAPSHOT_META_CACHE_TTL_SECOND),
+                ExternalCatalog.CACHE_NO_TTL);
+
         CacheFactory snapshotListCacheFactory = new CacheFactory(
-                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                OptionalLong.of(snapshotMetaCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
+                    ? snapshotMetaCacheTtlSecond : Config.external_cache_expire_time_seconds_after_access),
                 OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
                 Config.max_external_table_cache_num,
                 true,
@@ -67,7 +84,8 @@ public class IcebergMetadataCache {
         this.snapshotListCache = snapshotListCacheFactory.buildCache(key -> loadSnapshots(key), null, executor);
 
         CacheFactory tableCacheFactory = new CacheFactory(
-                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                OptionalLong.of(tableMetaCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
+                    ? tableMetaCacheTtlSecond : Config.external_cache_expire_time_seconds_after_access),
                 OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
                 Config.max_external_table_cache_num,
                 true,
@@ -75,7 +93,8 @@ public class IcebergMetadataCache {
         this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key), null, executor);
 
         CacheFactory snapshotCacheFactory = new CacheFactory(
-                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                OptionalLong.of(snapshotMetaCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
+                    ? snapshotMetaCacheTtlSecond : Config.external_cache_expire_time_seconds_after_access),
                 OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
                 Config.max_external_table_cache_num,
                 true,
@@ -100,7 +119,7 @@ public class IcebergMetadataCache {
 
     @NotNull
     private List<Snapshot> loadSnapshots(IcebergMetadataCacheKey key) {
-        Table icebergTable = getIcebergTable(key);
+        Table icebergTable = loadTable(key);
         List<Snapshot> snaps = Lists.newArrayList();
         Iterables.addAll(snaps, icebergTable.snapshots());
         return snaps;
