@@ -33,6 +33,8 @@ const std::string DYNAMIC_COLUMN_NAME = "__DORIS_DYNAMIC_COL__";
 const std::string PARTIAL_UPDATE_AUTO_INC_COL = "__PARTIAL_UPDATE_AUTO_INC_COLUMN__";
 const std::string VIRTUAL_COLUMN_PREFIX = "__DORIS_VIRTUAL_COL__";
 const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
+// used for variant data is top array structure, and we need to flatten it
+const std::string VIRTUAL_ROOT_PATH = "__DORIS_VIRTUAL_ROOT_PATH__";
 
 /// The maximum precision representable by a 4-byte decimal (Decimal4Value)
 constexpr int MAX_DECIMAL32_PRECISION = 9;

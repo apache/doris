@@ -97,7 +97,8 @@ TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const 
 // 2. finalize variant column to each subcolumn least commn types, default ignore sparse sub columns
 // 3. encode sparse sub columns
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
-                             const ParseConfig& config);
+                             const std::vector<std::vector<std::string>>& flatten_keys,
+                             ParseConfig& config);
 
 // check if the tuple_paths has ambiguous paths
 // situation:
