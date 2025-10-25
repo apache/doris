@@ -1582,7 +1582,7 @@ public class MetadataGenerator {
                 fillBatch(dataBatch, hudiMetadataCacheMgr.getCacheStats(catalog), catalog.getName());
             } else if (catalogIf instanceof IcebergExternalCatalog) {
                 // 3. iceberg cache
-                IcebergMetadataCache icebergCache = mgr.getIcebergMetadataCache();
+                IcebergMetadataCache icebergCache = mgr.getIcebergMetadataCache((IcebergExternalCatalog) catalogIf);
                 fillBatch(dataBatch, icebergCache.getCacheStats(), catalogIf.getName());
             }
         }

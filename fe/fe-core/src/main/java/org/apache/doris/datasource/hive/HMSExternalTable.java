@@ -40,6 +40,7 @@ import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheKey;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSchemaCacheKey;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
@@ -797,7 +798,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             case ICEBERG:
                 if (GlobalVariable.enableFetchIcebergStats) {
                     return StatisticsUtil.getIcebergColumnStats(colName,
-                            Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this));
+                            Env.getCurrentEnv().getExtMetaCacheMgr()
+                                .getIcebergMetadataCache((IcebergExternalCatalog) this.getCatalog())
+                                .getIcebergTable(this));
                 } else {
                     break;
                 }

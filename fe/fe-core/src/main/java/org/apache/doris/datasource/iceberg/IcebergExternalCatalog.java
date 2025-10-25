@@ -32,10 +32,13 @@ import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
+import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.iceberg.catalog.Catalog;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
@@ -47,6 +50,8 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final String ICEBERG_DLF = "dlf";
     public static final String ICEBERG_S3_TABLES = "s3tables";
     public static final String EXTERNAL_CATALOG_NAME = "external_catalog.name";
+    public static final String TABLE_META_CACHE_TTL_SECOND = "table.meta.cache.ttl-second";
+    public static final String SNAPSHOT_META_CACHE_TTL_SECOND = "snapshot.meta.cache.ttl-second";
     protected String icebergCatalogType;
     protected Catalog catalog;
 
@@ -74,7 +79,32 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
+        // check table.meta.cache.ttl-second parameter
+        String tableMetaCacheTtlSecond = catalogProperty.getOrDefault(TABLE_META_CACHE_TTL_SECOND, null);
+        if (Objects.nonNull(tableMetaCacheTtlSecond) && NumberUtils.toInt(tableMetaCacheTtlSecond, CACHE_NO_TTL)
+                < CACHE_TTL_DISABLE_CACHE) {
+            throw new DdlException(
+                "The parameter " + TABLE_META_CACHE_TTL_SECOND + " is wrong, value is " + tableMetaCacheTtlSecond);
+        }
+
+        // check snapshot.meta.cache.ttl-second parameter
+        String partitionCacheTtlSecond = catalogProperty.getOrDefault(SNAPSHOT_META_CACHE_TTL_SECOND, null);
+        if (Objects.nonNull(partitionCacheTtlSecond) && NumberUtils.toInt(partitionCacheTtlSecond, CACHE_NO_TTL)
+                < CACHE_TTL_DISABLE_CACHE) {
+            throw new DdlException(
+                "The parameter " + SNAPSHOT_META_CACHE_TTL_SECOND + " is wrong, value is " + partitionCacheTtlSecond);
+        }
         catalogProperty.checkMetaStoreAndStorageProperties(AbstractIcebergProperties.class);
+    }
+
+    @Override
+    public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
+        super.notifyPropertiesUpdated(updatedProps);
+        String tableMetaCacheTtl = updatedProps.getOrDefault(TABLE_META_CACHE_TTL_SECOND, null);
+        String snapshotMetaCacheTtl = updatedProps.getOrDefault(SNAPSHOT_META_CACHE_TTL_SECOND, null);
+        if (Objects.nonNull(tableMetaCacheTtl) || Objects.nonNull(snapshotMetaCacheTtl)) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache(this).init();
+        }
     }
 
     @Override
