@@ -28,6 +28,7 @@
 
 #include "common/logging.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
@@ -193,185 +194,17 @@ private:
     faststring _last_value;
 };
 
+// BinaryPlainPageV2Decoder now inherits from BinaryPlainPageDecoder.
+// When used with BinaryPlainPageV2PreDecoder, the V2 format (varint-encoded lengths)
+// is converted to V1 format (offset array) before being put into the page cache.
+// This allows the decoder to use the base class implementation with O(1) seeking.
 template <FieldType Type>
-class BinaryPlainPageV2Decoder : public PageDecoder {
+class BinaryPlainPageV2Decoder : public BinaryPlainPageDecoder<Type> {
 public:
-    BinaryPlainPageV2Decoder(Slice data) : BinaryPlainPageV2Decoder(data, PageDecoderOptions()) {}
+    BinaryPlainPageV2Decoder(Slice data) : BinaryPlainPageDecoder<Type>(data) {}
 
     BinaryPlainPageV2Decoder(Slice data, const PageDecoderOptions& options)
-            : _data(data), _options(options), _parsed(false), _num_elems(0), _cur_idx(0) {}
-
-    Status init() override {
-        CHECK(!_parsed);
-
-        if (_data.size < sizeof(uint32_t)) {
-            return Status::Corruption(
-                    "file corruption: not enough bytes for trailer in BinaryPlainPageV2Decoder. "
-                    "invalid data size:{}, trailer size:{}",
-                    _data.size, sizeof(uint32_t));
-        }
-
-        // Decode trailer (last 4 bytes contain num_elems)
-        _num_elems = decode_fixed32_le((const uint8_t*)&_data[_data.get_size() - sizeof(uint32_t)]);
-
-        // Build position index by scanning through the data
-        const uint8_t* ptr = reinterpret_cast<const uint8_t*>(_data.data);
-        const uint8_t* limit = ptr + _data.get_size() - sizeof(uint32_t);
-
-        _positions.reserve(_num_elems + 1); // +1 for end boundary
-        _lengths.reserve(_num_elems);
-
-        for (uint32_t i = 0; i < _num_elems; i++) {
-            if (ptr >= limit) {
-                return Status::Corruption(
-                        "file corruption: unexpected end of data while parsing "
-                        "BinaryPlainPageV2Decoder");
-            }
-
-            // Decode varuint length
-            uint32_t length;
-            const uint8_t* data_start = decode_varint32_ptr(ptr, limit, &length);
-            if (data_start == nullptr) {
-                return Status::Corruption(
-                        "file corruption: failed to decode varuint in BinaryPlainPageV2Decoder");
-            }
-
-            // Store the position of actual data (after varuint)
-            _positions.push_back(
-                    cast_set<uint32_t>(data_start - reinterpret_cast<const uint8_t*>(_data.data)));
-            _lengths.push_back(length);
-
-            // Move to next entry
-            ptr = data_start + length;
-
-            if (ptr > limit) {
-                return Status::Corruption(
-                        "file corruption: data extends beyond page in BinaryPlainPageV2Decoder");
-            }
-        }
-
-        // Add end position for boundary checking
-        _positions.push_back(
-                cast_set<uint32_t>(ptr - reinterpret_cast<const uint8_t*>(_data.data)));
-
-        _parsed = true;
-        return Status::OK();
-    }
-
-    Status seek_to_position_in_page(size_t pos) override {
-        if (_num_elems == 0) [[unlikely]] {
-            if (pos != 0) {
-                return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
-                        "seek pos {} is larger than total elements {}", pos, _num_elems);
-            }
-        }
-        DCHECK_LE(pos, _num_elems);
-        _cur_idx = pos;
-        return Status::OK();
-    }
-
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
-        DCHECK(_parsed);
-        if (*n == 0 || _cur_idx >= _num_elems) [[unlikely]] {
-            *n = 0;
-            return Status::OK();
-        }
-
-        const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
-
-        _binary_data.resize(max_fetch);
-
-        for (size_t i = 0; i < max_fetch; i++) {
-            _binary_data[i].data = _data.get_data() + _positions[_cur_idx + i];
-            _binary_data[i].size = _lengths[_cur_idx + i];
-
-            if constexpr (Type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
-                if (_options.need_check_bitmap) {
-                    RETURN_IF_ERROR(BitmapTypeCode::validate(*(_binary_data[i].data)));
-                }
-            }
-        }
-
-        dst->insert_many_strings(_binary_data.data(), max_fetch);
-        _cur_idx += max_fetch;
-
-        *n = max_fetch;
-        return Status::OK();
-    }
-
-    Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
-                          vectorized::MutableColumnPtr& dst) override {
-        DCHECK(_parsed);
-        if (*n == 0) [[unlikely]] {
-            *n = 0;
-            return Status::OK();
-        }
-
-        auto total = *n;
-        size_t read_count = 0;
-        _binary_data.resize(total);
-
-        for (size_t i = 0; i < total; ++i) {
-            ordinal_t ord = rowids[i] - page_first_ordinal;
-            if (UNLIKELY(ord >= _num_elems)) {
-                break;
-            }
-
-            _binary_data[read_count].data = _data.get_data() + _positions[ord];
-            _binary_data[read_count].size = _lengths[ord];
-            read_count++;
-        }
-
-        if (LIKELY(read_count > 0)) {
-            dst->insert_many_strings(_binary_data.data(), read_count);
-        }
-
-        *n = read_count;
-        return Status::OK();
-    }
-
-    size_t count() const override {
-        DCHECK(_parsed);
-        return _num_elems;
-    }
-
-    size_t current_index() const override {
-        DCHECK(_parsed);
-        return _cur_idx;
-    }
-
-    Status get_dict_word_info(StringRef* dict_word_info) override {
-        if (UNLIKELY(_num_elems <= 0)) {
-            return Status::OK();
-        }
-
-        for (uint32_t i = 0; i < _num_elems; ++i) {
-            dict_word_info[i].data = _data.get_data() + _positions[i];
-            dict_word_info[i].size = _lengths[i];
-        }
-
-        return Status::OK();
-    }
-
-private:
-    Slice _data;
-    PageDecoderOptions _options;
-    bool _parsed;
-
-    uint32_t _num_elems;
-
-    // Positions of each entry's actual data (after the varuint length)
-    std::vector<uint32_t> _positions;
-    // Length of each binary data entry
-    std::vector<uint32_t> _lengths;
-
-    std::vector<StringRef> _binary_data;
-
-    // Index of the currently seeked element in the page
-    size_t _cur_idx;
-
-    friend class BinaryDictPageDecoder;
-    friend class FileColumnIterator;
+            : BinaryPlainPageDecoder<Type>(data, options) {}
 };
 
 #include "common/compile_check_end.h"
