@@ -203,6 +203,7 @@ bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t current_block_ro
             _need_more_data = true;
             break;
         }
+        _support_incremental_calculate = false;
         if (_support_incremental_calculate) {
             _execute_for_function<true>(_partition_by_pose.start, _partition_by_pose.end,
                                         current_row_start, current_row_end);
