@@ -17,13 +17,16 @@
 
 package org.apache.doris.mtmv;
 
+import com.google.common.collect.Maps;
+
 import java.util.Map;
 
 public class MTMVBaseVersions {
     private final Map<Long, Long> tableVersions;
-    private final Map<String, Long> partitionVersions;
+    private final Map<MTMVRelatedTableIf, Map<String, Long>> partitionVersions;
 
-    public MTMVBaseVersions(Map<Long, Long> tableVersions, Map<String, Long> partitionVersions) {
+    public MTMVBaseVersions(Map<Long, Long> tableVersions,
+            Map<MTMVRelatedTableIf, Map<String, Long>> partitionVersions) {
         this.tableVersions = tableVersions;
         this.partitionVersions = partitionVersions;
     }
@@ -32,7 +35,7 @@ public class MTMVBaseVersions {
         return tableVersions;
     }
 
-    public Map<String, Long> getPartitionVersions() {
-        return partitionVersions;
+    public Map<String, Long> getPartitionVersions(MTMVRelatedTableIf mtmvRelatedTableIf) {
+        return partitionVersions.getOrDefault(mtmvRelatedTableIf, Maps.newHashMap());
     }
 }
