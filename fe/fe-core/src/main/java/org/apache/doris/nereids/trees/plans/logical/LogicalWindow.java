@@ -50,6 +50,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -95,6 +96,14 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     @Override
     public List<? extends Expression> getExpressions() {
         return windowExpressions;
+    }
+
+    public List<WindowExpression> getActualWindowExpressions() {
+        List<WindowExpression> actualWindowExpressions = new ArrayList<>();
+        for (NamedExpression expr : windowExpressions) {
+            actualWindowExpressions.add((WindowExpression) (expr.child(0)));
+        }
+        return actualWindowExpressions;
     }
 
     public LogicalWindow<Plan> withExpressionsAndChild(List<NamedExpression> windowExpressions, Plan child) {
