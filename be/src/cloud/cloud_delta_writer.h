@@ -54,6 +54,9 @@ public:
     Status set_txn_related_delete_bitmap();
     std::shared_ptr<ResourceContext> resource_context() { return _resource_ctx; }
 
+    void set_tablet_load_rowset_num_info(
+            google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_info) override;
+
 private:
     // Convert `_rowset_builder` from `BaseRowsetBuilder` to `CloudRowsetBuilder`
     CloudRowsetBuilder* rowset_builder();
