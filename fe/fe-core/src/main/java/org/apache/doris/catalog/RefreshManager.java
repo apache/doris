@@ -72,7 +72,7 @@ public class RefreshManager {
     private void refreshCatalogInternal(CatalogIf catalog, boolean invalidCache) {
         String catalogName = catalog.getName();
         if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            ((ExternalCatalog) catalog).resetToUninitialized(invalidCache);
+            ((ExternalCatalog) catalog).resetMetaToUninitialized(invalidCache);
             LOG.info("refresh catalog {} with invalidCache {}", catalogName, invalidCache);
         }
     }
@@ -114,7 +114,7 @@ public class RefreshManager {
     }
 
     private void refreshDbInternal(ExternalDatabase db) {
-        db.resetToUninitialized();
+        db.resetMetaToUninitialized();
         LOG.info("refresh database {} in catalog {}", db.getFullName(), db.getCatalog().getName());
     }
 
