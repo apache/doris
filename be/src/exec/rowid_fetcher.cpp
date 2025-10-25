@@ -519,6 +519,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                                           PMultiGetResponseV2* response) {
     if (request.request_block_descs_size()) {
         auto tquery_id = ((UniqueId)request.query_id()).to_thrift();
+        // todo: use mutableBlock instead of block
         std::vector<vectorized::Block> result_blocks(request.request_block_descs_size());
 
         OlapReaderStatistics stats;
@@ -949,6 +950,8 @@ Status RowIdStorageReader::read_batch_external_row(
 
     // Insert the read data into result_block.
     for (size_t column_id = 0; column_id < result_block.get_columns().size(); column_id++) {
+        // The non-const Block(result_block) is passed in read_by_rowids, but columns[i] in get_columns
+        // is at bottom an immutable_ptr of Cow<IColumn>, so use const_cast
         auto dst_col =
                 const_cast<vectorized::IColumn*>(result_block.get_columns()[column_id].get());
 
