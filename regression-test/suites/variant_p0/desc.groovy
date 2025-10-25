@@ -78,6 +78,7 @@ suite("regression_test_variant_desc", "p0"){
 
     try {
         sql """set default_variant_max_subcolumns_count = 2"""
+        sql "set default_variant_sparse_hash_shard_count = 0"
         // sparse columns
         def table_name = "sparse_columns"
         create_table table_name
