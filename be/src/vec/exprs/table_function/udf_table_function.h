@@ -53,11 +53,12 @@ private:
         // Do not save parent directly, because parent is in VExpr, but jni context is in FunctionContext
         // The deconstruct sequence is not determined, it will core.
         // JniContext's lifecycle should same with function context, not related with expr
-        jclass executor_cl;
-        jmethodID executor_ctor_id;
-        jmethodID executor_evaluate_id;
-        jmethodID executor_close_id;
-        jobject executor = nullptr;
+
+        Jni::GlobalClass executor_cl;
+        Jni::MethodId executor_ctor_id;
+        Jni::MethodId executor_evaluate_id;
+        Jni::MethodId executor_close_id;
+        Jni::GlobalObject executor;
         bool is_closed = false;
         bool open_successes = false;
 
@@ -72,17 +73,15 @@ private:
                 return Status::OK();
             }
             JNIEnv* env = nullptr;
-            Status status = JniUtil::GetJNIEnv(&env);
+            Status status = Jni::Env::Get(&env);
             if (!status.ok() || env == nullptr) {
                 LOG(WARNING) << "errors while get jni env " << status;
                 return status;
             }
-            env->CallNonvirtualVoidMethodA(executor, executor_cl, executor_close_id, nullptr);
-            RETURN_ERROR_IF_EXC(env);
-            env->DeleteGlobalRef(executor);
-            RETURN_ERROR_IF_EXC(env);
-            env->DeleteGlobalRef(executor_cl);
-            RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+            RETURN_IF_ERROR(
+                    executor.call_nonvirtual_void_method(env, executor_cl, executor_close_id)
+                            .call());
+
             is_closed = true;
             return Status::OK();
         }
