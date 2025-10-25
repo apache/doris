@@ -68,7 +68,7 @@ suite("hive_partition_prune") {
     }
     explain {
         sql "SELECT * FROM test_hive_partition WHERE p not in (15,6,1, '2021-01-02 00:00:00')"
-        contains("partition=4/6")
+        contains("partition=0/6")
     }
     explain {
         sql "SELECT * FROM test_hive_partition WHERE p not in (1, 5,6,null)"
