@@ -21,20 +21,6 @@
 
 namespace doris::vectorized {
 
-using FunctionDateDiff = FunctionTimeDiff<DateDiffImpl<TYPE_DATETIME>>;
-using FunctionTimeDiffImpl = FunctionTimeDiff<TimeDiffImpl<TYPE_DATETIME>>;
-using FunctionYearsDiff = FunctionTimeDiff<YearsDiffImpl<TYPE_DATETIME>>;
-using FunctionMonthsDiff = FunctionTimeDiff<MonthsDiffImpl<TYPE_DATETIME>>;
-using FunctionDaysDiff = FunctionTimeDiff<DaysDiffImpl<TYPE_DATETIME>>;
-using FunctionWeeksDiff = FunctionTimeDiff<WeeksDiffImpl<TYPE_DATETIME>>;
-using FunctionHoursDiff = FunctionTimeDiff<HoursDiffImpl<TYPE_DATETIME>>;
-using FunctionMinutesDiff = FunctionTimeDiff<MintuesDiffImpl<TYPE_DATETIME>>;
-using FunctionSecondsDiff = FunctionTimeDiff<SecondsDiffImpl<TYPE_DATETIME>>;
-
-using FunctionToYearWeekTwoArgs =
-        FunctionDateOrDateTimeComputation<ToYearWeekTwoArgsImpl<TYPE_DATETIME>>;
-using FunctionToWeekTwoArgs = FunctionDateOrDateTimeComputation<ToWeekTwoArgsImpl<TYPE_DATETIME>>;
-
 struct NowFunctionName {
     static constexpr auto name = "now";
 };
@@ -66,21 +52,7 @@ using FunctionMilliSecToDateTime = TimestampToDateTime<MilliSec>;
 using FunctionSecToDateTime = TimestampToDateTime<Sec>;
 
 void register_function_date_time_computation(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionDateDiff>();
-    factory.register_function<FunctionTimeDiffImpl>();
-    factory.register_function<FunctionYearsDiff>();
-    factory.register_function<FunctionMonthsDiff>();
-    factory.register_function<FunctionWeeksDiff>();
-    factory.register_function<FunctionDaysDiff>();
-    factory.register_function<FunctionHoursDiff>();
-    factory.register_function<FunctionMinutesDiff>();
-    factory.register_function<FunctionSecondsDiff>();
-
     factory.register_function<FunctionNextDay>();
-
-    factory.register_function<FunctionToYearWeekTwoArgs>();
-    factory.register_function<FunctionToWeekTwoArgs>();
-
     factory.register_function<FunctionNow>();
     factory.register_function<FunctionNowWithPrecision>();
     factory.register_function(CurDateFunctionName::name, &createCurDateFunctionBuilderFunction);
