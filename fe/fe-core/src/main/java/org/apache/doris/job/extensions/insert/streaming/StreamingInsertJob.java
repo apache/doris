@@ -324,7 +324,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     runningStreamTask.getTaskId(), runningStreamTask.getIsCanceled().get());
             runningStreamTask.cancel(true);
             runningStreamTask.closeOrReleaseResources();
-            runningStreamTask = null;
+            // runningStreamTask = null;
         }
     }
 

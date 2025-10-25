@@ -122,6 +122,9 @@ public class StreamingJobSchedulerTask extends AbstractTask {
         if (runningTask == null) {
             return null;
         }
+        if (!streamingInsertJob.needScheduleTask()) {
+            return null;
+        }
         TRow trow = new TRow();
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(runningTask.getTaskId())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(runningTask.getJobId())));
