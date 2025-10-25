@@ -345,4 +345,10 @@ public class MaxComputeExternalTable extends ExternalTable {
         return schemaCacheValue.map(value -> ((MaxComputeSchemaCacheValue) value).getOdpsTable())
                 .orElse(null);
     }
+
+    @Override
+    public boolean isPartitionedTable() {
+        makeSureInitialized();
+        return getOdpsTable().isPartitioned();
+    }
 }
