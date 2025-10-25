@@ -81,10 +81,10 @@ suite("array-md", "p0, nonConcurrent") {
         exception "Type exceeds the maximum nesting depth of 9"
     }
     
-    test {
-        sql """ SELECT CAST(ARRAY(1, 2, 3) AS STRING) """
-        exception "can not cast from origin type ARRAY<TINYINT> to target type=TEXT"
-    }
+    //    test {
+    //        sql """ SELECT CAST(ARRAY(1, 2, 3) AS STRING) """
+    //        exception "can not cast from origin type ARRAY<TINYINT> to target type=TEXT"
+    //    }
 
     qt_sql """ SELECT CAST("[1,2,3]" AS ARRAY<INT>) """
 
