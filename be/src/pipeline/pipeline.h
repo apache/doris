@@ -133,7 +133,7 @@ public:
             fmt::format_to(debug_string_buffer, "\n{}", _operators[i]->debug_string(i));
         }
         fmt::format_to(debug_string_buffer, "\n{}",
-                       _sink->debug_string(cast_set<int>(_operators.size())));
+                       _sink ? _sink->debug_string(cast_set<int>(_operators.size())) : "null");
         return fmt::to_string(debug_string_buffer);
     }
 
