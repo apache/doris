@@ -53,9 +53,8 @@ struct BinaryPlainPageV2PreDecoder : public DataPagePreDecoder {
                   bool _use_cache, segment_v2::PageTypePB page_type) override {
         // Validate input
         if (page_slice->size < sizeof(uint32_t) + size_of_tail) {
-            return Status::Corruption(
-                    "Invalid page size: {}, expected at least {}", page_slice->size,
-                    sizeof(uint32_t) + size_of_tail);
+            return Status::Corruption("Invalid page size: {}, expected at least {}",
+                                      page_slice->size, sizeof(uint32_t) + size_of_tail);
         }
 
         // Calculate data portion (excluding tail)
