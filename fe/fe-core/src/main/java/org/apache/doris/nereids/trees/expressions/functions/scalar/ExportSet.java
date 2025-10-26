@@ -22,11 +22,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.VarBinaryType;
-import org.apache.doris.nereids.types.VarcharType;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -34,26 +32,43 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'xxhash_64'.
+ * ScalarFunction 'export_set'.
  */
-public class XxHash64 extends ScalarFunction
+public class ExportSet extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
-
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(StringType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(VarBinaryType.INSTANCE)
+            FunctionSignature.ret(StringType.INSTANCE)
+                .args(LargeIntType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE)
+                .args(LargeIntType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE)
+                .args(LargeIntType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE,
+                        IntegerType.INSTANCE)
     );
 
     /**
-     * constructor with 1 or more arguments.
+     * constructor with 3 arguments.
      */
-    public XxHash64(Expression arg, Expression... varArgs) {
-        super("xxhash_64", ExpressionUtils.mergeArguments(arg, varArgs));
+    public ExportSet(Expression arg0, Expression arg1, Expression arg2) {
+        super("export_set", arg0, arg1, arg2);
     }
 
-    /** constructor for withChildren and reuse signature */
-    private XxHash64(ScalarFunctionParams functionParams) {
+    /**
+     * constructor with 4 arguments.
+     */
+    public ExportSet(Expression arg0, Expression arg1, Expression arg2, Expression arg3) {
+        super("export_set", arg0, arg1, arg2, arg3);
+    }
+
+    /**
+     * constructor with 5 arguments.
+     */
+    public ExportSet(Expression arg0, Expression arg1, Expression arg2, Expression arg3, Expression arg4) {
+        super("export_set", arg0, arg1, arg2, arg3, arg4);
+    }
+
+    /** constructor for withChildren*/
+    private ExportSet(ScalarFunctionParams functionParams) {
         super(functionParams);
     }
 
@@ -61,9 +76,9 @@ public class XxHash64 extends ScalarFunction
      * withChildren.
      */
     @Override
-    public XxHash64 withChildren(List<Expression> children) {
-        Preconditions.checkArgument(!children.isEmpty());
-        return new XxHash64(getFunctionParams(children));
+    public ExportSet withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() >= 3 && children.size() <= 5);
+        return new ExportSet(getFunctionParams(children));
     }
 
     @Override
@@ -73,6 +88,6 @@ public class XxHash64 extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitXxHash64(this, context);
+        return visitor.visitExportSet(this, context);
     }
 }
