@@ -240,7 +240,7 @@ public class ConnectContext {
     private String workloadGroupName = "";
     private boolean isGroupCommit;
 
-    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
+    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
     private Map<String, Set<String>> dbToTempTableNamesMap = new HashMap<>();
 

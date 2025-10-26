@@ -157,7 +157,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     protected boolean hasColocatePlanNode = false;
     protected final Supplier<Boolean> hasBucketShuffleJoin;
 
-    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
+    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
     public Optional<NereidsSpecifyInstances<ScanSource>> specifyInstances = Optional.empty();
 

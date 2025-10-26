@@ -34,7 +34,7 @@ public class ResultSink extends DataSink {
     // Two phase fetch option
     private TFetchOption fetchOption;
 
-    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
+    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
     public ResultSink(PlanNodeId exchNodeId) {
         this.exchNodeId = exchNodeId;
