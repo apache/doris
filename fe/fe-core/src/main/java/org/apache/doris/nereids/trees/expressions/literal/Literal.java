@@ -47,6 +47,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.qe.SessionVariable;
 
@@ -118,6 +119,10 @@ public abstract class Literal extends Expression implements LeafExpression {
     }
 
     public abstract Object getValue();
+
+    protected String castValueToString() {
+        return String.valueOf(getValue());
+    }
 
     /**
      * Map literal to double, and keep "<=" order.
@@ -412,10 +417,21 @@ public abstract class Literal extends Expression implements LeafExpression {
         if (this instanceof NullLiteral) {
             return new NullLiteral(targetType);
         }
-        if (targetType.isStringLikeType()) {
-            return deprecatingUncheckedCastTo(targetType);
+        if (targetType.isStringLikeType() && !this.dataType.isComplexType()) {
+            return uncheckedCastToString((CharacterType) targetType);
         }
         throw new AnalysisException(String.format("Cast from %s to %s not supported", this, targetType));
+    }
+
+    protected Expression uncheckedCastToString(CharacterType targetType) {
+        String value = castValueToString();
+        if (targetType.isStringType()) {
+            return new StringLiteral(value);
+        } else if (targetType.isCharType()) {
+            return new CharLiteral(value, targetType.getLen());
+        } else {
+            return new VarcharLiteral(value, targetType.getLen());
+        }
     }
 
     private static int findPointZeroIndex(String str) {
