@@ -133,13 +133,13 @@ public class RewriteDataFileExecutor {
             boolean completed = collector.await(maxWaitTime, TimeUnit.SECONDS);
 
             if (!completed) {
-                LOG.error("Rewrite tasks did not complete within timeout of {} seconds", maxWaitTime);
+                LOG.warn("Rewrite tasks did not complete within timeout of {} seconds", maxWaitTime);
                 throw new UserException("Rewrite tasks did not complete within timeout");
             }
 
             // Check if any task failed
             if (collector.getFirstError() != null) {
-                LOG.error("Rewrite tasks failed: {}", collector.getFirstError().getMessage());
+                LOG.warn("Rewrite tasks failed: {}", collector.getFirstError().getMessage());
                 throw new UserException("Some rewrite tasks failed: " + collector.getFirstError().getMessage(),
                         collector.getFirstError());
             }
@@ -148,7 +148,7 @@ public class RewriteDataFileExecutor {
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            LOG.error("Wait for tasks completion was interrupted", e);
+            LOG.warn("Wait for tasks completion was interrupted", e);
             throw new UserException("Wait for tasks completion was interrupted", e);
         }
     }
@@ -185,7 +185,7 @@ public class RewriteDataFileExecutor {
                 LOG.warn("Task {} failed, cancelling all other tasks", taskId);
                 cancelAllOtherTasks(taskId);
             }
-            LOG.error("Task {} failed ({}/{}): {}", taskId, failed, expectedTasks, error.getMessage());
+            LOG.warn("Task {} failed ({}/{}): {}", taskId, failed, expectedTasks, error.getMessage());
             completionLatch.countDown();
         }
 

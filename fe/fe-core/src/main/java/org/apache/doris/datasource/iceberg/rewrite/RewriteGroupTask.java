@@ -126,7 +126,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
             LOG.debug("[Rewrite Task] taskId: {} execution completed successfully", taskId);
 
         } catch (Exception e) {
-            LOG.error("Failed to execute rewrite group: {}", e.getMessage(), e);
+            LOG.warn("Failed to execute rewrite group: {}", e.getMessage(), e);
 
             // Notify error callback
             if (resultCallback != null) {

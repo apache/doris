@@ -195,7 +195,7 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
             RewriteResult totalResult = executor.executeGroupsConcurrently(groupsList, targetFileSizeBytes);
             return totalResult.toStringList();
         } catch (Exception e) {
-            LOG.error("Failed to rewrite data files for table: " + table.getName(), e);
+            LOG.warn("Failed to rewrite data files for table: " + table.getName(), e);
             throw new UserException("Rewrite data files failed: " + e.getMessage());
         }
     }
