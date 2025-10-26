@@ -26,7 +26,6 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.persist.OperationType;
 
@@ -71,21 +70,11 @@ public class RefreshManager {
 
     private void refreshCatalogInternal(CatalogIf catalog, boolean invalidCache) {
         String catalogName = catalog.getName();
-        if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
-            // First reset catalog metadata (this is synchronized and safe)
-            externalCatalog.resetMetaToUninitialized(false);
-            
-            // Then invalidate catalog cache outside of synchronized block to avoid deadlock.
-            // The deadlock can happen when:
-            // 1. This thread holds catalog lock and tries to acquire Caffeine cache lock
-            // 2. Query thread holds Caffeine cache lock and tries to acquire catalog lock (in makeSureInitialized)
-            if (invalidCache) {
-                externalCatalog.invalidateCatalogCacheOutsideLock();
-            }
-            
-            LOG.info("refresh catalog {} with invalidCache {}", catalogName, invalidCache);
+        if (catalog.isInternalCatalog()) {
+            return;
         }
+        ((ExternalCatalog) catalog).onRefreshCache(invalidCache);
+        LOG.info("refresh catalog {} with invalidCache {}", catalogName, invalidCache);
     }
 
     // Refresh database

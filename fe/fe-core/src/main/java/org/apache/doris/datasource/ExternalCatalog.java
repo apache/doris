@@ -575,29 +575,19 @@ public abstract class ExternalCatalog
             this.cachedConf = null;
         }
         onClose();
-
-        refreshOnlyCatalogCache(invalidCache);
-    }
-
-    public synchronized void resetMetaToUninitialized(boolean invalidCache) {
-        this.initialized = false;
-        // Only refresh meta cache (database level cache), do not invalidate catalog cache here
-        // to avoid deadlock when holding synchronized lock.
-        // The catalog cache invalidation should be done outside of synchronized block.
-        refreshMetaCacheOnly();
+        onRefreshCache(invalidCache);
     }
 
     /**
-     * Invalidate catalog level cache. This method should be called outside of synchronized block
-     * to avoid potential deadlock with Caffeine cache operations.
+     * Refresh both meta cache and catalog cache.
+     *
+     * @param invalidCache
      */
-    public void invalidateCatalogCacheOutsideLock() {
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
-    }
-
-    // Only for hms event handling.
-    public void onRefreshCache() {
-        refreshOnlyCatalogCache(true);
+    public void onRefreshCache(boolean invalidCache) {
+        refreshMetaCacheOnly();
+        if (invalidCache) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
+        }
     }
 
     /**
@@ -614,13 +604,6 @@ public abstract class ExternalCatalog
                     db.resetMetaToUninitialized();
                 }
             }
-        }
-    }
-
-    private void refreshOnlyCatalogCache(boolean invalidCache) {
-        refreshMetaCacheOnly();
-        if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
         }
     }
 
@@ -1503,8 +1486,6 @@ public abstract class ExternalCatalog
     public void resetMetaCacheNames() {
         if (useMetaCache.isPresent() && useMetaCache.get() && metaCache != null) {
             metaCache.resetNames();
-        } else {
-            resetMetaToUninitialized(true);
         }
     }
 
