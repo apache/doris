@@ -36,10 +36,14 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
      * @param page unique_ptr to hold page data, maybe be replaced by decoded data
      * @param page_slice data to decode
      * @param size_of_tail including size of footer and null map
+     * @param _use_cache whether to use page cache
+     * @param page_type the type of page
+     * @param file_path file path for error reporting
      * @return Status
      */
     Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice, size_t size_of_tail,
-                  bool _use_cache, segment_v2::PageTypePB page_type) override {
+                  bool _use_cache, segment_v2::PageTypePB page_type,
+                  const std::string& file_path) override {
         size_t num_elements, compressed_size, num_element_after_padding;
         int size_of_element;
 
@@ -59,8 +63,9 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
 
         if (compressed_size != data.size) {
             return Status::InternalError(
-                    "Size information unmatched, compressed_size:{}, num_elements:{}, data size:{}",
-                    compressed_size, num_elements, data.size);
+                    "Size information unmatched in file: {}, compressed_size:{}, "
+                    "num_elements:{}, data size:{}",
+                    file_path, compressed_size, num_elements, data.size);
         }
 
         Slice decoded_slice;
@@ -83,7 +88,7 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
         if (bytes < 0) [[unlikely]] {
             // Ideally, this should not happen.
             warn_with_bitshuffle_error(bytes);
-            return Status::RuntimeError("Unshuffle Process failed");
+            return Status::RuntimeError("Unshuffle Process failed in file: {}", file_path);
         }
 
         memcpy(decoded_slice.data + decoded_slice.size - size_of_tail,

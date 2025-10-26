@@ -47,14 +47,16 @@ struct BinaryPlainPageV2PreDecoder : public DataPagePreDecoder {
      * @param size_of_tail including size of footer and null map
      * @param _use_cache whether to use page cache
      * @param page_type the type of page
+     * @param file_path file path for error reporting
      * @return Status
      */
     Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice, size_t size_of_tail,
-                  bool _use_cache, segment_v2::PageTypePB page_type) override {
+                  bool _use_cache, segment_v2::PageTypePB page_type,
+                  const std::string& file_path) override {
         // Validate input
         if (page_slice->size < sizeof(uint32_t) + size_of_tail) {
-            return Status::Corruption("Invalid page size: {}, expected at least {}",
-                                      page_slice->size, sizeof(uint32_t) + size_of_tail);
+            return Status::Corruption("Invalid page size: {}, expected at least {} in file: {}",
+                                      page_slice->size, sizeof(uint32_t) + size_of_tail, file_path);
         }
 
         // Calculate data portion (excluding tail)
@@ -62,7 +64,7 @@ struct BinaryPlainPageV2PreDecoder : public DataPagePreDecoder {
 
         // Read num_elems from the last 4 bytes of data portion
         if (data.size < sizeof(uint32_t)) {
-            return Status::Corruption("Data too small to contain num_elems");
+            return Status::Corruption("Data too small to contain num_elems in file: {}", file_path);
         }
 
         uint32_t num_elems = decode_fixed32_le(
@@ -71,7 +73,7 @@ struct BinaryPlainPageV2PreDecoder : public DataPagePreDecoder {
         // Calculate required size for V1 format
         // V1 format: binary_data + offsets_array + num_elems + tail
         // We need to parse V2 to calculate the total binary data size
-        const uint8_t* ptr = reinterpret_cast<const uint8_t*>(data.data);
+        const auto* ptr = reinterpret_cast<const uint8_t*>(data.data);
         const uint8_t* limit = ptr + data.size - sizeof(uint32_t);
 
         std::vector<uint32_t> offsets;
@@ -81,15 +83,16 @@ struct BinaryPlainPageV2PreDecoder : public DataPagePreDecoder {
         for (uint32_t i = 0; i < num_elems; i++) {
             if (ptr >= limit) {
                 return Status::Corruption(
-                        "Unexpected end of data while parsing BinaryPlainPageV2PreDecoder");
+                        "Unexpected end of data while parsing element {} in file: {}", i,
+                        file_path);
             }
 
             // Decode varuint length
             uint32_t length;
             const uint8_t* data_start = decode_varint32_ptr(ptr, limit, &length);
             if (data_start == nullptr) {
-                return Status::Corruption(
-                        "Failed to decode varuint in BinaryPlainPageV2PreDecoder");
+                return Status::Corruption("Failed to decode varuint for element {} in file: {}", i,
+                                          file_path);
             }
 
             // Store offset for this element
@@ -100,8 +103,8 @@ struct BinaryPlainPageV2PreDecoder : public DataPagePreDecoder {
             ptr = data_start + length;
 
             if (ptr > limit) {
-                return Status::Corruption(
-                        "Data extends beyond page in BinaryPlainPageV2PreDecoder");
+                return Status::Corruption("Data extends beyond page for element {} in file: {}", i,
+                                          file_path);
             }
         }
 
