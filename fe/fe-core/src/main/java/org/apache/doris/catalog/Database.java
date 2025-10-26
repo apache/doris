@@ -141,11 +141,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     @SerializedName(value = "cn")
     private String ctlName;
 
-    @SerializedName(value = "createUser")
-    private String createUser;
+    @SerializedName(value = "createdBy")
+    private String createdBy;
 
-    @SerializedName(value = "createTime")
-    private long createTime;
+    @SerializedName(value = "creationTime")
+    private long creationTime;
 
     public Database() {
         this(0, null);
@@ -169,7 +169,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.dbEncryptKey = new DatabaseEncryptKey();
-        this.createTime = Instant.now().getEpochSecond();
+        this.creationTime = Instant.now().getEpochSecond();
     }
 
     // DO NOT use it except for replaying OP_CREATE_DB
@@ -324,16 +324,16 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         }
     }
 
-    public String getCreateUser() {
-        return createUser;
+    public String getCreatedBy() {
+        return createdBy;
     }
 
-    public long getCreateTime() {
-        return createTime;
+    public long getCreationTime() {
+        return creationTime;
     }
 
-    public void setCreateUser(String createUser) {
-        this.createUser = createUser;
+    public void setCreatedBy(String createdBy) {
+        this.createdBy = createdBy;
     }
 
     public long getUsedDataQuota() {

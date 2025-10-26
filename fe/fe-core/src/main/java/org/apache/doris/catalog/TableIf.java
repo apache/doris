@@ -165,7 +165,7 @@ public interface TableIf {
     long getUpdateTime();
 
     //creator of the table, may be null for some table types
-    default String getCreateUser() {
+    default String getCreatedBy() {
         return null;
     }
 

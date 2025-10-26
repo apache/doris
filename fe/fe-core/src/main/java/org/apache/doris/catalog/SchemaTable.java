@@ -80,7 +80,7 @@ public class SchemaTable extends Table {
                                     .column("CHECKSUM", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("CREATE_OPTIONS", ScalarType.createVarchar(255))
                                     .column("TABLE_COMMENT", ScalarType.createVarchar(2048))
-                                    .column("CREATE_USER", ScalarType.createVarchar(NAME_CHAR_LEN)).build()))
+                                    .column("CREATED_BY", ScalarType.createVarchar(NAME_CHAR_LEN)).build()))
             .put("table_privileges",
                     new SchemaTable(SystemIdGenerator.getNextId(), "table_privileges", TableType.SCHEMA,
                             builder().column("GRANTEE", ScalarType.createVarchar(GRANTEE_len))
@@ -160,8 +160,8 @@ public class SchemaTable extends Table {
                             .column("DEFAULT_COLLATION_NAME", ScalarType.createVarchar(32))
                             .column("SQL_PATH", ScalarType.createVarchar(512))
                             .column("DEFAULT_ENCRYPTION", ScalarType.createVarchar(3))
-                            .column("CREATE_USER", ScalarType.createVarchar(NAME_CHAR_LEN))
-                            .column("CREATE_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                            .column("CREATED_BY", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("CREATION_TIME", ScalarType.createType(PrimitiveType.DATETIME))
                             .build()))
             .put("session_variables",
                     new SchemaTable(SystemIdGenerator.getNextId(), "session_variables", TableType.SCHEMA,

@@ -134,8 +134,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     private boolean isTemporary = false;
 
     // Add create_user field
-    @SerializedName(value = "createUser")
-    protected String createUser = "";
+    @SerializedName(value = "createdBy")
+    protected String createdBy = "";
 
     // gson deserialization will call this at first by derived classes' non-parametered constructor.
     public Table(TableType type) {
@@ -454,12 +454,12 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return createTime;
     }
 
-    public String getCreateUser() {
-        return createUser;
+    public String getCreatedBy() {
+        return createdBy;
     }
 
-    public void setCreateUser(String createUser) {
-        this.createUser = createUser;
+    public void setCreatedBy(String createdBy) {
+        this.createdBy = createdBy;
     }
 
     public long getRowCount() {

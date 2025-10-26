@@ -443,8 +443,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<String> catalogNames = Lists.newArrayList();
         List<Long> dbIds = Lists.newArrayList();
         List<Long> catalogIds = Lists.newArrayList();
-        List<Long> createTimes = Lists.newArrayList();
-        List<String> createUsers = Lists.newArrayList();
+        List<Long> creationTimes = Lists.newArrayList();
+        List<String> creators = Lists.newArrayList();
 
         PatternMatcher matcher = null;
         if (params.isSetPattern()) {
@@ -483,8 +483,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 dbNames.add("NULL");
                 catalogIds.add(catalog.getId());
                 dbIds.add(-1L);
-                createTimes.add(0L);
-                createUsers.add("");
+                creationTimes.add(0L);
+                creators.add("");
                 continue;
             }
             if (dbs.isEmpty()) {
@@ -513,12 +513,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 dbIds.add(db.getId());
                 if (db instanceof Database) {
                     Database internalDb = (Database) db;
-                    createTimes.add(internalDb.getCreateTime());
-                    String cu = internalDb.getCreateUser();
-                    createUsers.add(cu == null ? "" : cu);
+                    creationTimes.add(internalDb.getCreationTime());
+                    String cu = internalDb.getCreatedBy();
+                    creators.add(cu == null ? "" : cu);
                 } else {
-                    createTimes.add(0L);
-                    createUsers.add("");
+                    creationTimes.add(0L);
+                    creators.add("");
                 }
             }
         }
@@ -527,8 +527,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setCatalogs(catalogNames);
         result.setCatalogIds(catalogIds);
         result.setDbIds(dbIds);
-        result.setCreateTimes(createTimes);
-        result.setCreateUsers(createUsers);
+        result.setCreationTimes(creationTimes);
+        result.setCreators(creators);
         return result;
     }
 
@@ -713,8 +713,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             status.setDataLength(table.getDataLength());
                             status.setAvgRowLength(table.getAvgRowLength());
                             status.setIndexLength(table.getIndexLength());
-                            if (table.getCreateUser() != null) {
-                                status.setCreateUser(table.getCreateUser());
+                            if (table.getCreatedBy() != null) {
+                                status.setCreatedBy(table.getCreatedBy());
                             }
                             if (table instanceof View) {
                                 status.setDdlSql(((View) table).getInlineViewDef());

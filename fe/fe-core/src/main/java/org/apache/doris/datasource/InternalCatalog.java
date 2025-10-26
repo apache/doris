@@ -415,7 +415,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         db.setDbProperties(new DatabaseProperty(properties));
         ConnectContext context = ConnectContext.get();
         if (context != null && context.getCurrentUserIdentity() != null) {
-            db.setCreateUser(context.getCurrentUserIdentity().getQualifiedUser());
+            db.setCreatedBy(context.getCurrentUserIdentity().getQualifiedUser());
         }
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
@@ -2449,7 +2449,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setComment(createTableInfo.getComment());
         ConnectContext context = ConnectContext.get();
         if (context != null && context.getCurrentUserIdentity() != null) {
-            olapTable.setCreateUser(context.getCurrentUserIdentity().getQualifiedUser());
+            olapTable.setCreatedBy(context.getCurrentUserIdentity().getQualifiedUser());
         }
         // set base index id
         long baseIndexId = idGeneratorBuffer.getNextId();
@@ -3253,7 +3253,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         mysqlTable.setComment(createTableInfo.getComment());
         ConnectContext context = ConnectContext.get();
         if (context != null && context.getCurrentUserIdentity() != null) {
-            mysqlTable.setCreateUser(context.getCurrentUserIdentity().getQualifiedUser());
+            mysqlTable.setCreatedBy(context.getCurrentUserIdentity().getQualifiedUser());
         }
         Pair<Boolean, Boolean> result = db.createTableWithLock(mysqlTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
@@ -3268,7 +3268,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         odbcTable.setComment(createTableInfo.getComment());
         ConnectContext context = ConnectContext.get();
         if (context != null && context.getCurrentUserIdentity() != null) {
-            odbcTable.setCreateUser(context.getCurrentUserIdentity().getQualifiedUser());
+            odbcTable.setCreatedBy(context.getCurrentUserIdentity().getQualifiedUser());
         }
         Pair<Boolean, Boolean> result = db.createTableWithLock(odbcTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
@@ -3308,7 +3308,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         esTable.setComment(createTableInfo.getComment());
         ConnectContext context = ConnectContext.get();
         if (context != null && context.getCurrentUserIdentity() != null) {
-            esTable.setCreateUser(context.getCurrentUserIdentity().getQualifiedUser());
+            esTable.setCreatedBy(context.getCurrentUserIdentity().getQualifiedUser());
         }
         esTable.syncTableMetaData();
         Pair<Boolean, Boolean> result = db.createTableWithLock(esTable, false, createTableInfo.isIfNotExists());
@@ -3326,7 +3326,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         brokerTable.setBrokerProperties(createTableInfo.getExtProperties());
         ConnectContext context = ConnectContext.get();
         if (context != null && context.getCurrentUserIdentity() != null) {
-            brokerTable.setCreateUser(context.getCurrentUserIdentity().getQualifiedUser());
+            brokerTable.setCreatedBy(context.getCurrentUserIdentity().getQualifiedUser());
         }
         Pair<Boolean, Boolean> result = db.createTableWithLock(brokerTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
@@ -3343,7 +3343,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         jdbcTable.setComment(createTableInfo.getComment());
         ConnectContext context = ConnectContext.get();
         if (context != null && context.getCurrentUserIdentity() != null) {
-            jdbcTable.setCreateUser(context.getCurrentUserIdentity().getQualifiedUser());
+            jdbcTable.setCreatedBy(context.getCurrentUserIdentity().getQualifiedUser());
         }
         // check table if exists
         Pair<Boolean, Boolean> result = db.createTableWithLock(jdbcTable, false, createTableInfo.isIfNotExists());
