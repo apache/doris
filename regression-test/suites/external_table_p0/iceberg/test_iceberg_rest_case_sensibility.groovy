@@ -24,24 +24,6 @@ suite("test_iceberg_rest_case_sensibility", "p0,external,doris,external_docker,e
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    // allow separate hostnames for REST and S3 when running under Docker on macOS
-    String externalEnvHostForRest = context.config.otherConfigs.get("externalEnvHostForRest")
-    if (externalEnvHostForRest == null || externalEnvHostForRest.trim().isEmpty()) {
-        externalEnvHostForRest = externalEnvIp
-    }
-    String externalEnvHostForS3 = context.config.otherConfigs.get("externalEnvHostForS3")
-    if (externalEnvHostForS3 == null || externalEnvHostForS3.trim().isEmpty()) {
-        externalEnvHostForS3 = externalEnvIp
-    }
-    // allow overriding S3 credentials via config
-    String s3AccessKey = context.config.otherConfigs.get("iceberg_s3_access_key")
-    if (s3AccessKey == null || s3AccessKey.trim().isEmpty()) {
-        s3AccessKey = "admin"
-    }
-    String s3SecretKey = context.config.otherConfigs.get("iceberg_s3_secret_key")
-    if (s3SecretKey == null || s3SecretKey.trim().isEmpty()) {
-        s3SecretKey = "password"
-    }
 
     try {
         for (String case_type : ["0", "1", "2"]) {
@@ -49,10 +31,10 @@ suite("test_iceberg_rest_case_sensibility", "p0,external,doris,external_docker,e
             sql """CREATE CATALOG test_iceberg_case_sensibility_rest PROPERTIES (
                     'type'='iceberg',
                     'iceberg.catalog.type'='rest',
-                    'uri' = 'http://${externalEnvHostForRest}:${rest_port}',
-                    "s3.access_key" = "${s3AccessKey}",
-                    "s3.secret_key" = "${s3SecretKey}",
-                    "s3.endpoint" = "http://${externalEnvHostForS3}:${minio_port}",
+                    'uri' = 'http://${externalEnvIp}:${rest_port}',
+                    "s3.access_key" = "admin",
+                    "s3.secret_key" = "password",
+                    "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
                     "s3.region" = "us-east-1",
                     "only_test_lower_case_table_names" = "${case_type}"
                 );"""
