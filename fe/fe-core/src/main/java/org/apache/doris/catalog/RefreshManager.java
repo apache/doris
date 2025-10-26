@@ -69,12 +69,11 @@ public class RefreshManager {
     }
 
     private void refreshCatalogInternal(CatalogIf catalog, boolean invalidCache) {
-        String catalogName = catalog.getName();
         if (catalog.isInternalCatalog()) {
             return;
         }
         ((ExternalCatalog) catalog).onRefreshCache(invalidCache);
-        LOG.info("refresh catalog {} with invalidCache {}", catalogName, invalidCache);
+        LOG.info("refresh catalog {} with invalidCache {}", catalog.getName(), invalidCache);
     }
 
     // Refresh database
