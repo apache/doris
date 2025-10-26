@@ -35,7 +35,9 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.common.Status;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -62,6 +64,9 @@ public class RewriteGroupTask implements TransientTaskExecutor {
     private final Long taskId;
     private final AtomicBoolean isCanceled;
     private final AtomicBoolean isFinished;
+
+    // for canceling the task
+    private StmtExecutor stmtExecutor;
 
     public RewriteGroupTask(RewriteDataGroup group,
             long transactionId,
@@ -147,6 +152,9 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         }
 
         isCanceled.set(true);
+        if (stmtExecutor != null) {
+            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "rewrite task cancelled"));
+        }
         LOG.info("[Rewrite Task] taskId: {} cancelled", taskId);
     }
 
@@ -157,10 +165,10 @@ public class RewriteGroupTask implements TransientTaskExecutor {
             InsertIntoTableCommand taskLogicalPlan,
             StatementBase taskParsedStmt) throws Exception {
         // Step 1: Create stmt executor
-        StmtExecutor executor = new StmtExecutor(taskConnectContext, taskParsedStmt);
+        stmtExecutor = new StmtExecutor(taskConnectContext, taskParsedStmt);
 
         // Step 2: Create insert executor, but not to begin a transaction
-        AbstractInsertExecutor insertExecutor = taskLogicalPlan.initPlan(taskConnectContext, executor, false);
+        AbstractInsertExecutor insertExecutor = taskLogicalPlan.initPlan(taskConnectContext, stmtExecutor, false);
         Preconditions.checkState(insertExecutor instanceof IcebergRewriteExecutor,
                 "Expected IcebergRewriteExecutor, got: " + insertExecutor.getClass());
 
@@ -168,7 +176,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         insertExecutor.getCoordinator().setTxnId(transactionId);
 
         // Step 4: Execute insert operation
-        insertExecutor.executeSingleInsert(executor, System.currentTimeMillis());
+        insertExecutor.executeSingleInsert(stmtExecutor, System.currentTimeMillis());
 
         LOG.debug("[Rewrite Task] taskId: {} completed execution successfully", taskId);
     }
