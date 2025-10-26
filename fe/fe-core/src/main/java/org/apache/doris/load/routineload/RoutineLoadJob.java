@@ -19,7 +19,6 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnsStmt;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -44,6 +43,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
@@ -178,7 +178,7 @@ public abstract class RoutineLoadJob
     // this code is used to verify be task request
     protected long authCode;
     //    protected RoutineLoadDesc routineLoadDesc; // optional
-    protected PartitionNames partitions; // optional
+    protected PartitionNamesInfo partitionNamesInfo; // optional
     protected ImportColumnDescs columnDescs; // optional
     protected Expr precedingFilter; // optional
     protected Expr whereExpr; // optional
@@ -445,8 +445,8 @@ public abstract class RoutineLoadJob
             if (routineLoadDesc.getLineDelimiter() != null) {
                 lineDelimiter = routineLoadDesc.getLineDelimiter();
             }
-            if (routineLoadDesc.getPartitionNames() != null) {
-                partitions = routineLoadDesc.getPartitionNames();
+            if (routineLoadDesc.getPartitionNamesInfo() != null) {
+                partitionNamesInfo = routineLoadDesc.getPartitionNamesInfo();
             }
             if (routineLoadDesc.getDeleteCondition() != null) {
                 deleteCondition = routineLoadDesc.getDeleteCondition();
@@ -552,8 +552,8 @@ public abstract class RoutineLoadJob
         return jobStatistic;
     }
 
-    public PartitionNames getPartitions() {
-        return partitions;
+    public PartitionNamesInfo getPartitionNamesInfo() {
+        return partitionNamesInfo;
     }
 
     public UserIdentity getUserIdentity() {
@@ -807,7 +807,7 @@ public abstract class RoutineLoadJob
                     // and after renew, the previous task is removed from routineLoadTaskInfoList,
                     // so task can no longer be committed successfully.
                     // the already committed task will not be handled here.
-                    RoutineLoadTaskInfo newTask = unprotectRenewTask(routineLoadTaskInfo);
+                    RoutineLoadTaskInfo newTask = unprotectRenewTask(routineLoadTaskInfo, false);
                     Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newTask);
                 }
             }
@@ -987,7 +987,7 @@ public abstract class RoutineLoadJob
         return 0L;
     }
 
-    abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo);
+    abstract RoutineLoadTaskInfo unprotectRenewTask(RoutineLoadTaskInfo routineLoadTaskInfo, boolean delaySchedule);
 
     // call before first scheduling
     // derived class can override this.
@@ -1243,7 +1243,7 @@ public abstract class RoutineLoadJob
             }
 
             // create new task
-            RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo);
+            RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo, false);
             Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
         } finally {
             writeUnlock();
@@ -1395,7 +1395,7 @@ public abstract class RoutineLoadJob
 
         if (state == JobState.RUNNING) {
             if (txnStatus == TransactionStatus.ABORTED) {
-                RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo);
+                RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo, true);
                 Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
             } else if (txnStatus == TransactionStatus.COMMITTED) {
                 // this txn is just COMMITTED, create new task when the this txn is VISIBLE
@@ -1410,20 +1410,20 @@ public abstract class RoutineLoadJob
             return;
         }
 
-        PartitionNames partitionNames = routineLoadDesc.getPartitionNames();
-        if (partitionNames == null) {
+        PartitionNamesInfo partitionNamesInfo = routineLoadDesc.getPartitionNamesInfo();
+        if (partitionNamesInfo == null) {
             return;
         }
 
         if (olapTable.isTemporary()) {
             throw new DdlException("Cannot create routine load for temporary table "
-                + olapTable.getDisplayName());
+                    + olapTable.getDisplayName());
         }
         // check partitions
         olapTable.readLock();
         try {
-            for (String partName : partitionNames.getPartitionNames()) {
-                if (olapTable.getPartition(partName, partitionNames.isTemp()) == null) {
+            for (String partName : partitionNamesInfo.getPartitionNames()) {
+                if (olapTable.getPartition(partName, partitionNamesInfo.isTemp()) == null) {
                     throw new DdlException("Partition " + partName + " does not exist");
                 }
             }
@@ -1744,8 +1744,8 @@ public abstract class RoutineLoadJob
             sb.append("WHERE ").append(whereExpr.toSqlWithoutTbl()).append(",\n");
         }
         // 4.4.partitions
-        if (partitions != null) {
-            sb.append("PARTITION(").append(Joiner.on(",").join(partitions.getPartitionNames())).append("),\n");
+        if (partitionNamesInfo != null) {
+            sb.append("PARTITION(").append(Joiner.on(",").join(partitionNamesInfo.getPartitionNames())).append("),\n");
         }
         // 4.5.delete_on_predicates
         if (deleteCondition != null) {
@@ -1848,8 +1848,8 @@ public abstract class RoutineLoadJob
     public String jobPropertiesToJsonString() {
         Map<String, String> jobProperties = Maps.newHashMap();
         // load properties defined in CreateRoutineLoadStmt
-        jobProperties.put("partitions", partitions == null
-                ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
+        jobProperties.put("partitions", partitionNamesInfo == null
+                ? STAR_STRING : Joiner.on(",").join(partitionNamesInfo.getPartitionNames()));
         jobProperties.put("columnToColumnExpr", columnDescs == null
                 ? STAR_STRING : Joiner.on(",").join(columnDescs.descs));
         jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSqlWithoutTbl());

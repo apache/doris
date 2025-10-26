@@ -132,11 +132,10 @@ TEST_F(TableFunctionTest, vexplode_outer_v2) {
         TestArray vec = {Int32(1), Null(), Int32(2), Int32(3)};
         InputDataSet input_set = {{AnyType {vec}}, {Null()}, {AnyType {TestArray {}}}};
 
-        InputTypeSet output_types = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_INT};
+        InputTypeSet output_types = {PrimitiveType::TYPE_INT};
 
-        InputDataSet output_set = {{{TestArray {Int32(1)}}}, {{TestArray {Null()}}},
-                                   {{TestArray {Int32(2)}}}, {{TestArray {Int32(3)}}},
-                                   {{TestArray {Null()}}},   {{TestArray {Null()}}}};
+        InputDataSet output_set = {{Int32(1)}, {Null()}, {Int32(2)},
+                                   {Int32(3)}, {Null()}, {Null()}};
 
         check_vec_table_function(&explode_outer, input_types, input_set, output_types, output_set);
     }
@@ -147,29 +146,26 @@ TEST_F(TableFunctionTest, vexplode_outer_v2) {
         TestArray vec = {std::string("abc"), std::string(""), std::string("def")};
         InputDataSet input_set = {{Null()}, {AnyType {TestArray {}}}, {AnyType {vec}}};
 
-        InputTypeSet output_types = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_VARCHAR};
+        InputTypeSet output_types = {PrimitiveType::TYPE_VARCHAR};
 
-        InputDataSet output_set = {{{TestArray {Null()}}},
-                                   {{TestArray {Null()}}},
-                                   {{TestArray {std::string("abc")}}},
-                                   {{TestArray {std::string("")}}},
-                                   {{TestArray {std::string("def")}}}};
+        InputDataSet output_set = {
+                {Null()}, {Null()}, {std::string("abc")}, {std::string("")}, {std::string("def")}};
 
         check_vec_table_function(&explode_outer, input_types, input_set, output_types, output_set);
     }
 
-    // explode_outer(Array<Decimal>)
+    // // explode_outer(Array<Decimal>)
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2};
         TestArray vec = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67)};
         InputDataSet input_set = {{Null()}, {AnyType {TestArray {}}}, {AnyType {vec}}};
 
-        InputTypeSet output_types = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_DECIMALV2};
+        InputTypeSet output_types = {PrimitiveType::TYPE_DECIMALV2};
 
-        InputDataSet output_set = {{{TestArray {Null()}}},
-                                   {{TestArray {Null()}}},
-                                   {{TestArray {ut_type::DECIMALV2(17014116.67)}}},
-                                   {{TestArray {ut_type::DECIMALV2(-17014116.67)}}}};
+        InputDataSet output_set = {{Null()},
+                                   {Null()},
+                                   {ut_type::DECIMALV2(17014116.67)},
+                                   {ut_type::DECIMALV2(-17014116.67)}};
 
         check_vec_table_function(&explode_outer, input_types, input_set, output_types, output_set);
     }
@@ -230,11 +226,8 @@ TEST_F(TableFunctionTest, vexplode_v2) {
         TestArray vec = {Int32(1), Null(), Int32(2), Int32(3)};
         InputDataSet input_set = {{AnyType {vec}}, {Null()}, {AnyType {TestArray {}}}};
 
-        InputTypeSet output_types = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_INT};
-        InputDataSet output_set = {{{TestArray {Int32(1)}}},
-                                   {{TestArray {Null()}}},
-                                   {{TestArray {Int32(2)}}},
-                                   {{TestArray {Int32(3)}}}};
+        InputTypeSet output_types = {PrimitiveType::TYPE_INT};
+        InputDataSet output_set = {{Int32(1)}, {Null()}, {Int32(2)}, {Int32(3)}};
 
         check_vec_table_function(&explode, input_types, input_set, output_types, output_set);
     }
@@ -245,11 +238,9 @@ TEST_F(TableFunctionTest, vexplode_v2) {
         TestArray vec = {std::string("abc"), std::string(""), std::string("def")};
         InputDataSet input_set = {{Null()}, {AnyType {TestArray {}}}, {AnyType {vec}}};
 
-        InputTypeSet output_types = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_VARCHAR};
+        InputTypeSet output_types = {PrimitiveType::TYPE_VARCHAR};
 
-        InputDataSet output_set = {{{TestArray {std::string("abc")}}},
-                                   {{TestArray {std::string("")}}},
-                                   {{TestArray {std::string("def")}}}};
+        InputDataSet output_set = {{std::string("abc")}, {std::string("")}, {std::string("def")}};
         check_vec_table_function(&explode, input_types, input_set, output_types, output_set);
     }
 
@@ -259,10 +250,9 @@ TEST_F(TableFunctionTest, vexplode_v2) {
         TestArray vec = {Null(), std::string("2022-01-02")};
         InputDataSet input_set = {{Null()}, {AnyType {TestArray {}}}, {AnyType {vec}}};
 
-        InputTypeSet output_types = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_DATE};
+        InputTypeSet output_types = {PrimitiveType::TYPE_DATE};
 
-        InputDataSet output_set = {{{TestArray {Null()}}},
-                                   {{TestArray {std::string("2022-01-02")}}}};
+        InputDataSet output_set = {{Null()}, {std::string("2022-01-02")}};
         check_vec_table_function(&explode, input_types, input_set, output_types, output_set);
     }
 }

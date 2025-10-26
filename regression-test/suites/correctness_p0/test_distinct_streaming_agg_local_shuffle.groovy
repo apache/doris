@@ -77,7 +77,6 @@ suite("test_distinct_streaming_agg_local_shuffle") {
     insert into table_10_undef_partitions2_keys3_properties4_distributed_by53(pk,col_bigint_undef_signed,col_varchar_10__undef_signed,col_varchar_64__undef_signed) values (0,null,'right','g'),(1,-486256,'on','on'),(2,-1,'I''ll','at'),(3,29263,'h','don''t'),(4,5453,'a','s'),(5,-119,'j','can''t'),(6,89,'one','n'),(7,-7227,'s','u'),(8,94,'time','b'),(9,1816630,'yes','yes');
     """
 
-    sql """set experimental_enable_pipeline_x_engine=true"""
     sql """set enable_local_shuffle = true"""
 
     qt_select """
@@ -87,8 +86,6 @@ suite("test_distinct_streaming_agg_local_shuffle") {
     
     """
 
-
-    sql """set experimental_enable_pipeline_x_engine=false"""
     sql """set enable_local_shuffle = false"""
 
 
