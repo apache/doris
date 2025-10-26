@@ -44,8 +44,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPreAggOnHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPreFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCte;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteRecursiveChild;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
@@ -80,8 +78,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCte;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteRecursiveChild;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
@@ -213,15 +209,6 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
 
     public R visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, C context) {
         return visit(join, context);
-    }
-
-    public R visitLogicalRecursiveCte(LogicalRecursiveCte recursiveCte, C context) {
-        return visit(recursiveCte, context);
-    }
-
-    public R visitLogicalRecursiveCteRecursiveChild(LogicalRecursiveCteRecursiveChild<? extends Plan> recursiveChild,
-            C context) {
-        return visit(recursiveChild, context);
     }
 
     public R visitLogicalLimit(LogicalLimit<? extends Plan> limit, C context) {
@@ -387,15 +374,6 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
 
     public R visitPhysicalUnion(PhysicalUnion union, C context) {
         return visitPhysicalSetOperation(union, context);
-    }
-
-    public R visitPhysicalRecursiveCte(PhysicalRecursiveCte recursiveCte, C context) {
-        return visit(recursiveCte, context);
-    }
-
-    public R visitPhysicalRecursiveCteRecursiveChild(PhysicalRecursiveCteRecursiveChild<? extends Plan> recursiveChild,
-            C context) {
-        return visit(recursiveChild, context);
     }
 
     public R visitAbstractPhysicalSort(AbstractPhysicalSort<? extends Plan> sort, C context) {

@@ -31,19 +31,15 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteRecursiveChild;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * pull up LogicalCteAnchor to the top of plan to avoid CteAnchor break other rewrite rules pattern
@@ -52,13 +48,9 @@ import java.util.Set;
  * and put all of them to the top of plan depends on dependency tree of them.
  */
 public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implements CustomRewriter {
-    // all cte used by recursive cte's recursive child should be inline
-    private Set<LogicalCTEConsumer> mustInlineCteConsumers = new HashSet<>();
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        collectMustInlineCteConsumers(plan, false, mustInlineCteConsumers);
-
         Plan root = plan.accept(this, null);
         // collect cte id to consumer
         root.foreach(p -> {
@@ -86,24 +78,17 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
                 }
                 return false;
             });
-            if (!Sets.intersection(mustInlineCteConsumers, Sets.newHashSet(consumers)).isEmpty()) {
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext.getSessionVariable().enableCTEMaterialize
+                    && consumers.size() > connectContext.getSessionVariable().inlineCTEReferencedThreshold) {
+                // not inline
+                Plan right = cteAnchor.right().accept(this, null);
+                return cteAnchor.withChildren(cteAnchor.left(), right);
+            } else {
                 // should inline
                 Plan root = cteAnchor.right().accept(this, (LogicalCTEProducer<?>) cteAnchor.left());
                 // process child
                 return root.accept(this, null);
-            } else {
-                ConnectContext connectContext = ConnectContext.get();
-                if (connectContext.getSessionVariable().enableCTEMaterialize
-                        && consumers.size() > connectContext.getSessionVariable().inlineCTEReferencedThreshold) {
-                    // not inline
-                    Plan right = cteAnchor.right().accept(this, null);
-                    return cteAnchor.withChildren(cteAnchor.left(), right);
-                } else {
-                    // should inline
-                    Plan root = cteAnchor.right().accept(this, (LogicalCTEProducer<?>) cteAnchor.left());
-                    // process child
-                    return root.accept(this, null);
-                }
             }
         }
     }
@@ -127,20 +112,5 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
             return new LogicalProject<>(projects, inlinedPlan);
         }
         return cteConsumer;
-    }
-
-    private void collectMustInlineCteConsumers(Plan planNode, boolean needCollect,
-            Set<LogicalCTEConsumer> cteConsumers) {
-        if (planNode instanceof LogicalCTEConsumer) {
-            if (needCollect) {
-                cteConsumers.add((LogicalCTEConsumer) planNode);
-            }
-        } else if (planNode instanceof LogicalRecursiveCteRecursiveChild) {
-            collectMustInlineCteConsumers(planNode.child(0), true, cteConsumers);
-        } else {
-            for (Plan child : planNode.children()) {
-                collectMustInlineCteConsumers(child, needCollect, cteConsumers);
-            }
-        }
     }
 }

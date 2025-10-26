@@ -133,8 +133,6 @@ public class CascadesContext implements ScheduleContext {
     private final boolean isEnableExprTrace;
 
     private int groupExpressionCount = 0;
-    private Optional<String> currentRecursiveCteName;
-    private List<Slot> recursiveCteOutputs;
 
     /**
      * Constructor of OptimizerContext.
@@ -144,8 +142,7 @@ public class CascadesContext implements ScheduleContext {
      */
     private CascadesContext(Optional<CascadesContext> parent, Optional<CTEId> currentTree,
             StatementContext statementContext, Plan plan, Memo memo,
-            CTEContext cteContext, PhysicalProperties requireProperties, boolean isLeadingDisableJoinReorder,
-            Optional<String> currentRecursiveCteName, List<Slot> recursiveCteOutputs) {
+            CTEContext cteContext, PhysicalProperties requireProperties, boolean isLeadingDisableJoinReorder) {
         this.parent = Objects.requireNonNull(parent, "parent should not null");
         this.currentTree = Objects.requireNonNull(currentTree, "currentTree should not null");
         this.statementContext = Objects.requireNonNull(statementContext, "statementContext should not null");
@@ -170,8 +167,6 @@ public class CascadesContext implements ScheduleContext {
             this.isEnableExprTrace = false;
         }
         this.isLeadingDisableJoinReorder = isLeadingDisableJoinReorder;
-        this.currentRecursiveCteName = currentRecursiveCteName;
-        this.recursiveCteOutputs = recursiveCteOutputs;
     }
 
     /** init a temporary context to rewrite expression */
@@ -186,7 +181,7 @@ public class CascadesContext implements ScheduleContext {
         }
         return newContext(Optional.empty(), Optional.empty(),
                 statementContext, DUMMY_PLAN,
-                new CTEContext(), PhysicalProperties.ANY, false, Optional.empty(), ImmutableList.of());
+                new CTEContext(), PhysicalProperties.ANY, false);
     }
 
     /**
@@ -195,25 +190,24 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext initContext(StatementContext statementContext,
             Plan initPlan, PhysicalProperties requireProperties) {
         return newContext(Optional.empty(), Optional.empty(), statementContext,
-                initPlan, new CTEContext(), requireProperties, false, Optional.empty(), ImmutableList.of());
+                initPlan, new CTEContext(), requireProperties, false);
     }
 
     /**
      * use for analyze cte. we must pass CteContext from outer since we need to get right scope of cte
      */
     public static CascadesContext newContextWithCteContext(CascadesContext cascadesContext,
-            Plan initPlan, CTEContext cteContext, Optional<String> currentRecursiveCteName,
-            List<Slot> recursiveCteOutputs) {
+            Plan initPlan, CTEContext cteContext) {
         return newContext(Optional.of(cascadesContext), Optional.empty(),
                 cascadesContext.getStatementContext(), initPlan, cteContext, PhysicalProperties.ANY,
-                cascadesContext.isLeadingDisableJoinReorder, currentRecursiveCteName, recursiveCteOutputs);
+                cascadesContext.isLeadingDisableJoinReorder
+        );
     }
 
     public static CascadesContext newCurrentTreeContext(CascadesContext context) {
         return CascadesContext.newContext(context.getParent(), context.getCurrentTree(), context.getStatementContext(),
                 context.getRewritePlan(), context.getCteContext(),
-                context.getCurrentJobContext().getRequiredProperties(), context.isLeadingDisableJoinReorder,
-                Optional.empty(), ImmutableList.of());
+                context.getCurrentJobContext().getRequiredProperties(), context.isLeadingDisableJoinReorder);
     }
 
     /**
@@ -222,17 +216,14 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext newSubtreeContext(Optional<CTEId> subtree, CascadesContext context,
             Plan plan, PhysicalProperties requireProperties) {
         return CascadesContext.newContext(Optional.of(context), subtree, context.getStatementContext(),
-                plan, context.getCteContext(), requireProperties, context.isLeadingDisableJoinReorder, Optional.empty(),
-                ImmutableList.of());
+                plan, context.getCteContext(), requireProperties, context.isLeadingDisableJoinReorder);
     }
 
     private static CascadesContext newContext(Optional<CascadesContext> parent, Optional<CTEId> subtree,
             StatementContext statementContext, Plan initPlan, CTEContext cteContext,
-            PhysicalProperties requireProperties, boolean isLeadingDisableJoinReorder,
-            Optional<String> currentRecursiveCteName, List<Slot> recursiveCteOutputs) {
+            PhysicalProperties requireProperties, boolean isLeadingDisableJoinReorder) {
         return new CascadesContext(parent, subtree, statementContext, initPlan, null,
-                cteContext, requireProperties, isLeadingDisableJoinReorder, currentRecursiveCteName,
-                recursiveCteOutputs);
+            cteContext, requireProperties, isLeadingDisableJoinReorder);
     }
 
     public CascadesContext getRoot() {
@@ -257,18 +248,6 @@ public class CascadesContext implements ScheduleContext {
 
     public synchronized boolean isTimeout() {
         return isTimeout;
-    }
-
-    public Optional<String> getCurrentRecursiveCteName() {
-        return currentRecursiveCteName;
-    }
-
-    public List<Slot> getRecursiveCteOutputs() {
-        return recursiveCteOutputs;
-    }
-
-    public boolean isAnalyzingRecursiveCteAnchorChild() {
-        return currentRecursiveCteName.isPresent() && recursiveCteOutputs.isEmpty();
     }
 
     /**

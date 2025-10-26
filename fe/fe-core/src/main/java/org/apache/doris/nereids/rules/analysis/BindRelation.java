@@ -27,7 +27,6 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.RecursiveCteTempTable;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.SchemaTable.SchemaColumn;
 import org.apache.doris.catalog.TableIf;
@@ -90,7 +89,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
@@ -170,32 +168,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 return consumer;
             }
         }
-        LogicalPlan scan;
         List<String> tableQualifier = RelationUtil.getQualifierName(
                 cascadesContext.getConnectContext(), unboundRelation.getNameParts());
-        if (tableName.equalsIgnoreCase(cascadesContext.getCurrentRecursiveCteName().orElse(""))) {
-            if (cascadesContext.isAnalyzingRecursiveCteAnchorChild()) {
-                throw new AnalysisException(
-                        String.format("recursive reference to query %s must not appear within its non-recursive term",
-                                cascadesContext.getCurrentRecursiveCteName().get()));
-            }
-            ImmutableList.Builder<Column> schema = new ImmutableList.Builder<>();
-            for (Slot slot : cascadesContext.getRecursiveCteOutputs()) {
-                schema.add(new Column(slot.getName(), slot.getDataType().toCatalogDataType(), slot.nullable()));
-            }
-            RecursiveCteTempTable cteTempTable = new RecursiveCteTempTable(tableName, schema.build());
-            scan = new LogicalRecursiveCteScan(cascadesContext.getStatementContext().getNextRelationId(),
-                    cteTempTable, tableQualifier);
-        } else {
-            TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
-                    Optional.of(unboundRelation));
+        TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
+                Optional.of(unboundRelation));
 
-            scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
-            if (cascadesContext.isLeadingJoin()) {
-                LeadingHint leading = (LeadingHint) cascadesContext.getHintMap().get("Leading");
-                leading.putRelationIdAndTableName(Pair.of(unboundRelation.getRelationId(), tableName));
-                leading.getRelationIdToScanMap().put(unboundRelation.getRelationId(), scan);
-            }
+        LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
+        if (cascadesContext.isLeadingJoin()) {
+            LeadingHint leading = (LeadingHint) cascadesContext.getHintMap().get("Leading");
+            leading.putRelationIdAndTableName(Pair.of(unboundRelation.getRelationId(), tableName));
+            leading.getRelationIdToScanMap().put(unboundRelation.getRelationId(), scan);
         }
         return scan;
     }

@@ -60,7 +60,6 @@ import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
-import org.apache.doris.nereids.trees.plans.algebra.RecursiveCte;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
@@ -91,9 +90,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCte;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteRecursiveChild;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
@@ -127,9 +123,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCte;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteRecursiveChild;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveCteScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
@@ -877,12 +870,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
-    public Statistics visitLogicalRecursiveCteScan(LogicalRecursiveCteScan recursiveCteScan, Void context) {
-        recursiveCteScan.getExpressions();
-        return computeCatalogRelation(recursiveCteScan);
-    }
-
-    @Override
     public Statistics visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
         return computeProject(project, groupExpression.childStatistics(0));
     }
@@ -923,20 +910,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public Statistics visitLogicalAssertNumRows(
             LogicalAssertNumRows<? extends Plan> assertNumRows, Void context) {
         return computeAssertNumRows(assertNumRows.getAssertNumRowsElement(), groupExpression.childStatistics(0));
-    }
-
-    @Override
-    public Statistics visitLogicalRecursiveCte(
-            LogicalRecursiveCte recursiveCte, Void context) {
-        return computeRecursiveCte(recursiveCte,
-                groupExpression.children()
-                        .stream().map(Group::getStatistics).collect(Collectors.toList()));
-    }
-
-    @Override
-    public Statistics visitLogicalRecursiveCteRecursiveChild(LogicalRecursiveCteRecursiveChild recursiveChild,
-            Void context) {
-        return groupExpression.childStatistics(0);
     }
 
     @Override
@@ -1025,11 +998,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
-    public Statistics visitPhysicalRecursiveCteScan(PhysicalRecursiveCteScan recursiveCteScan, Void context) {
-        return computeCatalogRelation(recursiveCteScan);
-    }
-
-    @Override
     public Statistics visitPhysicalFileScan(PhysicalFileScan fileScan, Void context) {
         return computeCatalogRelation(fileScan);
     }
@@ -1113,18 +1081,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public Statistics visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
             Void context) {
         return computeAssertNumRows(assertNumRows.getAssertNumRowsElement(), groupExpression.childStatistics(0));
-    }
-
-    @Override
-    public Statistics visitPhysicalRecursiveCte(PhysicalRecursiveCte recursiveCte, Void context) {
-        return computeRecursiveCte(recursiveCte, groupExpression.children()
-                .stream().map(Group::getStatistics).collect(Collectors.toList()));
-    }
-
-    @Override
-    public Statistics visitPhysicalRecursiveCteRecursiveChild(PhysicalRecursiveCteRecursiveChild recursiveChild,
-            Void context) {
-        return groupExpression.childStatistics(0);
     }
 
     @Override
@@ -1506,71 +1462,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 .collect(Collectors.toMap(Pair::key, Pair::value, (item1, item2) -> item1));
         int rowCount = 0;
         return new Statistics(rowCount, 1, columnStatsMap);
-    }
-
-    /**
-     * computeRecursiveCte
-     */
-    public Statistics computeRecursiveCte(RecursiveCte recursiveCte, List<Statistics> childStats) {
-        // TODO: refactor this for one row relation
-        List<SlotReference> head;
-        Statistics headStats;
-        List<List<SlotReference>> childOutputs = Lists.newArrayList(recursiveCte.getRegularChildrenOutputs());
-
-        head = childOutputs.get(0);
-        headStats = new StatisticsBuilder(childStats.get(0)).build();
-
-        StatisticsBuilder statisticsBuilder = new StatisticsBuilder();
-        List<NamedExpression> unionOutput = recursiveCte.getOutputs();
-        double unionRowCount = childStats.stream().mapToDouble(Statistics::getRowCount).sum();
-        statisticsBuilder.setRowCount(unionRowCount);
-
-        for (int i = 0; i < head.size(); i++) {
-            Slot headSlot = head.get(i);
-            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(
-                    headStats.findColumnStatistics(headSlot));
-            for (int j = 1; j < childOutputs.size(); j++) {
-                Slot slot = childOutputs.get(j).get(i);
-                ColumnStatistic rightStatistic = childStats.get(j).findColumnStatistics(slot);
-                double rightRowCount = childStats.get(j).getRowCount();
-                colStatsBuilder = unionColumn(colStatsBuilder,
-                        headStats.getRowCount(), rightStatistic, rightRowCount, headSlot.getDataType());
-            }
-
-            //update hot values
-            Map<Literal, Float> unionHotValues = new HashMap<>();
-            for (int j = 0; j < childOutputs.size(); j++) {
-                Slot slot = childOutputs.get(j).get(i);
-                ColumnStatistic slotStats = childStats.get(j).findColumnStatistics(slot);
-                if (slotStats.getHotValues() != null) {
-                    for (Map.Entry<Literal, Float> entry : slotStats.getHotValues().entrySet()) {
-                        Float value = unionHotValues.get(entry.getKey());
-                        if (value == null) {
-                            unionHotValues.put(entry.getKey(),
-                                    (float) (entry.getValue() * childStats.get(j).getRowCount()));
-                        } else {
-                            unionHotValues.put(entry.getKey(),
-                                    (float) (value + entry.getValue() * childStats.get(j).getRowCount()));
-                        }
-                    }
-                }
-            }
-
-            Map<Literal, Float> resultHotValues = new LinkedHashMap<>();
-            for (Literal hot : unionHotValues.keySet()) {
-                float ratio = (float) (unionHotValues.get(hot) / unionRowCount);
-                if (ratio * colStatsBuilder.getNdv() >= SessionVariable.getSkewValueThreshold()
-                        || ratio >= SessionVariable.getHotValueThreshold()) {
-                    resultHotValues.put(hot, ratio);
-                }
-            }
-            if (!resultHotValues.isEmpty()) {
-                colStatsBuilder.setHotValues(resultHotValues);
-            }
-            statisticsBuilder.putColumnStatistics(unionOutput.get(i), colStatsBuilder.build());
-        }
-
-        return statisticsBuilder.setWidthInJoinCluster(1).build();
     }
 
     /**

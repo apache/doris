@@ -53,8 +53,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCte;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCteRecursiveChild;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
@@ -354,30 +352,6 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .collect(ImmutableList.toImmutableList());
         return new LogicalUnion(union.getQualifier(), outputs, childrenOutputs,
                 constantExprsList, union.hasPushedFilter(), children);
-    }
-
-    @Override
-    public Plan visitLogicalRecursiveCte(LogicalRecursiveCte recursiveCte, DeepCopierContext context) {
-        List<Plan> children = recursiveCte.children().stream()
-                .map(c -> c.accept(this, context))
-                .collect(ImmutableList.toImmutableList());
-        List<NamedExpression> outputs = recursiveCte.getOutputs().stream()
-                .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
-                .collect(ImmutableList.toImmutableList());
-        List<List<SlotReference>> childrenOutputs = recursiveCte.getRegularChildrenOutputs().stream()
-                .map(childOutputs -> childOutputs.stream()
-                        .map(o -> (SlotReference) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
-                        .collect(ImmutableList.toImmutableList()))
-                .collect(ImmutableList.toImmutableList());
-        return new LogicalRecursiveCte(recursiveCte.getCteName(), recursiveCte.isUnionAll(), outputs,
-                childrenOutputs, children);
-    }
-
-    @Override
-    public Plan visitLogicalRecursiveCteRecursiveChild(LogicalRecursiveCteRecursiveChild<? extends Plan> recursiveChild,
-            DeepCopierContext context) {
-        Plan child = recursiveChild.child().accept(this, context);
-        return new LogicalRecursiveCteRecursiveChild<>(recursiveChild.getCteName(), child);
     }
 
     @Override

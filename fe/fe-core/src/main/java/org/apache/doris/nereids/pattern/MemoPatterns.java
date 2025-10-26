@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveCte;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
@@ -203,29 +202,6 @@ public interface MemoPatterns extends Patterns {
     default PatternDescriptor<LogicalUnion> logicalUnion() {
         return new PatternDescriptor(
                 new TypePattern(LogicalUnion.class, multiGroup().pattern),
-                defaultPromise());
-    }
-
-    /**
-     * create a LogicalRecursiveCte pattern.
-     */
-    default PatternDescriptor<LogicalRecursiveCte>
-            logicalRecursiveCte(
-                PatternDescriptor... children) {
-        return new PatternDescriptor(
-                new TypePattern(LogicalRecursiveCte.class,
-                        Arrays.stream(children)
-                                .map(PatternDescriptor::getPattern)
-                                .toArray(Pattern[]::new)),
-                defaultPromise());
-    }
-
-    /**
-     * create a logicalRecursiveCte group.
-     */
-    default PatternDescriptor<LogicalRecursiveCte> logicalRecursiveCte() {
-        return new PatternDescriptor(
-                new TypePattern(LogicalRecursiveCte.class, multiGroup().pattern),
                 defaultPromise());
     }
 

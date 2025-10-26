@@ -144,6 +144,10 @@ supportedDmlStatement
         partitionSpec? tableAlias
         (USING relations)?
         whereClause?                                                   #delete
+    | explain? cte? MERGE INTO targetTable=multipartIdentifier
+        (AS? identifier)? USING srcRelation=relationPrimary
+        ON expression
+        (mergeMatchedClause | mergeNotMatchedClause)+                   #mergeInto
     | LOAD LABEL lableName=multipartIdentifier
         LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
         (withRemoteStorageSystem)?
@@ -161,6 +165,16 @@ supportedDmlStatement
                 FROM stageAndPattern whereClause? RIGHT_PAREN))
             properties=propertyClause?                                 #copyInto
     | TRUNCATE TABLE multipartIdentifier specifiedPartition?  FORCE?   #truncateTable
+    ;
+
+mergeMatchedClause
+    : WHEN MATCHED (AND casePredicate=expression)? THEN
+        (UPDATE SET updateAssignmentSeq | DELETE)
+    ;
+
+mergeNotMatchedClause
+    : WHEN NOT MATCHED (AND casePredicate=expression)? THEN
+        INSERT cols=identifierList? VALUES rowConstructor
     ;
 
 supportedCreateStatement
@@ -1200,7 +1214,7 @@ querySpecification
     ;
 
 cte
-    : WITH RECURSIVE? aliasQuery (COMMA aliasQuery)*
+    : WITH aliasQuery (COMMA aliasQuery)*
     ;
 
 aliasQuery
@@ -2054,6 +2068,7 @@ nonReserved
     | LOGICAL
     | MANUAL
     | MAP
+    | MATCHED
     | MATCH_ALL
     | MATCH_ANY
     | MATCH_PHRASE
@@ -2128,7 +2143,6 @@ nonReserved
     | RANDOM
     | RECENT
     | RECOVER
-    | RECURSIVE
     | RECYCLE
     | REFRESH
     | REPEATABLE

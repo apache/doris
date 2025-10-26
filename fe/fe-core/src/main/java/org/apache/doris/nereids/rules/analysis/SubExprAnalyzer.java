@@ -52,7 +52,6 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -228,8 +227,7 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             throw new IllegalStateException("Missing CascadesContext");
         }
         CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
-                cascadesContext, expr.getQueryPlan(), cascadesContext.getCteContext(), Optional.empty(),
-                ImmutableList.of());
+                cascadesContext, expr.getQueryPlan(), cascadesContext.getCteContext());
         // don't use `getScope()` because we only need `getScope().getOuterScope()` and `getScope().getSlots()`
         // otherwise unexpected errors may occur
         Scope subqueryScope = new Scope(getScope().getOuterScope(),

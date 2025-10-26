@@ -256,6 +256,9 @@ import org.apache.doris.nereids.DorisParser.LockTablesContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
 import org.apache.doris.nereids.DorisParser.LogicalNotContext;
 import org.apache.doris.nereids.DorisParser.MapLiteralContext;
+import org.apache.doris.nereids.DorisParser.MergeIntoContext;
+import org.apache.doris.nereids.DorisParser.MergeMatchedClauseContext;
+import org.apache.doris.nereids.DorisParser.MergeNotMatchedClauseContext;
 import org.apache.doris.nereids.DorisParser.ModifyColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.ModifyColumnCommentClauseContext;
 import org.apache.doris.nereids.DorisParser.ModifyDistributionClauseContext;
@@ -999,6 +1002,9 @@ import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadComman
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ShowCreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDictionaryCommand;
@@ -1110,8 +1116,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     });
 
     private final Map<Integer, ParserRuleContext> selectHintMap;
-
-    private boolean isInRecursiveCteContext = false;
 
     public LogicalPlanBuilder(Map<Integer, ParserRuleContext> selectHintMap) {
         this.selectHintMap = selectHintMap;
@@ -1371,6 +1375,49 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         return withExplain(command, ctx.explain());
+    }
+
+    @Override
+    public Object visitMergeInto(MergeIntoContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            List<String> targetNameParts = visitMultipartIdentifier(ctx.targetTable);
+            Optional<String> targetAlias = Optional.ofNullable(
+                    ctx.identifier() != null ? ctx.identifier().getText() : null);
+            LogicalPlan source = plan(ctx.relationPrimary());
+            Expression onClause = typedVisit(ctx.expression());
+            List<MergeMatchedClause> matchedClauses = visit(ctx.mergeMatchedClause(), MergeMatchedClause.class);
+            List<MergeNotMatchedClause> notMatchedClauses = visit(ctx.mergeNotMatchedClause(),
+                    MergeNotMatchedClause.class);
+            Optional<LogicalPlan> cte = Optional.empty();
+            if (ctx.cte() != null) {
+                cte = Optional.ofNullable(withCte(source, ctx.cte()));
+            }
+            return withExplain(new MergeIntoCommand(targetNameParts, targetAlias, cte,
+                    source, onClause, matchedClauses, notMatchedClauses), ctx.explain());
+        });
+    }
+
+    @Override
+    public MergeMatchedClause visitMergeMatchedClause(MergeMatchedClauseContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            Optional<Expression> casePredicate = Optional.ofNullable(
+                    ctx.casePredicate != null ? typedVisit(ctx.casePredicate) : null);
+            boolean isDelete = ctx.DELETE() != null;
+            List<EqualTo> updateAssignments = isDelete ? ImmutableList.of() :
+                    visitUpdateAssignmentSeq(ctx.updateAssignmentSeq());
+            return new MergeMatchedClause(casePredicate, updateAssignments, isDelete);
+        });
+    }
+
+    @Override
+    public MergeNotMatchedClause visitMergeNotMatchedClause(MergeNotMatchedClauseContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            Optional<Expression> casePredicate = Optional.ofNullable(
+                    ctx.casePredicate != null ? typedVisit(ctx.casePredicate) : null);
+            List<String> cols = ctx.cols != null ? visitIdentifierList(ctx.cols) : ImmutableList.of();
+            List<NamedExpression> row = visitRowConstructor(ctx.rowConstructor());
+            return new MergeNotMatchedClause(casePredicate, cols, row);
+        });
     }
 
     /**
@@ -2136,11 +2183,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx == null) {
             return plan;
         }
-        isInRecursiveCteContext = ctx.RECURSIVE() != null;
-        LogicalCTE<Plan> logicalCTE = new LogicalCTE<>(isInRecursiveCteContext,
-                (List) visit(ctx.aliasQuery(), LogicalSubQueryAlias.class), plan);
-        isInRecursiveCteContext = false;
-        return logicalCTE;
+        return new LogicalCTE<>((List) visit(ctx.aliasQuery(), LogicalSubQueryAlias.class), plan);
     }
 
     /**
@@ -2334,7 +2377,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitSetOperation(SetOperationContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
 
-            if (ctx.UNION() != null && !isInRecursiveCteContext) {
+            if (ctx.UNION() != null) {
                 Qualifier qualifier = getQualifier(ctx);
                 List<QueryTermContext> contexts = Lists.newArrayList(ctx.right);
                 QueryTermContext current = ctx.left;
@@ -2450,7 +2493,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public LogicalPlan visitInlineTable(InlineTableContext ctx) {
+    public UnboundInlineTable visitInlineTable(InlineTableContext ctx) {
         List<RowConstructorContext> rowConstructorContexts = ctx.rowConstructor();
         ImmutableList.Builder<List<NamedExpression>> rows
                 = ImmutableList.builderWithExpectedSize(rowConstructorContexts.size());
