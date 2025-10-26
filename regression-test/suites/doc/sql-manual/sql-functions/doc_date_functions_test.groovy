@@ -1386,10 +1386,11 @@ suite("doc_date_functions_test") {
                 (6, 14, 51, 66),
                 (7, NULL, 15, 16),
                 (8, 7, NULL, 8),
-                (9, 1, 2, NULL);"""
+                (9, 1, 2, NULL),
+                (10, 123, -4, 52),
+                (11, 7, 23, -6);"""
     qt_maketime_test_1 """SELECT MAKETIME(hour,minute,sec) FROM maketime_test ORDER BY id;"""
     qt_maketime_test_2 """SELECT MAKETIME(hour, minute, 25) FROM maketime_test ORDER BY id;"""
-    sql """ DROP TABLE maketime_test; """
 
     // Test constant folding for YEARWEEK function
     testFoldConst("SELECT YEARWEEK('2021-01-01') AS yearweek_mode0")
@@ -2018,6 +2019,8 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT MAKETIME(NULL, 15, 16)")
     testFoldConst("SELECT MAKETIME(7, NULL, 8)")
     testFoldConst("SELECT MAKETIME(1, 2, NULL)")
+    testFoldConst("SELECT MAKETIME(123, -4, 40)")
+    testFoldConst("SELECT MAKETIME(7, 8, -23)")
 
     // Additional NULL parameter tests for comprehensive coverage
     
