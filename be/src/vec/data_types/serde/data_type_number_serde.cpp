@@ -907,6 +907,9 @@ void value_to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType value
         DateV2Value<doris::DateTimeV2ValueType> dt =
                 binary_cast<UInt64, DateV2Value<doris::DateTimeV2ValueType>>(value);
         CastToString::push_datetimev2(dt, scale, bw);
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        TimestampTzValue tz_value = binary_cast<UInt64, TimestampTzValue>(value);
+        CastToString::push_timestamptz(tz_value, scale, bw);
     } else if constexpr (T == TYPE_TIME || T == TYPE_TIMEV2) {
         CastToString::push_time(value, scale, bw);
     } else if constexpr (T == TYPE_IPV4 || T == TYPE_IPV6) {

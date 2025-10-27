@@ -47,7 +47,10 @@ suite("test_timestamptz_storage") {
         );
     """
 
-    sql """INSERT INTO timestamptz_storage_dup_key VALUES ('2023-01-01 12:00:00 +03:00', 1),
+    sql """INSERT INTO timestamptz_storage_dup_key VALUES
+    (null, -1),
+    ('0000-01-01 00:00:00 +00:00', 0),
+    ('2023-01-01 12:00:00 +03:00', 1),
     ('2023-02-02 12:00:00 +03:00', 2),
     ('2023-03-03 12:00:00 -05:00', 3),
     ('2023-09-09 09:09:09 +01:00', 9),
@@ -88,6 +91,20 @@ suite("test_timestamptz_storage") {
     qt_select_timestamptz_storage_dup_key_not_in """
         SELECT * FROM timestamptz_storage_dup_key where ts_tz not in('2023-01-01 12:00:00 +03:00', '2023-02-02 12:00:00 +03:00', '2023-10-10 10:10:10 -03:00') ORDER BY 1, 2;
     """
+    qt_select_timestamptz_storage_dup_key_is_null """
+        SELECT * FROM timestamptz_storage_dup_key where ts_tz IS NULL ORDER BY 1, 2;
+    """
+    qt_select_timestamptz_storage_dup_key_is_not_null """
+        SELECT * FROM timestamptz_storage_dup_key where ts_tz IS NOT NULL ORDER BY 1, 2;
+    """
+
+    // no partition
+    test {
+        sql """
+        INSERT INTO timestamptz_storage_dup_key VALUES ('9999-12-31 23:59:59 +00:00', 9999);
+        """
+        exception "no partition for this tuple"
+    }
 
     sql """
         DROP TABLE IF EXISTS `timestamptz_storage_dup_key_scale`;
@@ -117,7 +134,10 @@ suite("test_timestamptz_storage") {
         );
     """
 
-    sql """INSERT INTO timestamptz_storage_dup_key_scale VALUES ('2023-01-01 12:00:00.123450 +03:00', 1),
+    sql """INSERT INTO timestamptz_storage_dup_key_scale VALUES
+    (null, -1),
+    ('0000-01-01 00:00:00.000001 +00:00', 0),
+    ('2023-01-01 12:00:00.123450 +03:00', 1),
     ('2023-07-07 07:07:07.123456 +05:30', 7),
     ('2023-08-08 20:20:20.123457 -04:00', 8),
     ('2023-09-09 09:09:09.123458 +01:00', 9),
@@ -135,4 +155,43 @@ suite("test_timestamptz_storage") {
     qt_select_timestamptz_storage_dup_key_scale """
         SELECT * FROM timestamptz_storage_dup_key_scale ORDER BY 1, 2;
     """
+    qt_select_timestamptz_storage_dup_key_scale_eq """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz = '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2;
+    """
+    qt_select_timestamptz_storage_dup_key_scale_neq """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz != '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2;
+    """
+    qt_select_timestamptz_storage_dup_key_scale_gt """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz > '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2;
+    """
+    qt_select_timestamptz_storage_dup_key_scale_ge """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz >= '0000-01-01 00:00:00.000001 +00:00' ORDER BY 1, 2;
+    """
+    qt_select_timestamptz_storage_dup_key_scale_lt """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz < '9999-12-30 23:59:59.999999 +00:00' ORDER BY 1, 2;
+    """
+    //    SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz < '9999-12-31 23:59:59.999999 +00:00' ORDER BY 1, 2;
+    qt_select_timestamptz_storage_dup_key_scale_le """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz <= '2023-12-12 12:12:12.123461 +09:00' ORDER BY 1, 2;
+    """
+    qt_select_timestamptz_storage_dup_key_scale_in """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz in('0000-01-01 00:00:00.000001 +00:00', '9999-12-31 23:59:59.999999 +00:00', '2023-12-12 12:12:12.123461 +09:00') ORDER BY 1, 2;
+    """
+    qt_select_timestamptz_storage_dup_key_scale_not_in """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz not in('0000-01-01 00:00:00.000001 +00:00', '9999-12-30 23:59:59.999999 +00:00', '2023-12-12 12:12:12.123461 +09:00') ORDER BY 1, 2;
+    """
+    //    SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz not in('0000-01-01 00:00:00.000001 +00:00', '9999-12-31 23:59:59.999999 +00:00', '2023-12-12 12:12:12.123461 +09:00') ORDER BY 1, 2;
+    qt_select_timestamptz_storage_dup_key_scale_is_null """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz IS NULL ORDER BY 1, 2;
+    """
+    qt_select_timestamptz_storage_dup_key_scale_is_not_null """
+        SELECT * FROM timestamptz_storage_dup_key_scale where ts_tz IS NOT NULL ORDER BY 1, 2;
+    """
+    // no partition
+    test {
+        sql """
+        INSERT INTO timestamptz_storage_dup_key_scale VALUES ('9999-12-31 23:59:59.999999 +00:00', 9999);
+        """
+        exception "no partition for this tuple"
+    }
 }

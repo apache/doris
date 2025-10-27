@@ -67,6 +67,8 @@ struct CastToString {
 
     static inline void push_datetimev2(const DateV2Value<DateTimeV2ValueType>& from, UInt32 scale,
                                        BufferWritable& bw);
+    static inline void push_timestamptz(const TimestampTzValue& from, UInt32 scale,
+                                        BufferWritable& bw);
 
     template <class SRC>
     static inline std::string from_ip(const SRC& from);
@@ -466,6 +468,12 @@ inline void CastToString::push_datetimev2(const DateV2Value<DateTimeV2ValueType>
     char* pos = from.to_string(buf, scale);
     // DateTime to_string the end is /0
     bw.write(buf, pos - buf - 1);
+}
+
+inline void CastToString::push_timestamptz(const TimestampTzValue& from, UInt32 scale,
+                                           BufferWritable& bw) {
+    auto str = from.to_string(cctz::utc_time_zone(), scale);
+    bw.write(str.data(), str.size());
 }
 
 // IPv4
