@@ -123,6 +123,7 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             return null;
         }
         if (!streamingInsertJob.needScheduleTask()) {
+            //todo: should list history task
             return null;
         }
         TRow trow = new TRow();

@@ -245,7 +245,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             super.updateJobStatus(status);
             if (JobStatus.PAUSED.equals(getJobStatus())) {
-                clearRunningStreamTask();
+                clearRunningStreamTask(status);
             }
             if (isFinalStatus()) {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
@@ -316,15 +316,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return (getJobStatus().equals(JobStatus.RUNNING) || getJobStatus().equals(JobStatus.PENDING));
     }
 
-    public void clearRunningStreamTask() {
+    public void clearRunningStreamTask(JobStatus newJobStatus) {
         if (runningStreamTask != null) {
-            log.info("clear running streaming insert task for job {}, task {} ",
-                    getJobId(), runningStreamTask.getTaskId());
-            log.info("running task {} is canceled {}",
-                    runningStreamTask.getTaskId(), runningStreamTask.getIsCanceled().get());
-            runningStreamTask.cancel(true);
+            log.info("clear running streaming insert task for job {}, task {}, status {} ",
+                    getJobId(), runningStreamTask.getTaskId(), runningStreamTask.getStatus());
+            runningStreamTask.cancel(JobStatus.STOPPED.equals(newJobStatus) ? false : true);
             runningStreamTask.closeOrReleaseResources();
-            // runningStreamTask = null;
         }
     }
 
@@ -571,20 +568,16 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void beforeCommitted(TransactionState txnState) throws TransactionException {
-        log.info("beforeCommitted called for streaming insert job {}, task {}, iscanceled {} ",
-                getJobId(), runningStreamTask.getTaskId(), runningStreamTask.getIsCanceled().get());
-        if (runningStreamTask.getIsCanceled().get()) {
-            log.info("streaming insert job {} task {} is canceled, skip beforeCommitted",
-                    getJobId(), runningStreamTask.getTaskId());
-            return;
-        }
         boolean shouldReleaseLock = false;
         writeLock();
         try {
+            if (runningStreamTask.getIsCanceled().get()) {
+                log.info("streaming insert job {} task {} is canceled, skip beforeCommitted",
+                        getJobId(), runningStreamTask.getTaskId());
+                return;
+            }
+
             ArrayList<Long> taskIds = new ArrayList<>();
-            log.info("prepare to commit streaming insert job {}, running task is {}",
-                    getJobId(),
-                    runningStreamTask == null ? "null" : runningStreamTask.getTaskId());
             taskIds.add(runningStreamTask.getTaskId());
             // todo: Check whether the taskid of runningtask is consistent with the taskid associated with txn
 
