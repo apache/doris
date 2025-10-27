@@ -269,7 +269,11 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         probExprList.add(ctx.probeExpr);
         Pair<PhysicalRelation, Slot> srcPair = ctx.rfContext.getAliasTransferMap().get(ctx.srcExpr);
         PhysicalRelation srcNode = (srcPair == null) ? null : srcPair.first;
-        Pair<PhysicalRelation, Slot> targetPair = ctx.rfContext.getAliasTransferMap().get(ctx.probeExpr);
+        Expression probe = ctx.probeExpr;
+        if (ctx.probeExpr instanceof Cast) {
+            probe = ctx.probeExpr.child(0);
+        }
+        Pair<PhysicalRelation, Slot> targetPair = ctx.rfContext.getAliasTransferMap().get(probe);
         if (targetPair == null) {
             /* cases for "targetPair is null"
              when probeExpr is output slot of setOperator, targetPair is null
