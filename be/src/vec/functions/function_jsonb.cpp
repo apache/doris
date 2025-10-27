@@ -3028,6 +3028,71 @@ private:
     }
 };
 
+class FunctionStripNullValue : public IFunction {
+public:
+    static constexpr auto name = "strip_null_value";
+    static FunctionPtr create() { return std::make_shared<FunctionStripNullValue>(); }
+
+    String get_name() const override { return name; }
+    bool is_variadic() const override { return false; }
+    size_t get_number_of_arguments() const override { return 1; }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeJsonb>());
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        const auto& arg_column = block.get_by_position(arguments[0]).column;
+        const ColumnString* json_column = nullptr;
+        const NullMap* json_null_map = nullptr;
+        if (arg_column->is_nullable()) {
+            const auto& nullable_col = assert_cast<const ColumnNullable&>(*arg_column);
+            json_column = assert_cast<const ColumnString*>(&nullable_col.get_nested_column());
+            json_null_map = &nullable_col.get_null_map_data();
+        } else {
+            json_column = assert_cast<const ColumnString*>(arg_column.get());
+        }
+
+        auto return_data_type = make_nullable(std::make_shared<DataTypeJsonb>());
+        auto result_column = return_data_type->create_column();
+
+        auto& result_nullmap = assert_cast<ColumnNullable&>(*result_column).get_null_map_data();
+        auto& result_data_col = assert_cast<ColumnString&>(
+                assert_cast<ColumnNullable&>(*result_column).get_nested_column());
+
+        result_nullmap.resize_fill(input_rows_count, 0);
+        for (size_t i = 0; i != input_rows_count; ++i) {
+            if (json_null_map && (*json_null_map)[i]) {
+                result_nullmap[i] = 1;
+                result_data_col.insert_default();
+                continue;
+            }
+            JsonbDocument* json_doc = nullptr;
+            const auto& json_str = json_column->get_data_at(i);
+            RETURN_IF_ERROR(
+                    JsonbDocument::checkAndCreateDocument(json_str.data, json_str.size, &json_doc));
+            if (json_doc) [[likely]] {
+                if (json_doc->getValue()->isNull()) {
+                    result_nullmap[i] = 1;
+                    result_data_col.insert_default();
+                } else {
+                    result_nullmap[i] = 0;
+                    result_data_col.insert_data(json_str.data, json_str.size);
+                }
+            } else {
+                result_nullmap[i] = 1;
+                result_data_col.insert_default();
+            }
+        }
+
+        block.get_by_position(result).column = std::move(result_column);
+        return Status::OK();
+    }
+};
+
 void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbParse>(FunctionJsonbParse::name);
     factory.register_alias(FunctionJsonbParse::name, FunctionJsonbParse::alias);
@@ -3079,6 +3144,8 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
 
     factory.register_function<FunctionJsonbRemove>();
     factory.register_alias(FunctionJsonbRemove::name, FunctionJsonbRemove::alias);
+
+    factory.register_function<FunctionStripNullValue>();
 }
 
 } // namespace doris::vectorized
