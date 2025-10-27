@@ -148,7 +148,7 @@ suite("consistency_relaxed_tables") {
     }
 
 
-    def mv_name = "mv_1"
+    def mv_name = "consistency_relaxed_tables_mv_1"
 
     def mv_def_sql = """
     select l_shipdate, o_orderdate, ps_partkey,
@@ -200,10 +200,11 @@ suite("consistency_relaxed_tables") {
     logger.info("refresh_info1: " + refresh_info1.toString())
     assert (refresh_info1[0][1] == "SUCCESS")
     assert (refresh_info1[0][2] == "COMPLETE")
+    order_qt_mv_1_before_insert "select * from ${mv_name}"
 
 
     //  set consistency_relaxed_tables and dimension table has new data, rewrite in dml should not use the mv
-    def another_mv_name = "mv2"
+    def another_mv_name = "consistency_relaxed_tables_mv2"
     create_async_partition_mv(db, another_mv_name, mv_def_sql, "(l_shipdate)")
 
     sql """ALTER MATERIALIZED VIEW ${another_mv_name} set('async_mv.query_rewrite.consistency_relaxed_tables'='orders_p');"""
@@ -224,13 +225,15 @@ suite("consistency_relaxed_tables") {
     (3, 3, 'ok', 1, '2023-10-22', 'a', 'b', 1, 'yy');
     """
     sql """refresh materialized view ${another_mv_name} auto;"""
+    waitingMTMVTaskFinishedByMvName(another_mv_name, db)
     sql """set enable_materialized_view_rewrite = false;"""
+    // should contain new data but not use another_mv_name to rewrite when insert
     order_qt_mv_2_after_insert "select * from ${another_mv_name}"
 
 
 
     //  set consistency_relaxed_tables and dimension table has new data, rewrite in dml should not use the mv
-    def another_mv_name2 = "mv3"
+    def another_mv_name2 = "consistency_relaxed_tables_mv3"
     create_async_partition_mv(db, another_mv_name2, mv_def_sql, "(l_shipdate)")
 
     sql """ALTER MATERIALIZED VIEW ${another_mv_name2} set('async_mv.query_rewrite.consistency_relaxed_tables'='orders_p');"""
@@ -250,8 +253,10 @@ suite("consistency_relaxed_tables") {
     (3, 3, 'ok', 1, '2023-10-22', 'a', 'b', 1, 'yy'),
     (3, 3, 'ok', 1, '2023-10-22', 'a', 'b', 1, 'yy');
     """
-    sql """refresh materialized view ${another_mv_name} auto;"""
+    sql """refresh materialized view ${another_mv_name2} auto;"""
+    waitingMTMVTaskFinishedByMvName(another_mv_name2, db)
     sql """set enable_materialized_view_rewrite = false;"""
+    // should not use another_mv_name to rewrite when refresh
     order_qt_mv_3_after_insert "select * from ${another_mv_name2}"
 
 }
