@@ -22,6 +22,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "udf/udf.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
@@ -127,6 +128,7 @@ private:
             CASE_TYPE(TYPE_DATETIME, ColumnDateTime)
             CASE_TYPE(TYPE_DATEV2, ColumnDateV2)
             CASE_TYPE(TYPE_DATETIMEV2, ColumnDateTimeV2)
+            CASE_TYPE(TYPE_TIMESTAMPTZ, ColumnTimeStampTz)
             CASE_TYPE(TYPE_IPV6, ColumnIPv6)
             CASE_TYPE(TYPE_IPV4, ColumnIPv4)
             CASE_TYPE(TYPE_ARRAY, ColumnArray)

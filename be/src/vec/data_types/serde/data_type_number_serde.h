@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "data_type_serde.h"
 #include "olap/olap_common.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
@@ -179,7 +180,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
         for (int i = 0; i < arg.int32_value_size(); ++i) {
             data[old_column_size + i] = arg.int32_value(i);
         }
-    } else if constexpr (T == TYPE_DATETIMEV2) {
+    } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
         column.resize(old_column_size + arg.uint64_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.uint64_value_size(); ++i) {
@@ -241,7 +242,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         auto* values = result.mutable_uint32_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (T == TYPE_DATETIMEV2) {
+    } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
         ptype->set_id(PGenericType::UINT64);
         auto* values = result.mutable_uint64_value();
         values->Reserve(row_count);

@@ -273,8 +273,8 @@ template <PrimitiveType T>
 constexpr bool can_write_to_jsonb_from_number() {
     return T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
            T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE ||
-           T == TYPE_DATEV2 || T == TYPE_DATETIMEV2 || T == TYPE_IPV4 || T == TYPE_IPV6 ||
-           T == TYPE_TIMEV2;
+           T == TYPE_DATEV2 || T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ || T == TYPE_IPV4 ||
+           T == TYPE_IPV6 || T == TYPE_TIMEV2;
 }
 
 template <PrimitiveType T>
@@ -317,6 +317,10 @@ bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer, int scale) {
                 writer,
                 CastToString::from_datetimev2(
                         binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(data), scale));
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        return jsonb_writer_string(
+                writer,
+                CastToString::from_timestamptz(binary_cast<UInt64, TimestampTzValue>(data), scale));
     } else if constexpr (T == TYPE_IPV4) {
         return jsonb_writer_string(writer, CastToString::from_ip(data));
     } else if constexpr (T == TYPE_IPV6) {
@@ -605,7 +609,7 @@ void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
     } else if constexpr (T == TYPE_INT || T == TYPE_DATEV2 || T == TYPE_IPV4) {
         col.insert_value(arg->unpack<JsonbInt32Val>()->val());
     } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME ||
-                         T == TYPE_DATETIMEV2) {
+                         T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
         col.insert_value(arg->unpack<JsonbInt64Val>()->val());
     } else if constexpr (T == TYPE_LARGEINT) {
         col.insert_value(arg->unpack<JsonbInt128Val>()->val());
@@ -639,7 +643,7 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
         int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data);
         result.writeInt32(val);
     } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME ||
-                         T == TYPE_DATETIMEV2) {
+                         T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
         int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
         result.writeInt64(val);
     } else if constexpr (T == TYPE_LARGEINT) {

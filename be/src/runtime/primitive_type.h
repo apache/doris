@@ -139,6 +139,7 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_STRING:
     case TYPE_DATETIME:
     case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMPTZ:
     case TYPE_TIMEV2:
     case TYPE_DECIMALV2:
     case TYPE_DECIMAL32:

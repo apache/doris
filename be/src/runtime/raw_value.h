@@ -91,6 +91,10 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveT
         return HashUtil::zlib_crc_hash(v, 8, seed);
     }
 
+    case TYPE_TIMESTAMPTZ: {
+        return HashUtil::zlib_crc_hash(v, 8, seed);
+    }
+
     case TYPE_DECIMALV2: {
         const DecimalV2Value* dec_val = (const DecimalV2Value*)v;
         int64_t int_val = dec_val->int_value();

@@ -156,6 +156,10 @@ bool RuntimePredicate::_init(PrimitiveType type) {
         _get_value_fn = get_normal_value<TYPE_DATETIMEV2>;
         break;
     }
+    case PrimitiveType::TYPE_TIMESTAMPTZ: {
+        _get_value_fn = get_normal_value<TYPE_TIMESTAMPTZ>;
+        break;
+    }
     case PrimitiveType::TYPE_DATE: {
         _get_value_fn = get_date_value;
         break;

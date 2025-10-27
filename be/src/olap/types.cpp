@@ -100,18 +100,17 @@ const TypeInfo* get_scalar_type_info(FieldType field_type) {
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_DECIMAL256>(),
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_IPV4>(),
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_IPV6>(),
+            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>(),
             nullptr};
     return field_type_array[int(field_type)];
 }
 
-#define INIT_ARRAY_TYPE_INFO_LIST(type)                                               \
-    {                                                                                 \
-        get_init_array_type_info<type>(0), get_init_array_type_info<type>(1),         \
-                get_init_array_type_info<type>(2), get_init_array_type_info<type>(3), \
-                get_init_array_type_info<type>(4), get_init_array_type_info<type>(5), \
-                get_init_array_type_info<type>(6), get_init_array_type_info<type>(7), \
-                get_init_array_type_info<type>(8)                                     \
-    }
+#define INIT_ARRAY_TYPE_INFO_LIST(type)                                    \
+    {get_init_array_type_info<type>(0), get_init_array_type_info<type>(1), \
+     get_init_array_type_info<type>(2), get_init_array_type_info<type>(3), \
+     get_init_array_type_info<type>(4), get_init_array_type_info<type>(5), \
+     get_init_array_type_info<type>(6), get_init_array_type_info<type>(7), \
+     get_init_array_type_info<type>(8)}
 
 template <FieldType field_type>
 const ArrayTypeInfo* get_init_array_type_info(int32_t iterations) {

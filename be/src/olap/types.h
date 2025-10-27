@@ -53,6 +53,7 @@
 #include "vec/common/arena.h"
 #include "vec/core/extended_types.h"
 #include "vec/functions/cast/cast_to_string.h"
+#include "vec/functions/cast/cast_to_timestamptz.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -720,6 +721,11 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
     using UnsignedCppType = uint64_t;
 };
 template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ> {
+    using CppType = uint64_t;
+    using UnsignedCppType = uint64_t;
+};
+template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME> {
     using CppType = int64_t;
     using UnsignedCppType = uint64_t;
@@ -1319,6 +1325,39 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>
         *reinterpret_cast<CppType*>(buf) = 99991231235959L;
     }
     static void set_to_min(void* buf) { *reinterpret_cast<CppType*>(buf) = 101000000; }
+};
+
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>
+        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ> {
+    static Status from_string(void* buf, const std::string& scan_key, const int precision,
+                              const int scale) {
+        vectorized::CastParameters params;
+        TimestampTzValue value;
+        auto tz = cctz::utc_time_zone();
+        if (!vectorized::CastToTimstampTz::from_string(StringRef(scan_key), value, params, &tz)) {
+            throw Exception(Status::InternalError(
+                    "Cast to timestamptz is not supported in current context"));
+        }
+        *reinterpret_cast<CppType*>(buf) = value.to_date_int_val();
+
+        return Status::OK();
+    }
+    // only used in Field so we dont know the scale, use max scale 6 as default
+    static std::string to_string(const void* src) {
+        CppType tmp = *reinterpret_cast<const CppType*>(src);
+        TimestampTzValue value(tmp);
+        return value.to_string(cctz::utc_time_zone(), 6);
+    }
+
+    static void set_to_max(void* buf) {
+        // max is 9999 * 16 * 32 + 12 * 32 + 31;
+        *reinterpret_cast<CppType*>(buf) = MAX_DATETIME_V2;
+    }
+    static void set_to_min(void* buf) {
+        // min is 0 * 16 * 32 + 1 * 32 + 1;
+        *reinterpret_cast<CppType*>(buf) = MIN_DATETIME_V2;
+    }
 };
 
 template <>
