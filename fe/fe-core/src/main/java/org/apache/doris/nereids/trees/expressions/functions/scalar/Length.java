@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -40,8 +41,8 @@ public class Length extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(StringType.INSTANCE)
-    );
+            FunctionSignature.ret(IntegerType.INSTANCE).args(StringType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(VarBinaryType.INSTANCE));
 
     /**
      * constructor with 1 argument.

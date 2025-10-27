@@ -290,23 +290,37 @@ suite("test_auto_partition_behavior") {
     part_result = sql " show tablets from test_change "
     assertEquals(part_result.size(), 52 * replicaNum)
 
+    sql "drop table if exists not_auto_expr"
+    sql """
+        CREATE TABLE not_auto_expr (
+            `TIME_STAMP` date NOT NULL
+        )
+        partition by range (date_trunc(`TIME_STAMP`, 'day'))()
+        DISTRIBUTED BY HASH(`TIME_STAMP`) BUCKETS 10
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """ insert into not_auto_expr values ("2020-12-12"), ("2020-12-13"), ("2020-12-14"); """
+    part_result = sql " show partitions from not_auto_expr "
+    assertEquals(part_result.size(), 3)
+    def show_result = sql " show create table not_auto_expr "
+    assertTrue(show_result[0][1].contains("AUTO PARTITION BY RANGE"))
 
-
-    // test not auto partition have expr.
+    sql "drop table if exists not_auto_expr_list"
     test {
         sql """
-            CREATE TABLE not_auto_expr (
+            CREATE TABLE not_auto_expr_list (
                 `TIME_STAMP` date NOT NULL
             )
-            partition by range (date_trunc(`TIME_STAMP`, 'day'))()
+            partition by list (date_trunc(`TIME_STAMP`, 'day'))()
             DISTRIBUTED BY HASH(`TIME_STAMP`) BUCKETS 10
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1"
             );
         """
-        exception "Non-auto partition table not support partition expr!"
+        exception "auto create partition only support slotRef in list partitions"
     }
-
 
     // test insert empty
     sql "create table if not exists empty_range like test_change"
@@ -343,5 +357,19 @@ suite("test_auto_partition_behavior") {
             );
         """
         exception "auto create partition only support date_trunc function of RANGE partition"
+    }
+
+    test {
+        sql """
+            create table ap_wrong(
+                dt datetime not null,
+                k0 varchar not null
+            )
+            AUTO PARTITION BY LIST (dt)
+            ()
+            DISTRIBUTED BY HASH(`dt`) BUCKETS AUTO
+            properties("replication_num" = "1");
+        """
+        exception "Cannot use auto bucket with auto list partition"
     }
 }

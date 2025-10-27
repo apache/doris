@@ -56,6 +56,7 @@ public:
         QUERY_CACHE = 20,
         TABLET_COLUMN_OBJECT_POOL = 21,
         SCHEMA_CLOUD_DICTIONARY_CACHE = 22,
+        CONDITION_CACHE = 23,
     };
 
     static std::string type_string(CacheType type) {
@@ -102,6 +103,10 @@ public:
             return "QueryCache";
         case CacheType::TABLET_COLUMN_OBJECT_POOL:
             return "TabletColumnObjectPool";
+        case CacheType::SCHEMA_CLOUD_DICTIONARY_CACHE:
+            return "SchemaCloudDictionaryCache";
+        case CacheType::CONDITION_CACHE:
+            return "ConditionCache";
         default:
             throw Exception(Status::FatalError("not match type of cache policy :{}",
                                                static_cast<int>(type)));

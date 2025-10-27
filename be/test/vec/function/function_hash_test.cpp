@@ -29,6 +29,7 @@
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
+using namespace ut_type;
 
 TEST(HashFunctionTest, murmur_hash_3_test) {
     std::string func_name = "murmur_hash3_32";
@@ -130,7 +131,7 @@ TEST(HashFunctionTest, xxhash_32_test) {
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY};
 
-        DataSet data_set = {{{Null()}, Null()}, {{std::string("hello")}, (int32_t)-83855367}};
+        DataSet data_set = {{{Null()}, Null()}, {{VARBINARY("hello")}, (int32_t)-83855367}};
 
         static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     };
@@ -138,8 +139,8 @@ TEST(HashFunctionTest, xxhash_32_test) {
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY};
 
-        DataSet data_set = {{{std::string("hello"), std::string("world")}, (int32_t)-920844969},
-                            {{std::string("hello"), Null()}, Null()}};
+        DataSet data_set = {{{VARBINARY("hello"), VARBINARY("world")}, (int32_t)-920844969},
+                            {{VARBINARY("hello"), Null()}, Null()}};
 
         static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     };
@@ -148,9 +149,9 @@ TEST(HashFunctionTest, xxhash_32_test) {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY,
                                     PrimitiveType::TYPE_VARBINARY};
 
-        DataSet data_set = {{{std::string("hello"), std::string("world"), std::string("!")},
-                             (int32_t)352087701},
-                            {{std::string("hello"), std::string("world"), Null()}, Null()}};
+        DataSet data_set = {
+                {{VARBINARY("hello"), VARBINARY("world"), VARBINARY("!")}, (int32_t)352087701},
+                {{VARBINARY("hello"), VARBINARY("world"), Null()}, Null()}};
 
         static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     };
@@ -193,7 +194,7 @@ TEST(HashFunctionTest, xxhash_64_test) {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY};
 
         DataSet data_set = {{{Null()}, Null()},
-                            {{std::string("hello")}, (int64_t)-7685981735718036227}};
+                            {{VARBINARY("hello")}, (int64_t)-7685981735718036227}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     };
@@ -202,8 +203,8 @@ TEST(HashFunctionTest, xxhash_64_test) {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY};
 
         DataSet data_set = {
-                {{std::string("hello"), std::string("world")}, (int64_t)7001965798170371843},
-                {{std::string("hello"), Null()}, Null()}};
+                {{VARBINARY("hello"), VARBINARY("world")}, (int64_t)7001965798170371843},
+                {{VARBINARY("hello"), Null()}, Null()}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     };
@@ -212,9 +213,9 @@ TEST(HashFunctionTest, xxhash_64_test) {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARBINARY,
                                     PrimitiveType::TYPE_VARBINARY};
 
-        DataSet data_set = {{{std::string("hello"), std::string("world"), std::string("!")},
+        DataSet data_set = {{{VARBINARY("hello"), VARBINARY("world"), VARBINARY("!")},
                              (int64_t)6796829678999971400},
-                            {{std::string("hello"), std::string("world"), Null()}, Null()}};
+                            {{VARBINARY("hello"), VARBINARY("world"), Null()}, Null()}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     };

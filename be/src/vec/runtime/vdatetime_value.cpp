@@ -20,6 +20,8 @@
 #include <cctz/civil_time.h>
 #include <cctz/time_zone.h>
 #include <glog/logging.h>
+#include <unicode/dtfmtsym.h>
+#include <unicode/locid.h>
 
 #include <cctype>
 #include <cstddef>
@@ -1618,12 +1620,27 @@ const char* VecDateTimeValue::month_name() const {
     return s_month_name[_month];
 }
 
+const char* VecDateTimeValue::month_name_with_locale(const char* const* month_names) const {
+    if (_month < 1 || _month > 12) {
+        return nullptr;
+    }
+    return month_names[_month];
+}
+
 const char* VecDateTimeValue::day_name() const {
     int day = weekday();
     if (day < 0 || day >= 7) {
         return nullptr;
     }
     return s_day_name[day];
+}
+
+const char* VecDateTimeValue::day_name_with_locale(const char* const* day_names) const {
+    int day = weekday();
+    if (day < 0 || day >= 7) {
+        return nullptr;
+    }
+    return day_names[day];
 }
 
 VecDateTimeValue VecDateTimeValue::local_time() {
@@ -2904,6 +2921,23 @@ const char* DateV2Value<T>::day_name() const {
         return nullptr;
     }
     return s_day_name[day];
+}
+
+template <typename T>
+const char* DateV2Value<T>::month_name_with_locale(const char* const* month_names) const {
+    if (date_v2_value_.month_ < 1 || date_v2_value_.month_ > 12) {
+        return nullptr;
+    }
+    return month_names[date_v2_value_.month_];
+}
+
+template <typename T>
+const char* DateV2Value<T>::day_name_with_locale(const char* const* day_names) const {
+    int day = weekday();
+    if (day < 0 || day >= 7) {
+        return nullptr;
+    }
+    return day_names[day];
 }
 
 template <typename T>

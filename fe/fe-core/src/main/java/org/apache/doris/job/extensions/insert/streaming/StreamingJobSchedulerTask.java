@@ -18,6 +18,7 @@
 package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.util.TimeUtils;
@@ -47,9 +48,7 @@ public class StreamingJobSchedulerTask extends AbstractTask {
     public void run() throws JobException {
         switch (streamingInsertJob.getJobStatus()) {
             case PENDING:
-                streamingInsertJob.createStreamingInsertTask();
-                streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
-                streamingInsertJob.setAutoResumeCount(0);
+                handlePendingState();
                 break;
             case RUNNING:
                 streamingInsertJob.fetchMeta();
@@ -60,6 +59,22 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             default:
                 break;
         }
+    }
+
+    private void handlePendingState() throws JobException {
+        if (Config.isCloudMode()) {
+            try {
+                streamingInsertJob.replayOnCloudMode();
+            } catch (JobException e) {
+                streamingInsertJob.setFailureReason(
+                    new FailureReason(InternalErrorCode.INTERNAL_ERR, e.getMessage()));
+                streamingInsertJob.updateJobStatus(JobStatus.PAUSED);
+                return;
+            }
+        }
+        streamingInsertJob.createStreamingInsertTask();
+        streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
+        streamingInsertJob.setAutoResumeCount(0);
     }
 
     private void autoResumeHandler() throws JobException {

@@ -19,11 +19,8 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/tpcds
 // and modified by Doris.
 
-
-import org.apache.flink.api.common.RuntimeExecutionMode
-import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment
-import org.apache.flink.table.api.TableResult
-import org.apache.flink.table.api.bridge.java.StreamTableEnvironment
+import static java.util.concurrent.TimeUnit.SECONDS
+import org.awaitility.Awaitility
 
 suite("flink_connector_type") {
 
@@ -112,77 +109,48 @@ VALUES
     def thisDb = sql """select database()""";
     thisDb = thisDb[0][0];
     logger.info("current database is ${thisDb}");
-    final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-    env.setParallelism(1);
-    env.setRuntimeMode(RuntimeExecutionMode.BATCH);
-    final StreamTableEnvironment tEnv = StreamTableEnvironment.create(env);
 
-    tEnv.executeSql(
-            "CREATE TABLE source_doris (" +
-                    "`id` int,\n" +
-                    "`c1` boolean,\n" +
-                    "`c2` tinyint,\n" +
-                    "`c3` smallint,\n" +
-                    "`c4` int,\n" +
-                    "`c5` bigint,\n" +
-                    "`c6` string,\n" +
-                    "`c7` float,\n" +
-                    "`c8` double,\n" +
-                    "`c9` decimal(12,4),\n" +
-                    "`c10` date,\n" +
-                    "`c11` TIMESTAMP,\n" +
-                    "`c12` char(1),\n" +
-                    "`c13` varchar(256),\n" +
-                    "`c14` Array<String>,\n" +
-                    "`c15` Map<String, String>,\n" +
-                    "`c16` ROW<name String, age int>,\n" +
-                    "`c17` STRING,\n" +
-                    "`c18` STRING"
-                    + ") "
-                    + "WITH (\n"
-                    + "  'connector' = 'doris',\n"
-                    + "  'fenodes' = '" + context.config.feHttpAddress + "',\n"
-                    + "  'table.identifier' = '${thisDb}.test_types_source',\n"
-                    + "  'username' = '" + context.config.feHttpUser + "',\n"
-                    + "  'password' = '" + context.config.feHttpPassword +  "'\n"
-                    + ")");
+    logger.info("start delete local flink-doris-case.jar....")
+    def delete_local_flink_jar = "rm -rf flink-doris-case.jar".execute()
+    logger.info("start download regression/flink-doris-case.jar ....")
+    logger.info("getS3Url: ${getS3Url()}")
+    def download_flink_jar = "wget --quiet --continue --tries=5 ${getS3Url()}/regression/flink-doris-case.jar".execute().getText()
 
+    def file = new File('flink-doris-case.jar')
+    if (file.exists()) {
+        def fileSize = file.length()
+        logger.info("finish download flink-doris-case.jar, size " + fileSize)
+    } else {
+        logger.info("flink-doris-case.jar download failed")
+        throw new Exception("File flink-doris-case.jar download failed.")
+    }
+    def systemJavaPath = ["bash", "-c", "which java"].execute().text.trim()
+    logger.info("System java path: ${systemJavaPath}")
 
-    tEnv.executeSql(
-            "CREATE TABLE doris_test_sink (" +
-                    "`id` int,\n" +
-                    "`c1` boolean,\n" +
-                    "`c2` tinyint,\n" +
-                    "`c3` smallint,\n" +
-                    "`c4` int,\n" +
-                    "`c5` bigint,\n" +
-                    "`c6` string,\n" +
-                    "`c7` float,\n" +
-                    "`c8` double,\n" +
-                    "`c9` decimal(12,4),\n" +
-                    "`c10` date,\n" +
-                    "`c11` TIMESTAMP,\n" +
-                    "`c12` char(1),\n" +
-                    "`c13` varchar(256),\n" +
-                    "`c14` Array<String>,\n" +
-                    "`c15` Map<String, String>,\n" +
-                    "`c16` ROW<name String, age int>,\n" +
-                    "`c17` STRING,\n" +
-                    "`c18` STRING"
-                    + ") "
-                    + "WITH (\n"
-                    + "  'connector' = 'doris',\n"
-                    + "  'fenodes' = '" + context.config.feHttpAddress + "',\n"
-                    + "  'table.identifier' = '${thisDb}.test_types_sink',\n"
-                    + "  'username' = '" + context.config.feHttpUser + "',\n"
-                    + "  'password' = '" + context.config.feHttpPassword +  "',\n"
-                    + "  'sink.properties.format' = 'json',\n"
-                    + "  'sink.properties.read_json_by_line' = 'true',\n"
-                    + "  'sink.label-prefix' = 'label" + UUID.randomUUID() + "'"
-                    + ")");
+    def runtimeJavaHome = System.getProperty("java.home")
+    logger.info("Runtime java home: ${runtimeJavaHome}")
+    def javaPath = "${runtimeJavaHome}/bin/java"
 
-    TableResult tableResult = tEnv.executeSql("INSERT INTO doris_test_sink select * from source_doris");
-    tableResult.await();
+    def javaVersion = System.getProperty("java.version")
+    logger.info("Runtime java version: ${javaVersion}")
+
+    def addOpens = ""
+    if (javaVersion.startsWith("17")) {
+        addOpens = "--add-opens=java.base/java.nio=ALL-UNNAMED  --add-opens java.base/java.lang=ALL-UNNAMED"
+    }
+
+    def run_cmd = "${javaPath} ${addOpens} -cp flink-doris-case.jar org.apache.doris.FlinkConnectorTypeCase $context.config.feHttpAddress regression_test_flink_connector_p0 $context.config.feHttpUser"
+    logger.info("run_cmd : $run_cmd")
+    def run_flink_jar = run_cmd.execute().getText()
+    logger.info("result: $run_flink_jar")
+    // The publish in the commit phase is asynchronous
+    Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).await().until(
+            {
+                def resultTbl = sql """ select count(1) from test_types_sink"""
+                logger.info("retry test_types_sink  count: $resultTbl")
+                resultTbl.size() >= 1
+            })
+
     logger.info("flink job execute finished.");
     qt_select """ select * from test_types_sink order by id"""
 }

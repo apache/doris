@@ -83,6 +83,7 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
     // TODO: Support ZOrderComparator in the future
     _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
     _row_in_blocks = std::make_unique<DorisVector<std::shared_ptr<RowInBlock>>>();
+    _load_mem_limit = MemInfo::mem_limit() * config::load_process_max_memory_limit_percent / 100;
 }
 
 void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
@@ -480,7 +481,7 @@ void MemTable::_clear_row_agg(RowInBlock* row) {
         row->remove_init_agg();
     }
 }
-
+// only in `to_block` the `is_final` flag will be true, in other cases, it will be false
 template <bool is_final, bool has_skip_bitmap_col>
 void MemTable::_aggregate() {
     SCOPED_RAW_TIMER(&_stat.agg_ns);
@@ -505,10 +506,15 @@ void MemTable::_aggregate() {
                 }
                 _stat.merged_rows++;
                 _aggregate_two_row_in_block<has_skip_bitmap_col>(mutable_block, cur_row, prev_row);
+                // Clean up aggregation state of the merged row to avoid memory leak
+                if (cur_row) {
+                    _clear_row_agg(cur_row);
+                }
             } else {
                 prev_row = cur_row;
                 if (!temp_row_in_blocks.empty()) {
-                    // no more rows to merge for prev row, finalize it
+                    // The rows from the previous batch of _row_in_blocks have been merged into temp_row_in_blocks,
+                    // now call finalize to write the aggregation results into _output_mutable_block.
                     _finalize_one_row<is_final>(temp_row_in_blocks.back().get(), block_data,
                                                 row_pos);
                 }
@@ -652,7 +658,7 @@ void MemTable::shrink_memtable_by_agg() {
 
 bool MemTable::need_flush() const {
     DBUG_EXECUTE_IF("MemTable.need_flush", { return true; });
-    auto max_size = config::write_buffer_size;
+    auto max_size = _adaptive_write_buffer_size();
     if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
         auto update_columns_size = _num_columns;
         auto min_buffer_size = config::min_write_buffer_size_for_partial_update;
@@ -660,6 +666,24 @@ bool MemTable::need_flush() const {
         max_size = max_size > min_buffer_size ? max_size : min_buffer_size;
     }
     return memory_usage() >= max_size;
+}
+
+int64_t MemTable::_adaptive_write_buffer_size() const {
+    if (!config::enable_adaptive_write_buffer_size) [[unlikely]] {
+        return config::write_buffer_size;
+    }
+    const int64_t current_load_mem_value = MemoryProfile::load_current_usage();
+    int64_t factor = 4;
+    // Memory usage intervals:
+    // (80 %, 100 %] → 1× buffer
+    // (50 %, 80 %]  → 2× buffer
+    // [0 %, 50 %]   → 4× buffer
+    if (current_load_mem_value > (_load_mem_limit * 4) / 5) { // > 80 %
+        factor = 1;
+    } else if (current_load_mem_value > _load_mem_limit / 2) { // > 50 %
+        factor = 2;
+    }
+    return config::write_buffer_size * factor;
 }
 
 bool MemTable::need_agg() const {

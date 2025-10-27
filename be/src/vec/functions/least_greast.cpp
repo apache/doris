@@ -96,201 +96,25 @@ struct CompareMultiImpl {
             } else {
                 result_column->insert_range_from(*(cols[0]), 0, input_rows_count);
             }
-            switch (data_type->get_primitive_type()) {
-            case PrimitiveType::TYPE_TINYINT: {
+
+            auto call = [&](const auto& type) -> bool {
+                using DispatchType = std::decay_t<decltype(type)>;
                 for (int i = 1; i < arguments.size(); ++i) {
                     if (col_const[i]) {
-                        insert_result_data<TYPE_TINYINT, true>(result_column, cols[i],
-                                                               input_rows_count);
+                        insert_result_data<DispatchType::PType, true>(result_column, cols[i],
+                                                                      input_rows_count);
                     } else {
-                        insert_result_data<TYPE_TINYINT, false>(result_column, cols[i],
-                                                                input_rows_count);
+                        insert_result_data<DispatchType::PType, false>(result_column, cols[i],
+                                                                       input_rows_count);
                     }
                 }
-                break;
-            }
-            case PrimitiveType::TYPE_SMALLINT: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_SMALLINT, true>(result_column, cols[i],
-                                                                input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_SMALLINT, false>(result_column, cols[i],
-                                                                 input_rows_count);
-                    }
-                }
-                break;
-            }
-            case PrimitiveType::TYPE_INT: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_INT, true>(result_column, cols[i],
-                                                           input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_INT, false>(result_column, cols[i],
-                                                            input_rows_count);
-                    }
-                }
-                break;
-            }
-            case PrimitiveType::TYPE_BIGINT: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_BIGINT, true>(result_column, cols[i],
-                                                              input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_BIGINT, false>(result_column, cols[i],
-                                                               input_rows_count);
-                    }
-                }
-                break;
-            }
-            case PrimitiveType::TYPE_LARGEINT: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_LARGEINT, true>(result_column, cols[i],
-                                                                input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_LARGEINT, false>(result_column, cols[i],
-                                                                 input_rows_count);
-                    }
-                }
-                break;
-            }
-            case PrimitiveType::TYPE_FLOAT: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_FLOAT, true>(result_column, cols[i],
-                                                             input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_FLOAT, false>(result_column, cols[i],
-                                                              input_rows_count);
-                    }
-                }
-                break;
-            }
-            case PrimitiveType::TYPE_DOUBLE: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_DOUBLE, true>(result_column, cols[i],
-                                                              input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_DOUBLE, false>(result_column, cols[i],
-                                                               input_rows_count);
-                    }
-                }
-                break;
-            }
-            case PrimitiveType::TYPE_DECIMAL32: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_DECIMAL32, true>(result_column, cols[i],
-                                                                 input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_DECIMAL32, false>(result_column, cols[i],
-                                                                  input_rows_count);
-                    }
-                }
-                break;
-            }
-            case PrimitiveType::TYPE_DECIMAL64: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_DECIMAL64, true>(result_column, cols[i],
-                                                                 input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_DECIMAL64, false>(result_column, cols[i],
-                                                                  input_rows_count);
-                    }
-                }
-                break;
-            }
-            case PrimitiveType::TYPE_DECIMALV2: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_DECIMALV2, true>(result_column, cols[i],
-                                                                 input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_DECIMALV2, false>(result_column, cols[i],
-                                                                  input_rows_count);
-                    }
-                }
-                break;
-            }
-            case PrimitiveType::TYPE_DECIMAL128I: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_DECIMAL128I, true>(result_column, cols[i],
-                                                                   input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_DECIMAL128I, false>(result_column, cols[i],
-                                                                    input_rows_count);
-                    }
-                }
-                break;
-            }
-            case PrimitiveType::TYPE_DECIMAL256: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_DECIMAL256, true>(result_column, cols[i],
-                                                                  input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_DECIMAL256, false>(result_column, cols[i],
-                                                                   input_rows_count);
-                    }
-                }
-                break;
-            }
-            case PrimitiveType::TYPE_DATETIME: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_DATETIME, true>(result_column, cols[i],
-                                                                input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_DATETIME, false>(result_column, cols[i],
-                                                                 input_rows_count);
-                    }
-                }
-                break;
-            }
-            case PrimitiveType::TYPE_DATE: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_DATE, true>(result_column, cols[i],
-                                                            input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_DATE, false>(result_column, cols[i],
-                                                             input_rows_count);
-                    }
-                }
-                break;
-            }
-            case PrimitiveType::TYPE_DATEV2: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_DATEV2, true>(result_column, cols[i],
-                                                              input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_DATEV2, false>(result_column, cols[i],
-                                                               input_rows_count);
-                    }
-                }
-                break;
-            }
-            case PrimitiveType::TYPE_DATETIMEV2: {
-                for (int i = 1; i < arguments.size(); ++i) {
-                    if (col_const[i]) {
-                        insert_result_data<TYPE_DATETIMEV2, true>(result_column, cols[i],
-                                                                  input_rows_count);
-                    } else {
-                        insert_result_data<TYPE_DATETIMEV2, false>(result_column, cols[i],
-                                                                   input_rows_count);
-                    }
-                }
-                break;
-            }
-            default:
-                break;
+
+                return true;
+            };
+
+            if (!dispatch_switch_scalar(data_type->get_primitive_type(), call)) {
+                throw doris::Exception(ErrorCode::INTERNAL_ERROR, "not support type {}",
+                                       data_type->get_name());
             }
         }
         return result_column;

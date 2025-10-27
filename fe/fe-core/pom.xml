@@ -125,6 +125,10 @@ under the License.
             <groupId>commons-codec</groupId>
             <artifactId>commons-codec</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-azure</artifactId>
+        </dependency>
         <!-- https://mvnrepository.com/artifact/commons-lang/commons-lang -->
         <dependency>
             <groupId>commons-lang</groupId>
@@ -517,6 +521,7 @@ under the License.
             <groupId>com.dmetasoul</groupId>
             <artifactId>lakesoul-io-java</artifactId>
             <version>${lakesoul.version}</version>
+            <scope>provided</scope>
             <exclusions>
                 <exclusion>
                     <groupId>io.netty</groupId>
@@ -576,16 +581,18 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- LakeSoul dependencies - provided scope as lakesoul is deprecated -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <version>42.7.3</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.scala-lang</groupId>
             <artifactId>scala-library</artifactId>
             <version>${scala.version}</version>
-            <scope>compile</scope>
+            <scope>provided</scope>
         </dependency>
 
         <dependency>

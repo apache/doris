@@ -23,11 +23,14 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
@@ -40,15 +43,19 @@ import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.insert.InsertTask;
+import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -85,6 +92,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private final long dbId;
     private StreamingJobStatistic jobStatistic = new StreamingJobStatistic();
     @Getter
+    @Setter
     @SerializedName("fr")
     protected FailureReason failureReason;
     @Getter
@@ -142,6 +150,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.tvfType = currentTvf.getFunctionName();
             this.originTvfProps = currentTvf.getProperties().getMap();
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
+            // validate offset props
+            if (jobProperties.getOffsetProperty() != null) {
+                Offset offset = validateOffset(jobProperties.getOffsetProperty());
+                this.offsetProvider.updateOffset(offset);
+            }
         } catch (AnalysisException ae) {
             log.warn("parse streaming insert job failed, props: {}", properties, ae);
             throw new RuntimeException(ae.getMessage());
@@ -193,14 +206,38 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     /**
-     * When alter updates SQL, it is necessary to
-     * update the command maintained in memory synchronously
-     * @param sql
-     */
-    public void updateExecuteSql(String sql) {
-        setExecuteSql(sql);
-        initLogicalPlan(true);
-        generateEncryptedSql();
+     * Check whether Offset can be serialized into the corresponding data source
+     * */
+    public Offset validateOffset(String offsetStr) throws AnalysisException {
+        Offset offset;
+        try {
+            offset = offsetProvider.deserializeOffsetProperty(offsetStr);
+        } catch (Exception ex) {
+            log.info("initialize offset failed, offset: {}", offsetStr, ex);
+            throw new AnalysisException("Failed to initialize offset, " + ex.getMessage());
+        }
+        if (offset == null || !offset.isValidOffset()) {
+            throw new AnalysisException("Invalid format for offset: " + offsetStr);
+        }
+        return offset;
+    }
+
+    public void alterJob(AlterJobCommand alterJobCommand) throws AnalysisException {
+        List<String> logParts = new ArrayList<>();
+        // update sql
+        if (StringUtils.isNotEmpty(alterJobCommand.getSql())) {
+            setExecuteSql(alterJobCommand.getSql());
+            initLogicalPlan(true);
+            String encryptedSql = generateEncryptedSql();
+            logParts.add("sql: " + encryptedSql);
+        }
+
+        // update properties
+        if (!alterJobCommand.getProperties().isEmpty()) {
+            modifyPropertiesInternal(alterJobCommand.getProperties());
+            logParts.add("properties: " + alterJobCommand.getProperties());
+        }
+        log.info("Alter streaming job {}, {}", getJobId(), String.join(", ", logParts));
     }
 
     @Override
@@ -355,9 +392,30 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      */
     public void replayOnUpdated(StreamingInsertJob replayJob) {
         setJobStatus(replayJob.getJobStatus());
-        this.properties = replayJob.getProperties();
-        this.jobProperties = new StreamingJobProperties(properties);
+        try {
+            modifyPropertiesInternal(replayJob.getProperties());
+        } catch (Exception e) {
+            // should not happen
+            log.error("replay modify streaming insert job properties failed, job id: {}", getJobId(), e);
+        }
         setExecuteSql(replayJob.getExecuteSql());
+    }
+
+    /**
+     * When updating offset, you need to reset the currentOffset
+     */
+    private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException {
+        StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
+        if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
+            Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
+            this.offsetProvider.updateOffset(offset);
+
+            if (Config.isCloudMode()) {
+                // todo: reset cloud currentOffset
+            }
+        }
+        this.properties.putAll(inputProperties);
+        this.jobProperties = new StreamingJobProperties(this.properties);
     }
 
     @Override
@@ -407,6 +465,54 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(failureReason == null
                 ? FeConstants.null_string : failureReason.getMsg()));
         return trow;
+    }
+
+    private static boolean checkPrivilege(ConnectContext ctx, LogicalPlan logicalPlan) throws AnalysisException {
+        if (!(logicalPlan instanceof InsertIntoTableCommand)) {
+            throw new AnalysisException("Only support insert command");
+        }
+        LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
+        List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ctx);
+        Preconditions.checkArgument(targetTable.size() == 3, "target table name is invalid");
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx,
+                InternalCatalog.INTERNAL_CATALOG_NAME,
+                targetTable.get(1),
+                targetTable.get(2),
+                PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ctx.getQualifiedUser(),
+                    ctx.getRemoteIP(),
+                    targetTable.get(1),
+                    targetTable.get(2));
+        }
+        return true;
+    }
+
+    public boolean checkPrivilege(ConnectContext ctx) throws AnalysisException {
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
+        return checkPrivilege(ctx, logicalPlan);
+    }
+
+    public static boolean checkPrivilege(ConnectContext ctx, String sql) throws AnalysisException {
+        LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
+        return checkPrivilege(ctx, logicalPlan);
+    }
+
+    public boolean hasPrivilege(UserIdentity userIdentity) {
+        ConnectContext ctx = InsertTask.makeConnectContext(userIdentity, getCurrentDbName());
+        try {
+            LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
+            LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
+            List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ctx);
+            Preconditions.checkArgument(targetTable.size() == 3, "target table name is invalid");
+            return Env.getCurrentEnv().getAccessManager().checkTblPriv(userIdentity,
+                    InternalCatalog.INTERNAL_CATALOG_NAME,
+                    targetTable.get(1),
+                    targetTable.get(2),
+                    PrivPredicate.LOAD);
+        } finally {
+            ctx.cleanup();
+        }
     }
 
     private String generateEncryptedSql() {
@@ -495,7 +601,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         succeedTaskCount.incrementAndGet();
     }
 
-    public void replayOnCloudMode() throws UserException {
+    public void replayOnCloudMode() throws JobException {
         Cloud.GetStreamingTaskCommitAttachRequest.Builder builder =
                 Cloud.GetStreamingTaskCommitAttachRequest.newBuilder();
         builder.setCloudUniqueId(Config.cloud_unique_id);
@@ -511,12 +617,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     log.warn("not found streaming job progress, response: {}", response);
                     return;
                 } else {
-                    throw new UserException(response.getStatus().getMsg());
+                    throw new JobException(response.getStatus().getMsg());
                 }
             }
         } catch (RpcException e) {
             log.info("failed to get streaming task commit attach {}", e);
-            throw new UserException(e.getMessage());
+            throw new JobException(e.getMessage());
         }
 
         StreamingTaskTxnCommitAttachment commitAttach =
