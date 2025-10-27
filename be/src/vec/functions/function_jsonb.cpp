@@ -828,7 +828,7 @@ public:
             const std::vector<const ColumnString*>& rdata_columns, // here we can support more paths
             const std::vector<bool>& path_const, ColumnString::Chars& res_data,
             ColumnString::Offsets& res_offsets, NullMap& null_map, bool& is_invalid_json_path) {
-        size_t input_rows_count = json_data_const ? rdata_columns.size() : loffsets.size();
+        size_t input_rows_count = null_map.size();
         res_offsets.resize(input_rows_count);
 
         auto writer = std::make_unique<JsonbWriter>();
