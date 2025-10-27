@@ -370,7 +370,7 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
                         // null, we use the literal string of the default value, or it may be
                         // default value function, like CURRENT_TIMESTAMP.
                         if (column.getDefaultValueExpr() == null) {
-                            defaultExpr = Literal.of(column.getDefaultValue()).checkedCastWithFallback(type);
+                            defaultExpr = Literal.of(column.getDefaultValue()).checkedCastWithStrictChecking(type);
                         } else {
                             Expression unboundDefaultValue = new NereidsParser().parseExpression(
                                     column.getDefaultValueExpr().toSqlWithoutTbl());
