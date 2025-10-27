@@ -132,7 +132,7 @@ TEST(FunctionThrowExceptionTest, input_rows_count_not_match) {
     EXPECT_EQ(st.code(), ErrorCode::INTERNAL_ERROR);
     EXPECT_EQ(st.msg(),
               "Function mock_function_input_rows_count_not_match got argument column of invalid "
-              "size. input_rows_count 1, column 3");
+              "size. input_rows_count 1, column 3 , column name column");
 }
 
 } // namespace doris::vectorized

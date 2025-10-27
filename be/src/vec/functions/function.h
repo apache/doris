@@ -191,8 +191,9 @@ public:
             if (block.get_by_position(arg).column->size() != input_rows_count) {
                 return Status::InternalError(
                         "Function {} got argument column of invalid size. "
-                        "input_rows_count {}, column {}",
-                        get_name(), input_rows_count, block.get_by_position(arg).column->size());
+                        "input_rows_count {}, column {} , column name {}",
+                        get_name(), input_rows_count, block.get_by_position(arg).column->size(),
+                        block.get_by_position(arg).name);
             }
         }
         try {

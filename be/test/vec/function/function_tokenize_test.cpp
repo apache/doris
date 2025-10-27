@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -71,8 +72,11 @@ protected:
         auto properties_column = ColumnString::create();
         properties_column->insert_data(properties_str.data(), properties_str.size());
         auto properties_type = std::make_shared<DataTypeString>();
+
+        auto properties_const =
+                ColumnConst::create(std::move(properties_column), input_strings.size());
         block.insert(
-                ColumnWithTypeAndName(std::move(properties_column), properties_type, "properties"));
+                ColumnWithTypeAndName(std::move(properties_const), properties_type, "properties"));
 
         // Add result column
         auto result_type = std::make_shared<DataTypeString>();
@@ -88,9 +92,8 @@ protected:
         Block block = create_test_block(input_strings, properties_str);
         ColumnNumbers arguments = {0, 1}; // input column and properties column
         uint32_t result = 2;              // result column index
-        size_t input_rows_count = input_strings.size();
 
-        auto status = _function->execute(nullptr, block, arguments, result, input_rows_count);
+        auto status = _function->execute(nullptr, block, arguments, result, block.rows());
         EXPECT_TRUE(status.ok()) << "Error executing tokenize: " << status.to_string();
 
         // Extract results
