@@ -2273,6 +2273,14 @@ Status Tablet::_follow_cooldowned_data() {
         LOG(INFO) << "cannot read cooldown meta: " << st;
         return Status::InternalError<false>("cannot read cooldown meta");
     }
+
+    if (cooldown_meta_pb.rs_metas_size() <= 0) {
+        LOG(WARNING) << "Cooldown meta file exists but rs_metas is empty for tablet " << tablet_id()
+                     << ". Cooldown meta id: " << cooldown_meta_pb.cooldown_meta_id()
+                     << ". This may indicate a cooldown meta synchronization issue or an invalid file.";
+        return Status::InternalError<false>("Cooldown meta rs_metas is empty");
+    }
+
     DCHECK(cooldown_meta_pb.rs_metas_size() > 0);
     if (_tablet_meta->cooldown_meta_id() == cooldown_meta_pb.cooldown_meta_id()) {
         // cooldowned rowsets are same, no need to follow
