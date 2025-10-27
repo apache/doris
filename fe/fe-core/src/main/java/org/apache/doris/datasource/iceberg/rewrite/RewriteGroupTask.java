@@ -19,6 +19,7 @@ package org.apache.doris.datasource.iceberg.rewrite;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Status;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
@@ -37,7 +38,6 @@ import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
-import org.apache.doris.common.Status;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
