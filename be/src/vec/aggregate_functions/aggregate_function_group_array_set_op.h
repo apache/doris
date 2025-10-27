@@ -91,7 +91,7 @@ struct GroupArraySetOpNumericBaseData {
         }
     }
 
-    void deserialize(BufferReadable& buf, Arena& arena) {
+    void deserialize(BufferReadable& buf) {
         bool is_set_contain_null;
         buf.read_binary(is_set_contain_null);
         this->set->change_contain_null_value(is_set_contain_null);
@@ -152,7 +152,7 @@ struct GroupArrayNumericIntersectData : public GroupArraySetOpNumericBaseData<T>
 
     static std::string get_name() { return "group_array_intersect"; }
 
-    void process_col_data(const auto& column_data, size_t offset, size_t arr_size, Arena& arena) {
+    void process_col_data(const auto& column_data, size_t offset, size_t arr_size) {
         if (!this->init) {
             this->set->insert_range_from(column_data, offset, offset + arr_size);
             this->init = true;
@@ -215,7 +215,7 @@ struct GroupArrayNumericUnionData : public GroupArraySetOpNumericBaseData<T> {
 
     static std::string get_name() { return "group_array_union"; }
 
-    void process_col_data(const auto& column_data, size_t offset, size_t arr_size, Arena& arena) {
+    void process_col_data(const auto& column_data, size_t offset, size_t arr_size) {
         this->set->insert_range_from(column_data, offset, offset + arr_size);
         this->init = true;
     }
@@ -232,9 +232,9 @@ struct GroupArrayNumericUnionData : public GroupArraySetOpNumericBaseData<T> {
     }
 };
 
-class NullableStringSet : public StringValueSet<DynamicContainer<StringRef>> {
+class NullableStringSet : public StringSet<DynamicContainer<std::string>> {
 public:
-    NullableStringSet() : StringValueSet<DynamicContainer<StringRef>>(true) {}
+    NullableStringSet() : StringSet<DynamicContainer<std::string>>(true) {}
 
     void change_contain_null_value(bool target_value) { this->_contain_null = target_value; }
 };
@@ -259,13 +259,13 @@ struct GroupArraySetOpStringBaseData {
 
         HybridSetBase::IteratorBase* it = this->set->begin();
         while (it->has_next()) {
-            const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
+            const auto* value = reinterpret_cast<const std::string*>(it->get_value());
             buf.write_binary(*value);
             it->next();
         }
     }
 
-    void deserialize(BufferReadable& buf, Arena& arena) {
+    void deserialize(BufferReadable& buf) {
         bool is_set_contain_null;
         buf.read_binary(is_set_contain_null);
         this->set->change_contain_null_value(is_set_contain_null);
@@ -273,10 +273,10 @@ struct GroupArraySetOpStringBaseData {
         UInt64 size;
         buf.read_var_uint(size);
 
-        StringRef element;
+        std::string element;
         for (UInt64 i = 0; i < size; ++i) {
-            element = buf.read_binary_into(arena);
-            this->set->insert((void*)element.data, element.size);
+            buf.read_binary(element);
+            this->set->insert((void*)element.data(), element.size());
         }
     }
 
@@ -295,8 +295,8 @@ struct GroupArraySetOpStringBaseData {
         offsets_to.push_back(offsets_to.back() + res_size);
         HybridSetBase::IteratorBase* it = this->set->begin();
         while (it->has_next()) {
-            const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
-            data_to.insert_data(value->data, value->size);
+            const auto* value = reinterpret_cast<const std::string*>(it->get_value());
+            data_to.insert_data(value->data(), value->size());
             it->next();
         }
     }
@@ -308,33 +308,31 @@ struct GroupArrayStringIntersectData : public GroupArraySetOpStringBaseData {
 
     static std::string get_name() { return "group_array_intersect"; }
 
-    void process_col_data(const auto& column_data, size_t offset, size_t arr_size, Arena& arena) {
+    void process_col_data(const auto& column_data, size_t offset, size_t arr_size) {
         const auto* col_null = assert_cast<const ColumnNullable*>(column_data.get());
         const auto& nested_column_data =
                 assert_cast<const ColumnString&>(col_null->get_nested_column());
-        auto process_element = [&](size_t i) {
-            if (col_null->is_null_at(offset + i)) {
-                return StringRef(); // null string
-            } else {
-                StringRef src = nested_column_data.get_data_at(offset + i);
-                src.data = arena.insert(src.data, src.size);
-                return src;
-            }
-        };
 
         if (!init) {
             for (size_t i = 0; i < arr_size; ++i) {
-                StringRef src = process_element(i);
-                set->insert((void*)src.data, src.size);
+                if (col_null->is_null_at(offset + i)) {
+                    set->insert(nullptr, 0);
+                } else {
+                    auto src = nested_column_data.get_data_at(offset + i).to_string();
+                    set->insert((void*)src.data(), src.size());
+                }
             }
             init = true;
         } else if (!this->set->empty()) {
             Set new_set = std::make_unique<NullableStringSet>();
             for (size_t i = 0; i < arr_size; ++i) {
-                StringRef src = process_element(i);
-                if ((set->find(src.data, src.size) && src.data != nullptr) ||
-                    (set->contain_null() && src.data == nullptr)) {
-                    new_set->insert((void*)src.data, src.size);
+                if (col_null->is_null_at(offset + i) && this->set->contain_null()) {
+                    new_set->insert(nullptr, 0);
+                } else {
+                    auto src = nested_column_data.get_data_at(offset + i).to_string();
+                    if (this->set->find((void*)src.data(), src.size())) {
+                        new_set->insert((void*)src.data(), src.size());
+                    }
                 }
             }
             set = std::move(new_set);
@@ -379,7 +377,7 @@ struct GroupArrayStringUnionData : public GroupArraySetOpStringBaseData {
 
     static std::string get_name() { return "group_array_union"; }
 
-    void process_col_data(const auto& column_data, size_t offset, size_t arr_size, Arena& arena) {
+    void process_col_data(const auto& column_data, size_t offset, size_t arr_size) {
         const auto* col_null = assert_cast<const ColumnNullable*>(column_data.get());
         const auto& nested_column_data =
                 assert_cast<const ColumnString&>(col_null->get_nested_column());
@@ -388,9 +386,8 @@ struct GroupArrayStringUnionData : public GroupArraySetOpStringBaseData {
             if (col_null->is_null_at(offset + i)) {
                 set->insert(nullptr, 0);
             } else {
-                StringRef src = nested_column_data.get_data_at(offset + i);
-                src.data = arena.insert(src.data, src.size);
-                set->insert((void*)src.data, src.size);
+                auto src = nested_column_data.get_data_at(offset + i).to_string();
+                set->insert((void*)src.data(), src.size());
             }
         }
         init = true;
@@ -452,7 +449,7 @@ public:
         const auto& column_data = column.get_data_ptr();
         DCHECK(column_data->is_nullable())
                 << "should be array(nullable(column)) " << column.dump_structure();
-        this->data(place).process_col_data(column_data, offset, arr_size, arena);
+        this->data(place).process_col_data(column_data, offset, arr_size);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -470,7 +467,7 @@ public:
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena& arena) const override {
-        this->data(place).deserialize(buf, arena);
+        this->data(place).deserialize(buf);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
