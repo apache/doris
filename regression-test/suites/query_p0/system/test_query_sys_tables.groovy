@@ -148,12 +148,12 @@ suite("test_query_sys_tables", "query,p0") {
     sql("use information_schema")
     qt_schemata("select CATALOG_NAME, SCHEMA_NAME, SQL_PATH from schemata where SCHEMA_NAME = '${dbName1}' or SCHEMA_NAME = '${dbName2}' or SCHEMA_NAME = '${dbName3}' order by SCHEMA_NAME");
 
-    // desc schemata should include CREATE_USER and CREATE_TIME columns
+    // desc schemata should include CREATED_BY and CREATION_TIME columns
     qt_desc_schemata """desc `information_schema`.`schemata` """
 
-    // verify CREATE_USER and CREATE_TIME are present for newly created databases
+    // verify CREATED_BY and CREATION_TIME are present for newly created databases
     List<List<Object>> schemataRows = sql """
-        select CATALOG_NAME, SCHEMA_NAME, CREATE_USER, CREATE_TIME
+        select CATALOG_NAME, SCHEMA_NAME, CREATED_BY, CREATION_TIME
         from information_schema.schemata
         where SCHEMA_NAME in ('${dbName1}','${dbName2}','${dbName3}')
         order by SCHEMA_NAME
@@ -162,10 +162,10 @@ suite("test_query_sys_tables", "query,p0") {
     List<List<Object>> currentUserRes = sql "select current_user()"
     def currentUser = currentUserRes[0][0]
     for (int i = 0; i < schemataRows.size(); i++) {
-        // CREATE_USER should be non-empty for newly created databases
+        // CREATED_BY should be non-empty for newly created databases
         assertTrue(schemataRows[i][2] != null)
         assertTrue(schemataRows[i][2].toString().length() > 0)
-        // CREATE_TIME should be non-null
+        // CREATION_TIME should be non-null
         assertTrue(schemataRows[i][3] != null)
     }
 
@@ -228,12 +228,12 @@ suite("test_query_sys_tables", "query,p0") {
     sql("use information_schema")
     qt_tables("select TABLE_CATALOG, TABLE_NAME, TABLE_TYPE, AVG_ROW_LENGTH, MAX_DATA_LENGTH, INDEX_LENGTH from tables where TABLE_SCHEMA = '${dbName1}' or TABLE_SCHEMA = '${dbName2}' or TABLE_SCHEMA = '${dbName3}' order by TABLE_NAME");
 
-    // desc tables should include CREATE_USER and CREATE_TIME columns
+    // desc tables should include CREATED_BY and CREATE_TIME columns
     qt_desc_tables """desc `information_schema`.`tables` """
 
-    // verify CREATE_USER and CREATE_TIME are present for newly created tables
+    // verify CREATED_BY and CREATE_TIME are present for newly created tables
     List<List<Object>> tablesRows = sql """
-        select TABLE_SCHEMA, TABLE_NAME, CREATE_USER, CREATE_TIME
+        select TABLE_SCHEMA, TABLE_NAME, CREATED_BY, CREATE_TIME
         from information_schema.tables
         where TABLE_SCHEMA in ('${dbName1}','${dbName2}','${dbName3}')
           and TABLE_NAME in ('${tbName1}','${tbName2}','${tbName3}')

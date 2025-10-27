@@ -206,7 +206,7 @@ public class FrontendServiceImplTest {
 
         Assert.assertTrue(dbNames.isSetCreationTimes());
         Assert.assertTrue(dbNames.isSetCreators());
-        Assert.assertEquals(dbNames.getCreationTimes(), dbNames.getDbsSize());
+        Assert.assertEquals(dbNames.getCreationTimesSize(), dbNames.getDbsSize());
         Assert.assertEquals(dbNames.getCreatorsSize(), dbNames.getDbsSize());
 
         for (int i = 0; i < dbNames.getDbsSize(); i++) {
