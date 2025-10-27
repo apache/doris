@@ -75,7 +75,7 @@ public:
         Status status = page_decoder_.init();
         EXPECT_FALSE(status.ok());
 
-        segment_v2::BitShufflePagePreDecoder<false> pre_decoder;
+        segment_v2::BitShufflePagePreDecoder pre_decoder;
         Slice page_slice = s.slice();
         std::unique_ptr<char[]> auto_release;
         pre_decoder.decode(&auto_release, &page_slice, 0);
@@ -134,7 +134,7 @@ public:
         Status status = page_decoder_.init();
         EXPECT_FALSE(status.ok());
 
-        segment_v2::BitShufflePagePreDecoder<false> pre_decoder;
+        segment_v2::BitShufflePagePreDecoder pre_decoder;
         Slice page_slice = s.slice();
         std::unique_ptr<char[]> auto_release;
         pre_decoder.decode(&auto_release, &page_slice, 0);

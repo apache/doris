@@ -27,10 +27,10 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/binary_dict_page_pre_decoder.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "olap/rowset/segment_v2/binary_plain_page_v2.h"
 #include "olap/rowset/segment_v2/binary_plain_page_v2_pre_decoder.h"
-#include "olap/rowset/segment_v2/bitshuffle_page_pre_decoder.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/types.h"
@@ -67,8 +67,21 @@ public:
     }
 
     // Create dict page decoder based on encoding type
-    std::unique_ptr<PageDecoder> create_dict_page_decoder(Slice& dict_slice,
-                                                          EncodingTypePB encoding_type) {
+    // The decoded_page parameter is passed by reference to ensure the decoded data's lifetime
+    // is managed by the caller, preventing the data from being freed prematurely
+    std::unique_ptr<PageDecoder> create_dict_page_decoder(
+            Slice& dict_slice, EncodingTypePB encoding_type,
+            std::unique_ptr<DataPage>& decoded_page) {
+        // Apply pre-decode for BinaryPlainPageV2
+        if (encoding_type == PLAIN_ENCODING_V2) {
+            BinaryPlainPageV2PreDecoder pre_decoder;
+            Status status = pre_decoder.decode(&decoded_page, &dict_slice, 0, false,
+                                               PageTypePB::DATA_PAGE, "");
+            if (!status.ok()) {
+                return nullptr;
+            }
+        }
+
         PageDecoderOptions dict_decoder_options;
         std::unique_ptr<PageDecoder> dict_page_decoder;
 
@@ -76,13 +89,6 @@ public:
             dict_page_decoder.reset(new BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>(
                     dict_slice, dict_decoder_options));
         } else if (encoding_type == PLAIN_ENCODING_V2) {
-            // Apply pre-decode for BinaryPlainPageV2
-            std::unique_ptr<DataPage> decoded_page;
-            Status status = apply_pre_decode_v2(dict_slice, decoded_page);
-            if (!status.ok()) {
-                return nullptr;
-            }
-
             dict_page_decoder.reset(
                     new BinaryPlainPageV2Decoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>(
                             dict_slice, dict_decoder_options));
@@ -98,15 +104,10 @@ public:
         return dict_page_decoder;
     }
 
-    // Decode bitshuffle encoded page
-    Status decode_bitshuffle_page(Slice& page_slice, std::unique_ptr<DataPage>& decoded_page) {
-        segment_v2::BitShufflePagePreDecoder<true> pre_decoder;
-        return pre_decoder.decode(&decoded_page, &page_slice, 0, false, PageTypePB::DATA_PAGE, "");
-    }
-
-    // Apply pre-decode step for BinaryPlainPageV2 encoded page
-    Status apply_pre_decode_v2(Slice& page_slice, std::unique_ptr<DataPage>& decoded_page) {
-        BinaryPlainPageV2PreDecoder pre_decoder;
+    // Apply pre-decode for BinaryDictPage data pages
+    // This method handles all encoding types (bitshuffle, plain V1, plain V2)
+    Status apply_pre_decode(Slice& page_slice, std::unique_ptr<DataPage>& decoded_page) {
+        BinaryDictPagePreDecoder pre_decoder;
         return pre_decoder.decode(&decoded_page, &page_slice, 0, false, PageTypePB::DATA_PAGE, "");
     }
 
@@ -209,8 +210,11 @@ public:
         EXPECT_TRUE(status.ok());
 
         // Create dict decoder
+        // decoded_dict_page must outlive dict_page_decoder since it holds the decoded data
         Slice dict_page_slice = dict_slice.slice();
-        auto dict_page_decoder = create_dict_page_decoder(dict_page_slice, dict_encoding_type);
+        std::unique_ptr<DataPage> decoded_dict_page;
+        auto dict_page_decoder =
+                create_dict_page_decoder(dict_page_slice, dict_encoding_type, decoded_dict_page);
         ASSERT_NE(nullptr, dict_page_decoder) << "Failed to create dict page decoder";
         EXPECT_EQ(slices.size(), dict_page_decoder->count());
 
@@ -224,7 +228,7 @@ public:
 
         Slice page_slice = s.slice();
         std::unique_ptr<DataPage> decoded_page;
-        status = decode_bitshuffle_page(page_slice, decoded_page);
+        status = apply_pre_decode(page_slice, decoded_page);
         EXPECT_TRUE(status.ok());
 
         BinaryDictPageDecoder page_decoder(page_slice, decoder_options);
@@ -350,7 +354,9 @@ public:
         size_t dict_entries = 0;
         if (dict_slice.slice().size > 0) {
             Slice temp_dict_slice = dict_slice.slice();
-            auto temp_decoder = create_dict_page_decoder(temp_dict_slice, dict_encoding_type);
+            std::unique_ptr<DataPage> temp_decoded_page;
+            auto temp_decoder =
+                    create_dict_page_decoder(temp_dict_slice, dict_encoding_type, temp_decoded_page);
             if (temp_decoder) {
                 dict_entries = temp_decoder->count();
             }
@@ -368,8 +374,11 @@ public:
                 << "Should have fallback pages (dict entries < total entries)";
 
         // Create dict decoder for dictionary page
+        // decoded_dict_page must outlive dict_page_decoder since it holds the decoded data
         Slice dict_page_slice = dict_slice.slice();
-        auto dict_page_decoder = create_dict_page_decoder(dict_page_slice, dict_encoding_type);
+        std::unique_ptr<DataPage> decoded_dict_page;
+        auto dict_page_decoder =
+                create_dict_page_decoder(dict_page_slice, dict_encoding_type, decoded_dict_page);
         ASSERT_NE(nullptr, dict_page_decoder) << "Failed to create dict page decoder";
 
         // Get dict word info
@@ -383,10 +392,10 @@ public:
             PageDecoderOptions decoder_options;
             Slice page_slice = results[page_idx].slice();
 
-            // First, decode bitshuffle for all pages (similar to test_by_small_data_size)
+            // First, apply pre-decode for all pages (handles bitshuffle, plain V1, plain V2)
             std::unique_ptr<DataPage> decoded_page;
-            status = decode_bitshuffle_page(page_slice, decoded_page);
-            EXPECT_TRUE(status.ok()) << "Failed to decode bitshuffle for page " << page_idx;
+            status = apply_pre_decode(page_slice, decoded_page);
+            EXPECT_TRUE(status.ok()) << "Failed to apply pre-decode for page " << page_idx;
 
             // Create BinaryDictPageDecoder and check encoding type
             BinaryDictPageDecoder page_decoder(page_slice, decoder_options);
@@ -452,11 +461,11 @@ public:
             PageDecoderOptions decoder_options;
             Slice page_slice = results[page_idx].slice();
 
-            // Decode bitshuffle
+            // Apply pre-decode
             std::unique_ptr<DataPage> decoded_page;
-            status = decode_bitshuffle_page(page_slice, decoded_page);
+            status = apply_pre_decode(page_slice, decoded_page);
             EXPECT_TRUE(status.ok())
-                    << "Failed to decode bitshuffle for page " << page_idx << " in seek test";
+                    << "Failed to apply pre-decode for page " << page_idx << " in seek test";
 
             // Create decoder
             BinaryDictPageDecoder page_decoder(page_slice, decoder_options);
@@ -503,10 +512,10 @@ public:
             PageDecoderOptions decoder_options;
             Slice page_slice = results[page_idx].slice();
 
-            // Decode bitshuffle
+            // Apply pre-decode
             std::unique_ptr<DataPage> decoded_page;
-            status = decode_bitshuffle_page(page_slice, decoded_page);
-            EXPECT_TRUE(status.ok()) << "Failed to decode bitshuffle for page " << page_idx
+            status = apply_pre_decode(page_slice, decoded_page);
+            EXPECT_TRUE(status.ok()) << "Failed to apply pre-decode for page " << page_idx
                                      << " in read_by_rowids test";
 
             // Create decoder
@@ -671,7 +680,9 @@ TEST_F(BinaryDictPageTest, TestConfigAffectsDictionaryPageEncoding) {
         // First apply pre-decode for BinaryPlainPageV2
         Slice dict_page_slice = dict_slice.slice();
         std::unique_ptr<DataPage> decoded_page;
-        status = apply_pre_decode_v2(dict_page_slice, decoded_page);
+        BinaryPlainPageV2PreDecoder pre_decoder;
+        status = pre_decoder.decode(&decoded_page, &dict_page_slice, 0, false,
+                                    PageTypePB::DATA_PAGE, "");
         EXPECT_TRUE(status.ok());
 
         PageDecoderOptions dict_decoder_options;
