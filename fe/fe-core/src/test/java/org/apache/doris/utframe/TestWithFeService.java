@@ -573,7 +573,7 @@ public abstract class TestWithFeService {
         }
     }
 
-    public void executeNereidsSql(String queryStr) throws Exception {
+    public StmtExecutor executeNereidsSql(String queryStr) throws Exception {
         connectContext.getState().reset();
 
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(queryStr, 0));
@@ -589,6 +589,7 @@ public abstract class TestWithFeService {
                 || connectContext.getState().getErrorCode() != null) {
             throw new IllegalStateException(connectContext.getState().getErrorMessage());
         }
+        return stmtExecutor;
     }
 
     public void createDatabase(String db) throws Exception {

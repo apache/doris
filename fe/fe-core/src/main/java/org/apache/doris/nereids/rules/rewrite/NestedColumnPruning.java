@@ -263,7 +263,7 @@ public class NestedColumnPruning implements CustomRewriter {
                     nameMapping.put(s, castNames.get(i++));
                 }
                 List<StructField> mappingFields = new ArrayList<>();
-                StructType originPrunedStructType = (StructType) type;
+                StructType originCastStructType = (StructType) cast.type;
                 for (Entry<String, DataTypeAccessTree> kv : children.entrySet()) {
                     String originName = kv.getKey();
                     String mappingName = nameMapping.getOrDefault(originName, originName);
@@ -272,9 +272,10 @@ public class NestedColumnPruning implements CustomRewriter {
                             origin.children.get(originName),
                             cast.children.get(mappingName)
                     );
-                    StructField field = originPrunedStructType.getField(originName);
+                    StructField originCastField = originCastStructType.getField(mappingName);
                     mappingFields.add(
-                            new StructField(mappingName, mappingType, field.isNullable(), field.getComment())
+                            new StructField(mappingName, mappingType,
+                                    originCastField.isNullable(), originCastField.getComment())
                     );
                 }
                 return new StructType(mappingFields);
@@ -283,7 +284,8 @@ public class NestedColumnPruning implements CustomRewriter {
                         children.values().iterator().next().pruneCastType(
                                 origin.children.values().iterator().next(),
                                 cast.children.values().iterator().next()
-                        )
+                        ),
+                        ((ArrayType) cast.type).containsNull()
                 );
             } else if (type instanceof MapType) {
                 return MapType.of(
@@ -291,7 +293,7 @@ public class NestedColumnPruning implements CustomRewriter {
                         children.get("VALUES").pruneCastType(origin.children.get("VALUES"), cast.children.get("VALUES"))
                 );
             } else {
-                return type;
+                return cast.type;
             }
         }
 

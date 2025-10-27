@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Triple;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -128,11 +129,41 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 ImmutableList.of()
         );
 
-        // assertColumn("select struct_element(s, 'city'), struct_element(map_values(struct_element(s, 'data')[0])[0], 'b') from (select * from tbl union all select * from tbl2)t",
-        //         "struct<city:text>",
-        //         ImmutableList.of(path("s", "city")),
-        //         ImmutableList.of()
-        // );
+        assertColumn("select struct_element(map_values(struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:double,y:double>>>>), 'l')[0])[0], 'x') from tbl",
+                "struct<data:array<map<int,struct<a:int>>>>",
+                ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
+                ImmutableList.of()
+        );
+
+        assertColumns("select struct_element(s, 'city') from (select * from tbl union all select * from tbl2)t",
+                ImmutableList.of(
+                        Triple.of(
+                                "struct<city2:text>",
+                                ImmutableList.of(path("s2", "city2")),
+                                ImmutableList.of()
+                        ),
+                        Triple.of(
+                                "struct<city:text>",
+                                ImmutableList.of(path("s", "city")),
+                                ImmutableList.of()
+                        )
+                )
+        );
+
+        assertColumns("select struct_element(s, 'city'), struct_element(map_values(struct_element(s, 'data')[0])[0], 'b') from (select * from tbl union all select * from tbl2)t",
+                ImmutableList.of(
+                        Triple.of(
+                                "struct<city2:text,data2:array<map<int,struct<b2:double>>>>",
+                                ImmutableList.of(path("s2", "city2"), path("s2", "data2", "*", "VALUES", "b2")),
+                                ImmutableList.of()
+                        ),
+                        Triple.of(
+                                "struct<city:text,data:array<map<int,struct<b:double>>>>",
+                                ImmutableList.of(path("s", "city"), path("s", "data", "*", "VALUES", "b")),
+                                ImmutableList.of()
+                        )
+                )
+        );
     }
 
     @Test
@@ -473,75 +504,87 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     private void assertColumn(String sql, String expectType,
             List<TColumnAccessPath> expectAllAccessPaths,
             List<TColumnAccessPath> expectPredicateAccessPaths) throws Exception {
+        assertColumns(sql, expectType == null ? null : ImmutableList.of(Triple.of(expectType, expectAllAccessPaths, expectPredicateAccessPaths)));
+    }
+
+    private void assertColumns(String sql,
+            List<Triple<String, List<TColumnAccessPath>, List<TColumnAccessPath>>> expectResults) throws Exception {
         Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(sql);
         PhysicalPlan physicalPlan = result.first;
         List<SlotDescriptor> slotDescriptors = result.second;
-        if (expectType == null) {
+        if (expectResults == null) {
             Assertions.assertEquals(0, slotDescriptors.size());
             return;
         }
 
-        Assertions.assertEquals(1, slotDescriptors.size());
-        Assertions.assertEquals(expectType, slotDescriptors.get(0).getType().toString());
+        Assertions.assertEquals(expectResults.size(), slotDescriptors.size());
+        int slotIndex = 0;
+        for (Triple<String, List<TColumnAccessPath>, List<TColumnAccessPath>> expectResult : expectResults) {
+            String expectType = expectResult.left;
+            List<TColumnAccessPath> expectAllAccessPaths = expectResult.middle;
+            List<TColumnAccessPath> expectPredicateAccessPaths = expectResult.right;
+            SlotDescriptor slotDescriptor = slotDescriptors.get(slotIndex++);
+            Assertions.assertEquals(expectType, slotDescriptor.getType().toString());
 
-        TreeSet<TColumnAccessPath> expectAllAccessPathSet = new TreeSet<>(expectAllAccessPaths);
-        TreeSet<TColumnAccessPath> actualAllAccessPaths
-                = new TreeSet<>(slotDescriptors.get(0).getAllAccessPaths());
-        Assertions.assertEquals(expectAllAccessPathSet, actualAllAccessPaths);
+            TreeSet<TColumnAccessPath> expectAllAccessPathSet = new TreeSet<>(expectAllAccessPaths);
+            TreeSet<TColumnAccessPath> actualAllAccessPaths
+                    = new TreeSet<>(slotDescriptor.getAllAccessPaths());
+            Assertions.assertEquals(expectAllAccessPathSet, actualAllAccessPaths);
 
-        TreeSet<TColumnAccessPath> expectPredicateAccessPathSet = new TreeSet<>(expectPredicateAccessPaths);
-        TreeSet<TColumnAccessPath> actualPredicateAccessPaths
-                = new TreeSet<>(slotDescriptors.get(0).getPredicateAccessPaths());
-        Assertions.assertEquals(expectPredicateAccessPathSet, actualPredicateAccessPaths);
+            TreeSet<TColumnAccessPath> expectPredicateAccessPathSet = new TreeSet<>(expectPredicateAccessPaths);
+            TreeSet<TColumnAccessPath> actualPredicateAccessPaths
+                    = new TreeSet<>(slotDescriptor.getPredicateAccessPaths());
+            Assertions.assertEquals(expectPredicateAccessPathSet, actualPredicateAccessPaths);
 
-        Map<Integer, DataType> slotIdToDataTypes = new LinkedHashMap<>();
-        Consumer<Expression> assertHasSameType = e -> {
-            if (e instanceof NamedExpression) {
-                DataType dataType = slotIdToDataTypes.get(((NamedExpression) e).getExprId().asInt());
-                if (dataType != null) {
-                    Assertions.assertEquals(dataType, e.getDataType());
-                } else {
-                    slotIdToDataTypes.put(((NamedExpression) e).getExprId().asInt(), e.getDataType());
-                }
-            }
-        };
-
-        // assert same slot id has same type
-        physicalPlan.foreachUp(plan -> {
-            List<? extends Expression> expressions = ((PhysicalPlan) plan).getExpressions();
-            for (Expression expression : expressions) {
-                expression.foreach(e -> {
-                    assertHasSameType.accept((Expression) e);
-                    if (e instanceof Alias && e.child(0) instanceof Slot) {
-                        assertHasSameType.accept((Alias) e);
-                    } else if (e instanceof ArrayItemReference) {
-                        assertHasSameType.accept((ArrayItemReference) e);
-                    }
-                });
-            }
-
-            if (plan instanceof PhysicalCTEConsumer) {
-                for (Entry<Slot, Collection<Slot>> kv : ((PhysicalCTEConsumer) plan).getProducerToConsumerSlotMap()
-                        .asMap().entrySet()) {
-                    Slot producerSlot = kv.getKey();
-                    for (Slot consumerSlot : kv.getValue()) {
-                        Assertions.assertEquals(producerSlot.getDataType(), consumerSlot.getDataType());
+            Map<Integer, DataType> slotIdToDataTypes = new LinkedHashMap<>();
+            Consumer<Expression> assertHasSameType = e -> {
+                if (e instanceof NamedExpression) {
+                    DataType dataType = slotIdToDataTypes.get(((NamedExpression) e).getExprId().asInt());
+                    if (dataType != null) {
+                        Assertions.assertEquals(dataType, e.getDataType());
+                    } else {
+                        slotIdToDataTypes.put(((NamedExpression) e).getExprId().asInt(), e.getDataType());
                     }
                 }
-            } else if (plan instanceof PhysicalUnion) {
-                List<Slot> output = ((PhysicalUnion) plan).getOutput();
-                for (List<SlotReference> regularChildrenOutput : ((PhysicalUnion) plan).getRegularChildrenOutputs()) {
-                    Assertions.assertEquals(output.size(), regularChildrenOutput.size());
-                    for (int i = 0; i < output.size(); i++) {
-                        Assertions.assertEquals(output.get(i).getDataType(), regularChildrenOutput.get(i).getDataType());
+            };
+
+            // assert same slot id has same type
+            physicalPlan.foreachUp(plan -> {
+                List<? extends Expression> expressions = ((PhysicalPlan) plan).getExpressions();
+                for (Expression expression : expressions) {
+                    expression.foreach(e -> {
+                        assertHasSameType.accept((Expression) e);
+                        if (e instanceof Alias && e.child(0) instanceof Slot) {
+                            assertHasSameType.accept((Alias) e);
+                        } else if (e instanceof ArrayItemReference) {
+                            assertHasSameType.accept((ArrayItemReference) e);
+                        }
+                    });
+                }
+
+                if (plan instanceof PhysicalCTEConsumer) {
+                    for (Entry<Slot, Collection<Slot>> kv : ((PhysicalCTEConsumer) plan).getProducerToConsumerSlotMap()
+                            .asMap().entrySet()) {
+                        Slot producerSlot = kv.getKey();
+                        for (Slot consumerSlot : kv.getValue()) {
+                            Assertions.assertEquals(producerSlot.getDataType(), consumerSlot.getDataType());
+                        }
+                    }
+                } else if (plan instanceof PhysicalUnion) {
+                    List<Slot> output = ((PhysicalUnion) plan).getOutput();
+                    for (List<SlotReference> regularChildrenOutput : ((PhysicalUnion) plan).getRegularChildrenOutputs()) {
+                        Assertions.assertEquals(output.size(), regularChildrenOutput.size());
+                        for (int i = 0; i < output.size(); i++) {
+                            Assertions.assertEquals(output.get(i).getDataType(), regularChildrenOutput.get(i).getDataType());
+                        }
                     }
                 }
-            }
-        });
+            });
+        }
     }
 
     private Pair<PhysicalPlan, List<SlotDescriptor>> collectComplexSlots(String sql) throws Exception {
-        NereidsPlanner planner = (NereidsPlanner) getSqlStmtExecutor(sql).planner();
+        NereidsPlanner planner = (NereidsPlanner) executeNereidsSql(sql).planner();
         List<SlotDescriptor> complexSlots = new ArrayList<>();
         PhysicalPlan physicalPlan = planner.getPhysicalPlan();
         for (PlanFragment fragment : planner.getFragments()) {
