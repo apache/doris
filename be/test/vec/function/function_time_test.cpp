@@ -1641,4 +1641,64 @@ TEST(VTimestampFunctionsTest, curtime_test) {
     }
 }
 
+// Test UTC functions
+// FunctionUtils sets fixed time: 2019-08-06 01:38:57.805000 Asia/Shanghai (UTC+8)
+// Corresponding UTC time: 2019-08-05 17:38:57.805
+TEST(VTimestampFunctionsTest, utc_timestamp_test) {
+    std::string func_name = "utc_timestamp";
+    TimezoneUtils::load_timezones_to_cache();
+
+    {
+        InputTypeSet input_types = {};
+        DataSet data_set = {
+                {{}, std::string("2019-08-05 17:38:57")},
+        };
+        static_cast<void>(check_function<DataTypeDateTimeV2>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
+        DataSet data_set = {
+                {{int32_t(3)}, std::string("2019-08-05 17:38:57.805")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 3));
+    }
+}
+
+TEST(VTimestampFunctionsTest, utc_date_test) {
+    std::string func_name = "utc_date";
+    TimezoneUtils::load_timezones_to_cache();
+
+    {
+        InputTypeSet input_types = {};
+        DataSet data_set = {
+                {{}, std::string("2019-08-05")},
+        };
+        static_cast<void>(check_function<DataTypeDateV2>(func_name, input_types, data_set));
+    }
+}
+
+TEST(VTimestampFunctionsTest, utc_time_test) {
+    std::string func_name = "utc_time";
+    TimezoneUtils::load_timezones_to_cache();
+
+    {
+        InputTypeSet input_types = {};
+        DataSet data_set = {
+                {{}, std::string("17:38:57")},
+        };
+        static_cast<void>(check_function<DataTypeTimeV2>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
+        DataSet data_set = {
+                {{int32_t(3)}, std::string("17:38:57.805")},
+        };
+        static_cast<void>(
+                check_function<DataTypeTimeV2, true>(func_name, input_types, data_set, 3));
+    }
+}
+
 } // namespace doris::vectorized
