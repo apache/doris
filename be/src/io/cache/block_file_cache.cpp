@@ -2517,6 +2517,7 @@ std::string BlockFileCache::clear_file_cache_directly() {
     _normal_queue.clear(cache_lock);
     _disposable_queue.clear(cache_lock);
     _ttl_queue.clear(cache_lock);
+    _cold_normal_queue.clear(cache_lock);
 
     clear_need_update_lru_blocks();
 

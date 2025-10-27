@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_warmup_select", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_warmup_select", "p0,external,hive,external_docker,external_docker_hive,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable Hive test.")
@@ -26,11 +26,11 @@ suite("test_hive_warmup_select", "p0,external,hive,external_docker,external_dock
         // Enable file cache for warm up functionality
         sql "set enable_file_cache=true"
         sql "set disable_file_cache=false"
-        
+
         sql "WARM UP SELECT * FROM lineitem"
 
         sql "WARM UP SELECT l_orderkey, l_discount FROM lineitem"
-        
+
         sql "WARM UP SELECT l_orderkey, l_discount FROM lineitem WHERE l_quantity > 10"
     }
 
@@ -38,7 +38,7 @@ suite("test_hive_warmup_select", "p0,external,hive,external_docker,external_dock
         // Enable file cache for warm up functionality
         sql "set enable_file_cache=true"
         sql "set disable_file_cache=false"
-        
+
         // These should fail as warm up select doesn't support these operations
         try {
             sql "WARM UP SELECT * FROM lineitem LIMIT 5"
@@ -47,7 +47,7 @@ suite("test_hive_warmup_select", "p0,external,hive,external_docker,external_dock
             // Expected to fail
             println "LIMIT clause correctly rejected for WARM UP SELECT"
         }
-        
+
         try {
             sql "WARM UP SELECT l_shipmode, COUNT(*) FROM lineitem GROUP BY l_shipmode"
             assert false : "Expected ParseException for GROUP BY clause"
@@ -55,7 +55,7 @@ suite("test_hive_warmup_select", "p0,external,hive,external_docker,external_dock
             // Expected to fail
             println "GROUP BY clause correctly rejected for WARM UP SELECT"
         }
-        
+
         try {
             sql "WARM UP SELECT * FROM lineitem t1 JOIN lineitem t2 ON t1.l_orderkey = t2.l_orderkey"
             assert false : "Expected ParseException for JOIN clause"
@@ -63,7 +63,7 @@ suite("test_hive_warmup_select", "p0,external,hive,external_docker,external_dock
             // Expected to fail
             println "JOIN clause correctly rejected for WARM UP SELECT"
         }
-        
+
         try {
             sql "WARM UP SELECT * FROM lineitem UNION SELECT * FROM lineitem"
             assert false : "Expected ParseException for UNION clause"
@@ -92,4 +92,3 @@ suite("test_hive_warmup_select", "p0,external,hive,external_docker,external_dock
         sql """drop catalog if exists ${catalog_name}"""
     }
 }
-

@@ -593,7 +593,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_order_check) {
     FileCacheFactory::instance()->_capacity = 0;
 }
 
-TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore_cold_hot_seperation) {
+TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore_cold_hot_separation) {
     config::enable_evict_file_cache_in_advance = false;
     config::enable_normal_queue_cold_hot_separation = true;
     config::file_cache_enter_disk_resource_limit_mode_percent = 99;

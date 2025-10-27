@@ -8223,7 +8223,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_bytes_check) {
     FileCacheFactory::instance()->_capacity = 0;
 }
 
-TEST_F(BlockFileCacheTest, test_normal_queue_cold_hot_seperation) {
+TEST_F(BlockFileCacheTest, test_normal_queue_cold_hot_separation) {
     config::enable_evict_file_cache_in_advance = false;
     config::enable_normal_queue_cold_hot_separation = true;
     if (fs::exists(cache_base_path)) {
