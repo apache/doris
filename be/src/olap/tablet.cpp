@@ -2275,9 +2275,10 @@ Status Tablet::_follow_cooldowned_data() {
     }
 
     if (cooldown_meta_pb.rs_metas_size() <= 0) {
-        LOG(WARNING) << "Cooldown meta file exists but rs_metas is empty for tablet " << tablet_id()
-                     << ". Cooldown meta id: " << cooldown_meta_pb.cooldown_meta_id()
-                     << ". This may indicate a cooldown meta synchronization issue or an invalid file.";
+        LOG(WARNING)
+                << "Cooldown meta file exists but rs_metas is empty for tablet " << tablet_id()
+                << ". Cooldown meta id: " << cooldown_meta_pb.cooldown_meta_id()
+                << ". This may indicate a cooldown meta synchronization issue or an invalid file.";
         return Status::InternalError<false>("Cooldown meta rs_metas is empty");
     }
 
