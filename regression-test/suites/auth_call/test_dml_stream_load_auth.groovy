@@ -69,7 +69,7 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
     proc.consumeProcessOutput(sout, serr)
     proc.waitForOrKill(7200000)
     logger.info("std out: " + sout + "std err: " + serr)
-    assertTrue(sout.toString().indexOf("Access denied;") != -1, "Expected 'Access denied' in output but got: stdout=[${sout}], stderr=[${serr}]", sout, serr)
+    assertTrue(sout.toString().contains("Access denied"));
 
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
 
@@ -79,9 +79,8 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
     proc.consumeProcessOutput(sout, serr)
     proc.waitForOrKill(7200000)
     logger.info("std out: " + sout + "std err: " + serr)
+    assertTrue(sout.toString().contains("Access denied"));
     
-    assertTrue(sout.toString().indexOf("Access denied;") != -1, "Expected 'Access denied' in output but got: stdout=[${sout}], stderr=[${serr}]", sout, serr)
-
     connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """SHOW TRANSACTION FROM ${dbName} WHERE ID=111;"""
