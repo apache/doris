@@ -25,6 +25,7 @@
 
 #include "common/logging.h"
 #include "olap/rowset/segment_v2/index_reader_helper.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -579,6 +580,8 @@ public:
             return execute_num_type<TYPE_DATEV2>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_DATETIMEV2:
             return execute_num_type<TYPE_DATETIMEV2>(block, result, col_left_ptr, col_right_ptr);
+        case TYPE_TIMESTAMPTZ:
+            return execute_num_type<TYPE_TIMESTAMPTZ>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_TINYINT:
             return execute_num_type<TYPE_TINYINT>(block, result, col_left_ptr, col_right_ptr);
         case TYPE_SMALLINT:
