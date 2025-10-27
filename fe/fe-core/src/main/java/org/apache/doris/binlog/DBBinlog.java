@@ -216,12 +216,20 @@ public class DBBinlog {
         lock.readLock().lock();
         try {
             if (tableId >= 0) {
+                // Check if table is dropped first, before checking tableBinlogMap
+                if (isTableDropped(tableId)) {
+                    LOG.info("table is dropped. tableId: {}", tableId);
+                    status.setStatusCode(TStatusCode.BINLOG_NOT_FOUND_TABLE);
+                    return Pair.of(status, null);
+                }
+
                 TableBinlog tableBinlog = tableBinlogMap.get(tableId);
                 if (tableBinlog == null) {
                     LOG.warn("table binlog not found. tableId: {}", tableId);
                     status.setStatusCode(TStatusCode.BINLOG_NOT_FOUND_TABLE);
                     return Pair.of(status, null);
                 }
+
                 return tableBinlog.getBinlog(prevCommitSeq, numAcquired);
             }
 
@@ -266,12 +274,20 @@ public class DBBinlog {
         lock.readLock().lock();
         try {
             if (tableId >= 0) {
+                // Check if table is dropped first, before checking tableBinlogMap
+                if (isTableDropped(tableId)) {
+                    LOG.info("table is dropped. tableId: {}", tableId);
+                    status.setStatusCode(TStatusCode.BINLOG_NOT_FOUND_TABLE);
+                    return Pair.of(status, null);
+                }
+
                 TableBinlog tableBinlog = tableBinlogMap.get(tableId);
                 if (tableBinlog == null) {
                     LOG.warn("table binlog not found. tableId: {}", tableId);
                     status.setStatusCode(TStatusCode.BINLOG_NOT_FOUND_TABLE);
                     return Pair.of(status, null);
                 }
+
                 return tableBinlog.getBinlogLag(prevCommitSeq);
             }
 
@@ -287,6 +303,12 @@ public class DBBinlog {
         try {
             if (tableId < 0) {
                 return lockDbBinlog(jobUniqueId, lockCommitSeq);
+            }
+
+            // Check if table is dropped first, before checking tableBinlogMap
+            if (isTableDropped(tableId)) {
+                LOG.info("table is dropped. dbId: {}, tableId: {}", dbId, tableId);
+                return Pair.of(new TStatus(TStatusCode.BINLOG_NOT_FOUND_TABLE), -1L);
             }
 
             tableBinlog = tableBinlogMap.get(tableId);
@@ -631,6 +653,10 @@ public class DBBinlog {
         } finally {
             lock.writeLock().unlock();
         }
+    }
+
+    private boolean isTableDropped(long tableId) {
+        return droppedTables.stream().anyMatch(pair -> pair.first == tableId);
     }
 
     public void getBinlogInfo(BaseProcResult result) {
