@@ -73,10 +73,9 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
 
         memcpy(decoded_slice.data, data.data, BITSHUFFLE_PAGE_HEADER_SIZE);
 
-        auto bytes = bitshuffle::decompress_lz4(
-                &data.data[BITSHUFFLE_PAGE_HEADER_SIZE],
-                decoded_slice.data + BITSHUFFLE_PAGE_HEADER_SIZE,
-                num_element_after_padding, size_of_element, 0);
+        auto bytes = bitshuffle::decompress_lz4(&data.data[BITSHUFFLE_PAGE_HEADER_SIZE],
+                                                decoded_slice.data + BITSHUFFLE_PAGE_HEADER_SIZE,
+                                                num_element_after_padding, size_of_element, 0);
         if (bytes < 0) [[unlikely]] {
             // Ideally, this should not happen.
             warn_with_bitshuffle_error(bytes);

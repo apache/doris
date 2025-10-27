@@ -69,9 +69,9 @@ public:
     // Create dict page decoder based on encoding type
     // The decoded_page parameter is passed by reference to ensure the decoded data's lifetime
     // is managed by the caller, preventing the data from being freed prematurely
-    std::unique_ptr<PageDecoder> create_dict_page_decoder(
-            Slice& dict_slice, EncodingTypePB encoding_type,
-            std::unique_ptr<DataPage>& decoded_page) {
+    std::unique_ptr<PageDecoder> create_dict_page_decoder(Slice& dict_slice,
+                                                          EncodingTypePB encoding_type,
+                                                          std::unique_ptr<DataPage>& decoded_page) {
         // Apply pre-decode for BinaryPlainPageV2
         if (encoding_type == PLAIN_ENCODING_V2) {
             BinaryPlainPageV2PreDecoder pre_decoder;
@@ -355,8 +355,8 @@ public:
         if (dict_slice.slice().size > 0) {
             Slice temp_dict_slice = dict_slice.slice();
             std::unique_ptr<DataPage> temp_decoded_page;
-            auto temp_decoder =
-                    create_dict_page_decoder(temp_dict_slice, dict_encoding_type, temp_decoded_page);
+            auto temp_decoder = create_dict_page_decoder(temp_dict_slice, dict_encoding_type,
+                                                         temp_decoded_page);
             if (temp_decoder) {
                 dict_entries = temp_decoder->count();
             }
