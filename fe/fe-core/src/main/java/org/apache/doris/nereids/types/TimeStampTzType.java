@@ -61,6 +61,10 @@ public class TimeStampTzType extends PrimitiveType {
         }
     }
 
+    public int getScale() {
+        return scale;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
