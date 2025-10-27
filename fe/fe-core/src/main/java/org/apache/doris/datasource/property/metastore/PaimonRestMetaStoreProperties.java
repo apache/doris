@@ -77,7 +77,7 @@ public class PaimonRestMetaStoreProperties extends AbstractPaimonProperties {
 
     @Override
     public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
-        buildCatalogOptions(storagePropertiesList);
+        buildCatalogOptions();
         CatalogContext catalogContext = CatalogContext.create(catalogOptions);
         return CatalogFactory.createCatalog(catalogContext);
     }

@@ -1817,7 +1817,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                     _lazy_materialization_read = true;
                 }
                 if (_is_common_expr_column[cid]) {
-                    _non_predicate_column_ids.push_back(cid);
+                    _common_expr_column_ids.push_back(cid);
                 } else {
                     _non_predicate_columns.push_back(cid);
                 }
@@ -1846,7 +1846,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                                _short_cir_pred_column_ids.end());
             pred_id_set.insert(_vec_pred_column_ids.begin(), _vec_pred_column_ids.end());
 
-            DCHECK(_non_predicate_column_ids.empty());
+            DCHECK(_common_expr_column_ids.empty());
             // _non_predicate_column_ids must be empty. Otherwise _lazy_materialization_read must not false.
             for (int i = 0; i < _schema->num_column_ids(); i++) {
                 auto cid = _schema->column_id(i);
@@ -1881,7 +1881,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             "_schema_block_id_map: [{}]",
             _lazy_materialization_read, _col_predicates.size(),
             fmt::join(_predicate_column_ids, ","), fmt::join(_non_predicate_columns, ","),
-            fmt::join(_non_predicate_column_ids, ","), fmt::join(_columns_to_filter, ","),
+            fmt::join(_common_expr_column_ids, ","), fmt::join(_columns_to_filter, ","),
             fmt::join(_schema_block_id_map, ","));
     return Status::OK();
 }
@@ -2542,13 +2542,13 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 // step 3.2: read remaining expr column and evaluate it.
                 if (_is_need_expr_eval) {
                     // The predicate column contains the remaining expr column, no need second read.
-                    if (_non_predicate_column_ids.size() > 0) {
+                    if (_common_expr_column_ids.size() > 0) {
                         SCOPED_RAW_TIMER(&_opts.stats->non_predicate_read_ns);
                         RETURN_IF_ERROR(_read_columns_by_rowids(
-                                _non_predicate_column_ids, _block_rowids, _sel_rowid_idx.data(),
+                                _common_expr_column_ids, _block_rowids, _sel_rowid_idx.data(),
                                 _selected_size, &_current_return_columns));
-                        _replace_version_col_if_needed(_non_predicate_column_ids, _selected_size);
-                        RETURN_IF_ERROR(_process_columns(_non_predicate_column_ids, block));
+                        _replace_version_col_if_needed(_common_expr_column_ids, _selected_size);
+                        RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
                     }
 
                     DCHECK(block->columns() > _schema_block_id_map[*_common_expr_columns.begin()]);
@@ -2558,7 +2558,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             } else {
                 _fill_column_nothing();
                 if (_is_need_expr_eval) {
-                    RETURN_IF_ERROR(_process_columns(_non_predicate_column_ids, block));
+                    RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
                 }
             }
         } else if (_is_need_expr_eval) {

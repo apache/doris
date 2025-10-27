@@ -256,7 +256,7 @@ public:
             }
         }
 
-        if (block.get_by_position(arguments[0]).type->is_nullable()) {
+        if (block.get_by_position(result).type->is_nullable()) {
             block.replace_by_position(
                     result,
                     ColumnNullable::create(std::move(col_to), std::move(result_null_map_column)));
