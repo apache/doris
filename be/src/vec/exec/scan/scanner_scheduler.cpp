@@ -91,7 +91,7 @@ Status ScannerScheduler::init(ExecEnv* env) {
     _remote_scan_thread_pool =
             std::make_unique<vectorized::SimplifiedScanScheduler>("RemoteScanThreadPool", nullptr);
     Status ret2 = _remote_scan_thread_pool->start(_remote_thread_pool_max_thread_num,
-                                                  config::doris_scanner_min_thread_pool_thread_num,
+                                                  config::thrift_connect_timeout_seconds,
                                                   remote_scan_pool_queue_size);
     RETURN_IF_ERROR(ret2);
 
