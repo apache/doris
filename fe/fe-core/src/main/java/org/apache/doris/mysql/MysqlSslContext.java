@@ -252,12 +252,38 @@ public class MysqlSslContext {
         }
     }
 
-    private boolean handleUnwrapResult(SSLEngineResult sslEngineResult) {
+    private boolean handleUnwrapResult(SSLEngineResult sslEngineResult) throws SSLException {
         switch (sslEngineResult.getStatus()) {
             // normal status.
             case OK:
                 return true;
             case CLOSED:
+                int consumed = sslEngineResult.bytesConsumed();
+                int produced = sslEngineResult.bytesProduced();
+                if (consumed == 0 && produced == 0) {
+                    LOG.warn("SSLEngine unwrap closed with no progress during handshake. status="
+                            + sslEngineResult.getStatus() + ", handshake="
+                            + sslEngineResult.getHandshakeStatus()
+                            + ", bytesConsumed=" + consumed + ", bytesProduced=" + produced);
+                    try {
+                        sslEngine.closeInbound();
+                    } catch (SSLException e) {
+                        LOG.warn("Error when closing SSL inbound during handshake unwrap", e);
+                    }
+                    sslEngine.closeOutbound();
+                    throw new SSLException("SSL unwrap closed with no progress during handshake (handshakeStatus="
+                            + sslEngineResult.getHandshakeStatus() + ", bytesConsumed="
+                            + consumed + ", bytesProduced=" + produced + ")");
+                }
+                try {
+                    sslEngine.closeInbound();
+                } catch (SSLException e) {
+                    LOG.debug("closeInbound on normal handshake unwrap close failed", e);
+                }
+                LOG.debug("SSLEngine unwrap closed normally during handshake. status="
+                        + sslEngineResult.getStatus() + ", handshake="
+                        + sslEngineResult.getHandshakeStatus()
+                        + ", bytesConsumed=" + consumed + ", bytesProduced=" + produced);
                 sslEngine.closeOutbound();
                 return true;
             case BUFFER_OVERFLOW:

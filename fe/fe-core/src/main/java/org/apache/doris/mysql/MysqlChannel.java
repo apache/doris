@@ -615,12 +615,38 @@ public class MysqlChannel implements BytesChannel {
         }
     }
 
-    private boolean handleUnwrapResult(SSLEngineResult sslEngineResult) {
+    private boolean handleUnwrapResult(SSLEngineResult sslEngineResult) throws SSLException {
         switch (sslEngineResult.getStatus()) {
             // normal status.
             case OK:
                 return true;
             case CLOSED:
+                int consumed = sslEngineResult.bytesConsumed();
+                int produced = sslEngineResult.bytesProduced();
+                if (consumed == 0 && produced == 0) {
+                    LOG.warn("SSLEngine unwrap closed with no progress. status="
+                            + sslEngineResult.getStatus() + ", handshake="
+                            + sslEngineResult.getHandshakeStatus()
+                            + ", bytesConsumed=" + consumed + ", bytesProduced=" + produced);
+                    try {
+                        sslEngine.closeInbound();
+                    } catch (SSLException e) {
+                        LOG.warn("Error when closing SSL inbound during unwrap", e);
+                    }
+                    sslEngine.closeOutbound();
+                    throw new SSLException("SSL unwrap closed with no progress (handshakeStatus="
+                            + sslEngineResult.getHandshakeStatus() + ", bytesConsumed="
+                            + consumed + ", bytesProduced=" + produced + ")");
+                }
+                try {
+                    sslEngine.closeInbound();
+                } catch (SSLException e) {
+                    LOG.debug("closeInbound on normal unwrap close failed", e);
+                }
+                LOG.debug("SSLEngine unwrap closed normally. status="
+                        + sslEngineResult.getStatus() + ", handshake="
+                        + sslEngineResult.getHandshakeStatus()
+                        + ", bytesConsumed=" + consumed + ", bytesProduced=" + produced);
                 sslEngine.closeOutbound();
                 return true;
             case BUFFER_OVERFLOW:
