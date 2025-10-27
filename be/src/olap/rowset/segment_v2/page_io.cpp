@@ -176,6 +176,7 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
     if (opts.verify_checksum) {
         uint32_t expect = decode_fixed32_le((uint8_t*)page_slice.data + page_slice.size - 4);
         uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
+        // here const_cast is used for testing.
         InjectionContext ctx = {&actual, const_cast<PageReadOptions*>(&opts)};
         (void)ctx;
         TEST_INJECTION_POINT_CALLBACK("PageIO::read_and_decompress_page:crc_failure_inj", &ctx);

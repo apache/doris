@@ -92,5 +92,10 @@ bool VLiteral::equals(const VExpr& other) {
     return true;
 }
 
+uint64_t VLiteral::get_digest(uint64_t seed) const {
+    _column_ptr->update_xxHash_with_value(0, 1, seed, nullptr);
+    return seed;
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

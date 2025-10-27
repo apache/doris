@@ -103,6 +103,14 @@ Status MemTableWriter::write(const vectorized::Block* block,
                                              _req.tablet_id, _req.load_id.hi(), _req.load_id.lo());
     }
 
+    // Flush and reset memtable if it is raw rows great than int32_t.
+    int64_t raw_rows = _mem_table->raw_rows();
+    DBUG_EXECUTE_IF("MemTableWriter.too_many_raws",
+                    { raw_rows = std::numeric_limits<int32_t>::max(); });
+    if (raw_rows + row_idxs.size() > std::numeric_limits<int32_t>::max()) {
+        RETURN_IF_ERROR(_flush_memtable());
+    }
+
     _total_received_rows += row_idxs.size();
     auto st = _mem_table->insert(block, row_idxs);
 
@@ -127,13 +135,18 @@ Status MemTableWriter::write(const vectorized::Block* block,
         _mem_table->shrink_memtable_by_agg();
     }
     if (UNLIKELY(_mem_table->need_flush())) {
-        auto s = _flush_memtable_async();
-        _reset_mem_table();
-        if (UNLIKELY(!s.ok())) {
-            return s;
-        }
+        RETURN_IF_ERROR(_flush_memtable());
     }
 
+    return Status::OK();
+}
+
+Status MemTableWriter::_flush_memtable() {
+    auto s = _flush_memtable_async();
+    _reset_mem_table();
+    if (UNLIKELY(!s.ok())) {
+        return s;
+    }
     return Status::OK();
 }
 

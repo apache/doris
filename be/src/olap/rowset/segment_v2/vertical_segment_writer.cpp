@@ -355,7 +355,7 @@ void VerticalSegmentWriter::_maybe_invalid_row_cache(const std::string& key) con
     }
 }
 
-void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
+void VerticalSegmentWriter::_serialize_block_to_row_column(const vectorized::Block& block) {
     if (block.rows() == 0) {
         return;
     }
@@ -932,6 +932,13 @@ Status VerticalSegmentWriter::write_batch() {
         for (auto& column_writer : _column_writers) {
             RETURN_IF_ERROR(column_writer->finish());
             RETURN_IF_ERROR(column_writer->write_data());
+
+            auto* column_meta = column_writer->get_column_meta();
+            column_meta->set_compressed_data_bytes(
+                    column_writer->get_total_compressed_data_pages_bytes());
+            column_meta->set_uncompressed_data_bytes(
+                    column_writer->get_total_uncompressed_data_pages_bytes());
+            column_meta->set_raw_data_bytes(column_writer->get_raw_data_bytes());
         }
         return Status::OK();
     }
@@ -941,7 +948,7 @@ Status VerticalSegmentWriter::write_batch() {
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
         for (auto& data : _batched_blocks) {
             // TODO: maybe we should pass range to this method
-            _serialize_block_to_row_column(*const_cast<vectorized::Block*>(data.block));
+            _serialize_block_to_row_column(*data.block);
         }
     }
 
@@ -984,6 +991,13 @@ Status VerticalSegmentWriter::write_batch() {
         }
         RETURN_IF_ERROR(_column_writers[cid]->finish());
         RETURN_IF_ERROR(_column_writers[cid]->write_data());
+
+        auto* column_meta = _column_writers[cid]->get_column_meta();
+        column_meta->set_compressed_data_bytes(
+                _column_writers[cid]->get_total_compressed_data_pages_bytes());
+        column_meta->set_uncompressed_data_bytes(
+                _column_writers[cid]->get_total_uncompressed_data_pages_bytes());
+        column_meta->set_raw_data_bytes(_column_writers[cid]->get_raw_data_bytes());
     }
 
     for (auto& data : _batched_blocks) {

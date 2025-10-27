@@ -109,6 +109,17 @@ public abstract class BoundFunction extends Function implements ComputeSignature
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(getName().toUpperCase());
+        sb.append(
+                children().stream().map(Expression::toDigest)
+                        .collect(Collectors.joining(", ", "(", ")"))
+        );
+        return sb.toString();
+    }
+
+    @Override
     public Expression withChildren(List<Expression> children) {
         throw new UnsupportedOperationException(
                 "Please implement withChildren by create new function with FunctionParams");

@@ -39,6 +39,8 @@ public:
 
     bool can_push_down_to_index() const override { return true; }
 
+    const TSearchParam& get_search_param() const { return _search_param; }
+
 private:
     TSearchParam _search_param;
     std::string _original_dsl;

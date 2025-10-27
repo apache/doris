@@ -26,7 +26,7 @@ suite("test_show_where", "query,external,mysql,external_docker,external_docker_m
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
     try {
         sql  """ drop database if exists ${ex_db_name} """
         sql  """ create database ${ex_db_name} """

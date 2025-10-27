@@ -21,7 +21,6 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend.StorageType;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -38,6 +37,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -110,7 +110,7 @@ public class ExportJob implements Writable {
     @SerializedName(value = "partitionNames", alternate = {"partitions"})
     private List<String> partitionNames;
     @SerializedName("tableName")
-    private TableName tableName;
+    private TableNameInfo tableName;
     @SerializedName("state")
     private ExportJobState state;
     @SerializedName("createTimeMs")

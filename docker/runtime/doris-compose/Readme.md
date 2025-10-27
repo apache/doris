@@ -207,6 +207,62 @@ steps:
 2. Generate regression-conf-custom.groovy: `python docker/runtime/doris-compose/doris-compose.py config my-cluster  <doris-root-path> --connect-follow-fe`
 3. Run regression test: `bash run-regression-test.sh --run -times 1 -parallel 1 -suiteParallel 1 -d cloud/multi_cluster`
 
+### Multi cloud cluster with shared Meta Service
+
+Doris compose now supports creating multiple cloud clusters that share the same Meta Service (MS), FDB, and Recycler services. This is useful for testing cross-cluster operations (such as cloning, backup/restore) under the same Meta Service instance.
+
+#### Create the first cluster
+
+First, create a complete cloud cluster that will provide MS/FDB/Recycler services:
+
+```shell
+python docker/runtime/doris-compose/doris-compose.py up cluster1 <image> --cloud --add-fe-num 1 --add-be-num 3
+```
+
+This creates the first cluster with:
+- 1 FDB node
+- 1 Meta Service (MS) node
+- 1 Recycler node
+- 1 FE node
+- 3 BE nodes
+
+#### Create additional clusters sharing the same MS
+
+Now you can create additional sql/compute clusters that share the first cluster's Meta Service:
+
+```shell
+# Create second cluster sharing cluster1's MS
+python docker/runtime/doris-compose/doris-compose.py up cluster2 <image> --cloud --external-ms cluster1 --instance-id instance_cluster2 --add-fe-num 1 --add-be-num 3
+
+# Create third cluster sharing cluster1's MS
+python docker/runtime/doris-compose/doris-compose.py up cluster3 <image> --cloud --external-ms cluster1 --instance-id instance_cluster3 --add-fe-num 1 --add-be-num 3
+```
+
+Key points:
+- `--external-ms cluster1`: Specifies that this cluster will use cluster1's MS/FDB/Recycler services
+- `--instance-id`: Must be unique for each cluster. If not specified, will auto-generate as `instance_<cluster-name>`
+- The new clusters will NOT create their own MS/FDB/Recycler nodes, saving resources
+- All clusters share the same object storage and meta service infrastructure
+- Each cluster maintains its own FE/BE nodes for compute isolation
+
+#### Network architecture
+
+When using external MS:
+- Each cluster has its own Docker network
+- Compute clusters join the external MS cluster's network as well
+- DNS resolution is configured automatically for all MS/FDB/Recycler nodes
+- BE and FE nodes can communicate with MS nodes using their container names
+
+#### Validation
+
+Doris compose automatically validates:
+1. External MS cluster exists
+2. External cluster is a cloud cluster
+3. MS and FDB nodes are present
+4. MS and FDB containers are running
+
+If validation fails, you'll get a clear error message explaining what needs to be fixed.
+
 ## Problem investigation
 
 ### Log

@@ -22,7 +22,7 @@ suite("test_meta_cache_select_without_refresh", "p0,external,doris,external_dock
     String jdbcPassword = "C123_567p"
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.3.0.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
 
     try_sql """drop user ${jdbcUser}"""
     sql """create user ${jdbcUser} identified by '${jdbcPassword}'"""

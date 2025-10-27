@@ -62,6 +62,8 @@ public:
 
     bool equals(const VExpr& other) override;
 
+    uint64_t get_digest(uint64_t seed) const override;
+
 protected:
     ColumnPtr _column_ptr;
     std::string _expr_name;

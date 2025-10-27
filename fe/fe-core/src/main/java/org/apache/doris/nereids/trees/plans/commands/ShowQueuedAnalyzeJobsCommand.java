@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -88,9 +87,9 @@ public class ShowQueuedAnalyzeJobsCommand extends ShowCommand {
         this.tableNameInfo = tableName == null ? null : new TableNameInfo(tableName);
         this.stateKey = stateKey;
         this.stateValue = stateValue;
-        ctl = null;
-        db = null;
-        table = null;
+        ctl = "";
+        db = "";
+        table = "";
     }
 
     private void validate(ConnectContext ctx) throws AnalysisException {
@@ -138,7 +137,7 @@ public class ShowQueuedAnalyzeJobsCommand extends ShowCommand {
 
     private ShowResultSet handleShowQueuedAnalyzeJobs() {
         List<AutoAnalysisPendingJob> jobs = Env.getCurrentEnv().getAnalysisManager().showAutoPendingJobs(
-                new TableName(ctl, db, table), stateValue);
+                new TableNameInfo(ctl, db, table), stateValue);
         List<List<String>> resultRows = Lists.newArrayList();
         for (AutoAnalysisPendingJob job : jobs) {
             try {

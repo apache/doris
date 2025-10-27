@@ -167,4 +167,9 @@ public class COSProperties extends AbstractS3CompatibleProperties {
         hadoopStorageConfig.set("fs.cosn.userinfo.secretId", accessKey);
         hadoopStorageConfig.set("fs.cosn.userinfo.secretKey", secretKey);
     }
+
+    @Override
+    protected Set<String> schemas() {
+        return ImmutableSet.of("cos", "cosn");
+    }
 }

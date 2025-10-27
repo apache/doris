@@ -135,6 +135,28 @@ public class SearchDslParserTest {
     }
 
     @Test
+    public void testAllQueryWithQuotes() {
+        String dsl = "redirect:ALL(\"Rainbowman\")";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.ALL, plan.root.type);
+        Assertions.assertEquals("redirect", plan.root.field);
+        Assertions.assertEquals("Rainbowman", plan.root.value);
+    }
+
+    @Test
+    public void testAnyQueryWithQuotes() {
+        String dsl = "tags:ANY(\"Mandy Patinkin\")";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.ANY, plan.root.type);
+        Assertions.assertEquals("tags", plan.root.field);
+        Assertions.assertEquals("Mandy Patinkin", plan.root.value);
+    }
+
+    @Test
     public void testAndQuery() {
         String dsl = "title:hello AND content:world";
         QsPlan plan = SearchDslParser.parseDsl(dsl);
@@ -249,5 +271,310 @@ public class SearchDslParserTest {
         Assertions.assertEquals("field name", plan.root.field);
         Assertions.assertEquals(1, plan.fieldBindings.size());
         Assertions.assertEquals("field name", plan.fieldBindings.get(0).fieldName);
+    }
+
+    // ============ Tests for Default Field and Operator Support ============
+
+    @Test
+    public void testDefaultFieldWithSimpleTerm() {
+        // Test: "foo" + field="tags" → "tags:foo"
+        String dsl = "foo";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
+        Assertions.assertEquals("tags", plan.root.field);
+        Assertions.assertEquals("foo", plan.root.value);
+        Assertions.assertEquals(1, plan.fieldBindings.size());
+        Assertions.assertEquals("tags", plan.fieldBindings.get(0).fieldName);
+    }
+
+    @Test
+    public void testDefaultFieldWithMultiTermAnd() {
+        // Test: "foo bar" + field="tags" + operator="and" → "tags:ALL(foo bar)"
+        String dsl = "foo bar";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "and");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.ALL, plan.root.type);
+        Assertions.assertEquals("tags", plan.root.field);
+        Assertions.assertEquals("foo bar", plan.root.value);
+    }
+
+    @Test
+    public void testDefaultFieldWithMultiTermOr() {
+        // Test: "foo bar" + field="tags" + operator="or" → "tags:ANY(foo bar)"
+        String dsl = "foo bar";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "or");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.ANY, plan.root.type);
+        Assertions.assertEquals("tags", plan.root.field);
+        Assertions.assertEquals("foo bar", plan.root.value);
+    }
+
+    @Test
+    public void testDefaultFieldWithMultiTermDefaultOr() {
+        // Test: "foo bar" + field="tags" (no operator, defaults to OR) → "tags:ANY(foo bar)"
+        String dsl = "foo bar";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.ANY, plan.root.type);
+        Assertions.assertEquals("tags", plan.root.field);
+        Assertions.assertEquals("foo bar", plan.root.value);
+    }
+
+    @Test
+    public void testDefaultFieldWithWildcardSingleTerm() {
+        // Test: "foo*" + field="tags" → "tags:foo*"
+        String dsl = "foo*";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.PREFIX, plan.root.type);
+        Assertions.assertEquals("tags", plan.root.field);
+        Assertions.assertEquals("foo*", plan.root.value);
+    }
+
+    @Test
+    public void testDefaultFieldWithWildcardMultiTermAnd() {
+        // Test: "foo* bar*" + field="tags" + operator="and" → "tags:foo* AND tags:bar*"
+        String dsl = "foo* bar*";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "and");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
+        Assertions.assertEquals(2, plan.root.children.size());
+
+        QsNode firstChild = plan.root.children.get(0);
+        Assertions.assertEquals(QsClauseType.PREFIX, firstChild.type);
+        Assertions.assertEquals("tags", firstChild.field);
+        Assertions.assertEquals("foo*", firstChild.value);
+
+        QsNode secondChild = plan.root.children.get(1);
+        Assertions.assertEquals(QsClauseType.PREFIX, secondChild.type);
+        Assertions.assertEquals("tags", secondChild.field);
+        Assertions.assertEquals("bar*", secondChild.value);
+    }
+
+    @Test
+    public void testDefaultFieldWithWildcardMultiTermOr() {
+        // Test: "foo* bar*" + field="tags" + operator="or" → "tags:foo* OR tags:bar*"
+        String dsl = "foo* bar*";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "or");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
+        Assertions.assertEquals(2, plan.root.children.size());
+    }
+
+    @Test
+    public void testDefaultFieldWithExplicitOperatorOverride() {
+        // Test: "foo OR bar" + field="tags" + operator="and" → explicit OR takes precedence
+        String dsl = "foo OR bar";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "and");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.OR, plan.root.type);
+        Assertions.assertEquals(2, plan.root.children.size());
+
+        QsNode firstChild = plan.root.children.get(0);
+        Assertions.assertEquals("tags", firstChild.field);
+        Assertions.assertEquals("foo", firstChild.value);
+
+        QsNode secondChild = plan.root.children.get(1);
+        Assertions.assertEquals("tags", secondChild.field);
+        Assertions.assertEquals("bar", secondChild.value);
+    }
+
+    @Test
+    public void testDefaultFieldWithExplicitAndOperator() {
+        // Test: "foo AND bar" + field="tags" + operator="or" → explicit AND takes precedence
+        String dsl = "foo AND bar";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "or");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
+        Assertions.assertEquals(2, plan.root.children.size());
+    }
+
+    @Test
+    public void testDefaultFieldWithExactFunction() {
+        // Test: "EXACT(foo bar)" + field="tags" → "tags:EXACT(foo bar)"
+        String dsl = "EXACT(foo bar)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.EXACT, plan.root.type);
+        Assertions.assertEquals("tags", plan.root.field);
+        Assertions.assertEquals("foo bar", plan.root.value);
+    }
+
+    @Test
+    public void testDefaultFieldWithAnyFunction() {
+        // Test: "ANY(foo bar)" + field="tags" → "tags:ANY(foo bar)"
+        String dsl = "ANY(foo bar)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.ANY, plan.root.type);
+        Assertions.assertEquals("tags", plan.root.field);
+        Assertions.assertEquals("foo bar", plan.root.value);
+    }
+
+    @Test
+    public void testDefaultFieldWithAllFunction() {
+        // Test: "ALL(foo bar)" + field="tags" → "tags:ALL(foo bar)"
+        String dsl = "ALL(foo bar)";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.ALL, plan.root.type);
+        Assertions.assertEquals("tags", plan.root.field);
+        Assertions.assertEquals("foo bar", plan.root.value);
+    }
+
+    @Test
+    public void testDefaultFieldIgnoredWhenDslHasFieldReference() {
+        // Test: DSL with field reference should ignore default field
+        String dsl = "title:hello";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "and");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.root.type);
+        Assertions.assertEquals("title", plan.root.field); // Should be "title", not "tags"
+        Assertions.assertEquals("hello", plan.root.value);
+    }
+
+    @Test
+    public void testInvalidDefaultOperator() {
+        // Test: invalid operator should throw exception
+        String dsl = "foo bar";
+
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class, () -> {
+            SearchDslParser.parseDsl(dsl, "tags", "invalid");
+        });
+
+        Assertions.assertTrue(exception.getMessage().contains("Invalid default operator"));
+        Assertions.assertTrue(exception.getMessage().contains("Must be 'and' or 'or'"));
+    }
+
+    @Test
+    public void testDefaultOperatorCaseInsensitive() {
+        // Test: operator should be case-insensitive
+        String dsl = "foo bar";
+
+        // Test "AND"
+        QsPlan plan1 = SearchDslParser.parseDsl(dsl, "tags", "AND");
+        Assertions.assertEquals(QsClauseType.ALL, plan1.root.type);
+
+        // Test "Or"
+        QsPlan plan2 = SearchDslParser.parseDsl(dsl, "tags", "Or");
+        Assertions.assertEquals(QsClauseType.ANY, plan2.root.type);
+
+        // Test "aNd"
+        QsPlan plan3 = SearchDslParser.parseDsl(dsl, "tags", "aNd");
+        Assertions.assertEquals(QsClauseType.ALL, plan3.root.type);
+    }
+
+    @Test
+    public void testDefaultFieldWithComplexWildcard() {
+        // Test: "*foo*" (middle wildcard) + field="tags"
+        String dsl = "*foo*";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.WILDCARD, plan.root.type);
+        Assertions.assertEquals("tags", plan.root.field);
+        Assertions.assertEquals("*foo*", plan.root.value);
+    }
+
+    @Test
+    public void testDefaultFieldWithMixedWildcards() {
+        // Test: "foo* *bar baz" (mixed wildcards and regular terms) + field="tags" + operator="and"
+        String dsl = "foo* bar baz";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "and");
+
+        Assertions.assertNotNull(plan);
+        // Should create AND query because it contains wildcards
+        Assertions.assertEquals(QsClauseType.AND, plan.root.type);
+        Assertions.assertEquals(3, plan.root.children.size());
+    }
+
+    @Test
+    public void testDefaultFieldWithQuotedPhrase() {
+        // Test: quoted phrase should be treated as PHRASE
+        String dsl = "\"hello world\"";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "and");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.PHRASE, plan.root.type);
+        Assertions.assertEquals("tags", plan.root.field);
+        Assertions.assertEquals("hello world", plan.root.value);
+    }
+
+    @Test
+    public void testDefaultFieldWithNotOperator() {
+        // Test: "NOT foo" + field="tags" → "NOT tags:foo"
+        String dsl = "NOT foo";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.NOT, plan.root.type);
+        Assertions.assertEquals(1, plan.root.children.size());
+
+        QsNode child = plan.root.children.get(0);
+        Assertions.assertEquals(QsClauseType.TERM, child.type);
+        Assertions.assertEquals("tags", child.field);
+        Assertions.assertEquals("foo", child.value);
+    }
+
+    @Test
+    public void testDefaultFieldWithEmptyString() {
+        // Test: empty default field should not expand DSL, causing parse error
+        // for incomplete DSL like "foo" (no field specified)
+        String dsl = "foo";
+
+        // This should throw an exception because "foo" alone is not valid DSL
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
+            SearchDslParser.parseDsl(dsl, "", "and");
+        });
+
+        Assertions.assertTrue(exception.getMessage().contains("Invalid search DSL syntax"));
+    }
+
+    @Test
+    public void testDefaultFieldWithNullOperator() {
+        // Test: null operator should default to OR
+        String dsl = "foo bar";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", null);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.ANY, plan.root.type); // Defaults to OR/ANY
+    }
+
+    @Test
+    public void testDefaultFieldWithSingleWildcardTerm() {
+        // Test: single term with wildcard should not use ANY/ALL
+        String dsl = "f?o";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "and");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.WILDCARD, plan.root.type);
+        Assertions.assertEquals("tags", plan.root.field);
+        Assertions.assertEquals("f?o", plan.root.value);
+    }
+
+    @Test
+    public void testDefaultFieldPreservesFieldBindings() {
+        // Test: field bindings should be correctly generated with default field
+        String dsl = "foo bar";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "tags", "and");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(1, plan.fieldBindings.size());
+        Assertions.assertEquals("tags", plan.fieldBindings.get(0).fieldName);
+        Assertions.assertEquals(0, plan.fieldBindings.get(0).slotIndex);
     }
 }

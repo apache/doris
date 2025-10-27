@@ -377,8 +377,7 @@ public class HiveMetaStoreCache {
             while (iterator.hasNext()) {
                 RemoteFile remoteFile = iterator.next();
                 String srcPath = remoteFile.getPath().toString();
-                LocationPath locationPath = LocationPath.of(srcPath, catalog.getCatalogProperty()
-                        .getStoragePropertiesMap());
+                LocationPath locationPath = LocationPath.of(srcPath, path.getStorageProperties());
                 result.addFile(remoteFile, locationPath);
             }
         } catch (FileSystemIOException e) {

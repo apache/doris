@@ -86,6 +86,8 @@ public:
 
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
+    uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
+
 protected:
     friend class vectorized::ScannerContext;
     friend class vectorized::Scanner;
@@ -122,6 +124,8 @@ protected:
 
     RuntimeFilterConsumerHelper _helper;
     std::mutex _conjunct_lock;
+    // magic number as seed to generate hash value for condition cache
+    uint64_t _condition_cache_digest = 0;
 };
 
 template <typename LocalStateType>
@@ -171,7 +175,7 @@ class ScanLocalState : public ScanLocalStateBase {
 
     std::vector<int> get_topn_filter_source_node_ids(RuntimeState* state, bool push_down) {
         std::vector<int> result;
-        for (int id : _parent->cast<typename Derived::Parent>().topn_filter_source_node_ids) {
+        for (int id : _parent->cast<typename Derived::Parent>()._topn_filter_source_node_ids) {
             if (!state->get_query_ctx()->has_runtime_predicate(id)) {
                 // compatible with older versions fe
                 continue;
@@ -195,10 +199,7 @@ protected:
     friend class vectorized::Scanner;
 
     Status _init_profile() override;
-    virtual Status _process_conjuncts(RuntimeState* state) {
-        RETURN_IF_ERROR(_normalize_conjuncts(state));
-        return Status::OK();
-    }
+    virtual Status _process_conjuncts(RuntimeState* state) { return _normalize_conjuncts(state); }
     virtual bool _should_push_down_common_expr() { return false; }
 
     virtual bool _storage_no_merge() { return false; }
@@ -374,7 +375,7 @@ public:
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
-    DataDistribution required_data_distribution() const override {
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (OperatorX<LocalStateType>::is_serial_operator()) {
             // `is_serial_operator()` returns true means we ignore the distribution.
             return {ExchangeType::NOOP};
@@ -444,7 +445,7 @@ protected:
 
     int _query_parallel_instance_num = 0;
 
-    std::vector<int> topn_filter_source_node_ids;
+    std::vector<int> _topn_filter_source_node_ids;
 };
 
 #include "common/compile_check_end.h"

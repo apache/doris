@@ -25,9 +25,9 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((c.c_current_addr_sk = ca.ca_address_sk)) otherCondition=() build RFs:RF2 ca_address_sk->[c_current_addr_sk]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer] apply RFs: RF2 RF5
+------------------------------------PhysicalOlapScan[customer(c)] apply RFs: RF2 RF5
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer_address]
+------------------------------------PhysicalOlapScan[customer_address(ca)]
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ws_sold_date_sk]
 --------------------------------PhysicalProject

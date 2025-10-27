@@ -24,36 +24,36 @@ Meimei Han	Xxxxxx Xxx	*xxxxx *xx	*##### *##
 13556780000	nnnnnnnnnnn	nnnnnnnnnnn	@@@@@@@@@@@
 
 -- !select_mask_first_n --
-Jack Hawk	Xxxx Xxxx	Xxxk Hawk	Xxxx Xxxx
-Sam Smith	Xxx Xxxxx	Xxx Smith	Xxx Xxxxx
-Tom Cruise	Xxx Xxxxxx	Xxx Cruise	Xxx Xxxxxx
-Bruce Willis	Xxxxx Xxxxxx	Xxxce Willis	Xxxxx Xxxxxx
-Ming Li	Xxxx Xx	Xxxg Li	Xxxx Xx
-Meimei Han	Xxxxxx Xxx	Xxxmei Han	Xxxxxx Xxx
+Jack Hawk	Xack Hawk	Xxxx Xxxx	Xxxk Hawk	Xxxx Xxxx
+Sam Smith	Xxm Smith	Xxx Xxxxx	Xxx Smith	Xxx Xxxxx
+Tom Cruise	Xxx Cruise	Xxx Xxxxxx	Xxx Cruise	Xxx Xxxxxx
+Bruce Willis	Xxxxe Willis	Xxxxx Xxxxxx	Xxxce Willis	Xxxxx Xxxxxx
+Ming Li	Xxxx Li	Xxxx Xx	Xxxg Li	Xxxx Xx
+Meimei Han	Xxxxxx Han	Xxxxxx Xxx	Xxxmei Han	Xxxxxx Xxx
 
 -- !select_mask_first_n_nullable --
-18112349876	nnnnnnnnnnn	nnn12349876	nnnnnnnnnnn
-\N	\N	\N	\N
-18212349876	nnnnnnnnnnn	nnn12349876	nnnnnnnnnnn
-\N	\N	\N	\N
-19943216789	nnnnnnnnnnn	nnn43216789	nnnnnnnnnnn
-13556780000	nnnnnnnnnnn	nnn56780000	nnnnnnnnnnn
+18112349876	n8112349876	nnnnnnnnnnn	nnn12349876	nnnnnnnnnnn
+\N	\N	\N	\N	\N
+18212349876	nnn12349876	nnnnnnnnnnn	nnn12349876	nnnnnnnnnnn
+\N	\N	\N	\N	\N
+19943216789	nnnnn216789	nnnnnnnnnnn	nnn43216789	nnnnnnnnnnn
+13556780000	nnnnnn80000	nnnnnnnnnnn	nnn56780000	nnnnnnnnnnn
 
 -- !select_mask_last_n --
-Jack Hawk	Xxxx Xxxx	Jack Hxxx	Xxxx Xxxx
-Sam Smith	Xxx Xxxxx	Sam Smxxx	Xxx Xxxxx
-Tom Cruise	Xxx Xxxxxx	Tom Cruxxx	Xxx Xxxxxx
-Bruce Willis	Xxxxx Xxxxxx	Bruce Wilxxx	Xxxxx Xxxxxx
-Ming Li	Xxxx Xx	Ming Xx	Xxxx Xx
-Meimei Han	Xxxxxx Xxx	Meimei Xxx	Xxxxxx Xxx
+Jack Hawk	Jack Hawx	Xxxx Xxxx	Jack Hxxx	Xxxx Xxxx
+Sam Smith	Sam Smixx	Xxx Xxxxx	Sam Smxxx	Xxx Xxxxx
+Tom Cruise	Tom Cruxxx	Xxx Xxxxxx	Tom Cruxxx	Xxx Xxxxxx
+Bruce Willis	Bruce Wixxxx	Xxxxx Xxxxxx	Bruce Wilxxx	Xxxxx Xxxxxx
+Ming Li	Mixx Xx	Xxxx Xx	Ming Xx	Xxxx Xx
+Meimei Han	Meimxx Xxx	Xxxxxx Xxx	Meimei Xxx	Xxxxxx Xxx
 
 -- !select_mask_last_n_nullable --
-18112349876	nnnnnnnnnnn	18112349nnn	nnnnnnnnnnn
-\N	\N	\N	\N
-18212349876	nnnnnnnnnnn	18212349nnn	nnnnnnnnnnn
-\N	\N	\N	\N
-19943216789	nnnnnnnnnnn	19943216nnn	nnnnnnnnnnn
-13556780000	nnnnnnnnnnn	13556780nnn	nnnnnnnnnnn
+18112349876	1811234987n	nnnnnnnnnnn	18112349nnn	nnnnnnnnnnn
+\N	\N	\N	\N	\N
+18212349876	18212349nnn	nnnnnnnnnnn	18212349nnn	nnnnnnnnnnn
+\N	\N	\N	\N	\N
+19943216789	199432nnnnn	nnnnnnnnnnn	19943216nnn	nnnnnnnnnnn
+13556780000	13556nnnnnn	nnnnnnnnnnn	13556780nnn	nnnnnnnnnnn
 
 -- !select_digital_masking --
 138****5678

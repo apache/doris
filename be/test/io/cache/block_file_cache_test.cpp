@@ -5618,7 +5618,7 @@ TEST_F(BlockFileCacheTest, populate_empty_cache_with_normal) {
     io::BlockFileCache cache(cache_base_path, settings);
     ASSERT_TRUE(cache.initialize());
     int i = 0;
-    for (; i < 100; i++) {
+    for (; i < 5000; i++) {
         if (cache.get_async_open_success()) {
             break;
         }

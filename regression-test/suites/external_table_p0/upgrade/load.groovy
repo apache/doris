@@ -135,8 +135,8 @@ suite("test_catalog_upgrade_load", "p0,external,hive,external_docker,external_do
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String s3_endpoint = getS3Endpoint()
         String bucket = getS3BucketName()
-        String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
-        // String driver_url = "mysql-connector-java-8.0.25.jar"
+        String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
+        // String driver_url = "mysql-connector-j-8.4.0.jar"
         String catalog_name = "test_catalog_upgrade_jdbc_mysql"
         sql """drop catalog if exists ${catalog_name} """
         sql """create catalog if not exists ${catalog_name} properties(

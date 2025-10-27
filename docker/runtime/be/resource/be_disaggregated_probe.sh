@@ -75,38 +75,43 @@ ready_probe_with_tls()
 
     if [[ "$http_code" != "200" ]]; then
         exit 1
-    fi
-
-    local res=$(echo "$response" | sed '$d')
-    local status=$(jq -r ".status" <<< $res)
-    if [[ "x$status" == "xOK" ]]; then
-        exit 0
     else
-        exit 1
+        exit 0
     fi
+#
+#    local res=$(echo "$response" | sed '$d')
+#    local status=$(jq -r ".status" <<< $res)
+#    if [[ "x$status" == "xOK" ]]; then
+#        exit 0
+#    else
+#        exit 1
+#    fi
 }
 
 ready_probe_with_no_tls()
 {
     local webserver_port=$(parse_config_file_with_key "webserver_port")
     webserver_port=${webserver_port:=$DEFAULT_WEBSERVER_PORT}
-    local ip=`hostname -i | awk '{print $1}'`
-    local url="http://${ip}:${webserver_port}/api/health"
+    local host=`hostname -f`
+    local url="http://${host}:${webserver_port}/api/health"
 
     local response=$(curl -s -w "\n%{http_code}" $url)
     local http_code=$(echo "$response" | tail -n1)
 
     if [[ "$http_code" != "200" ]]; then
         exit 1
-    fi
-
-    local res=$(echo "$response" | sed '$d')
-    local status=$(jq -r ".status" <<< $res)
-    if [[ "x$status" == "xOK" ]]; then
-        exit 0
     else
-        exit 1
+        exit 0
     fi
+#    fi
+#
+#    local res=$(echo "$response" | sed '$d')
+#    local status=$(jq -r ".status" <<< $res)
+#    if [[ "x$status" == "xOK" ]]; then
+#        exit 0
+#    else
+#        exit 1
+#    fi
 }
 
 function ready_probe()

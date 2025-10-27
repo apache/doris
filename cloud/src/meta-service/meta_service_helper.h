@@ -359,7 +359,7 @@ int decrypt_instance_info(InstanceInfoPB& instance, const std::string& instance_
  * Notifies other metaservice to refresh instance
  */
 void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
-                             KVStats* stats);
+                             KVStats* stats, bool include_self = false);
 
 void get_tablet_idx(MetaServiceCode& code, std::string& msg, Transaction* txn,
                     const std::string& instance_id, int64_t tablet_id, TabletIndexPB& tablet_idx);

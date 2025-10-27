@@ -351,6 +351,7 @@ public class CoordinatorContext {
         } else {
             queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
         }
+        queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
         return queryGlobals;
     }
 

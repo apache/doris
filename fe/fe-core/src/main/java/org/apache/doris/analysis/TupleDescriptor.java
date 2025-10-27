@@ -23,6 +23,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.thrift.TTupleDescriptor;
 
@@ -226,8 +227,8 @@ public class TupleDescriptor {
         return (aliases != null) ? aliases[aliases.length - 1] : null;
     }
 
-    public TableName getAliasAsName() {
-        return (aliases != null) ? new TableName(aliases[0]) : null;
+    public TableNameInfo getAliasAsName() {
+        return (aliases != null) ? new TableNameInfo(aliases[0]) : null;
     }
 
     public TTupleDescriptor toThrift() {

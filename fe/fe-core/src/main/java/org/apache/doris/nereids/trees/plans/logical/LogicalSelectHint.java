@@ -127,4 +127,9 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
                 .collect(Collectors.joining(", "));
         return "LogicalSelectHint (" + hintStr + ")";
     }
+
+    @Override
+    public String toDigest() {
+        return child().toDigest();
+    }
 }

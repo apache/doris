@@ -18,7 +18,6 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -29,6 +28,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -179,7 +179,7 @@ public interface CatalogIf<T extends DatabaseIf> {
         return log;
     }
 
-    TableName getTableNameByTableId(Long tableId);
+    TableNameInfo getTableNameByTableId(Long tableId);
 
     // Return a copy of all db collection.
     Collection<DatabaseIf<? extends TableIf>> getAllDbs();

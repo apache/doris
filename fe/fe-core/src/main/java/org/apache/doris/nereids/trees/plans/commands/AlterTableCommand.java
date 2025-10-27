@@ -93,7 +93,7 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         List<AlterTableClause> alterTableClauses = new ArrayList<>(ops.size());
         for (AlterTableOp op : ops) {
             AlterTableClause alter = op.translateToLegacyAlterClause();
-            alter.setTableName(tbl.transferToTableName());
+            alter.setTableNameInfo(tbl);
             alterTableClauses.add(alter);
         }
         return alterTableClauses;

@@ -53,7 +53,6 @@ suite("test_retry_e-230", 'docker') {
             sql """ DROP TABLE IF EXISTS ${tbl1} """
             sql """ DROP TABLE IF EXISTS ${tbl2} """
             try {
-                sql """set global experimental_enable_pipeline_x_engine=false"""
                 cluster.injectDebugPoints(NodeType.BE, ['CloudTablet.capture_rs_readers.return.e-230' : null])
 
                 sql """
