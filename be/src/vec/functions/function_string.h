@@ -5031,9 +5031,8 @@ public:
                 res_col->insert_many_defaults(input_rows_count);
                 null_map->insert_many_vals(1, input_rows_count);
             } else {
-                const uint64_t bit_data =
-                        assert_cast<const ColumnInt64*>(bit_col.get())->get_element(0);
-                vector_execute<true>(block, arguments, input_rows_count, *res_col, bit_data,
+                vector_execute<true>(block, arguments, input_rows_count, *res_col,
+                                     assert_cast<const ColumnInt64&>(*bit_col),
                                      null_map->get_data());
             }
         } else if (const auto* bit_data = check_and_get_column<ColumnNullable>(bit_col.get())) {
