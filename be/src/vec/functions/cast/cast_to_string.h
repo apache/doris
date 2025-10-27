@@ -61,6 +61,7 @@ struct CastToString {
 
     static inline std::string from_datetimev2(const DateV2Value<DateTimeV2ValueType>& from,
                                               UInt32 scale);
+    static inline std::string from_timestamptz(const TimestampTzValue& from, UInt32 scale);
     static inline void push_datetimev2(const DateV2Value<DateTimeV2ValueType>& from, UInt32 scale,
                                        ColumnString::Chars& chars);
 
@@ -448,6 +449,9 @@ inline std::string CastToString::from_datetimev2(const DateV2Value<DateTimeV2Val
     return std::string(buf, pos - 1);
 }
 
+inline std::string CastToString::from_timestamptz(const TimestampTzValue& from, UInt32 scale) {
+    return from.to_string(cctz::utc_time_zone(), scale);
+}
 inline void CastToString::push_datetimev2(const DateV2Value<DateTimeV2ValueType>& from,
                                           UInt32 scale, ColumnString::Chars& chars) {
     char buf[64];

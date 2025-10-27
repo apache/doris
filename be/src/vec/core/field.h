@@ -415,6 +415,7 @@ public:
             f(field.template get<Null>());
             return;
         case PrimitiveType::TYPE_DATETIMEV2:
+        case PrimitiveType::TYPE_TIMESTAMPTZ:
             f(field.template get<UInt64>());
             return;
         case PrimitiveType::TYPE_DATETIME:
