@@ -41,6 +41,8 @@ import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.algebra.Filter;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand.PredicateAddContext;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand.PredicateAdder;
@@ -57,7 +59,6 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.HashMultimap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
@@ -454,14 +455,16 @@ public class StructInfo {
     private static class PredicateCollector extends DefaultPlanVisitor<Void, Set<Expression>> {
         @Override
         public Void visit(Plan plan, Set<Expression> predicates) {
-            // Collect the filters in the top plan, if meet other nodes as following, return
-            boolean allowed = PlanPatternChecker.ALLOWED_PLAN_CLASSES.stream()
-                    .anyMatch(clazz -> clazz.isAssignableFrom(plan.getClass()));
-            if (!allowed) {
+            // Just collect the filter in top plan, if meet other node except project and filter, return
+            if (!(plan instanceof LogicalProject)
+                    && !(plan instanceof LogicalFilter)
+                    && !(plan instanceof LogicalAggregate)
+                    && !(plan instanceof LogicalSort)
+                    && !(plan instanceof LogicalRepeat)) {
                 return null;
             }
             if (plan instanceof LogicalFilter) {
-                predicates.addAll(ExpressionUtils.extractConjunction(((LogicalFilter<?>) plan).getPredicate()));
+                predicates.addAll(ExpressionUtils.extractConjunction(((LogicalFilter) plan).getPredicate()));
             }
             return super.visit(plan, predicates);
         }
@@ -597,19 +600,6 @@ public class StructInfo {
      * PlanPatternChecker, this is used to check the plan pattern is valid or not
      */
     public static class PlanPatternChecker extends DefaultPlanVisitor<Boolean, PlanCheckContext> {
-
-        public static final Set<Class<? extends Plan>> ALLOWED_PLAN_CLASSES =
-                ImmutableSet.<Class<? extends Plan>>builder()
-                        .add(LogicalFilter.class)
-                        .add(Project.class)
-                        .add(CatalogRelation.class)
-                        .add(LogicalJoin.class)
-                        .add(LogicalSort.class)
-                        .add(LogicalAggregate.class)
-                        .add(GroupPlan.class)
-                        .add(LogicalRepeat.class)
-                        .build();
-
         @Override
         public Boolean visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
                 PlanCheckContext checkContext) {
@@ -638,9 +628,14 @@ public class StructInfo {
 
         @Override
         public Boolean visit(Plan plan, PlanCheckContext checkContext) {
-            boolean allowed = ALLOWED_PLAN_CLASSES.stream()
-                    .anyMatch(clazz -> clazz.isAssignableFrom(plan.getClass()));
-            if (allowed) {
+            if (plan instanceof Filter
+                    || plan instanceof Project
+                    || plan instanceof CatalogRelation
+                    || plan instanceof Join
+                    || plan instanceof LogicalSort
+                    || plan instanceof LogicalAggregate
+                    || plan instanceof GroupPlan
+                    || plan instanceof LogicalRepeat) {
                 return doVisit(plan, checkContext);
             }
             return false;
@@ -662,15 +657,6 @@ public class StructInfo {
      */
     public static class ScanPlanPatternChecker extends DefaultPlanVisitor<Boolean, PlanCheckContext> {
 
-        public static final Set<Class<? extends Plan>> ALLOWED_PLAN_CLASSES =
-                ImmutableSet.<Class<? extends Plan>>builder()
-                        .add(LogicalFilter.class)
-                        .add(Project.class)
-                        .add(CatalogRelation.class)
-                        .add(GroupPlan.class)
-                        .add(LogicalRepeat.class)
-                        .build();
-
         @Override
         public Boolean visitGroupPlan(GroupPlan groupPlan, PlanCheckContext checkContext) {
             return groupPlan.getGroup().getLogicalExpressions().stream()
@@ -679,9 +665,11 @@ public class StructInfo {
 
         @Override
         public Boolean visit(Plan plan, PlanCheckContext checkContext) {
-            boolean allowed = ALLOWED_PLAN_CLASSES.stream()
-                    .anyMatch(clazz -> clazz.isAssignableFrom(plan.getClass()));
-            if (allowed) {
+            if (plan instanceof Filter
+                    || plan instanceof Project
+                    || plan instanceof CatalogRelation
+                    || plan instanceof GroupPlan
+                    || plan instanceof LogicalRepeat) {
                 return doVisit(plan, checkContext);
             }
             return false;
