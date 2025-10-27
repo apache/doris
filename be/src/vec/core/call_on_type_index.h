@@ -226,6 +226,8 @@ bool dispatch_type_base(PrimitiveType number, F&& f) {
             return f(DispatchDataType<TYPE_DATETIME>());
         case PrimitiveType::TYPE_TIMEV2:
             return f(DispatchDataType<TYPE_TIMEV2>());
+        case PrimitiveType::TYPE_TIMESTAMPTZ:
+            return f(DispatchDataType<TYPE_TIMESTAMPTZ>());
         default:
             break;
         }
