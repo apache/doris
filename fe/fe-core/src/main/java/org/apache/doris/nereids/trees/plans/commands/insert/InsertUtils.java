@@ -728,12 +728,12 @@ public class InsertUtils {
         // special case: url length > 512 or first error msg length > 512
         if (urlPartLen > maxTotalBytes && firstErrorMsgPartLen > maxTotalBytes) {
             useUrlPlaceholder = true;
-            urlPartLen = ". url : please use `show load` for detail msg".length();
+            urlPartLen = ". url: please use `show load` for detail msg".length();
             // only show once is enough
             firstErrorMsgPartLen = 0;
         } else if (urlPartLen > maxTotalBytes) {
             useUrlPlaceholder = true;
-            urlPartLen = ". url : please use `show load` for detail msg".length();
+            urlPartLen = ". url: please use `show load` for detail msg".length();
         } else if (firstErrorMsgPartLen > maxTotalBytes) {
             useFirstErrorMsgPlaceholder = true;
             firstErrorMsgPartLen = ". first_error_msg: please use `show load` for detail msg".length();
