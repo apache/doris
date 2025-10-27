@@ -180,8 +180,8 @@ DEFAULT_CHARACTER_SET_NAME	varchar(32)	Yes	false	\N
 DEFAULT_COLLATION_NAME	varchar(32)	Yes	false	\N	
 SQL_PATH	varchar(512)	Yes	false	\N	
 DEFAULT_ENCRYPTION	varchar(3)	Yes	false	\N	
-CREATED_BY	varchar(64)	Yes	false	\N
-CREATION_TIME	datetime	Yes	false	\N
+CREATED_BY	varchar(64)	Yes	false	\N	
+CREATION_TIME	datetime	Yes	false	\N	
 
 -- !tables --
 internal	test_query_sys_tb_1	BASE TABLE	0	\N	0
@@ -210,7 +210,7 @@ TABLE_COLLATION	varchar(32)	Yes	false	\N
 CHECKSUM	bigint	Yes	false	\N	
 CREATE_OPTIONS	varchar(255)	Yes	false	\N	
 TABLE_COMMENT	varchar(2048)	Yes	false	\N	
-CREATED_BY	varchar(64)	Yes	false	\N
+CREATED_BY	varchar(64)	Yes	false	\N	
 
 -- !session_variables --
 wait_timeout	30000
