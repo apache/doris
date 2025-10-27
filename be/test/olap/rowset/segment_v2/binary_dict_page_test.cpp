@@ -93,7 +93,7 @@ public:
     // Decode bitshuffle encoded page
     Status decode_bitshuffle_page(Slice& page_slice, std::unique_ptr<DataPage>& decoded_page) {
         segment_v2::BitShufflePagePreDecoder<true> pre_decoder;
-        return pre_decoder.decode(&decoded_page, &page_slice, 0, false, PageTypePB::DATA_PAGE);
+        return pre_decoder.decode(&decoded_page, &page_slice, 0, false, PageTypePB::DATA_PAGE, "");
     }
 
     // Create and setup a BinaryDictPageBuilder with data
