@@ -18,11 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TimeV2Type;
 
 import com.google.common.base.Preconditions;
@@ -37,7 +40,8 @@ public class UtcTime extends ScalarFunction
         implements LeafExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TimeV2Type.INSTANCE).args()
+            FunctionSignature.ret(TimeV2Type.INSTANCE).args(),
+            FunctionSignature.ret(TimeV2Type.INSTANCE).args(IntegerType.INSTANCE)
     );
 
     /**
@@ -45,6 +49,13 @@ public class UtcTime extends ScalarFunction
      */
     public UtcTime() {
         super("utc_time");
+    }
+
+    /**
+     * constructor with 1 argument.
+     */
+    public UtcTime(Expression arg) {
+        super("utc_time", arg);
     }
 
     /** constructor for withChildren and reuse signature */
@@ -58,8 +69,34 @@ public class UtcTime extends ScalarFunction
     }
 
     @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        signature = super.computeSignature(signature);
+        if (arity() == 1 && getArgument(0) instanceof IntegerLiteral) {
+            int scale = ((IntegerLiteral) getArgument(0)).getValue();
+            if (scale < 0 || scale > 6) {
+                throw new AnalysisException("scale must be between 0 and 6");
+            }
+            return signature.withReturnType(TimeV2Type.of(scale));
+        }
+
+        return signature;
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        if (arity() == 1 && !child(0).isLiteral()) {
+            throw new AnalysisException("UTC_TIME scale argument must be a constant literal.");
+        }
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        checkLegalityAfterRewrite();
+    }
+
+    @Override
     public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.isEmpty());
+        Preconditions.checkArgument(children.isEmpty() || arity() == 1);
         return new UtcTime(getFunctionParams(children));
     }
 

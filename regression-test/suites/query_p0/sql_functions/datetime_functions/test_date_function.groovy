@@ -493,12 +493,25 @@ suite("test_date_function") {
     // UTC_TIMESTAMP
     def utc_timestamp_str = sql """ select utc_timestamp(),utc_timestamp() + 1 """
     assertTrue(utc_timestamp_str[0].size() == 2)
+    utc_timestamp_str = sql """ select utc_timestamp(6), utc_timestamp(6) + 1 """
+    assertTrue(utc_timestamp_str[0].size() == 2)
+    test {
+        sql """ select utc_timestamp(7) """
+        exception "scale must be between 0 and 6"
+    }
 
     def utc_time_str = sql """ select utc_time(),utc_time() + 1 """
     assertTrue(utc_time_str[0].size() == 2)
+    utc_time_str = sql """ select utc_time(6), utc_time(6) + 1 """
+    assertTrue(utc_time_str[0].size() == 2)
+    test {
+        sql """ select utc_time(7) """
+        exception "scale must be between 0 and 6"
+    }
 
     def utc_date_str = sql """ select utc_date(),utc_date() + 1 """
     assertTrue(utc_date_str[0].size() == 2)
+
     // WEEK
     qt_sql """ select week('2020-1-1') """
     qt_sql """ select week('2020-7-1',1) """

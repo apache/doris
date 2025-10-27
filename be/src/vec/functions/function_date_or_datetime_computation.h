@@ -989,9 +989,17 @@ struct UtcImpl {
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
+        int scale = 0;
+        if (arguments.size() == 1) {
+            // the precision must be const, which is checked in fe.
+            const auto* col = assert_cast<const ColumnInt32*>(
+                    block.get_by_position(arguments[0]).column.get());
+            scale = col->get_element(0);
+        }
         auto col_to = PrimitiveTypeTraits<ReturnType>::ColumnType::create();
         DateV2Value<DateTimeV2ValueType> dtv;
-        if (dtv.from_unixtime(context->state()->timestamp_ms() / 1000, "+00:00")) {
+        if (dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
+                              context->state()->nano_seconds(), "+00:00", scale)) {
             if constexpr (ReturnType == TYPE_DATETIMEV2) {
                 auto date_packed_int = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dtv);
                 col_to->insert_data(reinterpret_cast<char*>(&date_packed_int), 0);
