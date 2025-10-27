@@ -470,6 +470,35 @@ class UpCommand(Command):
                 "Only use when creating new cluster and specify --remote-master-fe."
         )
 
+        parser.add_argument(
+            "--external-ms",
+            type=str,
+            help=
+            "Use external meta service cluster (specify cluster name). " \
+            "This cluster will not create its own MS/FDB/Recycler, but use the specified cluster's services. " \
+            "The external cluster must be a cloud cluster with MS/FDB already running. " \
+            "Example: --external-ms shared-meta. Only use when creating new cloud cluster."
+        )
+
+        parser.add_argument(
+            "--instance-id",
+            type=str,
+            help=
+            "Specify instance ID for cloud mode. If not specified, will auto-generate 'default_instance_id'. " \
+            "When using external MS with multiple clusters, each cluster should have a unique instance ID. " \
+            "Example: --instance-id prod_instance_1"
+        )
+
+        parser.add_argument(
+            "--cluster-snapshot",
+            type=str,
+            help=
+            "Cluster snapshot JSON content for FE-1 first startup in cloud mode only. " \
+            "The JSON will be written to FE conf/cluster_snapshot.json and passed to start_fe.sh " \
+            "with --cluster_snapshot parameter. Only effective on first startup. " \
+            "Example: --cluster-snapshot '{\"instance_id\":\"instance_id_xxx\"}'"
+        )
+
         if self._support_boolean_action():
             parser.add_argument(
                 "--be-metaservice-endpoint",
@@ -624,13 +653,17 @@ class UpCommand(Command):
                 if args.cloud:
                     args.sql_mode_node_mgr = True
 
+            instance_id = getattr(args, 'instance_id', None)
+            cluster_snapshot = getattr(args, 'cluster_snapshot', '')
+
             cluster = CLUSTER.Cluster.new(
                 args.NAME, args.IMAGE, args.cloud, args.root, args.fe_config,
                 args.be_config, args.ms_config, args.recycle_config,
                 args.remote_master_fe, args.local_network_ip, args.fe_follower,
                 args.be_disks, args.be_cluster, args.reg_be, args.extra_hosts,
                 args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
-                args.be_metaservice_endpoint, args.be_cluster_id, args.tde_ak, args.tde_sk)
+                args.be_metaservice_endpoint, args.be_cluster_id, args.tde_ak, args.tde_sk,
+                external_ms_cluster, instance_id, cluster_snapshot)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
 
