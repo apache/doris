@@ -548,6 +548,11 @@ public:
 
     void pop_back() { this->c_end -= this->byte_size(1); }
 
+    void pop_back(size_t n) {
+        DCHECK_GE(this->size(), n);
+        this->c_end -= this->byte_size(n);
+    }
+
     /// Do not insert into the array a piece of itself. Because with the resize, the iterators on themselves can be invalidated.
     template <typename It1, typename It2, typename... TAllocatorParams>
     void insert_prepare(It1 from_begin, It2 from_end, TAllocatorParams&&... allocator_params) {
