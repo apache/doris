@@ -32,8 +32,8 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/string_ref.h"
 #include "vec/common/string_container.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
@@ -160,11 +160,11 @@ TEST_F(ColumnVarbinaryTest, FilterBothModes) {
     auto col = ColumnVarbinary::create();
     // Mix inline (small) and non-inline (large > kInlineSize) values
     std::vector<std::string> vals = {
-            make_bytes(1, 0x10),                                  // inline
+            make_bytes(1, 0x10),                                       // inline
             make_bytes(doris::StringContainer::kInlineSize + 5, 0x91), // non-inline (dropped)
-            make_bytes(3, 0x12),                                  // inline
+            make_bytes(3, 0x12),                                       // inline
             make_bytes(doris::StringContainer::kInlineSize + 7, 0x92), // non-inline
-            make_bytes(0, 0x00),                                  // empty (dropped)
+            make_bytes(0, 0x00),                                       // empty (dropped)
             make_bytes(doris::StringContainer::kInlineSize + 9, 0x93)  // non-inline
     };
     for (auto& v : vals) {
@@ -205,9 +205,9 @@ TEST_F(ColumnVarbinaryTest, Permute) {
     auto col = ColumnVarbinary::create();
     // Include large (non-inline) entries to exercise arena path
     std::vector<std::string> vals = {
-            make_bytes(1, 0x20),                                  // inline
+            make_bytes(1, 0x20),                                       // inline
             make_bytes(doris::StringContainer::kInlineSize + 3, 0xA0), // non-inline
-            make_bytes(3, 0x22),                                  // inline
+            make_bytes(3, 0x22),                                       // inline
             make_bytes(doris::StringContainer::kInlineSize + 8, 0xA1)  // non-inline
     };
     for (auto& v : vals) {
@@ -276,9 +276,9 @@ TEST_F(ColumnVarbinaryTest, ReplaceColumnData) {
     auto col = ColumnVarbinary::create();
     // mix inline and non-inline
     std::vector<std::string> vals = {
-            make_bytes(2, 0x40),                                  // inline
+            make_bytes(2, 0x40),                                       // inline
             make_bytes(doris::StringContainer::kInlineSize + 4, 0xB0), // non-inline
-            make_bytes(4, 0x42)                                   // inline
+            make_bytes(4, 0x42)                                        // inline
     };
     for (auto& v : vals) {
         col->insert_data(v.data(), v.size());
@@ -287,7 +287,7 @@ TEST_F(ColumnVarbinaryTest, ReplaceColumnData) {
     auto rhs = ColumnVarbinary::create();
     std::vector<std::string> rhs_vals = {
             make_bytes(doris::StringContainer::kInlineSize + 7, 0xC0), // non-inline
-            make_bytes(1, 0x51)                                   // inline
+            make_bytes(1, 0x51)                                        // inline
     };
     for (auto& v : rhs_vals) {
         rhs->insert_data(v.data(), v.size());
@@ -384,7 +384,7 @@ TEST_F(ColumnVarbinaryTest, InsertField) {
 
 TEST_F(ColumnVarbinaryTest, SerializeValueIntoArenaAndImpl) {
     auto col = ColumnVarbinary::create();
-    std::string small = make_bytes(3, 0x31);                                 // inline
+    std::string small = make_bytes(3, 0x31);                                      // inline
     std::string big = make_bytes(doris::StringContainer::kInlineSize + 12, 0x32); // non-inline
     col->insert_data(small.data(), small.size());
     col->insert_data(big.data(), big.size());

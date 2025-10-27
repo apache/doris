@@ -486,11 +486,12 @@ public:
     std::string_view as_string_view() const;
 
 private:
-    std::aligned_union_t<
-            DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64, Int128, IPv6,
-            Float64, String, JsonbField, Array, Tuple, Map, VariantMap, DecimalField<Decimal32>,
-            DecimalField<Decimal64>, DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
-            DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState, doris::StringContainer>
+    std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
+                         Int128, IPv6, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
+                         DecimalField<Decimal32>, DecimalField<Decimal64>,
+                         DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
+                         DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState,
+                         doris::StringContainer>
             storage;
 
     PrimitiveType type;

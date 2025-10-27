@@ -198,11 +198,11 @@ TEST_F(StringContainerTest, StrConversionInlineAndNonInline) {
 }
 
 TEST_F(StringContainerTest, ThreeWayComparisonOrdering) {
-    StringContainer a("abcd");           // inline
-    StringContainer b("abce");           // inline > a
+    StringContainer a("abcd");      // inline
+    StringContainer b("abce");      // inline > a
     auto tmp_long = make_bytes(30); // create std::string first (avoid rvalue deleted ctor)
-    StringContainer c(tmp_long);         // non-inline
-    StringContainer d(c);                // identical non-inline
+    StringContainer c(tmp_long);    // non-inline
+    StringContainer d(c);           // identical non-inline
     // a vs b
     EXPECT_TRUE((a <=> b) == std::strong_ordering::less);
     EXPECT_TRUE((b <=> a) == std::strong_ordering::greater);

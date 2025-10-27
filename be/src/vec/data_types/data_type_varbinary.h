@@ -72,7 +72,8 @@ public:
     Field get_field(const TExprNode& node) const override {
         DCHECK_EQ(node.node_type, TExprNodeType::VARBINARY_LITERAL);
         DCHECK(node.__isset.varbinary_literal);
-        return Field::create_field<TYPE_VARBINARY>(doris::StringContainer(node.varbinary_literal.value));
+        return Field::create_field<TYPE_VARBINARY>(
+                doris::StringContainer(node.varbinary_literal.value));
     }
 
     FieldWithDataType get_field_with_data_type(const IColumn& column,

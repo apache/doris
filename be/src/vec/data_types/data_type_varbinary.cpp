@@ -34,8 +34,8 @@
 #include "vec/columns/column_varbinary.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
-#include "vec/common/string_ref.h"
 #include "vec/common/string_container.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 
