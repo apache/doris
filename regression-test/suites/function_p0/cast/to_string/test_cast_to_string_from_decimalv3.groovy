@@ -1,0 +1,53 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+
+suite("test_cast_to_string_from_decimalv3") {
+    def decimal_values = [
+        "0", "-0", "-1.1", "1.1", "123.45", "-123.45", "2147483647", "-2147483648",
+        "9999999999.99", "-9999999999.99"
+
+    ]
+    for (b in ["false", "true"]) {
+        sql """set debug_skip_fold_constant = "${b}";"""
+        for (test_str in decimal_values) {
+            qt_cast_decimal_const """select "${test_str}", cast("${test_str}" as decimalv3(12, 2)), cast(cast("${test_str}" as decimalv3(12, 2)) as string);"""
+        }
+    }
+
+    sql """
+        drop table if exists test_cast_to_string_from_decimalv3;
+    """
+    sql """
+        create table test_cast_to_string_from_decimalv3 (
+            k1 int,
+            v1 decimalv3(12, 2)
+        ) properties("replication_num" = "1");
+    """
+    def insert_sql_str_decimal = "insert into test_cast_to_string_from_decimalv3 values "
+    def index = 0
+    for (test_str in decimal_values) {
+        insert_sql_str_decimal += """(${index}, "${test_str}"), """
+        index++
+    }
+    insert_sql_str_decimal = insert_sql_str_decimal[0..-3]
+    sql insert_sql_str_decimal
+    qt_sql_decimal_to_string """
+        select k1, v1, cast(v1 as string) from test_cast_to_string_from_decimalv3 order by k1;
+    """
+
+}
