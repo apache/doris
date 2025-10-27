@@ -53,6 +53,8 @@ class ObjectPool;
 class PTupleDescriptor;
 class PSlotDescriptor;
 
+using TColumnAccessPaths = std::vector<TColumnAccessPath>;
+
 class SlotDescriptor {
 public:
     MOCK_DEFINE(virtual ~SlotDescriptor() = default;)

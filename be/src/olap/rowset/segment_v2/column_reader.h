@@ -70,6 +70,8 @@ class FileReader;
 struct Slice;
 struct StringRef;
 
+using TColumnAccessPaths = std::vector<TColumnAccessPath>;
+
 namespace segment_v2 {
 
 class EncodingInfo;
@@ -368,7 +370,7 @@ public:
 
     virtual Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                                     const TColumnAccessPaths& predicate_access_paths) {
-        if (!predicate_access_paths.name_access_paths.empty()) {
+        if (!predicate_access_paths.empty()) {
             _reading_flag = ReadingFlag::READING_FOR_PREDICATE;
         }
         return Status::OK();

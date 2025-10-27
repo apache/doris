@@ -72,10 +72,10 @@ TEST_F(ColumnReaderTest, StructAccessPaths) {
     ASSERT_EQ(iterator->_reading_flag, ColumnIterator::ReadingFlag::NORMAL_READING);
 
     TColumnAccessPaths all_access_paths;
-    all_access_paths.name_access_paths.emplace_back();
+    all_access_paths.emplace_back();
 
     TColumnAccessPaths predicate_access_paths;
-    predicate_access_paths.name_access_paths.emplace_back();
+    predicate_access_paths.emplace_back();
 
     st = iterator->set_access_paths(all_access_paths, predicate_access_paths);
     // empty paths leads to error
@@ -83,9 +83,9 @@ TEST_F(ColumnReaderTest, StructAccessPaths) {
 
     // Only reading sub_col_1
     // sub_col_2 should be set to SKIP_READING
-    all_access_paths.name_access_paths[0].path = {"self", "sub_col_1"};
+    all_access_paths[0].data_access_path.path = {"self", "sub_col_1"};
 
-    predicate_access_paths.name_access_paths[0].path = {"self", "sub_col_1"};
+    predicate_access_paths[0].data_access_path.path = {"self", "sub_col_1"};
 
     st = iterator->set_access_paths(all_access_paths, predicate_access_paths);
     // invalid name leads to error
@@ -103,7 +103,7 @@ TEST_F(ColumnReaderTest, StructAccessPaths) {
               ColumnIterator::ReadingFlag::SKIP_READING);
 
     // Reading all sub columns
-    all_access_paths.name_access_paths[0].path = {"self"};
+    all_access_paths[0].data_access_path.path = {"self"};
     iterator = create_struct_iterator();
     iterator->set_column_name("self");
     st = iterator->set_access_paths(all_access_paths, predicate_access_paths);
@@ -189,12 +189,12 @@ TEST_F(ColumnReaderTest, MultiAccessPaths) {
     array_iterator->set_column_name("sub_col_2");
     auto iterator = create_struct_iterator2(std::move(array_iterator));
     TColumnAccessPaths all_access_paths;
-    all_access_paths.name_access_paths.emplace_back();
+    all_access_paths.emplace_back();
 
     // all access paths:
     // self.sub_col_2.*.KEYS
     // predicates paths empty
-    all_access_paths.name_access_paths[0].path = {"self", "sub_col_2", "*", "KEYS"};
+    all_access_paths[0].data_access_path.path = {"self", "sub_col_2", "*", "KEYS"};
 
     TColumnAccessPaths predicate_access_paths;
 

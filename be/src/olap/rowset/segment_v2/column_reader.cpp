@@ -929,26 +929,25 @@ Status ColumnReader::new_struct_iterator(ColumnIteratorUPtr* iterator,
 Result<TColumnAccessPaths> ColumnIterator::_get_sub_access_paths(
         const TColumnAccessPaths& access_paths) {
     TColumnAccessPaths sub_access_paths = access_paths;
-    for (auto it = sub_access_paths.name_access_paths.begin();
-         it != sub_access_paths.name_access_paths.end();) {
-        TColumnNameAccessPath& name_path = *it;
-        if (name_path.path.empty()) {
+    for (auto it = sub_access_paths.begin(); it != sub_access_paths.end();) {
+        TColumnAccessPath& name_path = *it;
+        if (name_path.data_access_path.path.empty()) {
             return ResultError(
                     Status::InternalError("Invalid access path for struct column: path is empty"));
         }
 
-        if (name_path.path[0] != _column_name) {
+        if (name_path.data_access_path.path[0] != _column_name) {
             return ResultError(Status::InternalError(
                     R"(Invalid access path for column: expected name "{}", got "{}")", _column_name,
-                    name_path.path[0]));
+                    name_path.data_access_path.path[0]));
         }
 
-        name_path.path.erase(name_path.path.begin());
-        if (!name_path.path.empty()) {
+        name_path.data_access_path.path.erase(name_path.data_access_path.path.begin());
+        if (!name_path.data_access_path.path.empty()) {
             ++it;
         } else {
             set_need_to_read();
-            it = sub_access_paths.name_access_paths.erase(it);
+            it = sub_access_paths.erase(it);
         }
     }
     return sub_access_paths;
@@ -1091,11 +1090,11 @@ void MapFileColumnIterator::remove_pruned_sub_iterators() {
 
 Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_access_paths,
                                                const TColumnAccessPaths& predicate_access_paths) {
-    if (all_access_paths.name_access_paths.empty()) {
+    if (all_access_paths.empty()) {
         return Status::OK();
     }
 
-    if (!predicate_access_paths.name_access_paths.empty()) {
+    if (!predicate_access_paths.empty()) {
         set_reading_flag(ReadingFlag::READING_FOR_PREDICATE);
         LOG(INFO) << "Map column iterator set sub-column " << _column_name
                   << " to READING_FOR_PREDICATE";
@@ -1104,7 +1103,7 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
     auto sub_predicate_access_paths = DORIS_TRY(_get_sub_access_paths(predicate_access_paths));
 
-    if (sub_all_access_paths.name_access_paths.empty()) {
+    if (sub_all_access_paths.empty()) {
         return Status::OK();
     }
 
@@ -1113,35 +1112,35 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
     TColumnAccessPaths key_predicate_access_paths;
     TColumnAccessPaths val_predicate_access_paths;
 
-    for (auto paths : sub_all_access_paths.name_access_paths) {
-        if (paths.path[0] == "*") {
-            paths.path[0] = _key_iterator->column_name();
-            key_all_access_paths.name_access_paths.push_back(paths);
-            paths.path[0] = _val_iterator->column_name();
-            val_all_access_paths.name_access_paths.push_back(paths);
-        } else if (paths.path[0] == "KEYS") {
-            paths.path[0] = _key_iterator->column_name();
-            key_all_access_paths.name_access_paths.push_back(paths);
-        } else if (paths.path[0] == "VALUES") {
-            paths.path[0] = _val_iterator->column_name();
-            val_all_access_paths.name_access_paths.push_back(paths);
+    for (auto paths : sub_all_access_paths) {
+        if (paths.data_access_path.path[0] == "*") {
+            paths.data_access_path.path[0] = _key_iterator->column_name();
+            key_all_access_paths.emplace_back(paths);
+            paths.data_access_path.path[0] = _val_iterator->column_name();
+            val_all_access_paths.emplace_back(paths);
+        } else if (paths.data_access_path.path[0] == "KEYS") {
+            paths.data_access_path.path[0] = _key_iterator->column_name();
+            key_all_access_paths.emplace_back(paths);
+        } else if (paths.data_access_path.path[0] == "VALUES") {
+            paths.data_access_path.path[0] = _val_iterator->column_name();
+            val_all_access_paths.emplace_back(paths);
         }
     }
-    const auto need_read_keys = !key_all_access_paths.name_access_paths.empty();
-    const auto need_read_values = !val_all_access_paths.name_access_paths.empty();
+    const auto need_read_keys = !key_all_access_paths.empty();
+    const auto need_read_values = !val_all_access_paths.empty();
 
-    for (auto paths : sub_predicate_access_paths.name_access_paths) {
-        if (paths.path[0] == "*") {
-            paths.path[0] = _key_iterator->column_name();
-            key_predicate_access_paths.name_access_paths.push_back(paths);
-            paths.path[0] = _val_iterator->column_name();
-            val_predicate_access_paths.name_access_paths.push_back(paths);
-        } else if (paths.path[0] == "KEYS") {
-            paths.path[0] = _key_iterator->column_name();
-            key_predicate_access_paths.name_access_paths.push_back(paths);
-        } else if (paths.path[0] == "VALUES") {
-            paths.path[0] = _val_iterator->column_name();
-            val_predicate_access_paths.name_access_paths.push_back(paths);
+    for (auto paths : sub_predicate_access_paths) {
+        if (paths.data_access_path.path[0] == "*") {
+            paths.data_access_path.path[0] = _key_iterator->column_name();
+            key_predicate_access_paths.emplace_back(paths);
+            paths.data_access_path.path[0] = _val_iterator->column_name();
+            val_predicate_access_paths.emplace_back(paths);
+        } else if (paths.data_access_path.path[0] == "KEYS") {
+            paths.data_access_path.path[0] = _key_iterator->column_name();
+            key_predicate_access_paths.emplace_back(paths);
+        } else if (paths.data_access_path.path[0] == "VALUES") {
+            paths.data_access_path.path[0] = _val_iterator->column_name();
+            val_predicate_access_paths.emplace_back(paths);
         }
     }
 
@@ -1290,11 +1289,11 @@ void StructFileColumnIterator::remove_pruned_sub_iterators() {
 Status StructFileColumnIterator::set_access_paths(
         const TColumnAccessPaths& all_access_paths,
         const TColumnAccessPaths& predicate_access_paths) {
-    if (all_access_paths.name_access_paths.empty()) {
+    if (all_access_paths.empty()) {
         return Status::OK();
     }
 
-    if (!predicate_access_paths.name_access_paths.empty()) {
+    if (!predicate_access_paths.empty()) {
         set_reading_flag(ReadingFlag::READING_FOR_PREDICATE);
         LOG(INFO) << "Struct column iterator set sub-column " << _column_name
                   << " to READING_FOR_PREDICATE";
@@ -1302,20 +1301,20 @@ Status StructFileColumnIterator::set_access_paths(
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
     auto sub_predicate_access_paths = DORIS_TRY(_get_sub_access_paths(predicate_access_paths));
 
-    const auto no_sub_column_to_skip = sub_all_access_paths.name_access_paths.empty();
-    const auto no_predicate_sub_column = sub_predicate_access_paths.name_access_paths.empty();
+    const auto no_sub_column_to_skip = sub_all_access_paths.empty();
+    const auto no_predicate_sub_column = sub_predicate_access_paths.empty();
 
     for (auto& sub_iterator : _sub_column_iterators) {
         const auto name = sub_iterator->column_name();
         bool need_to_read = no_sub_column_to_skip;
         TColumnAccessPaths sub_all_access_paths_of_this;
         if (!need_to_read) {
-            for (const auto& paths : sub_all_access_paths.name_access_paths) {
-                if (paths.path[0] == name) {
-                    sub_all_access_paths_of_this.name_access_paths.push_back(paths);
+            for (const auto& paths : sub_all_access_paths) {
+                if (paths.data_access_path.path[0] == name) {
+                    sub_all_access_paths_of_this.emplace_back(paths);
                 }
             }
-            need_to_read = !sub_all_access_paths_of_this.name_access_paths.empty();
+            need_to_read = !sub_all_access_paths_of_this.empty();
         }
 
         if (!need_to_read) {
@@ -1330,9 +1329,9 @@ Status StructFileColumnIterator::set_access_paths(
         TColumnAccessPaths sub_predicate_access_paths_of_this;
 
         if (!no_predicate_sub_column) {
-            for (const auto& paths : sub_predicate_access_paths.name_access_paths) {
-                if (paths.path[0] == name) {
-                    sub_predicate_access_paths_of_this.name_access_paths.push_back(paths);
+            for (const auto& paths : sub_predicate_access_paths) {
+                if (paths.data_access_path.path[0] == name) {
+                    sub_predicate_access_paths_of_this.emplace_back(paths);
                 }
             }
         }
@@ -1531,11 +1530,11 @@ void ArrayFileColumnIterator::remove_pruned_sub_iterators() {
 
 Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_access_paths,
                                                  const TColumnAccessPaths& predicate_access_paths) {
-    if (all_access_paths.name_access_paths.empty()) {
+    if (all_access_paths.empty()) {
         return Status::OK();
     }
 
-    if (!predicate_access_paths.name_access_paths.empty()) {
+    if (!predicate_access_paths.empty()) {
         set_reading_flag(ReadingFlag::READING_FOR_PREDICATE);
         LOG(INFO) << "Array column iterator set sub-column " << _column_name
                   << " to READING_FOR_PREDICATE";
@@ -1544,21 +1543,21 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
     auto sub_predicate_access_paths = DORIS_TRY(_get_sub_access_paths(predicate_access_paths));
 
-    const auto no_sub_column_to_skip = sub_all_access_paths.name_access_paths.empty();
-    const auto no_predicate_sub_column = sub_predicate_access_paths.name_access_paths.empty();
+    const auto no_sub_column_to_skip = sub_all_access_paths.empty();
+    const auto no_predicate_sub_column = sub_predicate_access_paths.empty();
 
     if (!no_sub_column_to_skip) {
-        for (auto& path : sub_all_access_paths.name_access_paths) {
-            if (path.path[0] == "*") {
-                path.path[0] = _item_iterator->column_name();
+        for (auto& path : sub_all_access_paths) {
+            if (path.data_access_path.path[0] == "*") {
+                path.data_access_path.path[0] = _item_iterator->column_name();
             }
         }
     }
 
     if (!no_predicate_sub_column) {
-        for (auto& path : sub_predicate_access_paths.name_access_paths) {
-            if (path.path[0] == "*") {
-                path.path[0] = _item_iterator->column_name();
+        for (auto& path : sub_predicate_access_paths) {
+            if (path.data_access_path.path[0] == "*") {
+                path.data_access_path.path[0] = _item_iterator->column_name();
             }
         }
     }

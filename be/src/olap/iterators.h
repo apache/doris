@@ -47,6 +47,8 @@ namespace segment_v2 {
 struct SubstreamIterator;
 }
 
+using TColumnAccessPaths = std::vector<TColumnAccessPath>;
+
 class StorageReadOptions {
 public:
     struct KeyRange {

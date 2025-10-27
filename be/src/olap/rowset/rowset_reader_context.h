@@ -18,6 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 
+#include <vector>
+
 #include "io/io_common.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"

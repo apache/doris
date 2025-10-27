@@ -778,17 +778,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
 
             // set column name to apply access paths.
             (*iter)->set_column_name(tablet_column.name());
-            auto st = (*iter)->set_access_paths(all_access_paths, predicate_access_paths);
-            if (!st.ok()) {
-                std::stringstream ss;
-                all_access_paths.printTo(ss);
-                std::stringstream ss2;
-                predicate_access_paths.printTo(ss2);
-                LOG(WARNING) << "set access paths failed, column_uid=" << unique_id
-                             << ", all_access_paths=" << ss.str()
-                             << ", predicate_access_paths=" << ss2.str();
-                return st;
-            }
+            RETURN_IF_ERROR((*iter)->set_access_paths(all_access_paths, predicate_access_paths));
             (*iter)->remove_pruned_sub_iterators();
         }
     }

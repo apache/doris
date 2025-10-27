@@ -542,18 +542,18 @@ Status OlapScanner::_init_return_columns() {
         }
 
         const auto& column = tablet_schema->column(index);
-        if (!slot->all_access_paths().name_access_paths.empty()) {
+        if (!slot->all_access_paths().empty()) {
             _tablet_reader_params.all_access_paths.insert(
                     {column.unique_id(), slot->all_access_paths()});
         }
 
-        if (!slot->predicate_access_paths().name_access_paths.empty()) {
+        if (!slot->predicate_access_paths().empty()) {
             _tablet_reader_params.predicate_access_paths.insert(
                     {column.unique_id(), slot->predicate_access_paths()});
         }
 
         if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_STRUCT &&
-            !slot->all_access_paths().name_access_paths.empty()) {
+            !slot->all_access_paths().empty()) {
             tablet_schema->add_pruned_columns_data_type(column.unique_id(), slot->type());
         }
 
