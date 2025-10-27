@@ -712,6 +712,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             setCanceledTaskCount(new AtomicLong(0));
         }
 
+        if (null == streamInsertTaskQueue) {
+            streamInsertTaskQueue = new ConcurrentLinkedQueue<>();
+        }
+
         if (null == lock) {
             this.lock = new ReentrantReadWriteLock(true);
         }
