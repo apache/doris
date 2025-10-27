@@ -37,6 +37,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
@@ -48,6 +49,7 @@ import org.apache.doris.thrift.TWarmUpCacheAsyncRequest;
 import org.apache.doris.thrift.TWarmUpCacheAsyncResponse;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
@@ -123,6 +125,14 @@ public class CloudTabletRebalancer extends MasterDaemon {
         GLOBAL,
         TABLE,
         PARTITION
+    }
+
+    public enum StatType {
+        GLOBAL,
+        TABLE,
+        PARTITION,
+        SMOOTH_UPGRADE,
+        WARM_UP_CACHE
     }
 
     @Getter
@@ -320,7 +330,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             balanceInPartition(entry.getValue(), entry.getKey(), infos);
         }
         long oldSize = infos.size();
-        infos = batchUpdateCloudReplicaInfoEditlogs(infos);
+        infos = batchUpdateCloudReplicaInfoEditlogs(infos, StatType.PARTITION);
         LOG.info("collect to editlog partitions before size={} after size={} infos", oldSize, infos.size());
         try {
             Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
@@ -356,7 +366,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             balanceInTable(entry.getValue(), entry.getKey(), infos);
         }
         long oldSize = infos.size();
-        infos = batchUpdateCloudReplicaInfoEditlogs(infos);
+        infos = batchUpdateCloudReplicaInfoEditlogs(infos, StatType.TABLE);
         LOG.info("collect to editlog table before size={} after size={} infos", oldSize, infos.size());
         try {
             Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
@@ -391,7 +401,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             balanceImpl(entry.getValue(), entry.getKey(), futureBeToTabletsGlobal, BalanceType.GLOBAL, infos);
         }
         long oldSize = infos.size();
-        infos = batchUpdateCloudReplicaInfoEditlogs(infos);
+        infos = batchUpdateCloudReplicaInfoEditlogs(infos, StatType.GLOBAL);
         LOG.info("collect to editlog global before size={} after size={} infos", oldSize, infos.size());
         try {
             Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
@@ -472,7 +482,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
         }
         long oldSize = infos.size();
-        infos = batchUpdateCloudReplicaInfoEditlogs(infos);
+        infos = batchUpdateCloudReplicaInfoEditlogs(infos, StatType.WARM_UP_CACHE);
         LOG.info("collect to editlog warmup before size={} after size={} infos", oldSize, infos.size());
         try {
             Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
@@ -1221,7 +1231,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
         }
         long oldSize = infos.size();
-        infos = batchUpdateCloudReplicaInfoEditlogs(infos);
+        infos = batchUpdateCloudReplicaInfoEditlogs(infos, StatType.SMOOTH_UPGRADE);
         LOG.info("collect to editlog migrate before size={} after size={} infos", oldSize, infos.size());
         try {
             Env.getCurrentEnv().getEditLog().logUpdateCloudReplicas(infos);
@@ -1239,16 +1249,24 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
     }
 
-    private List<UpdateCloudReplicaInfo> batchUpdateCloudReplicaInfoEditlogs(List<UpdateCloudReplicaInfo> infos) {
+    private List<UpdateCloudReplicaInfo> batchUpdateCloudReplicaInfoEditlogs(List<UpdateCloudReplicaInfo> infos,
+                                                                             StatType type) {
         long start = System.currentTimeMillis();
         List<UpdateCloudReplicaInfo> rets = new ArrayList<>();
         // clusterId, infos
         Map<String, List<UpdateCloudReplicaInfo>> clusterIdToInfos = infos.stream()
                 .collect(Collectors.groupingBy(UpdateCloudReplicaInfo::getClusterId));
+        Set<String> notBalancedClusterIds = new HashSet<>(this.clusterToBes.keySet());
         for (Map.Entry<String, List<UpdateCloudReplicaInfo>> entry : clusterIdToInfos.entrySet()) {
             // same cluster
             String clusterId = entry.getKey();
+            notBalancedClusterIds.remove(clusterId);
             List<UpdateCloudReplicaInfo> infoList = entry.getValue();
+            String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getClusterNameByClusterId(clusterId);
+            if (!Strings.isNullOrEmpty(clusterName)) {
+                MetricRepo.updateClusterCloudBalanceNum(clusterName, clusterId, type, infoList.size());
+            }
             Map<Long, List<UpdateCloudReplicaInfo>> sameLocationInfos = infoList.stream()
                     .collect(Collectors.groupingBy(
                             info -> info.getDbId()
@@ -1291,6 +1309,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 rets.add(newInfo);
             });
         }
+
+        for (String clusterId : notBalancedClusterIds) {
+            String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getClusterNameByClusterId(clusterId);
+            if (!Strings.isNullOrEmpty(clusterName)) {
+                MetricRepo.updateClusterCloudBalanceNum(clusterName, clusterId, type, 0);
+            }
+        }
+
         if (LOG.isDebugEnabled()) {
             LOG.debug("batchUpdateCloudReplicaInfoEditlogs old size {}, cur size {} cost {} ms",
                     infos.size(), rets.size(), System.currentTimeMillis() - start);

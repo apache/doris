@@ -401,37 +401,8 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         } else if (originalType.isComplexType() && targetType.isJsonType()) {
             return !checkTypeContainsType(originalType, MapType.class);
         } else {
-            return checkPrimitiveType(originalType, targetType);
-        }
-    }
-
-    /**
-     * forbid this original and target type
-     *   1. original type is object type
-     *   2. target type is object type
-     *   3. original type is same with target type
-     *   4. target type is null type
-     */
-    private static boolean checkPrimitiveType(DataType originalType, DataType targetType) {
-        if (originalType.isJsonType() || targetType.isJsonType()) {
             return true;
         }
-        if (!originalType.isPrimitive() || !targetType.isPrimitive()) {
-            return false;
-        }
-        if (originalType.equals(targetType)) {
-            return false;
-        }
-        if (originalType.isNullType()) {
-            return true;
-        }
-        if (originalType.isObjectType() || targetType.isObjectType()) {
-            return false;
-        }
-        if (targetType.isNullType()) {
-            return false;
-        }
-        return true;
     }
 
     /**

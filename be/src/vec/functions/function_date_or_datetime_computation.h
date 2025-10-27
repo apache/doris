@@ -58,6 +58,7 @@
 #include "vec/functions/datetime_errors.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/functions/function_needs_to_handle_null.h"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
@@ -1376,6 +1377,95 @@ private:
     static constexpr auto DATE_NAME = "DATE";
     static constexpr auto DATETIME_NAME = "DATETIME";
     static constexpr auto TIME_NAME = "TIME";
+};
+
+class PeriodHelper {
+public:
+    // For two digit year, 70-99 -> 1970-1999, 00-69 -> 2000-2069
+    // this rule is same as MySQL
+    static constexpr int YY_PART_YEAR = 70;
+    static Status valid_period(int64_t period) {
+        if (period <= 0 || (period % 100) == 0 || (period % 100) > 12) {
+            return Status::InvalidArgument("Period function got invalid period: {}", period);
+        }
+        return Status::OK();
+    }
+
+    static int64_t check_and_convert_period_to_month(uint64_t period) {
+        THROW_IF_ERROR(valid_period(period));
+        uint64_t year = period / 100;
+        if (year < 100) {
+            year += (year >= YY_PART_YEAR) ? 1900 : 2000;
+        }
+        return year * 12LL + (period % 100) - 1;
+    }
+
+    static int64_t convert_month_to_period(uint64_t month) {
+        uint64_t year = month / 12;
+        if (year < 100) {
+            year += (year >= YY_PART_YEAR) ? 1900 : 2000;
+        }
+        return year * 100 + month % 12 + 1;
+    }
+};
+
+class PeriodAddImpl {
+public:
+    static constexpr auto name = "period_add";
+    static size_t get_number_of_arguments() { return 2; }
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    static void execute(const std::vector<ColumnWithConstAndNullMap>& cols_info,
+                        ColumnInt64::MutablePtr& res_col, PaddedPODArray<UInt8>& res_null_map_data,
+                        size_t input_rows_count) {
+        const auto& left_data =
+                assert_cast<const ColumnInt64*>(cols_info[0].nested_col)->get_data();
+        const auto& right_data =
+                assert_cast<const ColumnInt64*>(cols_info[1].nested_col)->get_data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (cols_info[0].is_null_at(i) || cols_info[1].is_null_at(i)) {
+                res_col->insert_default();
+                res_null_map_data[i] = 1;
+                continue;
+            }
+
+            int64_t period = left_data[index_check_const(i, cols_info[0].is_const)];
+            int64_t months = right_data[index_check_const(i, cols_info[1].is_const)];
+            res_col->insert_value(PeriodHelper::convert_month_to_period(
+                    PeriodHelper::check_and_convert_period_to_month(period) + months));
+        }
+    }
+};
+class PeriodDiffImpl {
+public:
+    static constexpr auto name = "period_diff";
+    static size_t get_number_of_arguments() { return 2; }
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    static void execute(const std::vector<ColumnWithConstAndNullMap>& cols_info,
+                        ColumnInt64::MutablePtr& res_col, PaddedPODArray<UInt8>& res_null_map_data,
+                        size_t input_rows_count) {
+        const auto& left_data =
+                assert_cast<const ColumnInt64*>(cols_info[0].nested_col)->get_data();
+        const auto& right_data =
+                assert_cast<const ColumnInt64*>(cols_info[1].nested_col)->get_data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (cols_info[0].is_null_at(i) || cols_info[1].is_null_at(i)) {
+                res_col->insert_default();
+                res_null_map_data[i] = 1;
+                continue;
+            }
+
+            int64_t period1 = left_data[index_check_const(i, cols_info[0].is_const)];
+            int64_t period2 = right_data[index_check_const(i, cols_info[1].is_const)];
+            res_col->insert_value(PeriodHelper::check_and_convert_period_to_month(period1) -
+                                  PeriodHelper::check_and_convert_period_to_month(period2));
+        }
+    }
 };
 
 #include "common/compile_check_avoid_end.h"
