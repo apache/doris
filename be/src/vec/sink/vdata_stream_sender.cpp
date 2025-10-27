@@ -256,11 +256,12 @@ Status Channel::send_local_block(Block* block, bool eos, bool can_be_moved) {
             _parent->on_channel_finished(_fragment_instance_id.lo);
         }
         return Status::OK();
-    } else {
+    } else if (!receiver_status.is<ErrorCode::END_OF_FILE>()) {
         _receiver_status = std::move(receiver_status);
         _parent->on_channel_finished(_fragment_instance_id.lo);
         return _receiver_status;
     }
+    return Status::OK();
 }
 
 std::string Channel::debug_string() const {
