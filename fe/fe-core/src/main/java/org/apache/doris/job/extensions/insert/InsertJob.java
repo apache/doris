@@ -104,6 +104,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             .add(new Column("EndOffset", ScalarType.createStringType()))
             .add(new Column("LoadStatistic", ScalarType.createStringType()))
             .add(new Column("ErrorMsg", ScalarType.createStringType()))
+            .add(new Column("JobRuntimeMsg", ScalarType.createStringType()))
             .build();
 
     public static final ShowResultSetMetaData TASK_META_DATA =

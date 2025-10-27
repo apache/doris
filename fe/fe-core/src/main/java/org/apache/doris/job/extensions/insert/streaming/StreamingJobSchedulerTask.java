@@ -26,10 +26,6 @@ import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.thrift.TRow;
 
 import lombok.extern.log4j.Log4j2;
-import org.apache.commons.lang3.StringUtils;
-
-import java.util.Arrays;
-import java.util.List;
 
 @Log4j2
 public class StreamingJobSchedulerTask extends AbstractTask {

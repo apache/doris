@@ -52,6 +52,8 @@ public class StreamingTaskScheduler extends MasterDaemon {
     private final ScheduledThreadPoolExecutor delayScheduler
                 = new ScheduledThreadPoolExecutor(1, new CustomThreadFactory("streaming-task-delay-scheduler"));
 
+    private static long DELAY_SCHEDULER_MS = 500;
+
     public StreamingTaskScheduler() {
         super("Streaming-task-scheduler", 1);
     }
@@ -114,7 +116,10 @@ public class StreamingTaskScheduler extends MasterDaemon {
         }
         // reject task if no more data to consume
         if (!job.hasMoreDataToConsume()) {
-            scheduleTaskWithDelay(task, 500);
+            String delayMsg = "No data available for consumption at the moment, will retry after "
+                    + (System.currentTimeMillis() + DELAY_SCHEDULER_MS);
+            job.setJobRuntimeMsg(delayMsg);
+            scheduleTaskWithDelay(task, DELAY_SCHEDULER_MS);
             return;
         }
         log.info("prepare to schedule task, task id: {}, job id: {}", task.getTaskId(), task.getJobId());
@@ -131,8 +136,6 @@ public class StreamingTaskScheduler extends MasterDaemon {
     }
 
     private void scheduleTaskWithDelay(StreamingInsertTask task, long delayMs) {
-        task.setDelayMsg("No data available for consumption at the moment, will retry after "
-                + (System.currentTimeMillis() + delayMs));
         delayScheduler.schedule(() -> {
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(task);
         }, delayMs, TimeUnit.MILLISECONDS);

@@ -120,6 +120,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private InsertIntoTableCommand baseCommand;
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
     private ConcurrentLinkedQueue<StreamingInsertTask> streamInsertTaskQueue = new ConcurrentLinkedQueue<>();
+    @Setter
+    @Getter
+    private String jobRuntimeMsg = "";
 
     public StreamingInsertJob(String jobName,
             JobStatus jobStatus,
@@ -523,6 +526,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 jobStatistic == null ? FeConstants.null_string : jobStatistic.toJson()));
         trow.addToColumnValue(new TCell().setStringVal(failureReason == null
                 ? FeConstants.null_string : failureReason.getMsg()));
+        trow.addToColumnValue(new TCell().setStringVal(jobRuntimeMsg == null
+                ? FeConstants.null_string : jobRuntimeMsg));
         return trow;
     }
 

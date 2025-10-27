@@ -29,8 +29,8 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
-import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.job.offset.s3.S3Offset;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -64,8 +64,6 @@ public class StreamingInsertTask {
     @Setter
     private TaskStatus status;
     private String errMsg;
-    @Setter
-    private String delayMsg;
     private Long createTimeMs;
     private Long startTimeMs;
     private Long finishTimeMs;
@@ -135,8 +133,6 @@ public class StreamingInsertTask {
     }
 
     private void before() throws Exception {
-        // clear delay msg
-        this.delayMsg = "";
         this.status = TaskStatus.RUNNING;
         this.startTimeMs = System.currentTimeMillis();
 
@@ -278,13 +274,6 @@ public class StreamingInsertTask {
         trow.addToColumnValue(new TCell().setStringVal(this.getLabelName()));
         trow.addToColumnValue(new TCell().setStringVal(this.getStatus().name()));
         // err msg
-        String errMsg = "";
-        if (StringUtils.isNotBlank(this.getErrMsg())
-                && !FeConstants.null_string.equals(this.getErrMsg())) {
-            errMsg = this.getErrMsg();
-        } else {
-            errMsg = this.getDelayMsg();
-        }
         trow.addToColumnValue(new TCell().setStringVal(StringUtils.isNotBlank(errMsg)
                 ? errMsg : FeConstants.null_string));
 
