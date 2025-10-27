@@ -55,6 +55,10 @@ suite("test_error_msg_truncate","nonConcurrent") {
             // Check if error message contains url
             assertTrue(errorMsg.contains("url:"), 
                 "Error message should contain 'url:'")
+
+            // Check if error message contains url
+            assertTrue(errorMsg.contains("please use `show load` for detail msg"), 
+                "Error message should contain 'please use `show load` for detail msg'")
             
             // Check if error message total length is within limit (512 bytes)
             assertTrue(errorMsg.length() <= 512, 
