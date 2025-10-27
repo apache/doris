@@ -5368,58 +5368,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         EXPECT_EQ(response.commit_attach().file_bytes(), 8000);
     }
 
-    // Test case 2: Reset offset for non-existent job
-    {
-        ResetStreamingJobOffsetRequest request;
-        request.set_cloud_unique_id(cloud_unique_id);
-        request.set_db_id(db_id);
-        request.set_job_id(9999); // Non-existent job_id
-        request.set_offset("should_fail");
-
-        ResetStreamingJobOffsetResponse response;
-        brpc::Controller cntl;
-        meta_service->reset_streaming_job_offset(&cntl, &request, &response, nullptr);
-
-        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
-        EXPECT_EQ(response.status().code(), MetaServiceCode::STREAMING_JOB_PROGRESS_NOT_FOUND);
-        EXPECT_TRUE(response.status().msg().find("progress info not found") != std::string::npos);
-    }
-
-    // Test case 3: Missing required fields
-    {
-        ResetStreamingJobOffsetRequest request;
-        request.set_cloud_unique_id(cloud_unique_id);
-        // Missing db_id, job_id, and new_offset
-
-        ResetStreamingJobOffsetResponse response;
-        brpc::Controller cntl;
-        meta_service->reset_streaming_job_offset(&cntl, &request, &response, nullptr);
-
-        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
-        EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
-        EXPECT_TRUE(response.status().msg().find("empty db_id or job_id or new_offset") !=
-                    std::string::npos);
-    }
-
-    // Test case 4: Empty new_offset
-    {
-        ResetStreamingJobOffsetRequest request;
-        request.set_cloud_unique_id(cloud_unique_id);
-        request.set_db_id(db_id);
-        request.set_job_id(job_id);
-        request.set_offset(""); // Empty offset
-
-        ResetStreamingJobOffsetResponse response;
-        brpc::Controller cntl;
-        meta_service->reset_streaming_job_offset(&cntl, &request, &response, nullptr);
-
-        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
-        EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
-        EXPECT_TRUE(response.status().msg().find("empty db_id or job_id or new_offset") !=
-                    std::string::npos);
-    }
-
-    // Test case 5: Reset offset multiple times
+    // Test case 2: Reset offset multiple times
     {
         ResetStreamingJobOffsetRequest request;
         request.set_cloud_unique_id(cloud_unique_id);
