@@ -246,6 +246,7 @@ static MetaServiceResponseStatus encode_key(const brpc::URI& uri, std::string* k
     MetaServiceResponseStatus status;
     status.set_code(MetaServiceCode::OK);
     std::string_view kt = http_query(uri, "key_type");
+    if (key_type != nullptr) *key_type = kt;
     auto it = param_set.find(kt);
     if (it == param_set.end()) {
         status.set_code(MetaServiceCode::INVALID_ARGUMENT);
@@ -266,7 +267,6 @@ static MetaServiceResponseStatus encode_key(const brpc::URI& uri, std::string* k
     }
     auto& key_encoding_function = std::get<1>(it->second);
     *key = key_encoding_function(params);
-    if (key_type != nullptr) *key_type = kt;
     return status;
 }
 
@@ -275,6 +275,7 @@ HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri) {
     std::string key_type;
     if (auto hex_key = http_query(uri, "key"); !hex_key.empty()) {
         key = unhex(hex_key);
+        key_type = http_query(uri, "key_type");
     } else { // Encode key from params
         auto st = encode_key(uri, &key, &key_type);
         if (st.code() != MetaServiceCode::OK) {
@@ -335,11 +336,11 @@ std::string handle_kv_output(std::string_view key, std::string_view value,
                              std::string_view original_value_json, std::string_view new_value_json,
                              std::string_view serialized_value_to_save) {
     std::stringstream final_output;
-    final_output << "original_value_hex=" << hex(value) << "\n"
-                 << "key_hex=" << hex(key) << "\n"
+    final_output << "key_hex=" << hex(key) << "\n"
                  << "original_value_json=" << original_value_json << "\n"
                  << "new_value_json=" << new_value_json << "\n"
-                 << "changed_value_hex=" << hex(serialized_value_to_save) << "\n";
+                 << "original_value_hex=" << hex(value) << "\n"
+                 << "new_value_hex=" << hex(serialized_value_to_save) << "\n";
     std::string final_json_str = final_output.str();
     LOG(INFO) << final_json_str;
     if (final_json_str.size() > 25000) {
@@ -371,6 +372,7 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
     std::string key_type;
     if (auto hex_key = http_query(uri, "key"); !hex_key.empty()) {
         key = unhex(hex_key);
+        key_type = http_query(uri, "key_type");
     } else { // Encode key from params
         auto st = encode_key(uri, &key, &key_type);
         if (st.code() != MetaServiceCode::OK) {
