@@ -34,10 +34,8 @@ namespace vectorized {
 #include "common/compile_check_begin.h"
 
 VIcebergTableWriter::VIcebergTableWriter(const TDataSink& t_sink,
-                                         const VExprContextSPtrs& output_expr_ctxs,
-                                         std::shared_ptr<pipeline::Dependency> dep,
-                                         std::shared_ptr<pipeline::Dependency> fin_dep)
-        : AsyncResultWriter(output_expr_ctxs, dep, fin_dep), _t_sink(t_sink) {
+                                         const VExprContextSPtrs& output_expr_ctxs)
+        : BlockingWriter(output_expr_ctxs), _t_sink(t_sink) {
     DCHECK(_t_sink.__isset.iceberg_table_sink);
 }
 
@@ -46,6 +44,7 @@ Status VIcebergTableWriter::init_properties(ObjectPool* pool) {
 }
 
 Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
+    RETURN_IF_ERROR(BlockingWriter::open(state, profile));
     _state = state;
 
     // add all counter

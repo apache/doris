@@ -25,7 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "vec/sink/writer/async_result_writer.h"
+#include "vec/sink/writer/blocking_writer.h"
 
 namespace doris {
 namespace vectorized {
@@ -44,11 +44,9 @@ struct MysqlConnInfo {
 
 class Block;
 
-class VMysqlTableWriter final : public AsyncResultWriter {
+class VMysqlTableWriter final : public BlockingWriter {
 public:
-    VMysqlTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                      std::shared_ptr<pipeline::Dependency> dep,
-                      std::shared_ptr<pipeline::Dependency> fin_dep);
+    VMysqlTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
     // connect to mysql server
     Status open(RuntimeState* state, RuntimeProfile* profile) override;

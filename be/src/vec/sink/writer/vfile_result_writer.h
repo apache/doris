@@ -34,7 +34,7 @@
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/runtime/vfile_format_transformer.h"
-#include "vec/sink/writer/async_result_writer.h"
+#include "vec/sink/writer/blocking_writer.h"
 
 namespace doris {
 class ResultBlockBufferBase;
@@ -53,20 +53,16 @@ struct ResultFileOptions;
 namespace doris::vectorized {
 
 // write result to file
-class VFileResultWriter final : public AsyncResultWriter {
+class VFileResultWriter final : public BlockingWriter {
 public:
     VFileResultWriter(const pipeline::ResultFileOptions* file_option,
                       const TStorageBackendType::type storage_type,
                       const TUniqueId fragment_instance_id,
                       const VExprContextSPtrs& _output_vexpr_ctxs,
                       std::shared_ptr<ResultBlockBufferBase> sinker, Block* output_block,
-                      bool output_object_data, const RowDescriptor& output_row_descriptor,
-                      std::shared_ptr<pipeline::Dependency> dep,
-                      std::shared_ptr<pipeline::Dependency> fin_dep);
+                      bool output_object_data, const RowDescriptor& output_row_descriptor);
 
-    VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                      std::shared_ptr<pipeline::Dependency> dep,
-                      std::shared_ptr<pipeline::Dependency> fin_dep);
+    VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
     Status write(RuntimeState* state, Block& block) override;
 

@@ -65,7 +65,7 @@
 #include "vec/sink/vrow_distribution.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
-#include "vec/sink/writer/async_result_writer.h"
+#include "vec/sink/writer/blocking_writer.h"
 
 namespace doris {
 class ObjectPool;
@@ -611,11 +611,9 @@ private:
 namespace doris::vectorized {
 //
 // write result to file
-class VTabletWriter final : public AsyncResultWriter {
+class VTabletWriter final : public BlockingWriter {
 public:
-    VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                  std::shared_ptr<pipeline::Dependency> dep,
-                  std::shared_ptr<pipeline::Dependency> fin_dep);
+    VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
     Status write(RuntimeState* state, Block& block) override;
 

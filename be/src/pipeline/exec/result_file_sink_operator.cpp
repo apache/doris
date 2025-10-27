@@ -103,8 +103,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
     // create writer
     _writer.reset(new (std::nothrow) vectorized::VFileResultWriter(
             p._file_opts.get(), p._storage_type, state->fragment_instance_id(), _output_vexpr_ctxs,
-            _sender, nullptr, state->return_object_data_as_binary(), p._output_row_descriptor,
-            _async_writer_dependency, _finish_dependency));
+            _sender, nullptr, state->return_object_data_as_binary(), p._output_row_descriptor));
     _writer->set_header_info(p._header_type, p._header);
     return Status::OK();
 }
@@ -121,14 +120,6 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
     }
 
     Status final_status = exec_status;
-    // For pipelinex engine, the writer is closed in async thread process_block
-    if (_writer) {
-        Status st = _writer->get_writer_status();
-        if (!st.ok() && exec_status.ok()) {
-            // close file writer failed, should return this error to client
-            final_status = st;
-        }
-    }
     // close sender, this is normal path end
     if (_sender) {
         int64_t written_rows = _writer == nullptr ? 0 : _writer->get_written_rows();

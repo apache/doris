@@ -74,7 +74,7 @@ public:
 private:
     friend class OlapTableSinkV2LocalState;
     template <typename Writer, typename Parent>
-        requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
+        requires(std::is_base_of_v<vectorized::BlockingWriter, Writer>)
     friend class AsyncWriterSink;
     const RowDescriptor& _row_desc;
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;

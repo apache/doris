@@ -1262,10 +1262,8 @@ void VNodeChannel::mark_close(bool hang_wait) {
     _eos_is_produced = true;
 }
 
-VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                             std::shared_ptr<pipeline::Dependency> dep,
-                             std::shared_ptr<pipeline::Dependency> fin_dep)
-        : AsyncResultWriter(output_exprs, dep, fin_dep), _t_sink(t_sink) {
+VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
+        : BlockingWriter(output_exprs), _t_sink(t_sink) {
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
 }
 
@@ -1332,6 +1330,7 @@ static void* periodic_send_batch(void* writer) {
 }
 
 Status VTabletWriter::open(doris::RuntimeState* state, doris::RuntimeProfile* profile) {
+    RETURN_IF_ERROR(BlockingWriter::open(state, profile));
     RETURN_IF_ERROR(_init(state, profile));
     signal::set_signal_task_id(_load_id);
     SCOPED_TIMER(profile->total_time_counter());

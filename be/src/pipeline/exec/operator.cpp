@@ -715,21 +715,15 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
 }
 
 template <typename Writer, typename Parent>
-    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
+    requires(std::is_base_of_v<vectorized::BlockingWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    _async_writer_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                         "AsyncWriterDependency", true);
-    _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs, _async_writer_dependency,
-                             _finish_dependency));
-
-    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
-            common_profile(), "WaitForDependency[" + _async_writer_dependency->name() + "]Time", 1);
+    _writer.reset(new Writer(info.tsink, _output_vexpr_ctxs));
     return Status::OK();
 }
 
 template <typename Writer, typename Parent>
-    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
+    requires(std::is_base_of_v<vectorized::BlockingWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     _output_vexpr_ctxs.resize(_parent->cast<Parent>()._output_vexpr_ctxs.size());
@@ -737,38 +731,26 @@ Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 _parent->cast<Parent>()._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
     }
-    RETURN_IF_ERROR(_writer->start_writer(state, operator_profile()));
+    RETURN_IF_ERROR(_writer->open(state, operator_profile()));
     return Status::OK();
 }
 
 template <typename Writer, typename Parent>
-    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
+    requires(std::is_base_of_v<vectorized::BlockingWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, vectorized::Block* block,
                                              bool eos) {
-    return _writer->sink(block, eos);
+    return _writer->sink(state, block, eos, operator_profile());
 }
 
 template <typename Writer, typename Parent>
-    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
+    requires(std::is_base_of_v<vectorized::BlockingWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
-    COUNTER_SET(_wait_for_dependency_timer, _async_writer_dependency->watcher_elapse_time());
-    COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
     // if the init failed, the _writer may be nullptr. so here need check
     if (_writer) {
-        Status st = _writer->get_writer_status();
-        if (exec_status.ok()) {
-            _writer->force_close(state->is_cancelled() ? state->cancel_reason()
-                                                       : Status::Cancelled("force close"));
-        } else {
-            _writer->force_close(exec_status);
-        }
-        // If there is an error in process_block thread, then we should get the writer
-        // status before call force_close. For example, the thread may failed in commit
-        // transaction.
-        RETURN_IF_ERROR(st);
+        RETURN_IF_ERROR(_writer->close(exec_status));
     }
     return Base::close(state, exec_status);
 }

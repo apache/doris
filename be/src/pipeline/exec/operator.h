@@ -49,7 +49,7 @@ class RowDescriptor;
 class RuntimeState;
 class TDataSink;
 namespace vectorized {
-class AsyncResultWriter;
+class BlockingWriter;
 class ScoreRuntime;
 class AnnTopNRuntime;
 } // namespace vectorized
@@ -693,7 +693,7 @@ public:
 
 protected:
     template <typename Writer, typename Parent>
-        requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
+        requires(std::is_base_of_v<vectorized::BlockingWriter, Writer>)
     friend class AsyncWriterSink;
     // _operator_id : the current Operator's ID, which is not visible to the user.
     // _node_id : the plan node ID corresponding to the Operator, which is visible on the profile.
@@ -1119,16 +1119,12 @@ public:
 };
 
 template <typename Writer, typename Parent>
-    requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
+    requires(std::is_base_of_v<vectorized::BlockingWriter, Writer>)
 class AsyncWriterSink : public PipelineXSinkLocalState<BasicSharedState> {
 public:
     using Base = PipelineXSinkLocalState<BasicSharedState>;
     AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : Base(parent, state), _async_writer_dependency(nullptr) {
-        _finish_dependency =
-                std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
-                                             parent->get_name() + "_FINISH_DEPENDENCY", true);
-    }
+            : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -1136,19 +1132,13 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* block, bool eos);
 
-    std::vector<Dependency*> dependencies() const override {
-        return {_async_writer_dependency.get()};
-    }
     Status close(RuntimeState* state, Status exec_status) override;
 
-    Dependency* finishdependency() override { return _finish_dependency.get(); }
+    bool is_blockable() const override { return true; }
 
 protected:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
     std::unique_ptr<Writer> _writer;
-
-    std::shared_ptr<Dependency> _async_writer_dependency;
-    std::shared_ptr<Dependency> _finish_dependency;
 };
 
 #ifdef BE_TEST
