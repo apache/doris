@@ -246,11 +246,11 @@ public class Tablet extends MetaObject {
     }
 
     @FunctionalInterface
-    interface BackendIdGetter {
+    public interface BackendIdGetter {
         long get(Replica rep, String be) throws UserException;
     }
 
-    private Multimap<Long, Long> getNormalReplicaBackendPathMapImpl(String beEndpoint, BackendIdGetter idGetter)
+    public Multimap<Long, Long> getNormalReplicaBackendPathMapImpl(String beEndpoint, BackendIdGetter idGetter)
             throws UserException {
         Multimap<Long, Long> map = HashMultimap.create();
         SystemInfoService infoService = Env.getCurrentSystemInfo();
@@ -283,7 +283,7 @@ public class Tablet extends MetaObject {
     }
 
     // for cloud mode without ConnectContext. use BE IP to find replica
-    protected Multimap<Long, Long> getNormalReplicaBackendPathMapCloud(String beEndpoint) throws UserException {
+    public Multimap<Long, Long> getNormalReplicaBackendPathMapCloud(String beEndpoint) throws UserException {
         return getNormalReplicaBackendPathMapImpl(beEndpoint,
                 (rep, be) -> ((CloudReplica) rep).getBackendId(be));
     }
