@@ -513,7 +513,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidShort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidtoInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Week;
@@ -1053,7 +1052,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(UtcTimestamp.class, "utc_timestamp"),
             scalar(Uuid.class, "uuid"),
             scalar(UuidNumeric.class, "uuid_numeric"),
-            scalar(UuidShort.class, "uuid_short"),
             scalar(UuidtoInt.class, "uuid_to_int"),
             scalar(Version.class, "version"),
             scalar(Week.class, "week"),

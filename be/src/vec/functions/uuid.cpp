@@ -78,52 +78,6 @@ public:
     }
 };
 
-class UuidShort : public IFunction {
-public:
-    static constexpr auto name = "uuid_short";
-
-    static size_t get_uuid_value() {
-        // We cannot obtain the actual start time, so we use the time of the first initialisation.
-        static const size_t startup_time = (time(nullptr) & 0x7FFFFF) << 24;
-        static const size_t server_id =
-                (static_cast<size_t>(doris::ExecEnv::GetInstance()->cluster_info()->cluster_id) &
-                 0xFFFF)
-                << 47;
-        static size_t uuid_value = startup_time + server_id;
-        return uuid_value++;
-    }
-
-    static FunctionPtr create() { return std::make_shared<UuidShort>(); }
-
-    String get_name() const override { return name; }
-
-    bool use_default_implementation_for_constants() const override { return false; }
-
-    size_t get_number_of_arguments() const override { return 0; }
-
-    bool is_variadic() const override { return false; }
-
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeInt64>();
-    }
-
-    //   63        62                      47 46                      24 23                0
-    //   +------------+-----------------------+---------------------------+------------------+
-    //   |  Unused(0) | Server ID (16 bits)  | Startup Time (23 bits)    | Counter (24 bits)|
-    //   +------------+-----------------------+---------------------------+------------------+
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
-        auto col_res = ColumnInt64::create(input_rows_count);
-
-        for (int i = 0; i < input_rows_count; i++) {
-            col_res->get_data()[i] = get_uuid_value();
-        }
-
-        block.replace_by_position(result, std::move(col_res));
-        return Status::OK();
-    }
-};
-
 struct NameIsUuid {
     static constexpr auto name = "is_uuid";
 };
@@ -191,7 +145,6 @@ using FunctionIsUuid = FunctionUnaryToType<IsUuidImpl, NameIsUuid>;
 void register_function_uuid(SimpleFunctionFactory& factory) {
     factory.register_function<Uuid>();
     factory.register_function<FunctionIsUuid>();
-    factory.register_function<UuidShort>();
 }
 
 } // namespace doris::vectorized

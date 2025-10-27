@@ -512,7 +512,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidShort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidtoInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Week;
@@ -2401,10 +2400,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitUuidNumeric(UuidNumeric uuidNumeric, C context) {
         return visitScalarFunction(uuidNumeric, context);
-    }
-
-    default R visitUuidShort(UuidShort uuidShort, C context) {
-        return visitScalarFunction(uuidShort, context);
     }
 
     default R visitUuidtoInt(UuidtoInt uuidtoInt, C context) {
