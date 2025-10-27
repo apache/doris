@@ -64,10 +64,11 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
     cm = "bash " + load_path
     logger.info("cm:" + cm)
 
+    def proc = cm.execute()
+
     // Wait a bit for user and table creation to propagate
     Thread.sleep(1000)
-
-    def proc = cm.execute()
+    
     def sout = new StringBuilder(), serr = new StringBuilder()
     proc.consumeProcessOutput(sout, serr)
     proc.waitForOrKill(7200000)
@@ -78,10 +79,12 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
 
 
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
+
+    proc = cm.execute()
+
     // Wait a bit for permission to propagate
     Thread.sleep(1000)
 
-    proc = cm.execute()
     sout = new StringBuilder()
     serr = new StringBuilder()
     proc.consumeProcessOutput(sout, serr)
