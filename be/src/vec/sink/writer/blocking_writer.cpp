@@ -16,6 +16,7 @@
 // under the License.
 
 #include "blocking_writer.h"
+
 #include "common/status.h"
 #include "pipeline/dependency.h"
 #include "runtime/exec_env.h"
@@ -37,7 +38,7 @@ BlockingWriter::BlockingWriter(const doris::vectorized::VExprContextSPtrs& outpu
         : _vec_output_expr_ctxs(output_expr_ctxs) {}
 
 Status BlockingWriter::sink(RuntimeState* state, Block* block, bool eos,
-                               RuntimeProfile* operator_profile) {
+                            RuntimeProfile* operator_profile) {
     auto rows = block->rows();
     if (rows) {
         std::unique_ptr<Block> add_block = _get_free_block(block, rows);
@@ -61,7 +62,7 @@ Status BlockingWriter::open(RuntimeState* state, RuntimeProfile* operator_profil
 }
 
 Status BlockingWriter::_projection_block(doris::vectorized::Block& input_block,
-                                            doris::vectorized::Block* output_block) {
+                                         doris::vectorized::Block* output_block) {
     Status status = Status::OK();
     if (input_block.rows() == 0) {
         return status;
@@ -84,7 +85,7 @@ void BlockingWriter::_return_free_block(std::unique_ptr<Block> b) {
 }
 
 std::unique_ptr<Block> BlockingWriter::_get_free_block(doris::vectorized::Block* block,
-                                                          size_t rows) {
+                                                       size_t rows) {
     std::unique_ptr<Block> b;
     if (!_free_blocks.try_dequeue(b)) {
         b = block->create_same_struct_block(rows, true);

@@ -1123,8 +1123,7 @@ template <typename Writer, typename Parent>
 class AsyncWriterSink : public PipelineXSinkLocalState<BasicSharedState> {
 public:
     using Base = PipelineXSinkLocalState<BasicSharedState>;
-    AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : Base(parent, state) {}
+    AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
