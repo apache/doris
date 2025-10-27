@@ -554,11 +554,12 @@ public class ExpressionUtils {
                 return e;
             }
             Expression replacedExpr = replaceMap.get(e);
-            if (replacedExpr == null) {
+            if (replacedExpr == null && e instanceof NamedExpression) {
+                // if replace named expression failed, return null directly
                 containNull.add(true);
                 return e;
             }
-            return replacedExpr;
+            return replacedExpr == null ? e : replacedExpr;
         });
         return containNull.isEmpty() ? finalReplacedExpr : null;
     }
