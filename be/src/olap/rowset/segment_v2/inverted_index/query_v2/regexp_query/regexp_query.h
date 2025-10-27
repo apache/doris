@@ -17,27 +17,30 @@
 
 #pragma once
 
-#include <cstdint>
-#include <memory>
-
 #include "olap/rowset/segment_v2/index_query_context.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/regexp_query/regexp_weight.h"
 
-namespace doris::segment_v2 {
-#include "common/compile_check_begin.h"
+namespace doris::segment_v2::inverted_index::query_v2 {
 
-class Similarity {
+class RegexpQuery : public Query {
 public:
-    Similarity() = default;
-    virtual ~Similarity() = default;
+    RegexpQuery(IndexQueryContextPtr context, std::wstring field, std::string pattern)
+            : _context(std::move(context)),
+              _field(std::move(field)),
+              _pattern(std::move(pattern)) {}
+    ~RegexpQuery() override = default;
 
-    virtual void for_one_term(const IndexQueryContextPtr& context, const std::wstring& field_name,
-                              const std::wstring& term) = 0;
-    virtual void for_terms(const IndexQueryContextPtr& context, const std::wstring& field_name,
-                           const std::vector<std::wstring>& terms) = 0;
+    WeightPtr weight(bool enable_scoring) override {
+        return std::make_shared<RegexpWeight>(std::move(_context), std::move(_field),
+                                              std::move(_pattern), enable_scoring);
+    }
 
-    virtual float score(float freq, int64_t encoded_norm) = 0;
+private:
+    IndexQueryContextPtr _context;
+
+    std::wstring _field;
+    std::string _pattern;
 };
-using SimilarityPtr = std::shared_ptr<Similarity>;
 
-#include "common/compile_check_end.h"
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index::query_v2
