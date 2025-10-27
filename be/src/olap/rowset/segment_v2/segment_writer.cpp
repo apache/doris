@@ -375,7 +375,7 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
     }
 }
 
-void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
+void SegmentWriter::_serialize_block_to_row_column(const vectorized::Block& block) {
     if (block.rows() == 0) {
         return;
     }
@@ -697,7 +697,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     // or it's schema change write(since column data type maybe changed, so we should reubild)
     if (_opts.write_type == DataWriteType::TYPE_DIRECT ||
         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
-        _serialize_block_to_row_column(*const_cast<vectorized::Block*>(block));
+        _serialize_block_to_row_column(*block);
     }
 
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);
