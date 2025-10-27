@@ -30,12 +30,18 @@ namespace doris {
 class RuntimeState;
 
 inline Status materialize_block(const vectorized::VExprContextSPtrs& exprs,
-                                vectorized::Block* src_block, vectorized::Block* res_block) {
+                                vectorized::Block* src_block, vectorized::Block* res_block,
+                                bool need_clone) {
     vectorized::ColumnsWithTypeAndName columns;
+    auto rows = src_block->rows();
     for (const auto& expr : exprs) {
         int result_column_id = -1;
         RETURN_IF_ERROR(expr->execute(src_block, &result_column_id));
-        columns.emplace_back(src_block->get_by_position(result_column_id));
+        const auto& src_col_with_type = src_block->get_by_position(result_column_id);
+        vectorized::ColumnPtr cloned_col = need_clone
+                                                   ? src_col_with_type.column->clone_resized(rows)
+                                                   : src_col_with_type.column;
+        columns.emplace_back(cloned_col, src_col_with_type.type, src_col_with_type.name);
     }
     *res_block = {columns};
     return Status::OK();
@@ -168,7 +174,8 @@ private:
             auto& local_state = get_local_state(state);
             {
                 SCOPED_TIMER(local_state._expr_timer);
-                RETURN_IF_ERROR(materialize_block(local_state._child_expr, input_block, &res));
+                RETURN_IF_ERROR(
+                        materialize_block(local_state._child_expr, input_block, &res, false));
             }
             local_state._child_row_idx += res.rows();
             RETURN_IF_ERROR(mblock.merge(res));

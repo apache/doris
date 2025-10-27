@@ -81,7 +81,7 @@ public:
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
         if (input_block->rows() != 0) {
             vectorized::Block block;
-            RETURN_IF_ERROR(materialize_block(local_state._child_expr, input_block, &block));
+            RETURN_IF_ERROR(materialize_block(local_state._child_expr, input_block, &block, true));
             RETURN_IF_ERROR(local_state._shared_state->emplace_block(state, std::move(block)));
         }
 
