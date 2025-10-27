@@ -1277,6 +1277,10 @@ public class Column implements GsonPostProcessable {
         return colName;
     }
 
+    public boolean isGeneratedColumn() {
+        return generatedColumnInfo != null;
+    }
+
     public GeneratedColumnInfo getGeneratedColumnInfo() {
         return generatedColumnInfo;
     }

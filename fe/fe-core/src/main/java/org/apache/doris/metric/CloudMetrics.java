@@ -45,6 +45,12 @@ public class CloudMetrics {
     protected static AutoMappedMetric<LongCounterMetric> CLUSTER_WARM_UP_JOB_LATEST_START_TIME;
     protected static AutoMappedMetric<LongCounterMetric> CLUSTER_WARM_UP_JOB_LAST_FINISH_TIME;
 
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_PARTITION_BALANCE_NUM;
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_TABLE_BALANCE_NUM;
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_GLOBAL_BALANCE_NUM;
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_SMOOTH_UPGRADE_BALANCE_NUM;
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM;
+
     protected static void init() {
         if (Config.isNotCloudMode()) {
             return;
@@ -98,5 +104,25 @@ public class CloudMetrics {
         CLUSTER_WARM_UP_JOB_FINISHED_TABLETS = new AutoMappedMetric<>(
                 name -> new LongCounterMetric("file_cache_warm_up_job_finished_tablets",
                         MetricUnit.NOUNIT, "warm up job finished tablets"));
+
+        CLUSTER_CLOUD_PARTITION_BALANCE_NUM = new AutoMappedMetric<>(name -> new LongCounterMetric(
+            "cloud_partition_balance_num", MetricUnit.NOUNIT,
+            "current cluster cloud partition balance sync edit log number"));
+
+        CLUSTER_CLOUD_TABLE_BALANCE_NUM = new AutoMappedMetric<>(name -> new LongCounterMetric(
+            "cloud_table_balance_num", MetricUnit.NOUNIT,
+            "current cluster cloud table balance sync edit log number"));
+
+        CLUSTER_CLOUD_GLOBAL_BALANCE_NUM = new AutoMappedMetric<>(name -> new LongCounterMetric(
+            "cloud_global_balance_num", MetricUnit.NOUNIT,
+            "current cluster cloud be balance sync edit log number"));
+
+        CLUSTER_CLOUD_SMOOTH_UPGRADE_BALANCE_NUM = new AutoMappedMetric<>(name -> new LongCounterMetric(
+            "cloud_smooth_upgrade_balance_num", MetricUnit.NOUNIT,
+            "current cluster cloud smooth upgrade sync edit log number"));
+
+        CLUSTER_CLOUD_WARM_UP_CACHE_BALANCE_NUM = new AutoMappedMetric<>(name -> new LongCounterMetric(
+            "cloud_warm_up_balance_num", MetricUnit.NOUNIT,
+            "current cluster cloud warm up cache sync edit log number"));
     }
 }
