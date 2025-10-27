@@ -42,12 +42,10 @@ public:
     uint32_t seek(uint32_t target) override { return _segment_postings->seek(target); }
     uint32_t doc() const override { return _segment_postings->doc(); }
     uint32_t size_hint() const override { return _segment_postings->size_hint(); }
+    uint32_t freq() const override { return _segment_postings->freq(); }
+    uint32_t norm() const override { return _segment_postings->norm(); }
 
-    float score() override {
-        auto freq = _segment_postings->freq();
-        auto norm = _segment_postings->norm();
-        return _similarity->score(static_cast<float>(freq), norm);
-    }
+    float score() override { return _similarity->score(freq(), norm()); }
 
     bool has_null_bitmap(const NullBitmapResolver* resolver = nullptr) override {
         _ensure_null_bitmap(resolver);
@@ -98,7 +96,7 @@ private:
 
     SegmentPostingsPtr _segment_postings;
     SimilarityPtr _similarity;
-    std::string _logical_field = {};
+    std::string _logical_field;
     bool _null_bitmap_checked = false;
     std::optional<roaring::Roaring> _null_bitmap;
 };
