@@ -5520,6 +5520,80 @@ void MetaServiceImpl::get_schema_dict(::google::protobuf::RpcController* control
     response->mutable_schema_dict()->Swap(&schema_dict);
 }
 
+void MetaServiceImpl::update_merge_file_info(::google::protobuf::RpcController* controller,
+                                             const UpdateMergeFileInfoRequest* request,
+                                             UpdateMergeFileInfoResponse* response,
+                                             ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(update_merge_file_info);
+
+    // Validate request parameters
+    if (!request->has_cloud_unique_id() || request->cloud_unique_id().empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cloud_unique_id is required";
+        return;
+    }
+
+    if (!request->has_merge_file_path() || request->merge_file_path().empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "merge_file_path is required";
+        return;
+    }
+
+    if (!request->has_merge_file_info()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "merge_file_info is required";
+        return;
+    }
+
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    RPC_RATE_LIMIT(update_merge_file_info)
+
+    // Create transaction
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = MetaServiceCode::KV_TXN_CREATE_ERR;
+        msg = fmt::format("failed to create txn, err={}", err);
+        return;
+    }
+
+    // Generate merge file key
+    MergeFileKeyInfo key_info{instance_id, request->merge_file_path()};
+    std::string merge_file_key_str = merge_file_key(key_info);
+
+    // Serialize merge file info
+    std::string merge_file_info_val;
+    if (!request->merge_file_info().SerializeToString(&merge_file_info_val)) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "failed to serialize merge_file_info";
+        return;
+    }
+
+    // Put merge file info
+    txn->put(merge_file_key_str, merge_file_info_val);
+
+    // Commit transaction
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = MetaServiceCode::KV_TXN_COMMIT_ERR;
+        msg = fmt::format("failed to commit txn, err={}", err);
+        return;
+    }
+
+    LOG(INFO) << "successfully updated merge file info"
+              << ", instance_id=" << instance_id
+              << ", merge_file_path=" << request->merge_file_path()
+              << ", total_file_num=" << request->merge_file_info().total_file_num()
+              << ", left_file_num=" << request->merge_file_info().left_file_num()
+              << ", ref_cnt=" << request->merge_file_info().ref_cnt();
+}
+
 std::string hide_access_key(const std::string& ak) {
     std::string key = ak;
     size_t key_len = key.length();

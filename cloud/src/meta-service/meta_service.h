@@ -167,6 +167,11 @@ public:
                            const CreateRowsetRequest* request, CreateRowsetResponse* response,
                            ::google::protobuf::Closure* done) override;
 
+    void update_merge_file_info(::google::protobuf::RpcController* controller,
+                                const UpdateMergeFileInfoRequest* request,
+                                UpdateMergeFileInfoResponse* response,
+                                ::google::protobuf::Closure* done) override;
+
     void get_rowset(::google::protobuf::RpcController* controller, const GetRowsetRequest* request,
                     GetRowsetResponse* response, ::google::protobuf::Closure* done) override;
 
@@ -608,6 +613,13 @@ public:
                            const CreateRowsetRequest* request, CreateRowsetResponse* response,
                            ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::update_tmp_rowset, controller, request, response, done);
+    }
+
+    void update_merge_file_info(::google::protobuf::RpcController* controller,
+                                const UpdateMergeFileInfoRequest* request,
+                                UpdateMergeFileInfoResponse* response,
+                                ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::update_merge_file_info, controller, request, response, done);
     }
 
     void get_rowset(::google::protobuf::RpcController* controller, const GetRowsetRequest* request,

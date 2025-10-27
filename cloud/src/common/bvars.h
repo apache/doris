@@ -619,6 +619,7 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_abort_snapshot;
 extern BvarLatencyRecorderWithTag g_bvar_ms_drop_snapshot;
 extern BvarLatencyRecorderWithTag g_bvar_ms_list_snapshot;
 extern BvarLatencyRecorderWithTag g_bvar_ms_clone_instance;
+extern BvarLatencyRecorderWithTag g_bvar_ms_update_merge_file_info;
 extern bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 extern bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
 extern BvarLatencyRecorderWithStatus<60> g_bvar_ms_txn_commit_with_tablet_count;

@@ -56,6 +56,7 @@ static const char* META_KEY_INFIX_DELETE_BITMAP_LOCK    = "delete_bitmap_lock";
 static const char* META_KEY_INFIX_DELETE_BITMAP_PENDING = "delete_bitmap_pending";
 static const char* META_KEY_INFIX_MOW_TABLET_JOB        = "mow_tablet_job";
 static const char* META_KEY_INFIX_SCHEMA_DICTIONARY     = "tablet_schema_pb_dict";
+static const char* META_KEY_INFIX_MERGE_FILE            = "merge_file";
 
 static const char* RECYCLE_KEY_INFIX_INDEX              = "index";
 static const char* RECYCLE_KEY_INFIX_PART               = "partition";
@@ -151,7 +152,7 @@ static void encode_prefix(const T& t, std::string* key) {
         JobTabletKeyInfo, JobRecycleKeyInfo, JobSnapshotDataMigratorKeyInfo, JobSnapshotChainCompactorKeyInfo,
         RLJobProgressKeyInfo, StreamingJobKeyInfo,
         CopyJobKeyInfo, CopyFileKeyInfo,  StorageVaultKeyInfo, MetaSchemaPBDictionaryInfo,
-        MowTabletJobInfo>);
+        MowTabletJobInfo, MergeFileKeyInfo>);
 
     key->push_back(CLOUD_USER_KEY_SPACE01);
     // Prefixes for key families
@@ -171,7 +172,8 @@ static void encode_prefix(const T& t, std::string* key) {
                       || std::is_same_v<T, MetaDeleteBitmapInfo>
                       || std::is_same_v<T, MetaDeleteBitmapUpdateLockInfo>
                       || std::is_same_v<T, MetaPendingDeleteBitmapInfo>
-                      || std::is_same_v<T, MowTabletJobInfo>) {
+                      || std::is_same_v<T, MowTabletJobInfo>
+                      || std::is_same_v<T, MergeFileKeyInfo>) {
         encode_bytes(META_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, PartitionVersionKeyInfo>
                       || std::is_same_v<T, TableVersionKeyInfo>) {
@@ -347,6 +349,12 @@ void mow_tablet_job_key(const MowTabletJobInfo& in, std::string* out) {
     encode_bytes(META_KEY_INFIX_MOW_TABLET_JOB, out); // "mow_tablet_job"
     encode_int64(std::get<1>(in), out);               // table_id
     encode_int64(std::get<2>(in), out);               // initiator
+}
+
+void merge_file_key(const MergeFileKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                          // 0x01 "meta" ${instance_id}
+    encode_bytes(META_KEY_INFIX_MERGE_FILE, out);    // "merge_file"
+    encode_bytes(std::get<1>(in), out);              // merge_file_path
 }
 
 void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::string* out) {

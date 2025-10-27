@@ -107,6 +107,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_abort_snapshot("ms", "abort_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_drop_snapshot("ms", "drop_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_list_snapshot("ms", "list_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_clone_instance("ms", "clone_instance");
+BvarLatencyRecorderWithTag g_bvar_ms_update_merge_file_info("ms", "update_merge_file_info");
 bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_update_delete_bitmap_fail_counter_minute("ms", "update_delete_bitmap_fail", &g_bvar_update_delete_bitmap_fail_counter, 60);
 bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;

@@ -12250,4 +12250,164 @@ TEST(MetaServiceTest, RowsetVisibleTimeTest) {
                   << std::put_time(std::localtime(&visible_time), "%Y%m%d %H:%M:%S") << "\n";
     }
 }
+
+TEST(MetaServiceTest, UpdateMergeFileInfoTest) {
+    auto meta_service = get_meta_service();
+
+    // case: normal update merge file info - success case
+    {
+        brpc::Controller cntl;
+        UpdateMergeFileInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_merge_file_path("/path/to/merged/file1");
+        
+        // Set merge file info
+        auto* merge_info = req.mutable_merge_file_info();
+        merge_info->set_ref_cnt(5);
+        merge_info->set_total_file_num(10);
+        merge_info->set_left_file_num(8);
+        merge_info->set_total_file_bytes(1024000);
+        merge_info->set_left_file_bytes(819200);
+        merge_info->set_create_timestamp_sec(1666666666);
+        merge_info->set_corrected(false);
+        merge_info->set_state(MergedFileInfoPB::NORMAL);
+        
+        // Add small files
+        auto* small_file = merge_info->add_small_files();
+        small_file->set_path("/small/file1.txt");
+        small_file->set_offset(0);
+        small_file->set_size(512);
+        small_file->set_deleted(false);
+        
+        small_file = merge_info->add_small_files();
+        small_file->set_path("/small/file2.txt");
+        small_file->set_offset(512);
+        small_file->set_size(1024);
+        small_file->set_deleted(false);
+
+        UpdateMergeFileInfoResponse res;
+        meta_service->update_merge_file_info(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // case: missing cloud_unique_id - should fail
+    {
+        brpc::Controller cntl;
+        UpdateMergeFileInfoRequest req;
+        // req.set_cloud_unique_id("test_cloud_unique_id"); // missing cloud_unique_id
+        req.set_merge_file_path("/path/to/merged/file");
+        
+        auto* merge_info = req.mutable_merge_file_info();
+        merge_info->set_ref_cnt(1);
+        merge_info->set_total_file_num(1);
+        merge_info->set_left_file_num(1);
+
+        UpdateMergeFileInfoResponse res;
+        meta_service->update_merge_file_info(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("cloud_unique_id is required") != std::string::npos);
+    }
+
+    // case: empty cloud_unique_id - should fail
+    {
+        brpc::Controller cntl;
+        UpdateMergeFileInfoRequest req;
+        req.set_cloud_unique_id(""); // empty cloud_unique_id
+        req.set_merge_file_path("/path/to/merged/file");
+        
+        auto* merge_info = req.mutable_merge_file_info();
+        merge_info->set_ref_cnt(1);
+
+        UpdateMergeFileInfoResponse res;
+        meta_service->update_merge_file_info(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("cloud_unique_id is required") != std::string::npos);
+    }
+
+    // case: missing merge_file_path - should fail
+    {
+        brpc::Controller cntl;
+        UpdateMergeFileInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        // req.set_merge_file_path("/path/to/merged/file"); // missing merge_file_path
+        
+        auto* merge_info = req.mutable_merge_file_info();
+        merge_info->set_ref_cnt(1);
+
+        UpdateMergeFileInfoResponse res;
+        meta_service->update_merge_file_info(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("merge_file_path is required") != std::string::npos);
+    }
+
+    // case: empty merge_file_path - should fail
+    {
+        brpc::Controller cntl;
+        UpdateMergeFileInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_merge_file_path(""); // empty merge_file_path
+        
+        auto* merge_info = req.mutable_merge_file_info();
+        merge_info->set_ref_cnt(1);
+
+        UpdateMergeFileInfoResponse res;
+        meta_service->update_merge_file_info(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("merge_file_path is required") != std::string::npos);
+    }
+
+    // case: missing merge_file_info - should fail
+    {
+        brpc::Controller cntl;
+        UpdateMergeFileInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_merge_file_path("/path/to/merged/file");
+        // No merge_file_info set
+
+        UpdateMergeFileInfoResponse res;
+        meta_service->update_merge_file_info(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("merge_file_info is required") != std::string::npos);
+    }
+
+    // case: test multiple operations - success case
+    {
+        brpc::Controller cntl;
+        UpdateMergeFileInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id_multi");
+        req.set_merge_file_path("/path/to/merged/file_multi");
+        
+        // Set merge file info with multiple small files
+        auto* merge_info = req.mutable_merge_file_info();
+        merge_info->set_ref_cnt(3);
+        merge_info->set_total_file_num(5);
+        merge_info->set_left_file_num(4);
+        merge_info->set_total_file_bytes(2048000);
+        merge_info->set_left_file_bytes(1638400);
+        merge_info->set_create_timestamp_sec(1666666777);
+        merge_info->set_corrected(true);
+        merge_info->set_state(MergedFileInfoPB::NORMAL);
+        
+        // Add multiple small files
+        for (int i = 1; i <= 5; ++i) {
+            auto* small_file = merge_info->add_small_files();
+            small_file->set_path("/small/file" + std::to_string(i) + ".txt");
+            small_file->set_offset(i * 1000);
+            small_file->set_size(1000);
+            small_file->set_deleted(i > 3); // Mark some as deleted
+        }
+
+        UpdateMergeFileInfoResponse res;
+        meta_service->update_merge_file_info(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+}
+
 } // namespace doris::cloud
