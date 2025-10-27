@@ -2172,7 +2172,7 @@ private:
                             {0}, 1, input_rows_count);
                 }
             } else {
-                if (variant.empty()) {
+                if (variant.only_have_default_values()) {
                     // TODO not found root cause, a tmp fix
                     col_to->assume_mutable()->insert_many_defaults(input_rows_count);
                     col_to = make_nullable(col_to, true);
