@@ -838,4 +838,38 @@ suite("test_date_function") {
             result([[true]])
         }
     }()
+
+    sql """ DROP TABLE IF EXISTS test_period_union; """
+    sql """ CREATE TABLE test_period_union (
+            id INT,
+            period_1 BIGINT,
+            month BIGINT,
+            period_2 BIGINT
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ( 'replication_num' = '1' ); """
+    sql """ INSERT INTO test_period_union VALUES
+            (1, 200803, 2, 200804),
+            (2, 200809, 5, 0308),
+            (3, 0803, 2, 0804),
+            (4, 6910, 3, 7001),
+            (5, 7001, 1, 6908),
+            (6, 12345611, 123456, 123456114512),
+            (7, NULL, 10, NULL),
+            (8, 202510, NULL, 202511),
+            (9, 9223372036854775807, 1, 1),
+            (10, 2510, 123456789, NULL); """
+    qt_period_add_1 """ SELECT PERIOD_ADD(period_1, month), PERIOD_DIFF(period_1, period_2) FROM test_period_union ORDER BY id; """
+    qt_period_add_2 """ SELECT PERIOD_ADD(2511, month), PERIOD_DIFF(2511, period_2) FROM test_period_union ORDER BY id; """
+    qt_period_add_3 """ SELECT PERIOD_ADD(period_1, 10), PERIOD_DIFF(period_1, 202512) FROM test_period_union ORDER BY id; """
+    qt_period_add_4 """ SELECT PERIOD_ADD(NULL, month), PERIOD_DIFF(NULL, period_2) FROM test_period_union ORDER BY id; """
+    qt_period_add_5 """ SELECT PERIOD_ADD(period_1, NULL), PERIOD_DIFF(period_1, NULL) FROM test_period_union ORDER BY id; """
+    testFoldConst("SELECT PERIOD_ADD(200803, 2)")
+    testFoldConst("SELECT PERIOD_ADD(200809, 5)")
+    testFoldConst("SELECT PERIOD_ADD(9223372036854775807, 1);")
+    testFoldConst("SELECT PERIOD_DIFF(200803, 200804)")
+    testFoldConst("SELECT PERIOD_DIFF(200804, 0803)")
+    testFoldConst("SELECT PERIOD_DIFF(9223372036854775807, 101);")
+
+    sql """ DROP TABLE IF EXISTS test_period_union; """
 }
