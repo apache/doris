@@ -225,12 +225,23 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
         page_slice = Slice(page->data(), footer->uncompressed_size() + footer_size + 4);
     }
 
-    if (opts.pre_decode && opts.encoding_info) {
-        auto* pre_decoder = opts.encoding_info->get_data_page_pre_decoder();
-        if (pre_decoder) {
-            RETURN_IF_ERROR(pre_decoder->decode(
-                    &page, &page_slice, footer->data_page_footer().nullmap_size() + footer_size + 4,
-                    opts.use_page_cache, opts.type, opts.file_reader->path().native()));
+    if (opts.pre_decode) {
+        const auto* encoding_info = opts.encoding_info;
+        if (opts.is_dict_page) {
+            // for dict page, we need to use encoding_info based on footer->dict_page_footer().encoding()
+            // to get its pre_decoder
+            RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
+                                              footer->dict_page_footer().encoding(),
+                                              &encoding_info));
+        }
+        if (encoding_info) {
+            auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
+            if (pre_decoder) {
+                RETURN_IF_ERROR(pre_decoder->decode(
+                        &page, &page_slice,
+                        footer->data_page_footer().nullmap_size() + footer_size + 4,
+                        opts.use_page_cache, opts.type, opts.file_reader->path().native()));
+            }
         }
     }
 
