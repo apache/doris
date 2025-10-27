@@ -1143,14 +1143,12 @@ public class SystemInfoService {
         if (currentBackends.size() == 0) {
             return 1;
         }
-        int minPipelineExecutorSize = Integer.MAX_VALUE;
-        for (Backend be : currentBackends) {
-            int size = be.getPipelineExecutorSize();
-            if (size > 0) {
-                minPipelineExecutorSize = Math.min(minPipelineExecutorSize, size);
-            }
-        }
-        return minPipelineExecutorSize;
+
+        return currentBackends.stream()
+                .mapToInt(Backend::getPipelineExecutorSize)
+                .filter(size -> size > 0)
+                .min()
+                .orElse(1);
     }
 
     // CloudSystemInfoService override

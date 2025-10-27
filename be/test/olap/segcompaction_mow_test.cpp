@@ -204,6 +204,7 @@ protected:
         rowset_writer_context->tablet_schema = tablet_schema;
         rowset_writer_context->version.first = 10;
         rowset_writer_context->version.second = 10;
+        rowset_writer_context->enable_segcompaction = true;
 
         TabletMetaSharedPtr tablet_meta = std::make_shared<TabletMeta>();
         tablet_meta->_tablet_id = TABLET_ID;
@@ -213,6 +214,7 @@ protected:
         auto tablet = std::make_shared<Tablet>(*s_engine, tablet_meta, _data_dir.get(), "test_str");
         // tablet->key
         rowset_writer_context->tablet = tablet;
+        rowset_writer_context->enable_segcompaction = true;
     }
 
     void create_and_init_rowset_reader(Rowset* rowset, RowsetReaderContext& context,
@@ -237,7 +239,7 @@ protected:
         std::vector<uint32_t> return_columns = {0, 1, 2};
         reader_context.return_columns = &return_columns;
         reader_context.stats = &_stats;
-        reader_context.delete_bitmap = delete_bitmap.get();
+        reader_context.delete_bitmap = delete_bitmap;
 
         Status s;
 

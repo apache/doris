@@ -632,11 +632,11 @@ Status VExpr::check_expr_output_type(const VExprContextSPtrs& ctxs,
                 name_and_types.size());
     }
     auto check_type_can_be_converted = [](DataTypePtr& from, DataTypePtr& to) -> bool {
-        if (to->equals(*from)) {
+        if (to->equals_ignore_precision(*from)) {
             return true;
         }
         if (to->is_nullable() && !from->is_nullable()) {
-            return remove_nullable(to)->equals(*from);
+            return remove_nullable(to)->equals_ignore_precision(*from);
         }
         return false;
     };

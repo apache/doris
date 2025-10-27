@@ -42,6 +42,7 @@
 #include "vec/functions/function_string_to_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/functions/string_hex_util.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -966,66 +967,19 @@ struct UnHexImplNull {
     static constexpr auto name = "unhex_null";
 };
 
-static constexpr int MAX_STACK_CIPHER_LEN = 1024 * 64;
-
 template <typename Name>
 struct UnHexImpl {
     static constexpr auto name = Name::name;
     using ReturnType = DataTypeString;
     using ColumnType = ColumnString;
-
-    static bool check_and_decode_one(char& c, const char src_c, bool flag) {
-        int k = flag ? 16 : 1;
-        int value = src_c - '0';
-        // 9 = ('9'-'0')
-        if (value >= 0 && value <= 9) {
-            c += value * k;
-            return true;
-        }
-
-        value = src_c - 'A';
-        // 5 = ('F'-'A')
-        if (value >= 0 && value <= 5) {
-            c += (value + 10) * k;
-            return true;
-        }
-
-        value = src_c - 'a';
-        // 5 = ('f'-'a')
-        if (value >= 0 && value <= 5) {
-            c += (value + 10) * k;
-            return true;
-        }
-        // not in ( ['0','9'], ['a','f'], ['A','F'] )
-        return false;
-    }
-
-    static int hex_decode(const char* src_str, ColumnString::Offset src_len, char* dst_str) {
-        // if str length is odd or 0, return empty string like mysql dose.
-        if ((src_len & 1) != 0 or src_len == 0) {
-            return 0;
-        }
-        //check and decode one character at the same time
-        // character in ( ['0','9'], ['a','f'], ['A','F'] ), return 'NULL' like mysql dose.
-        for (auto i = 0, dst_index = 0; i < src_len; i += 2, dst_index++) {
-            char c = 0;
-            // combine two character into dst_str one character
-            bool left_4bits_flag = check_and_decode_one(c, *(src_str + i), true);
-            bool right_4bits_flag = check_and_decode_one(c, *(src_str + i + 1), false);
-
-            if (!left_4bits_flag || !right_4bits_flag) {
-                return 0;
-            }
-            *(dst_str + dst_index) = c;
-        }
-        return src_len / 2;
-    }
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
-
+        std::array<char, string_hex::MAX_STACK_CIPHER_LEN> stack_buf;
+        std::vector<char> heap_buf;
         for (int i = 0; i < rows_count; ++i) {
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             ColumnString::Offset srclen = offsets[i] - offsets[i - 1];
@@ -1035,17 +989,16 @@ struct UnHexImpl {
                 continue;
             }
 
-            char dst_array[MAX_STACK_CIPHER_LEN];
-            char* dst = dst_array;
-
-            int cipher_len = srclen / 2;
-            std::unique_ptr<char[]> dst_uptr;
-            if (cipher_len > MAX_STACK_CIPHER_LEN) {
-                dst_uptr.reset(new char[cipher_len]);
-                dst = dst_uptr.get();
+            auto cipher_len = srclen / 2;
+            char* dst = nullptr;
+            if (cipher_len <= stack_buf.size()) {
+                dst = stack_buf.data();
+            } else {
+                heap_buf.resize(cipher_len);
+                dst = heap_buf.data();
             }
 
-            int outlen = hex_decode(source, srclen, dst);
+            int outlen = string_hex::hex_decode(source, srclen, dst);
             StringOP::push_value_string(std::string_view(dst, outlen), i, dst_data, dst_offsets);
         }
 
@@ -1057,7 +1010,8 @@ struct UnHexImpl {
                          ColumnUInt8::Container* null_map_data) {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
-
+        std::array<char, string_hex::MAX_STACK_CIPHER_LEN> stack_buf;
+        std::vector<char> heap_buf;
         for (int i = 0; i < rows_count; ++i) {
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             ColumnString::Offset srclen = offsets[i] - offsets[i - 1];
@@ -1067,17 +1021,16 @@ struct UnHexImpl {
                 continue;
             }
 
-            char dst_array[MAX_STACK_CIPHER_LEN];
-            char* dst = dst_array;
-
-            int cipher_len = srclen / 2;
-            std::unique_ptr<char[]> dst_uptr;
-            if (cipher_len > MAX_STACK_CIPHER_LEN) {
-                dst_uptr.reset(new char[cipher_len]);
-                dst = dst_uptr.get();
+            auto cipher_len = srclen / 2;
+            char* dst = nullptr;
+            if (cipher_len <= stack_buf.size()) {
+                dst = stack_buf.data();
+            } else {
+                heap_buf.resize(cipher_len);
+                dst = heap_buf.data();
             }
 
-            int outlen = hex_decode(source, srclen, dst);
+            int outlen = string_hex::hex_decode(source, srclen, dst);
             if (outlen == 0) {
                 StringOP::push_null_string(i, dst_data, dst_offsets, *null_map_data);
                 continue;
@@ -1129,12 +1082,14 @@ struct ToBase64Impl {
     static constexpr auto name = "to_base64";
     using ReturnType = DataTypeString;
     using ColumnType = ColumnString;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          ColumnString::Chars& dst_data, ColumnString::Offsets& dst_offsets) {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
-
+        std::array<char, string_hex::MAX_STACK_CIPHER_LEN> stack_buf;
+        std::vector<char> heap_buf;
         for (int i = 0; i < rows_count; ++i) {
             const auto* source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t srclen = offsets[i] - offsets[i - 1];
@@ -1144,14 +1099,13 @@ struct ToBase64Impl {
                 continue;
             }
 
-            char dst_array[MAX_STACK_CIPHER_LEN];
-            char* dst = dst_array;
-
-            int cipher_len = (int)(4.0 * ceil((double)srclen / 3.0));
-            std::unique_ptr<char[]> dst_uptr;
-            if (cipher_len > MAX_STACK_CIPHER_LEN) {
-                dst_uptr.reset(new char[cipher_len]);
-                dst = dst_uptr.get();
+            auto cipher_len = srclen / 2;
+            char* dst = nullptr;
+            if (cipher_len <= stack_buf.size()) {
+                dst = stack_buf.data();
+            } else {
+                heap_buf.resize(cipher_len);
+                dst = heap_buf.data();
             }
 
             auto outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
@@ -1172,7 +1126,8 @@ struct FromBase64Impl {
                          NullMap& null_map) {
         auto rows_count = offsets.size();
         dst_offsets.resize(rows_count);
-
+        std::array<char, string_hex::MAX_STACK_CIPHER_LEN> stack_buf;
+        std::vector<char> heap_buf;
         for (int i = 0; i < rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
@@ -1187,14 +1142,13 @@ struct FromBase64Impl {
                 continue;
             }
 
-            char dst_array[MAX_STACK_CIPHER_LEN];
-            char* dst = dst_array;
-
-            int cipher_len = srclen;
-            std::unique_ptr<char[]> dst_uptr;
-            if (cipher_len > MAX_STACK_CIPHER_LEN) {
-                dst_uptr.reset(new char[cipher_len]);
-                dst = dst_uptr.get();
+            auto cipher_len = srclen / 2;
+            char* dst = nullptr;
+            if (cipher_len <= stack_buf.size()) {
+                dst = stack_buf.data();
+            } else {
+                heap_buf.resize(cipher_len);
+                dst = heap_buf.data();
             }
             auto outlen = base64_decode(source, srclen, dst);
 
@@ -1458,8 +1412,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<
             FunctionStringFormatRound<FormatRoundDecimalImpl<TYPE_DECIMAL128I>>>();
     factory.register_function<FunctionStringFormatRound<FormatRoundDecimalImpl<TYPE_DECIMAL256>>>();
-    factory.register_function<FunctionStringDigestOneArg<SM3Sum>>();
-    factory.register_function<FunctionStringDigestOneArg<MD5Sum>>();
+    factory.register_function<FunctionStringDigestMulti<SM3Sum>>();
+    factory.register_function<FunctionStringDigestMulti<MD5Sum>>();
     factory.register_function<FunctionStringDigestSHA1>();
     factory.register_function<FunctionStringDigestSHA2>();
     factory.register_function<FunctionReplace<ReplaceImpl, true>>();
@@ -1476,6 +1430,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionXPathString>();
     factory.register_function<FunctionCrc32Internal>();
     factory.register_function<FunctionMakeSet>();
+    factory.register_function<FunctionExportSet>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");
@@ -1483,9 +1438,9 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alias(SubstringUtil::name, "mid");
     factory.register_alias(FunctionToLower::name, "lcase");
     factory.register_alias(FunctionToUpper::name, "ucase");
-    factory.register_alias(FunctionStringDigestOneArg<MD5Sum>::name, "md5");
+    factory.register_alias(FunctionStringDigestMulti<MD5Sum>::name, "md5");
     factory.register_alias(FunctionStringUTF8Length::name, "character_length");
-    factory.register_alias(FunctionStringDigestOneArg<SM3Sum>::name, "sm3");
+    factory.register_alias(FunctionStringDigestMulti<SM3Sum>::name, "sm3");
     factory.register_alias(FunctionStringDigestSHA1::name, "sha");
     factory.register_alias(FunctionStringLocatePos::name, "position");
 }
