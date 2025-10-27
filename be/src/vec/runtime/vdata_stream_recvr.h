@@ -272,6 +272,10 @@ protected:
                 SCOPED_RAW_TIMER(&_deserialize_time);
                 _block = Block::create_unique();
                 RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_block->deserialize(*_pblock));
+                if (_block->rows() == 0) {
+                    return Status::InternalError("Deserialize block rows is 0, block: {}",
+                                                 _block->dump_structure());
+                }
             }
             block.swap(_block);
             _block.reset();
