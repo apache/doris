@@ -26,4 +26,8 @@ public interface Offset {
     boolean isEmpty();
 
     boolean isValidOffset();
+
+    int getFileNumber();
+
+    long getFileSize();
 }
