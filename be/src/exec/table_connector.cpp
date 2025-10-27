@@ -40,6 +40,7 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/runtime/timestamptz_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -194,6 +195,14 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
         char buf[64];
         char* pos = value.to_string(buf, type->get_scale());
         std::string str(buf, pos - buf - 1);
+        extra_convert_func(str, false);
+        break;
+    }
+    case TYPE_TIMESTAMPTZ: {
+        auto value = binary_cast<uint64_t, TimestampTzValue>(*(int64_t*)item);
+
+        auto tz = cctz::utc_time_zone();
+        auto str = value.to_string(tz, type->get_scale());
         extra_convert_func(str, false);
         break;
     }

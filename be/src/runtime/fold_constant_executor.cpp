@@ -61,15 +61,16 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/functions/cast/cast_to_string.h"
+#include "vec/runtime/timestamptz_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
 static std::unordered_set<PrimitiveType> PRIMITIVE_TYPE_SET {
-        TYPE_BOOLEAN,  TYPE_TINYINT, TYPE_SMALLINT,   TYPE_INT,      TYPE_BIGINT,
-        TYPE_LARGEINT, TYPE_FLOAT,   TYPE_DOUBLE,     TYPE_TIMEV2,   TYPE_CHAR,
-        TYPE_VARCHAR,  TYPE_STRING,  TYPE_HLL,        TYPE_BITMAP,   TYPE_DATE,
-        TYPE_DATETIME, TYPE_DATEV2,  TYPE_DATETIMEV2, TYPE_DECIMALV2};
+        TYPE_BOOLEAN,  TYPE_TINYINT, TYPE_SMALLINT,   TYPE_INT,       TYPE_BIGINT,
+        TYPE_LARGEINT, TYPE_FLOAT,   TYPE_DOUBLE,     TYPE_TIMEV2,    TYPE_CHAR,
+        TYPE_VARCHAR,  TYPE_STRING,  TYPE_HLL,        TYPE_BITMAP,    TYPE_DATE,
+        TYPE_DATETIME, TYPE_DATEV2,  TYPE_DATETIMEV2, TYPE_DECIMALV2, TYPE_TIMESTAMPTZ};
 
 Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& params,
                                                  PConstantExprResult* response) {
@@ -264,6 +265,11 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size,
         DateV2Value<DateTimeV2ValueType> value =
                 binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(int64_t*)src);
         result = vectorized::CastToString::from_datetimev2(value, type->get_scale());
+        break;
+    }
+    case TYPE_TIMESTAMPTZ: {
+        auto value = binary_cast<uint64_t, TimestampTzValue>(*(int64_t*)src);
+        result = vectorized::CastToString::from_timestamptz(value, type->get_scale());
         break;
     }
     case TYPE_DECIMALV2: {

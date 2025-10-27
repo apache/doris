@@ -25,6 +25,7 @@
 #include "jni.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "util/jni-util.h"
 #include "vec/columns/column_array.h"

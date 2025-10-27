@@ -26,6 +26,8 @@
 
 #include "common/cast_set.h"
 #include "vec/common/int_exp.h"
+#include "vec/core/types.h"
+#include "vec/functions/cast/cast_to_timestamptz.h"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -86,6 +88,17 @@ DateV2Value<DateTimeV2ValueType> timestamp_from_datetime_v2(const std::string& d
     val.from_date_format_str(date_format.data(), date_format.size(), date_str.data(),
                              date_str.size());
     return val;
+}
+
+TimestampTzValue timestamptz_from_string(const std::string& date_str) {
+    vectorized::CastParameters params;
+    TimestampTzValue value;
+    auto tz = cctz::utc_time_zone();
+    if (!vectorized::CastToTimstampTz::from_string(StringRef(date_str), value, params, &tz)) {
+        throw Exception(
+                Status::InternalError("Cast to timestamptz is not supported in current context"));
+    }
+    return value;
 }
 
 //FIXME: try to remove or refactor all those time input/output functions.

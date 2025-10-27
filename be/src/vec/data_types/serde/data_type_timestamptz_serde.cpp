@@ -36,7 +36,7 @@ Status DataTypeTimeStampTzSerDe::from_string(StringRef& str, IColumn& column,
     if (!CastToTimstampTz::from_string(str, res, params, options.timezone)) [[unlikely]] {
         return Status::InvalidArgument("parse timestamptz fail, string: '{}'", str.to_string());
     }
-    col_data.insert_value(res.value());
+    col_data.insert_value(res.to_date_int_val());
     return Status::OK();
 }
 
@@ -57,7 +57,7 @@ Status DataTypeTimeStampTzSerDe::from_string_batch(const ColumnString& col_str,
             col_data.get_data()[i] = TimestampTzValue::default_column_value();
         } else {
             col_nullmap.get_data()[i] = false;
-            col_data.get_data()[i] = res.value();
+            col_data.get_data()[i] = res.to_date_int_val();
         }
     }
     return Status::OK();
@@ -77,7 +77,7 @@ Status DataTypeTimeStampTzSerDe::from_string_strict_mode(StringRef& str, IColumn
                 fmt::format("parse {} to timestamptz failed: ", str.to_string_view()));
         return params.status;
     }
-    col_data.insert_value(res.value());
+    col_data.insert_value(res.to_date_int_val());
     return Status::OK();
 }
 
@@ -103,7 +103,7 @@ Status DataTypeTimeStampTzSerDe::from_string_strict_mode_batch(
             return params.status;
         }
 
-        col_data.get_data()[i] = res.value();
+        col_data.get_data()[i] = res.to_date_int_val();
     }
     return Status::OK();
 }

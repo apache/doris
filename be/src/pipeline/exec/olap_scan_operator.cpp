@@ -892,6 +892,9 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
         for (int column_index = 0; column_index < column_names.size() &&
                                    !_scan_keys.has_range_value() && !eos && !should_break;
              ++column_index) {
+            if (column_names[column_index] == "ts_tz") {
+                LOG(WARNING) << "ts_tz column in push down scan key";
+            }
             auto iter = _colname_to_value_range.find(column_names[column_index]);
             if (_colname_to_value_range.end() == iter) {
                 break;

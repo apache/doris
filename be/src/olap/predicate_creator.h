@@ -256,6 +256,10 @@ std::unique_ptr<PredicateCreator<ConditionType>> get_creator(
         return std::make_unique<CustomPredicateCreator<TYPE_DATETIMEV2, PT, ConditionType>>(
                 timestamp_from_datetime_v2);
     }
+    case TYPE_TIMESTAMPTZ: {
+        return std::make_unique<CustomPredicateCreator<TYPE_TIMESTAMPTZ, PT, ConditionType>>(
+                timestamptz_from_string);
+    }
     case TYPE_BOOLEAN: {
         return std::make_unique<CustomPredicateCreator<TYPE_BOOLEAN, PT, ConditionType>>(
                 [](const std::string& condition) {

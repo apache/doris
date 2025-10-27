@@ -230,6 +230,9 @@ Status BitmapIndexWriter::create(const TypeInfo* type_info,
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>(type_info));
         break;
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
+        res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>(type_info));
+        break;
     case FieldType::OLAP_FIELD_TYPE_LARGEINT:
         res->reset(new BitmapIndexWriterImpl<FieldType::OLAP_FIELD_TYPE_LARGEINT>(type_info));
         break;
