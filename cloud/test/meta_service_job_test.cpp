@@ -5336,7 +5336,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         request.set_cloud_unique_id(cloud_unique_id);
         request.set_db_id(db_id);
         request.set_job_id(job_id);
-        request.set_new_offset("reset_offset");
+        request.set_offset("reset_offset");
 
         ResetStreamingJobOffsetResponse response;
         brpc::Controller cntl;
@@ -5374,7 +5374,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         request.set_cloud_unique_id(cloud_unique_id);
         request.set_db_id(db_id);
         request.set_job_id(9999); // Non-existent job_id
-        request.set_new_offset("should_fail");
+        request.set_offset("should_fail");
 
         ResetStreamingJobOffsetResponse response;
         brpc::Controller cntl;
@@ -5407,7 +5407,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         request.set_cloud_unique_id(cloud_unique_id);
         request.set_db_id(db_id);
         request.set_job_id(job_id);
-        request.set_new_offset(""); // Empty offset
+        request.set_offset(""); // Empty offset
 
         ResetStreamingJobOffsetResponse response;
         brpc::Controller cntl;
@@ -5425,7 +5425,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
         request.set_cloud_unique_id(cloud_unique_id);
         request.set_db_id(db_id);
         request.set_job_id(job_id);
-        request.set_new_offset("second_reset_offset");
+        request.set_offset("second_reset_offset");
 
         ResetStreamingJobOffsetResponse response;
         brpc::Controller cntl;
