@@ -491,7 +491,7 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
     std::wstring value_wstr = StringHelper::to_wstring(value);
 
     auto make_term_query = [&](const std::wstring& term) -> query_v2::QueryPtr {
-                return std::make_shared<query_v2::TermQuery>(context, field_wstr, term);
+        return std::make_shared<query_v2::TermQuery>(context, field_wstr, term);
     };
 
     if (clause_type == "TERM") {
