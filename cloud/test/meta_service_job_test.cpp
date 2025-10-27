@@ -5259,4 +5259,198 @@ TEST(MetaServiceJobTest, DeleteJobKeyRemovesStreamingMeta) {
     ASSERT_EQ(err, TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
+TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
+    auto meta_service = get_meta_service(false);
+    std::string instance_id = "test_cloud_instance_id";
+    std::string cloud_unique_id = "1:test_cloud_unique_id:1";
+    MOCK_GET_INSTANCE_ID(instance_id);
+    create_and_refresh_instance(meta_service.get(), instance_id);
+
+    int64_t db_id = 1003;
+    int64_t job_id = 2003;
+
+    // First, create a streaming job by committing a txn
+    {
+        CommitTxnRequest request;
+        request.set_cloud_unique_id(cloud_unique_id);
+        // Begin a txn to obtain a valid txn_id and db_id mapping
+        {
+            brpc::Controller cntl_bt;
+            BeginTxnRequest bt_req;
+            BeginTxnResponse bt_res;
+            auto* txn_info = bt_req.mutable_txn_info();
+            txn_info->set_db_id(db_id);
+            txn_info->set_label("streaming_ut_reset_offset");
+            txn_info->add_table_ids(1);
+            txn_info->set_load_job_source_type(
+                    LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
+            txn_info->set_timeout_ms(36000);
+            meta_service->begin_txn(&cntl_bt, &bt_req, &bt_res, nullptr);
+            ASSERT_EQ(bt_res.status().code(), MetaServiceCode::OK);
+            request.set_txn_id(bt_res.txn_id());
+            request.set_db_id(db_id);
+        }
+
+        TxnCommitAttachmentPB* attachment = request.mutable_commit_attachment();
+        attachment->set_type(TxnCommitAttachmentPB::STREAMING_TASK_TXN_COMMIT_ATTACHMENT);
+
+        StreamingTaskCommitAttachmentPB* streaming_attach =
+                attachment->mutable_streaming_task_txn_commit_attachment();
+        streaming_attach->set_job_id(job_id);
+        streaming_attach->set_offset("original_offset");
+        streaming_attach->set_scanned_rows(1000);
+        streaming_attach->set_load_bytes(5000);
+        streaming_attach->set_num_files(10);
+        streaming_attach->set_file_bytes(8000);
+
+        CommitTxnResponse response;
+        brpc::Controller cntl;
+        meta_service->commit_txn(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+    }
+
+    // Verify initial state
+    {
+        GetStreamingTaskCommitAttachRequest request;
+        request.set_cloud_unique_id(cloud_unique_id);
+        request.set_db_id(db_id);
+        request.set_job_id(job_id);
+
+        GetStreamingTaskCommitAttachResponse response;
+        brpc::Controller cntl;
+        meta_service->get_streaming_task_commit_attach(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+        EXPECT_TRUE(response.has_commit_attach());
+        EXPECT_EQ(response.commit_attach().offset(), "original_offset");
+        EXPECT_EQ(response.commit_attach().scanned_rows(), 1000);
+        EXPECT_EQ(response.commit_attach().load_bytes(), 5000);
+    }
+
+    // Test case 1: Reset offset for existing job
+    {
+        ResetStreamingJobOffsetRequest request;
+        request.set_cloud_unique_id(cloud_unique_id);
+        request.set_db_id(db_id);
+        request.set_job_id(job_id);
+        request.set_new_offset("reset_offset");
+
+        ResetStreamingJobOffsetResponse response;
+        brpc::Controller cntl;
+        meta_service->reset_streaming_job_offset(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+    }
+
+    // Verify offset was reset
+    {
+        GetStreamingTaskCommitAttachRequest request;
+        request.set_cloud_unique_id(cloud_unique_id);
+        request.set_db_id(db_id);
+        request.set_job_id(job_id);
+
+        GetStreamingTaskCommitAttachResponse response;
+        brpc::Controller cntl;
+        meta_service->get_streaming_task_commit_attach(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+        EXPECT_TRUE(response.has_commit_attach());
+        EXPECT_EQ(response.commit_attach().offset(), "reset_offset");
+        // Other fields should remain unchanged
+        EXPECT_EQ(response.commit_attach().scanned_rows(), 1000);
+        EXPECT_EQ(response.commit_attach().load_bytes(), 5000);
+        EXPECT_EQ(response.commit_attach().num_files(), 10);
+        EXPECT_EQ(response.commit_attach().file_bytes(), 8000);
+    }
+
+    // Test case 2: Reset offset for non-existent job
+    {
+        ResetStreamingJobOffsetRequest request;
+        request.set_cloud_unique_id(cloud_unique_id);
+        request.set_db_id(db_id);
+        request.set_job_id(9999); // Non-existent job_id
+        request.set_new_offset("should_fail");
+
+        ResetStreamingJobOffsetResponse response;
+        brpc::Controller cntl;
+        meta_service->reset_streaming_job_offset(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::STREAMING_JOB_PROGRESS_NOT_FOUND);
+        EXPECT_TRUE(response.status().msg().find("progress info not found") != std::string::npos);
+    }
+
+    // Test case 3: Missing required fields
+    {
+        ResetStreamingJobOffsetRequest request;
+        request.set_cloud_unique_id(cloud_unique_id);
+        // Missing db_id, job_id, and new_offset
+
+        ResetStreamingJobOffsetResponse response;
+        brpc::Controller cntl;
+        meta_service->reset_streaming_job_offset(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_TRUE(response.status().msg().find("empty db_id or job_id or new_offset") != 
+                    std::string::npos);
+    }
+
+    // Test case 4: Empty new_offset
+    {
+        ResetStreamingJobOffsetRequest request;
+        request.set_cloud_unique_id(cloud_unique_id);
+        request.set_db_id(db_id);
+        request.set_job_id(job_id);
+        request.set_new_offset(""); // Empty offset
+
+        ResetStreamingJobOffsetResponse response;
+        brpc::Controller cntl;
+        meta_service->reset_streaming_job_offset(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_TRUE(response.status().msg().find("empty db_id or job_id or new_offset") != 
+                    std::string::npos);
+    }
+
+    // Test case 5: Reset offset multiple times
+    {
+        ResetStreamingJobOffsetRequest request;
+        request.set_cloud_unique_id(cloud_unique_id);
+        request.set_db_id(db_id);
+        request.set_job_id(job_id);
+        request.set_new_offset("second_reset_offset");
+
+        ResetStreamingJobOffsetResponse response;
+        brpc::Controller cntl;
+        meta_service->reset_streaming_job_offset(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+    }
+
+    // Verify the second reset
+    {
+        GetStreamingTaskCommitAttachRequest request;
+        request.set_cloud_unique_id(cloud_unique_id);
+        request.set_db_id(db_id);
+        request.set_job_id(job_id);
+
+        GetStreamingTaskCommitAttachResponse response;
+        brpc::Controller cntl;
+        meta_service->get_streaming_task_commit_attach(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+        EXPECT_TRUE(response.has_commit_attach());
+        EXPECT_EQ(response.commit_attach().offset(), "second_reset_offset");
+    }
+}
+
 } // namespace doris::cloud
