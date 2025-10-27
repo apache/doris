@@ -542,6 +542,11 @@ public class DateTimeExtractAndTransform {
         return fromUnixTime(second, new VarcharLiteral("%Y-%m-%d %H:%i:%s.%f"));
     }
 
+    @ExecFunction(name = "from_unixtime")
+    public static Expression fromUnixTime(DecimalV3Literal second) {
+        return fromUnixTime(second, new VarcharLiteral("%Y-%m-%d %H:%i:%s.%f"));
+    }
+
     /**
      * date transformation function: from_unixtime
      */
@@ -571,6 +576,32 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "from_unixtime")
     public static Expression fromUnixTime(DecimalLiteral second, StringLikeLiteral format) {
+        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
+
+        if (second.getValue().signum() < 0) {
+            throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
+        }
+
+        ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
+                .plusSeconds(second.getValue().longValue())
+                .atZone(ZoneId.of("UTC+0"))
+                .toOffsetDateTime()
+                .atZoneSameInstant(DateUtils.getTimeZone());
+        DateTimeV2Literal datetime = new DateTimeV2Literal(DateTimeV2Type.of(6), dateTime.getYear(),
+                dateTime.getMonthValue(),
+                dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
+                dateTime.getNano() / 1000);
+        if (datetime.checkRange()) {
+            throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
+        }
+        return dateFormat(datetime, format);
+    }
+
+    /**
+     * date transformation function: from_unixtime
+     */
+    @ExecFunction(name = "from_unixtime")
+    public static Expression fromUnixTime(DecimalV3Literal second, StringLikeLiteral format) {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
 
         if (second.getValue().signum() < 0) {

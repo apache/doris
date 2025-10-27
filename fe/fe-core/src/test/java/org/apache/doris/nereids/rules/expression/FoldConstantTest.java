@@ -108,6 +108,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
@@ -488,6 +489,14 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         FromUnixtime f = new FromUnixtime(BigIntLiteral.of(123456789L), StringLiteral.of("%y %m %d"));
         rewritten = executor.rewrite(f, context);
         Assertions.assertEquals(new VarcharLiteral("73 11 30"), rewritten);
+
+        f = new FromUnixtime(DecimalLiteral.of(new BigDecimal("1761548288.000000")));
+        rewritten = executor.rewrite(f, context);
+        Assertions.assertEquals(new VarcharLiteral("2025-10-27 14:58:08.000000"), rewritten);
+
+        f = new FromUnixtime(DecimalV3Literal.of(new BigDecimal("1761548288.000000")));
+        rewritten = executor.rewrite(f, context);
+        Assertions.assertEquals(new VarcharLiteral("2025-10-27 14:58:08.000000"), rewritten);
 
         UnixTimestamp ut = new UnixTimestamp(StringLiteral.of("2021-11-11"), StringLiteral.of("%Y-%m-%d"));
         rewritten = executor.rewrite(ut, context);
