@@ -23,6 +23,7 @@
 #include <google/protobuf/util/json_util.h>
 
 #include <bit>
+#include <chrono>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -240,15 +241,15 @@ static std::unordered_map<std::string_view,
 };
 // clang-format on
 
-static MetaServiceResponseStatus encode_key(const brpc::URI& uri, std::string& key) {
+static MetaServiceResponseStatus encode_key(const brpc::URI& uri, std::string* key,
+                                            std::string* key_type = nullptr) {
     MetaServiceResponseStatus status;
     status.set_code(MetaServiceCode::OK);
-    std::string_view key_type = http_query(uri, "key_type");
-    auto it = param_set.find(key_type);
+    std::string_view kt = http_query(uri, "key_type");
+    auto it = param_set.find(kt);
     if (it == param_set.end()) {
         status.set_code(MetaServiceCode::INVALID_ARGUMENT);
-        status.set_msg(fmt::format("key_type not supported: {}",
-                                   (key_type.empty() ? "(empty)" : key_type)));
+        status.set_msg(fmt::format("key_type not supported: {}", (kt.empty() ? "(empty)" : kt)));
         return status;
     }
     auto& key_params = std::get<0>(it->second);
@@ -264,16 +265,18 @@ static MetaServiceResponseStatus encode_key(const brpc::URI& uri, std::string& k
         params.emplace_back(p);
     }
     auto& key_encoding_function = std::get<1>(it->second);
-    key = key_encoding_function(params);
+    *key = key_encoding_function(params);
+    if (key_type != nullptr) *key_type = kt;
     return status;
 }
 
 HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri) {
     std::string key;
+    std::string key_type;
     if (auto hex_key = http_query(uri, "key"); !hex_key.empty()) {
         key = unhex(hex_key);
     } else { // Encode key from params
-        auto st = encode_key(uri, key);
+        auto st = encode_key(uri, &key, &key_type);
         if (st.code() != MetaServiceCode::OK) {
             return http_json_reply(st);
         }
@@ -285,7 +288,6 @@ HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri) {
                                fmt::format("failed to create txn, err={}", err));
     }
 
-    std::string_view key_type = http_query(uri, "key_type");
     auto it = param_set.find(key_type);
     if (it == param_set.end()) {
         return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
@@ -330,17 +332,20 @@ HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri) {
 }
 
 std::string handle_kv_output(std::string_view key, std::string_view value,
-                             std::string_view original_value_json,
+                             std::string_view original_value_json, std::string_view new_value_json,
                              std::string_view serialized_value_to_save) {
     std::stringstream final_output;
     final_output << "original_value_hex=" << hex(value) << "\n"
                  << "key_hex=" << hex(key) << "\n"
                  << "original_value_json=" << original_value_json << "\n"
+                 << "new_value_json=" << new_value_json << "\n"
                  << "changed_value_hex=" << hex(serialized_value_to_save) << "\n";
     std::string final_json_str = final_output.str();
     LOG(INFO) << final_json_str;
     if (final_json_str.size() > 25000) {
-        std::string file_path = fmt::format("/tmp/{}.txt", hex(key));
+        using namespace std::chrono;
+        auto ts = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        std::string file_path = fmt::format("/tmp/{}_{}.txt", hex(key), ts);
         LOG(INFO) << "write to file=" << file_path << ", key=" << hex(key)
                   << " size=" << final_json_str.size();
         try {
@@ -350,7 +355,7 @@ std::string handle_kv_output(std::string_view key, std::string_view value,
                 kv_file.close();
             }
         } catch (...) {
-            LOG(INFO) << "write tmp file failed.";
+            LOG(INFO) << "write tmp file failed: " << file_path;
         }
     }
 
@@ -363,10 +368,11 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
     LOG(INFO) << "set value, body=" << body;
 
     std::string key;
+    std::string key_type;
     if (auto hex_key = http_query(uri, "key"); !hex_key.empty()) {
         key = unhex(hex_key);
     } else { // Encode key from params
-        auto st = encode_key(uri, key);
+        auto st = encode_key(uri, &key, &key_type);
         if (st.code() != MetaServiceCode::OK) {
             return http_json_reply(st);
         }
@@ -378,13 +384,13 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
                                fmt::format("failed to create txn, err={}", err));
     }
 
-    std::string_view key_type = http_query(uri, "key_type");
     auto it = param_set.find(key_type);
     if (it == param_set.end()) {
         return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
                                fmt::format("key_type not supported: {}",
                                            (key_type.empty() ? "(empty)" : key_type)));
     }
+
     auto& json_parsing_function = std::get<3>(it->second);
     std::shared_ptr<google::protobuf::Message> pb_to_save = json_parsing_function(body);
     if (pb_to_save == nullptr) {
@@ -458,14 +464,15 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
     LOG(WARNING) << "set_value saved, key=" << hex(key);
 
     std::string final_json_str =
-            handle_kv_output(key, value.value(), original_value_json, serialized_value_to_save);
+            handle_kv_output(key, value.value(), original_value_json, proto_to_json(*pb_to_save),
+                             serialized_value_to_save);
 
     return http_text_reply(MetaServiceCode::OK, "", final_json_str);
 }
 
 HttpResponse process_http_encode_key(const brpc::URI& uri) {
     std::string key;
-    auto st = encode_key(uri, key);
+    auto st = encode_key(uri, &key);
     if (st.code() != MetaServiceCode::OK) {
         return http_json_reply(st);
     }
