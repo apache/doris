@@ -116,8 +116,16 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
     is_eof = false;
     std::lock_guard<std::mutex> l(_lock);
     auto it = _load_channels.find(load_id);
+    DBUG_EXECUTE_IF("LoadChannelMgr.get_load_channel.failed", {
+        LOG(INFO) << "LoadChannelMgr.get_load_channel.failed";
+        it = _load_channels.end();
+    });
     if (it == _load_channels.end()) {
         auto* handle = _last_success_channels->lookup(load_id.to_string());
+        DBUG_EXECUTE_IF("LoadChannelMgr.get_load_channel.failed", {
+            LOG(INFO) << "LoadChannelMgr.get_load_channel.failed";
+            handle = nullptr;
+        });
         // success only when eos be true
         if (handle != nullptr) {
             _last_success_channels->release(handle);
@@ -128,7 +136,8 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
         }
         return Status::InternalError<false>(
                 "Fail to add batch in load channel: unknown load_id={}. "
-                "This may be due to a BE restart. Please retry the load.",
+                "This may be due to a BE restart or the load has been cancelled. Please retry the "
+                "load.",
                 load_id.to_string());
     }
     channel = it->second;
