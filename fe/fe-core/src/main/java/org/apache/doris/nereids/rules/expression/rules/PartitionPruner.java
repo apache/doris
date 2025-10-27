@@ -321,7 +321,8 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             //     PARTITION p1 VALUES IN ("1","2","3","4"),
             //     PARTITION p2 VALUES IN ("5","6","7","8"),
             //     PARTITION p3 )  p3 is default partition
-            Pair<Boolean, Boolean> res = Pair.of(true, !evaluator.isDefaultPartition());
+            boolean notDefaultPartition = !evaluator.isDefaultPartition();
+            Pair<Boolean, Boolean> res = Pair.of(notDefaultPartition, notDefaultPartition);
             for (Map<Slot, PartitionSlotInput> currentInputs : onePartitionInputs) {
                 // evaluate whether there's possible for this partition to accept this predicate
                 Expression result = evaluator.evaluateWithDefaultPartition(partitionPredicate, currentInputs);
@@ -335,6 +336,9 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                     // Indicates that this partition value may or may not satisfy the predicate
                     res.second = false;
                     res.first = false;
+                }
+                if (!res.first && !res.second) {
+                    break;
                 }
             }
             return res;
