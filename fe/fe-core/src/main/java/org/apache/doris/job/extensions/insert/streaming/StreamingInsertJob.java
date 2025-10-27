@@ -80,9 +80,11 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -117,6 +119,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private long lastScheduleTaskTimestamp = -1L;
     private InsertIntoTableCommand baseCommand;
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    private ConcurrentLinkedQueue<StreamingInsertTask> streamInsertTaskQueue = new ConcurrentLinkedQueue<>();
 
     public StreamingInsertJob(String jobName,
             JobStatus jobStatus,
@@ -257,6 +260,20 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     @Override
+    public void cancelAllTasks(boolean needWaitCancelComplete) throws JobException {
+        lock.writeLock().lock();
+        try {
+            if (runningStreamTask == null) {
+                return;
+            }
+            runningStreamTask.cancel(needWaitCancelComplete);
+            canceledTaskCount.incrementAndGet();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    @Override
     public JobType getJobType() {
         return JobType.INSERT;
     }
@@ -296,7 +313,33 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 offsetProvider, getCurrentDbName(), jobProperties, originTvfProps, getCreateUser());
         Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
         this.runningStreamTask.setStatus(TaskStatus.PENDING);
+        recordTasks(runningStreamTask);
         return runningStreamTask;
+    }
+
+    public void recordTasks(StreamingInsertTask task) {
+        if (Config.max_streaming_task_show_count < 1) {
+            return;
+        }
+        streamInsertTaskQueue.add(task);
+
+        while (streamInsertTaskQueue.size() > Config.max_streaming_task_show_count) {
+            streamInsertTaskQueue.poll();
+        }
+    }
+
+    /**
+     * for show command to display all streaming insert tasks of this job.
+     */
+    public List<StreamingInsertTask> queryAllStreamTasks() {
+        if (CollectionUtils.isEmpty(streamInsertTaskQueue)) {
+            return new ArrayList<>();
+        }
+        List<StreamingInsertTask> tasks = new ArrayList<>(streamInsertTaskQueue);
+        Comparator<StreamingInsertTask> taskComparator =
+                Comparator.comparingLong(StreamingInsertTask::getCreateTimeMs).reversed();
+        tasks.sort(taskComparator);
+        return tasks;
     }
 
     protected void fetchMeta() {

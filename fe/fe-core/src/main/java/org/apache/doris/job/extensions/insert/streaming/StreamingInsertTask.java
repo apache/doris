@@ -19,7 +19,9 @@ package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.TaskStatus;
@@ -27,6 +29,7 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -34,12 +37,17 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TCell;
+import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
 
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
+import org.apache.commons.lang3.StringUtils;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -56,7 +64,7 @@ public class StreamingInsertTask {
     private TaskStatus status;
     private String errMsg;
     @Setter
-    private String otherMsg;
+    private String delayMsg;
     private Long createTimeMs;
     private Long startTimeMs;
     private Long finishTimeMs;
@@ -114,6 +122,8 @@ public class StreamingInsertTask {
     }
 
     private void before() throws Exception {
+        // clear delay msg
+        this.delayMsg = "";
         this.status = TaskStatus.RUNNING;
         this.startTimeMs = System.currentTimeMillis();
 
@@ -213,10 +223,12 @@ public class StreamingInsertTask {
                 || TaskStatus.CANCELED.equals(status)) {
             return;
         }
+        status = TaskStatus.CANCELED;
         if (isCanceled.get()) {
             return;
         }
         isCanceled.getAndSet(true);
+        this.errMsg = "task cancelled";
         if (null != stmtExecutor) {
             stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "streaming insert task cancelled"),
                     needWaitCancelComplete);
@@ -243,5 +255,64 @@ public class StreamingInsertTask {
             return true;
         }
         return false;
+    }
+
+    /**
+     * show streaming insert task info detail
+     */
+    public TRow getTvfInfo(String jobName) {
+        TRow trow = new TRow();
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(this.getTaskId())));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(this.getJobId())));
+        trow.addToColumnValue(new TCell().setStringVal(jobName));
+        trow.addToColumnValue(new TCell().setStringVal(this.getLabelName()));
+        trow.addToColumnValue(new TCell().setStringVal(this.getStatus().name()));
+        // err msg
+        String errMsg = "";
+        if (StringUtils.isNotBlank(this.getErrMsg())
+                && !FeConstants.null_string.equals(this.getErrMsg())) {
+            errMsg = this.getErrMsg();
+        } else {
+            errMsg = this.getDelayMsg();
+        }
+        trow.addToColumnValue(new TCell().setStringVal(StringUtils.isNotBlank(errMsg)
+                ? errMsg : FeConstants.null_string));
+
+        // create time
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(this.getCreateTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(null == getStartTimeMs() ? FeConstants.null_string
+                : TimeUtils.longToTimeString(this.getStartTimeMs())));
+        // load end time
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(this.getFinishTimeMs())));
+
+        List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager()
+                .queryLoadJobsByJobIds(Arrays.asList(this.getTaskId()));
+        if (!loadJobs.isEmpty()) {
+            LoadJob loadJob = loadJobs.get(0);
+            if (loadJob.getLoadingStatus() != null && loadJob.getLoadingStatus().getTrackingUrl() != null) {
+                trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadingStatus().getTrackingUrl()));
+            } else {
+                trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+            }
+
+            if (loadJob.getLoadStatistic() != null) {
+                trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadStatistic().toJson()));
+            } else {
+                trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+            }
+        } else {
+            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        }
+
+        if (this.getUserIdentity() == null) {
+            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        } else {
+            trow.addToColumnValue(new TCell().setStringVal(this.getUserIdentity().getQualifiedUser()));
+        }
+        trow.addToColumnValue(new TCell().setStringVal(""));
+        trow.addToColumnValue(new TCell().setStringVal(runningOffset == null
+                ? FeConstants.null_string : runningOffset.toString()));
+        return trow;
     }
 }

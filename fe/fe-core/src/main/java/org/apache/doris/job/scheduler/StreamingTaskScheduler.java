@@ -131,7 +131,7 @@ public class StreamingTaskScheduler extends MasterDaemon {
     }
 
     private void scheduleTaskWithDelay(StreamingInsertTask task, long delayMs) {
-        task.setOtherMsg("No data available for consumption at the moment, will retry after "
+        task.setDelayMsg("No data available for consumption at the moment, will retry after "
                 + (System.currentTimeMillis() + delayMs));
         delayScheduler.schedule(() -> {
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(task);
