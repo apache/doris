@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/functions/function_hash.h"
+
 #include <stdint.h>
 
 #include <string>
@@ -24,6 +26,7 @@
 #include "function_test_util.h"
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
+#include "util/murmur_hash3.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -95,6 +98,26 @@ TEST(HashFunctionTest, murmur_hash_3_64_test) {
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     };
+}
+
+TEST(HashFunctionTest, murmur_hash_3_64_v2_test) {
+    std::string func_name = "murmur_hash3_64_v2";
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+
+        DataSet data_set = {{{std::string("1000209601_1756808272")}, (int64_t)4038800892574899471},
+                            {{std::string("hello world")}, (int64_t)5998619086395760910},
+                            {{std::string("apache doris")}, (int64_t)3669213779466221743}};
+
+        static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
+    };
+}
+
+TEST(HashFunctionTest, murmur_hash_get_name_test) {
+    EXPECT_STREQ(murmur_hash3_get_name_type_int_for_test(), "murmur_hash3_32");
+    EXPECT_STREQ(murmur_hash3_get_name_type_bigint_for_test(), "murmur_hash3_64");
+    EXPECT_STREQ(murmur_hash3_get_name_type_bigint_v2_for_test(), "murmur_hash3_64_v2");
 }
 
 TEST(HashFunctionTest, xxhash_32_test) {
@@ -219,6 +242,46 @@ TEST(HashFunctionTest, xxhash_64_test) {
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     };
+}
+
+TEST(HashFunctionTest, murmur_hash3_helper_functions_test) {
+    {
+        std::string input = "hello world";
+        uint64_t h1 = 0;
+        uint64_t h2 = 0;
+        murmur_hash3_x64_process(input.data(), input.size(), h1, h2);
+        EXPECT_EQ(h1, 5998619086395760910ULL);
+        EXPECT_EQ(h2, 12364428806279881649ULL);
+    }
+
+    {
+        std::string input = "hello world";
+        uint64_t out[2] = {0, 0};
+        murmur_hash3_x64_128(input.data(), input.size(), 0, out);
+        EXPECT_TRUE(out[0] == 5998619086395760910ULL && out[1] == 12364428806279881649ULL);
+    }
+
+    {
+        std::string input = "hello world";
+        uint64_t out = 0;
+        murmur_hash3_x64_64_shared(input.data(), input.size(), 0, &out);
+        EXPECT_EQ(out, 5998619086395760910ULL);
+    }
+
+    {
+        std::string input = "hello";
+        uint64_t out = 0;
+        murmur_hash3_x64_64(input.data(), input.size(), 0, &out);
+        EXPECT_EQ(out, static_cast<uint64_t>(-3215607508166160593LL));
+    }
+
+    {
+        std::string input = "";
+        uint64_t h1 = 0, h2 = 0;
+        murmur_hash3_x64_process(input.data(), input.size(), h1, h2);
+        EXPECT_EQ(h1, 0ULL);
+        EXPECT_EQ(h2, 0ULL);
+    }
 }
 
 } // namespace doris::vectorized

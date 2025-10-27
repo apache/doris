@@ -1346,6 +1346,8 @@ using FunctionStringAppendTrailingCharIfAbsent =
 using FunctionStringLPad = FunctionStringPad<StringLPad>;
 using FunctionStringRPad = FunctionStringPad<StringRPad>;
 
+using FunctionMakeSet = FunctionNeedsToHandleNull<MakeSetImpl, PrimitiveType::TYPE_STRING>;
+
 void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringParseDataSize>();
     factory.register_function<FunctionStringASCII>();
