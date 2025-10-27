@@ -88,7 +88,12 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
         }
 
         if (_block_queue.empty()) {
-            DCHECK_EQ(_num_remaining_senders, 0);
+            if (_num_remaining_senders != 0) {
+                return Status::InternalError(
+                        "Data queue is empty but there are still remaining senders. "
+                        "_num_remaining_senders: {}",
+                        _num_remaining_senders);
+            }
             *eos = true;
             return Status::OK();
         }
