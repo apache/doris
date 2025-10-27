@@ -105,6 +105,9 @@ public:
         if constexpr (T == TYPE_DATETIMEV2) {
             return doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
         }
+        if constexpr (T == TYPE_TIMESTAMPTZ) {
+            return doris::FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
+        }
         if constexpr (T == TYPE_IPV4) {
             return doris::FieldType::OLAP_FIELD_TYPE_IPV4;
         }

@@ -21,13 +21,15 @@
 #include <sys/types.h>
 
 #include <cstdint>
+#include <functional>
 #include <string>
 
 #include "common/status.h"
-#include "vec/common/string_ref.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+
+struct StringRef;
 
 namespace vectorized {
 struct CastParameters;
@@ -45,12 +47,14 @@ struct CastParameters;
 class TimestampTzValue {
 public:
     using underlying_value = uint64_t;
+    const static TimestampTzValue DEFAULT_VALUE;
+
     explicit TimestampTzValue(underlying_value u64) : _utc_dt(u64) {}
 
     TimestampTzValue() : _utc_dt(MIN_DATETIME_V2) {}
 
     // Returns an integer value for storage in a column
-    underlying_value value() const { return _utc_dt.to_date_int_val(); }
+    underlying_value to_date_int_val() const { return _utc_dt.to_date_int_val(); }
 
     // Outputs a string representation with timezone information in the format +03:00
     std::string to_string(const cctz::time_zone& local_time_zone, int scale = 6) const;
@@ -70,9 +74,43 @@ public:
     // Default column value (since the default value 0 for UInt64 is not a valid datetime)
     static underlying_value default_column_value() { return MIN_DATETIME_V2; }
 
+    TimestampTzValue& operator++() {
+        ++_utc_dt;
+        return *this;
+    }
+
+    TimestampTzValue& operator--() {
+        --_utc_dt;
+        return *this;
+    }
+
+    TimestampTzValue& operator+=(int64_t rhs) {
+        _utc_dt += rhs;
+        return *this;
+    }
+
+    TimestampTzValue& operator-=(int64_t rhs) {
+        _utc_dt -= rhs;
+        return *this;
+    }
+
+    bool operator==(const TimestampTzValue& rhs) const { return _utc_dt == rhs._utc_dt; }
+
+    bool operator!=(const TimestampTzValue& rhs) const { return _utc_dt != rhs._utc_dt; }
+
+    bool operator<(const TimestampTzValue& rhs) const { return _utc_dt < rhs._utc_dt; }
+
+    bool operator<=(const TimestampTzValue& rhs) const { return _utc_dt <= rhs._utc_dt; }
+
+    bool operator>(const TimestampTzValue& rhs) const { return _utc_dt > rhs._utc_dt; }
+
+    bool operator>=(const TimestampTzValue& rhs) const { return _utc_dt >= rhs._utc_dt; }
+
 private:
     DateV2Value<DateTimeV2ValueType> _utc_dt;
 };
+inline const TimestampTzValue TimestampTzValue::DEFAULT_VALUE =
+        TimestampTzValue(DateV2Value<DateTimeV2ValueType>::DEFAULT_VALUE.to_date_int_val());
 
 // for ut test
 #ifdef BE_TEST
@@ -83,4 +121,13 @@ inline auto make_datetime(int year, int month, int day, int hour, int minute, in
     return dt.to_date_int_val();
 }
 #endif
+
 } // namespace doris
+
+template <>
+struct std::hash<doris::TimestampTzValue> {
+    size_t operator()(const doris::TimestampTzValue& v) const {
+        auto int_val = v.to_date_int_val();
+        return doris::HashUtil::hash(&int_val, sizeof(int_val), 0);
+    }
+};
