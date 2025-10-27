@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectorContext;
+import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
@@ -50,6 +51,8 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TAccessPathType;
 
@@ -57,6 +60,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -128,7 +132,23 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
     @Override
     public Void visitCast(Cast cast, CollectorContext context) {
-        return cast.child(0).accept(this, context);
+        if (!context.accessPathBuilder.isEmpty()
+                && cast.getDataType() instanceof NestedColumnPrunable
+                && cast.child().getDataType() instanceof NestedColumnPrunable) {
+
+            DataTypeAccessTree castTree = DataTypeAccessTree.of(cast.getDataType(), TAccessPathType.DATA);
+            DataTypeAccessTree originTree = DataTypeAccessTree.of(cast.child().getDataType(), TAccessPathType.DATA);
+
+            List<String> replacePath = new ArrayList<>(context.accessPathBuilder.getPathList());
+            if (originTree.replacePathByAnotherTree(castTree, replacePath, 0)) {
+                CollectorContext castContext = new CollectorContext(context.statementContext, context.bottomFilter);
+                castContext.accessPathBuilder.accessPath.addAll(replacePath);
+                return continueCollectAccessPath(cast.child(), castContext);
+            }
+        }
+        return cast.child(0).accept(this,
+                new CollectorContext(context.statementContext, context.bottomFilter)
+        );
     }
 
     // array element at
@@ -158,6 +178,15 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
         DataType fieldType = fieldName.getDataType();
 
         if (fieldName.isLiteral() && (fieldType.isIntegerLikeType() || fieldType.isStringLikeType())) {
+            if (fieldType.isIntegerLikeType()) {
+                int fieldIndex = ((Number) ((Literal) fieldName).getValue()).intValue();
+                List<StructField> fields = ((StructType) struct.getDataType()).getFields();
+                if (fieldIndex >= 1 && fieldIndex <= fields.size()) {
+                    String realFieldName = fields.get(fieldIndex - 1).getName();
+                    context.accessPathBuilder.addPrefix(realFieldName);
+                    return continueCollectAccessPath(struct, context);
+                }
+            }
             context.accessPathBuilder.addPrefix(((Literal) fieldName).getStringValue());
             return continueCollectAccessPath(struct, context);
         }
@@ -170,6 +199,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
     @Override
     public Void visitMapKeys(MapKeys mapKeys, CollectorContext context) {
+        context = new CollectorContext(context.statementContext, context.bottomFilter);
         context.accessPathBuilder.addPrefix("KEYS");
         return continueCollectAccessPath(mapKeys.getArgument(0), context);
     }

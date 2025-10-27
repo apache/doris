@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
@@ -126,6 +127,20 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
     @Override
     public Void visitLogicalFileScan(LogicalFileScan fileScan, StatementContext context) {
         for (Slot slot : fileScan.getOutput()) {
+            if (!(slot.getDataType() instanceof NestedColumnPrunable)) {
+                continue;
+            }
+            Collection<CollectAccessPathResult> accessPaths = allSlotToAccessPaths.get(slot.getExprId().asInt());
+            if (!accessPaths.isEmpty()) {
+                scanSlotToAccessPaths.put(slot, new ArrayList<>(accessPaths));
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, StatementContext context) {
+        for (Slot slot : tvfRelation.getOutput()) {
             if (!(slot.getDataType() instanceof NestedColumnPrunable)) {
                 continue;
             }

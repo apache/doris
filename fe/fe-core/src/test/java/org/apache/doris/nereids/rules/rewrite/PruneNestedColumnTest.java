@@ -75,8 +75,64 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 + ">)\n"
                 + "properties ('replication_num'='1')");
 
+        createTable("create table tbl2(\n"
+                + "  id2 int,\n"
+                + "  s2 struct<\n"
+                + "    city2: string,\n"
+                + "    data2: array<map<\n"
+                + "      int,\n"
+                + "      struct<a2: int, b2: double>\n"
+                + "    >>\n"
+                + ">)\n"
+                + "properties ('replication_num'='1')");
+
         connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
         connectContext.getSessionVariable().enableNereidsTimeout = false;
+    }
+
+    @Test
+    public void testMap() throws Exception {
+        assertColumn("select MAP_KEYS(struct_element(s, 'data')[0])[1] from tbl",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data", "*", "KEYS")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select MAP_VALUES(struct_element(s, 'data')[0])[1] from tbl",
+                "struct<data:array<map<int,struct<a:int,b:double>>>>",
+                ImmutableList.of(path("s", "data", "*", "VALUES")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testStruct() throws Throwable {
+        assertColumn("select struct_element(s, 1) from tbl",
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
+                ImmutableList.of()
+        );
+
+        assertColumn("select struct_element(map_values(struct_element(s, 'data')[0])[0], 1) from tbl",
+                "struct<data:array<map<int,struct<a:int>>>>",
+                ImmutableList.of(path("s", "data", "*", "VALUES", "a")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testPruneCast() throws Exception {
+        assertColumn("select struct_element(cast(s as struct<k:text,l:array<map<int,struct<x:int,y:double>>>>), 'k') from tbl",
+                "struct<city:text>",
+                ImmutableList.of(path("s", "city")),
+                ImmutableList.of()
+        );
+
+        // assertColumn("select struct_element(s, 'city'), struct_element(map_values(struct_element(s, 'data')[0])[0], 'b') from (select * from tbl union all select * from tbl2)t",
+        //         "struct<city:text>",
+        //         ImmutableList.of(path("s", "city")),
+        //         ImmutableList.of()
+        // );
     }
 
     @Test

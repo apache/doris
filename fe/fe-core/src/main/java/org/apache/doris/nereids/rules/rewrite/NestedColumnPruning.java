@@ -234,7 +234,8 @@ public class NestedColumnPruning implements CustomRewriter {
         return result;
     }
 
-    private static class DataTypeAccessTree {
+    /** DataTypeAccessTree */
+    public static class DataTypeAccessTree {
         private DataType type;
         private boolean isRoot;
         private boolean accessPartialChild;
@@ -252,6 +253,78 @@ public class NestedColumnPruning implements CustomRewriter {
             this.pathType = pathType;
         }
 
+        /** pruneCastType */
+        public DataType pruneCastType(DataTypeAccessTree origin, DataTypeAccessTree cast) {
+            if (type instanceof StructType) {
+                Map<String, String> nameMapping = new LinkedHashMap<>();
+                List<String> castNames = new ArrayList<>(cast.children.keySet());
+                int i = 0;
+                for (String s : origin.children.keySet()) {
+                    nameMapping.put(s, castNames.get(i++));
+                }
+                List<StructField> mappingFields = new ArrayList<>();
+                StructType originPrunedStructType = (StructType) type;
+                for (Entry<String, DataTypeAccessTree> kv : children.entrySet()) {
+                    String originName = kv.getKey();
+                    String mappingName = nameMapping.getOrDefault(originName, originName);
+                    DataTypeAccessTree originPrunedTree = kv.getValue();
+                    DataType mappingType = originPrunedTree.pruneCastType(
+                            origin.children.get(originName),
+                            cast.children.get(mappingName)
+                    );
+                    StructField field = originPrunedStructType.getField(originName);
+                    mappingFields.add(
+                            new StructField(mappingName, mappingType, field.isNullable(), field.getComment())
+                    );
+                }
+                return new StructType(mappingFields);
+            } else if (type instanceof ArrayType) {
+                return ArrayType.of(
+                        children.values().iterator().next().pruneCastType(
+                                origin.children.values().iterator().next(),
+                                cast.children.values().iterator().next()
+                        )
+                );
+            } else if (type instanceof MapType) {
+                return MapType.of(
+                        children.get("KEYS").pruneCastType(origin.children.get("KEYS"), cast.children.get("KEYS")),
+                        children.get("VALUES").pruneCastType(origin.children.get("VALUES"), cast.children.get("VALUES"))
+                );
+            } else {
+                return type;
+            }
+        }
+
+        /** replacePathByAnotherTree */
+        public boolean replacePathByAnotherTree(DataTypeAccessTree cast, List<String> path, int index) {
+            if (index >= path.size()) {
+                return true;
+            }
+            if (cast.type instanceof StructType) {
+                List<StructField> fields = ((StructType) cast.type).getFields();
+                for (int i = 0; i < fields.size(); i++) {
+                    String castFieldName = path.get(index);
+                    if (fields.get(i).getName().equalsIgnoreCase(castFieldName)) {
+                        String originFieldName = ((StructType) type).getFields().get(i).getName();
+                        path.set(index, originFieldName);
+                        return children.get(originFieldName).replacePathByAnotherTree(
+                                cast.children.get(castFieldName), path, index + 1
+                        );
+                    }
+                }
+            } else if (cast.type instanceof ArrayType) {
+                return children.values().iterator().next().replacePathByAnotherTree(
+                        cast.children.values().iterator().next(), path, index + 1);
+            } else if (cast.type instanceof MapType) {
+                String fieldName = path.get(index);
+                return children.get("VALUES").replacePathByAnotherTree(
+                        cast.children.get(fieldName), path, index + 1
+                );
+            }
+            return false;
+        }
+
+        /** setAccessByPath */
         public void setAccessByPath(List<String> path, int accessIndex, TAccessPathType pathType) {
             if (accessIndex >= path.size()) {
                 accessAll = true;
@@ -267,7 +340,12 @@ public class NestedColumnPruning implements CustomRewriter {
             if (this.type.isStructType()) {
                 String fieldName = path.get(accessIndex);
                 DataTypeAccessTree child = children.get(fieldName);
-                child.setAccessByPath(path, accessIndex + 1, pathType);
+                if (child != null) {
+                    child.setAccessByPath(path, accessIndex + 1, pathType);
+                } else {
+                    // can not find the field
+                    accessAll = true;
+                }
                 return;
             } else if (this.type.isArrayType()) {
                 DataTypeAccessTree child = children.get("*");
@@ -314,6 +392,7 @@ public class NestedColumnPruning implements CustomRewriter {
             return root;
         }
 
+        /** of */
         public static DataTypeAccessTree of(DataType type, TAccessPathType pathType) {
             DataTypeAccessTree root = new DataTypeAccessTree(type, pathType);
             if (type instanceof StructType) {
@@ -330,6 +409,7 @@ public class NestedColumnPruning implements CustomRewriter {
             return root;
         }
 
+        /** pruneDataType */
         public Optional<DataType> pruneDataType() {
             if (isRoot) {
                 return children.values().iterator().next().pruneDataType();

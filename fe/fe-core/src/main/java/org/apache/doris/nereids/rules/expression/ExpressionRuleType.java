@@ -58,6 +58,7 @@ public enum ExpressionRuleType {
     SIMPLIFY_RANGE,
     SIMPLIFY_SELF_COMPARISON,
     SUPPORT_JAVA_DATE_FORMATTER,
+    NORMALIZE_STRUCT_ELEMENT,
     TOPN_TO_MAX;
 
     public int type() {

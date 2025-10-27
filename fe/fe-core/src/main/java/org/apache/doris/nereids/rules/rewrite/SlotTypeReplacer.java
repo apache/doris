@@ -22,7 +22,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
@@ -49,8 +51,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -58,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.thrift.TAccessPathType;
@@ -403,6 +406,16 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
     }
 
     @Override
+    public Plan visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, Void context) {
+        Pair<Boolean, List<Slot>> replaced
+                = replaceExpressions(tvfRelation.getOutput(), false, true);
+        if (replaced.first) {
+            return tvfRelation.withCachedOutputs(replaced.second);
+        }
+        return tvfRelation;
+    }
+
+    @Override
     public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, Void context) {
         Pair<Boolean, List<Slot>> replaced = replaceExpressions(olapScan.getOutput(), false, true);
         if (replaced.first) {
@@ -443,12 +456,6 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
             return logicalResultSink.withOutputExprs(replacedOutput.second);
         }
         return logicalResultSink;
-    }
-
-    @Override
-    public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, Void context) {
-        // do nothing
-        return logicalSink;
     }
 
     private Pair<Boolean, List<OrderExpression>> replaceOrderExpressions(List<OrderExpression> orderExpressions) {
@@ -525,28 +532,39 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
         return Pair.of(changed, (C) newExprs.build());
     }
 
-    private Expression replaceSlot(Expression expr, boolean fillAccessPath) {
-        return MoreFieldsThread.keepFunctionSignature(false, () -> {
-            return expr.rewriteUp(e -> {
-                if (e instanceof Lambda) {
-                    return rewriteLambda((Lambda) e, fillAccessPath);
-                } else if (e instanceof SlotReference) {
-                    AccessPathInfo accessPathInfo = replacedDataTypes.get(((SlotReference) e).getExprId().asInt());
-                    if (accessPathInfo != null) {
-                        SlotReference newSlot
-                                = (SlotReference) ((SlotReference) e).withNullableAndDataType(
-                                e.nullable(), accessPathInfo.getPrunedType());
-                        if (fillAccessPath) {
-                            newSlot = newSlot.withAccessPaths(
-                                    accessPathInfo.getAllAccessPaths(), accessPathInfo.getPredicateAccessPaths()
-                            );
-                        }
-                        return newSlot;
-                    }
+    private Expression replaceSlot(Expression e, boolean fillAccessPath) {
+        return MoreFieldsThread.keepFunctionSignature(false,
+                () -> doRewriteExpression(e, fillAccessPath)
+        );
+    }
+
+    private Expression doRewriteExpression(Expression e, boolean fillAccessPath) {
+        if (e instanceof Lambda) {
+            return rewriteLambda((Lambda) e, fillAccessPath);
+        } else if (e instanceof Cast) {
+            return rewriteCast((Cast) e, fillAccessPath);
+        } else if (e instanceof SlotReference) {
+            AccessPathInfo accessPathInfo = replacedDataTypes.get(((SlotReference) e).getExprId().asInt());
+            if (accessPathInfo != null) {
+                SlotReference newSlot = (SlotReference) ((SlotReference) e).withNullableAndDataType(
+                        e.nullable(), accessPathInfo.getPrunedType());
+                if (fillAccessPath) {
+                    newSlot = newSlot.withAccessPaths(
+                            accessPathInfo.getAllAccessPaths(), accessPathInfo.getPredicateAccessPaths()
+                    );
                 }
-                return e;
-            });
-        });
+                return newSlot;
+            }
+        }
+
+        ImmutableList.Builder<Expression> newChildren = ImmutableList.builderWithExpectedSize(e.arity());
+        boolean changed = false;
+        for (Expression child : e.children()) {
+            Expression newChild = doRewriteExpression(child, fillAccessPath);
+            changed |= child != newChild;
+            newChildren.add(newChild);
+        }
+        return changed ? e.withChildren(newChildren.build()) : e;
     }
 
     private Expression rewriteLambda(Lambda e, boolean fillAccessPath) {
@@ -555,7 +573,7 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
         for (int i = 0; i < e.arity(); i++) {
             Expression child = e.child(i);
             if (child instanceof ArrayItemReference) {
-                Expression newRef = child.withChildren(replaceSlot(child.child(0), fillAccessPath));
+                Expression newRef = child.withChildren(doRewriteExpression(child.child(0), fillAccessPath));
                 replacedDataTypes.put(((ArrayItemReference) child).getExprId().asInt(),
                         new AccessPathInfo(newRef.getDataType(), null, null));
                 newChildren[i] = newRef;
@@ -567,11 +585,29 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
         for (int i = 0; i < newChildren.length; i++) {
             Expression child = newChildren[i];
             if (!(child instanceof ArrayItemReference)) {
-                newChildren[i] = replaceSlot(child, fillAccessPath);
+                newChildren[i] = doRewriteExpression(child, fillAccessPath);
             }
         }
 
         return e.withChildren(newChildren);
+    }
+
+    private Expression rewriteCast(Cast cast, boolean fillAccessPath) {
+        Expression newChild = doRewriteExpression(cast.child(0), fillAccessPath);
+        if (newChild == cast.child(0)) {
+            return cast;
+        }
+
+        DataType newType = cast.getDataType();
+        if (cast.getDataType() instanceof NestedColumnPrunable
+                && newChild.getDataType() instanceof NestedColumnPrunable) {
+            DataTypeAccessTree originTree = DataTypeAccessTree.of(cast.child().getDataType(), TAccessPathType.DATA);
+            DataTypeAccessTree prunedTree = DataTypeAccessTree.of(newChild.getDataType(), TAccessPathType.DATA);
+            DataTypeAccessTree castTree = DataTypeAccessTree.of(cast.getDataType(), TAccessPathType.DATA);
+            newType = prunedTree.pruneCastType(originTree, castTree);
+        }
+
+        return new Cast(newChild, newType);
     }
 
     private List<TColumnAccessPath> replaceIcebergAccessPathToId(
