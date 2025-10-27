@@ -17,33 +17,33 @@
 
 #pragma once
 
-#include <memory>
+#include <hs/hs.h>
+#include <re2/re2.h>
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/bitmap_query/bitmap_scorer.h"
+#include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
-#include "roaring/roaring.hh"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-class BitmapWeight final : public Weight {
+class RegexpWeight : public Weight {
 public:
-    BitmapWeight(std::shared_ptr<roaring::Roaring> bitmap,
-                 std::shared_ptr<roaring::Roaring> null_bitmap = nullptr)
-            : _bitmap(std::move(bitmap)), _null_bitmap(std::move(null_bitmap)) {}
-    ~BitmapWeight() override = default;
+    RegexpWeight(IndexQueryContextPtr context, std::wstring field, std::string pattern);
+    ~RegexpWeight() override = default;
 
-    ScorerPtr scorer(const QueryExecutionContext& /*context*/) override {
-        if (_bitmap == nullptr || _bitmap->isEmpty()) {
-            return std::make_shared<EmptyScorer>();
-        }
-        return std::make_shared<BitmapScorer>(_bitmap, _null_bitmap);
-    }
+    ScorerPtr scorer(const QueryExecutionContext& context, const std::string& binding_key) override;
 
 private:
-    std::shared_ptr<roaring::Roaring> _bitmap;
-    std::shared_ptr<roaring::Roaring> _null_bitmap;
-};
+    std::optional<std::string> get_regex_prefix(const std::string& pattern);
+    void collect_matching_terms(const QueryExecutionContext& context,
+                                const std::string& binding_key, std::vector<std::wstring>& terms,
+                                hs_database_t* database, hs_scratch_t* scratch,
+                                const std::optional<std::string>& prefix);
 
-using BitmapWeightPtr = std::shared_ptr<BitmapWeight>;
+    IndexQueryContextPtr _context;
+
+    std::wstring _field;
+    std::string _pattern;
+    int32_t _max_expansions = 50;
+};
 
 } // namespace doris::segment_v2::inverted_index::query_v2

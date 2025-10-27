@@ -40,6 +40,8 @@ public:
     uint32_t seek(uint32_t target) override { return _segment_postings->seek(target); }
     uint32_t doc() const override { return _segment_postings->doc(); }
     uint32_t size_hint() const override { return _segment_postings->size_hint(); }
+    uint32_t freq() const override { return _segment_postings->freq(); }
+    uint32_t norm() const override { return _segment_postings->norm(); }
 
     float score() override { return 0.0; }
 
