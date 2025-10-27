@@ -281,26 +281,13 @@ public abstract class Literal extends Expression implements LeafExpression {
         if (targetType.isStringType()) {
             return new StringLiteral(value);
         } else if (targetType.isCharType()) {
-            if (targetType.getLen() >= value.length()) {
+            if (targetType.getLen() < 0 || targetType.getLen() >= value.length()) {
                 return new CharLiteral(value, targetType.getLen());
             }
         } else {
             return new VarcharLiteral(value, targetType.getLen());
         }
         throw new AnalysisException(String.format("Cast from %s to %s not supported", value, targetType));
-    }
-
-    private static int findPointZeroIndex(String str) {
-        int pointIndex = -1;
-        for (int i = 0; i < str.length(); ++i) {
-            char c = str.charAt(i);
-            if (pointIndex > 0 && c != '0') {
-                return -1;
-            } else if (pointIndex == -1 && c == '.') {
-                pointIndex = i;
-            }
-        }
-        return pointIndex;
     }
 
     /** fromLegacyLiteral */
