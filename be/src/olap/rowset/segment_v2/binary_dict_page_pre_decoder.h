@@ -49,11 +49,12 @@ struct BinaryDictPagePreDecoder : public DataPagePreDecoder {
      * @param _use_cache whether to use page cache
      * @param page_type the type of page
      * @param file_path file path for error reporting
+     * @param size_of_prefix size of prefix space to reserve before dict page header, can only be 0 currently
      * @return Status
      */
     Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice, size_t size_of_tail,
-                  bool _use_cache, segment_v2::PageTypePB page_type,
-                  const std::string& file_path) override {
+                  bool _use_cache, segment_v2::PageTypePB page_type, const std::string& file_path,
+                  size_t size_of_prefix = 0) override {
         // Validate minimum size (at least 4 bytes for encoding type)
         if (page_slice->size < BINARY_DICT_PAGE_HEADER_SIZE) {
             return Status::Corruption(
@@ -64,7 +65,13 @@ struct BinaryDictPagePreDecoder : public DataPagePreDecoder {
         // Read encoding type from first 4 bytes
         auto encoding_type =
                 static_cast<EncodingTypePB>(decode_fixed32_le((const uint8_t*)page_slice->data));
-
+        if (encoding_type != DICT_ENCODING && encoding_type != PLAIN_ENCODING_V2 &&
+            encoding_type != PLAIN_ENCODING) {
+            return Status::Corruption(
+                    "Unknown encoding type: {} in file: {}, should one of <DICT_ENCODING, "
+                    "PLAIN_ENCODING_V2, PLAIN_ENCODING>",
+                    encoding_type, file_path);
+        }
         // For PLAIN_ENCODING, no pre-decoding needed
         if (encoding_type == PLAIN_ENCODING) {
             return Status::OK();
@@ -72,28 +79,33 @@ struct BinaryDictPagePreDecoder : public DataPagePreDecoder {
 
         // For other encoding types, we need to:
         // 1. Strip the 4-byte header
-        // 2. Apply the appropriate pre-decoder
-        // 3. Restore the 4-byte header in the decoded result
+        // 2. Apply the appropriate pre-decoder with (size_of_prefix + BINARY_DICT_PAGE_HEADER_SIZE)
+        //    to reserve space for both outer prefix and dict page header
+        // 3. Copy the 4-byte header to the reserved space after outer prefix
+        // This avoids redundant memory allocation and data copying
+
+        // Total prefix = outer prefix + dict page header
+        size_t total_prefix = size_of_prefix + BINARY_DICT_PAGE_HEADER_SIZE;
 
         Slice data_without_header(page_slice->data + BINARY_DICT_PAGE_HEADER_SIZE,
                                   page_slice->size - BINARY_DICT_PAGE_HEADER_SIZE);
 
-        std::unique_ptr<DataPage> decoded_page_inner;
+        std::unique_ptr<DataPage> decoded_page;
         Status status;
 
         switch (encoding_type) {
         case DICT_ENCODING: {
-            // Use BitShufflePagePreDecoder (without USED_IN_DICT_ENCODING)
+            // Use BitShufflePagePreDecoder with total_prefix to reserve space
             BitShufflePagePreDecoder bitshuffle_decoder;
-            status = bitshuffle_decoder.decode(&decoded_page_inner, &data_without_header,
-                                               size_of_tail, _use_cache, page_type, file_path);
+            status = bitshuffle_decoder.decode(&decoded_page, &data_without_header, size_of_tail,
+                                               _use_cache, page_type, file_path, total_prefix);
             break;
         }
         case PLAIN_ENCODING_V2: {
-            // Use BinaryPlainPageV2PreDecoder
+            // Use BinaryPlainPageV2PreDecoder with total_prefix to reserve space
             BinaryPlainPageV2PreDecoder v2_decoder;
-            status = v2_decoder.decode(&decoded_page_inner, &data_without_header, size_of_tail,
-                                       _use_cache, page_type, file_path);
+            status = v2_decoder.decode(&decoded_page, &data_without_header, size_of_tail,
+                                       _use_cache, page_type, file_path, total_prefix);
             break;
         }
         default:
@@ -103,22 +115,16 @@ struct BinaryDictPagePreDecoder : public DataPagePreDecoder {
 
         RETURN_IF_ERROR(status);
 
-        // Allocate new page with space for 4-byte header
-        Slice final_slice;
-        final_slice.size = BINARY_DICT_PAGE_HEADER_SIZE + data_without_header.size;
-        std::unique_ptr<DataPage> final_page =
-                std::make_unique<DataPage>(final_slice.size, _use_cache, page_type);
-        final_slice.data = final_page->data();
+        // After sub-decoder, data_without_header now points to newly allocated memory:
+        // [size_of_prefix (uninitialized)] [BINARY_DICT_PAGE_HEADER_SIZE (reserved)] [decoded_data] [tail]
+        // Copy the 4-byte dict header to the reserved space after outer prefix
+        memcpy(data_without_header.data + size_of_prefix, page_slice->data,
+               BINARY_DICT_PAGE_HEADER_SIZE);
 
-        // Copy header
-        memcpy(final_slice.data, page_slice->data, BINARY_DICT_PAGE_HEADER_SIZE);
-
-        // Copy decoded data
-        memcpy(final_slice.data + BINARY_DICT_PAGE_HEADER_SIZE, data_without_header.data,
-               data_without_header.size);
-
-        *page_slice = final_slice;
-        *page = std::move(final_page);
+        // Update page_slice to point to the complete decoded data
+        // The data layout is: [size_of_prefix] [dict_header] [decoded_data] [tail]
+        *page_slice = data_without_header;
+        *page = std::move(decoded_page);
 
         return Status::OK();
     }

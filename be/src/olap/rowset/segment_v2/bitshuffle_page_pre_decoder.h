@@ -44,11 +44,12 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
      * @param _use_cache whether to use page cache
      * @param page_type the type of page
      * @param file_path file path for error reporting
+     * @param size_of_prefix size of prefix space to reserve (for dict page header)
      * @return Status
      */
     Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice, size_t size_of_tail,
-                  bool _use_cache, segment_v2::PageTypePB page_type,
-                  const std::string& file_path) override {
+                  bool _use_cache, segment_v2::PageTypePB page_type, const std::string& file_path,
+                  size_t size_of_prefix = 0) override {
         size_t num_elements, compressed_size, num_element_after_padding;
         int size_of_element;
 
@@ -65,23 +66,27 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
         }
 
         Slice decoded_slice;
-        decoded_slice.size = BITSHUFFLE_PAGE_HEADER_SIZE +
+        decoded_slice.size = size_of_prefix + BITSHUFFLE_PAGE_HEADER_SIZE +
                              num_element_after_padding * size_of_element + size_of_tail;
         std::unique_ptr<DataPage> decoded_page =
                 std::make_unique<DataPage>(decoded_slice.size, _use_cache, page_type);
         decoded_slice.data = decoded_page->data();
 
-        memcpy(decoded_slice.data, data.data, BITSHUFFLE_PAGE_HEADER_SIZE);
+        // Copy bitshuffle header to the position after prefix
+        memcpy(decoded_slice.data + size_of_prefix, data.data, BITSHUFFLE_PAGE_HEADER_SIZE);
 
-        auto bytes = bitshuffle::decompress_lz4(&data.data[BITSHUFFLE_PAGE_HEADER_SIZE],
-                                                decoded_slice.data + BITSHUFFLE_PAGE_HEADER_SIZE,
-                                                num_element_after_padding, size_of_element, 0);
+        // Decompress data to the position after prefix and header
+        auto bytes = bitshuffle::decompress_lz4(
+                &data.data[BITSHUFFLE_PAGE_HEADER_SIZE],
+                decoded_slice.data + size_of_prefix + BITSHUFFLE_PAGE_HEADER_SIZE,
+                num_element_after_padding, size_of_element, 0);
         if (bytes < 0) [[unlikely]] {
             // Ideally, this should not happen.
             warn_with_bitshuffle_error(bytes);
             return Status::RuntimeError("Unshuffle Process failed in file: {}", file_path);
         }
 
+        // Copy tail to the end
         memcpy(decoded_slice.data + decoded_slice.size - size_of_tail,
                page_slice->data + page_slice->size - size_of_tail, size_of_tail);
 

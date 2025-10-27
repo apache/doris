@@ -48,11 +48,12 @@ struct BinaryPlainPageV2PreDecoder : public DataPagePreDecoder {
      * @param _use_cache whether to use page cache
      * @param page_type the type of page
      * @param file_path file path for error reporting
+     * @param size_of_prefix size of prefix space to reserve (for dict page header)
      * @return Status
      */
     Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice, size_t size_of_tail,
-                  bool _use_cache, segment_v2::PageTypePB page_type,
-                  const std::string& file_path) override {
+                  bool _use_cache, segment_v2::PageTypePB page_type, const std::string& file_path,
+                  size_t size_of_prefix = 0) override {
         // Validate input
         if (page_slice->size < sizeof(uint32_t) + size_of_tail) {
             return Status::Corruption("Invalid page size: {}, expected at least {} in file: {}",
@@ -112,7 +113,7 @@ struct BinaryPlainPageV2PreDecoder : public DataPagePreDecoder {
         size_t binary_data_size = current_offset;
         size_t offsets_size = num_elems * sizeof(uint32_t);
         size_t v1_data_size = binary_data_size + offsets_size + sizeof(uint32_t);
-        size_t total_size = v1_data_size + size_of_tail;
+        size_t total_size = size_of_prefix + v1_data_size + size_of_tail;
 
         // Allocate new page
         Slice decoded_slice;
@@ -121,8 +122,8 @@ struct BinaryPlainPageV2PreDecoder : public DataPagePreDecoder {
                 std::make_unique<DataPage>(decoded_slice.size, _use_cache, page_type);
         decoded_slice.data = decoded_page->data();
 
-        // Write V1 format data
-        char* output = decoded_slice.data;
+        // Write V1 format data after the prefix
+        char* output = decoded_slice.data + size_of_prefix;
 
         // Step 1: Write binary data (without varint prefixes)
         ptr = reinterpret_cast<const uint8_t*>(data.data);

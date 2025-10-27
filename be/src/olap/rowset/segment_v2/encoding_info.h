@@ -45,7 +45,7 @@ class DataPagePreDecoder {
 public:
     virtual Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice, size_t size_of_tail,
                           bool _use_cache, segment_v2::PageTypePB page_type,
-                          const std::string& file_path) = 0;
+                          const std::string& file_path, size_t size_of_prefix = 0) = 0;
     virtual ~DataPagePreDecoder() = default;
 };
 
