@@ -31,14 +31,13 @@ class RuntimeState;
 
 inline Status materialize_block(const vectorized::VExprContextSPtrs& exprs,
                                 vectorized::Block* src_block, vectorized::Block* res_block) {
-    vectorized::ColumnsWithTypeAndName colunms;
+    vectorized::ColumnsWithTypeAndName columns;
     for (const auto& expr : exprs) {
         int result_column_id = -1;
         RETURN_IF_ERROR(expr->execute(src_block, &result_column_id));
-        colunms.emplace_back(src_block->get_by_position(result_column_id));
-        src_block->get_by_position(result_column_id).column = nullptr;
+        columns.emplace_back(src_block->get_by_position(result_column_id));
     }
-    *res_block = {colunms};
+    *res_block = {columns};
     return Status::OK();
 }
 
