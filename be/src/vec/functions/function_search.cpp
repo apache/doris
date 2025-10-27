@@ -35,7 +35,7 @@
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/bitmap_query/bitmap_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_query.h"
@@ -417,7 +417,7 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
                 std::string child_binding_key;
                 RETURN_IF_ERROR(build_query_recursive(child_clause, context, resolver, &child_query,
                                                       &child_binding_key));
-                // Add all children including empty BitmapQuery
+                // Add all children including empty BitSetQuery
                 // BooleanQuery will handle the logic:
                 // - AND with empty bitmap → result is empty
                 // - OR with empty bitmap → empty bitmap is ignored by OR logic
@@ -460,9 +460,9 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
     // Check if binding is empty (variant subcolumn not found in this segment)
     if (binding.lucene_reader == nullptr) {
         VLOG_DEBUG << "build_leaf_query: Variant subcolumn '" << field_name
-                   << "' has no index in this segment, creating empty BitmapQuery (no matches)";
-        // Variant subcolumn doesn't exist - create empty BitmapQuery (no matches)
-        *out = std::make_shared<query_v2::BitmapQuery>(roaring::Roaring());
+                   << "' has no index in this segment, creating empty BitSetQuery (no matches)";
+        // Variant subcolumn doesn't exist - create empty BitSetQuery (no matches)
+        *out = std::make_shared<query_v2::BitSetQuery>(roaring::Roaring());
         if (binding_key) {
             binding_key->clear();
         }

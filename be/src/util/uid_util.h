@@ -172,11 +172,6 @@ std::string print_id(const UniqueId& id);
 std::string print_id(const TUniqueId& id);
 std::string print_id(const PUniqueId& id);
 
-// Parse 's' into a TUniqueId object.  The format of s needs to be the output format
-// from PrintId.  (<hi_part>:<low_part>)
-// Returns true if parse succeeded.
-bool parse_id(const std::string& s, TUniqueId* id);
-
 } // namespace doris
 
 template <>

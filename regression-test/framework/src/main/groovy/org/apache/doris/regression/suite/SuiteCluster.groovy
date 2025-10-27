@@ -94,6 +94,22 @@ class ClusterOptions {
     String tdeAk = "";
     String tdeSk = "";
 
+    // Use external meta service cluster (shared MS/FDB)
+    // Specify the cluster name that provides MS/FDB services
+    // When set, this cluster will not create its own MS/FDB/Recycler
+    // Example: externalMsCluster = "shared-meta" (Cloud mode only)
+    String externalMsCluster = null
+
+    // Specify the instance id.
+    // When not set, "default_instance_id" will be used. (Cloud mode only)
+    String instanceId = null;
+
+    // Cluster snapshot JSON content for FE-1 first startup in cloud mode only.
+    // The JSON will be written to FE conf/cluster_snapshot.json and passed to start_fe.sh
+    // with --cluster_snapshot parameter. Only effective on first startup.
+    // Example: clusterSnapshot = '{"cloud_unique_id":"1:instance_id:xxx"}'
+    String clusterSnapshot = null;
+
     void enableDebugPoints() {
         feConfigs.add('enable_debug_points=true')
         beConfigs.add('enable_debug_points=true')
@@ -380,16 +396,58 @@ class SuiteCluster {
             cmd += options.tdeSk
         }
 
+        if (options.externalMsCluster != null && options.externalMsCluster != "") {
+            cmd += ['--external-ms', options.externalMsCluster]
+        }
+
+        if (options.instanceId != null && options.instanceId != "") {
+            cmd += ['--instance-id', options.instanceId]
+        }
+
+        if (options.clusterSnapshot != null && options.clusterSnapshot != "") {
+            // Remove newlines and extra whitespace to make it a compact JSON string
+            def compactJson = options.clusterSnapshot
+                .replaceAll(/\s+/, ' ')  // Replace all whitespace sequences with single space
+                .trim()                   // Remove leading/trailing spaces
+            // No need to escape when using list-based execution
+            cmd += ['--cluster-snapshot', compactJson]
+        }
+
         cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]
 
         sqlModeNodeMgr = options.sqlModeNodeMgr
 
-        runCmd(cmd.join(' '), 180)
+        runCmdList(cmd, 180)
 
         // wait be report disk
         Thread.sleep(5000)
 
         running = true
+    }
+
+    String getJdbcUrl(boolean connectToFollower) {
+        def user = config.jdbcUser
+        def password = config.jdbcPassword
+        Frontend fe = null
+        for (def i=0; (fe == null || !fe.alive) && i<30; i++) {
+            if (connectToFollower) {
+                fe = getOneFollowerFe()
+            } else {
+                fe = getMasterFe()
+            }
+            Thread.sleep(1000)
+        }
+
+        if (fe == null) {
+            throw new Exception('No available frontend found in cluster: ' + name)
+        }
+
+        logger.info("get fe host {} , queryPort {}", fe.host, fe.queryPort)
+
+        jdbcUrl = String.format(
+                "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+                fe.host, fe.queryPort)
+        return jdbcUrl
     }
 
     void injectDebugPoints(NodeType type, Map<String, Map<String, String>> injectPoints) {
@@ -733,6 +791,32 @@ class SuiteCluster {
         def fullCmd = String.format('python -W ignore %s %s -v --output-json', config.dorisComposePath, cmd)
         logger.info('Run doris compose cmd: {}', fullCmd)
         def proc = fullCmd.execute()
+        def outBuf = new StringBuilder()
+        def errBuf = new StringBuilder()
+        Awaitility.await().atMost(timeoutSecond, SECONDS).until({
+            proc.waitForProcessOutput(outBuf, errBuf)
+            return true
+        })
+        if (proc.exitValue() != 0) {
+            throw new Exception(String.format('Exit value: %s != 0, stdout: %s, stderr: %s',
+                                              proc.exitValue(), outBuf.toString(), errBuf.toString()))
+        }
+        def parser = new JsonSlurper()
+        if (outBuf.toString().size() == 0) {
+            throw new Exception(String.format('doris compose output is empty, err: %s', errBuf.toString()))
+        }
+        def object = (Map<String, Object>) parser.parseText(outBuf.toString())
+        if (object.get('code') != 0) {
+            throw new Exception(String.format('Code: %s != 0, err: %s', object.get('code'), object.get('err')))
+        }
+        return object.get('data')
+    }
+
+    // Execute command with proper argument list to avoid shell escaping issues
+    private Object runCmdList(List<String> cmdList, int timeoutSecond = 60) throws Exception {
+        def fullCmdList = ['python', '-W', 'ignore', config.dorisComposePath] + cmdList + ['-v', '--output-json']
+        logger.info('Run doris compose cmd: {}', fullCmdList.join(' '))
+        def proc = fullCmdList.execute()
         def outBuf = new StringBuilder()
         def errBuf = new StringBuilder()
         Awaitility.await().atMost(timeoutSecond, SECONDS).until({

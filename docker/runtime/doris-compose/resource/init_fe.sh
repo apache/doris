@@ -93,30 +93,18 @@ run_fe() {
     export DORIS_TDE_AK=${TDE_AK}
     export DORIS_TDE_SK=${TDE_SK}
     health_log "run start_fe.sh"
-    bash $DORIS_HOME/bin/start_fe.sh --daemon $@ | tee -a $DORIS_HOME/log/fe.out
+
+    # Add cluster_snapshot parameter for first startup only (when REGISTER_FILE does not exist)
+    EXTRA_ARGS=""
+    if [ -n "$CLUSTER_SNAPSHOT_FILE" ] && [ ! -f "$REGISTER_FILE" ]; then
+        EXTRA_ARGS="--cluster_snapshot $CLUSTER_SNAPSHOT_FILE"
+        health_log "Using cluster snapshot: $CLUSTER_SNAPSHOT_FILE"
+    fi
+
+    bash $DORIS_HOME/bin/start_fe.sh --daemon $EXTRA_ARGS $@ | tee -a $DORIS_HOME/log/fe.out
 }
 
-start_cloud_fe() {
-    if [ -f "$REGISTER_FILE" ]; then
-        fe_daemon &
-        run_fe
-        return
-    fi
-
-    # Check if SQL_MODE_NODE_MGR is set to 1
-    if [ "${SQL_MODE_NODE_MGR}" = "1" ]; then
-        health_log "SQL_MODE_NODE_MGR is set to 1. Skipping add FE."
-
-        touch $REGISTER_FILE
-
-        fe_daemon &
-        run_fe
-
-        return
-    fi
-
-    wait_create_instance
-
+register_sql_server_cluster() {
     action=add_cluster
     node_type=FE_MASTER
     if [ "$MY_ID" != "1" ]; then
@@ -139,7 +127,7 @@ start_cloud_fe() {
     lock_cluster
 
     output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/${action}?token=greedisgood9999" \
-        -d '{"instance_id": "default_instance_id",
+        -d '{"instance_id": "'"${INSTANCE_ID}"'",
         "cluster": {
             "type": "SQL",
             "cluster_name": "RESERVED_CLUSTER_NAME_FOR_SQL_SERVER",
@@ -158,7 +146,7 @@ start_cloud_fe() {
     fi
 
     output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/get_cluster?token=greedisgood9999" \
-        -d '{"instance_id": "default_instance_id",
+        -d '{"instance_id": "'"${INSTANCE_ID}"'",
             "cloud_unique_id": "'"${CLOUD_UNIQUE_ID}"'",
             "cluster_name": "RESERVED_CLUSTER_NAME_FOR_SQL_SERVER",
             "cluster_id": "RESERVED_CLUSTER_ID_FOR_SQL_SERVER"}')
@@ -172,6 +160,48 @@ start_cloud_fe() {
     fi
 
     touch $REGISTER_FILE
+}
+
+start_cloud_fe() {
+    if [ -f "$REGISTER_FILE" ] || [ -n "${CLUSTER_SNAPSHOT_FILE}" ]; then
+        fe_daemon &
+        run_fe
+
+        # Cluster snapshot is provided, need to register cluster after FE is started.
+        if [ -n "${CLUSTER_SNAPSHOT_FILE}" ]; then
+            wait_doris_instance_ready
+            register_sql_server_cluster
+        fi
+
+        return
+    fi
+
+    # Check if SQL_MODE_NODE_MGR is set to 1
+    if [ "${SQL_MODE_NODE_MGR}" = "1" ]; then
+        health_log "SQL_MODE_NODE_MGR is set to 1. Skipping add FE."
+
+        touch $REGISTER_FILE
+
+        fe_daemon &
+        run_fe
+
+        return
+    fi
+
+    # Support to create instance in FE startup.
+    AUTO_CREATE_INSTANCE=${AUTO_CREATE_INSTANCE:-"0"}
+    if [ "a$MY_ID" == "a1" ] && [ "a$AUTO_CREATE_INSTANCE" == "a1" ]; then
+        health_log "auto create instance is enabled, trying to create instance"
+        if [ -f $HAS_CREATE_INSTANCE_FILE ]; then
+            health_log "instance has been created before, skip create instance"
+        else
+            create_doris_instance
+        fi
+    else
+        wait_create_instance
+    fi
+
+    register_sql_server_cluster
 
     fe_daemon &
     run_fe

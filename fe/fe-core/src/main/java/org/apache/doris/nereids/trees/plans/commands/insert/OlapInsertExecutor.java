@@ -102,7 +102,6 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             if (DebugPointUtil.isEnable("OlapInsertExecutor.beginTransaction.failed")) {
                 throw new BeginTransactionException("current running txns on db is larger than limit");
             }
-
             LoadJobSourceType loadJobSourceType = LoadJobSourceType.INSERT_STREAMING;
             StreamingInsertTask streamingInsertTask = Env.getCurrentEnv()
                     .getJobManager()
