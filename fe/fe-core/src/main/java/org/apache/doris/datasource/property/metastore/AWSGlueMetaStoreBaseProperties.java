@@ -104,15 +104,22 @@ public class AWSGlueMetaStoreBaseProperties {
 
     private void checkAndInit() {
         buildRules().validate();
-
+        if (StringUtils.isNotBlank(glueRegion) && StringUtils.isNotBlank(glueEndpoint)) {
+            return;
+        }
+        // construct endpoint from region
+        if (StringUtils.isBlank(glueEndpoint) && StringUtils.isNotBlank(glueRegion)) {
+            glueEndpoint = String.format("https://glue.%s.amazonaws.com", glueRegion);
+            return;
+        }
+        // extract region from endpoint
         Matcher matcher = ENDPOINT_PATTERN.matcher(glueEndpoint.toLowerCase());
         if (!matcher.matches()) {
-            throw new IllegalArgumentException("Invalid AWS Glue endpoint: " + glueEndpoint);
+            throw new IllegalArgumentException(String.format(
+                    "Invalid AWS Glue endpoint format: '%s'. Expected format like 'https://glue.<region>.amazonaws"
+                            + ".com'.", glueEndpoint));
         }
-
-        if (StringUtils.isBlank(glueRegion)) {
-            this.glueRegion = extractRegionFromEndpoint(matcher);
-        }
+        this.glueRegion = extractRegionFromEndpoint(matcher);
     }
 
     private String extractRegionFromEndpoint(Matcher matcher) {
