@@ -67,9 +67,12 @@ public:
 
     MOCK_FUNCTION const std::string& column_name() const { return *_column_name; }
 
+    uint64_t get_digest(uint64_t seed) const override;
+
 private:
     int _slot_id;
     int _column_id;
+    int _column_uniq_id = -1;
     const std::string* _column_name = nullptr;
     const std::string _column_label;
 };

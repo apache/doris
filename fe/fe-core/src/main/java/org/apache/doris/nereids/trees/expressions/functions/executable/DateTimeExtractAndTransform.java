@@ -44,7 +44,9 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.DateUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -1024,40 +1026,55 @@ public class DateTimeExtractAndTransform {
         return new TinyIntLiteral((byte) date.toJavaDateType().get(WeekFields.ISO.weekOfWeekBasedYear()));
     }
 
+    /**
+     * Get locale from session variable lc_time_names, fallback to default if not available
+     */
+    private static Locale getSessionLocale() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getSessionVariable() != null) {
+            String lcTimeNames = ctx.getSessionVariable().getLcTimeNames();
+            if (lcTimeNames != null && !lcTimeNames.isEmpty()) {
+                String[] parts = lcTimeNames.split("_");
+                return new Locale(parts[0], parts[1]);
+            }
+        }
+        return Locale.getDefault();
+    }
+
     @ExecFunction(name = "dayname")
     public static Expression dayName(DateTimeV2Literal dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getDayOfWeek().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "dayname")
     public static Expression dayName(DateTimeLiteral dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getDayOfWeek().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "dayname")
     public static Expression dayName(DateV2Literal date) {
         return new VarcharLiteral(date.toJavaDateType().getDayOfWeek().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "monthname")
     public static Expression monthName(DateTimeV2Literal dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getMonth().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "monthname")
     public static Expression monthName(DateTimeLiteral dateTime) {
         return new VarcharLiteral(dateTime.toJavaDateType().getMonth().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "monthname")
     public static Expression monthName(DateV2Literal date) {
         return new VarcharLiteral(date.toJavaDateType().getMonth().getDisplayName(TextStyle.FULL,
-                Locale.getDefault()));
+                getSessionLocale()));
     }
 
     @ExecFunction(name = "from_second")
@@ -1341,5 +1358,84 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "sec_to_time")
     public static Expression secToTime(DoubleLiteral sec) {
         return new TimeV2Literal(sec.getValue() * 1000000);
+    }
+
+    /**
+     * get_format function for constant folding
+     */
+    @ExecFunction(name = "get_format")
+    public static Expression getFormat(StringLikeLiteral type, StringLikeLiteral format) {
+        String typeStr = type.getValue();
+        String formatStr = format.getValue().toUpperCase();
+
+        String result = null;
+
+        switch (typeStr) {
+            case "DATE":
+                switch (formatStr) {
+                    case "USA":
+                        result = "%m.%d.%Y";
+                        break;
+                    case "JIS":
+                    case "ISO":
+                        result = "%Y-%m-%d";
+                        break;
+                    case "EUR":
+                        result = "%d.%m.%Y";
+                        break;
+                    case "INTERNAL":
+                        result = "%Y%m%d";
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            case "DATETIME":
+                switch (formatStr) {
+                    case "USA":
+                        result = "%Y-%m-%d %H.%i.%s";
+                        break;
+                    case "JIS":
+                    case "ISO":
+                        result = "%Y-%m-%d %H:%i:%s";
+                        break;
+                    case "EUR":
+                        result = "%Y-%m-%d %H.%i.%s";
+                        break;
+                    case "INTERNAL":
+                        result = "%Y%m%d%H%i%s";
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            case "TIME":
+                switch (formatStr) {
+                    case "USA":
+                        result = "%h:%i:%s %p";
+                        break;
+                    case "JIS":
+                    case "ISO":
+                        result = "%H:%i:%s";
+                        break;
+                    case "EUR":
+                        result = "%H.%i.%s";
+                        break;
+                    case "INTERNAL":
+                        result = "%H%i%s";
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            default:
+                break;
+        }
+
+        if (result == null) {
+            return new NullLiteral(StringType.INSTANCE);
+        }
+
+        return new VarcharLiteral(result);
     }
 }

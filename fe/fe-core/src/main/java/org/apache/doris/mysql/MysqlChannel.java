@@ -114,7 +114,7 @@ public class MysqlChannel implements BytesChannel {
         this.remoteIp = "";
         this.conn = connection;
 
-        // if proxy protocal is enabled, the remote address will be got from proxy protocal header
+        // if proxy protocol is enabled, the remote address will be got from proxy protocol header
         // and overwrite the original remote address.
         if (connection.getPeerAddress() instanceof InetSocketAddress) {
             InetSocketAddress address = (InetSocketAddress) connection.getPeerAddress();
@@ -638,7 +638,7 @@ public class MysqlChannel implements BytesChannel {
         }
     }
 
-    // for proxy protocal only
+    // for proxy protocol only
     public void setRemoteAddr(String ip, int port) {
         this.remoteIp = ip;
         this.remoteHostPortString = NetUtils.getHostPortInAccessibleFormat(ip, port);

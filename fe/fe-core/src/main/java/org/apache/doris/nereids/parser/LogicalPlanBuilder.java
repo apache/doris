@@ -256,6 +256,9 @@ import org.apache.doris.nereids.DorisParser.LockTablesContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
 import org.apache.doris.nereids.DorisParser.LogicalNotContext;
 import org.apache.doris.nereids.DorisParser.MapLiteralContext;
+import org.apache.doris.nereids.DorisParser.MergeIntoContext;
+import org.apache.doris.nereids.DorisParser.MergeMatchedClauseContext;
+import org.apache.doris.nereids.DorisParser.MergeNotMatchedClauseContext;
 import org.apache.doris.nereids.DorisParser.ModifyColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.ModifyColumnCommentClauseContext;
 import org.apache.doris.nereids.DorisParser.ModifyDistributionClauseContext;
@@ -999,6 +1002,9 @@ import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadComman
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ShowCreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDictionaryCommand;
@@ -1369,6 +1375,49 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         return withExplain(command, ctx.explain());
+    }
+
+    @Override
+    public Object visitMergeInto(MergeIntoContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            List<String> targetNameParts = visitMultipartIdentifier(ctx.targetTable);
+            Optional<String> targetAlias = Optional.ofNullable(
+                    ctx.identifier() != null ? ctx.identifier().getText() : null);
+            LogicalPlan source = plan(ctx.relationPrimary());
+            Expression onClause = typedVisit(ctx.expression());
+            List<MergeMatchedClause> matchedClauses = visit(ctx.mergeMatchedClause(), MergeMatchedClause.class);
+            List<MergeNotMatchedClause> notMatchedClauses = visit(ctx.mergeNotMatchedClause(),
+                    MergeNotMatchedClause.class);
+            Optional<LogicalPlan> cte = Optional.empty();
+            if (ctx.cte() != null) {
+                cte = Optional.ofNullable(withCte(source, ctx.cte()));
+            }
+            return withExplain(new MergeIntoCommand(targetNameParts, targetAlias, cte,
+                    source, onClause, matchedClauses, notMatchedClauses), ctx.explain());
+        });
+    }
+
+    @Override
+    public MergeMatchedClause visitMergeMatchedClause(MergeMatchedClauseContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            Optional<Expression> casePredicate = Optional.ofNullable(
+                    ctx.casePredicate != null ? typedVisit(ctx.casePredicate) : null);
+            boolean isDelete = ctx.DELETE() != null;
+            List<EqualTo> updateAssignments = isDelete ? ImmutableList.of() :
+                    visitUpdateAssignmentSeq(ctx.updateAssignmentSeq());
+            return new MergeMatchedClause(casePredicate, updateAssignments, isDelete);
+        });
+    }
+
+    @Override
+    public MergeNotMatchedClause visitMergeNotMatchedClause(MergeNotMatchedClauseContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> {
+            Optional<Expression> casePredicate = Optional.ofNullable(
+                    ctx.casePredicate != null ? typedVisit(ctx.casePredicate) : null);
+            List<String> cols = ctx.cols != null ? visitIdentifierList(ctx.cols) : ImmutableList.of();
+            List<NamedExpression> row = visitRowConstructor(ctx.rowConstructor());
+            return new MergeNotMatchedClause(casePredicate, cols, row);
+        });
     }
 
     /**
@@ -2444,7 +2493,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public LogicalPlan visitInlineTable(InlineTableContext ctx) {
+    public UnboundInlineTable visitInlineTable(InlineTableContext ctx) {
         List<RowConstructorContext> rowConstructorContexts = ctx.rowConstructor();
         ImmutableList.Builder<List<NamedExpression>> rows
                 = ImmutableList.builderWithExpectedSize(rowConstructorContexts.size());
@@ -3181,34 +3230,38 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             WindowSpecContext windowContext, IdentifierContext hintContext) {
         List<UnboundStar> unboundStars = ExpressionUtils.collectAll(params, UnboundStar.class::isInstance);
         if (!unboundStars.isEmpty()) {
-            if (dbName == null && functionName.equalsIgnoreCase("count")) {
+            if (dbName != null
+                    || (!functionName.equalsIgnoreCase("count")
+                    && !functionName.equalsIgnoreCase("json_object"))) {
+                throw new ParseException("'*' can only be used in conjunction with"
+                        + " COUNT or JSON_OBJECT: " + functionName, ctx);
+            }
+            if (functionName.equalsIgnoreCase("count")) {
                 if (unboundStars.size() > 1) {
                     throw new ParseException(
                             "'*' can only be used once in conjunction with COUNT: " + functionName, ctx);
                 }
                 if (!unboundStars.get(0).getQualifier().isEmpty()) {
-                    throw new ParseException("'*' can not has qualifier: " + unboundStars.size(), ctx);
+                    throw new ParseException("'*' can not has qualifier with COUNT: " + unboundStars.size(), ctx);
                 }
                 if (windowContext != null) {
                     return withWindowSpec(windowContext, new Count());
                 }
                 return new Count();
             }
-            throw new ParseException("'*' can only be used in conjunction with COUNT: " + functionName, ctx);
-        } else {
-            boolean isSkew = hintContext != null && hintContext.getText().equalsIgnoreCase("skew");
-            UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params, isSkew);
-            if (windowContext != null) {
-                if (isDistinct
-                        && !("count".equalsIgnoreCase(functionName))
-                        && !("sum".equalsIgnoreCase(functionName))
-                        && !("group_concat".equalsIgnoreCase(functionName))) {
-                    throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
-                }
-                return withWindowSpec(windowContext, function);
-            }
-            return function;
         }
+        boolean isSkew = hintContext != null && hintContext.getText().equalsIgnoreCase("skew");
+        UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params, isSkew);
+        if (windowContext != null) {
+            if (isDistinct
+                    && !("count".equalsIgnoreCase(functionName))
+                    && !("sum".equalsIgnoreCase(functionName))
+                    && !("group_concat".equalsIgnoreCase(functionName))) {
+                throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
+            }
+            return withWindowSpec(windowContext, function);
+        }
+        return function;
     }
 
     /**
@@ -3782,6 +3835,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     }
                 })
                 .collect(ImmutableList.toImmutableList());
+        // support omit 'auto' when have function expression
+        if (partitionList.stream().anyMatch(p -> p instanceof UnboundFunction)) {
+            isAutoPartition = true;
+        }
         return new PartitionTableInfo(
                 isAutoPartition,
                 ctx.RANGE() != null ? "RANGE" : "LIST",
