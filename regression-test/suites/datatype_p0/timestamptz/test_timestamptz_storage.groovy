@@ -50,19 +50,43 @@ suite("test_timestamptz_storage") {
     sql """INSERT INTO timestamptz_storage_dup_key VALUES ('2023-01-01 12:00:00 +03:00', 1),
     ('2023-02-02 12:00:00 +03:00', 2),
     ('2023-03-03 12:00:00 -05:00', 3),
+    ('2023-09-09 09:09:09 +01:00', 9),
+    ('2023-10-10 10:10:10 -03:00', 10),
+    ('2023-11-11 11:11:11 +00:00', 11),
     ('2023-04-04 23:59:59 +00:00', 4),
     ('2023-05-05 00:00:00 +08:00', 5),
     ('2023-06-06 15:30:30 -02:00', 6),
     ('2023-07-07 07:07:07 +05:30', 7),
     ('2023-08-08 20:20:20 -04:00', 8),
-    ('2023-09-09 09:09:09 +01:00', 9),
-    ('2023-10-10 10:10:10 -03:00', 10),
-    ('2023-11-11 11:11:11 +00:00', 11),
     ('2023-12-12 12:12:12 +09:00', 12);
     """
 
     qt_select_timestamptz_storage_dup_key """
         SELECT * FROM timestamptz_storage_dup_key ORDER BY 1, 2;
+    """
+    qt_select_timestamptz_storage_dup_key_eq """
+        SELECT * FROM timestamptz_storage_dup_key where ts_tz = '2023-01-01 12:00:00 +03:00' ORDER BY 1, 2;
+    """
+    qt_select_timestamptz_storage_dup_key_neq """
+        SELECT * FROM timestamptz_storage_dup_key where ts_tz != '2023-01-01 12:00:00 +03:00' ORDER BY 1, 2;
+    """
+    qt_select_timestamptz_storage_dup_key_gt """
+        SELECT * FROM timestamptz_storage_dup_key where ts_tz > '2023-03-03 12:00:00 -05:00' ORDER BY 1, 2;
+    """
+    qt_select_timestamptz_storage_dup_key_ge """
+        SELECT * FROM timestamptz_storage_dup_key where ts_tz >= '2023-03-03 12:00:00 -05:00' ORDER BY 1, 2;
+    """
+    qt_select_timestamptz_storage_dup_key_lt """
+        SELECT * FROM timestamptz_storage_dup_key where ts_tz < '2023-05-05 00:00:00 +08:00' ORDER BY 1, 2;
+    """
+    qt_select_timestamptz_storage_dup_key_le """
+        SELECT * FROM timestamptz_storage_dup_key where ts_tz <= '2023-05-05 00:00:00 +08:00' ORDER BY 1, 2;
+    """
+    qt_select_timestamptz_storage_dup_key_in """
+        SELECT * FROM timestamptz_storage_dup_key where ts_tz in('2023-01-01 12:00:00 +03:00', '2023-02-02 12:00:00 +03:00', '2023-10-10 10:10:10 -03:00') ORDER BY 1, 2;
+    """
+    qt_select_timestamptz_storage_dup_key_not_in """
+        SELECT * FROM timestamptz_storage_dup_key where ts_tz not in('2023-01-01 12:00:00 +03:00', '2023-02-02 12:00:00 +03:00', '2023-10-10 10:10:10 -03:00') ORDER BY 1, 2;
     """
 
     sql """
@@ -94,15 +118,15 @@ suite("test_timestamptz_storage") {
     """
 
     sql """INSERT INTO timestamptz_storage_dup_key_scale VALUES ('2023-01-01 12:00:00.123450 +03:00', 1),
+    ('2023-07-07 07:07:07.123456 +05:30', 7),
+    ('2023-08-08 20:20:20.123457 -04:00', 8),
+    ('2023-09-09 09:09:09.123458 +01:00', 9),
+    ('2023-10-10 10:10:10.123459 -03:00', 10),
     ('2023-02-02 12:00:00.123451 +03:00', 2),
     ('2023-03-03 12:00:00.123452 -05:00', 3),
     ('2023-04-04 23:59:59.123453 +00:00', 4),
     ('2023-05-05 00:00:00.123454 +08:00', 5),
     ('2023-06-06 15:30:30.123455 -02:00', 6),
-    ('2023-07-07 07:07:07.123456 +05:30', 7),
-    ('2023-08-08 20:20:20.123457 -04:00', 8),
-    ('2023-09-09 09:09:09.123458 +01:00', 9),
-    ('2023-10-10 10:10:10.123459 -03:00', 10),
     ('2023-11-11 11:11:11.123460 +00:00', 11),
     ('2023-12-12 12:12:12.123461 +09:00', 12),
     ('2023-12-12 12:12:12.999999 +09:00', 13);
