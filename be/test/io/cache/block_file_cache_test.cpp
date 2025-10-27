@@ -930,6 +930,7 @@ TEST_F(BlockFileCacheTest, init) {
         ]
         )");
     config::enable_file_cache_query_limit = true;
+    config::enable_normal_queue_cold_hot_separation = false;
     std::vector<CachePath> cache_paths;
     EXPECT_TRUE(parse_conf_cache_paths(string, cache_paths));
     EXPECT_EQ(cache_paths.size(), 2);
@@ -8220,6 +8221,107 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_bytes_check) {
     FileCacheFactory::instance()->_caches.clear();
     FileCacheFactory::instance()->_path_to_cache.clear();
     FileCacheFactory::instance()->_capacity = 0;
+}
+
+TEST_F(BlockFileCacheTest, test_normal_queue_cold_hot_seperation) {
+    config::enable_evict_file_cache_in_advance = false;
+    config::enable_normal_queue_cold_hot_separation = true;
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+
+    settings.ttl_queue_size = 0;
+    settings.ttl_queue_elements = 0;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 10;
+    settings.cold_query_queue_size = 30;
+    settings.cold_query_queue_elements = 10;
+    settings.index_queue_size = 0;
+    settings.index_queue_elements = 0;
+    settings.disposable_queue_size = 0;
+    settings.disposable_queue_elements = 0;
+    settings.capacity = 60;
+    settings.max_file_block_size = 10;
+    settings.max_query_cache_size = 0;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    int i = 0;
+    for (; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context1;
+    ReadStatistics rstats;
+    context1.stats = &rstats;
+    context1.cache_type = io::FileCacheType::NORMAL;
+    context1.query_id = query_id;
+    auto key1 = io::BlockFileCache::hash("key1");
+
+    int64_t offset = 0;
+
+    for (; offset < 60; offset += 5) {
+        auto holder = cache.get_or_set(key1, offset, 5, context1);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 4),
+                     io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 4),
+                     io::FileBlock::State::DOWNLOADED);
+
+        blocks.clear();
+    }
+
+    offset = 0;
+
+    for (; offset < 30; offset += 5) {
+        auto holder = cache.get_or_set(key1, offset, 5, context1);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 4),
+                     io::FileBlock::State::DOWNLOADED);
+        blocks.clear();
+    }
+
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 30);
+    ASSERT_EQ(cache.get_stats_unsafe()["cold_normal_queue_curr_size"], 30);
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
+
+    for (offset = 30; offset < 60; offset += 5) {
+        auto holder = cache.get_or_set(key1, offset, 5, context1);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 4),
+                     io::FileBlock::State::DOWNLOADED);
+        blocks.clear();
+    }
+
+    ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 60);
+    ASSERT_EQ(cache.get_stats_unsafe()["cold_normal_queue_curr_size"], 0);
+    ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+
+    config::enable_normal_queue_cold_hot_separation = false;
 }
 
 } // namespace doris::io
