@@ -694,6 +694,21 @@ public class InsertUtils {
     public static String getFinalErrorMsg(String msg, String firstErrorMsg, String url) {
         int maxTotalBytes = 512;
 
+        // For test
+        // 1. error msg length > 512, we will truncate it first to make sure the URL
+        //    and FirstErrorMsg keep complete.
+        // 2. if the FirstErrorMsg and URL length > 512 too, we will remind user use
+        //    `show load` too see detail
+        if (DebugPointUtil.isEnable("TestErrorMsgTruncate")) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < 128; i++) {
+                sb.append("Test");
+            }
+            msg = sb.toString();
+            firstErrorMsg = sb.toString();
+            url = sb.toString();
+        }
+
         // Calculate lengths first to avoid unnecessary string concatenation
         int firstErrorMsgPartLen = 0;
         int urlPartLen = 0;
@@ -725,17 +740,6 @@ public class InsertUtils {
         }
 
         int maxMessageBytes = maxTotalBytes - firstErrorMsgPartLen - urlPartLen;
-
-        // For test : error msg length > 512, we will truncate it first
-        // to make sure the URL and FirstErrorMsg keep complete.
-        if (DebugPointUtil.isEnable("TestErrorMsgTruncate")) {
-            int numAsToAppend = (maxTotalBytes - msg.length()) / 4;
-            StringBuilder sbA = new StringBuilder(numAsToAppend);
-            for (int i = 0; i < numAsToAppend; i++) {
-                sbA.append("Test");
-            }
-            msg = msg + sbA.toString();
-        }
 
         if (msg.length() > maxMessageBytes && maxMessageBytes > 0) {
             msg = msg.substring(0, maxMessageBytes - 1);

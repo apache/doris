@@ -65,11 +65,12 @@ suite("docs/table-design/data-partitioning/manual-partitioning.md") {
         """
         try {
             sql " insert into null_range2 values (null) "
-            Assertions.fail("The SQL above should throw an exception as follows:\n\t\terrCode = 2, detailMessage = Insert has filtered data in strict mode.")
+            Assertions.fail("The SQL above should throw an exception as follows:\n\t\terrCode = 2, detailMessage = Insert has filtered data in strict mode.
+                    But in pipline test, the url is too long, so, we just can see detailMessage = In.")
         } catch (Exception e) {
             log.info("Caught exception message: " + e.getMessage())
-            assertTrue(e.getMessage().contains("errCode = 2") || e.getMessage().contains("errCode=2"))
-            assertTrue(e.getMessage().contains("strict mode"))
+            assertTrue(e.getMessage().contains("errCode = 2"))
+            assertTrue(e.getMessage().contains("no partition for this tuple"))
         }
     } catch (Throwable t) {
         Assertions.fail("examples in docs/table-design/data-partitioning/manual-partitioning.md failed to exec, please fix it", t)
