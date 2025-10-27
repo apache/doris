@@ -3948,7 +3948,10 @@ int InstanceRecycler::scan_and_recycle(
             err = "loop_done error";
             ret = -1;
         }
-    } while (it->more() && !stopped());
+        if (!it->more()) {
+            break; // scan finished
+        }
+    } while (!stopped());
     return ret;
 }
 
