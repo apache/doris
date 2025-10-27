@@ -5397,7 +5397,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
 
         EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
         EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
-        EXPECT_TRUE(response.status().msg().find("empty db_id or job_id or new_offset") != 
+        EXPECT_TRUE(response.status().msg().find("empty db_id or job_id or new_offset") !=
                     std::string::npos);
     }
 
@@ -5415,7 +5415,7 @@ TEST(MetaServiceJobTest, ResetStreamingJobOffsetTest) {
 
         EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
         EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
-        EXPECT_TRUE(response.status().msg().find("empty db_id or job_id or new_offset") != 
+        EXPECT_TRUE(response.status().msg().find("empty db_id or job_id or new_offset") !=
                     std::string::npos);
     }
 
