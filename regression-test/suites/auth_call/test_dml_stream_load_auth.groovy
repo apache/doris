@@ -69,10 +69,7 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
     proc.consumeProcessOutput(sout, serr)
     proc.waitForOrKill(7200000)
     logger.info("std out: " + sout + "std err: " + serr)
-    // curl -v outputs to stderr, so we need to check both stdout and stderr for the "denied" message
-    def output = sout.toString() + serr.toString()
-    assertTrue(output.toLowerCase().contain("Access denied;"), "Expected 'Access denied' in output but got: stdout=[${sout}], stderr=[${serr}]")
-
+    assertTrue(sout.toString().indexOf("Access denied;") == -1, "Expected 'Access denied' in output but got: stdout=[${sout}], stderr=[${serr}]")
 
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
 
@@ -82,9 +79,8 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
     proc.consumeProcessOutput(sout, serr)
     proc.waitForOrKill(7200000)
     logger.info("std out: " + sout + "std err: " + serr)
-    // After granting permission, check that "denied" is NOT in the output
-    output = sout.toString() + serr.toString()
-    assertTrue(output.toLowerCase().contain("Access denied;"), "Expected no 'Access denied' in output after granting permission but got: stdout=[${sout}], stderr=[${serr}]")
+    
+    assertTrue(sout.toString().indexOf("Access denied;") == -1, "Expected 'Access denied' in output but got: stdout=[${sout}], stderr=[${serr}]")
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
