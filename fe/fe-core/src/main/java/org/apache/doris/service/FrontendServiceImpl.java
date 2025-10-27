@@ -3633,8 +3633,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        TransactionState txn = Env.getCurrentGlobalTransactionMgr().getTransactionState(dbId, txnId);
-
         Table table = db.getTable(tableId).get();
         if (table == null) {
             errorStatus.setErrorMsgs(
@@ -3683,7 +3681,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("send create partition error status: {}", result);
             return result;
         }
-
+        // tabletId -> BEId
+        Map<Long, Set<Long>> tabletMap = new HashMap<Long, Set<Long>>();
         for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
             try {
                 // here maybe check and limit created partitions num
@@ -3696,11 +3695,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     Partition partition = info.getPartition();
                     for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
                         for (Tablet tablet : index.getTablets()) {
-                            Set<Long> backendIds = new HashSet<>();
+                            Set<Long> backendIds = new HashSet<Long>();
                             for (Replica replica : tablet.getReplicas()) {
                                 backendIds.add(replica.getBackendIdWithoutException());
                             }
-                            txn.recordAutoPartitionInfo(tablet.getId(), backendIds);
+                            tabletMap.put(tablet.getId(), backendIds);
                         }
                     }
                 }
@@ -3711,6 +3710,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 result.setStatus(errorStatus);
                 LOG.warn("send create partition error status: {}", result);
                 return result;
+            }
+        }
+
+        if (!tabletMap.isEmpty()) {
+            if (Config.isCloudMode()) {
+                Env.getCurrentGlobalTransactionMgr().recordAutoPartitionInfo(dbId, txnId, tabletMap);
+            } else {
+
             }
         }
 

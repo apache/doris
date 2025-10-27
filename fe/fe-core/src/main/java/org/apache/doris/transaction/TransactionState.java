@@ -323,10 +323,6 @@ public class TransactionState implements Writable {
     @Setter
     private Set<Long> involvedBackends = Sets.newHashSet();
 
-    // To distinguish the idempotence of the createPartition RPC during incremental partition creation
-    // for automatic partitioned tables, record the tablet id -> BE id
-    private Map<Long, Set<Long>> autoPartitionInfo = new HashMap<>(); 
-
     public TransactionState() {
         this.dbId = -1;
         this.tableIdList = Lists.newArrayList();
@@ -793,7 +789,6 @@ public class TransactionState implements Writable {
 
     // reduce memory
     public void pruneAfterVisible() {
-        autoPartitionInfo.clear();
         publishVersionTasks.clear();
         tableIdToTabletDeltaRows.clear();
         involvedBackends.clear();
@@ -859,13 +854,5 @@ public class TransactionState implements Writable {
             }
         }
         return tableCommitInfos;
-    }
-
-    public void recordAutoPartitionInfo (Long tabletId, Set<Long> backendIds) {
-        autoPartitionInfo.put(tabletId, backendIds);
-    }
-
-    public Set<Long> getAutoPartitonInfo (Long tabletId) {
-        return autoPartitionInfo.get(tabletId);
     }
 }

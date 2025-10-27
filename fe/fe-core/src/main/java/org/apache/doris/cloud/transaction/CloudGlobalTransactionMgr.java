@@ -209,6 +209,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     // dbId -> txnId -> signature
     private Map<Long, Map<Long, Long>> txnLastSignatureMap = Maps.newConcurrentMap();
 
+    // To distinguish the idempotence of the createPartition RPC during incremental partition creation
+    // for automatic partitioned tables, record the dbId -> txnId -> tabletId -> BE id
+    private Map<Long, Map<Long, Map<Long, Set<Long>>>> autoPartitionInfo = Maps.newConcurrentMap();
+
+    public void recordAutoPartitionInfo(Long dbId, Long txnId, Map<Long, Set<Long>> tabletMap) {
+        
+    }
+
     public CloudGlobalTransactionMgr() {
         this.callbackFactory = new TxnStateCallbackFactory();
     }
@@ -426,6 +434,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
             throw e;
         }
+    }
+
+    @Override
+    public Map<Long, Long> getAutoPartitionInfo(Long dbId, Long txnId) {
+        Map<Long, Map<Long, Long>> txnMap = autoPartitionInfo.get(dbId);
+        return new HashMap<>();
     }
 
     private boolean checkTransactionStateBeforeCommit(long dbId, long transactionId)

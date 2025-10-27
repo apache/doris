@@ -167,6 +167,10 @@ public class DatabaseTransactionMgr {
 
     private long lockReportingThresholdMs = Config.lock_reporting_threshold_ms;
 
+    // To distinguish the idempotence of the createPartition RPC during incremental partition creation
+    // for automatic partitioned tables, record the txn id -> tablet id -> BE id
+    private Map<Long, Set<Long>> autoPartitionInfo = Maps.newConcurrentMap();
+
     private void readLock() {
         this.transactionLock.readLock().lock();
     }
