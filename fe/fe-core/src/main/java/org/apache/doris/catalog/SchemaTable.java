@@ -656,6 +656,16 @@ public class SchemaTable extends Table {
                                     .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .build())
             )
+            .put("file_cache_info",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "file_cache_info", TableType.SCHEMA,
+                            builder().column("HASH", ScalarType.createStringType())
+                                    .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("REMOTE_PATH", ScalarType.createStringType())
+                                    .column("CACHE_PATH", ScalarType.createStringType())
+                                    .column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build())
+            )
             .put("backend_tablets", new SchemaTable(SystemIdGenerator.getNextId(), "backend_tablets", TableType.SCHEMA,
                     builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
