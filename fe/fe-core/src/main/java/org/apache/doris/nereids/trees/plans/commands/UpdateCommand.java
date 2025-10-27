@@ -111,10 +111,10 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         Map<String, Expression> colNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         Map<String, Expression> partialUpdateColNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (EqualTo equalTo : assignments) {
-            List<String> nameParts = ((UnboundSlot) equalTo.left()).getNameParts();
-            checkAssignmentColumn(ctx, nameParts);
-            colNameToExpression.put(nameParts.get(nameParts.size() - 1), equalTo.right());
-            partialUpdateColNameToExpression.put(nameParts.get(nameParts.size() - 1), equalTo.right());
+            List<String> colNameParts = ((UnboundSlot) equalTo.left()).getNameParts();
+            checkAssignmentColumn(ctx, colNameParts, this.nameParts, this.tableAlias);
+            colNameToExpression.put(colNameParts.get(colNameParts.size() - 1), equalTo.right());
+            partialUpdateColNameToExpression.put(colNameParts.get(colNameParts.size() - 1), equalTo.right());
         }
         // check if any key in update clause
         if (targetTable.getFullSchema().stream().filter(Column::isKey)
@@ -199,7 +199,15 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                 DMLCommandType.UPDATE, logicalQuery);
     }
 
-    private void checkAssignmentColumn(ConnectContext ctx, List<String> columnNameParts) {
+    /**
+     * check assignment column valid or not.
+     * @param ctx connect context
+     * @param columnNameParts qualified column name
+     * @param tableNameParts qualified target table name
+     * @param tableAlias target table alias
+     */
+    public static void checkAssignmentColumn(ConnectContext ctx, List<String> columnNameParts,
+            List<String> tableNameParts, String tableAlias) {
         if (columnNameParts.size() <= 1) {
             return;
         }
@@ -213,10 +221,10 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         } else {
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
-        if (dbName != null && this.tableAlias != null) {
+        if (dbName != null && tableAlias != null) {
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
-        List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
+        List<String> tableQualifier = RelationUtil.getQualifierName(ctx, tableNameParts);
         if (!ExpressionAnalyzer.sameTableName(tableAlias == null ? tableQualifier.get(2) : tableAlias, tableName)
                 || (dbName != null
                 && !ExpressionAnalyzer.compareDbNameIgnoreClusterName(tableQualifier.get(1), dbName))) {
