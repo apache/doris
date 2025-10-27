@@ -98,7 +98,7 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
             if (child->expr_name() == "element_at" && child_index < field_bindings.size() &&
                 field_bindings[child_index].__isset.is_variant_subcolumn &&
                 field_bindings[child_index].is_variant_subcolumn) {
-                // Variant subcolumn not materialized - skip, will create empty BitmapQuery in function_search
+                // Variant subcolumn not materialized - skip, will create empty BitSetQuery in function_search
                 child_index++;
                 continue;
             }
