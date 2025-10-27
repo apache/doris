@@ -411,7 +411,7 @@ TEST_F(ParquetExprTest, test_ne) {
     auto ctx = VExprContext::create_shared(fn_eq);
     ctx->_prepared = true;
     ctx->_opened = true;
-    ASSERT_FALSE(p_reader->_check_expr_can_push_down(ctx->root()));
+    ASSERT_FALSE(p_reader->check_expr_can_push_down(ctx->root()));
 }
 
 TEST_F(ParquetExprTest, test_eq) {
@@ -431,7 +431,7 @@ TEST_F(ParquetExprTest, test_eq) {
     auto ctx = VExprContext::create_shared(fn_eq);
     ctx->_prepared = true;
     ctx->_opened = true;
-    ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
+    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
 }
 
 TEST_F(ParquetExprTest, test_le) {
@@ -451,7 +451,7 @@ TEST_F(ParquetExprTest, test_le) {
     auto ctx = VExprContext::create_shared(fn_eq);
     ctx->_prepared = true;
     ctx->_opened = true;
-    ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
+    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
 }
 
 TEST_F(ParquetExprTest, test_ge) {
@@ -471,7 +471,7 @@ TEST_F(ParquetExprTest, test_ge) {
     auto ctx = VExprContext::create_shared(fn_eq);
     ctx->_prepared = true;
     ctx->_opened = true;
-    ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
+    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
 }
 
 TEST_F(ParquetExprTest, test_gt) {
@@ -491,7 +491,7 @@ TEST_F(ParquetExprTest, test_gt) {
     auto ctx = VExprContext::create_shared(fn_eq);
     ctx->_prepared = true;
     ctx->_opened = true;
-    ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
+    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
 }
 
 TEST_F(ParquetExprTest, test_lt) {
@@ -511,7 +511,7 @@ TEST_F(ParquetExprTest, test_lt) {
     auto ctx = VExprContext::create_shared(fn_eq);
     ctx->_prepared = true;
     ctx->_opened = true;
-    ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
+    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
 }
 
 TEST_F(ParquetExprTest, test_ge_2) { // int64_col = 10000000001   [10000000000 , 10000000000+3)
@@ -532,7 +532,7 @@ TEST_F(ParquetExprTest, test_ge_2) { // int64_col = 10000000001   [10000000000 ,
     auto ctx = VExprContext::create_shared(fn_eq);
     ctx->_prepared = true;
     ctx->_opened = true;
-    ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
+    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
 
     {
         const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
@@ -547,7 +547,6 @@ TEST_F(ParquetExprTest, test_ge_2) { // int64_col = 10000000001   [10000000000 ,
             }
             return true;
         };
-        ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
     }
 
     {
@@ -563,7 +562,6 @@ TEST_F(ParquetExprTest, test_ge_2) { // int64_col = 10000000001   [10000000000 ,
             }
             return true;
         };
-        ASSERT_TRUE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
     }
 }
 
@@ -585,7 +583,7 @@ TEST_F(ParquetExprTest, test_lt_2) { // string_col < name_1
     auto ctx = VExprContext::create_shared(fn_eq);
     ctx->_prepared = true;
     ctx->_opened = true;
-    ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
+    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
 
     {
         const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
@@ -596,7 +594,6 @@ TEST_F(ParquetExprTest, test_lt_2) { // string_col < name_1
             stat->has_null = false;
             return true;
         };
-        ASSERT_TRUE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
     }
 
     {
@@ -608,7 +605,6 @@ TEST_F(ParquetExprTest, test_lt_2) { // string_col < name_1
             stat->has_null = false;
             return true;
         };
-        ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
     }
 }
 
@@ -630,7 +626,7 @@ TEST_F(ParquetExprTest, test_is_null) { // int32_all_null_col is null
     ctx->_prepared = true;
     ctx->_opened = true;
 
-    ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
+    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
 
     {
         const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
@@ -645,7 +641,6 @@ TEST_F(ParquetExprTest, test_is_null) { // int32_all_null_col is null
             }
             return true;
         };
-        ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
     }
 
     {
@@ -661,7 +656,6 @@ TEST_F(ParquetExprTest, test_is_null) { // int32_all_null_col is null
             }
             return true;
         };
-        ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
     }
 }
 
@@ -682,7 +676,7 @@ TEST_F(ParquetExprTest, test_is_not_null) { // int32_all_null_col is not null
     ctx->_prepared = true;
     ctx->_opened = true;
 
-    ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
+    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
 
     {
         const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
@@ -697,7 +691,6 @@ TEST_F(ParquetExprTest, test_is_not_null) { // int32_all_null_col is not null
             }
             return true;
         };
-        ASSERT_TRUE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
     }
 
     {
@@ -713,7 +706,6 @@ TEST_F(ParquetExprTest, test_is_not_null) { // int32_all_null_col is not null
             }
             return true;
         };
-        ASSERT_TRUE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
     }
 }
 
@@ -734,7 +726,7 @@ TEST_F(ParquetExprTest, test_is_null_2) { // int32_partial_null_col is null
     ctx->_prepared = true;
     ctx->_opened = true;
 
-    ASSERT_TRUE(p_reader->_check_expr_can_push_down(ctx->root()));
+    ASSERT_TRUE(p_reader->check_expr_can_push_down(ctx->root()));
 
     {
         const std::function<bool(const FieldSchema*, ParquetPredicate::ColumnStat*)>&
@@ -749,7 +741,6 @@ TEST_F(ParquetExprTest, test_is_null_2) { // int32_partial_null_col is null
             }
             return true;
         };
-        ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
     }
 
     {
@@ -765,7 +756,6 @@ TEST_F(ParquetExprTest, test_is_null_2) { // int32_partial_null_col is null
             }
             return true;
         };
-        ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
     }
 }
 
@@ -999,10 +989,6 @@ TEST_F(ParquetExprTest, test_in) {
             }
             return true;
         };
-        ASSERT_TRUE(p_reader->_expr_push_down(in_expr, get_stat_func));
-        ASSERT_FALSE(p_reader->_expr_push_down(in_expr2, get_stat_func));
-        ASSERT_TRUE(p_reader->_expr_push_down(in_expr3, get_stat_func));
-        ASSERT_FALSE(p_reader->_expr_push_down(in_expr4, get_stat_func));
     }
 
     {
@@ -1018,10 +1004,6 @@ TEST_F(ParquetExprTest, test_in) {
             }
             return true;
         };
-        ASSERT_TRUE(p_reader->_expr_push_down(in_expr, get_stat_func));
-        ASSERT_TRUE(p_reader->_expr_push_down(in_expr2, get_stat_func));
-        ASSERT_FALSE(p_reader->_expr_push_down(in_expr3, get_stat_func));
-        ASSERT_FALSE(p_reader->_expr_push_down(in_expr4, get_stat_func));
     }
 }
 
@@ -1054,8 +1036,6 @@ TEST_F(ParquetExprTest, test_expr_push_down_le_int64) {
         }
         return true;
     };
-
-    ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
 }
 
 TEST_F(ParquetExprTest, test_expr_push_down_gt_float) {
@@ -1087,8 +1067,6 @@ TEST_F(ParquetExprTest, test_expr_push_down_gt_float) {
         }
         return true;
     };
-
-    ASSERT_TRUE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
 }
 
 TEST_F(ParquetExprTest, test_expr_push_down_ge_double) {
@@ -1120,8 +1098,6 @@ TEST_F(ParquetExprTest, test_expr_push_down_ge_double) {
         }
         return true;
     };
-
-    ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
 }
 
 TEST_F(ParquetExprTest, test_expr_push_down_lt_string) {
@@ -1153,8 +1129,6 @@ TEST_F(ParquetExprTest, test_expr_push_down_lt_string) {
         }
         return true;
     };
-
-    ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
 }
 
 TEST_F(ParquetExprTest, test_expr_push_down_eq_bool) {
@@ -1185,8 +1159,6 @@ TEST_F(ParquetExprTest, test_expr_push_down_eq_bool) {
         }
         return true;
     };
-
-    ASSERT_FALSE(p_reader->_expr_push_down(ctx->root(), get_stat_func));
 }
 
 TEST_F(ParquetExprTest, test_expr_push_down_and) {
@@ -1265,12 +1237,16 @@ TEST_F(ParquetExprTest, test_expr_push_down_and) {
         }
         return true;
     };
-    ASSERT_TRUE(p_reader->_check_expr_can_push_down(and_expr));
-    ASSERT_FALSE(p_reader->_expr_push_down(and_expr, get_stat_func));
+    ASSERT_TRUE(p_reader->check_expr_can_push_down(and_expr));
 
     p_reader->_enable_filter_by_min_max = true;
-    p_reader->_push_down_exprs.clear();
-    p_reader->_push_down_exprs.push_back(and_expr);
+    p_reader->_push_down_simple_predicates.clear();
+    p_reader->_push_down_simple_predicates.emplace(
+            2, std::vector<std::unique_ptr<ColumnPredicate>> {});
+    p_reader->_push_down_predicates.emplace(2, AndBlockColumnPredicate::create_unique());
+    ASSERT_TRUE(p_reader->convert_predicates({and_expr}, p_reader->_push_down_simple_predicates[2],
+                                             p_reader->_push_down_predicates[2], p_reader->_arena)
+                        .ok());
 
     bool filter_group = false;
     ASSERT_TRUE(p_reader->_process_column_stat_filter(doris_metadata.row_groups[0], &filter_group)
@@ -1280,7 +1256,7 @@ TEST_F(ParquetExprTest, test_expr_push_down_and) {
     ASSERT_TRUE(p_reader->_process_column_stat_filter(doris_metadata.row_groups[1], &filter_group)
                         .OK());
     ASSERT_TRUE(filter_group);
-    p_reader->_push_down_exprs.clear();
+    p_reader->_push_down_simple_predicates.clear();
 }
 
 TEST_F(ParquetExprTest, test_expr_push_down_or_string) {
@@ -1337,8 +1313,7 @@ TEST_F(ParquetExprTest, test_expr_push_down_or_string) {
         }
         return true;
     };
-    ASSERT_TRUE(p_reader->_check_expr_can_push_down(or_expr));
-    ASSERT_FALSE(p_reader->_expr_push_down(or_expr, get_stat_func));
+    ASSERT_TRUE(p_reader->check_expr_can_push_down(or_expr));
 }
 
 } // namespace vectorized

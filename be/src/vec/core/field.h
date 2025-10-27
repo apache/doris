@@ -564,6 +564,7 @@ public:
     }
 
     std::string_view as_string_view() const;
+    std::string to_string() const;
 
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
