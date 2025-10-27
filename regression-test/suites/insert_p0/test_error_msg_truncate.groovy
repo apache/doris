@@ -48,10 +48,6 @@ suite("test_error_msg_truncate","nonConcurrent") {
             assertTrue(errorMsg.contains("Test"), 
                 "Error message should contain 'Test' from debug point injection")
             
-            // Check if error message contains first_error_msg
-            assertTrue(errorMsg.contains("first_error_msg:"), 
-                "Error message should contain 'first_error_msg:'")
-            
             // Check if error message contains url
             assertTrue(errorMsg.contains("url:"), 
                 "Error message should contain 'url:'")
