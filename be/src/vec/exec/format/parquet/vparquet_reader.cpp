@@ -83,9 +83,9 @@ namespace doris::vectorized {
 
 #include "common/compile_check_begin.h"
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                             const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                             io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache,
-                             bool enable_lazy_mat)
+                             const TFileRangeDesc& range, size_t batch_size,
+                             const cctz::time_zone* ctz, io::IOContext* io_ctx, RuntimeState* state,
+                             FileMetaCache* meta_cache, bool enable_lazy_mat)
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
@@ -826,12 +826,12 @@ RowGroupReader::PositionDeleteContext ParquetReader::_get_position_delete_ctx(
     if (_delete_rows == nullptr) {
         return RowGroupReader::PositionDeleteContext(row_group.num_rows, row_group_index.first_row);
     }
-    int64_t* delete_rows = const_cast<int64_t*>(&(*_delete_rows)[0]);
-    int64_t* delete_rows_end = delete_rows + _delete_rows->size();
-    int64_t* start_pos = std::lower_bound(delete_rows + _delete_rows_index, delete_rows_end,
-                                          row_group_index.first_row);
+    const int64_t* delete_rows = &(*_delete_rows)[0];
+    const int64_t* delete_rows_end = delete_rows + _delete_rows->size();
+    const int64_t* start_pos = std::lower_bound(delete_rows + _delete_rows_index, delete_rows_end,
+                                                row_group_index.first_row);
     int64_t start_index = start_pos - delete_rows;
-    int64_t* end_pos = std::lower_bound(start_pos, delete_rows_end, row_group_index.last_row);
+    const int64_t* end_pos = std::lower_bound(start_pos, delete_rows_end, row_group_index.last_row);
     int64_t end_index = end_pos - delete_rows;
     _delete_rows_index = end_index;
     return RowGroupReader::PositionDeleteContext(*_delete_rows, row_group.num_rows,
@@ -1081,10 +1081,6 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             continue;
         }
         auto slot_id = _colname_to_slot_id->at(read_table_col);
-        if (!_push_down_simple_expr.contains(slot_id)) {
-            continue;
-        }
-        const auto& push_down_expr = _push_down_simple_expr[slot_id];
 
         int parquet_col_id =
                 _file_metadata->schema().get_column(read_file_col)->physical_column_index;
@@ -1093,6 +1089,19 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             continue;
         }
         auto& chunk = row_group.columns[parquet_col_id];
+
+        if (chunk.offset_index_length == 0) {
+            continue;
+        }
+        tparquet::OffsetIndex offset_index;
+        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
+        _col_offsets[parquet_col_id] = offset_index;
+
+        if (!_push_down_simple_expr.contains(slot_id)) {
+            continue;
+        }
+        const auto& push_down_expr = _push_down_simple_expr[slot_id];
+
         if (chunk.column_index_offset == 0 && chunk.column_index_length == 0) {
             continue;
         }
@@ -1132,8 +1141,6 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         if (skipped_page_range.empty()) {
             continue;
         }
-        tparquet::OffsetIndex offset_index;
-        RETURN_IF_ERROR(page_index.parse_offset_index(chunk, off_index_buff.data(), &offset_index));
         for (int page_id : skipped_page_range) {
             RowRange skipped_row_range;
             RETURN_IF_ERROR(page_index.create_skipped_row_range(offset_index, row_group.num_rows,
@@ -1141,7 +1148,6 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             // use the union row range
             skipped_row_ranges.emplace_back(skipped_row_range);
         }
-        _col_offsets[parquet_col_id] = offset_index;
     }
     if (skipped_row_ranges.empty()) {
         read_whole_row_group();

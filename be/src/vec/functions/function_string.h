@@ -68,6 +68,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/functions/function_needs_to_handle_null.h"
 #include "vec/utils/template_helpers.hpp"
 
 #ifndef USE_LIBCPP
@@ -604,29 +605,25 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        int n = -1; // means unassigned
-
         auto res = ColumnString::create();
         auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& source_column = assert_cast<const ColumnString&>(*col);
 
-        if (arguments.size() == 2) {
-            const auto& col = *block.get_by_position(arguments[1]).column;
-            // the 2nd arg is const. checked in fe.
-            if (col.get_int(0) < 0) [[unlikely]] {
-                return Status::InvalidArgument(
-                        "function {} only accept non-negative input for 2nd argument but got {}",
-                        name, col.get_int(0));
-            }
-            n = col.get_int(0);
-        }
-
-        if (n == -1) { // no 2nd arg, just mask all
+        if (arguments.size() == 1) { // no 2nd arg, just mask all
             FunctionMask::vector_mask(source_column, *res, FunctionMask::DEFAULT_UPPER_MASK,
                                       FunctionMask::DEFAULT_LOWER_MASK,
                                       FunctionMask::DEFAULT_NUMBER_MASK);
-        } else { // n >= 0
-            vector(source_column, n, *res);
+        } else {
+            const auto& [col_2nd, is_const] =
+                    unpack_if_const(block.get_by_position(arguments[1]).column);
+
+            const auto& col_n = assert_cast<const ColumnInt32&>(*col_2nd);
+
+            if (is_const) {
+                RETURN_IF_ERROR(vector<true>(source_column, col_n, *res));
+            } else {
+                RETURN_IF_ERROR(vector<false>(source_column, col_n, *res));
+            }
         }
 
         block.get_by_position(result).column = std::move(res);
@@ -635,7 +632,8 @@ public:
     }
 
 private:
-    static void vector(const ColumnString& src, int n, ColumnString& result) {
+    template <bool is_const>
+    static Status vector(const ColumnString& src, const ColumnInt32& col_n, ColumnString& result) {
         const auto num_rows = src.size();
         const auto* chars = src.get_chars().data();
         const auto* offsets = src.get_offsets().data();
@@ -646,9 +644,19 @@ private:
                 src.get_offsets().size() * sizeof(ColumnString::Offset));
         auto* res = result.get_chars().data();
 
+        const auto& col_n_data = col_n.get_data();
+
         for (ssize_t i = 0; i != num_rows; ++i) {
             auto offset = offsets[i - 1];
             int len = offsets[i] - offset;
+            const int n = col_n_data[index_check_const<is_const>(i)];
+
+            if (n < 0) [[unlikely]] {
+                return Status::InvalidArgument(
+                        "function {} only accept non-negative input for 2nd argument but got {}",
+                        name, n);
+            }
+
             if constexpr (Reverse) {
                 auto start = std::max(len - n, 0);
                 if (start > 0) {
@@ -666,6 +674,8 @@ private:
                                FunctionMask::DEFAULT_LOWER_MASK, FunctionMask::DEFAULT_NUMBER_MASK,
                                &res[offset]);
         }
+
+        return Status::OK();
     }
 };
 
@@ -2985,6 +2995,7 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
             (append_sign_manually ? 1 : 0) + integer_str_len + 1 + frac_str_len;
 
     StringRef result = context->create_temp_string_val(whole_decimal_str_len);
+    // Modify a string passed via stringref
     char* result_data = const_cast<char*>(result.data);
 
     if (append_sign_manually) {
@@ -3003,6 +3014,7 @@ static StringRef do_money_format(FunctionContext* context, const std::string& va
     bool is_positive = (value[0] != '-');
     int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
     StringRef result = context->create_temp_string_val(result_len);
+    // Modify a string passed via stringref
     char* result_data = const_cast<char*>(result.data);
     if (!is_positive) {
         *result_data = '-';
@@ -3112,6 +3124,7 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
                                         (decimal_places > 0 ? 1 : 0) + frac_str_len;
 
     StringRef result = context->create_temp_string_val(whole_decimal_str_len);
+    // Modify a string passed via stringref
     char* result_data = const_cast<char*>(result.data);
 
     if (append_sign_manually) {
@@ -3782,8 +3795,7 @@ struct ReverseImpl {
             int64_t src_len = offsets[i] - offsets[i - 1];
             std::string dst;
             dst.resize(src_len);
-            simd::VStringFunctions::reverse(StringRef((uint8_t*)src_str, src_len),
-                                            StringRef((uint8_t*)dst.data(), src_len));
+            simd::VStringFunctions::reverse(StringRef((uint8_t*)src_str, src_len), &dst);
             StringOP::push_value_string(std::string_view(dst.data(), src_len), i, res_data,
                                         res_offsets);
         }
@@ -4992,105 +5004,203 @@ private:
     }
 };
 
-class FunctionMakeSet : public IFunction {
+class MakeSetImpl {
 public:
     static constexpr auto name = "make_set";
-    static FunctionPtr create() { return std::make_shared<FunctionMakeSet>(); }
-    String get_name() const override { return name; }
-    size_t get_number_of_arguments() const override { return 0; }
-    bool is_variadic() const override { return true; }
-    bool use_default_implementation_for_nulls() const override { return false; }
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+
+    static size_t get_number_of_arguments() { return 0; }
+    static bool is_variadic() { return true; }
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         if (arguments[0].get()->is_nullable()) {
             return make_nullable(std::make_shared<DataTypeString>());
         }
         return std::make_shared<DataTypeString>();
     }
 
+    static bool is_return_nullable(bool has_nullable,
+                                   const std::vector<ColumnWithConstAndNullMap>& cols_info) {
+        return cols_info[0].null_map != nullptr;
+    }
+
+    static bool execute_const_null(ColumnString::MutablePtr& res_col,
+                                   PaddedPODArray<UInt8>& res_null_map_data,
+                                   size_t input_rows_count, size_t null_index) {
+        if (null_index == 1) {
+            res_col->insert_many_defaults(input_rows_count);
+            res_null_map_data.assign(input_rows_count, (UInt8)1);
+            return true;
+        }
+        return false;
+    }
+
+    static void execute(const std::vector<ColumnWithConstAndNullMap>& column_infos,
+                        ColumnString::MutablePtr& res_col, PaddedPODArray<UInt8>& res_null_map_data,
+                        size_t input_rows_count) {
+        static constexpr char SEPARATOR = ',';
+        const auto& bit_data =
+                assert_cast<const ColumnInt64&>(*column_infos[0].nested_col).get_data();
+        std::vector<const ColumnString*> str_cols(column_infos.size());
+        for (size_t i = 1; i < column_infos.size(); ++i) {
+            str_cols[i] = assert_cast<const ColumnString*>(column_infos[i].nested_col);
+        }
+
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            if (column_infos[0].is_null_at(row)) {
+                res_col->insert_default();
+                res_null_map_data[row] = 1;
+                continue;
+            }
+
+            uint64_t bit = bit_data[column_infos[0].is_const ? 0 : row];
+            uint64_t col_pos = __builtin_ffsll(bit);
+            ColumnString::Chars data;
+            while (col_pos != 0 && col_pos < column_infos.size() && bit != 0) {
+                if (!column_infos[col_pos].is_null_at(row)) {
+                    /* Here insert `str,` directly to support the case below:
+                     * SELECT MAKE_SET(3, '', 'a');
+                     * the exception result should be ',a'.
+                     */
+                    auto s_ref = str_cols[col_pos]->get_data_at(
+                            column_infos[col_pos].is_const ? 0 : row);
+                    data.insert(s_ref.data, s_ref.data + s_ref.size);
+                    data.push_back(SEPARATOR);
+                }
+                bit &= ~(1ULL << (col_pos - 1));
+                col_pos = __builtin_ffsll(bit);
+            }
+            // remove the last ','
+            if (!data.empty()) {
+                data.pop_back();
+            }
+            res_col->insert_data(reinterpret_cast<const char*>(data.data()), data.size());
+        }
+    }
+};
+
+class FunctionExportSet : public IFunction {
+public:
+    static constexpr auto name = "export_set";
+    static FunctionPtr create() { return std::make_shared<FunctionExportSet>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto res_col = ColumnString::create();
-        auto null_map = ColumnUInt8::create();
 
-        const auto& [bit_col, bit_const] =
+        const size_t arg_size = arguments.size();
+        bool col_const[5];
+        ColumnPtr arg_cols[5];
+        bool all_const = true;
+        for (int i = 0; i < arg_size; ++i) {
+            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+            all_const = all_const && col_const[i];
+        }
+        std::tie(arg_cols[0], col_const[0]) =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
+        if (arg_size == 3) {
+            default_preprocess_parameter_columns(arg_cols, col_const, {1, 2}, block, arguments);
+        } else if (arg_size == 4) {
+            default_preprocess_parameter_columns(arg_cols, col_const, {1, 2, 3}, block, arguments);
+        } else if (arg_size == 5) {
+            default_preprocess_parameter_columns(arg_cols, col_const, {1, 2, 3, 4}, block,
+                                                 arguments);
+        }
 
-        if (bit_const) {
-            if (bit_col->is_null_at(0)) {
-                res_col->insert_many_defaults(input_rows_count);
-                null_map->insert_many_vals(1, input_rows_count);
-            } else {
-                const uint64_t bit_data =
-                        assert_cast<const ColumnInt64*>(bit_col.get())->get_element(0);
-                vector_execute<true>(block, arguments, input_rows_count, *res_col, bit_data,
-                                     null_map->get_data());
+        const auto* bit_col = assert_cast<const ColumnInt128*>(arg_cols[0].get());
+        const auto* on_col = assert_cast<const ColumnString*>(arg_cols[1].get());
+        const auto* off_col = assert_cast<const ColumnString*>(arg_cols[2].get());
+        const ColumnString* sep_col = nullptr;
+        const ColumnInt32* num_bits_col = nullptr;
+        if (arg_size > 3) {
+            sep_col = assert_cast<const ColumnString*>(arg_cols[3].get());
+            if (arg_size == 5) {
+                num_bits_col = assert_cast<const ColumnInt32*>(arg_cols[4].get());
             }
-        } else if (const auto* bit_data = check_and_get_column<ColumnNullable>(bit_col.get())) {
-            null_map->insert_range_from(bit_data->get_null_map_column(), 0, input_rows_count);
-            vector_execute<false>(block, arguments, input_rows_count, *res_col,
-                                  assert_cast<const ColumnInt64&>(bit_data->get_nested_column()),
-                                  null_map->get_data());
-
-        } else {
-            null_map->get_data().resize_fill(input_rows_count, 0);
-            vector_execute<false>(block, arguments, input_rows_count, *res_col,
-                                  assert_cast<const ColumnInt64&>(*bit_col.get()),
-                                  null_map->get_data());
         }
 
-        if (block.get_by_position(arguments[0]).type.get()->is_nullable()) {
-            block.replace_by_position(
-                    result, ColumnNullable::create(std::move(res_col), std::move(null_map)));
-        } else {
-            block.replace_by_position(result, std::move(res_col));
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            uint64_t bit =
+                    check_and_get_bit(bit_col->get_element(index_check_const(i, col_const[0])));
+
+            size_t idx_for_args = all_const ? 0 : i;
+            StringRef on = on_col->get_data_at(idx_for_args);
+            StringRef off = off_col->get_data_at(idx_for_args);
+            StringRef separator(",", 1);
+            int8_t num_of_bits = 64;
+
+            if (arg_size > 3) {
+                separator = sep_col->get_data_at(idx_for_args);
+                if (arg_size == 5) {
+                    num_of_bits =
+                            check_and_get_num_of_bits(num_bits_col->get_element(idx_for_args));
+                }
+            }
+
+            execute_single(bit, on, off, separator, num_of_bits, *res_col);
         }
+        block.replace_by_position(result, std::move(res_col));
         return Status::OK();
     }
 
 private:
-    template <bool bit_const>
-    void vector_execute(const Block& block, const ColumnNumbers& arguments, size_t input_rows_count,
-                        ColumnString& res_col, const ColumnInt64& bit_col,
-                        PaddedPODArray<uint8_t>& null_map) const {
-        if constexpr (bit_const) {
-            uint64_t bit = bit_col.get_element(0);
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                execute_one_row(block, arguments, res_col, bit, i);
-            }
-        } else {
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                if (null_map[i]) {
-                    res_col.insert_default();
-                    continue;
-                }
-                execute_one_row(block, arguments, res_col, bit_col.get_element(i), i);
-            }
+    /* The valid range of the input `bit` parameter should be [-2^63, 2^64 - 1]
+     * If it exceeds this range, the MAX/MIN values of the signed 64-bit integer are used for calculation
+     * This behavior is consistent with MySQL.
+     */
+    uint64_t check_and_get_bit(__int128 col_bit_val) const {
+        if (col_bit_val > ULLONG_MAX) {
+            return LLONG_MAX;
+        } else if (col_bit_val < LLONG_MIN) {
+            return LLONG_MIN;
         }
+        return static_cast<uint64_t>(col_bit_val);
     }
 
-    void execute_one_row(const Block& block, const ColumnNumbers& arguments, ColumnString& res_col,
-                         uint64_t bit, int row_num) const {
-        static constexpr char SEPARATOR = ',';
-        uint64_t pos = __builtin_ffsll(bit);
+    // If the input value is not in the range [0, 64], return default value 64
+    int8_t check_and_get_num_of_bits(int32_t col_num_of_bits_val) const {
+        if (col_num_of_bits_val >= 0 && col_num_of_bits_val <= 64) {
+            return static_cast<int8_t>(col_num_of_bits_val);
+        }
+        return 64;
+    }
+
+    void execute_single(uint64_t bit, const StringRef& on, const StringRef& off,
+                        const StringRef& separator, int8_t num_of_bits,
+                        ColumnString& res_col) const {
         ColumnString::Chars data;
-        while (pos != 0 && pos < arguments.size() && bit != 0) {
-            auto col = block.get_by_position(arguments[pos]).column;
-            if (!col->is_null_at(row_num)) {
-                /* Here insert `str,` directly to support the case below:
-                 * SELECT MAKE_SET(3, '', 'a');
-                 * the exception result should be ',a'
-                 */
-                auto s_ref = col->get_data_at(row_num);
-                data.insert(s_ref.data, s_ref.data + s_ref.size);
-                data.push_back(SEPARATOR);
+        data.reserve(std::max(on.size, off.size) * num_of_bits +
+                     separator.size * (num_of_bits - 1));
+
+        while (bit && num_of_bits) {
+            if (bit & 1) {
+                data.insert(on.data, on.data + on.size);
+            } else {
+                data.insert(off.data, off.data + off.size);
             }
-            bit &= ~(1ULL << (pos - 1));
-            pos = __builtin_ffsll(bit);
+            bit >>= 1;
+            if (--num_of_bits) {
+                data.insert(separator.data, separator.data + separator.size);
+            }
         }
-        // remove the last ','
-        if (!data.empty()) {
-            data.pop_back();
+
+        if (num_of_bits > 0) {
+            ColumnString::Chars off_sep_combo;
+            off_sep_combo.reserve(separator.size + off.size);
+            off_sep_combo.insert(off_sep_combo.end(), off.data, off.data + off.size);
+            off_sep_combo.insert(off_sep_combo.end(), separator.data,
+                                 separator.data + separator.size);
+
+            for (size_t i = 0; i < num_of_bits; ++i) {
+                data.insert(off_sep_combo.data(), off_sep_combo.data() + off_sep_combo.size());
+            }
+            data.erase(data.end() - separator.size, data.end());
         }
+
         res_col.insert_data(reinterpret_cast<const char*>(data.data()), data.size());
     }
 };

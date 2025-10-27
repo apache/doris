@@ -58,6 +58,7 @@
 #include "vec/functions/datetime_errors.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/functions/function_needs_to_handle_null.h"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
@@ -838,10 +839,31 @@ struct CurrentTimeImpl {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
         auto col_to = ColumnTimeV2::create();
-        VecDateTimeValue dtv;
+        DateV2Value<DateTimeV2ValueType> dtv;
         dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                           context->state()->timezone_obj());
-        auto time = TimeValue::make_time(dtv.hour(), dtv.minute(), dtv.second());
+        double time;
+        if (arguments.size() == 1) {
+            // the precision must be const, which is checked in fe.
+            const auto* col = assert_cast<const ColumnInt8*>(
+                    block.get_by_position(arguments[0]).column.get());
+            uint8_t precision = col->get_element(0);
+            if (precision <= 6) {
+                dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
+                                  context->state()->nano_seconds(),
+                                  context->state()->timezone_obj(), precision);
+                time = TimeValue::make_time(dtv.hour(), dtv.minute(), dtv.second(),
+                                            dtv.microsecond());
+            } else {
+                return Status::InvalidArgument(
+                        "The precision in function CURTIME should be between 0 and 6, but got {}",
+                        precision);
+            }
+        } else {
+            dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
+                              context->state()->timezone_obj());
+            time = TimeValue::make_time(dtv.hour(), dtv.minute(), dtv.second());
+        }
         col_to->insert_value(time);
         block.get_by_position(result).column =
                 ColumnConst::create(std::move(col_to), input_rows_count);
@@ -1246,5 +1268,205 @@ public:
         return Status::OK();
     }
 };
+
+class FunctionGetFormat : public IFunction {
+public:
+    static constexpr auto name = "get_format";
+    static FunctionPtr create() { return std::make_shared<FunctionGetFormat>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        const auto& [left_col_ptr, left_is_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_col_ptr, right_is_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        const auto* left_col = assert_cast<const ColumnString*>(left_col_ptr.get());
+        const auto* right_col = assert_cast<const ColumnString*>(right_col_ptr.get());
+
+        auto type_ref = left_col->get_data_at(0);
+        std::string type_str(type_ref.data, type_ref.size);
+
+        auto res_col = ColumnString::create();
+        auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& res_data = res_col->get_chars();
+        auto& res_offsets = res_col->get_offsets();
+
+        if (type_str == DATE_NAME) {
+            execute_format_type<DateFormatImpl>(res_data, res_offsets, res_null_map->get_data(),
+                                                input_rows_count, right_col);
+        } else if (type_str == DATETIME_NAME) {
+            execute_format_type<DateTimeFormatImpl>(res_data, res_offsets, res_null_map->get_data(),
+                                                    input_rows_count, right_col);
+        } else if (type_str == TIME_NAME) {
+            execute_format_type<TimeFormatImpl>(res_data, res_offsets, res_null_map->get_data(),
+                                                input_rows_count, right_col);
+        } else {
+            return Status::InvalidArgument(
+                    "Function GET_FORMAT only support DATE, DATETIME or TIME");
+        }
+
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(res_col), std::move(res_null_map)));
+        return Status::OK();
+    }
+
+private:
+    template <typename Impl>
+    static void execute_format_type(ColumnString::Chars& res_data,
+                                    ColumnString::Offsets& res_offsets,
+                                    PaddedPODArray<UInt8>& res_null_map, size_t input_rows_count,
+                                    const ColumnString* right_col) {
+        res_data.reserve(input_rows_count * Impl::ESTIMATE_SIZE);
+        res_offsets.reserve(input_rows_count);
+
+        for (int i = 0; i < input_rows_count; ++i) {
+            StringRef format_ref = right_col->get_data_at(i);
+            std::string format_str(format_ref.data, format_ref.size);
+            std::transform(format_str.begin(), format_str.end(), format_str.begin(), ::toupper);
+
+            std::string_view format_res;
+            if (format_str == "USA") {
+                format_res = Impl::USA;
+            } else if (format_str == "JIS" || format_str == "ISO") {
+                format_res = Impl::JIS_ISO;
+            } else if (format_str == "EUR") {
+                format_res = Impl::EUR;
+            } else if (format_str == "INTERNAL") {
+                format_res = Impl::INTERNAL;
+            } else {
+                res_null_map[i] = 1;
+                res_offsets.push_back(res_data.size());
+                continue;
+            }
+
+            res_data.insert(format_res.data(), format_res.data() + format_res.size());
+            res_offsets.push_back(res_data.size());
+        }
+    }
+
+    struct DateFormatImpl {
+        static constexpr auto USA = "%m.%d.%Y";
+        static constexpr auto JIS_ISO = "%Y-%m-%d";
+        static constexpr auto EUR = "%d.%m.%Y";
+        static constexpr auto INTERNAL = "%Y%m%d";
+        static constexpr size_t ESTIMATE_SIZE = 8;
+    };
+
+    struct DateTimeFormatImpl {
+        static constexpr auto USA = "%Y-%m-%d %H.%i.%s";
+        static constexpr auto JIS_ISO = "%Y-%m-%d %H:%i:%s";
+        static constexpr auto EUR = "%Y-%m-%d %H.%i.%s";
+        static constexpr auto INTERNAL = "%Y%m%d%H%i%s";
+        static constexpr size_t ESTIMATE_SIZE = 17;
+    };
+
+    struct TimeFormatImpl {
+        static constexpr auto USA = "%h:%i:%s %p";
+        static constexpr auto JIS_ISO = "%H:%i:%s";
+        static constexpr auto EUR = "%H.%i.%s";
+        static constexpr auto INTERNAL = "%H%i%s";
+        static constexpr size_t ESTIMATE_SIZE = 11;
+    };
+
+    static constexpr auto DATE_NAME = "DATE";
+    static constexpr auto DATETIME_NAME = "DATETIME";
+    static constexpr auto TIME_NAME = "TIME";
+};
+
+class PeriodHelper {
+public:
+    // For two digit year, 70-99 -> 1970-1999, 00-69 -> 2000-2069
+    // this rule is same as MySQL
+    static constexpr int YY_PART_YEAR = 70;
+    static Status valid_period(int64_t period) {
+        if (period <= 0 || (period % 100) == 0 || (period % 100) > 12) {
+            return Status::InvalidArgument("Period function got invalid period: {}", period);
+        }
+        return Status::OK();
+    }
+
+    static int64_t check_and_convert_period_to_month(uint64_t period) {
+        THROW_IF_ERROR(valid_period(period));
+        uint64_t year = period / 100;
+        if (year < 100) {
+            year += (year >= YY_PART_YEAR) ? 1900 : 2000;
+        }
+        return year * 12LL + (period % 100) - 1;
+    }
+
+    static int64_t convert_month_to_period(uint64_t month) {
+        uint64_t year = month / 12;
+        if (year < 100) {
+            year += (year >= YY_PART_YEAR) ? 1900 : 2000;
+        }
+        return year * 100 + month % 12 + 1;
+    }
+};
+
+class PeriodAddImpl {
+public:
+    static constexpr auto name = "period_add";
+    static size_t get_number_of_arguments() { return 2; }
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    static void execute(const std::vector<ColumnWithConstAndNullMap>& cols_info,
+                        ColumnInt64::MutablePtr& res_col, PaddedPODArray<UInt8>& res_null_map_data,
+                        size_t input_rows_count) {
+        const auto& left_data =
+                assert_cast<const ColumnInt64*>(cols_info[0].nested_col)->get_data();
+        const auto& right_data =
+                assert_cast<const ColumnInt64*>(cols_info[1].nested_col)->get_data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (cols_info[0].is_null_at(i) || cols_info[1].is_null_at(i)) {
+                res_col->insert_default();
+                res_null_map_data[i] = 1;
+                continue;
+            }
+
+            int64_t period = left_data[index_check_const(i, cols_info[0].is_const)];
+            int64_t months = right_data[index_check_const(i, cols_info[1].is_const)];
+            res_col->insert_value(PeriodHelper::convert_month_to_period(
+                    PeriodHelper::check_and_convert_period_to_month(period) + months));
+        }
+    }
+};
+class PeriodDiffImpl {
+public:
+    static constexpr auto name = "period_diff";
+    static size_t get_number_of_arguments() { return 2; }
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    static void execute(const std::vector<ColumnWithConstAndNullMap>& cols_info,
+                        ColumnInt64::MutablePtr& res_col, PaddedPODArray<UInt8>& res_null_map_data,
+                        size_t input_rows_count) {
+        const auto& left_data =
+                assert_cast<const ColumnInt64*>(cols_info[0].nested_col)->get_data();
+        const auto& right_data =
+                assert_cast<const ColumnInt64*>(cols_info[1].nested_col)->get_data();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (cols_info[0].is_null_at(i) || cols_info[1].is_null_at(i)) {
+                res_col->insert_default();
+                res_null_map_data[i] = 1;
+                continue;
+            }
+
+            int64_t period1 = left_data[index_check_const(i, cols_info[0].is_const)];
+            int64_t period2 = right_data[index_check_const(i, cols_info[1].is_const)];
+            res_col->insert_value(PeriodHelper::check_and_convert_period_to_month(period1) -
+                                  PeriodHelper::check_and_convert_period_to_month(period2));
+        }
+    }
+};
+
 #include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

@@ -40,6 +40,7 @@ enum EncodingTypePB {
     DICT_ENCODING = 5;
     BIT_SHUFFLE = 6;
     FOR_ENCODING = 7; // Frame-Of-Reference
+    PLAIN_ENCODING_V2 = 8; // Binary plain with varuint length prefix
 }
 
 enum CompressionTypePB {
@@ -213,6 +214,10 @@ message ColumnMetaPB {
     optional VariantStatisticsPB variant_statistics = 21; // only used in variant type
     optional int32 variant_max_subcolumns_count = 22 [default = 0];
     optional uint64 none_null_size = 23 [default = 0];
+
+    optional uint64 compressed_data_bytes = 24;
+    optional uint64 uncompressed_data_bytes = 25;
+    optional uint64 raw_data_bytes = 26;
 }
 
 message PrimaryKeyIndexMetaPB {

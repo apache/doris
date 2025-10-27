@@ -149,10 +149,6 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         }
     }
 
-    boolean isEndpointCheckRequired() {
-        return true;
-    }
-
     /**
      * Checks and validates the configured endpoint.
      * <p>

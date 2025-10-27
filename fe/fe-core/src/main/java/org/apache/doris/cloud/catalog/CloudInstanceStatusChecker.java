@@ -59,9 +59,6 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
     protected void runAfterCatalogReady() {
         try {
             Cloud.GetInstanceResponse response = cloudSystemInfoService.getCloudInstance();
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("get from ms response {}", response);
-            }
             if (!isResponseValid(response)) {
                 return;
             }

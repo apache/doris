@@ -23,6 +23,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <memory>
 #include <ostream>
 #include <vector>
 
@@ -35,6 +36,7 @@
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/task_queue.h"
 #include "pipeline/task_scheduler.h"
+#include "revokable_task.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -94,21 +96,27 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState
 }
 
 PipelineTask::~PipelineTask() {
+    auto reset_member = [&]() {
+        _shared_state_map.clear();
+        _sink_shared_state.reset();
+        _op_shared_states.clear();
+        _sink.reset();
+        _operators.clear();
+        _block.reset();
+        _pipeline.reset();
+    };
 // PipelineTask is also hold by task queue( https://github.com/apache/doris/pull/49753),
 // so that it maybe the last one to be destructed.
 // But pipeline task hold some objects, like operators, shared state, etc. So that should release
 // memory manually.
 #ifndef BE_TEST
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_mem_tracker);
+    if (_query_mem_tracker) {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_mem_tracker);
+        reset_member();
+        return;
+    }
 #endif
-    _shared_state_map.clear();
-    _sink_shared_state.reset();
-    _op_shared_states.clear();
-    _sink.reset();
-    _operators.clear();
-    _spill_context.reset();
-    _block.reset();
-    _pipeline.reset();
+    reset_member();
 }
 
 Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, const int sender_id,
@@ -166,11 +174,8 @@ Status PipelineTask::_extract_dependencies() {
     read_dependencies.resize(_operators.size());
     size_t i = 0;
     for (auto& op : _operators) {
-        auto result = _state->get_local_state_result(op->operator_id());
-        if (!result) {
-            return result.error();
-        }
-        auto* local_state = result.value();
+        auto* local_state = _state->get_local_state(op->operator_id());
+        DCHECK(local_state);
         read_dependencies[i] = local_state->dependencies();
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
@@ -309,17 +314,12 @@ bool PipelineTask::is_blockable() const {
         }
     }
 
-    return _need_to_revoke_memory ||
-           std::ranges::any_of(_operators,
+    return std::ranges::any_of(_operators,
                                [&](OperatorPtr op) -> bool { return op->is_blockable(_state); }) ||
            _sink->is_blockable(_state);
 }
 
 bool PipelineTask::_is_blocked() {
-    if (_need_to_revoke_memory) {
-        return false;
-    }
-
     // `_dry_run = true` means we do not need data from source operator.
     if (!_dry_run) {
         for (int i = cast_set<int>(_read_dependencies.size() - 1); i >= 0; i--) {
@@ -381,11 +381,15 @@ void PipelineTask::terminate() {
  * @return
  */
 Status PipelineTask::execute(bool* done) {
-    if (!_need_to_revoke_memory && (_exec_state != State::RUNNABLE || _blocked_dep != nullptr))
-            [[unlikely]] {
+    if (_exec_state != State::RUNNABLE || _blocked_dep != nullptr) [[unlikely]] {
+#ifdef BE_TEST
         return Status::InternalError("Pipeline task is not runnable! Task info: {}",
                                      debug_string());
+#else
+        return Status::FatalError("Pipeline task is not runnable! Task info: {}", debug_string());
+#endif
     }
+
     auto fragment_context = _fragment_context.lock();
     if (!fragment_context) {
         return Status::InternalError("Fragment already finished! Query: {}", print_id(_query_id));
@@ -478,11 +482,6 @@ Status PipelineTask::execute(bool* done) {
         /// Here, checking whether it is cancelled to prevent tasks in a blocking state from being re-executed.
         if (fragment_context->is_canceled()) {
             break;
-        }
-
-        if (_need_to_revoke_memory) {
-            _need_to_revoke_memory = false;
-            return _sink->revoke_memory(_state, _spill_context);
         }
 
         if (time_spent > _exec_time_slice) {
@@ -613,6 +612,33 @@ Status PipelineTask::execute(bool* done) {
     return Status::OK();
 }
 
+Status PipelineTask::do_revoke_memory(const std::shared_ptr<SpillContext>& spill_context) {
+    auto fragment_context = _fragment_context.lock();
+    if (!fragment_context) {
+        return Status::InternalError("Fragment already finished! Query: {}", print_id(_query_id));
+    }
+
+    SCOPED_ATTACH_TASK(_state);
+    ThreadCpuStopWatch cpu_time_stop_watch;
+    cpu_time_stop_watch.start();
+    Defer running_defer {[&]() {
+        int64_t delta_cpu_time = cpu_time_stop_watch.elapsed_time();
+        _task_cpu_timer->update(delta_cpu_time);
+        fragment_context->get_query_ctx()->resource_ctx()->cpu_context()->update_cpu_cost_ms(
+                delta_cpu_time);
+
+        // If task is woke up early, we should terminate all operators, and this task could be closed immediately.
+        if (_wake_up_early) {
+            terminate();
+            THROW_IF_ERROR(_root->terminate(_state));
+            THROW_IF_ERROR(_sink->terminate(_state));
+            _eos = true;
+        }
+    }};
+
+    return _sink->revoke_memory(_state, spill_context);
+}
+
 bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBase* op) {
     auto st = thread_context()->thread_mem_tracker_mgr->try_reserve(reserve_size);
     COUNTER_UPDATE(_memory_reserve_times, 1);
@@ -678,8 +704,8 @@ Status PipelineTask::finalize() {
         return Status::OK();
     }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
-    std::unique_lock<std::mutex> lc(_dependency_lock);
     RETURN_IF_ERROR(_state_transition(State::FINALIZED));
+    std::unique_lock<std::mutex> lc(_dependency_lock);
     _sink_shared_state.reset();
     _op_shared_states.clear();
     _shared_state_map.clear();
@@ -797,7 +823,7 @@ std::string PipelineTask::debug_string() {
 }
 
 size_t PipelineTask::get_revocable_size() const {
-    if (is_finalized() || _running || (_eos && !_spilling)) {
+    if (!_opened || is_finalized() || _running || (_eos && !_spilling)) {
         return 0;
     }
 
@@ -805,22 +831,19 @@ size_t PipelineTask::get_revocable_size() const {
 }
 
 Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_context) {
+    DCHECK(spill_context);
     if (is_finalized()) {
-        if (spill_context) {
-            spill_context->on_task_finished();
-            VLOG_DEBUG << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
-                       << " finalized";
-        }
+        spill_context->on_task_finished();
+        VLOG_DEBUG << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
+                   << " finalized";
         return Status::OK();
     }
 
     const auto revocable_size = _sink->revocable_mem_size(_state);
     if (revocable_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
-        _need_to_revoke_memory = true;
-        _spill_context = spill_context;
-        RETURN_IF_ERROR(
-                _state->get_query_ctx()->get_pipe_exec_scheduler()->submit(shared_from_this()));
-    } else if (spill_context) {
+        auto revokable_task = std::make_shared<RevokableTask>(shared_from_this(), spill_context);
+        RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(revokable_task));
+    } else {
         spill_context->on_task_finished();
         LOG(INFO) << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
                   << " has not enough data to revoke: " << revocable_size;
@@ -828,7 +851,7 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
     return Status::OK();
 }
 
-Status PipelineTask::wake_up(Dependency* dep) {
+Status PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */) {
     // call by dependency
     DCHECK_EQ(_blocked_dep, dep) << "dep : " << dep->debug_string(0) << "task: " << debug_string();
     _blocked_dep = nullptr;

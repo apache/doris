@@ -687,6 +687,7 @@ DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 
 // max write buffer size before flush, default 200MB
 DEFINE_mInt64(write_buffer_size, "209715200");
+DEFINE_mBool(enable_adaptive_write_buffer_size, "true");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "104857600");
 DEFINE_mInt64(min_write_buffer_size_for_partial_update, "1048576");
@@ -1018,6 +1019,7 @@ DEFINE_mInt32(remove_unused_remote_files_interval_sec, "21600"); // 6h
 DEFINE_mInt32(confirm_unused_remote_files_interval_sec, "60");
 DEFINE_Int32(cold_data_compaction_thread_num, "2");
 DEFINE_mInt32(cold_data_compaction_interval_sec, "1800");
+DEFINE_mInt32(cold_data_compaction_score_threshold, "100");
 
 DEFINE_String(tmp_file_dir, "tmp");
 
@@ -1175,6 +1177,9 @@ DEFINE_Int32(inverted_index_query_cache_shards, "256");
 
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
+
+// condition cache limit
+DEFINE_Int16(condition_cache_limit, "512");
 
 // inverted index
 DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
@@ -1494,6 +1499,9 @@ DEFINE_mBool(skip_loading_stale_rowset_meta, "false");
 
 DEFINE_Bool(enable_file_logger, "true");
 
+// Enable partition column fallback when partition columns are missing from file
+DEFINE_Bool(enable_iceberg_partition_column_fallback, "true");
+
 // The minimum row group size when exporting Parquet files. default 128MB
 DEFINE_Int64(min_row_group_size, "134217728");
 
@@ -1566,6 +1574,7 @@ DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
 
 DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
 
+DEFINE_mBool(enable_fetch_rowsets_from_peer_replicas, "false");
 // the max length of segments key bounds, in bytes
 // ATTENTION: as long as this conf has ever been enabled, cluster downgrade and backup recovery will no longer be supported.
 DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
@@ -1581,11 +1590,20 @@ DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
 // The maximum csv line reader output buffer size
 DEFINE_mInt64(max_csv_line_reader_output_buffer_size, "4294967296");
 
-// Maximum number of openmp threads can be used by each doris threads.
-// This configuration controls the parallelism level for OpenMP operations within Doris,
-// helping to prevent resource contention and ensure stable performance when multiple
-// Doris threads are executing OpenMP-accelerated operations simultaneously.
-DEFINE_mInt32(omp_threads_limit, "8");
+// Maximum number of OpenMP threads allowed for concurrent vector index builds.
+// -1 means auto: use 80% of the available CPU cores.
+DEFINE_Int32(omp_threads_limit, "-1");
+DEFINE_Validator(omp_threads_limit, [](const int config) -> bool {
+    CpuInfo::init();
+    int core_cap = config::num_cores > 0 ? config::num_cores : CpuInfo::num_cores();
+    core_cap = std::max(1, core_cap);
+    int limit = config;
+    if (limit < 0) {
+        limit = std::max(1, core_cap * 4 / 5);
+    }
+    omp_threads_limit = std::max(1, std::min(limit, core_cap));
+    return true;
+});
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
 
@@ -1597,6 +1615,16 @@ DEFINE_mBool(enable_wal_tde, "false");
 DEFINE_mBool(print_stack_when_cache_miss, "false");
 
 DEFINE_mBool(read_cluster_cache_opt_verbose_log, "false");
+
+DEFINE_String(aws_credentials_provider_version, "v2");
+DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config) -> bool {
+    return config == "v1" || config == "v2";
+});
+
+DEFINE_mString(binary_plain_encoding_default_impl, "v1");
+DEFINE_Validator(binary_plain_encoding_default_impl, [](const std::string& config) -> bool {
+    return config == "v1" || config == "v2";
+});
 
 // clang-format off
 #ifdef BE_TEST
@@ -2051,6 +2079,8 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
             ((distribution(*generator) % 2) == 0) ? "5" : "10";
+    fuzzy_field_and_value["binary_plain_encoding_default_impl"] =
+            ((distribution(*generator) % 2) == 0) ? "v1" : "v2";
 
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =

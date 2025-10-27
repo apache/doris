@@ -20,7 +20,6 @@ package org.apache.doris.nereids.load;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.StringLiteral;
@@ -42,6 +41,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -404,7 +404,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             // in visitLogicalProject, we set project exprs nullability same as dest table columns
             // the conjunct's nullability is based on project exprs, so we need clear the nullable info
             // and let conjunct calculate the nullability by itself to get the correct nullable info
-            expr.clearNullableFromNereids();
+            clearNullableFromNereidsRecursively(expr);
             loadPlanInfo.postFilterExprList.add(expr);
         }
         filterPredicate = logicalFilter.getPredicate();
@@ -421,6 +421,19 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             }
         }
         return null;
+    }
+
+    /**
+     * Recursively clear nullable info from expression and all its children
+     */
+    private void clearNullableFromNereidsRecursively(Expr expr) {
+        if (expr == null) {
+            return;
+        }
+        expr.clearNullableFromNereids();
+        for (Expr child : expr.getChildren()) {
+            clearNullableFromNereidsRecursively(child);
+        }
     }
 
     @Override
@@ -518,11 +531,11 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
     // get all specified partition ids.
     // if no partition specified, return null
     private List<Long> getAllPartitionIds() throws DdlException, AnalysisException {
-        PartitionNames partitionNames = taskInfo.getPartitions();
-        if (partitionNames != null) {
-            List<Long> partitionIds = new ArrayList<>(partitionNames.getPartitionNames().size());
-            for (String partName : partitionNames.getPartitionNames()) {
-                Partition part = destTable.getPartition(partName, partitionNames.isTemp());
+        PartitionNamesInfo partitionNamesInfo = taskInfo.getPartitionNamesInfo();
+        if (partitionNamesInfo != null) {
+            List<Long> partitionIds = new ArrayList<>(partitionNamesInfo.getPartitionNames().size());
+            for (String partName : partitionNamesInfo.getPartitionNames()) {
+                Partition part = destTable.getPartition(partName, partitionNamesInfo.isTemp());
                 if (part == null) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_PARTITION, partName, destTable.getName());
                 }

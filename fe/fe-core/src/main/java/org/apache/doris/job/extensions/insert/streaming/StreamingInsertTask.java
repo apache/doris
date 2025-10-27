@@ -159,7 +159,7 @@ public class StreamingInsertTask {
                         taskCommand.getLabelName(),
                         errMsg);
                 if (retry == MAX_RETRY) {
-                    errMsg = "reached max retry times, failed with" + errMsg;
+                    errMsg = "reached max retry times, failed with " + errMsg;
                 }
             } catch (Exception e) {
                 log.warn("execute insert task error, label is {},offset is {}", taskCommand.getLabelName(),

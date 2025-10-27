@@ -165,17 +165,13 @@ public:
                                   int64_t end_version, std::vector<RowsetMetaCloudPB>* rowset_metas,
                                   bool snapshot = false);
 
-    // Get all tablet rowset metas for the given rowset version range [start_version, end_version].
+    // Get all tablet ids from all versioned tablet index key.
     //
-    // The `rowset_metas` will be filled with the RowsetMetaCloudPB for each version at versionstamp in the range,
+    // The `tablet_ids` will be filled with the tablet_ids in the range,
     // in ascending order.
-    TxnErrorCode get_all_tablet_rowset_metas(int64_t start_version, int64_t end_version,
-                                             std::vector<RowsetMetaCloudPB>* rowset_metas,
-                                             bool snapshot);
-    TxnErrorCode get_all_tablet_rowset_metas(Transaction* txn, int64_t start_version,
-                                             int64_t end_version,
-                                             std::vector<RowsetMetaCloudPB>* rowset_metas,
-                                             bool snapshot);
+    TxnErrorCode get_all_tablet_ids(std::vector<int64_t>* tablet_ids, bool snapshot);
+    TxnErrorCode get_all_tablet_ids(Transaction* txn, std::vector<int64_t>* tablet_ids,
+                                    bool snapshot);
 
     // Get the load rowset meta for the given tablet_id and version.
     TxnErrorCode get_load_rowset_meta(int64_t tablet_id, int64_t version,
@@ -294,11 +290,24 @@ public:
                                std::vector<std::pair<SnapshotPB, Versionstamp>>* snapshots);
     TxnErrorCode get_snapshots(std::vector<std::pair<SnapshotPB, Versionstamp>>* snapshots);
 
+    // Get a specific snapshot by versionstamp.
+    TxnErrorCode get_snapshot(Transaction* txn, Versionstamp snapshot_versionstamp,
+                              SnapshotPB* snapshot_pb, bool snapshot = false);
+
     // Whether the snapshot has references.
     TxnErrorCode has_snapshot_references(Versionstamp snapshot_version, bool* has_references,
                                          bool snapshot = false);
     TxnErrorCode has_snapshot_references(Transaction* txn, Versionstamp snapshot_version,
                                          bool* has_references, bool snapshot = false);
+
+    // Count how many instances reference this snapshot.
+    int count_snapshot_references(Transaction* txn, Versionstamp snapshot_version,
+                                  bool snapshot = false);
+
+    // Find derived instance IDs that were cloned from a specific snapshot.
+    // Returns only instance IDs (without reading full InstanceInfoPB).
+    TxnErrorCode find_derived_instance_ids(Transaction* txn, Versionstamp snapshot_version,
+                                           std::vector<std::string>* out, bool snapshot = false);
 
     // Whether the table has no indexes.
     TxnErrorCode has_no_indexes(int64_t db_id, int64_t table_id, bool* no_indexes,
