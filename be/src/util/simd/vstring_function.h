@@ -19,6 +19,8 @@
 
 #ifdef __AVX2__
 #include <immintrin.h>
+#elif defined(__ARM_FEATURE_SVE)
+#include <arm_sve.h>
 #endif
 #include <unistd.h>
 
@@ -93,6 +95,20 @@ inline bool validate_ascii_fast_avx(const char* src, size_t len) {
 
     return !error_mask;
 }
+#elif defined(__ARM_FEATURE_SVE)
+inline bool validate_ascii_fast_sve(const char* src, size_t len) {
+    for (size_t i = 0; i < len; i+= svcntb()) {
+        svbool_t pg = svwhilelt_b8(i, len);
+        svuint8_t v = svld1_u8(pg, reinterpret_cast<const uint8_t*>(src + i));
+        // Check sign bit set => byte < 0 as int8 => non-ASCII
+        svbool_t neg = svcmplt_n_s8(pg, svreinterpret_s8(v), 0);
+        if (svptest_any(pg, neg)) {
+            return false;
+        }
+    }
+
+    return true;
+}
 #endif
 
 namespace simd {
@@ -127,6 +143,39 @@ public:
                 }
             }
             p += AVX2_BYTES;
+#elif defined(__ARM_FEATURE_SVE)
+            const auto ch8 = static_cast<uint8_t>(ch);
+            const size_t vl = svcntb();
+            while (p > begin) {
+                auto n = static_cast<size_t>(p - begin);
+                size_t blk = n < vl ? n : vl;
+                const unsigned char* block = p - blk;
+
+                svbool_t pg = svwhilelt_b8((size_t)0, blk);
+                svuint8_t v = svld1_u8(pg, block);
+                svbool_t neq = svcmpne_n_u8(pg, v, ch8);
+                if (svptest_any(pg, neq)) {
+                    break;
+                }
+                p = block;
+            }
+            // Solution 2
+            // const auto size = static_cast<size_t>(end - begin);
+            // const auto ch8 = static_cast<uint8_t>(ch);
+            // const size_t vl = svcntb();
+            // if (size >= vl) {
+            //     const auto* const sve_begin = end - (size / vl) * vl;
+            //     svbool_t pg = svptrue_b8();
+            //     for (p = end - vl; p >= sve_begin; p -= vl) {
+            //         svuint8_t v = svld1_u8(pg, p);
+            //         // if any byte != ch in this block, stop
+            //         svbool_t neq = svcmpne_n_u8(pg, v, ch8);
+            //         if (svptest_any(pg, neq)) {
+            //             break;
+            //         }
+            //     }
+            //     p += vl;
+            // }
 #endif
             for (; (p - 1) >= begin && *(p - 1) == ch; p--) {
             }
@@ -165,6 +214,20 @@ public:
                         _mm256_cmpeq_epi8(_mm256_loadu_si256((__m256i*)p), spaces));
                 if ((~masks)) {
                     break;
+                }
+            }
+#elif defined(__ARM_FEATURE_SVE)
+            const auto size = static_cast<size_t>(end - begin);
+            const size_t VL = svcntb();
+            if (size >= VL) {
+                const auto* const sve_end = begin + (size / VL) * VL;
+                svbool_t pg = svptrue_b8();
+                for (; p < sve_end; p += VL) {
+                    svuint8_t v = svld1_u8(pg, p);
+                    svbool_t eq = svcmpne_n_u8(pg, v, static_cast<uint8_t>(ch));
+                    if (svptest_any(pg, eq)) {
+                        break;
+                    }
                 }
             }
 #endif
@@ -207,6 +270,8 @@ public:
     static bool is_ascii(const StringRef& str) {
 #ifdef __AVX2__
         return validate_ascii_fast_avx(str.data, str.size);
+#elif defined(__ARM_FEATURE_SVE)
+        return validate_ascii_fast_sve(str.data, str.size);
 #endif
         return validate_ascii_fast(str.data, str.size);
     }

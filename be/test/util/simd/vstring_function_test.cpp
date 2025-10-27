@@ -337,9 +337,9 @@ TEST(VStringFunctionsTest, HexEncode) {
     std::vector<unsigned char> with_zero{0x01, 0x00, 0x02};
     EXPECT_EQ("010002", encode_ptr(with_zero.data(), with_zero.size()));
 
-    // length not multiple of SIMD step to cover tail path
-    std::vector<unsigned char> tail{0x12, 0x34, 0x56, 0x78, 0x9A};
-    EXPECT_EQ("123456789A", encode_ptr(tail.data(), tail.size()));
+    // small string to skip SIMD path
+    std::vector<unsigned char> small{0x12, 0x34, 0x56, 0x78, 0x9A};
+    EXPECT_EQ("123456789A", encode_ptr(small.data(), small.size()));
 
     // large string to cover SIMD path
     std::vector<unsigned char> large{0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0,
