@@ -622,6 +622,8 @@ class FE(Node):
 
     def docker_env(self):
         envs = super().docker_env()
+        if self.cluster.is_rollback:
+            envs["ROLLBACK"] = 1
         # Create instance when using external MS cluster, and pass cloud store config
         if self.cluster.external_ms_cluster:
             envs["AUTO_CREATE_INSTANCE"] = 1
@@ -652,6 +654,8 @@ class FE(Node):
         }
 
     def cloud_unique_id(self):
+        if self.cluster.is_rollback:
+            return "1:{}:sql_server_{}".format(self.cluster.instance_id, self.id)
         return "{}_sql_server_{}".format(self.cluster.name, self.id)
 
     def start_script(self):
@@ -749,6 +753,8 @@ class BE(Node):
 
     def docker_env(self):
         envs = super().docker_env()
+        if self.cluster.is_rollback:
+            envs["ROLLBACK"] = 1
         envs["MY_HEARTBEAT_PORT"] = self.meta["ports"][
             "heartbeat_service_port"]
         if self.cluster.is_cloud:
@@ -768,6 +774,8 @@ class BE(Node):
         }
 
     def cloud_unique_id(self):
+        if self.cluster.is_rollback:
+            return "1:{}:compute_node_{}".format(self.cluster.instance_id, self.id)
         return "{}_compute_node_{}".format(self.cluster.name, self.id)
 
     def docker_home_dir(self):
@@ -906,6 +914,7 @@ class Cluster(object):
             self.instance_id = f"instance_{name}" if self.external_ms_cluster else "default_instance_id"
         # cluster_snapshot is not persisted to meta, only used during cluster creation
         self.cluster_snapshot = cluster_snapshot
+        self.is_rollback = False
         self.groups = {
             node_type: Group(node_type)
             for node_type in Node.TYPE_ALL
