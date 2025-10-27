@@ -381,7 +381,7 @@ Status DataTypeStructSerDe::deserialize_column_from_jsonb(IColumn& column,
 
     for (size_t i = 0; i < elem_names.size(); ++i) {
         const auto& field_name = elem_names[i];
-        JsonbValue* value = jsonb_object->find(field_name.data(), (int)field_name.size());
+        const JsonbValue* value = jsonb_object->find(field_name.data(), (int)field_name.size());
         RETURN_IF_ERROR(elem_serdes_ptrs[i]->deserialize_column_from_jsonb(
                 struct_column.get_column(i), value, castParms));
     }
