@@ -102,12 +102,13 @@ public class MTMVPlanUtil {
             RuleType.ADD_DEFAULT_LIMIT,
             RuleType.ELIMINATE_GROUP_BY,
             RuleType.ELIMINATE_JOIN_BY_FK,
-            RuleType.ELIMINATE_JOIN_BY_UK
+            RuleType.ELIMINATE_JOIN_BY_UK,
+            RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM
     );
     // The rules should be disabled when run MTMV task
-    public static final List<RuleType> DISABLE_RULES_WHEN_RUN_MTMV_TASK = ImmutableList.of(
-            RuleType.ADD_DEFAULT_LIMIT
-    );
+    public static final List<RuleType> DISABLE_RULES_WHEN_RUN_MTMV_TASK = ImmutableList.<RuleType>builder()
+            .addAll(DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE)
+            .add(RuleType.ADD_DEFAULT_LIMIT).build();
 
     public static ConnectContext createMTMVContext(MTMV mtmv, List<RuleType> disableRules) {
         ConnectContext ctx = createBasicMvContext(null, disableRules);
