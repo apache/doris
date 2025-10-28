@@ -83,7 +83,7 @@ public:
 
     // get/set consumer
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> get_consume_filters(int filter_id);
-    Status register_consumer_filter(const QueryContext* query_ctx, const TRuntimeFilterDesc& desc,
+    Status register_consumer_filter(const RuntimeState* state, const TRuntimeFilterDesc& desc,
                                     int node_id,
                                     std::shared_ptr<RuntimeFilterConsumer>* consumer_filter);
 
