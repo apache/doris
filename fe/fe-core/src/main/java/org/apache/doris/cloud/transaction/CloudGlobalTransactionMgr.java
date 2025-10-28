@@ -230,6 +230,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         return tabletMap;
     }
 
+    public void clearAutoPartitionInfo(Long dbId, Long txnId) {
+        Map<Long, Map<Long, Set<Long>>> txnMap = autoPartitionInfo.get(dbId);
+        if (txnMap != null) {
+            txnMap.remove(txnId);
+            if (txnMap.isEmpty()) {
+                autoPartitionInfo.remove(dbId);
+            }
+        }
+    }
+
     public CloudGlobalTransactionMgr() {
         this.callbackFactory = new TxnStateCallbackFactory();
     }
@@ -1511,7 +1521,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         transactionId, costTimeMs, detailMsg,
                         tableList.stream().map(Table::getId).collect(Collectors.toList()));
             }
-            afterCommitTransaction(tableList, transactionId);
+            afterCommitTransaction(tableList, db.getId(), transactionId);
         }
         return true;
     }
@@ -1635,13 +1645,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    private void afterCommitTransaction(List<Table> tableList, Long transactionId) {
+    private void afterCommitTransaction(List<Table> tableList, Long dbId, Long transactionId) {
         if (commitCostTimeStatisticMap.containsKey(transactionId)) {
             commitCostTimeStatisticMap.remove(transactionId);
         }
         List<Table> tablesToUnlock = getTablesNeedCommitLock(tableList);
         decreaseWaitingLockCount(tablesToUnlock);
         MetaLockUtils.commitUnlockTables(tablesToUnlock);
+        clearAutoPartitionInfo(dbId, transactionId);
     }
 
     @Override
@@ -1683,7 +1694,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         transactionId, costTimeMs, detailMsg,
                         tableList.stream().map(Table::getId).collect(Collectors.toList()));
             }
-            afterCommitTransaction(tableList, transactionId);
+            afterCommitTransaction(tableList, db.getId(), transactionId);
         }
         return true;
     }

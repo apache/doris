@@ -108,6 +108,16 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
         return tabletMap;
     }
 
+    public void clearAutoPartitionInfo(Long dbId, Long txnId) {
+        Map<Long, Map<Long, Set<Long>>> txnMap = autoPartitionInfo.get(dbId);
+        if (txnMap != null) {
+            txnMap.remove(txnId);
+            if (txnMap.isEmpty()) {
+                autoPartitionInfo.remove(dbId);
+            }
+        }
+    }
+
     public GlobalTransactionMgr(Env env) {
         this.env = env;
         this.dbIdToDatabaseTransactionMgrs = Maps.newConcurrentMap();
@@ -416,6 +426,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             dbTransactionMgr.abortTransaction(txnId, reason, txnCommitAttachment);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
+            clearAutoPartitionInfo(dbId, txnId);
         }
     }
 
@@ -440,6 +451,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             dbTransactionMgr.abortTransaction2PC(transactionId);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
+            clearAutoPartitionInfo(dbId, transactionId);
         }
     }
 
@@ -550,6 +562,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             Map<Long, Set<Long>> backendPartitions) throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         dbTransactionMgr.finishTransaction(transactionId, partitionVisibleVersions, backendPartitions);
+        clearAutoPartitionInfo(dbId, transactionId);
     }
 
     /**
