@@ -167,6 +167,11 @@ Status FileBlock::read(Slice buffer, size_t read_offset) {
 
 Status FileBlock::change_cache_type(FileCacheType new_type) {
     SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
+    return change_cache_type_lock(new_type, cache_lock);
+}
+
+Status FileBlock::change_cache_type_lock(FileCacheType new_type,
+                                         std::lock_guard<std::mutex>& cache_lock) {
     std::lock_guard block_lock(_mutex);
 
     if (new_type == _key.meta.type) {
