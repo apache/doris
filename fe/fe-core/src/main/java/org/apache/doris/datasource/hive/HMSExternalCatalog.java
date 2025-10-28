@@ -31,7 +31,7 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
-import org.apache.doris.datasource.property.metastore.AbstractHMSProperties;
+import org.apache.doris.datasource.property.metastore.AbstractHiveProperties;
 import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.FileSystemProviderImpl;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
@@ -72,7 +72,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     //for "type" = "hms" , but is iceberg table.
     private IcebergMetadataOps icebergMetadataOps;
 
-    private volatile AbstractHMSProperties hmsProperties;
+    private volatile AbstractHiveProperties hmsProperties;
 
     /**
      * Lazily initializes HMSProperties from catalog properties.
@@ -85,7 +85,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
      * We will consider a unified solution for alter support later,
      * as it's currently not feasible to handle it in a common/shared location.
      */
-    public AbstractHMSProperties getHmsProperties() {
+    public AbstractHiveProperties getHmsProperties() {
         makeSureInitialized();
         return hmsProperties;
     }
@@ -122,7 +122,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             throw new DdlException(
                     "The parameter " + PARTITION_CACHE_TTL_SECOND + " is wrong, value is " + partitionCacheTtlSecond);
         }
-        catalogProperty.checkMetaStoreAndStorageProperties(AbstractHMSProperties.class);
+        catalogProperty.checkMetaStoreAndStorageProperties(AbstractHiveProperties.class);
     }
 
     @Override
@@ -134,7 +134,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
-        this.hmsProperties = (AbstractHMSProperties) catalogProperty.getMetastoreProperties();
+        this.hmsProperties = (AbstractHiveProperties) catalogProperty.getMetastoreProperties();
         initPreExecutionAuthenticator();
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hmsProperties.getHiveConf(), this);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
