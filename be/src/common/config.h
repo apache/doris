@@ -1122,6 +1122,7 @@ DECLARE_Bool(enable_graceful_exit_check);
 DECLARE_Bool(enable_debug_points);
 
 DECLARE_Int32(pipeline_executor_size);
+DECLARE_Int32(blocking_pipeline_executor_size);
 
 // block file cache
 DECLARE_Bool(enable_file_cache);
@@ -1665,6 +1666,8 @@ DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 DECLARE_mString(aws_credentials_provider_version);
 
 DECLARE_mString(binary_plain_encoding_default_impl);
+
+DECLARE_mBool(integer_type_default_use_plain_encoding);
 
 #ifdef BE_TEST
 // test s3

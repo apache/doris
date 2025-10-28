@@ -1241,9 +1241,10 @@ TEST_F(ParquetExprTest, test_expr_push_down_and) {
     p_reader->_push_down_simple_predicates.clear();
     p_reader->_push_down_simple_predicates.emplace(
             2, std::vector<std::unique_ptr<ColumnPredicate>> {});
-    p_reader->_push_down_predicates.emplace(2, AndBlockColumnPredicate::create_unique());
+    p_reader->_push_down_predicates.push_back(AndBlockColumnPredicate::create_unique());
     ASSERT_TRUE(p_reader->convert_predicates({and_expr}, p_reader->_push_down_simple_predicates[2],
-                                             p_reader->_push_down_predicates[2], p_reader->_arena)
+                                             p_reader->_push_down_predicates.back(),
+                                             p_reader->_arena)
                         .ok());
 
     bool filter_group = false;
