@@ -33,7 +33,6 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertTask;
 import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
-import org.apache.doris.job.offset.Offset;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -63,7 +62,6 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -112,9 +110,6 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
 
             if (streamingInsertTask != null) {
                 loadJobSourceType = LoadJobSourceType.STREAMING_JOB;
-                Offset runningOffset = streamingInsertTask.getRunningOffset();
-                Preconditions.checkNotNull(runningOffset, "running offset is null, insert job id: " + jobId);
-                insertLoadJob.setLoadFileInfo(runningOffset.getFileNumber(), runningOffset.getFileSize());
             }
             this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                     database.getId(), ImmutableList.of(table.getId()), labelName,

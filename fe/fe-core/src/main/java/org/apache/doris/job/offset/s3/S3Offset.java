@@ -32,8 +32,6 @@ public class S3Offset implements Offset {
     String endFile;
     // s3://bucket/path/{1.csv,2.csv}
     String fileLists;
-    int fileNumber;
-    long fileSize;
 
     @Override
     public String toSerializedJson() {

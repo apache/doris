@@ -157,8 +157,8 @@ public class StreamingInsertTask {
             log.info("task has been canceled, task id is {}", getTaskId());
             return;
         }
-        log.info("start to run streaming insert task, label {}, offset is {}, fileNum is {}",
-                labelName, runningOffset.toString(), runningOffset.getFileNumber());
+        log.info("start to run streaming insert task, label {}, offset is {}",
+                labelName, runningOffset.toString());
         String errMsg = null;
         try {
             taskCommand.run(ctx, stmtExecutor);

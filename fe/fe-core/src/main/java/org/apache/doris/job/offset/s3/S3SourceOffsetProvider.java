@@ -43,6 +43,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Log4j2
 public class S3SourceOffsetProvider implements SourceOffsetProvider {
@@ -78,22 +79,10 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                 int lastSlash = prefix.lastIndexOf('/');
                 String basePrefix = (lastSlash >= 0) ? prefix.substring(0, lastSlash + 1) : "";
                 String filePathBase = bucketBase + basePrefix;
-
-                List<String> fileNames = new ArrayList<>();
-                int fileNum = 0;
-                long fileSize = 0;
-                for (RemoteFile file : rfiles) {
-                    // Single file case
-                    if (!file.getName().equals(filePathBase)) {
-                        fileNames.add(file.getName().replace(filePathBase, ""));
-                        fileSize += file.getSize();
-                        fileNum++;
-                    }
-                }
-                offset.setFileNumber(fileNum);
-                offset.setFileSize(fileSize);
-
-                String joined = String.join(",", fileNames);
+                String joined = rfiles.stream()
+                        .filter(name -> !name.equals(filePathBase)) // Single file case
+                        .map(path -> path.getName().replace(filePathBase, ""))
+                        .collect(Collectors.joining(","));
                 if (joined.isEmpty()) {
                     // base is a single file
                     offset.setFileLists(filePathBase);

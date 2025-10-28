@@ -248,6 +248,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         this.loadStatistic.totalFileSizeB = fileSize;
     }
 
+    public void addLoadFileInfo(int fileNum, long fileSize) {
+        this.loadStatistic.fileNum += fileNum;
+        this.loadStatistic.totalFileSizeB += fileSize;
+    }
+
     /**
      * Show table names for frontend
      * If table name could not be found by id, the table id will be used instead.

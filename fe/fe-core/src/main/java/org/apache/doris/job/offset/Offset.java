@@ -27,7 +27,4 @@ public interface Offset {
 
     boolean isValidOffset();
 
-    int getFileNumber();
-
-    long getFileSize();
 }
