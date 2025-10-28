@@ -227,7 +227,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public Map<Long, Set<Long>> getAutoPartitionInfo(Long dbId, Long txnId) {
         Map<Long, Map<Long, Set<Long>>> txnMap = autoPartitionInfo.get(dbId);
         Map<Long, Set<Long>> tabletMap = txnMap.get(txnId);
-        return tabletMap; 
+        return tabletMap;
     }
 
     public CloudGlobalTransactionMgr() {

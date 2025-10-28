@@ -273,7 +273,6 @@ import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TUpdatePlanStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
-import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
@@ -3688,14 +3687,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         for (AddPartitionClause addPartitionClause : addPartitionClauseMap.values()) {
             try {
                 // here maybe check and limit created partitions num
-                PartitionPersistInfo info = Env.getCurrentEnv().addPartition(db, olapTable.getName(), addPartitionClause, false, 0, true);
+                PartitionPersistInfo info = Env.getCurrentEnv().addPartition(db, olapTable.getName(),
+                        addPartitionClause, false, 0, true);
                 if (info == null) {
                     // this means this partition already created, for this partition
                 } else {
                     // Write the mapping information between the newly created tablets and backend IDs
                     // into the autoPartitionInfo of the transaction.
                     Partition partition = info.getPartition();
-                    for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
+                    for (MaterializedIndex index : partition.getMaterializedIndices(
+                            MaterializedIndex.IndexExtState.ALL)) {
                         for (Tablet tablet : index.getTablets()) {
                             Set<Long> backendIds = new HashSet<Long>();
                             for (Replica replica : tablet.getReplicas()) {
@@ -3774,7 +3775,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 for (Tablet tablet : index.getTablets()) {
                     // (Refrain) Can we make sure the BEs are alive here ?
                     // Here, the BE (Backend) nodes we get fall into two cases:
-                    // 1. If the tablet was created in addPartition above, the status of its BE replica has already been checked.
+                    // 1. If the tablet was created in addPartition above, the status of its BE replica
+                    //    has already been checked.
                     // 2. If another createPartition operation ran concurrently and created the tablet,
                     //    its BE replica status was also checked at that time.
                     Set<Long> nodeSet = tabletMap.get(tablet.getId());

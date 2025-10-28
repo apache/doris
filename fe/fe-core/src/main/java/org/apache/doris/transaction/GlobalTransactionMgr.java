@@ -60,7 +60,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -106,7 +105,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     public Map<Long, Set<Long>> getAutoPartitionInfo(Long dbId, Long txnId) {
         Map<Long, Map<Long, Set<Long>>> txnMap = autoPartitionInfo.get(dbId);
         Map<Long, Set<Long>> tabletMap = txnMap.get(txnId);
-        return tabletMap; 
+        return tabletMap;
     }
 
     public GlobalTransactionMgr(Env env) {
