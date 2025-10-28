@@ -8237,6 +8237,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_bytes_check) {
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_async) {
     config::enable_file_cache_fill_async = true;
+    std::string cache_base_path = caches_dir / "cached_remote_file_reader_async" / "";
     config::file_cache_fill_buffer_max_size = 10485760;
     if (doris::io::CachedRemoteFileReader::_file_cache_fill_thread_pool == nullptr) {
         static_cast<void>(
@@ -8268,7 +8269,9 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_async) {
     ASSERT_TRUE(global_local_filesystem()->open_file(tmp_file, &local_reader));
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
-    opts.is_doris_table = true;
+    opts.cache_base_path = cache_base_path;
+    opts.is_doris_table = false;
+    opts.mtime = UnixSeconds() - 1000;
     CachedRemoteFileReader reader(local_reader, opts);
     {
         std::string buffer;
@@ -8286,7 +8289,8 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_async) {
     EXPECT_TRUE(reader.close().ok());
     EXPECT_TRUE(reader.closed());
     {
-        auto key = io::BlockFileCache::hash("tmp_file");
+        auto key = io::BlockFileCache::hash(
+                fmt::format("{}:{}", local_reader->path().native(), opts.mtime));
         auto cache = FileCacheFactory::instance()->get_by_path(key);
         auto holder = cache->get_or_set(key, 0, 1_mb, context);
         auto blocks = fromHolder(holder);
@@ -8296,7 +8300,8 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_async) {
     }
     std::this_thread::sleep_for(std::chrono::seconds(3));
     {
-        auto key = io::BlockFileCache::hash("tmp_file");
+        auto key = io::BlockFileCache::hash(
+                fmt::format("{}:{}", local_reader->path().native(), opts.mtime));
         auto cache = FileCacheFactory::instance()->get_by_path(key);
         auto holder = cache->get_or_set(key, 0, 1_mb, context);
         auto blocks = fromHolder(holder);
@@ -8317,6 +8322,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_async) {
 
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_async_limit) {
     config::enable_file_cache_fill_async = true;
+    std::string cache_base_path = caches_dir / "cached_remote_file_reader_async" / "";
     config::file_cache_fill_buffer_max_size = 1048576;
     if (doris::io::CachedRemoteFileReader::_file_cache_fill_thread_pool == nullptr) {
         static_cast<void>(
@@ -8348,7 +8354,9 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_async_limit) {
     ASSERT_TRUE(global_local_filesystem()->open_file(tmp_file, &local_reader));
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
-    opts.is_doris_table = true;
+    opts.cache_base_path = cache_base_path;
+    opts.is_doris_table = false;
+    opts.mtime = UnixSeconds() - 1000;
     CachedRemoteFileReader reader(local_reader, opts);
     {
         std::string buffer;
@@ -8364,7 +8372,9 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_async_limit) {
         reporter.update(&stats);
     }
     {
-        auto key = io::BlockFileCache::hash("tmp_file");
+        auto key = io::BlockFileCache::hash(
+                fmt::format("{}:{}", local_reader->path().native(), opts.mtime));
+
         auto cache = FileCacheFactory::instance()->get_by_path(key);
         auto holder = cache->get_or_set(key, 0, 1_mb, context);
         auto blocks = fromHolder(holder);
@@ -8389,7 +8399,8 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_async_limit) {
     EXPECT_TRUE(reader.close().ok());
     EXPECT_TRUE(reader.closed());
     {
-        auto key = io::BlockFileCache::hash("tmp_file");
+        auto key = io::BlockFileCache::hash(
+                fmt::format("{}:{}", local_reader->path().native(), opts.mtime));
         auto cache = FileCacheFactory::instance()->get_by_path(key);
         auto holder = cache->get_or_set(key, 2_mb, 1_mb, context);
         auto blocks = fromHolder(holder);
@@ -8399,7 +8410,8 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_async_limit) {
     }
     std::this_thread::sleep_for(std::chrono::seconds(3));
     {
-        auto key = io::BlockFileCache::hash("tmp_file");
+        auto key = io::BlockFileCache::hash(
+                fmt::format("{}:{}", local_reader->path().native(), opts.mtime));
         auto cache = FileCacheFactory::instance()->get_by_path(key);
         auto holder = cache->get_or_set(key, 2_mb, 1_mb, context);
         auto blocks = fromHolder(holder);
