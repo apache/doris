@@ -48,8 +48,7 @@ suite("test_connectivity", "p2,external,hive,iceberg,external_docker,external_do
     def hive_meta_fail_catalog = "test_hive_meta_fail"
     sql """DROP CATALOG IF EXISTS ${hive_meta_fail_catalog}"""
 
-    def hive_meta_fail_caught = false
-    try {
+    test {
         sql """
             CREATE CATALOG ${hive_meta_fail_catalog} PROPERTIES (
                 'type' = 'hms',
@@ -58,22 +57,15 @@ suite("test_connectivity", "p2,external,hive,iceberg,external_docker,external_do
                 'test_connection' = 'true'
             );
         """
-    } catch (Exception e) {
-        hive_meta_fail_caught = true
-        logger.info("Hive HMS connectivity test failed as expected: " + e.getMessage())
-        assert e.getMessage().contains("connectivity test failed"),
-            "Expected 'connectivity test failed' in error message, but got: " + e.getMessage()
-        assert e.getMessage().contains("HMS"),
-            "Expected 'HMS' in error message, but got: " + e.getMessage()
+        exception "connectivity test failed"
+        exception "HMS"
     }
-    assert hive_meta_fail_caught, "Hive HMS connectivity test should have failed but didn't"
 
     // Test 1.2: S3 storage connectivity failure (invalid S3 credentials)
     def hive_storage_fail_catalog = "test_hive_storage_fail"
     sql """DROP CATALOG IF EXISTS ${hive_storage_fail_catalog}"""
 
-    def hive_storage_fail_caught = false
-    try {
+    test {
         sql """
             CREATE CATALOG ${hive_storage_fail_catalog} PROPERTIES (
                 'type' = 'hms',
@@ -85,15 +77,9 @@ suite("test_connectivity", "p2,external,hive,iceberg,external_docker,external_do
                 'test_connection' = 'true'
             );
         """
-    } catch (Exception e) {
-        hive_storage_fail_caught = true
-        logger.info("Hive S3 storage connectivity test failed as expected: " + e.getMessage())
-        assert e.getMessage().contains("connectivity test failed"),
-            "Expected 'connectivity test failed' in error message, but got: " + e.getMessage()
-        assert e.getMessage().contains("S3"),
-            "Expected 'S3' in error message, but got: " + e.getMessage()
+        exception "connectivity test failed"
+        exception "S3"
     }
-    assert hive_storage_fail_caught, "Hive S3 storage connectivity test should have failed but didn't"
 
     // Test 1.3: Successful Hive HMS + S3 connectivity
     def hive_success_catalog = "test_hive_success"
@@ -117,8 +103,7 @@ suite("test_connectivity", "p2,external,hive,iceberg,external_docker,external_do
     def iceberg_hms_meta_fail_catalog = "test_iceberg_hms_meta_fail"
     sql """DROP CATALOG IF EXISTS ${iceberg_hms_meta_fail_catalog}"""
 
-    def iceberg_hms_meta_fail_caught = false
-    try {
+    test {
         sql """
             CREATE CATALOG ${iceberg_hms_meta_fail_catalog} PROPERTIES (
                 'type' = 'iceberg',
@@ -129,22 +114,15 @@ suite("test_connectivity", "p2,external,hive,iceberg,external_docker,external_do
                 'test_connection' = 'true'
             );
         """
-    } catch (Exception e) {
-        iceberg_hms_meta_fail_caught = true
-        logger.info("Iceberg HMS connectivity test failed as expected: " + e.getMessage())
-        assert e.getMessage().contains("connectivity test failed"),
-            "Expected 'connectivity test failed' in error message, but got: " + e.getMessage()
-        assert e.getMessage().contains("HMS") || e.getMessage().contains("Iceberg HMS"),
-            "Expected 'HMS' or 'Iceberg HMS' in error message, but got: " + e.getMessage()
+        exception "connectivity test failed"
+        exception "HMS"
     }
-    assert iceberg_hms_meta_fail_caught, "Iceberg HMS connectivity test should have failed but didn't"
 
     // Test 2.2: S3 storage connectivity failure (invalid S3 credentials)
     def iceberg_hms_storage_fail_catalog = "test_iceberg_hms_storage_fail"
     sql """DROP CATALOG IF EXISTS ${iceberg_hms_storage_fail_catalog}"""
 
-    def iceberg_hms_storage_fail_caught = false
-    try {
+    test {
         sql """
             CREATE CATALOG ${iceberg_hms_storage_fail_catalog} PROPERTIES (
                 'type' = 'iceberg',
@@ -158,15 +136,9 @@ suite("test_connectivity", "p2,external,hive,iceberg,external_docker,external_do
                 'test_connection' = 'true'
             );
         """
-    } catch (Exception e) {
-        iceberg_hms_storage_fail_caught = true
-        logger.info("Iceberg HMS S3 storage connectivity test failed as expected: " + e.getMessage())
-        assert e.getMessage().contains("connectivity test failed"),
-            "Expected 'connectivity test failed' in error message, but got: " + e.getMessage()
-        assert e.getMessage().contains("S3"),
-            "Expected 'S3' in error message, but got: " + e.getMessage()
+        exception "connectivity test failed"
+        exception "S3"
     }
-    assert iceberg_hms_storage_fail_caught, "Iceberg HMS S3 storage connectivity test should have failed but didn't"
 
     // Test 2.3: Successful Iceberg HMS + S3 connectivity
     def iceberg_hms_success_catalog = "test_iceberg_hms_success"
@@ -192,8 +164,7 @@ suite("test_connectivity", "p2,external,hive,iceberg,external_docker,external_do
     def iceberg_rest_meta_fail_catalog = "test_iceberg_rest_meta_fail"
     sql """DROP CATALOG IF EXISTS ${iceberg_rest_meta_fail_catalog}"""
 
-    def iceberg_rest_meta_fail_caught = false
-    try {
+    test {
         sql """
             CREATE CATALOG ${iceberg_rest_meta_fail_catalog} PROPERTIES (
                 'type' = 'iceberg',
@@ -204,22 +175,15 @@ suite("test_connectivity", "p2,external,hive,iceberg,external_docker,external_do
                 'test_connection' = 'true'
             );
         """
-    } catch (Exception e) {
-        iceberg_rest_meta_fail_caught = true
-        logger.info("Iceberg REST connectivity test failed as expected: " + e.getMessage())
-        assert e.getMessage().contains("connectivity test failed"),
-            "Expected 'connectivity test failed' in error message, but got: " + e.getMessage()
-        assert e.getMessage().contains("Iceberg REST"),
-            "Expected 'Iceberg REST' in error message, but got: " + e.getMessage()
+        exception "connectivity test failed"
+        exception "Iceberg REST"
     }
-    assert iceberg_rest_meta_fail_caught, "Iceberg REST connectivity test should have failed but didn't"
 
     // Test 3.2: S3 storage connectivity failure (invalid S3 credentials)
     def iceberg_rest_storage_fail_catalog = "test_iceberg_rest_storage_fail"
     sql """DROP CATALOG IF EXISTS ${iceberg_rest_storage_fail_catalog}"""
 
-    def iceberg_rest_storage_fail_caught = false
-    try {
+    test {
         sql """
             CREATE CATALOG ${iceberg_rest_storage_fail_catalog} PROPERTIES (
                 'type' = 'iceberg',
@@ -233,15 +197,9 @@ suite("test_connectivity", "p2,external,hive,iceberg,external_docker,external_do
                 'test_connection' = 'true'
             );
         """
-    } catch (Exception e) {
-        iceberg_rest_storage_fail_caught = true
-        logger.info("Iceberg REST S3 storage connectivity test failed as expected: " + e.getMessage())
-        assert e.getMessage().contains("connectivity test failed"),
-            "Expected 'connectivity test failed' in error message, but got: " + e.getMessage()
-        assert e.getMessage().contains("S3"),
-            "Expected 'S3' in error message, but got: " + e.getMessage()
+        exception "connectivity test failed"
+        exception "S3"
     }
-    assert iceberg_rest_storage_fail_caught, "Iceberg REST S3 storage connectivity test should have failed but didn't"
 
     // Test 3.3: Successful Iceberg REST + S3 connectivity
     def iceberg_rest_success_catalog = "test_iceberg_rest_success"

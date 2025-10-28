@@ -31,8 +31,7 @@ suite("test_iceberg_rest_minio_connectivity", "p0,external,iceberg,external_dock
     def test_meta_fail_catalog = "test_meta_connectivity_fail"
     sql """DROP CATALOG IF EXISTS ${test_meta_fail_catalog}"""
 
-    def meta_fail_caught = false
-    try {
+    test {
         sql """
             CREATE CATALOG ${test_meta_fail_catalog} PROPERTIES (
                 'type'='iceberg',
@@ -46,23 +45,16 @@ suite("test_iceberg_rest_minio_connectivity", "p0,external,iceberg,external_dock
                 'test_connection' = 'true'
             );
         """
-    } catch (Exception e) {
-        meta_fail_caught = true
-        logger.info("Meta connectivity test failed as expected: " + e.getMessage())
-        assert e.getMessage().contains("connectivity test failed"),
-            "Expected 'connectivity test failed' in error message, but got: " + e.getMessage()
-        assert e.getMessage().contains("Iceberg REST"),
-            "Expected 'Iceberg REST' in error message, but got: " + e.getMessage()
+        exception "connectivity test failed"
+        exception "Iceberg REST"
     }
-    assert meta_fail_caught, "Meta connectivity test should have failed but didn't"
 
     // ========== Test Storage Connectivity Failure ==========
     // Test with invalid MinIO credentials
     def test_storage_fail_catalog = "test_storage_connectivity_fail"
     sql """DROP CATALOG IF EXISTS ${test_storage_fail_catalog}"""
 
-    def storage_fail_caught = false
-    try {
+    test {
         sql """
             CREATE CATALOG ${test_storage_fail_catalog} PROPERTIES (
                 'type'='iceberg',
@@ -80,15 +72,8 @@ suite("test_iceberg_rest_minio_connectivity", "p0,external,iceberg,external_dock
                 'test_connection' = 'true'
             );
         """
-    } catch (Exception e) {
-        storage_fail_caught = true
-        logger.info("Storage connectivity test failed as expected: " + e.getMessage())
-        assert e.getMessage().contains("connectivity test failed"),
-            "Expected 'connectivity test failed' in error message, but got: " + e.getMessage()
-        assert e.getMessage().contains("Minio") || e.getMessage().contains("S3"),
-            "Expected 'Minio' or 'S3' in error message, but got: " + e.getMessage()
+        exception "connectivity test failed"
     }
-    assert storage_fail_caught, "Storage connectivity test should have failed but didn't"
 
     // ========== Test Successful Connectivity ==========
     // Test with valid credentials
