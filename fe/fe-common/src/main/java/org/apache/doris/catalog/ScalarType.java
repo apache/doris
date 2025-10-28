@@ -616,7 +616,7 @@ public class ScalarType extends Type {
         } else if (type == PrimitiveType.TIMEV2) {
             return "timev2(" + scale + ")";
         } else if (type == PrimitiveType.TIMESTAMPTZ) {
-            return "timestamptz";
+            return "timestamptz(" + scale + ")";
         } else if (type == PrimitiveType.VARCHAR) {
             if (isWildcardVarchar()) {
                 return "varchar(" + MAX_VARCHAR_LENGTH + ")";
@@ -685,7 +685,7 @@ public class ScalarType extends Type {
                 stringBuilder.append("time").append("(").append(scale).append(")");
                 break;
             case TIMESTAMPTZ:
-                stringBuilder.append("timestamptz");
+                stringBuilder.append("timestamptz").append("(").append(scale).append(")");
                 break;
             case BOOLEAN:
                 return "boolean";

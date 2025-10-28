@@ -458,6 +458,12 @@ public abstract class Type {
                 typeStr.append("(").append(((ScalarType) this).getScalarScale()).append(")");
             }
             return typeStr.toString();
+        } else if (isTimeStampTz()) {
+            StringBuilder typeStr = new StringBuilder("timestamptz");
+            if (((ScalarType) this).getScalarScale() > 0) {
+                typeStr.append("(").append(((ScalarType) this).getScalarScale()).append(")");
+            }
+            return typeStr.toString();
         } else if (isDate() || isDateV2()) {
             return "date";
         } else if (isDecimalV2() || isDecimalV3()) {
